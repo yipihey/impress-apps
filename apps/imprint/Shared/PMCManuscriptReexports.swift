@@ -44,3 +44,16 @@ typealias LaTeXPostCompileResult = PublicationManagerCore.LaTeXPostCompileResult
 
 typealias CompiledArtifactStoring = PublicationManagerCore.CompiledArtifactStoring
 typealias NoopCompiledArtifactStore = PublicationManagerCore.NoopCompiledArtifactStore
+
+// MARK: - Section extraction (moved with the editor; used by ContentView,
+// ImprintHTTPRouter, PromptContextBuilder, ThroughlineCoordinator)
+
+typealias SectionExtractor = PublicationManagerCore.SectionExtractor
+typealias SectionFormat = PublicationManagerCore.SectionFormat
+typealias ExtractedSection = PublicationManagerCore.ExtractedSection
+
+// MARK: - Source editor (macOS only) — consumed by ContentView + FocusModeView
+
+#if os(macOS)
+typealias SourceEditorView = PublicationManagerCore.SourceEditorView
+#endif

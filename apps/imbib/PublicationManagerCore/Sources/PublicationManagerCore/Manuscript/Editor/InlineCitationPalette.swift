@@ -7,6 +7,7 @@
 //  Rust store — no HTTP. Results ranked with already-cited papers first.
 //
 
+#if os(macOS)
 import AppKit
 import ImbibRustCore
 import SwiftUI
@@ -122,7 +123,7 @@ struct InlineCitationPalette: View {
             try? await Task.sleep(for: .milliseconds(100))
             if Task.isCancelled { return }
 
-            let rows = ImprintPublicationService.shared.search(trimmed, limit: 50)
+            let rows = ManuscriptEditorEnvironment.shared.citationSearch?.search(trimmed, limit: 50) ?? []
 
             // Ranking boost: papers already cited in this manuscript first
             let (cited, others) = rows.reduce(into: ([BibliographyRow](), [BibliographyRow]())) { acc, row in
@@ -210,3 +211,5 @@ private struct PaletteRow: View {
         .background(isSelected ? Color.accentColor : .clear)
     }
 }
+
+#endif // os(macOS)

@@ -7,6 +7,7 @@
 //  hovers over `\cite{key}` or `@key` in the source editor.
 //
 
+#if os(macOS)
 import AppKit
 import ImbibRustCore
 import SwiftUI
@@ -160,9 +161,10 @@ final class CiteKeyHoverController {
     // MARK: - Private
 
     private func presentPopover(in textView: NSTextView, citeKey: String, range: NSRange) {
-        // Look up the paper directly via the shared Rust store — no HTTP
-        guard let row = ImprintPublicationService.shared.findByCiteKey(citeKey) else {
-            // No match — optionally show "not in imbib" popover, but for simplicity just skip
+        // Look up the paper via the host-provided citation search (nil → skip).
+        guard let row = ManuscriptEditorEnvironment.shared.citationSearch?.findByCiteKey(citeKey) else {
+            // No match / no search backing — optionally show "not in imbib" popover,
+            // but for simplicity just skip.
             return
         }
 
@@ -308,3 +310,5 @@ enum CiteKeyAtLocation {
         return nil
     }
 }
+
+#endif // os(macOS)

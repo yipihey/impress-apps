@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// Line number gutter with error/warning indicators for the source editor.
@@ -88,3 +89,4 @@ extension EditorGutterView {
     }
     .frame(width: 400, height: 350)
 }
+#endif // os(macOS)

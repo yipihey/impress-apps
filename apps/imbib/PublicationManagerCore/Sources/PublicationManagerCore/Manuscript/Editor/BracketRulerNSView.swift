@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ImpressLogging
 import OSLog
@@ -200,3 +201,4 @@ final class BracketRulerNSView: NSView {
         }
     }
 }
+#endif // os(macOS)

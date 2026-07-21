@@ -355,6 +355,13 @@ struct ImprintApp: App {
             configureForUITesting()
         }
 
+        // GUI-meld Phase 3: install imprint's concrete editor capabilities into
+        // the shared (PMC-owned) editor environment before any editor window
+        // is created.
+        #if os(macOS)
+        ManuscriptEditorInstaller.install()
+        #endif
+
         // HTTP server is started via ImprintAppDelegate.applicationDidFinishLaunching
     }
 

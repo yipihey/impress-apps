@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 /// A structural element of the manuscript source with its character range,
@@ -139,3 +140,4 @@ enum DocumentStructure {
         return true // trailing whitespace to EOF
     }
 }
+#endif // os(macOS)

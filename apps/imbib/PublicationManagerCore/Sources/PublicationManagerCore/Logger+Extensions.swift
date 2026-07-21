@@ -79,6 +79,10 @@ public extension Logger {
     // MARK: - Manuscript Compilation (GUI-meld Phase 3)
 
     static let compilation = Logger(subsystem: subsystem, category: "compilation")
+
+    // MARK: - Manuscript Editor (GUI-meld Phase 3)
+
+    static let editor = Logger(subsystem: subsystem, category: "editor")
 }
 
 // MARK: - PDF Browser Logging

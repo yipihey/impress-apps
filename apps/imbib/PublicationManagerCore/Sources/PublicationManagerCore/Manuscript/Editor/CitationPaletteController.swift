@@ -7,6 +7,7 @@
 //  to provide inline citation search triggered by `\cite{` / `@`.
 //
 
+#if os(macOS)
 import AppKit
 import ImbibRustCore
 import SwiftUI
@@ -168,7 +169,7 @@ final class CitationPaletteController {
     }
 }
 
-extension Notification.Name {
+public extension Notification.Name {
     /// Posted when the inline citation palette inserts a citation into the editor.
     /// userInfo: `publicationID` (String), `citeKey` (String)
     static let inlineCitationInserted = Notification.Name("imprint.inlineCitationInserted")
@@ -349,3 +350,5 @@ enum CitationPaletteTriggerDetector {
             || u == 95               // _
     }
 }
+
+#endif // os(macOS)

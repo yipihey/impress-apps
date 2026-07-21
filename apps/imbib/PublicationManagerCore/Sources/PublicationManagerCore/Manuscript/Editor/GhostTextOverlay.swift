@@ -1,3 +1,4 @@
+#if os(macOS)
 //
 //  GhostTextOverlay.swift
 //  imprint
@@ -180,3 +181,4 @@ extension NSTextView {
         return point
     }
 }
+#endif // os(macOS)

@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 import AppKit
 import ImpressHelixCore
@@ -9,7 +10,13 @@ import OSLog
 
 /// Source code editor with format-aware syntax highlighting and inline AI completions.
 /// Supports both Typst and LaTeX syntax.
-struct SourceEditorView: View {
+///
+/// GUI-meld Phase 3: moved from the imprint app target into PublicationManagerCore
+/// so imbib and imprint share one editor. App-specific behaviours (AI completion,
+/// AI author-tasks, citation search, LaTeX completion, collaboration presence) are
+/// injected via `ManuscriptEditorEnvironment` rather than reached through
+/// app-target singletons.
+public struct SourceEditorView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
     var syntaxMode: DocumentFormat = .typst
@@ -22,16 +29,16 @@ struct SourceEditorView: View {
     @AppStorage("imprint.editor.showCellBrackets") private var showCellBrackets = true
 
     @State private var helixState = HelixState()
-    private let inlineCompletionService = InlineCompletionService.shared
+    private let inlineCompletionService = ManuscriptEditorEnvironment.shared.inlineCompletion
 
-    init(source: Binding<String>, cursorPosition: Binding<Int>, syntaxMode: DocumentFormat = .typst, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
+    public init(source: Binding<String>, cursorPosition: Binding<Int>, syntaxMode: DocumentFormat = .typst, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
         self._source = source
         self._cursorPosition = cursorPosition
         self.syntaxMode = syntaxMode
         self.onSelectionChange = onSelectionChange
     }
 
-    var body: some View {
+    public var body: some View {
         ZStack(alignment: .bottomLeading) {
             // Color.clear expands to fill available space, forcing ZStack to full size
             Color.clear
@@ -144,7 +151,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     let helixState: HelixState
     let helixEnabled: Bool
     var showCellBrackets: Bool = true
-    let inlineCompletionService: InlineCompletionService
+    let inlineCompletionService: any InlineCompletionProviding
     var onSelectionChange: ((String, NSRange) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -490,12 +497,12 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             let capturedTextView = textView
             latexCompletionTask?.cancel()
             latexCompletionTask = Task { @MainActor [weak self] in
-                let completions = await LaTeXCompletionProvider.shared.completions(
-                    for: capturedPrefix,
-                    in: capturedSource,
-                    at: capturedOffset
+                let completions = await ManuscriptEditorEnvironment.shared.latexCompletions(
+                    capturedPrefix,
+                    capturedSource,
+                    capturedOffset
                 )
-                self?.cachedLaTeXCompletions = completions.map(\.text)
+                self?.cachedLaTeXCompletions = completions
                 // Re-trigger completion if results changed
                 if self?.cachedLaTeXCompletions != currentResults {
                     capturedTextView.complete(nil)
@@ -545,7 +552,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
                 format: format
             ) {
                 logInfo("CitationPalette: trigger at loc=\(cursorLocation), query='\(trigger.initialQuery)', format=\(format)", category: "citation-palette")
-                let citedKeys = Set(BibliographyGenerator.shared.extractedCiteKeys)
+                let citedKeys = ManuscriptEditorEnvironment.shared.citedKeys()
                 citationPalette.show(
                     in: textView,
                     at: trigger.insertionRange,
@@ -584,8 +591,8 @@ struct TypstEditorRepresentable: NSViewRepresentable {
                 typstTextView.updateGhostText()
             }
 
-            // Update collaboration cursor
-            textView.updateCollaborationCursor()
+            // Update collaboration cursor (host-provided; no-op by default)
+            ManuscriptEditorEnvironment.shared.presenceCursorHook(textView)
         }
 
         private func requestInlineCompletion(text: String, position: Int) {
@@ -618,7 +625,7 @@ class TypstTextView: HelixTextView {
     // MARK: - Inline Completion Properties
 
     /// Service for inline AI completions
-    var inlineCompletionService: InlineCompletionService?
+    var inlineCompletionService: (any InlineCompletionProviding)?
 
     /// Ghost text overlay view
     var ghostTextView: GhostTextNSView?
@@ -955,24 +962,25 @@ enum InlineAITaskCatalog {
     ]
 
     /// Enabled tasks resolved to display metadata + shortcut (main-actor: reads
-    /// the live task set).
+    /// the host's live task set + preferences via `ManuscriptEditorEnvironment`).
     @MainActor
     static func tasks() -> [AITaskDescriptor] {
-        let actions = AIContextMenuService.shared.actions
+        let env = ManuscriptEditorEnvironment.shared
         return curated.compactMap { c in
-            guard AITaskPreferences.isEnabled(c.id),
-                  let action = actions.first(where: { $0.id == c.id }) else { return nil }
-            return AITaskDescriptor(id: action.id, title: action.title, icon: action.effectiveIcon,
+            guard env.isAITaskEnabled(c.id),
+                  let meta = env.aiTaskMetadata(c.id) else { return nil }
+            return AITaskDescriptor(id: c.id, title: meta.title, icon: meta.icon,
                                     key: c.key, modifiers: c.modifiers)
         }
     }
 
     /// The enabled action id bound to a key-equivalent, for editor keyboard
-    /// handling. Non-isolated (reads static config + UserDefaults only).
+    /// handling. Reads the host's enablement predicate.
+    @MainActor
     static func actionID(forKey key: String, modifiers: NSEvent.ModifierFlags) -> String? {
         let mods = modifiers.intersection([.command, .control, .option, .shift])
         guard let c = curated.first(where: { $0.key == key.lowercased() && $0.modifiers == mods }) else { return nil }
-        return AITaskPreferences.isEnabled(c.id) ? c.id : nil
+        return ManuscriptEditorEnvironment.shared.isAITaskEnabled(c.id) ? c.id : nil
     }
 
     /// Append a flat "AI Assist" section (header + task items with visible
@@ -992,13 +1000,11 @@ enum InlineAITaskCatalog {
         }
     }
 
+    @MainActor
     static func post(actionId: String, range: NSRange) {
         Logger.editor.infoCapture("InlineAITask post: \(actionId) range=\(range.location),\(range.length)", category: "ai")
-        NotificationCenter.default.post(
-            name: .runInlineAITask,
-            object: nil,
-            userInfo: ["actionId": actionId, "range": NSValue(range: range)]
-        )
+        // Host-provided sink (imprint posts `.runInlineAITask`; no-op by default).
+        ManuscriptEditorEnvironment.shared.onAITaskRequested(actionId, range)
     }
 }
 
@@ -1010,3 +1016,4 @@ enum InlineAITaskCatalog {
     )
     .frame(width: 500, height: 400)
 }
+#endif // os(macOS)
