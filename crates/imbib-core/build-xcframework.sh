@@ -132,6 +132,16 @@ echo "Copying Swift bindings..."
 cp "$FRAMEWORK_DIR/generated/imbib_core.swift" "$FRAMEWORK_DIR/imbib_core.swift"
 echo "  Copied imbib_core.swift"
 
+# Keep the app package's committed bindings paired with the freshly built
+# framework (imprint's script does the same). A stale committed copy
+# passes compile but crashes at launch with "UniFFI API checksum
+# mismatch" — the imbib-iOS install smoke caught exactly this.
+APP_BINDINGS_DIR="$(cd "$(dirname "$0")/../.." && pwd)/apps/imbib/ImbibRustCore/Sources/ImbibRustCore"
+if [ -d "$APP_BINDINGS_DIR" ]; then
+    cp "$FRAMEWORK_DIR/generated/imbib_core.swift" "$APP_BINDINGS_DIR/imbib_core.swift"
+    echo "  Synced bindings to ImbibRustCore package"
+fi
+
 echo ""
 echo "=== Build complete! ==="
 echo ""
