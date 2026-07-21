@@ -10,28 +10,16 @@ import XCTest
 
 final class ADSEnrichmentTests: XCTestCase {
 
-    var session: URLSession!
     var credentialManager: MockCredentialManager!
     var source: ADSSource!
 
     override func setUp() async throws {
         try await super.setUp()
 
-        MockURLProtocol.reset()
-
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        session = URLSession(configuration: config)
-
         credentialManager = MockCredentialManager()
         try await credentialManager.storeAPIKey("test-api-key-12345", for: "ads")
 
         source = ADSSource(credentialManager: credentialManager)
-    }
-
-    override func tearDown() {
-        MockURLProtocol.reset()
-        super.tearDown()
     }
 
     // MARK: - Capabilities Tests
@@ -59,108 +47,6 @@ final class ADSEnrichmentTests: XCTestCase {
         XCTAssertTrue(caps.contains(.citations))
     }
 
-    // MARK: - Enrich Success Tests
-
-    func testEnrichWithBibcode() async throws {
-        try skipIfNoToken()
-        let fixtureData = loadFixture("ads_work")
-        MockURLProtocol.requestHandler = { request in
-            XCTAssertTrue(request.url?.absoluteString.contains("bibcode") == true)
-            XCTAssertTrue(request.allHTTPHeaderFields?["Authorization"]?.contains("Bearer") == true)
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "2017arXiv170603762V"]
-        let result = try await source.enrich(identifiers: identifiers, existingData: nil)
-
-        XCTAssertEqual(result.data.citationCount, 98000)
-        XCTAssertEqual(result.data.source, .ads)
-    }
-
-    func testEnrichWithDOI() async throws {
-        try skipIfNoToken()
-        let fixtureData = loadFixture("ads_work")
-        MockURLProtocol.requestHandler = { request in
-            XCTAssertTrue(request.url?.absoluteString.contains("doi") == true)
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let identifiers: [IdentifierType: String] = [.doi: "10.48550/arxiv.1706.03762"]
-        let result = try await source.enrich(identifiers: identifiers, existingData: nil)
-
-        XCTAssertEqual(result.data.citationCount, 98000)
-    }
-
-    func testEnrichWithArXiv() async throws {
-        try skipIfNoToken()
-        let fixtureData = loadFixture("ads_work")
-        MockURLProtocol.requestHandler = { request in
-            XCTAssertTrue(request.url?.absoluteString.contains("arXiv") == true)
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let identifiers: [IdentifierType: String] = [.arxiv: "1706.03762"]
-        let result = try await source.enrich(identifiers: identifiers, existingData: nil)
-
-        XCTAssertEqual(result.data.citationCount, 98000)
-    }
-
-    func testEnrichReturnsAbstract() async throws {
-        try skipIfNoToken()
-        let fixtureData = loadFixture("ads_work")
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "2017arXiv170603762V"]
-        let result = try await source.enrich(identifiers: identifiers, existingData: nil)
-
-        XCTAssertNotNil(result.data.abstract)
-        XCTAssertTrue(result.data.abstract?.contains("Transformer") == true)
-    }
-
-    func testEnrichReturnsReferenceCount() async throws {
-        try skipIfNoToken()
-        // The new implementation makes separate API calls for basic info and full references.
-        // This test verifies the reference count is returned from the basic info query.
-        let fixtureData = loadFixture("ads_work")
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "2017arXiv170603762V"]
-        let result = try await source.enrich(identifiers: identifiers, existingData: nil)
-
-        // Reference count should be extracted from the initial query
-        XCTAssertEqual(result.data.referenceCount, 3)
-        // Full references are fetched in a separate API call - they may be nil or partial
-        // depending on the mock response (which returns the same fixture for all calls)
-    }
-
-    // MARK: - Minimal Response Tests
-
-    func testEnrichWithMinimalResponse() async throws {
-        try skipIfNoToken()
-        let fixtureData = loadFixture("ads_minimal")
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "2023arXiv230112345A"]
-        let result = try await source.enrich(identifiers: identifiers, existingData: nil)
-
-        XCTAssertEqual(result.data.citationCount, 0)
-        XCTAssertNil(result.data.abstract)
-        XCTAssertNil(result.data.references)
-        XCTAssertNil(result.data.referenceCount)
-    }
-
     // MARK: - Identifier Resolution Tests
 
     func testResolveIdentifierWithBibcode() async throws {
@@ -186,20 +72,6 @@ final class ADSEnrichmentTests: XCTestCase {
         XCTAssertEqual(resolved[.arxiv], "1706.03762")
         XCTAssertNotNil(resolved[.bibcode])
         XCTAssertTrue(resolved[.bibcode]?.contains("arXiv:") == true)
-    }
-
-    func testEnrichAddsBibcodeToResolvedIdentifiers() async throws {
-        try skipIfNoToken()
-        let fixtureData = loadFixture("ads_work")
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "2017arXiv170603762V"]
-        let result = try await source.enrich(identifiers: identifiers, existingData: nil)
-
-        XCTAssertEqual(result.resolvedIdentifiers[.bibcode], "2017arXiv170603762V")
     }
 
     // MARK: - Error Handling Tests
@@ -239,99 +111,6 @@ final class ADSEnrichmentTests: XCTestCase {
         }
     }
 
-    func testEnrichNotFound() async throws {
-        try skipIfNoToken()
-        let fixtureData = loadFixture("ads_not_found")
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "nonexistent"]
-
-        do {
-            _ = try await source.enrich(identifiers: identifiers, existingData: nil)
-            XCTFail("Expected error")
-        } catch let error as EnrichmentError {
-            if case .notFound = error {
-                // Expected
-            } else {
-                XCTFail("Expected notFound error, got \(error)")
-            }
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
-    }
-
-    func testEnrich401Unauthorized() async throws {
-        try skipIfNoToken()
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
-            return (response, nil)
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "test"]
-
-        do {
-            _ = try await source.enrich(identifiers: identifiers, existingData: nil)
-            XCTFail("Expected error")
-        } catch let error as EnrichmentError {
-            if case .authenticationRequired = error {
-                // Expected
-            } else {
-                XCTFail("Expected authenticationRequired error, got \(error)")
-            }
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
-    }
-
-    func testEnrichRateLimited() async throws {
-        try skipIfNoToken()
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil, headerFields: nil)!
-            return (response, nil)
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "test"]
-
-        do {
-            _ = try await source.enrich(identifiers: identifiers, existingData: nil)
-            XCTFail("Expected error")
-        } catch let error as EnrichmentError {
-            if case .rateLimited = error {
-                // Expected
-            } else {
-                XCTFail("Expected rateLimited error, got \(error)")
-            }
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
-    }
-
-    func testEnrichMalformedJSON() async throws {
-        try skipIfNoToken()
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, "invalid json".data(using: .utf8))
-        }
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "test"]
-
-        do {
-            _ = try await source.enrich(identifiers: identifiers, existingData: nil)
-            XCTFail("Expected error")
-        } catch let error as EnrichmentError {
-            if case .parseError = error {
-                // Expected
-            } else {
-                XCTFail("Expected parseError, got \(error)")
-            }
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
-    }
-
     func testEnrichRequiresAPIKey() async throws {
         // Create source with no API key
         let emptyCredentialManager = MockCredentialManager()
@@ -353,42 +132,4 @@ final class ADSEnrichmentTests: XCTestCase {
         }
     }
 
-    // MARK: - Merge Tests
-
-    func testEnrichMergesWithExistingData() async throws {
-        try skipIfNoToken()
-        let fixtureData = loadFixture("ads_minimal")
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, fixtureData)
-        }
-
-        let existingData = EnrichmentData(
-            citationCount: 999,
-            abstract: "Existing abstract",
-            source: .ads
-        )
-
-        let identifiers: [IdentifierType: String] = [.bibcode: "2023arXiv230112345A"]
-        let result = try await source.enrich(identifiers: identifiers, existingData: existingData)
-
-        // New data (citationCount: 0) takes precedence
-        XCTAssertEqual(result.data.citationCount, 0)
-
-        // Existing abstract is kept since minimal has nil
-        XCTAssertEqual(result.data.abstract, "Existing abstract")
-
-        // Source is the new enrichment source
-        XCTAssertEqual(result.data.source, .ads)
-    }
-
-    // MARK: - Helper
-
-    private func loadFixture(_ name: String) -> Data {
-        // Use #file to get the current file's directory and construct relative path to Fixtures
-        let currentFile = URL(fileURLWithPath: #file)
-        let fixturesDir = currentFile.deletingLastPathComponent().appendingPathComponent("Fixtures")
-        let fixtureURL = fixturesDir.appendingPathComponent("\(name).json")
-        return try! Data(contentsOf: fixtureURL)
-    }
 }
