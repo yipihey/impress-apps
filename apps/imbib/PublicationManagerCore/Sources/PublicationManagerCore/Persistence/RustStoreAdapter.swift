@@ -38,7 +38,15 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public nonisolated(unsafe) static let shared: RustStoreAdapter = {
         do {
             let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
-            if isUITesting {
+            // Unit-test processes (swift test / xctest) must NEVER open the
+            // production App Group database: (1) a test could write into the
+            // user's real library; (2) opening the shared container from an
+            // xctest worker can block indefinitely on the App Group TCC
+            // prompt / WAL locks held by running impress apps — this hung
+            // the whole PMC suite for 25+ minutes before it was caught.
+            // XCUITest is unaffected: it launches the real app process
+            // (no XCTest env vars there), which opts in via `--ui-testing`.
+            if isUITesting || RustStoreAdapter.isUnitTestProcess {
                 return try RustStoreAdapter(inMemory: true)
             }
             return try RustStoreAdapter()
@@ -46,6 +54,15 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             fatalError("Failed to initialize RustStoreAdapter: \(error)")
         }
     }()
+
+    /// True when running inside an XCTest host (swift test / xctest),
+    /// as opposed to a real app process. Single source of truth lives in
+    /// ImpressKit (`ImpressRuntime.isUnitTestProcess`), which also diverts
+    /// SharedContainer/SharedWorkspace paths away from the App Group
+    /// container in test processes.
+    public nonisolated static var isUnitTestProcess: Bool {
+        ImpressRuntime.isUnitTestProcess
+    }
 
     /// The underlying Rust store.
     private let store: ImbibStore
@@ -88,6 +105,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         if reviewStoreOpenAttempted { return nil }
         reviewStoreOpenAttempted = true
         do {
+            // Same production-store guard as `shared` (see isUnitTestProcess).
+            if Self.isUnitTestProcess
+                || ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                let s = try ImpressRustCore.SharedStore.openInMemory()
+                self.reviewSharedStore = s
+                return s
+            }
             try SharedWorkspace.ensureDirectoryExists()
             let path = SharedWorkspace.databaseURL.path
             let s = try ImpressRustCore.SharedStore.open(path: path)

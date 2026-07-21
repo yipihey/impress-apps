@@ -37,6 +37,14 @@ public enum SharedWorkspace: Sendable {
 
     /// The app group container root, with fallback for non-sandboxed builds.
     private static var rootDirectory: URL {
+        // Unit-test processes never touch the production App Group container
+        // (unentitled xctest workers can block forever in the kernel on
+        // open() of group-container paths — see ImpressRuntime docs). A
+        // per-process temp root keeps store paths functional and hermetic.
+        if ImpressRuntime.isUnitTestProcess {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("impress-unit-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        }
         if let url = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: SiblingDiscovery.suiteGroupID
         ) {

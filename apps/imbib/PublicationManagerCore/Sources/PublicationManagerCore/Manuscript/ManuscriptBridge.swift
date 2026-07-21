@@ -477,6 +477,14 @@ public actor ManuscriptBridge {
         if openAttempted { return nil }
         openAttempted = true
         do {
+            // Unit-test processes never open the production App Group store
+            // (data safety + the store-open hang; see RustStoreAdapter.shared).
+            if RustStoreAdapter.isUnitTestProcess
+                || ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                let s = try SharedStore.openInMemory()
+                self.store = s
+                return s
+            }
             try SharedWorkspace.ensureDirectoryExists()
             let path = SharedWorkspace.databaseURL.path
             let s = try SharedStore.open(path: path)

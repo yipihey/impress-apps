@@ -11,6 +11,16 @@ import Foundation
 public struct SharedContainer: Sendable {
     /// The shared container root directory.
     public static var rootDirectory: URL {
+        // Unit-test processes must NEVER touch the production App Group
+        // container: an unentitled xctest worker can block forever inside
+        // the kernel on open() of a group-container path (this hung the
+        // whole PMC test suite). Divert to a per-process temp root so all
+        // container consumers (notification payloads, shared artifacts)
+        // stay functional AND hermetic under test.
+        if ImpressRuntime.isUnitTestProcess {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("impress-unit-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        }
         guard let url = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: SiblingDiscovery.suiteGroupID
         ) else {
