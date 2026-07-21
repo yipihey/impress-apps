@@ -82,6 +82,7 @@ enum ManuscriptEditorInstaller {
         env.sidePanels = [
             AIAssistantSidePanel(),
             ThroughlineSidePanel(),
+            VeuszSidePanel(),
             PaperPreviewSidePanel(),
         ]
     }

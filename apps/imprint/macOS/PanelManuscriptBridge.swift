@@ -47,8 +47,11 @@ final class PanelManuscriptBridge {
             d.throughlineAnchorsJSON = tl.anchorMapJSON.isEmpty ? nil : tl.anchorMapJSON
         }
 
-        // Veusz plots manifest is rebuilt from the working directory in Panels
-        // Phase C (`refreshPlots()`); left empty here.
+        // Rebuild the Veusz plots manifest from the working directory
+        // (filesystem is source of truth).
+        let scanned = Self.scanPlots(forManuscriptID: manuscriptID)
+        d.plots = scanned.plots
+        d.figureFiles = scanned.figureFiles
 
         self.doc = d
     }
@@ -58,6 +61,74 @@ final class PanelManuscriptBridge {
     /// / plot insertion context).
     func syncSource(_ latest: String) {
         if doc.source != latest { doc.source = latest }
+    }
+
+    /// Re-scan the working directory for `.vsz` plots (e.g. after a render).
+    func refreshPlots() {
+        let scanned = Self.scanPlots(forManuscriptID: manuscriptID)
+        doc.plots = scanned.plots
+        doc.figureFiles = scanned.figureFiles
+    }
+
+    // MARK: - Veusz plots scan
+
+    /// Rebuild `(plots, figureFiles)` from the manuscript's working directory.
+    /// Lifted from `ManuscriptEditorView.scanPlots` (the legacy bridge) so the
+    /// chassis panel shows the same plots. Empty when there are no `.vsz` files.
+    static func scanPlots(forManuscriptID manuscriptID: UUID)
+        -> (plots: [VeuszPlotRef], figureFiles: [String: Data])
+    {
+        let wd = VeuszWorkingDirectory()
+        guard let figuresDir = try? wd.figuresDirectory(forDocumentID: manuscriptID) else {
+            return ([], [:])
+        }
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: figuresDir,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey]
+        ) else { return ([], [:]) }
+
+        var figureFiles: [String: Data] = [:]
+        for url in contents {
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values?.isRegularFile == true else { continue }
+            if let data = try? Data(contentsOf: url) {
+                figureFiles[url.lastPathComponent] = data
+            }
+        }
+
+        let renderedExtensions: [VeuszPlotRef.ExportFormat] = [.pdf, .svg, .png]
+        var plots: [VeuszPlotRef] = []
+        for url in contents where url.pathExtension.lowercased() == "vsz" {
+            let stem = url.deletingPathExtension().lastPathComponent
+            var renderedRelPath = "figures/\(stem).svg"
+            var format: VeuszPlotRef.ExportFormat = .svg
+            var lastRenderedAt: Date?
+            for candidateFormat in renderedExtensions {
+                let candidate = figuresDir.appendingPathComponent("\(stem).\(candidateFormat.fileExtension)")
+                if fm.fileExists(atPath: candidate.path) {
+                    renderedRelPath = "figures/\(stem).\(candidateFormat.fileExtension)"
+                    format = candidateFormat
+                    lastRenderedAt = (try? fm.attributesOfItem(atPath: candidate.path))?[.modificationDate] as? Date
+                    break
+                }
+            }
+            let sourceMtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+            plots.append(
+                VeuszPlotRef(
+                    displayName: stem,
+                    sourceRelativePath: "figures/\(stem).vsz",
+                    renderedRelativePath: renderedRelPath,
+                    exportFormat: format,
+                    lastRenderedAt: lastRenderedAt,
+                    sourceModifiedAt: sourceMtime,
+                    renderStatus: lastRenderedAt == nil ? .stale : .idle
+                )
+            )
+        }
+        plots.sort { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+        return (plots, figureFiles)
     }
 }
 

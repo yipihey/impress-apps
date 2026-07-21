@@ -95,6 +95,45 @@ private struct AIAssistantPanelHost: View {
     }
 }
 
+// MARK: - Veusz Plots (hardest — ImprintDocument plots round-trip)
+
+struct VeuszSidePanel: ManuscriptSidePanel {
+    let id = "veusz"
+    let label = "Plots"
+    let systemImage = "chart.xyaxis.line"
+
+    func makeView(_ context: ManuscriptPanelContext) -> AnyView {
+        AnyView(VeuszPanelHost(context: context))
+    }
+}
+
+/// Hosts `VeuszPlotsPanel` bound to the per-manuscript bridge document. The
+/// panel persists `.vsz` files to the working directory itself (via its own
+/// `VeuszPlotStore`/`VeuszService`); plot insertion posts
+/// `VeuszPlotInsertion.notificationName`, which we route to the chassis editor
+/// through `ctx.insertAtCursor` (the legacy `VeuszWiringModifier` inserted into
+/// the ImprintDocument instead).
+private struct VeuszPanelHost: View {
+    let context: ManuscriptPanelContext
+    @State private var bridge: PanelManuscriptBridge
+
+    init(context: ManuscriptPanelContext) {
+        self.context = context
+        _bridge = State(initialValue: PanelBridgeRegistry.shared.bridge(for: context.manuscriptID))
+    }
+
+    var body: some View {
+        VeuszPlotsPanel(document: Binding(get: { bridge.doc }, set: { bridge.doc = $0 }))
+            .onAppear { bridge.refreshPlots() }
+            .onReceive(NotificationCenter.default.publisher(for: VeuszPlotInsertion.notificationName)) { note in
+                guard let info = note.userInfo,
+                      let snippet = info["snippet"] as? String else { return }
+                if let target = info["documentID"] as? UUID, target != context.manuscriptID { return }
+                context.insertAtCursor(snippet)
+            }
+    }
+}
+
 // MARK: - Paper preview (easiest — view already in a shared package)
 
 struct PaperPreviewSidePanel: ManuscriptSidePanel {
