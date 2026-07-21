@@ -3364,10 +3364,7 @@ impl ImbibStore {
     }
 
     /// Get a single manuscript row (list shape) by ID.
-    pub fn get_manuscript_row(
-        &self,
-        id: String,
-    ) -> Result<Option<ManuscriptRow>, StoreApiError> {
+    pub fn get_manuscript_row(&self, id: String) -> Result<Option<ManuscriptRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
         match self.store.get(uuid)? {
             Some(item) if item.schema == "manuscript" => {
@@ -3401,7 +3398,11 @@ impl ImbibStore {
                     .iter()
                     .map(|c| c.id.to_string())
                     .collect();
-                Ok(Some(item_to_manuscript_detail(&item, &tag_defs, collections)))
+                Ok(Some(item_to_manuscript_detail(
+                    &item,
+                    &tag_defs,
+                    collections,
+                )))
             }
             _ => Ok(None),
         }
@@ -3431,10 +3432,7 @@ impl ImbibStore {
         let mut payload = std::collections::BTreeMap::new();
         payload.insert("title".into(), Value::String(title));
         payload.insert("status".into(), Value::String("draft".into()));
-        payload.insert(
-            "current_revision_ref".into(),
-            Value::String(id.to_string()),
-        );
+        payload.insert("current_revision_ref".into(), Value::String(id.to_string()));
         payload.insert(
             "authors".into(),
             Value::Array(authors.into_iter().map(Value::String).collect()),

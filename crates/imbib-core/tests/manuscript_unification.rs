@@ -244,9 +244,7 @@ fn status_filter_and_revision_lifecycle() {
 
     // Status filter.
     assert_eq!(
-        imbib
-            .count_manuscripts(None, Some("draft".into()))
-            .unwrap(),
+        imbib.count_manuscripts(None, Some("draft".into())).unwrap(),
         1
     );
     assert_eq!(
@@ -271,7 +269,10 @@ fn status_filter_and_revision_lifecycle() {
     assert_eq!(row.revision_count, 1);
 
     let detail = imbib.get_manuscript_detail(m.id.clone()).unwrap().unwrap();
-    assert_eq!(detail.current_revision_ref.as_deref(), Some(rev.id.as_str()));
+    assert_eq!(
+        detail.current_revision_ref.as_deref(),
+        Some(rev.id.as_str())
+    );
 
     // Second revision chains to the first — and is visible over SharedStore
     // too (imprint's pre-cutover Versions UI reads that surface).
