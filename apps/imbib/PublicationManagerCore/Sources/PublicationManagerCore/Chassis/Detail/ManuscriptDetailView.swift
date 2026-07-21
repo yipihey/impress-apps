@@ -56,6 +56,15 @@ struct ManuscriptDetailView: View {
                         imprintSourceSection(manuscript)
                         revisionsSection(manuscript)
                         if let mUUID = UUID(uuidString: manuscriptID) {
+                            GroupBox("Versions") {
+                                ManuscriptVersionsSection(
+                                    manuscriptID: mUUID,
+                                    onRestore: { body in
+                                        ManuscriptSessionRegistry.shared
+                                            .restoreBody(manuscriptID: mUUID, to: body)
+                                    })
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                             GroupBox("History") {
                                 ManuscriptHistorySection(manuscriptID: mUUID)
                                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -211,6 +211,18 @@ public final class ManuscriptEditorSession {
         conflict = nil
     }
 
+    /// Replace the whole buffer with `body` (a version restore). Applied as an
+    /// ordinary edit so it flows through the normal debounced CAS save and a
+    /// preview recompile — the editor shows the restored text immediately and
+    /// it persists like any other change. Returns the pre-restore source so the
+    /// caller can register an undo that swaps back.
+    @discardableResult
+    public func applyRestoredBody(_ body: String) -> String {
+        let previous = source
+        source = body   // didSet → noteEdit → debounced save + compile
+        return previous
+    }
+
     /// Force our buffer over the store's version (conflict banner "Keep mine").
     public func keepMine() {
         Task { @MainActor [weak self] in
@@ -324,6 +336,45 @@ public final class ManuscriptSessionRegistry {
         lru.append(id)
         evictIfNeeded()
         return session
+    }
+
+    /// Restore a manuscript's body to `body` (a source pulled from a saved
+    /// version). Three steps, in order:
+    ///   1. Persist any live buffer edits, then auto-save the CURRENT state as a
+    ///      safety version (`reason: auto-before-restore`) so a restore never
+    ///      silently discards work.
+    ///   2. Apply the restored body to the live editor session (which repaints
+    ///      the editor and persists via the normal CAS path).
+    ///   3. Register a store-level undo — Cmd+Z returns to the pre-restore body,
+    ///      Cmd+Shift+Z re-applies the restore.
+    ///
+    /// The safety version and the undo are complementary: undo is the quick
+    /// in-session reversal; the version is a durable record if the session is
+    /// later evicted.
+    public func restoreBody(manuscriptID: UUID, to body: String) {
+        guard let session = session(for: manuscriptID) else {
+            // No resolvable session (e.g. the manuscript vanished) — best-effort
+            // unguarded write so the restore isn't silently dropped.
+            _ = RustStoreAdapter.shared.setManuscriptBody(
+                id: manuscriptID, body: body, expectedHash: nil)
+            return
+        }
+        let previous = session.source
+        Task { @MainActor in
+            // Flush the live buffer so the safety snapshot captures the true
+            // pre-restore state, not a stale store copy.
+            await session.saveCAS()
+            RustStoreAdapter.shared.createManuscriptRevision(
+                manuscriptID: manuscriptID,
+                tag: "Before restore",
+                reason: "auto-before-restore")
+            session.applyRestoredBody(body)
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Restore Version",
+                undo: { [weak session] in session?.applyRestoredBody(previous) },
+                redo: { [weak session] in session?.applyRestoredBody(body) }
+            )
+        }
     }
 
     /// Notify all live sessions of a store mutation (cross-process wake-up).
