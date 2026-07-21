@@ -136,7 +136,9 @@ echo "  Copied imbib_core.swift"
 # framework (imprint's script does the same). A stale committed copy
 # passes compile but crashes at launch with "UniFFI API checksum
 # mismatch" — the imbib-iOS install smoke caught exactly this.
-APP_BINDINGS_DIR="$(cd "$(dirname "$0")/../.." && pwd)/apps/imbib/ImbibRustCore/Sources/ImbibRustCore"
+# Resolve via git, not $0: the script cds internally, so a relative $0
+# breaks when invoked from the repo root (as imprint's workflow does).
+APP_BINDINGS_DIR="$(git rev-parse --show-toplevel)/apps/imbib/ImbibRustCore/Sources/ImbibRustCore"
 if [ -d "$APP_BINDINGS_DIR" ]; then
     cp "$FRAMEWORK_DIR/generated/imbib_core.swift" "$APP_BINDINGS_DIR/imbib_core.swift"
     echo "  Synced bindings to ImbibRustCore package"
