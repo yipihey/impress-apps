@@ -251,11 +251,22 @@ jobs:
           APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imbib.app' | head -1)
           echo "installing $APP"
           xcrun simctl install "$UDID" "$APP"
-          xcrun simctl launch "$UDID" com.impress.imbib
-          sleep 5
-          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.impress.imbib" \
-            && echo "imbib-iOS launched OK" \
-            || (echo "imbib-iOS did not launch" && exit 1)
+          # Verify by PID liveness, not launchctl label grep: simctl launch
+          # prints "bundle-id: PID", sim app processes are host processes,
+          # and the launchctl listing has produced false "did not launch"
+          # verdicts on runners even when launch returned a live PID.
+          PID=$(xcrun simctl launch "$UDID" com.impress.imbib | awk -F': ' '{print $2}')
+          echo "launched pid=$PID"
+          sleep 8
+          if ps -p "$PID" > /dev/null 2>&1; then
+            echo "imbib-iOS launched OK (pid $PID alive after 8s)"
+          else
+            echo "imbib-iOS exited within 8s — dumping recent crash reports"
+            for f in $(ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -3); do
+              echo "===== $f"; tail -60 ~/Library/Logs/DiagnosticReports/"$f" 2>/dev/null
+            done
+            exit 1
+          fi
 
       - name: Upload iOS build results
         if: always()
