@@ -385,20 +385,6 @@ struct ImprintApp: App {
         }
     }
 
-    #if os(macOS)
-    /// View ▸ Open Legacy Editor handler. Opens the legacy standalone
-    /// `ManuscriptEditorView` (manuscript-editor WindowGroup) for the most
-    /// recently listed manuscript — or creates a fresh Typst manuscript if the
-    /// library is empty. GUI-meld Phase 6 transition aid; Phase 7 removes it.
-    private func openLegacyEditor() {
-        if let recent = ManuscriptStoreAdapter.shared.listManuscripts(limit: 1).first {
-            openWindow(id: "manuscript-editor", value: recent.id)
-        } else {
-            createNewManuscript(format: .typst)
-        }
-    }
-    #endif
-
     /// File → Import to Manuscript Library… handler. Opens an
     /// NSOpenPanel for .tex / .imprint files, runs the importer, and
     /// pops a manuscript-editor window for each successful import.
@@ -739,18 +725,6 @@ struct ImprintApp: App {
                 openWindow(id: "project-browser")
             }
             .keyboardShortcut("L", modifiers: [.command, .shift])
-
-            #if os(macOS)
-            // GUI-meld Phase 6 transition aid: the project browser now hosts the
-            // shared chassis (ImprintChassisRoot). This command still opens the
-            // legacy standalone `ManuscriptEditorView` (manuscript-editor
-            // WindowGroup) for the most recent manuscript — or a fresh one if the
-            // library is empty. Removed in Phase 7 once the chassis editor fully
-            // replaces it.
-            Button("Open Legacy Editor") {
-                openLegacyEditor()
-            }
-            #endif
 
             Button("Import to Manuscript Library…") {
                 handleImportToLibrary()

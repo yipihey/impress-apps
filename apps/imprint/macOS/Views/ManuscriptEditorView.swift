@@ -22,6 +22,7 @@
 import AppKit
 import ImpressLogging
 import OSLog
+import PublicationManagerCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -36,30 +37,17 @@ struct ManuscriptEditorView: View {
 
     @Bindable private var adapter = ManuscriptStoreAdapter.shared
 
-    /// Bridged `ImprintDocument` driving the legacy `ContentView`.
-    /// Materialised in `loadFromStore()` once the manuscript snapshot
-    /// is available. Until then, the loading placeholder is shown.
-    @State private var bridge: ImprintDocument = ImprintDocument(format: .typst)
-
-    /// True after the first `loadFromStore()` call. Gates whether the
-    /// editor body is shown and whether the source-change watcher
-    /// debounces writes back to the store (we don't want the initial
-    /// load to round-trip as a "user edit").
-    @State private var hasLoaded: Bool = false
-
-    /// Snapshot of the manuscript at open time + on every store
-    /// mutation. Drives the import-banner heuristic and gives the
-    /// header view live `ManuscriptModel` state without forcing
-    /// `ContentView` to know about manuscript-store types.
+    /// Snapshot of the manuscript at open time + on every store mutation.
+    /// Drives the import-banner heuristic and the header (title/status/export).
     @State private var manuscript: ManuscriptModel?
 
     /// One-shot banner for newly-imported manuscripts. Hides itself
     /// after `bannerDisplayDuration`.
     @State private var showImportedBanner: Bool = false
 
-    /// Debouncer state.
-    @State private var debounceTask: Task<Void, Never>?
-    private static let debounceInterval: Duration = .milliseconds(200)
+    /// Detail tab for the hosted chassis pane; manuscripts land in the editor.
+    @State private var selectedTab: DetailTab = .source
+
     private static let bannerDisplayDuration: Duration = .seconds(10)
 
     var body: some View {
@@ -72,42 +60,20 @@ struct ManuscriptEditorView: View {
                 }
             }
             Divider()
-            if hasLoaded {
-                ContentView(document: $bridge)
-            } else {
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text("Loading manuscript…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            // GUI-meld Phase 7: this standalone editor window now hosts the
+            // SAME chassis detail pane as the main window (tabbed Info/Source/
+            // Preview, the shared editor, outline/comments/preview + the AI/
+            // Throughline/Veusz/Paper inspector). The manuscript-store↔editor
+            // bridge and the 1,582-line legacy ContentView it drove are retired
+            // — the chassis loads/saves the manuscript itself via its session.
+            ManuscriptDetailPane(manuscriptID: manuscriptID, selectedTab: $selectedTab)
         }
         .frame(minWidth: 700, minHeight: 400)
-        .task(id: manuscriptID) { await loadFromStore() }
+        .task(id: manuscriptID) { await loadMetadata() }
         .onChange(of: adapter.dataVersion) { _, _ in
-            // Refresh metadata snapshot. Body buffer is owned by the
-            // editor between debounces — we don't overwrite it from the
-            // store here, that would clobber in-flight edits.
             if let updated = adapter.manuscript(id: manuscriptID) {
                 manuscript = updated
             }
-        }
-        .onChange(of: bridge.source) { _, newValue in
-            guard hasLoaded else { return }
-            scheduleSave(text: newValue)
-        }
-        // Mirror metadata edits (title, authors) made via ContentView's
-        // metadata UI back into the store. Debounced through the same
-        // path so quick consecutive edits coalesce.
-        .onChange(of: bridge.title) { _, newTitle in
-            guard hasLoaded else { return }
-            try? adapter.updateMetadata(id: manuscriptID, title: newTitle)
-        }
-        .onChange(of: bridge.authors) { _, newAuthors in
-            guard hasLoaded else { return }
-            try? adapter.updateMetadata(id: manuscriptID, authors: newAuthors)
         }
     }
 
@@ -146,9 +112,12 @@ struct ManuscriptEditorView: View {
         }
     }
 
-    // MARK: - Load + save
+    // MARK: - Load
 
-    private func loadFromStore() async {
+    /// Fetch the manuscript snapshot for the header + import banner. The
+    /// hosted chassis pane loads and saves the body itself (via its editor
+    /// session's compare-and-set), so there is no bridge/debounced-save here.
+    private func loadMetadata() async {
         guard let m = adapter.manuscript(id: manuscriptID) else {
             Logger.sharedStore.warningCapture(
                 "ManuscriptEditorView: manuscript \(manuscriptID) not found in store",
@@ -157,30 +126,6 @@ struct ManuscriptEditorView: View {
             return
         }
         manuscript = m
-
-        // Synthesize the bridged ImprintDocument. Reuses the type's
-        // init(format:) so default templates are applied, then layers
-        // the manuscript snapshot's fields on top so the editor sees
-        // the actual content rather than the boilerplate.
-        let format: DocumentFormat = m.format == .latex ? .latex : .typst
-        var doc = ImprintDocument(format: format)
-        doc.id = manuscriptID
-        doc.title = m.title
-        doc.authors = m.authors
-        doc.source = m.body
-        doc.createdAt = m.createdAt
-        doc.modifiedAt = m.bodyModifiedAt ?? Date()
-        // Filesystem-is-source-of-truth: rebuild the plots manifest
-        // from whatever .vsz files live in this manuscript's working
-        // directory. Without this, opening a manuscript shows an
-        // empty plot panel even though the .vsz files are still on
-        // disk — the original bug that motivated the unified-store
-        // pivot (see Context in one-store-the-store-melodic-wreath.md).
-        let scanned = Self.scanPlots(forManuscriptID: manuscriptID)
-        doc.plots = scanned.plots
-        doc.figureFiles = scanned.figureFiles
-        bridge = doc
-        hasLoaded = true
 
         // Import banner: show for freshly-imported manuscripts only.
         if let source = m.importSource,
@@ -191,25 +136,6 @@ struct ManuscriptEditorView: View {
             Task {
                 try? await Task.sleep(for: Self.bannerDisplayDuration)
                 await MainActor.run { showImportedBanner = false }
-            }
-        }
-    }
-
-    /// Debounced save. Replaces any pending save when the user keeps
-    /// typing; after 200 ms of inactivity, writes back to the adapter.
-    private func scheduleSave(text: String) {
-        debounceTask?.cancel()
-        debounceTask = Task { @MainActor in
-            do {
-                try await Task.sleep(for: Self.debounceInterval)
-                guard !Task.isCancelled else { return }
-                try adapter.setBody(id: manuscriptID, text: text)
-            } catch is CancellationError {
-                // Normal — replaced by a newer keystroke.
-            } catch {
-                Logger.sharedStore.error(
-                    "ManuscriptEditorView: setBody failed: \(error.localizedDescription)"
-                )
             }
         }
     }
@@ -250,85 +176,6 @@ struct ManuscriptEditorView: View {
         alert.informativeText = error.localizedDescription
         alert.alertStyle = .warning
         alert.runModal()
-    }
-
-    // MARK: - Plot reconstruction from disk
-
-    /// Scan the manuscript's working-dir `figures/` for `.vsz` source
-    /// files + their rendered outputs, and build a `VeuszPlotRef` list
-    /// from what's there. The filesystem is the source of truth — this
-    /// is what makes plot tracking survive across reopen even though
-    /// the manuscript store doesn't (yet) carry a plot manifest.
-    ///
-    /// Returns the plot list AND a `figureFiles` dict (filename → Data)
-    /// so the rest of ContentView's existing wiring (which expects to
-    /// round-trip `figureFiles` through the document) keeps working.
-    private static func scanPlots(
-        forManuscriptID manuscriptID: UUID
-    ) -> (plots: [VeuszPlotRef], figureFiles: [String: Data]) {
-        let wd = VeuszWorkingDirectory()
-        guard let figuresDir = try? wd.figuresDirectory(forDocumentID: manuscriptID) else {
-            return ([], [:])
-        }
-        let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(
-            at: figuresDir,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey]
-        ) else {
-            return ([], [:])
-        }
-
-        // 1) Snapshot every regular file under figures/ into figureFiles
-        //    so ContentView's existing save path can round-trip them.
-        var figureFiles: [String: Data] = [:]
-        for url in contents {
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
-            guard values?.isRegularFile == true else { continue }
-            if let data = try? Data(contentsOf: url) {
-                figureFiles[url.lastPathComponent] = data
-            }
-        }
-
-        // 2) For each .vsz, look for a sibling rendered output and emit
-        //    a VeuszPlotRef. Format priority: pdf > svg > png (matches
-        //    new-plot defaults; pdf wins for LaTeX hosts, svg for Typst).
-        let renderedExtensions: [VeuszPlotRef.ExportFormat] = [.pdf, .svg, .png]
-        var plots: [VeuszPlotRef] = []
-        for url in contents where url.pathExtension.lowercased() == "vsz" {
-            let stem = url.deletingPathExtension().lastPathComponent
-            let displayName = stem
-            // Find the rendered output, if any.
-            var renderedRelPath = "figures/\(stem).svg"  // default
-            var format: VeuszPlotRef.ExportFormat = .svg
-            var lastRenderedAt: Date?
-            for candidateFormat in renderedExtensions {
-                let candidate = figuresDir.appendingPathComponent("\(stem).\(candidateFormat.fileExtension)")
-                if fm.fileExists(atPath: candidate.path) {
-                    renderedRelPath = "figures/\(stem).\(candidateFormat.fileExtension)"
-                    format = candidateFormat
-                    let attrs = try? fm.attributesOfItem(atPath: candidate.path)
-                    lastRenderedAt = attrs?[.modificationDate] as? Date
-                    break
-                }
-            }
-            let sourceMtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate
-            plots.append(
-                VeuszPlotRef(
-                    displayName: displayName,
-                    sourceRelativePath: "figures/\(stem).vsz",
-                    renderedRelativePath: renderedRelPath,
-                    exportFormat: format,
-                    lastRenderedAt: lastRenderedAt,
-                    sourceModifiedAt: sourceMtime,
-                    renderStatus: lastRenderedAt == nil ? .stale : .idle
-                )
-            )
-        }
-        // Stable order: by display name. The Plots panel sorts however
-        // it wants on top of this; we just want determinism here.
-        plots.sort { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
-        return (plots, figureFiles)
     }
 }
 
