@@ -14,6 +14,7 @@
 import SwiftUI
 import Combine
 import ImbibRustCore
+import ImpressKit
 import OSLog
 
 private let sessionLogger = Logger(subsystem: "com.imbib.app", category: "editor-session")
@@ -144,6 +145,9 @@ public final class ManuscriptEditorSession {
             savedHash = outcome.newHash
             lastPersistedSource = source
             conflict = nil
+            // Wake any other window/app editing this manuscript (read-side
+            // refresh; the CAS guard above is the clobber-safety invariant).
+            ManuscriptSessionRegistry.shared.postManuscriptChanged(id: manuscriptID)
             return .applied
         }
         // Guard rejected: another writer moved the body.
@@ -246,12 +250,56 @@ public final class ManuscriptSessionRegistry {
         UnsupportedLaTeXCompiler()
     }
 
+    /// Which app this process is — set by imprint's installer (default .imbib).
+    /// Drives which SiblingApp the cross-process "manuscript-changed" Darwin
+    /// notification is posted from.
+    public var currentApp: SiblingApp = .imbib
+
+    /// Darwin observers for cross-process manuscript changes (kept alive here).
+    private var crossProcessObservers: [DarwinObservation] = []
+
     public init(capacity: Int) {
         self.capacity = max(1, capacity)
     }
 
+    /// The manuscript-change Darwin event name, shared across apps.
+    public static let manuscriptChangedEvent = "manuscript-changed"
+
+    /// Install cross-process observers once: when ANY sibling app that edits
+    /// manuscripts posts "manuscript-changed", refresh all live sessions so a
+    /// second window/app editing the same manuscript updates live (the CAS
+    /// guard already prevents clobber at save time; this is the read-side
+    /// refresh). Idempotent — self-posted echoes are absorbed harmlessly.
+    private func installCrossProcessObserversIfNeeded() {
+        guard crossProcessObservers.isEmpty else { return }
+        for app in [SiblingApp.imbib, .imprint] {
+            let obs = ImpressNotification.observe(
+                Self.manuscriptChangedEvent, from: app
+            ) { [weak self] in
+                Task { @MainActor in self?.refreshAllLiveSessions() }
+            }
+            crossProcessObservers.append(obs)
+        }
+    }
+
+    /// Post the cross-process manuscript-changed notification (call after a
+    /// manuscript body/metadata write commits).
+    public func postManuscriptChanged(id: UUID) {
+        ImpressNotification.post(
+            Self.manuscriptChangedEvent,
+            from: currentApp,
+            resourceIDs: [id.uuidString]
+        )
+    }
+
+    /// Re-check every live session against the store (cross-process refresh).
+    public func refreshAllLiveSessions() {
+        for session in sessions.values { session.absorbExternalChange() }
+    }
+
     /// Return the cached session for `id`, or load one from the store.
     public func session(for id: UUID) -> ManuscriptEditorSession? {
+        installCrossProcessObserversIfNeeded()
         if let existing = sessions[id] {
             touch(id)
             return existing

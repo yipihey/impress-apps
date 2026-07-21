@@ -70,6 +70,11 @@ enum ManuscriptEditorInstaller {
         // (graceful degradation); imprint compiles LaTeX in-process via
         // `SystemLaTeXCompiler` (Typst compiles in-process in both apps already).
         ManuscriptSessionRegistry.shared.latexCompilerFactory = { SystemLaTeXCompiler() }
+
+        // GUI-meld Phase 4: this process is imprint — cross-process
+        // "manuscript-changed" notifications are posted from .imprint so imbib
+        // (running the same chassis against the same store) refreshes live.
+        ManuscriptSessionRegistry.shared.currentApp = .imprint
     }
 }
 #endif // os(macOS)
