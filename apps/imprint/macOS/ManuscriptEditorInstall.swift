@@ -64,6 +64,12 @@ enum ManuscriptEditorInstaller {
 
         // Real-time collaboration presence cursor.
         env.presenceCursorHook = { $0.updateCollaborationCursor() }
+
+        // GUI-meld Phase 6: inject imprint's REAL LaTeX compiler into the shared
+        // editor sessions. imbib leaves the `UnsupportedLaTeXCompiler` default
+        // (graceful degradation); imprint compiles LaTeX in-process via
+        // `SystemLaTeXCompiler` (Typst compiles in-process in both apps already).
+        ManuscriptSessionRegistry.shared.latexCompilerFactory = { SystemLaTeXCompiler() }
     }
 }
 #endif // os(macOS)

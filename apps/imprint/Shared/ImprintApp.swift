@@ -385,6 +385,20 @@ struct ImprintApp: App {
         }
     }
 
+    #if os(macOS)
+    /// View ▸ Open Legacy Editor handler. Opens the legacy standalone
+    /// `ManuscriptEditorView` (manuscript-editor WindowGroup) for the most
+    /// recently listed manuscript — or creates a fresh Typst manuscript if the
+    /// library is empty. GUI-meld Phase 6 transition aid; Phase 7 removes it.
+    private func openLegacyEditor() {
+        if let recent = ManuscriptStoreAdapter.shared.listManuscripts(limit: 1).first {
+            openWindow(id: "manuscript-editor", value: recent.id)
+        } else {
+            createNewManuscript(format: .typst)
+        }
+    }
+    #endif
+
     /// File → Import to Manuscript Library… handler. Opens an
     /// NSOpenPanel for .tex / .imprint files, runs the importer, and
     /// pops a manuscript-editor window for each successful import.
@@ -459,10 +473,22 @@ struct ImprintApp: App {
         // preserved so external integrations (URL scheme, openWindow
         // callers) keep working without a transition step.
         WindowGroup("imprint", id: "project-browser") {
-            // Gate opens the shared store OFF the main thread so launch never
-            // blocks on the App Group store's TCC prompt / slow open.
-            ManuscriptLibraryGate()
-                .withAppearance()
+            // GUI-meld Phase 6: the project browser is now the SHARED chassis
+            // (PMC's TabContentView) filtered to the Manuscripts facet — same
+            // GUI as imbib, lands on a manuscript in the Source tab. The root
+            // warms the shared store OFF the main thread so launch never blocks
+            // on the App Group store's TCC prompt / slow open. The legacy
+            // `ManuscriptLibraryGate` / `ManuscriptEditorView` path is retained
+            // (View ▸ Open Legacy Editor, manuscript-editor WindowGroup) as a
+            // transition aid until Phase 7 deletes it.
+            Group {
+                #if os(macOS)
+                ImprintChassisRoot()
+                #else
+                ManuscriptLibraryGate()
+                    .withAppearance()
+                #endif
+            }
                 .onReceive(
                     NotificationCenter.default.publisher(for: .openManuscriptInEditor)
                 ) { notification in
@@ -713,6 +739,18 @@ struct ImprintApp: App {
                 openWindow(id: "project-browser")
             }
             .keyboardShortcut("L", modifiers: [.command, .shift])
+
+            #if os(macOS)
+            // GUI-meld Phase 6 transition aid: the project browser now hosts the
+            // shared chassis (ImprintChassisRoot). This command still opens the
+            // legacy standalone `ManuscriptEditorView` (manuscript-editor
+            // WindowGroup) for the most recent manuscript — or a fresh one if the
+            // library is empty. Removed in Phase 7 once the chassis editor fully
+            // replaces it.
+            Button("Open Legacy Editor") {
+                openLegacyEditor()
+            }
+            #endif
 
             Button("Import to Manuscript Library…") {
                 handleImportToLibrary()
