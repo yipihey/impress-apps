@@ -102,17 +102,33 @@ impl From<scix_client::types::Library> for ScixLibrary {
 #[cfg(feature = "native")]
 impl From<scix_client::SciXError> for ScixFfiError {
     fn from(e: scix_client::SciXError) -> Self {
-        let msg = e.to_string();
-        if msg.contains("401") || msg.contains("Unauthorized") || msg.contains("unauthorized") {
-            ScixFfiError::Unauthorized
-        } else if msg.contains("429") || msg.contains("rate limit") || msg.contains("Rate limit") {
-            ScixFfiError::RateLimited
-        } else if msg.contains("404") || msg.contains("Not found") || msg.contains("not found") {
-            ScixFfiError::NotFound
-        } else if msg.contains("connection") || msg.contains("network") || msg.contains("reqwest") {
-            ScixFfiError::NetworkError { message: msg }
-        } else {
-            ScixFfiError::ApiError { message: msg }
+        use scix_client::SciXError as E;
+        // Match the TYPED error variant, not its Display string. The old
+        // string-matching missed `AuthRequired` entirely (its message contains
+        // none of "401"/"Unauthorized"), so a missing/invalid token surfaced as
+        // a generic ApiError -> Swift `.parseError` instead of an auth prompt.
+        // SciXError is not #[non_exhaustive]; a future variant is a compile
+        // error here (intentional — forces us to classify it).
+        match e {
+            E::AuthRequired => ScixFfiError::Unauthorized,
+            E::RateLimited { .. } => ScixFfiError::RateLimited,
+            E::NotFound(_) => ScixFfiError::NotFound,
+            // HTTP error status codes carry their own semantics.
+            E::Api { status: 401, .. } => ScixFfiError::Unauthorized,
+            E::Api { status: 429, .. } => ScixFfiError::RateLimited,
+            E::Api { status: 404, .. } => ScixFfiError::NotFound,
+            E::Api { message, .. } => ScixFfiError::ApiError { message },
+            E::Http(err) => ScixFfiError::NetworkError {
+                message: err.to_string(),
+            },
+            // Parse / query / config / JSON failures are all "we couldn't make
+            // sense of the response/request" -> ApiError (Swift `.parseError`).
+            E::Parse(msg) | E::InvalidQuery(msg) | E::Config(msg) => {
+                ScixFfiError::ApiError { message: msg }
+            }
+            E::Json(err) => ScixFfiError::ApiError {
+                message: err.to_string(),
+            },
         }
     }
 }
