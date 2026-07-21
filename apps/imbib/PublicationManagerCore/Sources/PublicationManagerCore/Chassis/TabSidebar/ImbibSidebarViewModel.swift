@@ -111,6 +111,10 @@ final class ImbibSidebarViewModel {
 
     // MARK: - Initialization
 
+    /// The app-shell identity (thin-twin). Defaults to imbib (all sections);
+    /// imprint sets `.imprint` to show only the Manuscripts facet.
+    var shellConfiguration: AppShellConfiguration = .imbib
+
     init(store: any PublicationStoreProtocol = RustStoreAdapter.shared) {
         self.store = store
     }
@@ -310,6 +314,9 @@ final class ImbibSidebarViewModel {
     }
 
     private func shouldShowSection(_ section: SidebarSectionType) -> Bool {
+        // Thin-twin: the app-shell config restricts which sections exist at all
+        // (imprint = Manuscripts facet only). Content gating applies on top.
+        guard shellConfiguration.permits(section) else { return false }
         switch section {
         case .inbox, .libraries, .search, .flagged:
             return true
