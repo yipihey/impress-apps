@@ -46,6 +46,10 @@ public final class ManuscriptEditorSession {
     private var isApplyingExternal = false
     public var cursorPosition: Int = 0
 
+    /// The editor's current selection (UTF-16 NSRange offsets), tracked from
+    /// the editor's onSelectionChange — used to anchor a new comment.
+    public var selectedRange: NSRange = NSRange(location: 0, length: 0)
+
     /// Set by a cross-tab SyncTeX inverse-sync jump (PDF tab → Source tab).
     /// The Source tab observes this, scrolls, then clears it.
     public var pendingScrollLine: Int?

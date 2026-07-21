@@ -21,6 +21,7 @@ public struct ManuscriptSourceTab: View {
     @State private var session: ManuscriptEditorSession
     @AppStorage("manuscript.sourceTab.showPreview") private var showPreview = true
     @AppStorage("manuscript.sourceTab.showOutline") private var showOutline = false
+    @AppStorage("manuscript.sourceTab.showComments") private var showComments = false
 
     public init(session: ManuscriptEditorSession) {
         _session = State(initialValue: session)
@@ -47,6 +48,10 @@ public struct ManuscriptSourceTab: View {
             }
             editor
                 .frame(minWidth: 320)
+            if showComments {
+                ManuscriptCommentsColumn(session: session)
+                    .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
+            }
             if showPreview {
                 previewPane
                     .frame(minWidth: 280)
@@ -58,7 +63,8 @@ public struct ManuscriptSourceTab: View {
         SourceEditorView(
             source: $session.source,
             cursorPosition: $session.cursorPosition,
-            syntaxMode: session.format
+            syntaxMode: session.format,
+            onSelectionChange: { _, range in session.selectedRange = range }
         )
     }
 
@@ -110,6 +116,11 @@ public struct ManuscriptSourceTab: View {
             }
             .toggleStyle(.button)
             .help("Toggle outline")
+            Toggle(isOn: $showComments) {
+                Image(systemName: "bubble.left.and.bubble.right")
+            }
+            .toggleStyle(.button)
+            .help("Toggle comments")
             Toggle(isOn: $showPreview) {
                 Image(systemName: "sidebar.right")
             }
@@ -136,6 +147,135 @@ public struct ManuscriptSourceTab: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.15))
+    }
+}
+
+/// The Source tab's comments column (GUI-meld plan §4 — "toggleable comments
+/// column"). Store-backed via RustStoreAdapter (`imbib/comment` items keyed by
+/// the manuscript UUID — the same items imprint's CommentService writes), so
+/// the default chassis window and the legacy editor share one comment set.
+/// New comments anchor to the current editor selection.
+struct ManuscriptCommentsColumn: View {
+    let session: ManuscriptEditorSession
+
+    @State private var comments: [Comment] = []
+    @State private var draft: String = ""
+
+    /// The invisible sentinel imprint's ManuscriptCommentStore uses to carry
+    /// isResolved/proposedText — stripped for display so it never shows.
+    private static let metaSentinel = "\u{2063}\u{2063}imprint-meta:"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Comments")
+                .font(.caption).foregroundStyle(.secondary).textCase(.uppercase)
+                .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
+            Divider()
+            if rootComments.isEmpty {
+                Text("No comments")
+                    .font(.callout).foregroundStyle(.tertiary).padding(10)
+                Spacer()
+            } else {
+                List {
+                    ForEach(rootComments) { comment in
+                        commentRow(comment)
+                    }
+                }
+                .listStyle(.plain)
+            }
+            Divider()
+            composer
+        }
+        .background(.background)
+        .task(id: session.manuscriptID) { reload() }
+        .task {
+            // Refresh when the manuscript (and thus its comments) mutate.
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                if case .itemsMutated(_, let ids) = event, ids.contains(session.manuscriptID) {
+                    reload()
+                }
+            }
+        }
+    }
+
+    private var rootComments: [Comment] {
+        comments.filter { $0.parentCommentID == nil }
+    }
+
+    private func commentRow(_ comment: Comment) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(comment.authorDisplayName ?? "Unknown")
+                    .font(.caption).fontWeight(.medium)
+                Spacer()
+                Text(comment.dateCreated, format: .dateTime.month().day().hour().minute())
+                    .font(.caption2).foregroundStyle(.tertiary)
+                Button {
+                    RustStoreAdapter.shared.deleteComment(comment.id)
+                    reload()
+                } label: {
+                    Image(systemName: "trash").font(.caption2)
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+            if let snippet = comment.anchorText, !snippet.isEmpty {
+                Text("“\(snippet.prefix(48))”")
+                    .font(.caption2).foregroundStyle(.secondary).italic()
+                    .lineLimit(1)
+            }
+            Text(displayText(comment.text))
+                .font(.callout)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var composer: some View {
+        HStack(spacing: 6) {
+            TextField("Add a comment…", text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...4)
+                .onSubmit(addComment)
+            Button(action: addComment) {
+                Image(systemName: "arrow.up.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(8)
+    }
+
+    private func displayText(_ raw: String) -> String {
+        if let r = raw.range(of: Self.metaSentinel) {
+            return String(raw[..<r.lowerBound])
+        }
+        return raw
+    }
+
+    private func reload() {
+        comments = RustStoreAdapter.shared.listCommentsForItem(itemId: session.manuscriptID)
+    }
+
+    private func addComment() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        let range = session.selectedRange
+        let ns = session.source as NSString
+        let safeLoc = min(max(0, range.location), ns.length)
+        let safeLen = min(range.length, ns.length - safeLoc)
+        let snippet = safeLen > 0 ? ns.substring(with: NSRange(location: safeLoc, length: safeLen)) : ""
+        let hash = RustStoreAdapter.shared.getManuscriptDetail(id: session.manuscriptID)?.bodyContentHash ?? ""
+
+        RustStoreAdapter.shared.createAnchoredComment(
+            itemId: session.manuscriptID,
+            text: text,
+            authorDisplayName: NSFullUserName(),
+            anchorStart: safeLoc,
+            anchorEnd: safeLoc + safeLen,
+            anchorText: snippet,
+            anchoredBodyHash: hash
+        )
+        draft = ""
+        reload()
     }
 }
 
