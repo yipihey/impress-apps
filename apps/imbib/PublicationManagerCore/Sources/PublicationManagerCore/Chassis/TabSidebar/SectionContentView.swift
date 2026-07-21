@@ -799,6 +799,7 @@ struct SectionContentView: View {
         case .bibtex: detachedTab = .bibtex
         case .pdf: detachedTab = .pdf
         case .notes: detachedTab = .notes
+        case .source: detachedTab = .info
         }
 
         DetailWindowController.shared.openTab(

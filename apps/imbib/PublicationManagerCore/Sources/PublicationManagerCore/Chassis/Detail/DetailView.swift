@@ -151,6 +151,9 @@ struct DetailView: View {
                     } else {
                         Color.clear
                     }
+                case .source:
+                    // Manuscript-only tab; publications never select it.
+                    Color.clear
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

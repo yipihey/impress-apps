@@ -49,6 +49,7 @@ public enum FocusedPane: String, Hashable, CaseIterable {
         case .pdf: return .pdf
         case .notes: return .notes
         case .bibtex: return .bibtex
+        case .source: return .info
         }
     }
 }
