@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 #if canImport(UIKit)
 import UIKit
@@ -44,7 +45,7 @@ public final class CommentService {
         parentCommentID: UUID? = nil
     ) -> Comment? {
         let authorName = resolveAuthorName()
-        let authorIdentifier = resolveAuthorIdentifier()
+        let authorIdentifier = currentAuthorIdentifier
 
         let comment = store.createCommentOnItem(
             itemId: itemID,
@@ -115,30 +116,27 @@ public final class CommentService {
         if let cached = cachedIdentity {
             return cached.name
         }
-        // Fallback to device name
-        #if os(macOS)
-        return Host.current().localizedName ?? "Me"
-        #else
-        return UIDevice.current.name
-        #endif
+        // Fallback to the device display name.
+        return CurrentDeviceAuthor.displayName ?? "Me"
     }
 
-    private func resolveAuthorIdentifier() -> String? {
-        if let cached = cachedIdentity {
-            return cached.identifier
-        }
-        // Fallback to device name
-        #if os(macOS)
-        return Host.current().localizedName
-        #else
-        return UIDevice.current.name
-        #endif
+    /// The stable identifier stamped onto comments authored on this
+    /// installation, and compared in ``isOwnComment(_:)``.
+    ///
+    /// This is deliberately NOT the CloudKit user record (imbib migrated off
+    /// CloudKit, ADR-023) nor the device name (user-editable, `nil` in
+    /// sandboxes) — both are unstable across sessions, which is exactly the
+    /// bug this fixes. It is a persisted per-installation UUID
+    /// (`CurrentDeviceAuthor.stableIdentifier`), identical across every
+    /// launch and across imbib/imprint. If genuine cross-device sharing
+    /// returns, prefer the CloudKit record name here when it is available.
+    public var currentAuthorIdentifier: String {
+        CurrentDeviceAuthor.stableIdentifier
     }
 
     /// Check if a comment was authored by the current user.
     public func isOwnComment(_ comment: Comment) -> Bool {
-        guard let currentID = resolveAuthorIdentifier() else { return false }
-        return comment.authorIdentifier == currentID
+        comment.authorIdentifier == currentAuthorIdentifier
     }
 
     // MARK: - Activity Recording

@@ -362,6 +362,7 @@ struct ManuscriptCommentsColumn: View {
         RustStoreAdapter.shared.createAnchoredComment(
             itemId: session.manuscriptID,
             text: text,
+            authorIdentifier: CommentService.shared.currentAuthorIdentifier,
             authorDisplayName: NSFullUserName(),
             anchorStart: safeLoc,
             anchorEnd: safeLoc + safeLen,

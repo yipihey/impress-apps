@@ -255,6 +255,7 @@ public struct CommentSectionView: View {
         RustStoreAdapter.shared.addCommentToItem(
             text: text,
             itemID: itemID,
+            authorIdentifier: CommentService.shared.currentAuthorIdentifier,
             authorDisplayName: CurrentDeviceAuthor.displayName,
             parentCommentID: replyingTo?.id
         )

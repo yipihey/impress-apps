@@ -49,4 +49,17 @@ public enum CurrentDeviceAuthor {
         return nil
         #endif
     }
+
+    /// A stable, non-`nil` identifier for the current author, suitable for
+    /// ownership checks ("is this my comment?").
+    ///
+    /// Unlike ``displayName`` — which is user-editable and can differ or
+    /// return `nil` between launches — this value is minted once and
+    /// persisted in the shared app-group defaults, so it is identical across
+    /// every launch and across every sibling app on this installation. Pair
+    /// it with ``displayName`` (the human-readable label) when stamping
+    /// records: identity for equality, display name for the eye.
+    public static var stableIdentifier: String {
+        SharedDefaults.authorIdentifier
+    }
 }

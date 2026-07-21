@@ -2504,12 +2504,14 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     public func addCommentToItem(
         text: String,
         itemID: UUID,
+        authorIdentifier: String? = nil,
         authorDisplayName: String?,
         parentCommentID: UUID? = nil
     ) {
         _ = createCommentOnItem(
             itemId: itemID,
             text: text,
+            authorIdentifier: authorIdentifier,
             authorDisplayName: authorDisplayName,
             parentCommentId: parentCommentID
         )
@@ -3343,6 +3345,52 @@ extension RustStoreAdapter {
         }
     }
 
+    /// Register a store-level undo for a just-created item (manuscript, folder,
+    /// …). Undo snapshots and removes the item; redo restores the exact same
+    /// item (same id) so the undo/redo chain is stable. Text edits inside the
+    /// editor keep their own native undo — this covers only the structural
+    /// create, which the text UndoManager cannot reach.
+    ///
+    /// Call at the *user-action* site (e.g. New / Duplicate Manuscript) after
+    /// the create succeeds; programmatic/bulk creates (import, migration)
+    /// deliberately skip it so they don't clutter the undo stack.
+    ///
+    /// `onUndoRemoved` fires after the item is removed by undo — the call site
+    /// uses it to clear a now-dangling selection that pointed at the created
+    /// item (the store layer can't reach view `@State`).
+    public func registerCreationUndo(
+        itemID: UUID,
+        actionName: String,
+        onUndoRemoved: (@MainActor () -> Void)? = nil
+    ) {
+        let capturedStore = store
+        // A reference box carries the snapshot from the undo (which produces
+        // it) to the redo (which consumes it) across UndoManager's swapped
+        // closure re-registration.
+        let box = ItemSnapshotBox()
+        UndoCoordinator.shared.registerUndoClosure(
+            actionName: actionName,
+            undo: { [weak self] in
+                do {
+                    box.snapshots = try capturedStore.deletePublicationsUndoable(
+                        ids: [itemID.uuidString])
+                    self?.didMutate(structural: true)
+                    onUndoRemoved?()
+                } catch {
+                    Logger.library.error("Undo create (\(actionName)) failed: \(error)")
+                }
+            },
+            redo: { [weak self] in
+                do {
+                    try capturedStore.restoreSnapshots(snapshots: box.snapshots)
+                    self?.didMutate(structural: true)
+                } catch {
+                    Logger.library.error("Redo create (\(actionName)) failed: \(error)")
+                }
+            }
+        )
+    }
+
     /// Save a manuscript body. Pass `expectedHash` (the last-loaded
     /// `bodyContentHash`) for compare-and-set safety against a concurrent
     /// writer (imprint editing the same manuscript); nil = unconditional.
@@ -3511,4 +3559,12 @@ extension RustStoreAdapter {
             return nil
         }
     }
+}
+
+/// A tiny reference box that carries deletion snapshots between the undo and
+/// redo halves of `registerCreationUndo`. UndoManager re-registers the redo as
+/// a fresh closure pair, so the snapshot produced by the undo has to live in
+/// shared reference storage the redo can read.
+private final class ItemSnapshotBox {
+    var snapshots: [ItemSnapshot] = []
 }

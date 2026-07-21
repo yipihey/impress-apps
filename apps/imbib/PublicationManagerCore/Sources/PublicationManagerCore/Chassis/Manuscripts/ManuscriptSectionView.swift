@@ -78,6 +78,11 @@ public struct ManuscriptSectionView: View {
                         publicationIds: [mID], collectionId: folder
                     )
                 }
+                if let mID = UUID(uuidString: row.id) {
+                    RustStoreAdapter.shared.registerCreationUndo(
+                        itemID: mID, actionName: "New Manuscript",
+                        onUndoRemoved: { if selectedID == mID { selectedID = nil } })
+                }
                 selectedID = UUID(uuidString: row.id)
             }
         }
@@ -93,6 +98,11 @@ public struct ManuscriptSectionView: View {
                 body: detail.bodyContent,
                 authors: detail.authors
             ) {
+                if let mID = UUID(uuidString: row.id) {
+                    RustStoreAdapter.shared.registerCreationUndo(
+                        itemID: mID, actionName: "Duplicate Manuscript",
+                        onUndoRemoved: { if selectedID == mID { selectedID = nil } })
+                }
                 selectedID = UUID(uuidString: row.id)
             }
         }
