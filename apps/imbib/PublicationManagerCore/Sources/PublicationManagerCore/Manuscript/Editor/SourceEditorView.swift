@@ -228,6 +228,12 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         textView.hoverController = context.coordinator.hoverController
         textView.currentFormat = syntaxMode
 
+        // Focus-scoped ⌘S → citation insert.
+        textView.onManualCitation = { [weak coordinator = context.coordinator, weak textView] in
+            guard let coordinator, let textView else { return }
+            coordinator.insertCitationManually(in: textView)
+        }
+
         // Cell-bracket ruler (right margin). Reserve space via the container
         // inset so text never flows under the brackets.
         if showCellBrackets {
@@ -544,6 +550,45 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         /// shows/hides the inline palette accordingly. Runs on MainActor because
         /// BibliographyGenerator and AppKit views are main-isolated.
         @MainActor
+        /// Manual (⌘S) citation insert: drop the format-appropriate citation
+        /// scaffold at the cursor, then open the palette positioned inside it.
+        /// The palette's normal insert(row:) then fills the key.
+        func insertCitationManually(in textView: NSTextView) {
+            guard let textStorage = textView.textStorage else { return }
+            let format = parent.syntaxMode
+            let caret = textView.selectedRange().location
+
+            // Scaffold + where the key goes (empty insertion range inside it).
+            let scaffold: String
+            let keyOffset: Int   // offset from caret to the key insertion point
+            switch format {
+            case .latex:
+                scaffold = "\\cite{}"
+                keyOffset = 6      // between the braces
+            case .typst:
+                scaffold = "@"
+                keyOffset = 1      // right after @
+            }
+
+            let insertRange = NSRange(location: caret, length: 0)
+            if textView.shouldChangeText(in: insertRange, replacementString: scaffold) {
+                textStorage.replaceCharacters(in: insertRange, with: scaffold)
+                textView.didChangeText()
+                let keyLocation = caret + keyOffset
+                textView.setSelectedRange(NSRange(location: keyLocation, length: 0))
+
+                let citedKeys = ManuscriptEditorEnvironment.shared.citedKeys()
+                citationPalette.show(
+                    in: textView,
+                    at: NSRange(location: keyLocation, length: 0),
+                    initialQuery: "",
+                    alreadyCitedKeys: citedKeys,
+                    format: format
+                )
+            }
+        }
+
+        @MainActor
         private func maybeShowCitationPalette(in textView: NSTextView, at cursorLocation: Int) {
             let format = parent.syntaxMode
             if let trigger = CitationPaletteTriggerDetector.detect(
@@ -652,6 +697,10 @@ class TypstTextView: HelixTextView {
     var hoverController: CiteKeyHoverController?
     /// Current document format (set by the coordinator) — used to pick the right cite-key parser.
     var currentFormat: DocumentFormat = .typst
+    /// ⌘S in the focused editor: insert a citation at the cursor (GUI-meld §5,
+    /// focus-scoped — the chassis ⌘S smart-search only fires when the editor
+    /// is NOT first responder). Set by the coordinator.
+    var onManualCitation: (@MainActor () -> Void)?
     /// Tracking area for mouse-moved events.
     private var hoverTrackingArea: NSTrackingArea?
 
@@ -741,6 +790,14 @@ class TypstTextView: HelixTextView {
             case "e":
                 performTextFinderAction(tag: NSTextFinder.Action.setSearchString.rawValue)
                 return true
+            case "s":
+                // Focus-scoped ⌘S: insert a citation. Only reached while the
+                // editor is first responder; elsewhere ⌘S is the chassis
+                // smart-search overlay.
+                if let onManualCitation {
+                    onManualCitation()
+                    return true
+                }
             default:
                 break
             }
