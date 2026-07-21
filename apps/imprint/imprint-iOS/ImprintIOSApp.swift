@@ -21,51 +21,14 @@ struct ImprintIOSApp: App {
     // MARK: - Body
 
     var body: some Scene {
-        // Document-based scene
-        DocumentGroup(newDocument: ImprintDocument()) { file in
-            NavigationStack {
-                IOSContentView(document: file.$document)
-            }
-            .onOpenURL { url in
-                handleIncomingURL(url)
-            }
-            .task {
-                // Best-effort: keep the stored-section outline snapshot fresh
-                // for multi-section documents. Cheap — a single subscription to
-                // the store event bus. The outline UI's regex parser is the
-                // reliable path and does not depend on this.
-                await OutlineSnapshotMaintainer.shared.start()
-            }
+        // Store-backed manuscripts app (GUI-meld Phase 8): a manuscript
+        // library fronts the editor rather than the system document browser,
+        // so imprint-iOS reads/writes the same unified store as imbib and
+        // macOS imprint. URL handling + outline-snapshot upkeep live inside
+        // the library view.
+        WindowGroup {
+            IOSManuscriptLibraryView()
         }
-    }
-
-    // MARK: - URL Handling
-
-    private func handleIncomingURL(_ url: URL) {
-        // Handle imprint:// URLs
-        guard url.scheme == "imprint" else { return }
-
-        switch url.host {
-        case "open":
-            handleOpenURL(url)
-        default:
-            break
-        }
-    }
-
-    /// Handles `imprint://open?imbibManuscript={citeKey}&documentUUID={uuid}`
-    private func handleOpenURL(_ url: URL) {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = components.queryItems else {
-            return
-        }
-
-        let imbibManuscript = queryItems.first { $0.name == "imbibManuscript" }?.value
-        let documentUUID = queryItems.first { $0.name == "documentUUID" }?.value
-
-        // TODO: Open the specific document
-        print("Opening document for imbib manuscript: \(imbibManuscript ?? "unknown")")
-        print("Document UUID: \(documentUUID ?? "unknown")")
     }
 }
 

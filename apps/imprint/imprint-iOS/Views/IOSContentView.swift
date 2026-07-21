@@ -14,6 +14,7 @@ import SwiftUI
 import OSLog
 import ImpressLogging
 import ImprintCore
+import PublicationManagerCore
 
 // MARK: - iOS Content View
 

@@ -7,6 +7,7 @@
 
 import UIKit
 import SwiftUI
+import PublicationManagerCore
 
 // MARK: - Scribble Support
 
@@ -26,7 +27,7 @@ import SwiftUI
 /// - Tap and hold to select text
 /// - Circle to select word
 /// - Strikethrough to delete
-extension SourceTextView {
+extension UITextView {
 
     /// Configures Scribble behavior for the text view.
     func setupScribbleInteraction() {
