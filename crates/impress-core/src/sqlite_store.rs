@@ -1881,7 +1881,119 @@ impl SqliteItemStore {
             state.operation_count += 1;
         }
 
+        // The forward pass rebuilds ENVELOPE state (tags/flags/read/…) from
+        // creation defaults, which is correct because every envelope change
+        // is an operation. PAYLOAD state, however, started from the CURRENT
+        // materialized payload (the items row is updated in place — there is
+        // no stored creation-time payload), so fields whose edits happened
+        // AFTER the cutoff still hold their present values. Un-apply those
+        // later operations in reverse clock order using their captured
+        // `prev` values to walk the payload back to the cutoff.
+        let unapply_sql = if clock_cutoff.is_some() {
+            format!(
+                "SELECT {} FROM items WHERE op_target_id = ?1 AND logical_clock > ?2 ORDER BY logical_clock DESC, created DESC, id DESC",
+                ITEM_COLUMNS
+            )
+        } else if time_cutoff.is_some() {
+            format!(
+                "SELECT {} FROM items WHERE op_target_id = ?1 AND created > ?2 ORDER BY logical_clock DESC, created DESC, id DESC",
+                ITEM_COLUMNS
+            )
+        } else {
+            String::new() // no cutoff — nothing to un-apply
+        };
+        if !unapply_sql.is_empty() {
+            let mut unapply_stmt = conn
+                .prepare(&unapply_sql)
+                .map_err(|e| StoreError::Storage(format!("prepare ops unapply: {}", e)))?;
+            let later_ops: Vec<Item> = if let Some(clock) = clock_cutoff {
+                unapply_stmt
+                    .query_map(params![&id_str, clock as i64], |row| {
+                        Ok(Self::row_to_item(&conn, row))
+                    })
+                    .map_err(|e| StoreError::Storage(format!("query later ops: {}", e)))?
+                    .collect::<Result<Result<Vec<_>, _>, _>>()
+                    .map_err(|e| StoreError::Storage(format!("collect later ops: {}", e)))??
+            } else if let Some(ts) = time_cutoff {
+                unapply_stmt
+                    .query_map(params![&id_str, ts.timestamp_millis()], |row| {
+                        Ok(Self::row_to_item(&conn, row))
+                    })
+                    .map_err(|e| StoreError::Storage(format!("query later ops: {}", e)))?
+                    .collect::<Result<Result<Vec<_>, _>, _>>()
+                    .map_err(|e| StoreError::Storage(format!("collect later ops: {}", e)))??
+            } else {
+                Vec::new()
+            };
+            for op_item in &later_ops {
+                Self::unapply_payload_op(&mut state, &op_item.payload);
+            }
+        }
+
         Ok(Some(state))
+    }
+
+    /// Revert a single operation's PAYLOAD/parent effect using its captured
+    /// `prev` value (envelope effects are handled by the forward pass).
+    /// Best-effort: an op with no usable `prev` for a set_payload means the
+    /// field did not exist before it — remove it.
+    fn unapply_payload_op(state: &mut EffectiveState, op_payload: &BTreeMap<String, Value>) {
+        let op_type = match op_payload.get("op_type") {
+            Some(Value::String(s)) => s.as_str(),
+            _ => return,
+        };
+        let prev = op_payload.get("prev");
+        match op_type {
+            "set_payload" => {
+                let field = match op_payload.get("op_data") {
+                    Some(Value::Object(m)) => match m.get("field") {
+                        Some(Value::String(f)) => f.clone(),
+                        _ => return,
+                    },
+                    _ => return,
+                };
+                match prev {
+                    Some(Value::Null) | None => {
+                        state.payload.remove(&field);
+                    }
+                    Some(v) => {
+                        state.payload.insert(field, v.clone());
+                    }
+                }
+            }
+            "remove_payload" => {
+                let field = match op_payload.get("op_data") {
+                    Some(Value::String(f)) => f.clone(),
+                    _ => return,
+                };
+                match prev {
+                    Some(Value::Null) | None => {}
+                    Some(v) => {
+                        state.payload.insert(field, v.clone());
+                    }
+                }
+            }
+            "patch_payload" => {
+                if let Some(Value::Object(prev_fields)) = prev {
+                    for (k, v) in prev_fields {
+                        match v {
+                            Value::Null => {
+                                state.payload.remove(k);
+                            }
+                            other => {
+                                state.payload.insert(k.clone(), other.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            "set_parent" => match prev {
+                Some(Value::String(s)) => state.parent = s.parse().ok(),
+                Some(Value::Null) => state.parent = None,
+                _ => {}
+            },
+            _ => {}
+        }
     }
 
     /// Replay a single operation's effect onto an EffectiveState.

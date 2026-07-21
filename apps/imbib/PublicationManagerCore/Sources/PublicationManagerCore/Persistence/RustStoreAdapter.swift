@@ -3165,3 +3165,212 @@ extension RustStoreAdapter {
         }
     }
 }
+
+// MARK: - Manuscript Operations (unified GUI — ADR-0011 / GUI-meld Phase 0)
+//
+// Manuscripts are `manuscript@1.0.0` items shared with imprint's
+// ManuscriptStoreAdapter — same schema, same items table, same DB file.
+// These wrappers surface the ImbibStore manuscript queries added in
+// crates/imbib-core/src/unified/store_api.rs. Collection membership reuses
+// the schema-agnostic addToCollection/removeFromCollection (Contains edges).
+//
+// The UniFFI record types (ManuscriptRow, ManuscriptDetail, …) are exposed
+// directly for now; the MailStyleItem row model (ManuscriptRowData) lands
+// with the list UI in GUI-meld Phase 2.
+extension RustStoreAdapter {
+
+    /// List manuscripts, optionally scoped to a folder and/or lifecycle status.
+    public func queryManuscripts(
+        collectionID: UUID? = nil,
+        status: String? = nil,
+        sort: String = "modified",
+        ascending: Bool = false,
+        limit: UInt32? = nil,
+        offset: UInt32? = nil
+    ) -> [ManuscriptRow] {
+        StoreTimings.shared.measure("queryManuscripts") {
+            do {
+                return try store.listManuscripts(
+                    collectionId: collectionID?.uuidString,
+                    status: status,
+                    sortField: sort,
+                    ascending: ascending,
+                    limit: limit,
+                    offset: offset
+                )
+            } catch {
+                Logger.library.errorCapture(
+                    "queryManuscripts failed: \(error)", category: "manuscripts")
+                return []
+            }
+        }
+    }
+
+    /// Count manuscripts matching the same filters as `queryManuscripts`.
+    public func countManuscripts(collectionID: UUID? = nil, status: String? = nil) -> Int {
+        do {
+            return Int(try store.countManuscripts(
+                collectionId: collectionID?.uuidString, status: status))
+        } catch {
+            Logger.library.errorCapture(
+                "countManuscripts failed: \(error)", category: "manuscripts")
+            return 0
+        }
+    }
+
+    /// Single manuscript row (list shape) — for O(1) row refresh.
+    public func getManuscriptRow(id: UUID) -> ManuscriptRow? {
+        do {
+            return try store.getManuscriptRow(id: id.uuidString)
+        } catch {
+            Logger.library.errorCapture(
+                "getManuscriptRow failed for \(id): \(error)", category: "manuscripts")
+            return nil
+        }
+    }
+
+    /// Full manuscript detail (body, metadata, folders) for the detail pane.
+    public func getManuscriptDetail(id: UUID) -> ManuscriptDetail? {
+        do {
+            return try store.getManuscriptDetail(id: id.uuidString)
+        } catch {
+            Logger.library.errorCapture(
+                "getManuscriptDetail failed for \(id): \(error)", category: "manuscripts")
+            return nil
+        }
+    }
+
+    /// Create a manuscript (payload identical to imprint's adapter, so items
+    /// are indistinguishable regardless of the creating app).
+    @discardableResult
+    public func createManuscript(
+        title: String,
+        format: String = "typst",
+        body: String = "",
+        authors: [String] = []
+    ) -> ManuscriptRow? {
+        do {
+            let row = try store.createManuscript(
+                title: title, format: format, body: body, authors: authors)
+            Logger.library.infoCapture(
+                "Created manuscript \(row.id) (\(format), \(body.count) bytes)",
+                category: "manuscripts")
+            didMutate(structural: true)
+            return row
+        } catch {
+            Logger.library.errorCapture(
+                "createManuscript failed: \(error)", category: "manuscripts")
+            return nil
+        }
+    }
+
+    /// Save a manuscript body. Pass `expectedHash` (the last-loaded
+    /// `bodyContentHash`) for compare-and-set safety against a concurrent
+    /// writer (imprint editing the same manuscript); nil = unconditional.
+    /// Returns the outcome — `applied == false` means the guard rejected the
+    /// write and the caller must re-read and reconcile.
+    public func setManuscriptBody(
+        id: UUID,
+        body: String,
+        expectedHash: String? = nil
+    ) -> ManuscriptSaveOutcome? {
+        do {
+            let outcome = try store.setManuscriptBody(
+                id: id.uuidString, body: body, expectedHash: expectedHash)
+            if outcome.applied {
+                didMutate(structural: false, affectedIDs: [id], kind: .otherField)
+            } else {
+                Logger.library.warningCapture(
+                    "setManuscriptBody CONFLICT for \(id): stored=\(outcome.storedHash ?? "nil") expected=\(expectedHash ?? "nil")",
+                    category: "manuscripts")
+            }
+            return outcome
+        } catch {
+            Logger.library.errorCapture(
+                "setManuscriptBody failed for \(id): \(error)", category: "manuscripts")
+            return nil
+        }
+    }
+
+    /// Substring search over manuscript title/body/notes (list-filter path).
+    public func searchManuscripts(query: String, limit: UInt32? = nil) -> [ManuscriptRow] {
+        do {
+            return try store.searchManuscripts(query: query, limit: limit)
+        } catch {
+            Logger.library.errorCapture(
+                "searchManuscripts failed: \(error)", category: "manuscripts")
+            return []
+        }
+    }
+
+    // MARK: Manuscript folders (manuscript-collection items)
+
+    /// All manuscript folders, flat; assemble the tree via `parentId`.
+    public func listManuscriptCollections() -> [ManuscriptCollectionRow] {
+        do {
+            return try store.listManuscriptCollections()
+        } catch {
+            Logger.library.errorCapture(
+                "listManuscriptCollections failed: \(error)", category: "manuscripts")
+            return []
+        }
+    }
+
+    /// Create a manuscript folder (nested under `parentID` when given).
+    @discardableResult
+    public func createManuscriptCollection(
+        name: String,
+        parentID: UUID? = nil
+    ) -> ManuscriptCollectionRow? {
+        do {
+            let row = try store.createManuscriptCollection(
+                name: name, parentId: parentID?.uuidString)
+            didMutate(structural: true)
+            return row
+        } catch {
+            Logger.library.errorCapture(
+                "createManuscriptCollection failed: \(error)", category: "manuscripts")
+            return nil
+        }
+    }
+
+    // MARK: Manuscript versions (revision snapshots, ADR-0011 D45)
+
+    /// Revision snapshots of a manuscript, newest first.
+    public func listManuscriptRevisions(manuscriptID: UUID) -> [ManuscriptRevisionRow] {
+        do {
+            return try store.listManuscriptRevisions(manuscriptId: manuscriptID.uuidString)
+        } catch {
+            Logger.library.errorCapture(
+                "listManuscriptRevisions failed: \(error)", category: "manuscripts")
+            return []
+        }
+    }
+
+    /// Snapshot the current body as an immutable named revision and advance
+    /// the manuscript's head. `reason`: status-change | user-tag |
+    /// stable-churn | manual.
+    @discardableResult
+    public func createManuscriptRevision(
+        manuscriptID: UUID,
+        tag: String,
+        reason: String = "manual"
+    ) -> ManuscriptRevisionRow? {
+        do {
+            let row = try store.createManuscriptRevision(
+                manuscriptId: manuscriptID.uuidString,
+                revisionTag: tag,
+                snapshotReason: reason)
+            Logger.library.infoCapture(
+                "Created revision '\(tag)' (\(row.id)) for manuscript \(manuscriptID)",
+                category: "manuscripts")
+            didMutate(structural: false, affectedIDs: [manuscriptID], kind: .otherField)
+            return row
+        } catch {
+            Logger.library.errorCapture(
+                "createManuscriptRevision failed for \(manuscriptID): \(error)",
+                category: "manuscripts")
+            return nil
+        }
+    }
+}

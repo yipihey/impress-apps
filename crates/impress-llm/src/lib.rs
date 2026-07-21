@@ -214,7 +214,10 @@ pub fn get_impress_llm_version() -> String {
 // Tests
 // ============================================================================
 
-#[cfg(test)]
+// Gated to match the functions under test: list_providers/list_models/
+// get_provider only exist with the `uniffi` feature, so an ungated test
+// module breaks default-feature `cargo test --workspace`.
+#[cfg(all(test, feature = "uniffi"))]
 mod tests {
     use super::*;
 

@@ -415,6 +415,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
     typealias FfiType = Int64
     typealias SwiftType = Int64
@@ -515,11 +531,25 @@ public protocol SharedStoreProtocol : AnyObject {
     func countBySchema(schemaRef: String) throws  -> UInt32
     
     /**
+     * Create an immutable `manuscript-revision` snapshot of a manuscript's
+     * current body and advance its `current_revision_ref` (ADR-0011 D45).
+     * Delegates to `impress_core::manuscript_ops` so this FFI and
+     * imbib-core's ImbibStore share one implementation.
+     */
+    func createManuscriptRevision(manuscriptId: String, revisionTag: String, snapshotReason: String, author: String) throws  -> SharedItemRow
+    
+    /**
      * Delete an item by ID.
      *
      * Returns `NotFound` if no item with `id` exists.
      */
     func deleteItem(id: String) throws 
+    
+    /**
+     * Replay an item's state as of a logical clock value (time-travel for
+     * the "View state here" history action). Returns None for unknown items.
+     */
+    func effectiveStateAt(id: String, logicalClock: UInt64) throws  -> SharedEffectiveState?
     
     /**
      * Retrieve a single item by ID, or `nil` if not found.
@@ -532,6 +562,17 @@ public protocol SharedStoreProtocol : AnyObject {
      * Returns `NotFound` if no item with `id` exists.
      */
     func getItemReferences(id: String) throws  -> [SharedReferenceRow]
+    
+    /**
+     * List a manuscript's revision snapshots, newest first.
+     */
+    func listManuscriptRevisions(manuscriptId: String) throws  -> [SharedItemRow]
+    
+    /**
+     * All operations targeting an item, oldest first, shaped for the Info-tab
+     * History section. `limit = 0` returns everything.
+     */
+    func operationsFor(id: String, limit: UInt32) throws  -> [SharedOperationRow]
     
     /**
      * List items by schema, sorted by creation time (newest first).
@@ -597,6 +638,23 @@ public protocol SharedStoreProtocol : AnyObject {
      * unchanged (additive semantics, not replace-all).
      */
     func upsertItem(id: String, schemaRef: String, payloadJson: String) throws 
+    
+    /**
+     * Compare-and-set upsert: apply `payload_json` only when the stored
+     * value of `guard_field` (a payload string field, e.g.
+     * `body_content_hash`) equals `expected`. Pass `expected = None` to
+     * require the field to be unset/missing.
+     *
+     * Inserting a NEW item succeeds only when `expected` is None (there is
+     * nothing to guard against); a guarded write to a deleted item reports
+     * a conflict with `stored_guard = None`.
+     *
+     * The check-then-write runs as two store calls; the residual
+     * cross-process race window is closed by the Darwin change-notification
+     * path (GUI-meld Phase 4). The guard deterministically catches the
+     * common stale-editor case.
+     */
+    func upsertItemGuarded(id: String, schemaRef: String, payloadJson: String, guardField: String, expected: String?) throws  -> GuardedUpsertOutcome
     
 }
 
@@ -704,6 +762,23 @@ open func countBySchema(schemaRef: String)throws  -> UInt32 {
 }
     
     /**
+     * Create an immutable `manuscript-revision` snapshot of a manuscript's
+     * current body and advance its `current_revision_ref` (ADR-0011 D45).
+     * Delegates to `impress_core::manuscript_ops` so this FFI and
+     * imbib-core's ImbibStore share one implementation.
+     */
+open func createManuscriptRevision(manuscriptId: String, revisionTag: String, snapshotReason: String, author: String)throws  -> SharedItemRow {
+    return try  FfiConverterTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_create_manuscript_revision(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(revisionTag),
+        FfiConverterString.lower(snapshotReason),
+        FfiConverterString.lower(author),$0
+    )
+})
+}
+    
+    /**
      * Delete an item by ID.
      *
      * Returns `NotFound` if no item with `id` exists.
@@ -713,6 +788,19 @@ open func deleteItem(id: String)throws  {try rustCallWithError(FfiConverterTypeS
         FfiConverterString.lower(id),$0
     )
 }
+}
+    
+    /**
+     * Replay an item's state as of a logical clock value (time-travel for
+     * the "View state here" history action). Returns None for unknown items.
+     */
+open func effectiveStateAt(id: String, logicalClock: UInt64)throws  -> SharedEffectiveState? {
+    return try  FfiConverterOptionTypeSharedEffectiveState.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_effective_state_at(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterUInt64.lower(logicalClock),$0
+    )
+})
 }
     
     /**
@@ -735,6 +823,30 @@ open func getItemReferences(id: String)throws  -> [SharedReferenceRow] {
     return try  FfiConverterSequenceTypeSharedReferenceRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_get_item_references(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * List a manuscript's revision snapshots, newest first.
+     */
+open func listManuscriptRevisions(manuscriptId: String)throws  -> [SharedItemRow] {
+    return try  FfiConverterSequenceTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_list_manuscript_revisions(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),$0
+    )
+})
+}
+    
+    /**
+     * All operations targeting an item, oldest first, shaped for the Info-tab
+     * History section. `limit = 0` returns everything.
+     */
+open func operationsFor(id: String, limit: UInt32)throws  -> [SharedOperationRow] {
+    return try  FfiConverterSequenceTypeSharedOperationRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_operations_for(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterUInt32.lower(limit),$0
     )
 })
 }
@@ -860,6 +972,33 @@ open func upsertItem(id: String, schemaRef: String, payloadJson: String)throws  
 }
 }
     
+    /**
+     * Compare-and-set upsert: apply `payload_json` only when the stored
+     * value of `guard_field` (a payload string field, e.g.
+     * `body_content_hash`) equals `expected`. Pass `expected = None` to
+     * require the field to be unset/missing.
+     *
+     * Inserting a NEW item succeeds only when `expected` is None (there is
+     * nothing to guard against); a guarded write to a deleted item reports
+     * a conflict with `stored_guard = None`.
+     *
+     * The check-then-write runs as two store calls; the residual
+     * cross-process race window is closed by the Darwin change-notification
+     * path (GUI-meld Phase 4). The guard deterministically catches the
+     * common stale-editor case.
+     */
+open func upsertItemGuarded(id: String, schemaRef: String, payloadJson: String, guardField: String, expected: String?)throws  -> GuardedUpsertOutcome {
+    return try  FfiConverterTypeGuardedUpsertOutcome.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_upsert_item_guarded(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(schemaRef),
+        FfiConverterString.lower(payloadJson),
+        FfiConverterString.lower(guardField),
+        FfiConverterOptionString.lower(expected),$0
+    )
+})
+}
+    
 
 }
 
@@ -912,6 +1051,162 @@ public func FfiConverterTypeSharedStore_lift(_ pointer: UnsafeMutableRawPointer)
 #endif
 public func FfiConverterTypeSharedStore_lower(_ value: SharedStore) -> UnsafeMutableRawPointer {
     return FfiConverterTypeSharedStore.lower(value)
+}
+
+
+/**
+ * Result of a guarded (compare-and-set) upsert.
+ *
+ * `applied == false` means the guard rejected the write; `stored_guard`
+ * carries the value the store currently holds for the guard field (None if
+ * the field is unset or the item is missing).
+ */
+public struct GuardedUpsertOutcome {
+    public var applied: Bool
+    public var storedGuard: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(applied: Bool, storedGuard: String?) {
+        self.applied = applied
+        self.storedGuard = storedGuard
+    }
+}
+
+
+
+extension GuardedUpsertOutcome: Equatable, Hashable {
+    public static func ==(lhs: GuardedUpsertOutcome, rhs: GuardedUpsertOutcome) -> Bool {
+        if lhs.applied != rhs.applied {
+            return false
+        }
+        if lhs.storedGuard != rhs.storedGuard {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(applied)
+        hasher.combine(storedGuard)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGuardedUpsertOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GuardedUpsertOutcome {
+        return
+            try GuardedUpsertOutcome(
+                applied: FfiConverterBool.read(from: &buf), 
+                storedGuard: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GuardedUpsertOutcome, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.applied, into: &buf)
+        FfiConverterOptionString.write(value.storedGuard, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGuardedUpsertOutcome_lift(_ buf: RustBuffer) throws -> GuardedUpsertOutcome {
+    return try FfiConverterTypeGuardedUpsertOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGuardedUpsertOutcome_lower(_ value: GuardedUpsertOutcome) -> RustBuffer {
+    return FfiConverterTypeGuardedUpsertOutcome.lower(value)
+}
+
+
+/**
+ * An item's payload replayed to a point in time (`effective_state_at`).
+ */
+public struct SharedEffectiveState {
+    public var payloadJson: String
+    public var asOfClock: UInt64
+    /**
+     * Number of operations replayed (0 for the current-state fast path).
+     */
+    public var operationCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(payloadJson: String, asOfClock: UInt64, 
+        /**
+         * Number of operations replayed (0 for the current-state fast path).
+         */operationCount: UInt32) {
+        self.payloadJson = payloadJson
+        self.asOfClock = asOfClock
+        self.operationCount = operationCount
+    }
+}
+
+
+
+extension SharedEffectiveState: Equatable, Hashable {
+    public static func ==(lhs: SharedEffectiveState, rhs: SharedEffectiveState) -> Bool {
+        if lhs.payloadJson != rhs.payloadJson {
+            return false
+        }
+        if lhs.asOfClock != rhs.asOfClock {
+            return false
+        }
+        if lhs.operationCount != rhs.operationCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(payloadJson)
+        hasher.combine(asOfClock)
+        hasher.combine(operationCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedEffectiveState: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedEffectiveState {
+        return
+            try SharedEffectiveState(
+                payloadJson: FfiConverterString.read(from: &buf), 
+                asOfClock: FfiConverterUInt64.read(from: &buf), 
+                operationCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedEffectiveState, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.payloadJson, into: &buf)
+        FfiConverterUInt64.write(value.asOfClock, into: &buf)
+        FfiConverterUInt32.write(value.operationCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedEffectiveState_lift(_ buf: RustBuffer) throws -> SharedEffectiveState {
+    return try FfiConverterTypeSharedEffectiveState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedEffectiveState_lower(_ value: SharedEffectiveState) -> RustBuffer {
+    return FfiConverterTypeSharedEffectiveState.lower(value)
 }
 
 
@@ -1044,6 +1339,166 @@ public func FfiConverterTypeSharedItemRow_lift(_ buf: RustBuffer) throws -> Shar
 #endif
 public func FfiConverterTypeSharedItemRow_lower(_ value: SharedItemRow) -> RustBuffer {
     return FfiConverterTypeSharedItemRow.lower(value)
+}
+
+
+/**
+ * One operation from an item's history, shaped for history-panel display.
+ *
+ * `field_names` lists the payload fields the operation touched (empty for
+ * envelope ops like tag/flag/read). `is_body_edit` is the UI noise filter:
+ * true when the op touched only manuscript body fields, so consecutive
+ * body-save runs can be collapsed into one display row.
+ */
+public struct SharedOperationRow {
+    public var id: String
+    public var targetId: String
+    /**
+     * Serialized op type: set_payload | add_tag | set_flag | add_reference | ...
+     */
+    public var opType: String
+    public var fieldNames: [String]
+    public var isBodyEdit: Bool
+    public var intent: String
+    public var reason: String?
+    public var author: String
+    public var authorKind: String
+    public var dateMs: Int64
+    public var logicalClock: UInt64
+    public var batchId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, targetId: String, 
+        /**
+         * Serialized op type: set_payload | add_tag | set_flag | add_reference | ...
+         */opType: String, fieldNames: [String], isBodyEdit: Bool, intent: String, reason: String?, author: String, authorKind: String, dateMs: Int64, logicalClock: UInt64, batchId: String?) {
+        self.id = id
+        self.targetId = targetId
+        self.opType = opType
+        self.fieldNames = fieldNames
+        self.isBodyEdit = isBodyEdit
+        self.intent = intent
+        self.reason = reason
+        self.author = author
+        self.authorKind = authorKind
+        self.dateMs = dateMs
+        self.logicalClock = logicalClock
+        self.batchId = batchId
+    }
+}
+
+
+
+extension SharedOperationRow: Equatable, Hashable {
+    public static func ==(lhs: SharedOperationRow, rhs: SharedOperationRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.targetId != rhs.targetId {
+            return false
+        }
+        if lhs.opType != rhs.opType {
+            return false
+        }
+        if lhs.fieldNames != rhs.fieldNames {
+            return false
+        }
+        if lhs.isBodyEdit != rhs.isBodyEdit {
+            return false
+        }
+        if lhs.intent != rhs.intent {
+            return false
+        }
+        if lhs.reason != rhs.reason {
+            return false
+        }
+        if lhs.author != rhs.author {
+            return false
+        }
+        if lhs.authorKind != rhs.authorKind {
+            return false
+        }
+        if lhs.dateMs != rhs.dateMs {
+            return false
+        }
+        if lhs.logicalClock != rhs.logicalClock {
+            return false
+        }
+        if lhs.batchId != rhs.batchId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(targetId)
+        hasher.combine(opType)
+        hasher.combine(fieldNames)
+        hasher.combine(isBodyEdit)
+        hasher.combine(intent)
+        hasher.combine(reason)
+        hasher.combine(author)
+        hasher.combine(authorKind)
+        hasher.combine(dateMs)
+        hasher.combine(logicalClock)
+        hasher.combine(batchId)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedOperationRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedOperationRow {
+        return
+            try SharedOperationRow(
+                id: FfiConverterString.read(from: &buf), 
+                targetId: FfiConverterString.read(from: &buf), 
+                opType: FfiConverterString.read(from: &buf), 
+                fieldNames: FfiConverterSequenceString.read(from: &buf), 
+                isBodyEdit: FfiConverterBool.read(from: &buf), 
+                intent: FfiConverterString.read(from: &buf), 
+                reason: FfiConverterOptionString.read(from: &buf), 
+                author: FfiConverterString.read(from: &buf), 
+                authorKind: FfiConverterString.read(from: &buf), 
+                dateMs: FfiConverterInt64.read(from: &buf), 
+                logicalClock: FfiConverterUInt64.read(from: &buf), 
+                batchId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedOperationRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.targetId, into: &buf)
+        FfiConverterString.write(value.opType, into: &buf)
+        FfiConverterSequenceString.write(value.fieldNames, into: &buf)
+        FfiConverterBool.write(value.isBodyEdit, into: &buf)
+        FfiConverterString.write(value.intent, into: &buf)
+        FfiConverterOptionString.write(value.reason, into: &buf)
+        FfiConverterString.write(value.author, into: &buf)
+        FfiConverterString.write(value.authorKind, into: &buf)
+        FfiConverterInt64.write(value.dateMs, into: &buf)
+        FfiConverterUInt64.write(value.logicalClock, into: &buf)
+        FfiConverterOptionString.write(value.batchId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedOperationRow_lift(_ buf: RustBuffer) throws -> SharedOperationRow {
+    return try FfiConverterTypeSharedOperationRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedOperationRow_lower(_ value: SharedOperationRow) -> RustBuffer {
+    return FfiConverterTypeSharedOperationRow.lower(value)
 }
 
 
@@ -1234,6 +1689,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeSharedEffectiveState: FfiConverterRustBuffer {
+    typealias SwiftType = SharedEffectiveState?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSharedEffectiveState.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSharedEffectiveState.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeSharedItemRow: FfiConverterRustBuffer {
     typealias SwiftType = SharedItemRow?
 
@@ -1308,6 +1787,31 @@ fileprivate struct FfiConverterSequenceTypeSharedItemRow: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedOperationRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedOperationRow]
+
+    public static func write(_ value: [SharedOperationRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedOperationRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedOperationRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedOperationRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedOperationRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSharedReferenceRow: FfiConverterRustBuffer {
     typealias SwiftType = [SharedReferenceRow]
 
@@ -1351,13 +1855,25 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_by_schema() != 21485) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_create_manuscript_revision() != 16555) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_delete_item() != 14439) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_effective_state_at() != 43171) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_get_item() != 16629) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_get_item_references() != 59059) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_list_manuscript_revisions() != 34325) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_operations_for() != 9390) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_by_schema() != 32264) {
@@ -1382,6 +1898,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_upsert_item() != 18542) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_upsert_item_guarded() != 21076) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open() != 6376) {

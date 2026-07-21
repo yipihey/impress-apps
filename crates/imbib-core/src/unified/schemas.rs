@@ -342,6 +342,15 @@ pub fn register_all(registry: &mut impress_core::SchemaRegistry) {
     // Register suite-wide artifact schemas from impress-core
     impress_core::schemas::register_artifact_schemas(registry);
 
+    // Journal/manuscript schemas (shared with imprint via impress-core).
+    // The unified GUI reads and writes manuscript items through ImbibStore,
+    // so its registry must know the same schema vocabulary imprint's
+    // ManuscriptStoreAdapter writes.
+    impress_core::schemas::register_manuscript_schema(registry);
+    impress_core::schemas::register_manuscript_revision_schema(registry);
+    impress_core::schemas::register_manuscript_collection_schema(registry);
+    impress_core::schemas::register_imprint_schemas(registry); // manuscript-section
+
     registry
         .register(bibliography_entry_schema())
         .expect("bibliography-entry schema registration");

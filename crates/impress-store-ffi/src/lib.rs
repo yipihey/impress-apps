@@ -99,6 +99,52 @@ pub struct SharedReferenceRow {
     pub edge_type: String,
 }
 
+/// One operation from an item's history, shaped for history-panel display.
+///
+/// `field_names` lists the payload fields the operation touched (empty for
+/// envelope ops like tag/flag/read). `is_body_edit` is the UI noise filter:
+/// true when the op touched only manuscript body fields, so consecutive
+/// body-save runs can be collapsed into one display row.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedOperationRow {
+    pub id: String,
+    pub target_id: String,
+    /// Serialized op type: set_payload | add_tag | set_flag | add_reference | ...
+    pub op_type: String,
+    pub field_names: Vec<String>,
+    pub is_body_edit: bool,
+    pub intent: String,
+    pub reason: Option<String>,
+    pub author: String,
+    pub author_kind: String,
+    pub date_ms: i64,
+    pub logical_clock: u64,
+    pub batch_id: Option<String>,
+}
+
+/// An item's payload replayed to a point in time (`effective_state_at`).
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedEffectiveState {
+    pub payload_json: String,
+    pub as_of_clock: u64,
+    /// Number of operations replayed (0 for the current-state fast path).
+    pub operation_count: u32,
+}
+
+/// Result of a guarded (compare-and-set) upsert.
+///
+/// `applied == false` means the guard rejected the write; `stored_guard`
+/// carries the value the store currently holds for the guard field (None if
+/// the field is unset or the item is missing).
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct GuardedUpsertOutcome {
+    pub applied: bool,
+    pub stored_guard: Option<String>,
+}
+
 // ─── Store object ────────────────────────────────────────────────────────────
 
 /// A handle to the shared impress-core SQLite database.
@@ -409,6 +455,143 @@ impl SharedStore {
         let count = self.inner.count(&q)?;
         Ok(count as u32)
     }
+
+    // ─── History / versions (GUI-meld plan §History) ────────────────────────
+
+    /// All operations targeting an item, oldest first, shaped for the Info-tab
+    /// History section. `limit = 0` returns everything.
+    pub fn operations_for(
+        &self,
+        id: String,
+        limit: u32,
+    ) -> Result<Vec<SharedOperationRow>, SharedStoreError> {
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
+        let lim = if limit == 0 {
+            None
+        } else {
+            Some(limit as usize)
+        };
+        let ops = self.inner.operations_for(item_id, lim)?;
+        Ok(ops.iter().map(operation_item_to_row).collect())
+    }
+
+    /// Replay an item's state as of a logical clock value (time-travel for
+    /// the "View state here" history action). Returns None for unknown items.
+    pub fn effective_state_at(
+        &self,
+        id: String,
+        logical_clock: u64,
+    ) -> Result<Option<SharedEffectiveState>, SharedStoreError> {
+        use impress_core::operation::StateAsOf;
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
+        let state = self
+            .inner
+            .effective_state(item_id, StateAsOf::LogicalClock(logical_clock))?;
+        Ok(state.map(|s| SharedEffectiveState {
+            payload_json: serde_json::to_string(&s.payload).unwrap_or_else(|_| "{}".into()),
+            as_of_clock: s.as_of_clock,
+            operation_count: s.operation_count as u32,
+        }))
+    }
+
+    /// Compare-and-set upsert: apply `payload_json` only when the stored
+    /// value of `guard_field` (a payload string field, e.g.
+    /// `body_content_hash`) equals `expected`. Pass `expected = None` to
+    /// require the field to be unset/missing.
+    ///
+    /// Inserting a NEW item succeeds only when `expected` is None (there is
+    /// nothing to guard against); a guarded write to a deleted item reports
+    /// a conflict with `stored_guard = None`.
+    ///
+    /// The check-then-write runs as two store calls; the residual
+    /// cross-process race window is closed by the Darwin change-notification
+    /// path (GUI-meld Phase 4). The guard deterministically catches the
+    /// common stale-editor case.
+    pub fn upsert_item_guarded(
+        &self,
+        id: String,
+        schema_ref: String,
+        payload_json: String,
+        guard_field: String,
+        expected: Option<String>,
+    ) -> Result<GuardedUpsertOutcome, SharedStoreError> {
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
+        let existing = self.inner.get(item_id)?;
+
+        let stored_guard = existing.as_ref().and_then(|item| {
+            match item.payload.get(guard_field.as_str()) {
+                Some(Value::String(s)) => Some(s.clone()),
+                _ => None,
+            }
+        });
+
+        let guard_ok = match (&existing, &expected) {
+            (None, None) => true,     // fresh insert, nothing to guard
+            (None, Some(_)) => false, // expected a value but item is gone
+            (Some(_), exp) => stored_guard.as_deref() == exp.as_deref(),
+        };
+        if !guard_ok {
+            return Ok(GuardedUpsertOutcome {
+                applied: false,
+                stored_guard,
+            });
+        }
+
+        self.upsert_item(id, schema_ref, payload_json)?;
+        Ok(GuardedUpsertOutcome {
+            applied: true,
+            stored_guard,
+        })
+    }
+
+    /// Create an immutable `manuscript-revision` snapshot of a manuscript's
+    /// current body and advance its `current_revision_ref` (ADR-0011 D45).
+    /// Delegates to `impress_core::manuscript_ops` so this FFI and
+    /// imbib-core's ImbibStore share one implementation.
+    pub fn create_manuscript_revision(
+        &self,
+        manuscript_id: String,
+        revision_tag: String,
+        snapshot_reason: String,
+        author: String,
+    ) -> Result<SharedItemRow, SharedStoreError> {
+        let item_id: ItemId =
+            manuscript_id
+                .parse()
+                .map_err(|_| SharedStoreError::InvalidArgument {
+                    message: format!("invalid UUID: {manuscript_id}"),
+                })?;
+        let revision = impress_core::manuscript_ops::create_revision(
+            &self.inner,
+            item_id,
+            &revision_tag,
+            &snapshot_reason,
+            &author,
+            ActorKind::Human,
+        )?;
+        Ok(item_to_row(revision))
+    }
+
+    /// List a manuscript's revision snapshots, newest first.
+    pub fn list_manuscript_revisions(
+        &self,
+        manuscript_id: String,
+    ) -> Result<Vec<SharedItemRow>, SharedStoreError> {
+        let item_id: ItemId =
+            manuscript_id
+                .parse()
+                .map_err(|_| SharedStoreError::InvalidArgument {
+                    message: format!("invalid UUID: {manuscript_id}"),
+                })?;
+        let items = impress_core::manuscript_ops::list_revisions(&self.inner, item_id)?;
+        Ok(items.into_iter().map(item_to_row).collect())
+    }
 }
 
 // ─── Private helpers ─────────────────────────────────────────────────────────
@@ -439,6 +622,53 @@ fn build_item(id: ItemId, schema: String, payload: BTreeMap<String, Value>) -> I
         batch_id: None,
         references: vec![],
         parent: None,
+    }
+}
+
+/// Manuscript body fields — an operation touching only these is a "body edit"
+/// for history-display collapsing.
+const BODY_FIELDS: [&str; 3] = ["body_content", "body_content_hash", "body_modified_at"];
+
+/// Shape a `core/operation` item into a SharedOperationRow, extracting the
+/// touched payload field names from the op_data encoding
+/// (see `impress_core::operation::serialize_op_type`).
+fn operation_item_to_row(item: &Item) -> SharedOperationRow {
+    let payload = &item.payload;
+    let get_str = |key: &str| -> Option<String> {
+        match payload.get(key) {
+            Some(Value::String(s)) => Some(s.clone()),
+            _ => None,
+        }
+    };
+    let op_type = get_str("op_type").unwrap_or_default();
+
+    let field_names: Vec<String> = match (op_type.as_str(), payload.get("op_data")) {
+        ("set_payload", Some(Value::Object(m))) => match m.get("field") {
+            Some(Value::String(f)) => vec![f.clone()],
+            _ => vec![],
+        },
+        ("remove_payload", Some(Value::String(f))) => vec![f.clone()],
+        ("patch_payload", Some(Value::Object(m))) => m.keys().cloned().collect(),
+        _ => vec![],
+    };
+    let is_body_edit = !field_names.is_empty()
+        && field_names
+            .iter()
+            .all(|f| BODY_FIELDS.contains(&f.as_str()));
+
+    SharedOperationRow {
+        id: item.id.to_string(),
+        target_id: get_str("target_id").unwrap_or_default(),
+        op_type,
+        field_names,
+        is_body_edit,
+        intent: get_str("intent").unwrap_or_else(|| "routine".into()),
+        reason: get_str("reason"),
+        author: item.author.clone(),
+        author_kind: format!("{:?}", item.author_kind).to_lowercase(),
+        date_ms: item.created.timestamp_millis(),
+        logical_clock: item.logical_clock,
+        batch_id: item.batch_id.clone(),
     }
 }
 
@@ -816,6 +1046,124 @@ mod tests {
             .get_item_references(uuid::Uuid::new_v4().to_string())
             .expect_err("missing");
         assert!(matches!(err, SharedStoreError::NotFound { .. }));
+    }
+
+    #[test]
+    fn upsert_item_guarded_applies_and_conflicts() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let id = uuid::Uuid::new_v4().to_string();
+
+        // Fresh insert: no guard expectation → applied.
+        let out = store
+            .upsert_item_guarded(
+                id.clone(),
+                "manuscript".into(),
+                r#"{"title":"M","status":"draft","body_content":"v1","body_content_hash":"h1"}"#
+                    .into(),
+                "body_content_hash".into(),
+                None,
+            )
+            .expect("insert");
+        assert!(out.applied);
+
+        // Correct guard → applied.
+        let out = store
+            .upsert_item_guarded(
+                id.clone(),
+                "manuscript".into(),
+                r#"{"body_content":"v2","body_content_hash":"h2"}"#.into(),
+                "body_content_hash".into(),
+                Some("h1".into()),
+            )
+            .expect("guarded update");
+        assert!(out.applied);
+        assert_eq!(out.stored_guard.as_deref(), Some("h1"));
+
+        // Stale guard → conflict, nothing written.
+        let out = store
+            .upsert_item_guarded(
+                id.clone(),
+                "manuscript".into(),
+                r#"{"body_content":"lost-update","body_content_hash":"h3"}"#.into(),
+                "body_content_hash".into(),
+                Some("h1".into()),
+            )
+            .expect("guarded call");
+        assert!(!out.applied);
+        assert_eq!(out.stored_guard.as_deref(), Some("h2"));
+        let row = store.get_item(id.clone()).unwrap().unwrap();
+        let p: serde_json::Value = serde_json::from_str(&row.payload_json).unwrap();
+        assert_eq!(p["body_content"], "v2", "conflicting write must not land");
+
+        // Guarded write to a missing item → conflict with stored_guard None.
+        let missing = uuid::Uuid::new_v4().to_string();
+        let out = store
+            .upsert_item_guarded(
+                missing,
+                "manuscript".into(),
+                r#"{"body_content":"x"}"#.into(),
+                "body_content_hash".into(),
+                Some("h1".into()),
+            )
+            .expect("guarded call on missing");
+        assert!(!out.applied);
+        assert!(out.stored_guard.is_none());
+    }
+
+    #[test]
+    fn operations_for_and_effective_state_time_travel() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                id.clone(),
+                "manuscript".into(),
+                r#"{"title":"T","status":"draft","body_content":"v1"}"#.into(),
+            )
+            .expect("insert");
+        store
+            .upsert_item(
+                id.clone(),
+                "manuscript".into(),
+                r#"{"body_content":"v2","body_content_hash":"h2"}"#.into(),
+            )
+            .expect("update body");
+        store
+            .upsert_item(
+                id.clone(),
+                "manuscript".into(),
+                r#"{"title":"Renamed"}"#.into(),
+            )
+            .expect("update title");
+
+        let ops = store.operations_for(id.clone(), 0).expect("ops");
+        assert!(ops.len() >= 3, "each field update is an operation");
+        let body_ops: Vec<_> = ops.iter().filter(|o| o.is_body_edit).collect();
+        assert!(!body_ops.is_empty(), "body edits classified");
+        assert!(
+            ops.iter()
+                .any(|o| !o.is_body_edit && o.field_names.contains(&"title".to_string())),
+            "title edit is a metadata op"
+        );
+
+        // Time-travel: state before the title rename must still say "T".
+        let rename_clock = ops
+            .iter()
+            .filter(|o| o.field_names.contains(&"title".to_string()))
+            .map(|o| o.logical_clock)
+            .max()
+            .unwrap();
+        let past = store
+            .effective_state_at(id.clone(), rename_clock.saturating_sub(1))
+            .expect("time travel")
+            .expect("state exists");
+        let p: serde_json::Value = serde_json::from_str(&past.payload_json).unwrap();
+        assert_eq!(p["title"], "T", "pre-rename state must show old title");
+
+        // Current state shows the rename.
+        let row = store.get_item(id).unwrap().unwrap();
+        let cur: serde_json::Value = serde_json::from_str(&row.payload_json).unwrap();
+        assert_eq!(cur["title"], "Renamed");
     }
 
     #[test]
