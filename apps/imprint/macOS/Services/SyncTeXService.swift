@@ -30,10 +30,30 @@ struct SyncTeXSourceLocation: Sendable {
 /// SyncTeX files are gzipped text files produced by pdflatex/xelatex/lualatex
 /// with the `-synctex=1` flag. They contain records mapping source positions
 /// to PDF page coordinates.
+///
+/// GUI-meld Phase 3 PREP: this is now instantiable per manuscript session
+/// (scoped by `workingDirectory`) so each open document can own its own SyncTeX
+/// state instead of sharing one global parse. The `shared` singleton is retained
+/// as a transitional shim because the forward/inverse-sync consumers
+/// (`ContentView`, `PDFPreviewView`, the HTTP router) still read it; the macOS
+/// compiler loads into the same singleton so their behavior is unchanged.
 actor SyncTeXService {
+    /// Transitional shared instance. Prefer an instance scoped to a manuscript's
+    /// working directory; this remains only until the forward/inverse-sync
+    /// consumers are migrated to a per-session instance.
     static let shared = SyncTeXService()
 
+    /// The manuscript working directory this session is scoped to (nil for the
+    /// transitional shared instance).
+    let workingDirectory: URL?
+
     private var document: SyncTeXDocument?
+
+    /// Create a SyncTeX session, optionally scoped to a manuscript's working
+    /// directory (the folder containing its `main.tex` / build output).
+    init(workingDirectory: URL? = nil) {
+        self.workingDirectory = workingDirectory
+    }
 
     /// Load and parse a `.synctex.gz` file.
     func load(from url: URL) throws {

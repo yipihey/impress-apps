@@ -24,11 +24,12 @@ struct IOSContentView: View {
     /// The document being edited
     @Binding var document: ImprintDocument
 
-    /// Shared compile/preview pipeline (same view model as macOS).
-    @State private var vm = ImprintDocumentViewModel()
+    /// Shared compile/preview pipeline (same view model as macOS). LaTeX
+    /// compilation is unavailable on iOS, so the platform capability is the
+    /// unsupported implementation — Typst is the cross-platform path.
+    @State private var vm = ImprintDocumentViewModel(latexCompiler: UnsupportedLaTeXCompiler())
 
-    /// Debounced recompile scheduled after edits.
-    @State private var recompileTask: Task<Void, Never>?
+    // Debounced recompile is owned by the compile controller (via `vm`).
 
     /// Whether to show the preview panel (iPad)
     @State private var showPreview = true
@@ -317,12 +318,10 @@ struct IOSContentView: View {
         await vm.compile(inputs)
     }
 
-    /// Debounced recompile while typing (800 ms of quiet).
+    /// Debounced recompile while typing (800 ms of quiet). Timing + task
+    /// lifetime are owned by the compile controller (via `vm`).
     private func scheduleRecompile() {
-        recompileTask?.cancel()
-        recompileTask = Task {
-            try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled else { return }
+        vm.scheduleCompile(after: 800) {
             await compile()
         }
     }
