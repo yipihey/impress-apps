@@ -69,6 +69,13 @@ public final class ManuscriptEditorEnvironment {
     /// Called on selection change so the host can update a collaboration presence
     /// cursor. Default: no-op. imprint installs `{ $0.updateCollaborationCursor() }`.
     public var presenceCursorHook: @MainActor (_ textView: NSTextView) -> Void = { _ in }
+
+    // MARK: - Flanking inspector panels (Source tab)
+
+    /// Panels the host contributes to the Source tab's flanking inspector
+    /// (imprint: AI Assistant / Throughline / Veusz / Paper preview). Default:
+    /// empty → imbib shows no inspector. See `ManuscriptSidePanel`.
+    public var sidePanels: [any ManuscriptSidePanel] = []
 }
 
 // MARK: - Inline completion capability

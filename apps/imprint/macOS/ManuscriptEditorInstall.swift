@@ -75,6 +75,14 @@ enum ManuscriptEditorInstaller {
         // "manuscript-changed" notifications are posted from .imprint so imbib
         // (running the same chassis against the same store) refreshes live.
         ManuscriptSessionRegistry.shared.currentApp = .imprint
+
+        // Panels: contribute imprint's flanking inspector panels into the shared
+        // Source tab (imbib installs none → no inspector). Phase A: AI Assistant
+        // + Paper preview. Throughline + Veusz append in later phases.
+        env.sidePanels = [
+            AIAssistantSidePanel(),
+            PaperPreviewSidePanel(),
+        ]
     }
 }
 #endif // os(macOS)

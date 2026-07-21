@@ -22,6 +22,15 @@ public struct ManuscriptSourceTab: View {
     @AppStorage("manuscript.sourceTab.showPreview") private var showPreview = true
     @AppStorage("manuscript.sourceTab.showOutline") private var showOutline = false
     @AppStorage("manuscript.sourceTab.showComments") private var showComments = false
+    @AppStorage("manuscript.sourceTab.showInspector") private var showInspector = false
+    /// The id of the currently-selected flanking-inspector panel.
+    @AppStorage("manuscript.sourceTab.inspectorPanel") private var inspectorPanelID = ""
+
+    /// Host-contributed flanking panels (imprint's AI/Throughline/Veusz/Paper).
+    /// Empty in imbib → no inspector.
+    private var sidePanels: [any ManuscriptSidePanel] {
+        ManuscriptEditorEnvironment.shared.sidePanels
+    }
 
     public init(session: ManuscriptEditorSession) {
         _session = State(initialValue: session)
@@ -56,6 +65,21 @@ public struct ManuscriptSourceTab: View {
                 previewPane
                     .frame(minWidth: 280)
             }
+            if showInspector, !sidePanels.isEmpty {
+                inspectorColumn
+                    .frame(minWidth: 300, idealWidth: 340, maxWidth: 460)
+            }
+        }
+        .task(id: session.manuscriptID) {
+            // The editor's cite-key click posts .openPaperPanel; auto-open the
+            // inspector on the Paper panel when it fires (if the host provides
+            // one).
+            guard sidePanels.contains(where: { $0.id == "paper" }) else { return }
+            for await _ in NotificationCenter.default
+                .notifications(named: .openPaperPanel).map({ _ in () }) {
+                inspectorPanelID = "paper"
+                showInspector = true
+            }
         }
     }
 
@@ -66,6 +90,69 @@ public struct ManuscriptSourceTab: View {
             syntaxMode: session.format,
             onSelectionChange: { _, range in session.selectedRange = range }
         )
+    }
+
+    // MARK: Flanking inspector (host-contributed panels)
+
+    @ViewBuilder
+    private var inspectorColumn: some View {
+        let panels = sidePanels
+        let selected = panels.first(where: { $0.id == inspectorPanelID }) ?? panels.first
+        VStack(spacing: 0) {
+            if panels.count > 1 {
+                Picker("", selection: Binding(
+                    get: { selected?.id ?? "" },
+                    set: { inspectorPanelID = $0 }
+                )) {
+                    ForEach(panels, id: \.id) { panel in
+                        Label(panel.label, systemImage: panel.systemImage).tag(panel.id)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelStyle(.iconOnly)
+                .labelsHidden()
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                Divider()
+            }
+            if let selected {
+                selected.makeView(panelContext)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Color.clear
+            }
+        }
+        .background(.background)
+    }
+
+    /// Build the context handed to a flanking panel from the live session.
+    private var panelContext: ManuscriptPanelContext {
+        let ns = session.source as NSString
+        let range = session.selectedRange
+        let safeLoc = min(max(0, range.location), ns.length)
+        let safeLen = min(range.length, ns.length - safeLoc)
+        let selectedText = safeLen > 0
+            ? ns.substring(with: NSRange(location: safeLoc, length: safeLen)) : ""
+        return ManuscriptPanelContext(
+            manuscriptID: session.manuscriptID,
+            source: $session.source,
+            selectedRange: range,
+            selectedText: selectedText,
+            cursorPosition: $session.cursorPosition,
+            format: session.format,
+            insertAtCursor: { text in insertAtCursor(text) },
+            jumpToChar: { offset in session.cursorPosition = offset }
+        )
+    }
+
+    /// Insert `text` at the caret (or replacing the selection) in the buffer.
+    private func insertAtCursor(_ text: String) {
+        let ns = session.source as NSString
+        let range = session.selectedRange
+        let loc = min(max(0, range.location), ns.length)
+        let len = min(range.length, ns.length - loc)
+        let updated = ns.replacingCharacters(in: NSRange(location: loc, length: len), with: text)
+        session.source = updated
+        session.cursorPosition = loc + (text as NSString).length
     }
 
     // MARK: Preview
@@ -121,6 +208,13 @@ public struct ManuscriptSourceTab: View {
             }
             .toggleStyle(.button)
             .help("Toggle comments")
+            if !sidePanels.isEmpty {
+                Toggle(isOn: $showInspector) {
+                    Image(systemName: "sidebar.squares.right")
+                }
+                .toggleStyle(.button)
+                .help("Toggle assistant panels")
+            }
             Toggle(isOn: $showPreview) {
                 Image(systemName: "sidebar.right")
             }
