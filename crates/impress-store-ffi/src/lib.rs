@@ -381,7 +381,7 @@ impl SharedStore {
         let item = self
             .inner
             .get(item_id)?
-            .ok_or_else(|| SharedStoreError::NotFound { message: id })?;
+            .ok_or(SharedStoreError::NotFound { message: id })?;
         Ok(item
             .references
             .into_iter()
