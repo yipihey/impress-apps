@@ -3397,4 +3397,63 @@ extension RustStoreAdapter {
             return nil
         }
     }
+
+    // MARK: Manuscript history (operations timeline, GUI-meld Phase 4)
+    //
+    // Operations history + time-travel come from the suite-generic
+    // SharedStore FFI (operations are not publication-specific), reusing the
+    // review-queue SharedStore handle. The Info-tab History section collapses
+    // `isBodyEdit` runs and shows metadata ops individually.
+
+    /// Operation history for a manuscript, oldest first. `limit == 0` returns
+    /// all. Empty when the SharedStore handle is unavailable.
+    public func manuscriptOperations(id: UUID, limit: UInt32 = 0) -> [SharedOperationRow] {
+        guard let shared = sharedReviewStore() else { return [] }
+        do {
+            return try shared.operationsFor(id: id.uuidString, limit: limit)
+        } catch {
+            Logger.library.errorCapture(
+                "manuscriptOperations failed for \(id): \(error)", category: "manuscripts")
+            return []
+        }
+    }
+
+    /// The inline source text captured in a revision snapshot (the
+    /// `source_inline` payload field written by manuscript_ops::create_revision
+    /// for in-store revisions). Nil for blob-archived revisions or when the
+    /// SharedStore handle is unavailable.
+    public func manuscriptRevisionSource(_ rev: ManuscriptRevisionRow) -> String? {
+        guard let shared = sharedReviewStore() else { return nil }
+        do {
+            guard let row = try shared.getItem(id: rev.id),
+                  let data = row.payloadJson.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            return payload["source_inline"] as? String
+        } catch {
+            Logger.library.errorCapture(
+                "manuscriptRevisionSource failed for \(rev.id): \(error)", category: "manuscripts")
+            return nil
+        }
+    }
+
+    /// The manuscript's payload replayed to a logical-clock point (time-travel
+    /// for the History "View state here" action). Returns the decoded
+    /// body_content at that point, or nil.
+    public func manuscriptBodyAt(id: UUID, logicalClock: UInt64) -> String? {
+        guard let shared = sharedReviewStore() else { return nil }
+        do {
+            guard let state = try shared.effectiveStateAt(
+                id: id.uuidString, logicalClock: logicalClock)
+            else { return nil }
+            guard let data = state.payloadJson.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            return payload["body_content"] as? String
+        } catch {
+            Logger.library.errorCapture(
+                "manuscriptBodyAt failed for \(id): \(error)", category: "manuscripts")
+            return nil
+        }
+    }
 }

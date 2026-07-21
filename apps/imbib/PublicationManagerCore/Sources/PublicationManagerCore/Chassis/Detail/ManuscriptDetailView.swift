@@ -55,6 +55,12 @@ struct ManuscriptDetailView: View {
                         metadataSection(manuscript)
                         imprintSourceSection(manuscript)
                         revisionsSection(manuscript)
+                        if let mUUID = UUID(uuidString: manuscriptID) {
+                            GroupBox("History") {
+                                ManuscriptHistorySection(manuscriptID: mUUID)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
                         reviewsSection(manuscript)
                         revisionNotesSection(manuscript)
                         notesSection(manuscript)
