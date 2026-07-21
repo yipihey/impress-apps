@@ -26,6 +26,17 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 IMBIB_DIR="$REPO_ROOT/apps/imbib/imbib"
 
+# Rust formatting gate: every Rust CI workflow runs `cargo fmt --check`,
+# and concurrent sessions pushing unformatted code have repeatedly turned
+# main red on it. The check takes seconds; run it on every push.
+if command -v cargo >/dev/null 2>&1; then
+    echo "pre-push: cargo fmt --all --check"
+    if ! (cd "$REPO_ROOT" && cargo fmt --all --check > /dev/null 2>&1); then
+        echo "pre-push: BLOCKED — unformatted Rust code. Run: cargo fmt --all"
+        exit 1
+    fi
+fi
+
 # Detect changes since the upstream HEAD. If no upstream, diff against
 # the local HEAD~1 as a best-effort fallback.
 if git -C "$REPO_ROOT" rev-parse --abbrev-ref @{u} >/dev/null 2>&1; then
