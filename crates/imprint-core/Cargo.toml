@@ -82,10 +82,11 @@ comemo = { version = "0.4", optional = true }
 # enabled with the Typst renderer since render_plot_svg compiles through it.
 impress-plot = { path = "../impress-plot", optional = true }
 
-# Columnar data loading for the plot panel's real-dataset binding. CSV only for
-# now (pure Rust, no C deps, builds for iOS); HDF5/FITS are separate implore-io
-# features with C deps, deferred. Enabled with the plot FFI.
-implore-io = { path = "../implore-io", optional = true }
+# Columnar data loading for the plot panel's real-dataset binding. CSV + NPZ
+# (numpy) — both pure Rust, no C deps, build for iOS. HDF5/FITS (C deps) and
+# Parquet (heavy dep tree) are separate implore-io features, deferred. Enabled
+# with the plot FFI.
+implore-io = { path = "../implore-io", optional = true, features = ["csv", "npz"] }
 
 # Tectonic self-contained LaTeX engine (optional, behind `tectonic-render`).
 # Default features keep bundled HarfBuzz + reqwest-based bundle fetching.

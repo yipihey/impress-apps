@@ -265,6 +265,17 @@ pub struct FfiDataTable {
 /// schema-first + selective-column path is the big-data optimization.
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn load_data_table(path: String) -> FfiDataTable {
+    // `.npz` (numpy) isn't a `DataReader`/`open_file` format — it's a zip of
+    // named arrays — so it takes its own path: every 1-D array becomes a column.
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext == "npz" {
+        return load_npz_table(&path);
+    }
+
     let reader = match implore_io::open_file(&path) {
         Ok(r) => r,
         Err(e) => {
@@ -309,6 +320,48 @@ pub fn load_data_table(path: String) -> FfiDataTable {
     FfiDataTable {
         columns,
         row_count: schema.num_records as u64,
+        error: None,
+    }
+}
+
+/// Load an `.npz` (numpy zip-of-arrays): every 1-D array becomes a column.
+/// Higher-rank arrays are skipped (not a single plottable series).
+fn load_npz_table(path: &str) -> FfiDataTable {
+    let file = match implore_io::npz_reader::NpzFile::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            return FfiDataTable {
+                columns: Vec::new(),
+                row_count: 0,
+                error: Some(format!("{e}")),
+            }
+        }
+    };
+    let mut columns = Vec::new();
+    for name in file.array_names() {
+        match file.peek_shape(&name) {
+            Ok(shape) if shape.len() == 1 => {
+                if let Ok(values) = file.read_1d_f32(&name) {
+                    columns.push(FfiDataColumn {
+                        name,
+                        values: values.into_iter().map(|v| v as f64).collect(),
+                    });
+                }
+            }
+            _ => continue,
+        }
+    }
+    if columns.is_empty() {
+        return FfiDataTable {
+            columns,
+            row_count: 0,
+            error: Some("No 1-D numeric arrays in .npz".into()),
+        };
+    }
+    let row_count = columns.iter().map(|c| c.values.len()).max().unwrap_or(0) as u64;
+    FfiDataTable {
+        columns,
+        row_count,
         error: None,
     }
 }

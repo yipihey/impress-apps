@@ -220,7 +220,7 @@ private struct PlotPanelView: View {
                     .lineLimit(1).truncationMode(.middle)
                     .foregroundStyle(fileName.isEmpty ? .secondary : .primary)
                 Spacer()
-                Button("Load CSV…") { pickFile() }
+                Button("Load data…") { pickFile() }
             }
         }
         if let table = dataTable, !table.columns.isEmpty {
@@ -319,7 +319,9 @@ private struct PlotPanelView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
+        // CSV/TSV/plain text + numpy .npz (no standard UTI → build from ext).
         panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
+            + ["npz"].compactMap { UTType(filenameExtension: $0) }
         panel.prompt = "Load"
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
