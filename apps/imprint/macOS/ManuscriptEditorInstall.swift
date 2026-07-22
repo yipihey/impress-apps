@@ -85,6 +85,18 @@ enum ManuscriptEditorInstaller {
             VeuszSidePanel(),
             PaperPreviewSidePanel(),
         ]
+
+        // Inverse-sync: a LaTeX preview click → source char offset, via the
+        // app-target SyncTeXService (loaded post-compile). Typst resolves inside
+        // PMC and needs no install. imbib installs nothing → LaTeX clicks no-op.
+        env.inverseSyncResolver = { req in
+            guard let loc = await SyncTeXService.shared.inverseSync(
+                page: req.page, x: req.x, y: req.y),
+                await SyncTeXService.shared.isMainFile(loc.file)
+            else { return nil }
+            return ManuscriptSourceOffset.offset(
+                in: req.source, line: loc.line, column: loc.column)
+        }
     }
 }
 #endif // os(macOS)

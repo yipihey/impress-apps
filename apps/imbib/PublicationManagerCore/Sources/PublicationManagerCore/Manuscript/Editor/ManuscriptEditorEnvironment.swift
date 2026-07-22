@@ -76,6 +76,35 @@ public final class ManuscriptEditorEnvironment {
     /// (imprint: AI Assistant / Throughline / Veusz / Paper preview). Default:
     /// empty → imbib shows no inspector. See `ManuscriptSidePanel`.
     public var sidePanels: [any ManuscriptSidePanel] = []
+
+    // MARK: - Inverse-sync (LaTeX SyncTeX: preview click → source offset)
+
+    /// Resolves a PDF-preview click to a source CHAR OFFSET for **LaTeX**
+    /// inverse-sync (SyncTeX). Typst does not use this — it resolves inside PMC
+    /// via `ImprintCore.SourceMapUtils`. Default: nil → imbib (and any host
+    /// without a LaTeX compiler) silently no-ops on LaTeX preview clicks.
+    /// imprint installs a call into its app-target `SyncTeXService`. Async
+    /// because that service is an actor.
+    public var inverseSyncResolver: (@MainActor (InverseSyncRequest) async -> Int?)?
+}
+
+/// A preview click to resolve back to a source position, for `inverseSyncResolver`.
+/// Coordinates are PDF **points** with a **top-left** origin; `page` is 1-indexed
+/// (SyncTeX convention). `source` is the live editor buffer (for line→offset).
+public struct InverseSyncRequest: Sendable {
+    public let manuscriptID: UUID
+    public let page: Int
+    public let x: Double
+    public let y: Double
+    public let source: String
+
+    public init(manuscriptID: UUID, page: Int, x: Double, y: Double, source: String) {
+        self.manuscriptID = manuscriptID
+        self.page = page
+        self.x = x
+        self.y = y
+        self.source = source
+    }
 }
 
 // MARK: - Inline completion capability

@@ -77,7 +77,18 @@ public struct ManuscriptDetailPane: View {
             // The Preview tab shows the last compiled artifact from the live
             // session (durable-artifact switcher lands with revision PDFs).
             if let data = session?.vm.pdfData {
-                ManuscriptPDFPreview(data: data)
+                // Preview tab: a click both jumps the caret AND switches to the
+                // Source tab so the jump is visible.
+                ManuscriptPDFPreview(data: data, onInverseSync: { page, x, y in
+                    guard let session = self.session else { return }
+                    Task {
+                        if let offset = await ManuscriptInverseSync.resolveOffset(
+                            session: session, page: page, x: x, y: y) {
+                            session.cursorPosition = offset
+                            selectedTab = .source
+                        }
+                    }
+                })
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "doc.richtext").font(.system(size: 32))

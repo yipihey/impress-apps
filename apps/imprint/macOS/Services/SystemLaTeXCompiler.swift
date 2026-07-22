@@ -141,7 +141,7 @@ struct SystemLaTeXCompiler: LaTeXCompiling {
         // to a per-manuscript session.
         if let synctexURL {
             do {
-                try await SyncTeXService.shared.load(from: synctexURL)
+                try await SyncTeXService.shared.load(from: synctexURL, mainSource: sourceURL)
             } catch {
                 Logger.compilation.infoCapture("SyncTeX load failed: \(error)", category: "compile")
             }

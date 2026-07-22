@@ -160,7 +160,17 @@ public struct ManuscriptSourceTab: View {
     @ViewBuilder
     private var previewPane: some View {
         if let data = session.vm.pdfData {
-            ManuscriptPDFPreview(data: data)
+            // Inline split: editor is already on-screen, so a preview click just
+            // moves the caret (no tab switch).
+            ManuscriptPDFPreview(data: data, onInverseSync: { page, x, y in
+                let session = self.session
+                Task {
+                    if let offset = await ManuscriptInverseSync.resolveOffset(
+                        session: session, page: page, x: x, y: y) {
+                        session.cursorPosition = offset
+                    }
+                }
+            })
         } else {
             VStack(spacing: 8) {
                 if session.vm.isCompiling {
@@ -426,14 +436,24 @@ struct ManuscriptOutlineRail: View {
 
 /// Minimal PDFKit preview for the compiled manuscript. Rebuilds its document
 /// when the compiled bytes change; preserves scroll position otherwise.
+/// Optionally reports clicks for inverse-sync (`onInverseSync`): a 1-indexed
+/// page + PDF point in **top-left** origin. When `onInverseSync` is nil the
+/// view behaves exactly as before (no-op click).
 struct ManuscriptPDFPreview: NSViewRepresentable {
     let data: Data
+    var onInverseSync: ((_ page: Int, _ x: Double, _ y: Double) -> Void)? = nil
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.document = PDFDocument(data: data)
+        let click = NSClickGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleClick(_:)))
+        // Only fire when a handler is present so text selection stays usable.
+        click.isEnabled = onInverseSync != nil
+        view.addGestureRecognizer(click)
+        context.coordinator.clickRecognizer = click
         return view
     }
 
@@ -443,13 +463,38 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
             view.document = PDFDocument(data: data)
             context.coordinator.lastData = data
         }
+        context.coordinator.onInverseSync = onInverseSync
+        context.coordinator.clickRecognizer?.isEnabled = onInverseSync != nil
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(lastData: data) }
+    func makeCoordinator() -> Coordinator { Coordinator(lastData: data, onInverseSync: onInverseSync) }
 
-    final class Coordinator {
+    final class Coordinator: NSObject {
         var lastData: Data
-        init(lastData: Data) { self.lastData = lastData }
+        var onInverseSync: ((_ page: Int, _ x: Double, _ y: Double) -> Void)?
+        weak var clickRecognizer: NSClickGestureRecognizer?
+
+        init(lastData: Data, onInverseSync: ((_ page: Int, _ x: Double, _ y: Double) -> Void)?) {
+            self.lastData = lastData
+            self.onInverseSync = onInverseSync
+        }
+
+        /// Convert a click to (1-indexed page, top-left-origin PDF point) and
+        /// report it. Geometry mirrors imprint's PDFPreviewView reference:
+        /// `convert(_:to:page)` is zoom-independent, so autoScales/dark filters
+        /// don't affect page-space coordinates.
+        @objc func handleClick(_ gesture: NSClickGestureRecognizer) {
+            guard let onInverseSync,
+                  let pdfView = gesture.view as? PDFView else { return }
+            let locationInView = gesture.location(in: pdfView)
+            guard let page = pdfView.page(for: locationInView, nearest: true),
+                  let pageIndex = pdfView.document?.index(for: page) else { return }
+            let pagePoint = pdfView.convert(locationInView, to: page)
+            let pageBounds = page.bounds(for: .mediaBox)
+            let x = Double(pagePoint.x)
+            let y = Double(pageBounds.height - pagePoint.y)  // bottom-left → top-left
+            onInverseSync(pageIndex + 1, x, y)
+        }
     }
 }
 #endif

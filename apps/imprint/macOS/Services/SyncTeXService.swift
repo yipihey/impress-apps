@@ -49,14 +49,28 @@ actor SyncTeXService {
 
     private var document: SyncTeXDocument?
 
+    /// Basename of the manuscript body `.tex` this SyncTeX data was compiled
+    /// from. Used by `isMainFile` to ignore inverse-sync hits inside `\input`
+    /// children (PMC edits a single body). nil → permissive (single-file).
+    private var mainFileName: String?
+
     /// Create a SyncTeX session, optionally scoped to a manuscript's working
     /// directory (the folder containing its `main.tex` / build output).
     init(workingDirectory: URL? = nil) {
         self.workingDirectory = workingDirectory
     }
 
-    /// Load and parse a `.synctex.gz` file.
-    func load(from url: URL) throws {
+    /// Whether an inverse-sync source path is the compiled manuscript body (vs
+    /// an `\input` child). Permissive when the main file is unknown.
+    func isMainFile(_ file: String) -> Bool {
+        guard let mainFileName else { return true }
+        return (file as NSString).lastPathComponent == mainFileName
+    }
+
+    /// Load and parse a `.synctex.gz` file. `mainSource` (the compiled body
+    /// `.tex`) scopes `isMainFile`.
+    func load(from url: URL, mainSource: URL? = nil) throws {
+        mainFileName = mainSource?.lastPathComponent
         let compressedData = try Data(contentsOf: url)
 
         // Decompress gzip
