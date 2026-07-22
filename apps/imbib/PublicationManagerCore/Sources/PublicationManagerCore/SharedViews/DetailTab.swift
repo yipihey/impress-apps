@@ -57,7 +57,12 @@ public enum DetailTab: String, CaseIterable, Identifiable, Sendable {
         case .publication(let editable):
             return editable ? [.info, .pdf, .notes, .bibtex] : [.info, .pdf, .bibtex]
         case .manuscript:
-            return [.info, .source, .pdf, .notes]
+            // No standalone Notes tab: the store manuscript has a `notes`
+            // field but no write path (only setManuscriptBody), and the Info
+            // tab already surfaces notes. A dedicated editable Notes tab needs
+            // a `set_manuscript_notes` FFI — tracked separately. (Rendering it
+            // here would show a blank tab.)
+            return [.info, .source, .pdf]
         }
     }
 
