@@ -111,14 +111,6 @@ extension ScixFfiError {
         case .NetworkError:
             return .networkError(URLError(.badServerResponse))
         case .ApiError(let message):
-            // Auth conditions now arrive as `.Unauthorized` (scix-client-ffi
-            // matches the typed SciXError::AuthRequired / HTTP 401), so this is
-            // a defensive fallback: if an auth message ever reaches us inside a
-            // generic ApiError (e.g. an external-crate error-text change), still
-            // surface it as an auth prompt rather than a misleading parse error.
-            if message.hasPrefix("Authentication required") {
-                return .authenticationRequired(sourceID)
-            }
             return .parseError(message)
         case .Internal(let message):
             return .parseError("Internal error: \(message)")
@@ -137,11 +129,6 @@ extension ScixFfiError {
         case .NetworkError(let message):
             return .networkError(message)
         case .ApiError(let message):
-            // See toSourceError: defensive fallback behind the typed
-            // `.Unauthorized` mapping now done in scix-client-ffi.
-            if message.hasPrefix("Authentication required") {
-                return .authenticationRequired(sourceID)
-            }
             return .parseError(message)
         case .Internal(let message):
             return .parseError("Internal error: \(message)")

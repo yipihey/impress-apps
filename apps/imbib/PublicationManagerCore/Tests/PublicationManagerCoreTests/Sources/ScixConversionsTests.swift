@@ -210,15 +210,6 @@ final class ScixConversionsTests: XCTestCase {
         }
     }
 
-    /// Regression guard for the boundary recovery in ScixConversions: the Rust
-    /// FFI flattens an auth condition into a generic ApiError whose message
-    /// starts with "Authentication required" — that must surface as a typed
-    /// authenticationRequired, not a parseError.
-    func testSourceError_apiErrorWithAuthMessage_mapsToAuthenticationRequired() {
-        let msg = "Authentication required: set SCIX_API_TOKEN (or ADS_API_TOKEN) environment variable"
-        assertSourceError(.ApiError(message: msg), isAuthRequiredFor: "ads")
-    }
-
     // MARK: - ScixFfiError → EnrichmentError
 
     func testEnrichmentError_unauthorized() {
@@ -238,14 +229,6 @@ final class ScixConversionsTests: XCTestCase {
     func testEnrichmentError_apiError_mapsToParseError() {
         if case .parseError = ScixFfiError.ApiError(message: "bad json").toEnrichmentError(sourceID: "ads") {} else {
             XCTFail("Non-auth ApiError should map to .parseError")
-        }
-    }
-
-    /// Same auth-message recovery on the enrichment path.
-    func testEnrichmentError_apiErrorWithAuthMessage_mapsToAuthenticationRequired() {
-        let msg = "Authentication required: set SCIX_API_TOKEN"
-        if case .authenticationRequired = ScixFfiError.ApiError(message: msg).toEnrichmentError(sourceID: "ads") {} else {
-            XCTFail("Auth-message ApiError should map to .authenticationRequired")
         }
     }
 
