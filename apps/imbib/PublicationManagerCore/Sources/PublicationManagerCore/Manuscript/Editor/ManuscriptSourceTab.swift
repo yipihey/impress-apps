@@ -159,7 +159,9 @@ public struct ManuscriptSourceTab: View {
 
     @ViewBuilder
     private var previewPane: some View {
-        if let data = session.vm.pdfData {
+        if session.latexPreviewUnavailable {
+            ManuscriptLaTeXImprintPrompt(session: session)
+        } else if let data = session.vm.pdfData {
             // Inline split: editor is already on-screen, so a preview click just
             // moves the caret (no tab switch).
             ManuscriptPDFPreview(data: data, onInverseSync: { page, x, y in
@@ -191,7 +193,14 @@ public struct ManuscriptSourceTab: View {
 
     private var compileStrip: some View {
         HStack(spacing: 8) {
-            if session.vm.isCompiling {
+            if session.latexPreviewUnavailable {
+                Image(systemName: "info.circle").foregroundStyle(.secondary)
+                Text("LaTeX preview opens in imprint").foregroundStyle(.secondary)
+                Button("Open in imprint") {
+                    ManuscriptImprintHandoff.open(manuscriptID: session.manuscriptID)
+                }
+                .buttonStyle(.link)
+            } else if session.vm.isCompiling {
                 ProgressView().controlSize(.small)
                 Text("Compiling").foregroundStyle(.secondary)
             } else if let err = session.vm.compilationError, !err.isEmpty {

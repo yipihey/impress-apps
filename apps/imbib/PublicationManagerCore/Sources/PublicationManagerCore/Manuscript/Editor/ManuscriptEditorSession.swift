@@ -111,9 +111,14 @@ public final class ManuscriptEditorSession {
     /// has no compiler (imbib) to avoid a spurious "unsupported" banner.
     public func startInitialCompileIfNeeded() {
         guard vm.pdfData == nil, !vm.isCompiling, !source.isEmpty else { return }
-        if format == .latex, !latexSupported { return }
         scheduleCompile()
     }
+
+    /// True when this manuscript is LaTeX but the host installed no LaTeX
+    /// engine (imbib ships `UnsupportedLaTeXCompiler`). The Source/Preview tabs
+    /// use this to show an "open in imprint to compile" affordance instead of a
+    /// failed-compile banner — imbib never attempts a LaTeX compile at all.
+    public var latexPreviewUnavailable: Bool { format == .latex && !latexSupported }
 
     // MARK: - Editing
 
@@ -131,6 +136,11 @@ public final class ManuscriptEditorSession {
     }
 
     private func scheduleCompile() {
+        // imbib has no LaTeX engine (UnsupportedLaTeXCompiler), so never attempt
+        // a LaTeX compile there — it would only set a failed-compile banner. The
+        // Source tab surfaces an "open in imprint" affordance instead. Typst
+        // always renders in-process, so it is unaffected.
+        if latexPreviewUnavailable { return }
         // Format-specific quiet window: LaTeX is heavier, so it waits longer.
         let delay = format == .latex ? 1500 : 400
         vm.scheduleCompile(after: delay) { [weak self] in

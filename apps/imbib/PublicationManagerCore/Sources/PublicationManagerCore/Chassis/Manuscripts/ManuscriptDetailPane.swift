@@ -85,7 +85,9 @@ public struct ManuscriptDetailPane: View {
         case .pdf:
             // The Preview tab shows the last compiled artifact from the live
             // session (durable-artifact switcher lands with revision PDFs).
-            if let data = session?.vm.pdfData {
+            if let session, session.latexPreviewUnavailable {
+                ManuscriptLaTeXImprintPrompt(session: session)
+            } else if let data = session?.vm.pdfData {
                 // Preview tab: a click both jumps the caret AND switches to the
                 // Source tab so the jump is visible.
                 ManuscriptPDFPreview(data: data, onInverseSync: { page, x, y in

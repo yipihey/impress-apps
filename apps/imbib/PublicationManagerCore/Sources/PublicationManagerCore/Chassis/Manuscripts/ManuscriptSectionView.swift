@@ -119,14 +119,8 @@ public struct ManuscriptSectionView: View {
     }
 
     private func openInImprint(manuscriptID: UUID) {
-        // Mirror ManuscriptDetailView.openInImprint's create path for the
-        // list-level action (the detail pane owns the bridged-open path).
-        let title = (RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)?.title ?? "Untitled")
-            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Untitled"
-        let urlString = "imprint://create?title=\(title)&imbibManuscript=\(manuscriptID.uuidString)"
-        if let url = URL(string: urlString) {
-            NSWorkspace.shared.open(url)
-        }
+        // Shared-store handoff: imprint opens the same manuscript by UUID.
+        ManuscriptImprintHandoff.open(manuscriptID: manuscriptID)
     }
 }
 #endif

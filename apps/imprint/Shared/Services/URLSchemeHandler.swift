@@ -76,6 +76,33 @@ public actor URLSchemeHandler {
             return false
         }
 
+        // Unified-store handoff (imbib → imprint): `imprint://open?manuscript={uuid}`.
+        // Both apps share the store, so the manuscript already exists under this
+        // UUID — open its editor directly. This is the live path; the legacy
+        // `documentUUID` create/bridge dance below predates the unified store.
+        if let manuscriptString = queryItems.first(where: { $0.name == "manuscript" })?.value,
+           let manuscriptUUID = UUID(uuidString: manuscriptString) {
+            let exists = await MainActor.run {
+                ManuscriptStoreAdapter.shared.manuscript(id: manuscriptUUID) != nil
+            }
+            guard exists else {
+                Logger.urlScheme.warningCapture(
+                    "open?manuscript=\(manuscriptUUID): not found in store", category: "url-scheme")
+                return false
+            }
+            Logger.urlScheme.infoCapture(
+                "Opening manuscript \(manuscriptUUID) in editor (unified-store handoff)",
+                category: "url-scheme")
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .openManuscriptInEditor,
+                    object: nil,
+                    userInfo: ["manuscriptID": manuscriptUUID]
+                )
+            }
+            return true
+        }
+
         let imbibManuscript = queryItems.first { $0.name == "imbibManuscript" }?.value
         guard let uuidString = queryItems.first(where: { $0.name == "documentUUID" })?.value,
               let documentUUID = UUID(uuidString: uuidString) else {
