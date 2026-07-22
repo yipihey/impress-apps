@@ -75,6 +75,13 @@ public final class ManuscriptEditorSession {
     /// whether the user has local unsaved edits when an external change lands.
     private var lastPersistedSource: String
 
+    /// Whether the injected LaTeX compiler can actually produce a PDF on this
+    /// host — imbib ships `UnsupportedLaTeXCompiler` (false); imprint installs a
+    /// real engine (true). Gates the on-load initial compile so a LaTeX
+    /// manuscript opened in imbib doesn't flash an "unsupported" banner before
+    /// any edit. (Typst always renders in-process, so it ignores this.)
+    private let latexSupported: Bool
+
     init(
         manuscriptID: UUID,
         source: String,
@@ -91,7 +98,21 @@ public final class ManuscriptEditorSession {
         self.title = title
         self.savedHash = savedHash
         self.saveDebounceMs = saveDebounceMs
+        self.latexSupported = compiler.isSupported
         self.vm = ManuscriptCompileController(latexCompiler: compiler)
+    }
+
+    /// Kick off a one-shot compile for a freshly loaded manuscript that already
+    /// has source. `init` assigns `source` directly, which does NOT fire the
+    /// `didSet` that normally schedules a compile — so without this a loaded,
+    /// un-edited manuscript shows "Nothing compiled yet" in the Preview until
+    /// the first keystroke. Idempotent: no-ops once a PDF exists, while a
+    /// compile is running, or for an empty buffer; skips LaTeX where the host
+    /// has no compiler (imbib) to avoid a spurious "unsupported" banner.
+    public func startInitialCompileIfNeeded() {
+        guard vm.pdfData == nil, !vm.isCompiling, !source.isEmpty else { return }
+        if format == .latex, !latexSupported { return }
+        scheduleCompile()
     }
 
     // MARK: - Editing
@@ -345,6 +366,10 @@ public final class ManuscriptSessionRegistry {
         sessions[id] = session
         lru.append(id)
         evictIfNeeded()
+        // Freshly loaded: `init` set the buffer without firing the edit path, so
+        // nothing has compiled yet. Trigger a one-shot compile so the Preview is
+        // populated without requiring a keystroke.
+        session.startInitialCompileIfNeeded()
         return session
     }
 
