@@ -71,7 +71,13 @@ targets:
       - name: Install to ~/Applications (Debug)
         basedOnDependencyAnalysis: false
         script: |
-          if [ "$CONFIGURATION" = "Debug" ] && [ "$PLATFORM_NAME" = "macosx" ]; then
+          # Only install a PROPERLY SIGNED copy. A headless/CI build
+          # (CODE_SIGNING_ALLOWED=NO → empty EXPANDED_CODE_SIGN_IDENTITY) is
+          # ad-hoc with NO entitlements; installing it over the user's signed
+          # copy strips the app-sandbox + application-groups entitlements, so
+          # macOS then prompts on every launch for the shared group container
+          # ("access data from other apps") and Documents. Skip it.
+          if [ "$CONFIGURATION" = "Debug" ] && [ "$PLATFORM_NAME" = "macosx" ] && [ -n "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
             DEST="$HOME/Applications"
             LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
             mkdir -p "$DEST"

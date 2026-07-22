@@ -80,7 +80,11 @@ targets:
         script: |
           # IMPRESS_SKIP_INSTALL=1 opts out (worktree/CI builds must not
           # hijack the ~/Applications copy a developer is actively using).
-          if [ "$CONFIGURATION" = "Debug" ] && [ "$PLATFORM_NAME" = "macosx" ] && [ -z "$IMPRESS_SKIP_INSTALL" ]; then
+          # Also require a real signing identity: an ad-hoc (CODE_SIGNING_ALLOWED=NO)
+          # copy has NO entitlements, and installing it strips the app-sandbox +
+          # application-groups grants → macOS prompts on every launch for the
+          # shared group container and Documents.
+          if [ "$CONFIGURATION" = "Debug" ] && [ "$PLATFORM_NAME" = "macosx" ] && [ -z "$IMPRESS_SKIP_INSTALL" ] && [ -n "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
             DEST="$HOME/Applications"
             LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
             mkdir -p "$DEST"
