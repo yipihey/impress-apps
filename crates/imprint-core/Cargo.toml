@@ -31,7 +31,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 default = []
 uniffi = ["dep:uniffi"]
 # Enable Typst rendering support (requires typst dependencies)
-typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo"]
+typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo", "dep:impress-plot"]
 # Full native build with both UniFFI and Typst
 native = ["uniffi", "typst-render"]
 # Enable the self-contained Tectonic LaTeX engine (heavy C dependency tree:
@@ -77,6 +77,10 @@ typst-pdf = { version = "0.14", optional = true }
 typst-svg = { version = "0.14", optional = true }
 typst-as-lib = { version = "0.15", optional = true, features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
 comemo = { version = "0.4", optional = true }
+
+# Native Typst-first plotting (declarative spec → Typst + raster). Optional,
+# enabled with the Typst renderer since render_plot_svg compiles through it.
+impress-plot = { path = "../impress-plot", optional = true }
 
 # Tectonic self-contained LaTeX engine (optional, behind `tectonic-render`).
 # Default features keep bundled HarfBuzz + reqwest-based bundle fetching.

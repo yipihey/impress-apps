@@ -33,6 +33,8 @@ pub mod document;
 pub mod latex;
 pub mod migration;
 pub mod note_import;
+#[cfg(feature = "typst-render")]
+pub mod plot_ffi;
 pub mod render;
 pub mod render_project;
 pub mod selection;

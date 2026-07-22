@@ -112,6 +112,7 @@ fn hist_figure_compiles_with_asset() {
         120,
         Some(((-4.0, 4.0), (-3.0, 4.0))),
     );
+    let (x_range, y_range) = (hist.xr, hist.yr);
     let fig = Hist2DFigure {
         title: "density · viridis · log".into(),
         hist,
@@ -120,6 +121,8 @@ fn hist_figure_compiles_with_asset() {
         scale: ColorScale::Log,
         x: Axis::linear().with_label("x"),
         y: Axis::linear().with_label("y"),
+        x_range,
+        y_range,
         asset_id: "hist_crate.png".into(),
     };
     let out = fig.render(PlotSize::new(340.0, 240.0).with_colorbar());

@@ -74,15 +74,22 @@ pub enum Series {
 }
 
 impl Series {
-    fn xs(&self) -> &[f64] {
+    pub(crate) fn xs(&self) -> &[f64] {
         match self {
             Series::Line { xs, .. } | Series::Scatter { xs, .. } => xs,
         }
     }
-    fn ys(&self) -> &[f64] {
+    pub(crate) fn ys(&self) -> &[f64] {
         match self {
             Series::Line { ys, .. } | Series::Scatter { ys, .. } => ys,
         }
+    }
+    /// Number of points in this series.
+    pub fn len(&self) -> usize {
+        self.xs().len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.xs().is_empty()
     }
 }
 
@@ -245,9 +252,14 @@ impl LinePlot {
     }
 }
 
-/// The big-N raster: a [`Hist2D`] under vector axes + a vector colorbar. The
-/// axes here are linear (native to the binning); a log color scale handles
-/// dynamic range. (Log *axes* on a histogram = log-spaced bins — a follow-up.)
+/// The big-N raster: a [`Hist2D`] under vector axes + a vector colorbar.
+///
+/// The raster always stretches to the plot rect, so the tick *range* is kept
+/// separate from the binning space: `x_range`/`y_range` are the real data bounds
+/// used to label ticks via the (possibly log) [`Axis`]. When the histogram is
+/// binned in normalized-t space (the auto-fallback for a log axis), pass the
+/// real bounds here and the decade ticks line up with the image; when it's
+/// binned in data space (a plain linear heatmap), pass `hist.xr`/`hist.yr`.
 #[derive(Clone, Debug)]
 pub struct Hist2DFigure {
     pub title: String,
@@ -257,11 +269,39 @@ pub struct Hist2DFigure {
     pub scale: ColorScale,
     pub x: Axis,
     pub y: Axis,
+    /// Real data bounds for x-axis tick labels (see struct docs).
+    pub x_range: (f64, f64),
+    /// Real data bounds for y-axis tick labels.
+    pub y_range: (f64, f64),
     /// Stable asset id (becomes `image("/<asset_id>")`).
     pub asset_id: String,
 }
 
 impl Hist2DFigure {
+    /// Convenience for a plain data-space heatmap: tick range = histogram range.
+    pub fn from_hist(
+        title: impl Into<String>,
+        hist: Hist2D,
+        norm: Normalization,
+        cmap: Colormap,
+        scale: ColorScale,
+        asset_id: impl Into<String>,
+    ) -> Self {
+        let (x_range, y_range) = (hist.xr, hist.yr);
+        Self {
+            title: title.into(),
+            hist,
+            norm,
+            cmap,
+            scale,
+            x: Axis::linear(),
+            y: Axis::linear(),
+            x_range,
+            y_range,
+            asset_id: asset_id.into(),
+        }
+    }
+
     pub fn render(&self, size: PlotSize) -> PlotOutput {
         let (pw, ph) = (size.pw(), size.ph());
         let (png, vmin, vmax) = self.hist.to_png(self.norm, self.cmap, self.scale, 4);
@@ -282,9 +322,9 @@ impl Hist2DFigure {
             size.pad_l, size.pad_t, asset_path, pw, ph
         );
 
-        // Axes honor the histogram range.
-        let (lox, hix) = (self.hist.xr.0, self.hist.xr.1);
-        let (loy, hiy) = (self.hist.yr.0, self.hist.yr.1);
+        // Ticks use the real data bounds through the (possibly log) axis.
+        let (lox, hix) = self.x_range;
+        let (loy, hiy) = self.y_range;
         emit_frame_and_ticks(
             &mut b,
             size,
