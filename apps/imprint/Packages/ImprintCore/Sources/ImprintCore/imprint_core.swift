@@ -2549,6 +2549,153 @@ public func FfiConverterTypeFfiColor_lower(_ value: FfiColor) -> RustBuffer {
 
 
 /**
+ * One numeric column loaded from a data file.
+ */
+public struct FfiDataColumn {
+    public var name: String
+    public var values: [Double]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, values: [Double]) {
+        self.name = name
+        self.values = values
+    }
+}
+
+
+
+extension FfiDataColumn: Equatable, Hashable {
+    public static func ==(lhs: FfiDataColumn, rhs: FfiDataColumn) -> Bool {
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.values != rhs.values {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(values)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDataColumn: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDataColumn {
+        return
+            try FfiDataColumn(
+                name: FfiConverterString.read(from: &buf), 
+                values: FfiConverterSequenceDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDataColumn, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterSequenceDouble.write(value.values, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDataColumn_lift(_ buf: RustBuffer) throws -> FfiDataColumn {
+    return try FfiConverterTypeFfiDataColumn.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDataColumn_lower(_ value: FfiDataColumn) -> RustBuffer {
+    return FfiConverterTypeFfiDataColumn.lower(value)
+}
+
+
+/**
+ * The numeric columns of a data file — everything the plot panel needs to bind
+ * real x/y series. Non-numeric columns are dropped (they can't be plotted).
+ */
+public struct FfiDataTable {
+    public var columns: [FfiDataColumn]
+    public var rowCount: UInt64
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(columns: [FfiDataColumn], rowCount: UInt64, error: String?) {
+        self.columns = columns
+        self.rowCount = rowCount
+        self.error = error
+    }
+}
+
+
+
+extension FfiDataTable: Equatable, Hashable {
+    public static func ==(lhs: FfiDataTable, rhs: FfiDataTable) -> Bool {
+        if lhs.columns != rhs.columns {
+            return false
+        }
+        if lhs.rowCount != rhs.rowCount {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(columns)
+        hasher.combine(rowCount)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDataTable: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDataTable {
+        return
+            try FfiDataTable(
+                columns: FfiConverterSequenceTypeFfiDataColumn.read(from: &buf), 
+                rowCount: FfiConverterUInt64.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDataTable, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeFfiDataColumn.write(value.columns, into: &buf)
+        FfiConverterUInt64.write(value.rowCount, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDataTable_lift(_ buf: RustBuffer) throws -> FfiDataTable {
+    return try FfiConverterTypeFfiDataTable.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDataTable_lower(_ value: FfiDataTable) -> RustBuffer {
+    return FfiConverterTypeFfiDataTable.lower(value)
+}
+
+
+/**
  * The Typst source for a plot, for inserting into a manuscript.
  */
 public struct FfiPlotSource {
@@ -5742,6 +5889,31 @@ fileprivate struct FfiConverterSequenceTypeFFITemplateMetadata: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiDataColumn: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiDataColumn]
+
+    public static func write(_ value: [FfiDataColumn], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiDataColumn.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiDataColumn] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiDataColumn]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiDataColumn.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiSeries: FfiConverterRustBuffer {
     typealias SwiftType = [FfiSeries]
 
@@ -6029,6 +6201,20 @@ public func listTemplatesByCategory(category: FfiTemplateCategory) -> [FfiTempla
     )
 })
 }
+/**
+ * Load a data file's numeric columns as `[Double]` arrays, reusing implore-io's
+ * tested reader (`open_file` → `read_column` → `DataColumn::to_f64`). CSV is
+ * wired today (pure Rust); HDF5/FITS are implore-io features with C deps, a
+ * follow-up. The whole table is read eagerly — fine for typical CSVs; a
+ * schema-first + selective-column path is the big-data optimization.
+ */
+public func loadDataTable(path: String) -> FfiDataTable {
+    return try!  FfiConverterTypeFfiDataTable.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_load_data_table(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
 public func parseImprintUrl(urlString: String) -> ParseResult {
     return try!  FfiConverterTypeParseResult.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_parse_imprint_url(
@@ -6203,6 +6389,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_list_templates_by_category() != 61803) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_load_data_table() != 22909) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_parse_imprint_url() != 592) {

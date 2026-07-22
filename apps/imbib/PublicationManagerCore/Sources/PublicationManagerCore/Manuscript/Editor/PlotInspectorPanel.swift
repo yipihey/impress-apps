@@ -5,19 +5,20 @@
 //  PublicationManagerCore
 //
 //  A native-plotting inspector panel, shared by imbib AND imprint through the
-//  ManuscriptSidePanel seam. It drives `impress-plot` via ImprintCore's FFI
-//  (`renderPlotSvg`): a declarative spec → a Typst-rendered figure, with the two
-//  first-reached-for interactive controls wired live — per-axis linear/log and
-//  min/max — plus colormap selection for the big-N raster fallback.
+//  ManuscriptSidePanel seam. It drives `impress-plot` via ImprintCore's FFI:
+//  a declarative spec → a Typst-rendered figure, with the two first-reached-for
+//  interactive controls wired live — per-axis linear/log and min/max — plus
+//  colormap selection for the big-N raster fallback.
 //
-//  Data is a small built-in demo set for now (the panel proves the pipeline +
-//  interactivity end-to-end in the GUI); binding to real datasets and inserting
-//  the figure into the manuscript are the next steps (Insert already works for
-//  inline-safe vector plots).
+//  Data source is either a built-in demo set OR a real data file: pick a CSV,
+//  choose x/y columns, and plot. Column loading reuses implore-io's reader
+//  through ImprintCore's `loadDataTable` FFI (numeric columns → [Double]).
+//  Insert writes the figure's Typst source at the cursor (inline-safe vector).
 
 import AppKit
 import ImprintCore
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 /// The seam conformer both apps install.
@@ -40,8 +41,6 @@ private enum DemoDataset: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// (xs, ys, kind). Sized so the first two stay vector and the last trips the
-    /// auto raster fallback.
     func series() -> (xs: [Double], ys: [Double], kind: FfiSeriesKind) {
         switch self {
         case .dampedSine:
@@ -77,12 +76,37 @@ private enum DemoDataset: String, CaseIterable, Identifiable {
     }
 }
 
+private enum SourceMode: String, CaseIterable, Identifiable {
+    case demo = "Demo"
+    case file = "Data file"
+    var id: String { rawValue }
+}
+
+private enum PlotStyle: String, CaseIterable, Identifiable {
+    case scatter = "Scatter"
+    case line = "Line"
+    var id: String { rawValue }
+    var kind: FfiSeriesKind { self == .line ? .line : .scatter }
+}
+
 // MARK: - Panel view
 
 private struct PlotPanelView: View {
     let context: ManuscriptPanelContext
 
+    // Source
+    @State private var sourceMode: SourceMode = .demo
     @State private var dataset: DemoDataset = .dampedSine
+
+    // Loaded data file
+    @State private var dataTable: FfiDataTable?
+    @State private var fileName = ""
+    @State private var xCol = ""
+    @State private var yCol = ""
+    @State private var style: PlotStyle = .scatter
+    @State private var loadError: String?
+
+    // Axis controls
     @State private var xLog = false
     @State private var yLog = false
     @State private var xMin = ""
@@ -91,26 +115,27 @@ private struct PlotPanelView: View {
     @State private var yMax = ""
     @State private var colormap: FfiColormap = .viridis
 
+    // Render output
     @State private var svg = ""
     @State private var rasterized = false
     @State private var rendering = false
-    @State private var errorMessage: String?
+    @State private var renderError: String?
     @State private var renderTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
             preview
             Divider()
-            controls
+            ScrollView { controls }
         }
         .background(.background)
         .onChange(of: renderKey) { scheduleRender() }
         .task { scheduleRender() }
     }
 
-    // A single value that changes whenever any input changes.
     private var renderKey: String {
-        "\(dataset.rawValue)|\(xLog)|\(yLog)|\(xMin)|\(xMax)|\(yMin)|\(yMax)|\(colormap.hashValue)"
+        "\(sourceMode.rawValue)|\(dataset.rawValue)|\(fileName)|\(xCol)|\(yCol)|\(style.rawValue)"
+            + "|\(xLog)|\(yLog)|\(xMin)|\(xMax)|\(yMin)|\(yMax)|\(colormap.hashValue)"
     }
 
     private var preview: some View {
@@ -119,7 +144,7 @@ private struct PlotPanelView: View {
             if rendering {
                 ProgressView().controlSize(.small)
             }
-            if let err = errorMessage {
+            if let err = renderError ?? loadError {
                 Text(err)
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -131,11 +156,23 @@ private struct PlotPanelView: View {
         .frame(maxWidth: .infinity)
     }
 
+    @ViewBuilder
     private var controls: some View {
         Form {
-            Picker("Data", selection: $dataset) {
-                ForEach(DemoDataset.allCases) { Text($0.rawValue).tag($0) }
+            Picker("Source", selection: $sourceMode) {
+                ForEach(SourceMode.allCases) { Text($0.rawValue).tag($0) }
             }
+            .pickerStyle(.segmented)
+
+            switch sourceMode {
+            case .demo:
+                Picker("Data", selection: $dataset) {
+                    ForEach(DemoDataset.allCases) { Text($0.rawValue).tag($0) }
+                }
+            case .file:
+                fileControls
+            }
+
             LabeledContent("X axis") {
                 HStack(spacing: 6) {
                     Toggle("log", isOn: $xLog).toggleStyle(.button).controlSize(.small)
@@ -168,20 +205,71 @@ private struct PlotPanelView: View {
                 }
                 Spacer()
                 Button("Insert into manuscript") { insert() }
+                    .disabled(currentSeries() == nil)
             }
         }
         .formStyle(.grouped)
         .textFieldStyle(.roundedBorder)
     }
 
-    // MARK: Spec + rendering
+    @ViewBuilder
+    private var fileControls: some View {
+        LabeledContent("File") {
+            HStack {
+                Text(fileName.isEmpty ? "None" : fileName)
+                    .lineLimit(1).truncationMode(.middle)
+                    .foregroundStyle(fileName.isEmpty ? .secondary : .primary)
+                Spacer()
+                Button("Load CSV…") { pickFile() }
+            }
+        }
+        if let table = dataTable, !table.columns.isEmpty {
+            let names = table.columns.map(\.name)
+            Picker("X column", selection: $xCol) {
+                ForEach(names, id: \.self) { Text($0).tag($0) }
+            }
+            Picker("Y column", selection: $yCol) {
+                ForEach(names, id: \.self) { Text($0).tag($0) }
+            }
+            Picker("Style", selection: $style) {
+                ForEach(PlotStyle.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Text("\(table.columns.count) numeric columns · \(table.rowCount) rows")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
 
-    private func spec(width: Double, height: Double) -> FfiPlotSpec {
-        let d = dataset.series()
+    // MARK: Data + spec
+
+    /// The x/y arrays + series kind for the current source, or nil if unset.
+    private func currentSeries() -> (xs: [Double], ys: [Double], kind: FfiSeriesKind)? {
+        switch sourceMode {
+        case .demo:
+            return dataset.series()
+        case .file:
+            guard let t = dataTable,
+                let xc = t.columns.first(where: { $0.name == xCol }),
+                let yc = t.columns.first(where: { $0.name == yCol })
+            else { return nil }
+            let n = min(xc.values.count, yc.values.count)
+            guard n > 0 else { return nil }
+            return (Array(xc.values.prefix(n)), Array(yc.values.prefix(n)), style.kind)
+        }
+    }
+
+    private func spec(width: Double, height: Double) -> FfiPlotSpec? {
+        guard let d = currentSeries() else { return nil }
+        let (xLabel, yLabel): (String, String) = {
+            switch sourceMode {
+            case .demo: return ("x", "y")
+            case .file: return (xCol, yCol)
+            }
+        }()
         return FfiPlotSpec(
-            title: dataset.rawValue,
-            x: FfiAxis(scale: xLog ? .log : .linear, min: Double(xMin), max: Double(xMax), label: "x"),
-            y: FfiAxis(scale: yLog ? .log : .linear, min: Double(yMin), max: Double(yMax), label: "y"),
+            title: sourceMode == .file ? fileName : dataset.rawValue,
+            x: FfiAxis(scale: xLog ? .log : .linear, min: Double(xMin), max: Double(xMax), label: xLabel),
+            y: FfiAxis(scale: yLog ? .log : .linear, min: Double(yMin), max: Double(yMax), label: yLabel),
             series: [FfiSeries(kind: d.kind, xs: d.xs, ys: d.ys, color: FfiColor(r: 31, g: 111, b: 214))],
             strategy: .auto,
             colormap: colormap,
@@ -193,48 +281,86 @@ private struct PlotPanelView: View {
 
     private func scheduleRender() {
         renderTask?.cancel()
-        let s = spec(width: 360, height: 240)
+        guard let s = spec(width: 360, height: 240) else {
+            svg = ""
+            return
+        }
         renderTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(220))
             if Task.isCancelled { return }
             rendering = true
-            // Off the main thread on a shared serial queue so the FFI's
-            // thread-local engine stays warm between renders.
             let result = await PlotRenderQueue.shared.render(s)
             if Task.isCancelled { return }
             rendering = false
             rasterized = result.rasterized
             if let e = result.error, !e.isEmpty {
-                errorMessage = e
+                renderError = e
             } else {
-                errorMessage = nil
+                renderError = nil
                 svg = result.svg
             }
         }
     }
 
     private func insert() {
-        let s = spec(width: 340, height: 220)
+        guard let s = spec(width: 340, height: 220) else { return }
         let src = renderPlotTypst(spec: s)
         if src.inlineSafe {
             context.insertAtCursor("\n" + src.typst + "\n")
         } else {
-            errorMessage = "Raster plots can't be inserted inline yet — vector only."
+            renderError = "Raster plots can't be inserted inline yet — vector only."
+        }
+    }
+
+    // MARK: File loading
+
+    private func pickFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
+        panel.prompt = "Load"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        loadError = nil
+        let scoped = url.startAccessingSecurityScopedResource()
+        let path = url.path
+        let name = url.lastPathComponent
+        Task { @MainActor in
+            let table = await PlotRenderQueue.shared.loadTable(path)
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            fileName = name
+            dataTable = table
+            if let e = table.error, !e.isEmpty {
+                loadError = e
+                xCol = ""
+                yCol = ""
+            } else {
+                loadError = nil
+                let names = table.columns.map(\.name)
+                xCol = names.first ?? ""
+                yCol = names.count > 1 ? names[1] : (names.first ?? "")
+            }
         }
     }
 }
 
-/// Serializes FFI plot renders onto one background queue so the Rust
-/// thread-local renderer is reused (warm engine).
+/// Serializes FFI calls (render + load) onto one background queue so the Rust
+/// thread-local plot renderer stays warm between renders.
 private actor PlotRenderQueue {
     static let shared = PlotRenderQueue()
     private let queue = DispatchQueue(label: "com.impress.plot-render", qos: .userInitiated)
 
     func render(_ spec: FfiPlotSpec) async -> FfiRenderedPlot {
         await withCheckedContinuation { cont in
-            queue.async {
-                cont.resume(returning: renderPlotSvg(spec: spec))
-            }
+            queue.async { cont.resume(returning: renderPlotSvg(spec: spec)) }
+        }
+    }
+
+    func loadTable(_ path: String) async -> FfiDataTable {
+        await withCheckedContinuation { cont in
+            queue.async { cont.resume(returning: loadDataTable(path: path)) }
         }
     }
 }
@@ -246,7 +372,6 @@ private struct PlotSVGView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let web = WKWebView()
-        // Transparent background so the panel chrome shows through.
         web.setValue(false, forKey: "drawsBackground")
         web.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return web

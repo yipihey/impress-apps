@@ -236,6 +236,83 @@ pub fn render_plot_typst(spec: FfiPlotSpec) -> FfiPlotSource {
     }
 }
 
+// ===========================================================================
+// Real-dataset binding: load numeric columns from a file (CSV today).
+// ===========================================================================
+
+/// One numeric column loaded from a data file.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Clone, Debug)]
+pub struct FfiDataColumn {
+    pub name: String,
+    pub values: Vec<f64>,
+}
+
+/// The numeric columns of a data file — everything the plot panel needs to bind
+/// real x/y series. Non-numeric columns are dropped (they can't be plotted).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Clone, Debug)]
+pub struct FfiDataTable {
+    pub columns: Vec<FfiDataColumn>,
+    pub row_count: u64,
+    pub error: Option<String>,
+}
+
+/// Load a data file's numeric columns as `[Double]` arrays, reusing implore-io's
+/// tested reader (`open_file` → `read_column` → `DataColumn::to_f64`). CSV is
+/// wired today (pure Rust); HDF5/FITS are implore-io features with C deps, a
+/// follow-up. The whole table is read eagerly — fine for typical CSVs; a
+/// schema-first + selective-column path is the big-data optimization.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn load_data_table(path: String) -> FfiDataTable {
+    let reader = match implore_io::open_file(&path) {
+        Ok(r) => r,
+        Err(e) => {
+            return FfiDataTable {
+                columns: Vec::new(),
+                row_count: 0,
+                error: Some(format!("{e}")),
+            }
+        }
+    };
+    let schema = match reader.read_schema() {
+        Ok(s) => s,
+        Err(e) => {
+            return FfiDataTable {
+                columns: Vec::new(),
+                row_count: 0,
+                error: Some(format!("{e}")),
+            }
+        }
+    };
+    let mut columns = Vec::new();
+    for col in &schema.columns {
+        if !col.dtype.is_numeric() {
+            continue;
+        }
+        if let Ok(data) = reader.read_column(&col.name) {
+            if let Some(values) = data.to_f64() {
+                columns.push(FfiDataColumn {
+                    name: col.name.clone(),
+                    values,
+                });
+            }
+        }
+    }
+    if columns.is_empty() {
+        return FfiDataTable {
+            columns,
+            row_count: schema.num_records as u64,
+            error: Some("No numeric columns found in file".into()),
+        };
+    }
+    FfiDataTable {
+        columns,
+        row_count: schema.num_records as u64,
+        error: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,5 +387,28 @@ mod tests {
         assert!(out.error.is_none(), "error: {:?}", out.error);
         assert!(out.rasterized, "big-N should raster");
         assert!(out.svg.contains("data:image/png") || out.svg.contains("<image"));
+    }
+
+    #[test]
+    fn load_csv_numeric_columns() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("impress_plot_ffi_test.csv");
+        std::fs::write(&path, "x,y,label\n1,10,a\n2,20,b\n3,30,c\n").unwrap();
+        let table = load_data_table(path.to_string_lossy().to_string());
+        assert!(table.error.is_none(), "error: {:?}", table.error);
+        // Numeric x/y kept; non-numeric `label` dropped.
+        let names: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"x") && names.contains(&"y"));
+        assert!(!names.contains(&"label"));
+        let y = table.columns.iter().find(|c| c.name == "y").unwrap();
+        assert_eq!(y.values, vec![10.0, 20.0, 30.0]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_missing_file_errors_cleanly() {
+        let table = load_data_table("/nonexistent/nope.csv".into());
+        assert!(table.error.is_some());
+        assert!(table.columns.is_empty());
     }
 }

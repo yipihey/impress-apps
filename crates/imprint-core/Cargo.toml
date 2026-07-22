@@ -31,7 +31,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 default = []
 uniffi = ["dep:uniffi"]
 # Enable Typst rendering support (requires typst dependencies)
-typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo", "dep:impress-plot"]
+typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo", "dep:impress-plot", "dep:implore-io"]
 # Full native build with both UniFFI and Typst
 native = ["uniffi", "typst-render"]
 # Enable the self-contained Tectonic LaTeX engine (heavy C dependency tree:
@@ -81,6 +81,11 @@ comemo = { version = "0.4", optional = true }
 # Native Typst-first plotting (declarative spec → Typst + raster). Optional,
 # enabled with the Typst renderer since render_plot_svg compiles through it.
 impress-plot = { path = "../impress-plot", optional = true }
+
+# Columnar data loading for the plot panel's real-dataset binding. CSV only for
+# now (pure Rust, no C deps, builds for iOS); HDF5/FITS are separate implore-io
+# features with C deps, deferred. Enabled with the plot FFI.
+implore-io = { path = "../implore-io", optional = true }
 
 # Tectonic self-contained LaTeX engine (optional, behind `tectonic-render`).
 # Default features keep bundled HarfBuzz + reqwest-based bundle fetching.
