@@ -385,10 +385,15 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
         PERSISTENT_RENDERER.with(|cell| {
             let mut renderer = cell.borrow_mut();
             match renderer.render_pdf(&source, &render_options) {
-                Ok(output) => {
+                Ok((output, layout_entries)) => {
                     if let Some(pdf_bytes) = output.as_pdf() {
-                        let source_map_entries =
-                            generate_source_map_entries(&source, &render_options);
+                        // Prefer the real-layout source map; fall back to the
+                        // text heuristic only if the frame walk yielded nothing.
+                        let source_map_entries = if layout_entries.is_empty() {
+                            generate_source_map_entries(&source, &render_options)
+                        } else {
+                            layout_entries.iter().map(layout_entry_to_ffi).collect()
+                        };
 
                         CompileResult {
                             pdf_data: Some(pdf_bytes.to_vec()),
@@ -452,6 +457,27 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
                 source_map_entries: Vec::new(),
             },
         }
+    }
+}
+
+/// Map a real-layout source-map entry (points, top-left origin, offsets into the
+/// user source) to the FFI wire type. All layout runs are text runs, so the
+/// content type is `Text`.
+#[cfg(all(feature = "uniffi", feature = "typst-render"))]
+fn layout_entry_to_ffi(e: &crate::render::LayoutSourceMapEntry) -> FFISourceMapEntry {
+    FFISourceMapEntry {
+        source: FFISourceSpan {
+            start: e.source_start as u64,
+            end: e.source_end as u64,
+        },
+        page: e.page,
+        bbox: FFIBoundingBox {
+            x: e.x,
+            y: e.y,
+            width: e.width,
+            height: e.height,
+        },
+        content_type: FFIContentType::Text,
     }
 }
 
@@ -945,8 +971,14 @@ fn compile_typst_to_svg_inner(source: String, options: CompileOptions) -> SvgCom
         PERSISTENT_RENDERER.with(|cell| {
             let mut renderer = cell.borrow_mut();
             match renderer.render_svg(&source, &render_options) {
-                Ok((svg_pages, warnings, page_count)) => {
-                    let source_map_entries = generate_source_map_entries(&source, &render_options);
+                Ok((svg_pages, warnings, page_count, layout_entries)) => {
+                    // Prefer the real-layout source map; fall back to the text
+                    // heuristic only if the frame walk yielded nothing.
+                    let source_map_entries = if layout_entries.is_empty() {
+                        generate_source_map_entries(&source, &render_options)
+                    } else {
+                        layout_entries.iter().map(layout_entry_to_ffi).collect()
+                    };
                     SvgCompileResult {
                         svg_pages,
                         page_count,

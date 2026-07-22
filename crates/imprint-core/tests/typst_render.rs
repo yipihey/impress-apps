@@ -13,7 +13,7 @@ const DOC: &str = "= Hello iOS\n\nThe #emph[imprint] renderer runs in-process.\n
 #[test]
 fn renders_typst_to_pdf() {
     let mut renderer = PersistentTypstRenderer::new();
-    let out = renderer
+    let (out, source_map) = renderer
         .render_pdf(DOC, &RenderOptions::default())
         .expect("render_pdf");
     match out {
@@ -23,13 +23,18 @@ fn renders_typst_to_pdf() {
         }
         other => panic!("expected PDF output, got {other:?}"),
     }
+    assert!(
+        !source_map.is_empty(),
+        "real-layout source map should not be empty for a rendered doc"
+    );
 }
 
 #[test]
 fn renders_typst_to_svg() {
     let mut renderer = PersistentTypstRenderer::new();
     let opts = RenderOptions::default().with_format(OutputFormat::Svg);
-    let (pages, _warnings, count) = renderer.render_svg(DOC, &opts).expect("render_svg");
+    let (pages, _warnings, count, _source_map) =
+        renderer.render_svg(DOC, &opts).expect("render_svg");
     assert_eq!(count, 1, "single-page doc");
     assert_eq!(pages.len(), 1);
     assert!(pages[0].contains("<svg"), "not SVG markup");
@@ -45,7 +50,7 @@ fn persistent_renderer_recompiles_after_edit() {
     let second = renderer
         .render_pdf("= Second, longer document body", &opts)
         .expect("second");
-    let (a, b) = match (first, second) {
+    let (a, b) = match (first.0, second.0) {
         (RenderOutput::Pdf(a), RenderOutput::Pdf(b)) => (a, b),
         _ => panic!("expected PDFs"),
     };

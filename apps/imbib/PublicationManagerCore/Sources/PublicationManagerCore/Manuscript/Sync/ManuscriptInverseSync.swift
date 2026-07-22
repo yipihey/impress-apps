@@ -32,8 +32,10 @@ enum ManuscriptInverseSync {
     ) async -> Int? {
         switch session.format {
         case .typst:
-            // In-PMC (works everywhere). The heuristic entries are 0-indexed and
-            // single-page. Part 2 will prefer a real-layout jump here.
+            // In-PMC (works in imbib too). The entries come from imprint-core's
+            // real-layout frame walk (accurate bboxes + span offsets), or the
+            // text heuristic as a fallback; either flows through the same lookup.
+            // Entries are page-indexed from 0.
             let result = SourceMapUtils.lookup(
                 entries: session.vm.sourceMapEntries, page: page - 1, x: x, y: y)
             guard result.found else { return nil }

@@ -527,7 +527,12 @@ public actor TypstRenderer {
 
         log("[ImprintCore] SVG compilation complete. Error: \(result.error ?? "none"), Pages: \(result.svgPages.count)")
 
-        let sourceMapEntries = Self.generateSourceMapEntries(source: source, options: options)
+        // Prefer the real-layout frame-walk entries from Rust; fall back to the
+        // text heuristic only if the walk produced nothing.
+        let ffiEntries = Self.mapFFIEntries(result.sourceMapEntries)
+        let sourceMapEntries = ffiEntries.isEmpty
+            ? Self.generateSourceMapEntries(source: source, options: options)
+            : ffiEntries
 
         if let error = result.error {
             log("[ImprintCore] SVG compilation error: \(error)")
@@ -598,8 +603,11 @@ public actor TypstRenderer {
         log("[ImprintCore] Rust compilation complete. Error: \(result.error ?? "none"), PDF size: \(result.pdfData?.count ?? 0)")
 
         // Generate source map entries locally (until FFI exports them)
-        let sourceMapEntries = Self.generateSourceMapEntries(source: source, options: options)
-        log("[ImprintCore] Source map entries: \(sourceMapEntries.count)")
+        let ffiEntries = Self.mapFFIEntries(result.sourceMapEntries)
+        let sourceMapEntries = ffiEntries.isEmpty
+            ? Self.generateSourceMapEntries(source: source, options: options)
+            : ffiEntries
+        log("[ImprintCore] Source map entries: \(sourceMapEntries.count) (\(ffiEntries.isEmpty ? "heuristic" : "layout"))")
 
         if let error = result.error {
             log("[ImprintCore] Compilation error: \(error)")
@@ -633,11 +641,35 @@ public actor TypstRenderer {
         )
     }
 
+    /// Map real-layout FFI entries (from the frame walk in imprint-core) to
+    /// `SourceMapEntry`. Preferred over the text heuristic below.
+    private static func mapFFIEntries(_ ffi: [ImprintRustCore.FfiSourceMapEntry]) -> [SourceMapEntry] {
+        ffi.map { e in
+            let ct: SourceMapContentType
+            switch e.contentType {
+            case .text: ct = .text
+            case .heading: ct = .heading
+            case .math: ct = .math
+            case .code: ct = .code
+            case .figure: ct = .figure
+            case .table: ct = .table
+            case .citation: ct = .citation
+            case .listItem: ct = .listItem
+            case .other: ct = .other
+            }
+            return SourceMapEntry(
+                sourceStart: Int(e.source.start), sourceEnd: Int(e.source.end),
+                page: Int(e.page),
+                x: e.bbox.x, y: e.bbox.y, width: e.bbox.width, height: e.bbox.height,
+                contentType: ct)
+        }
+    }
+
     /// Generate source map entries by parsing the Typst source
     ///
     /// This is an approximation that identifies structural elements (headings, paragraphs)
-    /// and estimates their positions in the rendered PDF. For precise mapping, we would
-    /// need deeper integration with Typst's compiler internals.
+    /// and estimates their positions in the rendered PDF. Retained as a FALLBACK
+    /// for when the real-layout frame walk yields nothing.
     private static func generateSourceMapEntries(source: String, options: RenderOptions) -> [SourceMapEntry] {
         var entries: [SourceMapEntry] = []
 

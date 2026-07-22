@@ -231,6 +231,35 @@ pub enum OutputFormat {
     },
 }
 
+/// A single entry in the real-layout source map.
+///
+/// Produced by walking the compiled Typst document's frames and resolving each
+/// text run's glyph spans back to byte offsets in the *user* source (the
+/// compile-time preamble prefix has already been subtracted). Coordinates are in
+/// PDF points with a top-left origin (y grows downward), matching the click side
+/// used for inverse-sync (preview → source).
+///
+/// This is an FFI-agnostic plain data struct so it can be produced regardless of
+/// whether the `uniffi` feature is enabled, then mapped to `FFISourceMapEntry`
+/// at the FFI boundary in `lib.rs`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutSourceMapEntry {
+    /// Start byte offset in the user source (inclusive).
+    pub source_start: usize,
+    /// End byte offset in the user source (exclusive).
+    pub source_end: usize,
+    /// Zero-indexed page number.
+    pub page: u32,
+    /// Left edge x in points (top-left origin).
+    pub x: f64,
+    /// Top edge y in points (top-left origin).
+    pub y: f64,
+    /// Width in points.
+    pub width: f64,
+    /// Height in points.
+    pub height: f64,
+}
+
 /// Result of rendering a document
 #[derive(Debug)]
 pub enum RenderOutput {
@@ -556,13 +585,40 @@ mod typst_impl {
             Ok((document, warnings))
         }
 
-        /// Render source to PDF
+        /// The byte length of the compile-time preamble prefix prepended to the
+        /// user source in `compile_document` (`preamble.len() + 1` for the
+        /// joining newline). Resolved spans below this offset are preamble-origin.
+        fn preamble_prefix_len(options: &RenderOptions) -> usize {
+            options.to_typst_preamble().len() + 1
+        }
+
+        /// Build the real-layout source map from the live document + compiled
+        /// source held in `source_handle` (which contains the full source,
+        /// preamble included).
+        fn layout_source_map(
+            &self,
+            document: &PagedDocument,
+            options: &RenderOptions,
+        ) -> Vec<LayoutSourceMapEntry> {
+            let prefix = Self::preamble_prefix_len(options);
+            if let Some(handle) = &self.source_handle {
+                if let Ok(guard) = handle.read() {
+                    return build_layout_source_map(document, &guard, prefix);
+                }
+            }
+            Vec::new()
+        }
+
+        /// Render source to PDF, along with real-layout source-map entries.
         pub fn render_pdf(
             &mut self,
             source: &str,
             options: &RenderOptions,
-        ) -> Result<RenderOutput, RenderError> {
+        ) -> Result<(RenderOutput, Vec<LayoutSourceMapEntry>), RenderError> {
             let (document, _warnings) = self.compile_document(source, options)?;
+
+            // Build the source map while the document + compiled source are live.
+            let source_map = self.layout_source_map(&document, options);
 
             let t0 = std::time::Instant::now();
             let pdf_options = typst_pdf::PdfOptions::default();
@@ -571,35 +627,176 @@ mod typst_impl {
             let elapsed = t0.elapsed();
 
             eprintln!(
-                "[imprint-core] PDF generated in {:.1}ms ({} bytes)",
+                "[imprint-core] PDF generated in {:.1}ms ({} bytes, {} source-map entries)",
                 elapsed.as_secs_f64() * 1000.0,
                 pdf_bytes.len(),
+                source_map.len(),
             );
 
-            Ok(RenderOutput::Pdf(pdf_bytes))
+            Ok((RenderOutput::Pdf(pdf_bytes), source_map))
         }
 
-        /// Render source to SVG (one string per page)
+        /// Render source to SVG (one string per page), along with real-layout
+        /// source-map entries.
         pub fn render_svg(
             &mut self,
             source: &str,
             options: &RenderOptions,
-        ) -> Result<(Vec<String>, Vec<String>, u32), RenderError> {
+        ) -> Result<(Vec<String>, Vec<String>, u32, Vec<LayoutSourceMapEntry>), RenderError>
+        {
             let (document, warnings) = self.compile_document(source, options)?;
+
+            // Build the source map while the document + compiled source are live.
+            let source_map = self.layout_source_map(&document, options);
 
             let t0 = std::time::Instant::now();
             let svgs: Vec<String> = document.pages.iter().map(typst_svg::svg).collect();
             let elapsed = t0.elapsed();
 
             eprintln!(
-                "[imprint-core] SVG generated in {:.1}ms ({} pages)",
+                "[imprint-core] SVG generated in {:.1}ms ({} pages, {} source-map entries)",
                 elapsed.as_secs_f64() * 1000.0,
                 svgs.len(),
+                source_map.len(),
             );
 
             let page_count = document.pages.len() as u32;
-            Ok((svgs, warnings, page_count))
+            Ok((svgs, warnings, page_count, source_map))
         }
+    }
+
+    // ========================================================================
+    // Real-layout source map (inverse-sync: preview click → source offset)
+    // ========================================================================
+
+    use typst::layout::{Frame, FrameItem, PagedDocument, Transform};
+    use typst::text::TextItem;
+
+    /// Build a source map from the *real* compiled layout.
+    ///
+    /// Walks every page frame (recursing into groups with an accumulated affine
+    /// transform), resolves each text run's glyph spans back into byte ranges of
+    /// the compiled `source`, subtracts the preamble prefix so offsets land in the
+    /// user's source, and emits a bounding box per run in top-left PDF points.
+    ///
+    /// `preamble_prefix_len` is the byte length of the compile-time preamble plus
+    /// the joining newline (`preamble.len() + 1`). Any span whose range starts
+    /// before that boundary originates in the preamble and is skipped.
+    ///
+    /// Never panics: items with no resolvable span are skipped.
+    pub fn build_layout_source_map(
+        document: &PagedDocument,
+        source: &Source,
+        preamble_prefix_len: usize,
+    ) -> Vec<LayoutSourceMapEntry> {
+        let mut entries = Vec::new();
+        for (page_index, page) in document.pages.iter().enumerate() {
+            walk_frame(
+                &page.frame,
+                Transform::identity(),
+                page_index as u32,
+                source,
+                preamble_prefix_len,
+                &mut entries,
+            );
+        }
+        entries
+    }
+
+    /// Recurse a frame, accumulating the affine transform down into groups.
+    fn walk_frame(
+        frame: &Frame,
+        transform: Transform,
+        page: u32,
+        source: &Source,
+        preamble_prefix_len: usize,
+        out: &mut Vec<LayoutSourceMapEntry>,
+    ) {
+        for (pos, item) in frame.items() {
+            // Fold the item's in-frame position into the transform. After this,
+            // the transform's translation component (tx, ty) IS the item's
+            // absolute on-page origin.
+            let item_ts = transform.pre_concat(Transform::translate(pos.x, pos.y));
+            match item {
+                FrameItem::Group(group) => {
+                    // Compose the group's own transform (full affine); this holds
+                    // for both Soft and Hard frame kinds when computing absolute
+                    // page coordinates (the Soft/Hard split only matters for how
+                    // SVG output resets coordinates, not for geometry).
+                    let child_ts = item_ts.pre_concat(group.transform);
+                    walk_frame(
+                        &group.frame,
+                        child_ts,
+                        page,
+                        source,
+                        preamble_prefix_len,
+                        out,
+                    );
+                }
+                FrameItem::Text(text) => {
+                    if let Some(entry) =
+                        text_entry(text, item_ts, page, source, preamble_prefix_len)
+                    {
+                        out.push(entry);
+                    }
+                }
+                // Shapes/images/links/tags carry spans too, but without readily
+                // available tight bounds (and shape spans are frequently
+                // detached), so text runs are the reliable inverse-sync anchors.
+                _ => {}
+            }
+        }
+    }
+
+    /// Build an entry for a text run, or `None` if no glyph span resolves into
+    /// user-source territory.
+    fn text_entry(
+        text: &TextItem,
+        item_ts: Transform,
+        page: u32,
+        source: &Source,
+        preamble_prefix_len: usize,
+    ) -> Option<LayoutSourceMapEntry> {
+        // Union the byte ranges of every glyph that resolves, so the emitted span
+        // covers the whole rendered run (e.g. "Hello") rather than one glyph.
+        let mut start: Option<usize> = None;
+        let mut end: Option<usize> = None;
+        for glyph in &text.glyphs {
+            if let Some(range) = source.range(glyph.span.0) {
+                // Skip preamble-origin content.
+                if range.start < preamble_prefix_len {
+                    continue;
+                }
+                let s = range.start - preamble_prefix_len;
+                let e = range.end.saturating_sub(preamble_prefix_len);
+                start = Some(start.map_or(s, |cur| cur.min(s)));
+                end = Some(end.map_or(e, |cur| cur.max(e)));
+            }
+        }
+        let (source_start, source_end) = (start?, end?);
+        if source_end <= source_start {
+            return None;
+        }
+
+        // The transform's translation is the run's baseline start point.
+        let baseline_x = item_ts.tx.to_pt();
+        let baseline_y = item_ts.ty.to_pt();
+        let size_pt = text.size.to_pt();
+        let width = text.width().to_pt();
+        // Convert the baseline anchor to a top-left box: the ascent is ~1em, so
+        // the visual top sits roughly one font-size above the baseline.
+        let top_y = baseline_y - size_pt;
+        let height = size_pt * 1.2;
+
+        Some(LayoutSourceMapEntry {
+            source_start,
+            source_end,
+            page,
+            x: baseline_x,
+            y: top_y,
+            width,
+            height,
+        })
     }
 
     /// Default Typst renderer using typst-as-lib
@@ -932,6 +1129,79 @@ mod tests {
             // Check PDF magic bytes
             assert!(bytes.starts_with(b"%PDF-"));
         }
+    }
+
+    /// Real-layout source map: compiling a small document and walking its frames
+    /// must produce entries whose byte ranges slice back to the rendered tokens in
+    /// the *user* source (preamble prefix already subtracted), on page 0, with
+    /// finite positive geometry.
+    #[cfg(feature = "typst-render")]
+    #[test]
+    fn test_layout_source_map_real_frames() {
+        let source = "= Heading\n\nHello world";
+        let options = RenderOptions::default();
+
+        let mut renderer = PersistentTypstRenderer::new();
+        let (_output, entries) = renderer
+            .render_pdf(source, &options)
+            .expect("compile should succeed");
+
+        // (a) entries are non-empty
+        assert!(
+            !entries.is_empty(),
+            "expected real-layout source map entries, got none"
+        );
+
+        // (c) every entry is on page 0 with finite, positive geometry, and its
+        //     byte range lies within the user source.
+        for e in &entries {
+            assert_eq!(e.page, 0, "single-page doc → all entries on page 0");
+            assert!(
+                e.x.is_finite() && e.x >= 0.0,
+                "x finite & non-negative: {}",
+                e.x
+            );
+            assert!(e.y.is_finite(), "y finite: {}", e.y);
+            assert!(
+                e.width.is_finite() && e.width > 0.0,
+                "width positive: {}",
+                e.width
+            );
+            assert!(
+                e.height.is_finite() && e.height > 0.0,
+                "height positive: {}",
+                e.height
+            );
+            assert!(
+                e.source_start < e.source_end && e.source_end <= source.len(),
+                "range [{}, {}) within user source (len {})",
+                e.source_start,
+                e.source_end,
+                source.len()
+            );
+        }
+
+        // (b) the entries' slices of the USER source recover the rendered tokens.
+        let slices: Vec<&str> = entries
+            .iter()
+            .map(|e| &source[e.source_start..e.source_end])
+            .collect();
+        let joined = slices.join("|");
+        assert!(
+            slices.iter().any(|s| s.contains("Heading")),
+            "expected an entry covering 'Heading', slices: {joined}"
+        );
+        assert!(
+            slices.iter().any(|s| s.contains("Hello")),
+            "expected an entry covering 'Hello', slices: {joined}"
+        );
+
+        // At least one entry must have a strictly positive top-left x inside the
+        // page margins (sanity that coordinates are page-absolute points).
+        assert!(
+            entries.iter().any(|e| e.x > 1.0),
+            "expected page-absolute x coordinates (> 1pt margin)"
+        );
     }
 
     #[test]
