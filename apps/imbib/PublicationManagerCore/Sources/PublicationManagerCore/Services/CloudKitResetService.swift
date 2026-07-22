@@ -8,6 +8,9 @@
 import Foundation
 import CloudKit
 import OSLog
+#if os(macOS)
+import Security
+#endif
 
 /// Service for resetting CloudKit data (zone purge).
 ///
@@ -21,6 +24,27 @@ public actor CloudKitResetService {
     private let containerID = "iCloud.com.imbib.app"
     private let zoneName = "com.apple.coredata.cloudkit.zone"
 
+    /// Whether this process is entitled for the CloudKit container. imbib
+    /// migrated OFF CloudKit (ADR-023), so its builds carry no
+    /// `com.apple.developer.icloud-container-identifiers` entitlement — and
+    /// `CKContainer(identifier:)` **traps** (SIGTRAP) if the identifier isn't
+    /// entitled. Guarding on the entitlement avoids constructing the container
+    /// at all. (This crash surfaced only once XCUITest could run, but it also
+    /// hit any iCloud-signed-in user who invoked Settings → reset-to-first-run.)
+    nonisolated static let hasCloudKitEntitlement: Bool = {
+        #if os(macOS)
+        // SecTask entitlement APIs are macOS-only.
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(
+                task, "com.apple.developer.icloud-container-identifiers" as CFString, nil)
+        else { return false }
+        return ((value as? [String])?.isEmpty == false)
+        #else
+        // imbib-iOS is also off CloudKit (ADR-023) — never construct the container.
+        return false
+        #endif
+    }()
+
     /// Purge the CloudKit zone used by Core Data.
     ///
     /// This deletes the entire zone, which removes all records. Core Data will
@@ -28,6 +52,10 @@ public actor CloudKitResetService {
     ///
     /// - Throws: CKError if the deletion fails (except for zoneNotFound, which is ignored)
     public func purgeCloudKitZone() async throws {
+        guard Self.hasCloudKitEntitlement else {
+            Logger.sync.infoCapture("CloudKit not entitled — skipping zone purge", category: "cloudkit")
+            return
+        }
         let container = CKContainer(identifier: containerID)
         let database = container.privateCloudDatabase
 
@@ -48,6 +76,11 @@ public actor CloudKitResetService {
     ///
     /// - Returns: `true` if iCloud is signed in and available
     public func canPurgeCloudKit() async -> Bool {
+        // No CloudKit entitlement → constructing the container would trap.
+        guard Self.hasCloudKitEntitlement else {
+            Logger.sync.infoCapture("CloudKit not entitled — cannot purge", category: "cloudkit")
+            return false
+        }
         // Check if iCloud is available (user is signed in)
         guard FileManager.default.ubiquityIdentityToken != nil else {
             Logger.sync.infoCapture("iCloud not available (not signed in)", category: "cloudkit")
