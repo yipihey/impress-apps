@@ -68,6 +68,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Register global hotkey for quick artifact capture (Cmd+Shift+Space)
         CaptureHotkeyManager.shared.register()
 
+        // Install the shared native-plotting inspector into the manuscript
+        // editor. imprint contributes a richer panel set from its own target;
+        // imbib installs just this one (both drive impress-plot via ImprintCore).
+        ManuscriptEditorEnvironment.shared.sidePanels = [PlotInspectorPanel()]
+
         // Pre-warm tag autocomplete cache so first `t`-keypress is instant
         TagAutocompleteService.shared.warmCache()
 

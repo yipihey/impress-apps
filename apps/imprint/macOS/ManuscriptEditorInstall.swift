@@ -83,6 +83,7 @@ enum ManuscriptEditorInstaller {
             AIAssistantSidePanel(),
             ThroughlineSidePanel(),
             VeuszSidePanel(),
+            PlotInspectorPanel(),
             PaperPreviewSidePanel(),
         ]
 

@@ -156,13 +156,32 @@ fn build_plot(spec: FfiPlotSpec) -> Plot {
     plot
 }
 
+/// The Typst source for a plot, for inserting into a manuscript.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Clone, Debug)]
+pub struct FfiPlotSource {
+    /// Self-contained Typst for the figure box.
+    pub typst: String,
+    pub rasterized: bool,
+    /// True when the source references no external asset — i.e. it can be
+    /// inserted inline and will compile in the manuscript as-is. Vector plots
+    /// are inline-safe; raster plots need their PNG materialized as a figure.
+    pub inline_safe: bool,
+}
+
+thread_local! {
+    /// Reused across calls on the same thread so the ~0.5s font load is paid
+    /// once, not per render — the difference between a sluggish and a live
+    /// interactive panel. The engine isn't `Sync`, so a thread-local (not a
+    /// shared object) is the right cache; drive renders from one Swift queue to
+    /// keep hitting the same thread.
+    static PLOT_RENDERER: std::cell::RefCell<PersistentTypstRenderer> =
+        std::cell::RefCell::new(PersistentTypstRenderer::new());
+}
+
 /// Render `spec` to an SVG figure. Picks vector or raster automatically (unless
 /// forced), compiling the generated Typst — and any raster asset — through a
-/// fresh persistent engine.
-///
-/// A fresh renderer per call keeps this stateless (the engine isn't `Sync`); the
-/// ~0.5s cold font-load dominates first use. A cached-renderer object is the
-/// natural optimization once this is wired into a live editor.
+/// thread-local persistent engine (fast on repeat).
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn render_plot_svg(spec: FfiPlotSpec) -> FfiRenderedPlot {
     let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
@@ -170,21 +189,50 @@ pub fn render_plot_svg(spec: FfiPlotSpec) -> FfiRenderedPlot {
     let rasterized = matches!(plot.chosen(), Chosen::Raster);
     let out = plot.render(PlotSize::new(w, h));
 
-    let mut r = PersistentTypstRenderer::new();
-    for (path, bytes) in &out.assets {
-        r.set_asset(path, bytes.clone());
-    }
-    match r.render_svg(&out.typst, &RenderOptions::a4()) {
-        Ok((svgs, _warn, _pages, _map)) => FfiRenderedPlot {
-            svg: svgs.into_iter().next().unwrap_or_default(),
-            rasterized,
-            error: None,
-        },
-        Err(e) => FfiRenderedPlot {
-            svg: String::new(),
-            rasterized,
-            error: Some(format!("{e:?}")),
-        },
+    // Render on a page sized to the figure, not an A4 sheet: the trailing
+    // `#set page(width: auto, ...)` overrides the renderer's A4 preamble so the
+    // SVG viewBox hugs the plot box (right for an inline panel preview). The
+    // crate's PlotOutput stays page-policy-free for in-document embedding.
+    let figure_source = format!(
+        "#set page(width: auto, height: auto, margin: 3pt)\n{}",
+        out.typst
+    );
+
+    PLOT_RENDERER.with(|cell| {
+        let mut r = cell.borrow_mut();
+        r.clear_assets();
+        for (path, bytes) in &out.assets {
+            r.set_asset(path, bytes.clone());
+        }
+        match r.render_svg(&figure_source, &RenderOptions::a4()) {
+            Ok((svgs, _warn, _pages, _map)) => FfiRenderedPlot {
+                svg: svgs.into_iter().next().unwrap_or_default(),
+                rasterized,
+                error: None,
+            },
+            Err(e) => FfiRenderedPlot {
+                svg: String::new(),
+                rasterized,
+                error: Some(format!("{e:?}")),
+            },
+        }
+    })
+}
+
+/// Return the plot's Typst source (for inserting into a manuscript at the
+/// cursor). Does not compile — just generates. Check `inline_safe` before
+/// inserting: vector plots compile inline; raster plots need their PNG written
+/// as a figure first (a follow-up once figures are wired).
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn render_plot_typst(spec: FfiPlotSpec) -> FfiPlotSource {
+    let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
+    let plot = build_plot(spec);
+    let rasterized = matches!(plot.chosen(), Chosen::Raster);
+    let out = plot.render(PlotSize::new(w, h));
+    FfiPlotSource {
+        typst: out.typst,
+        rasterized,
+        inline_safe: out.assets.is_empty(),
     }
 }
 
@@ -229,6 +277,12 @@ mod tests {
         assert!(out.error.is_none(), "error: {:?}", out.error);
         assert!(!out.rasterized);
         assert!(out.svg.contains("<svg"));
+        // Tight page: the figure isn't sitting on an A4 sheet (595pt wide).
+        assert!(
+            out.svg.contains("width=\"3") || out.svg.contains("width=\"2"),
+            "expected a figure-sized page, got: {}",
+            &out.svg[..out.svg.find('>').unwrap_or(120).min(out.svg.len())]
+        );
     }
 
     #[test]

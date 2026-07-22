@@ -2386,6 +2386,563 @@ public func FfiConverterTypeFFITemplateMetadata_lower(_ value: FfiTemplateMetada
 }
 
 
+public struct FfiAxis {
+    public var scale: FfiAxisScale
+    /**
+     * Manual lower limit; `min` and `max` must both be set to take effect.
+     */
+    public var min: Double?
+    public var max: Double?
+    public var label: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(scale: FfiAxisScale, 
+        /**
+         * Manual lower limit; `min` and `max` must both be set to take effect.
+         */min: Double?, max: Double?, label: String?) {
+        self.scale = scale
+        self.min = min
+        self.max = max
+        self.label = label
+    }
+}
+
+
+
+extension FfiAxis: Equatable, Hashable {
+    public static func ==(lhs: FfiAxis, rhs: FfiAxis) -> Bool {
+        if lhs.scale != rhs.scale {
+            return false
+        }
+        if lhs.min != rhs.min {
+            return false
+        }
+        if lhs.max != rhs.max {
+            return false
+        }
+        if lhs.label != rhs.label {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(scale)
+        hasher.combine(min)
+        hasher.combine(max)
+        hasher.combine(label)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAxis: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAxis {
+        return
+            try FfiAxis(
+                scale: FfiConverterTypeFfiAxisScale.read(from: &buf), 
+                min: FfiConverterOptionDouble.read(from: &buf), 
+                max: FfiConverterOptionDouble.read(from: &buf), 
+                label: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiAxis, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiAxisScale.write(value.scale, into: &buf)
+        FfiConverterOptionDouble.write(value.min, into: &buf)
+        FfiConverterOptionDouble.write(value.max, into: &buf)
+        FfiConverterOptionString.write(value.label, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAxis_lift(_ buf: RustBuffer) throws -> FfiAxis {
+    return try FfiConverterTypeFfiAxis.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAxis_lower(_ value: FfiAxis) -> RustBuffer {
+    return FfiConverterTypeFfiAxis.lower(value)
+}
+
+
+public struct FfiColor {
+    public var r: UInt8
+    public var g: UInt8
+    public var b: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(r: UInt8, g: UInt8, b: UInt8) {
+        self.r = r
+        self.g = g
+        self.b = b
+    }
+}
+
+
+
+extension FfiColor: Equatable, Hashable {
+    public static func ==(lhs: FfiColor, rhs: FfiColor) -> Bool {
+        if lhs.r != rhs.r {
+            return false
+        }
+        if lhs.g != rhs.g {
+            return false
+        }
+        if lhs.b != rhs.b {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(r)
+        hasher.combine(g)
+        hasher.combine(b)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiColor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiColor {
+        return
+            try FfiColor(
+                r: FfiConverterUInt8.read(from: &buf), 
+                g: FfiConverterUInt8.read(from: &buf), 
+                b: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiColor, into buf: inout [UInt8]) {
+        FfiConverterUInt8.write(value.r, into: &buf)
+        FfiConverterUInt8.write(value.g, into: &buf)
+        FfiConverterUInt8.write(value.b, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiColor_lift(_ buf: RustBuffer) throws -> FfiColor {
+    return try FfiConverterTypeFfiColor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiColor_lower(_ value: FfiColor) -> RustBuffer {
+    return FfiConverterTypeFfiColor.lower(value)
+}
+
+
+/**
+ * The Typst source for a plot, for inserting into a manuscript.
+ */
+public struct FfiPlotSource {
+    /**
+     * Self-contained Typst for the figure box.
+     */
+    public var typst: String
+    public var rasterized: Bool
+    /**
+     * True when the source references no external asset — i.e. it can be
+     * inserted inline and will compile in the manuscript as-is. Vector plots
+     * are inline-safe; raster plots need their PNG materialized as a figure.
+     */
+    public var inlineSafe: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Self-contained Typst for the figure box.
+         */typst: String, rasterized: Bool, 
+        /**
+         * True when the source references no external asset — i.e. it can be
+         * inserted inline and will compile in the manuscript as-is. Vector plots
+         * are inline-safe; raster plots need their PNG materialized as a figure.
+         */inlineSafe: Bool) {
+        self.typst = typst
+        self.rasterized = rasterized
+        self.inlineSafe = inlineSafe
+    }
+}
+
+
+
+extension FfiPlotSource: Equatable, Hashable {
+    public static func ==(lhs: FfiPlotSource, rhs: FfiPlotSource) -> Bool {
+        if lhs.typst != rhs.typst {
+            return false
+        }
+        if lhs.rasterized != rhs.rasterized {
+            return false
+        }
+        if lhs.inlineSafe != rhs.inlineSafe {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(typst)
+        hasher.combine(rasterized)
+        hasher.combine(inlineSafe)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPlotSource: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPlotSource {
+        return
+            try FfiPlotSource(
+                typst: FfiConverterString.read(from: &buf), 
+                rasterized: FfiConverterBool.read(from: &buf), 
+                inlineSafe: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPlotSource, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.typst, into: &buf)
+        FfiConverterBool.write(value.rasterized, into: &buf)
+        FfiConverterBool.write(value.inlineSafe, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPlotSource_lift(_ buf: RustBuffer) throws -> FfiPlotSource {
+    return try FfiConverterTypeFfiPlotSource.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPlotSource_lower(_ value: FfiPlotSource) -> RustBuffer {
+    return FfiConverterTypeFfiPlotSource.lower(value)
+}
+
+
+public struct FfiPlotSpec {
+    public var title: String
+    public var x: FfiAxis
+    public var y: FfiAxis
+    public var series: [FfiSeries]
+    public var strategy: FfiStrategy
+    public var colormap: FfiColormap
+    public var width: Double
+    public var height: Double
+    /**
+     * Point count above which `Auto` switches to raster. 0 → default (10 000).
+     */
+    public var rasterThreshold: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, x: FfiAxis, y: FfiAxis, series: [FfiSeries], strategy: FfiStrategy, colormap: FfiColormap, width: Double, height: Double, 
+        /**
+         * Point count above which `Auto` switches to raster. 0 → default (10 000).
+         */rasterThreshold: UInt32) {
+        self.title = title
+        self.x = x
+        self.y = y
+        self.series = series
+        self.strategy = strategy
+        self.colormap = colormap
+        self.width = width
+        self.height = height
+        self.rasterThreshold = rasterThreshold
+    }
+}
+
+
+
+extension FfiPlotSpec: Equatable, Hashable {
+    public static func ==(lhs: FfiPlotSpec, rhs: FfiPlotSpec) -> Bool {
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.x != rhs.x {
+            return false
+        }
+        if lhs.y != rhs.y {
+            return false
+        }
+        if lhs.series != rhs.series {
+            return false
+        }
+        if lhs.strategy != rhs.strategy {
+            return false
+        }
+        if lhs.colormap != rhs.colormap {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        if lhs.rasterThreshold != rhs.rasterThreshold {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(title)
+        hasher.combine(x)
+        hasher.combine(y)
+        hasher.combine(series)
+        hasher.combine(strategy)
+        hasher.combine(colormap)
+        hasher.combine(width)
+        hasher.combine(height)
+        hasher.combine(rasterThreshold)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPlotSpec {
+        return
+            try FfiPlotSpec(
+                title: FfiConverterString.read(from: &buf), 
+                x: FfiConverterTypeFfiAxis.read(from: &buf), 
+                y: FfiConverterTypeFfiAxis.read(from: &buf), 
+                series: FfiConverterSequenceTypeFfiSeries.read(from: &buf), 
+                strategy: FfiConverterTypeFfiStrategy.read(from: &buf), 
+                colormap: FfiConverterTypeFfiColormap.read(from: &buf), 
+                width: FfiConverterDouble.read(from: &buf), 
+                height: FfiConverterDouble.read(from: &buf), 
+                rasterThreshold: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPlotSpec, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterTypeFfiAxis.write(value.x, into: &buf)
+        FfiConverterTypeFfiAxis.write(value.y, into: &buf)
+        FfiConverterSequenceTypeFfiSeries.write(value.series, into: &buf)
+        FfiConverterTypeFfiStrategy.write(value.strategy, into: &buf)
+        FfiConverterTypeFfiColormap.write(value.colormap, into: &buf)
+        FfiConverterDouble.write(value.width, into: &buf)
+        FfiConverterDouble.write(value.height, into: &buf)
+        FfiConverterUInt32.write(value.rasterThreshold, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPlotSpec_lift(_ buf: RustBuffer) throws -> FfiPlotSpec {
+    return try FfiConverterTypeFfiPlotSpec.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPlotSpec_lower(_ value: FfiPlotSpec) -> RustBuffer {
+    return FfiConverterTypeFfiPlotSpec.lower(value)
+}
+
+
+public struct FfiRenderedPlot {
+    /**
+     * First-page SVG of the figure (empty on error).
+     */
+    public var svg: String
+    /**
+     * True when the big-N raster fallback was used.
+     */
+    public var rasterized: Bool
+    /**
+     * Non-nil on compile failure.
+     */
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * First-page SVG of the figure (empty on error).
+         */svg: String, 
+        /**
+         * True when the big-N raster fallback was used.
+         */rasterized: Bool, 
+        /**
+         * Non-nil on compile failure.
+         */error: String?) {
+        self.svg = svg
+        self.rasterized = rasterized
+        self.error = error
+    }
+}
+
+
+
+extension FfiRenderedPlot: Equatable, Hashable {
+    public static func ==(lhs: FfiRenderedPlot, rhs: FfiRenderedPlot) -> Bool {
+        if lhs.svg != rhs.svg {
+            return false
+        }
+        if lhs.rasterized != rhs.rasterized {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(svg)
+        hasher.combine(rasterized)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiRenderedPlot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRenderedPlot {
+        return
+            try FfiRenderedPlot(
+                svg: FfiConverterString.read(from: &buf), 
+                rasterized: FfiConverterBool.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRenderedPlot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.svg, into: &buf)
+        FfiConverterBool.write(value.rasterized, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRenderedPlot_lift(_ buf: RustBuffer) throws -> FfiRenderedPlot {
+    return try FfiConverterTypeFfiRenderedPlot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRenderedPlot_lower(_ value: FfiRenderedPlot) -> RustBuffer {
+    return FfiConverterTypeFfiRenderedPlot.lower(value)
+}
+
+
+public struct FfiSeries {
+    public var kind: FfiSeriesKind
+    public var xs: [Double]
+    public var ys: [Double]
+    public var color: FfiColor
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: FfiSeriesKind, xs: [Double], ys: [Double], color: FfiColor) {
+        self.kind = kind
+        self.xs = xs
+        self.ys = ys
+        self.color = color
+    }
+}
+
+
+
+extension FfiSeries: Equatable, Hashable {
+    public static func ==(lhs: FfiSeries, rhs: FfiSeries) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.xs != rhs.xs {
+            return false
+        }
+        if lhs.ys != rhs.ys {
+            return false
+        }
+        if lhs.color != rhs.color {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(xs)
+        hasher.combine(ys)
+        hasher.combine(color)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSeries: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSeries {
+        return
+            try FfiSeries(
+                kind: FfiConverterTypeFfiSeriesKind.read(from: &buf), 
+                xs: FfiConverterSequenceDouble.read(from: &buf), 
+                ys: FfiConverterSequenceDouble.read(from: &buf), 
+                color: FfiConverterTypeFfiColor.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSeries, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiSeriesKind.write(value.kind, into: &buf)
+        FfiConverterSequenceDouble.write(value.xs, into: &buf)
+        FfiConverterSequenceDouble.write(value.ys, into: &buf)
+        FfiConverterTypeFfiColor.write(value.color, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSeries_lift(_ buf: RustBuffer) throws -> FfiSeries {
+    return try FfiConverterTypeFfiSeries.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSeries_lower(_ value: FfiSeries) -> RustBuffer {
+    return FfiConverterTypeFfiSeries.lower(value)
+}
+
+
 /**
  * Import notes from imbib PDF annotations
  */
@@ -4036,6 +4593,304 @@ extension FfiVersionCheckResult: Equatable, Hashable {}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum FfiAxisScale {
+    
+    case linear
+    case log
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAxisScale: FfiConverterRustBuffer {
+    typealias SwiftType = FfiAxisScale
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAxisScale {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .linear
+        
+        case 2: return .log
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiAxisScale, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .linear:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .log:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAxisScale_lift(_ buf: RustBuffer) throws -> FfiAxisScale {
+    return try FfiConverterTypeFfiAxisScale.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAxisScale_lower(_ value: FfiAxisScale) -> RustBuffer {
+    return FfiConverterTypeFfiAxisScale.lower(value)
+}
+
+
+
+extension FfiAxisScale: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum FfiColormap {
+    
+    case viridis
+    case magma
+    case plasma
+    case inferno
+    case cividis
+    case turbo
+    case greys
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiColormap: FfiConverterRustBuffer {
+    typealias SwiftType = FfiColormap
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiColormap {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .viridis
+        
+        case 2: return .magma
+        
+        case 3: return .plasma
+        
+        case 4: return .inferno
+        
+        case 5: return .cividis
+        
+        case 6: return .turbo
+        
+        case 7: return .greys
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiColormap, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .viridis:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .magma:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .plasma:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .inferno:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .cividis:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .turbo:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .greys:
+            writeInt(&buf, Int32(7))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiColormap_lift(_ buf: RustBuffer) throws -> FfiColormap {
+    return try FfiConverterTypeFfiColormap.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiColormap_lower(_ value: FfiColormap) -> RustBuffer {
+    return FfiConverterTypeFfiColormap.lower(value)
+}
+
+
+
+extension FfiColormap: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum FfiSeriesKind {
+    
+    case line
+    case scatter
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSeriesKind: FfiConverterRustBuffer {
+    typealias SwiftType = FfiSeriesKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSeriesKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .line
+        
+        case 2: return .scatter
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiSeriesKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .line:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .scatter:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSeriesKind_lift(_ buf: RustBuffer) throws -> FfiSeriesKind {
+    return try FfiConverterTypeFfiSeriesKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSeriesKind_lower(_ value: FfiSeriesKind) -> RustBuffer {
+    return FfiConverterTypeFfiSeriesKind.lower(value)
+}
+
+
+
+extension FfiSeriesKind: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum FfiStrategy {
+    
+    case auto
+    case vector
+    case raster
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiStrategy: FfiConverterRustBuffer {
+    typealias SwiftType = FfiStrategy
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiStrategy {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .auto
+        
+        case 2: return .vector
+        
+        case 3: return .raster
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiStrategy, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .auto:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .vector:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .raster:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiStrategy_lift(_ buf: RustBuffer) throws -> FfiStrategy {
+    return try FfiConverterTypeFfiStrategy.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiStrategy_lower(_ value: FfiStrategy) -> RustBuffer {
+    return FfiConverterTypeFfiStrategy.lower(value)
+}
+
+
+
+extension FfiStrategy: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * Supported automation commands for imprint
  */
@@ -4643,6 +5498,30 @@ fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionDouble: FfiConverterRustBuffer {
+    typealias SwiftType = Double?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterDouble.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterDouble.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -4763,6 +5642,31 @@ fileprivate struct FfiConverterOptionTypeImprintCommand: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceDouble: FfiConverterRustBuffer {
+    typealias SwiftType = [Double]
+
+    public static func write(_ value: [Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterDouble.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Double] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Double]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterDouble.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -4830,6 +5734,31 @@ fileprivate struct FfiConverterSequenceTypeFFITemplateMetadata: FfiConverterRust
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFFITemplateMetadata.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiSeries: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSeries]
+
+    public static func write(_ value: [FfiSeries], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiSeries.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSeries] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSeries]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiSeries.read(from: &buf))
         }
         return seq
     }
@@ -5108,6 +6037,31 @@ public func parseImprintUrl(urlString: String) -> ParseResult {
 })
 }
 /**
+ * Render `spec` to an SVG figure. Picks vector or raster automatically (unless
+ * forced), compiling the generated Typst — and any raster asset — through a
+ * thread-local persistent engine (fast on repeat).
+ */
+public func renderPlotSvg(spec: FfiPlotSpec) -> FfiRenderedPlot {
+    return try!  FfiConverterTypeFfiRenderedPlot.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_render_plot_svg(
+        FfiConverterTypeFfiPlotSpec.lower(spec),$0
+    )
+})
+}
+/**
+ * Return the plot's Typst source (for inserting into a manuscript at the
+ * cursor). Does not compile — just generates. Check `inline_safe` before
+ * inserting: vector plots compile inline; raster plots need their PNG written
+ * as a figure first (a follow-up once figures are wired).
+ */
+public func renderPlotTypst(spec: FfiPlotSpec) -> FfiPlotSource {
+    return try!  FfiConverterTypeFfiPlotSource.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_render_plot_typst(
+        FfiConverterTypeFfiPlotSpec.lower(spec),$0
+    )
+})
+}
+/**
  * Search templates by query string
  */
 public func searchTemplates(query: String) -> [FfiTemplateMetadata] {
@@ -5252,6 +6206,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_parse_imprint_url() != 592) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_render_plot_svg() != 38886) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_render_plot_typst() != 21908) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_search_templates() != 22769) {
