@@ -84,7 +84,9 @@ extension ManuscriptRowData: MailStyleItem {
     }
     public var titleText: String { title }
     public var date: Date { dateModified }
-    public var isRead: Bool { isReadState }
+    // Manuscripts have no read/unread semantics (nothing ever marks one read),
+    // so always report read — otherwise every row shows a spurious unread dot.
+    public var isRead: Bool { true }
     public var isStarred: Bool { isStarredState }
 
     public var subtitleText: String? {

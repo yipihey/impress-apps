@@ -17,12 +17,20 @@ public struct ManuscriptDetailPane: View {
     let manuscriptID: UUID
     @Binding var selectedTab: DetailTab
 
+    /// Top clearance for the tab picker. The section host reclaims the toolbar
+    /// band with `.ignoresSafeArea(.top)`, which would otherwise draw the
+    /// segmented picker up inside the window's titlebar drag region — clicks
+    /// there hit the drag region, not the control, so tabs can't be switched.
+    /// The standalone editor window (which sits below its own header) passes 0.
+    let topInset: CGFloat
+
     /// The live editor session (registry-owned). Resolved on id change.
     @State private var session: ManuscriptEditorSession?
 
-    public init(manuscriptID: UUID, selectedTab: Binding<DetailTab>) {
+    public init(manuscriptID: UUID, selectedTab: Binding<DetailTab>, topInset: CGFloat = 0) {
         self.manuscriptID = manuscriptID
         self._selectedTab = selectedTab
+        self.topInset = topInset
     }
 
     private var availableTabs: [DetailTab] { DetailTab.available(for: .manuscript) }
@@ -30,6 +38,7 @@ public struct ManuscriptDetailPane: View {
     public var body: some View {
         VStack(spacing: 0) {
             tabPicker
+                .padding(.top, topInset)
             Divider()
             content
         }

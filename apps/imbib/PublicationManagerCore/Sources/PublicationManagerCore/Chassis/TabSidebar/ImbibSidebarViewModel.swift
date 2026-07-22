@@ -134,8 +134,17 @@ final class ImbibSidebarViewModel {
         initializeExpansionState()
 
         // Select the app-shell's default section (imbib = inbox, imprint =
-        // manuscripts) — resolveSelectedTab maps it to the matching tab.
-        selectedNodeID = ImbibSidebarNodeID.section(shellConfiguration.defaultSection)
+        // manuscripts). Group-header sections like `.manuscripts` are NOT
+        // selectable rows and `resolveSelectedTab` only maps `.inbox`, so
+        // landing on the header leaves `selectedTab` at its `.inbox` default and
+        // the content area falls back to the publication list. Land on the
+        // section's canonical selectable leaf instead so manuscripts actually
+        // render (manuscripts → "All Manuscripts").
+        if shellConfiguration.defaultSection == .manuscripts {
+            selectedNodeID = ImbibSidebarNodeID.journalAll
+        } else {
+            selectedNodeID = ImbibSidebarNodeID.section(shellConfiguration.defaultSection)
+        }
 
         bumpDataVersion()
     }

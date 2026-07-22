@@ -321,8 +321,18 @@ public final class ManuscriptSessionRegistry {
             return existing
         }
         guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: id) else {
+            Logger.library.warningCapture(
+                "manuscript session: getManuscriptDetail(\(id)) returned nil — no editor",
+                category: "manuscripts")
             return nil
         }
+        // Diagnostic: reveals why a Source editor is blank (empty body vs blob
+        // ref vs source-in-revision). Query via /api/logs?category=manuscripts.
+        Logger.library.infoCapture(
+            "manuscript session \(id): format=\(detail.format) bodyLen=\(detail.bodyContent.count) "
+                + "blobRef=\(detail.bodyIsBlobRef) rev=\(detail.currentRevisionRef ?? "nil") "
+                + "title=\(detail.title)",
+            category: "manuscripts")
         let format = DocumentFormat(rawValue: detail.format) ?? .typst
         let session = ManuscriptEditorSession(
             manuscriptID: id,

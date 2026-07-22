@@ -46,7 +46,10 @@ public struct ManuscriptSectionView: View {
             // NO `.id(id)` — ManuscriptDetailPane resolves its editor session
             // from the registry on `.onChange(of: manuscriptID)`, so the
             // editor/undo/compile survive selection switches (GUI-meld Phase 3).
-            ManuscriptDetailPane(manuscriptID: id, selectedTab: $selectedTab)
+            // topInset: 40 clears the toolbar band this pane reclaims below via
+            // `.ignoresSafeArea(.top)` — without it the tab picker sits in the
+            // titlebar drag region and can't be clicked.
+            ManuscriptDetailPane(manuscriptID: id, selectedTab: $selectedTab, topInset: 40)
         } else {
             placeholder
         }
