@@ -37,6 +37,8 @@ members = [
     "crates/impress-toolbox",
     # impress-core - unified item protocol
     "crates/impress-core",
+    # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
+    "crates/impress-plot",
     # impress-store-ffi - UniFFI bindings for the shared impress-core store
     "crates/impress-store-ffi",
     # scix-client-ffi - UniFFI bindings for scix-client (NASA ADS/SciX API)

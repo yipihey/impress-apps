@@ -1,0 +1,15 @@
+[package]
+name = "impress-plot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native, Typst-first plotting: declarative plot specs → Typst source (+ raster assets for big-N). No external plotting process."
+
+[dependencies]
+png = "0.17"
+
+[dev-dependencies]
+# Compile-verification of generated plots goes through imprint-core's persistent
+# Typst engine (dev-only so impress-plot itself stays free of the typst stack).
+imprint-core = { path = "../imprint-core", features = ["native"] }

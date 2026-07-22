@@ -405,7 +405,9 @@ mod typst_impl {
     use super::*;
     use std::borrow::Cow;
     use std::collections::hash_map::DefaultHasher;
+    use std::collections::HashMap;
     use std::hash::{Hash, Hasher};
+    use std::path::PathBuf;
     use std::sync::{Arc, RwLock};
     use typst::diag::{FileError, FileResult};
     use typst::foundations::Bytes;
@@ -426,14 +428,19 @@ mod typst_impl {
     /// rebuilding the TypstEngine (and re-scanning fonts).
     struct MutableSourceResolver {
         source: Arc<RwLock<Source>>,
+        /// In-memory binary assets addressable from Typst as `image("/path")`.
+        /// Enables embedding rasters (e.g. the big-N 2D-histogram fallback) with
+        /// no filesystem. Keyed by the rootless virtual path ("hist.png").
+        assets: Arc<RwLock<HashMap<PathBuf, Bytes>>>,
     }
 
     impl MutableSourceResolver {
-        fn new(initial_source: &str) -> Self {
+        fn new(initial_source: &str, assets: Arc<RwLock<HashMap<PathBuf, Bytes>>>) -> Self {
             let id = main_file_id();
             let source = Source::new(id, initial_source.to_string());
             Self {
                 source: Arc::new(RwLock::new(source)),
+                assets,
             }
         }
 
@@ -443,9 +450,13 @@ mod typst_impl {
     }
 
     impl FileResolver for MutableSourceResolver {
-        fn resolve_binary(&self, _id: FileId) -> FileResult<Cow<'_, Bytes>> {
+        fn resolve_binary(&self, id: FileId) -> FileResult<Cow<'_, Bytes>> {
+            let key = id.vpath().as_rootless_path().to_path_buf();
+            if let Some(bytes) = self.assets.read().unwrap().get(&key) {
+                return Ok(Cow::Owned(bytes.clone()));
+            }
             Err(FileError::NotFound(
-                _id.vpath().as_rootless_path().to_path_buf(),
+                id.vpath().as_rootless_path().to_path_buf(),
             ))
         }
 
@@ -474,11 +485,30 @@ mod typst_impl {
         source_handle: Option<Arc<RwLock<Source>>>,
         /// Hash of the last RenderOptions preamble — engine rebuilt if options change
         last_preamble_hash: Option<u64>,
+        /// In-memory binary assets served to Typst `image("/path")`. Owned here
+        /// (not by the resolver) so registrations survive engine rebuilds; the
+        /// resolver holds a clone of this handle.
+        assets: Arc<RwLock<HashMap<PathBuf, Bytes>>>,
     }
 
     impl PersistentTypstRenderer {
         pub fn new() -> Self {
             Self::default()
+        }
+
+        /// Register an in-memory binary asset addressable from Typst source as
+        /// `image("/<path>")`. This is how rasters reach the compiler without a
+        /// filesystem — the intended embedding path for the big-N 2D-histogram
+        /// fallback (and, generally, for figure images). Survives engine
+        /// rebuilds; overwrites an existing asset at the same path.
+        pub fn set_asset(&mut self, path: &str, bytes: Vec<u8>) {
+            let key = VirtualPath::new(path).as_rootless_path().to_path_buf();
+            self.assets.write().unwrap().insert(key, Bytes::new(bytes));
+        }
+
+        /// Drop all registered binary assets.
+        pub fn clear_assets(&mut self) {
+            self.assets.write().unwrap().clear();
         }
 
         /// Hash a preamble string for change detection
@@ -497,7 +527,7 @@ mod typst_impl {
             if needs_rebuild {
                 let t0 = std::time::Instant::now();
 
-                let resolver = MutableSourceResolver::new(initial_source);
+                let resolver = MutableSourceResolver::new(initial_source, self.assets.clone());
                 self.source_handle = Some(resolver.source_handle());
 
                 let mut builder = TypstEngine::builder()
