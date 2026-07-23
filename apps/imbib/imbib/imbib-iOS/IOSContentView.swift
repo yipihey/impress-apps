@@ -20,6 +20,7 @@ struct IOSContentView: View {
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     // MARK: - State
 
@@ -213,7 +214,14 @@ struct IOSContentView: View {
             }
         } content: {
             contentList
-                .navigationDestination(item: $selectedPublicationID) { pubID in
+                // COMPACT ONLY: in regular width (iPad, Pro-Max landscape) the
+                // detail COLUMN already shows this publication from the same
+                // binding; pushing a second copy here meant the back chevron
+                // (a two-way navigationDestination binding) nil'ed the shared
+                // selection and tore down BOTH — "back from notes dumps you on
+                // the publication list". The proxy binding makes the push
+                // exist only where it's the sole detail surface.
+                .navigationDestination(item: compactOnlyPublicationSelection) { pubID in
                     if let libraryID = selectedLibraryID {
                         DetailView(publicationID: pubID, libraryID: libraryID, selectedPublicationID: $selectedPublicationID, listID: currentListID)
                     } else {
@@ -232,6 +240,22 @@ struct IOSContentView: View {
             detailView
         }
         .navigationSplitViewStyle(.balanced)
+    }
+
+    /// Selection proxy that exposes the publication push ONLY in compact
+    /// width. Reads nil in regular width (no redundant push next to the
+    /// detail column); writes only apply in compact, so popping the pushed
+    /// detail on an iPhone clears selection normally while a regular-width
+    /// pop can never nil the detail column's selection.
+    private var compactOnlyPublicationSelection: Binding<UUID?> {
+        Binding(
+            get: { horizontalSizeClass == .compact ? selectedPublicationID : nil },
+            set: { newValue in
+                if horizontalSizeClass == .compact {
+                    selectedPublicationID = newValue
+                }
+            }
+        )
     }
 
     private func presentSearch(_ action: ImbibSearchAction) {

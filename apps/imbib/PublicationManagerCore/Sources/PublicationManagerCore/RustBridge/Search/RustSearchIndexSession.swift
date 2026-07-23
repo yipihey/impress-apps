@@ -220,6 +220,13 @@ public actor RustSearchIndexSession {
         }
     }
 
+    /// Number of documents currently in the index (as seen by the reader).
+    /// Returns 0 when uninitialized.
+    public func documentCount() async -> Int {
+        guard let id = handleId else { return 0 }
+        return Int((try? searchIndexNumDocs(handleId: id)) ?? 0)
+    }
+
     /// Commit pending changes to the index
     /// - Throws: SearchIndexError if commit fails
     public func commit() async throws {

@@ -279,6 +279,26 @@ struct IOSUnifiedPublicationListWrapper: View {
             .task(id: source.id) {
                 await loadPublications()
             }
+            .task {
+                // Keep the VISIBLE list in sync with async ingest (feed and
+                // inbox refresh, share-in, enrichment, batch import). This
+                // mirrors the macOS UnifiedPublicationListWrapper's store
+                // subscription — without it, the iOS list loaded once per
+                // source and never reflected background mutations, so "the
+                // screen one is on" never updated until re-navigating.
+                for await event in ImbibImpressStore.shared.events.subscribe() {
+                    switch event {
+                    case .structural, .collectionMembershipChanged:
+                        refreshPublicationsList()
+                    case .itemsMutated(_, let ids):
+                        // Only re-query when a visible row actually changed.
+                        let visible = Set(publications.map(\.id))
+                        if !visible.isDisjoint(with: ids) {
+                            refreshPublicationsList()
+                        }
+                    }
+                }
+            }
             .alert("Error", isPresented: .constant(errorMessage != nil)) {
                 Button("OK") { errorMessage = nil }
             } message: {

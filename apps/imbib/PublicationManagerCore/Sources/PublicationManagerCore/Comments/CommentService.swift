@@ -99,25 +99,10 @@ public final class CommentService {
 
     // MARK: - Author Resolution
 
-    /// Cached CloudKit user identity (fetched once per session).
-    private var cachedIdentity: (name: String?, identifier: String)?
-
-    /// Refresh author identity from CloudKit.
-    ///
-    /// Call this once at app launch or when iCloud account changes.
-    /// Falls back to device name when CloudKit is unavailable.
-    public func refreshAuthorIdentity() async {
-        let identity = await LibrarySharingService.shared.currentUserIdentity()
-        cachedIdentity = identity
-        Logger.sync.info("Author identity refreshed: \(identity.name ?? "nil"), id: \(identity.identifier)")
-    }
-
     private func resolveAuthorName() -> String? {
-        if let cached = cachedIdentity {
-            return cached.name
-        }
-        // Fallback to the device display name.
-        return CurrentDeviceAuthor.displayName ?? "Me"
+        // Device display name; CloudKit identity resolution was removed with
+        // the CloudKit sharing stack (ADR-023 — imbib migrated off CloudKit).
+        CurrentDeviceAuthor.displayName ?? "Me"
     }
 
     /// The stable identifier stamped onto comments authored on this

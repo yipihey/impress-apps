@@ -22927,6 +22927,16 @@ public func searchIndexHandleCount() -> UInt32 {
 })
 }
 /**
+ * Number of documents in the search index (as seen by the current reader).
+ */
+public func searchIndexNumDocs(handleId: UInt64)throws  -> UInt64 {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeSearchIndexError.lift) {
+    uniffi_imbib_core_fn_func_search_index_num_docs(
+        FfiConverterUInt64.lower(handleId),$0
+    )
+})
+}
+/**
  * Search the index
  */
 public func searchIndexSearch(handleId: UInt64, query: String, limit: UInt32, libraryId: String?)throws  -> [SearchHit] {
@@ -23623,6 +23633,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_search_index_handle_count() != 27621) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_search_index_num_docs() != 59332) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_search_index_search() != 18445) {

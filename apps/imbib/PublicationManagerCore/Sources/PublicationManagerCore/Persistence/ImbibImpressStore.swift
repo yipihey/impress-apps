@@ -27,7 +27,10 @@
 import Foundation
 import ImbibRustCore
 import ImpressLogging
-import ImpressStoreKit
+// Re-exported so app targets (e.g. imbib-iOS) can subscribe to
+// `ImbibImpressStore.shared.events` and pattern-match `StoreEvent`
+// without declaring ImpressStoreKit as a direct package dependency.
+@_exported import ImpressStoreKit
 import OSLog
 
 /// Async gateway to the imbib store.

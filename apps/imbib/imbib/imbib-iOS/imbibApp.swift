@@ -77,9 +77,15 @@ struct imbibApp: App {
         // Capture libraryManager for use in Task (can't capture self in struct)
         let capturedLibraryManager = libraryManager
 
-        // Register built-in sources and start enrichment
+        // Phased startup, mirroring macOS scheduleBackgroundInit: the previous
+        // single sequential Task ran FTS-rebuild + two source registrations +
+        // enrichment + inbox (with a store MUTATION via getOrCreateInbox) +
+        // an exploration-cleanup mutation all at t=0 — a thread pile-up that
+        // made launch feel sluggish. Now: essentials in parallel, everything
+        // that mutates the store or is non-essential deferred past the 90s
+        // startup grace (see CLAUDE.md "Startup Render Loop Bug").
         Task {
-            // Register File Provider domain
+            // Register File Provider domain (fast, independent)
             do {
                 try await FileProviderDomainManager.shared.registerDomain()
                 appLogger.info("File Provider domain registered")
@@ -87,40 +93,58 @@ struct imbibApp: App {
                 appLogger.error("Failed to register File Provider domain: \(error.localizedDescription)")
             }
 
-            // Initialize full-text search index
-            await FullTextSearchService.shared.initialize()
-            appLogger.info("Full-text search index initialized")
+            // FTS init (can be a MINUTES-long rebuild on first run) runs in
+            // parallel with source registration instead of blocking it.
+            async let ftsInit: Void = {
+                await FullTextSearchService.shared.initialize()
+                appLogger.info("Full-text search index initialized")
+            }()
 
-            await sourceManager.registerBuiltInSources()
-            DragDropCoordinator.shared.sourceManager = sourceManager
-            appLogger.info("Built-in sources registered")
+            async let sourcesInit: Void = {
+                await sourceManager.registerBuiltInSources()
+                DragDropCoordinator.shared.sourceManager = sourceManager
+                appLogger.info("Built-in sources registered")
 
-            // Register browser URL providers for interactive PDF downloads
-            // Higher priority = tried first. ArXiv has highest priority (direct PDF, always free)
-            await BrowserURLProviderRegistry.shared.register(ArXivSource.self, priority: 20)
-            await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
-            appLogger.info("BrowserURLProviders registered")
+                // Browser URL providers for interactive PDF downloads.
+                await BrowserURLProviderRegistry.shared.register(ArXivSource.self, priority: 20)
+                await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
+                appLogger.info("BrowserURLProviders registered")
+            }()
 
-            // Start background enrichment coordinator
-            await EnrichmentCoordinator.shared.start()
-            appLogger.info("EnrichmentCoordinator started")
+            _ = await (ftsInit, sourcesInit)
 
-            // Start Inbox coordinator (scheduling, fetch service)
-            await InboxCoordinator.shared.start()
-            appLogger.info("InboxCoordinator started")
-
-            // Set up embedding service change observers for reactive index updates (ADR-022)
+            // Embedding observers are cheap and read-only.
             await EmbeddingService.shared.setupChangeObservers()
             appLogger.info("EmbeddingService change observers set up")
 
-            // Auto-build search indexes after a short delay (ADR-022)
-            // This ensures global search works without manual setup
-            Task {
-                try? await Task.sleep(for: .seconds(3))
-                await autoPopulateSearchIndexesOnStartup()
+            // HTTP automation server (gated on Settings > Automation API).
+            // On the simulator this is the agent-drivable verification
+            // surface (curl http://localhost:23120/api/... from the host);
+            // on device it binds localhost only. Read-only startup — safe
+            // inside the launch grace period.
+            await HTTPAutomationServer.shared.start()
+            if await HTTPAutomationServer.shared.running {
+                appLogger.info("HTTP automation server started (iOS)")
             }
+        }
 
-            // Cleanup old exploration collections based on retention setting
+        // Deferred past the startup grace period: coordinators whose start()
+        // mutates the store (InboxCoordinator's getOrCreateInbox), the
+        // search-index auto-population, and the exploration-cleanup mutation.
+        // Their internal scheduler loops already wait 90-120s for the first
+        // FETCH cycle, but their setup work was firing at t=0.
+        Task.detached {
+            try? await Task.sleep(for: .seconds(90))
+            guard !Task.isCancelled else { return }
+
+            await EnrichmentCoordinator.shared.start()
+            appLogger.info("EnrichmentCoordinator started (post-grace)")
+
+            await InboxCoordinator.shared.start()
+            appLogger.info("InboxCoordinator started (post-grace)")
+
+            await autoPopulateSearchIndexesOnStartup()
+
             await cleanupExplorationCollectionsOnStartup(libraryManager: capturedLibraryManager)
         }
 

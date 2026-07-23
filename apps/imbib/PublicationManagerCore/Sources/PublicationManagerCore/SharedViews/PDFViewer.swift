@@ -752,19 +752,32 @@ struct ControlledPDFKitView: UIViewRepresentable {
         return pdfView
     }
 
-    /// Applies a color inversion filter for PDF dark mode reading
+    /// Tag identifying the dark-mode inversion overlay so apply/remove are idempotent.
+    private static let darkModeOverlayTag = 0xD41C
+
+    /// Applies color inversion for PDF dark mode reading.
+    ///
+    /// iOS CALayers silently IGNORE `layer.filters` (Core Image layer
+    /// filters are a macOS-only feature), which is why the old
+    /// CIColorInvert approach compiled but did nothing — dark mode
+    /// "didn't work" on iOS. What iOS DOES honor is
+    /// `layer.compositingFilter` with a blend-mode name: a white overlay
+    /// composited with `differenceBlendMode` computes |backdrop − white|,
+    /// i.e. a full color inversion of everything underneath.
     private func applyDarkModeFilter(to pdfView: PDFView) {
-        // Use Core Image filter to invert colors
-        if let filter = CIFilter(name: "CIColorInvert") {
-            pdfView.layer.filters = [filter]
-            pdfView.layer.backgroundColor = UIColor.black.cgColor
-        }
+        guard pdfView.viewWithTag(Self.darkModeOverlayTag) == nil else { return }
+        let overlay = UIView(frame: pdfView.bounds)
+        overlay.tag = Self.darkModeOverlayTag
+        overlay.backgroundColor = .white
+        overlay.isUserInteractionEnabled = false
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.layer.compositingFilter = "differenceBlendMode"
+        pdfView.addSubview(overlay)
     }
 
-    /// Removes the dark mode filter
+    /// Removes the dark mode inversion overlay
     private func removeDarkModeFilter(from pdfView: PDFView) {
-        pdfView.layer.filters = nil
-        pdfView.layer.backgroundColor = nil
+        pdfView.viewWithTag(Self.darkModeOverlayTag)?.removeFromSuperview()
     }
 
     func updateUIView(_ pdfView: AnnotationModePDFViewiOS, context: Context) {
@@ -777,10 +790,14 @@ struct ControlledPDFKitView: UIViewRepresentable {
 
         // Update dark mode
         if darkModeEnabled {
-            if pdfView.layer.filters?.isEmpty ?? true {
-                applyDarkModeFilter(to: pdfView)
+            applyDarkModeFilter(to: pdfView)
+            // PDFKit can insert internal subviews after ours — keep the
+            // inversion overlay above them so the whole view inverts.
+            if let overlay = pdfView.viewWithTag(Self.darkModeOverlayTag) {
+                pdfView.bringSubviewToFront(overlay)
             }
-            pdfView.backgroundColor = .black
+            // White page backgrounds invert to black through the overlay.
+            pdfView.backgroundColor = .white
         } else {
             removeDarkModeFilter(from: pdfView)
             pdfView.backgroundColor = .systemBackground

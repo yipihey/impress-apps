@@ -91,6 +91,17 @@ struct DetailView: View {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
         }
+        .task(id: publicationID) {
+            // Keep the OPEN detail in sync with background mutations
+            // (enrichment filling in abstract/PDF, tag/flag changes from
+            // other surfaces). Previously the detail loaded once and went
+            // stale until re-navigation.
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                if case .itemsMutated(_, let ids) = event, ids.contains(publicationID) {
+                    loadPublication()
+                }
+            }
+        }
         .onChange(of: selectedTab) { _, newTab in
             // Post notification when tab changes so parent can update search context
             NotificationCenter.default.post(

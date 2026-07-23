@@ -22,8 +22,20 @@ nonisolated public final class ShareExtensionService: Sendable {
 
     // MARK: - Constants
 
-    /// App Group identifier for sharing data between app and extension
-    public static let appGroupIdentifier = "group.com.imbib.app"
+    /// App Group identifier for sharing data between app and extension.
+    ///
+    /// MUST match the group the app + share extension are actually ENTITLED
+    /// to (iOS: `group.com.impress.imbib`; macOS: Team-ID prefixed, per the
+    /// SiblingDiscovery convention). The previous value
+    /// ("group.com.imbib.app") was a stale identifier no target is entitled
+    /// to — and `UserDefaults(suiteName:)` does NOT return nil for an
+    /// unentitled group, it silently returns a per-sandbox store, so the
+    /// extension queued items the app could never see (share-in was dead).
+    #if os(macOS)
+    public static let appGroupIdentifier = "QG3MEYVHMS.com.impress.imbib"
+    #else
+    public static let appGroupIdentifier = "group.com.impress.imbib"
+    #endif
 
     /// UserDefaults key for pending shared items
     private static let pendingItemsKey = "pendingSharedItems"

@@ -78,15 +78,12 @@ struct IOSSettingsView: View {
                     .accessibilityIdentifier(AccessibilityID.Settings.Tabs.recommendations)
                 }
 
-                // iCloud Sync Settings
-                Section {
-                    NavigationLink {
-                        IOSCloudKitSyncSettingsView()
-                    } label: {
-                        Label("iCloud Sync", systemImage: "icloud")
-                    }
-                    .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sync)
-                }
+                // NOTE: the "iCloud Sync" row was removed 2026-07-23. It was
+                // wired to CloudKitSyncSettingsStore, whose engine
+                // (CommentCloudKitEngine) died in the Rust migration — the
+                // toggle advertised cross-device sync that does not exist
+                // (the store is per-device; ingest is network feeds), which
+                // misled users into perceiving "sync" as broken/slow.
 
                 // PDF Storage Settings (iOS-specific)
                 Section {
@@ -875,6 +872,8 @@ extension MuteType {
 struct IOSAutomationSettingsView: View {
     @State private var automationEnabled = false
     @State private var loggingEnabled = false
+    @State private var httpServerEnabled = false
+    @State private var httpServerPort: UInt16 = HTTPAutomationServer.defaultPort
 
     var body: some View {
         List {
@@ -884,6 +883,21 @@ struct IOSAutomationSettingsView: View {
                 Text("URL Scheme")
             } footer: {
                 Text("Allow external apps and scripts to control imBib via the imbib:// URL scheme.")
+            }
+
+            Section {
+                Toggle("Enable HTTP Server", isOn: $httpServerEnabled)
+                HStack {
+                    Text("Port")
+                    Spacer()
+                    Text("\(String(httpServerPort))")
+                        .foregroundStyle(.secondary)
+                        .fontDesign(.monospaced)
+                }
+            } header: {
+                Text("HTTP Server")
+            } footer: {
+                Text("Serve the automation API on localhost:\(String(httpServerPort)). On the simulator this lets agents drive and verify imbib from the host (e.g. /api/status, /api/logs).")
             }
 
             Section {
@@ -917,6 +931,8 @@ struct IOSAutomationSettingsView: View {
         .task {
             automationEnabled = await AutomationSettingsStore.shared.isEnabled
             loggingEnabled = await AutomationSettingsStore.shared.isLoggingEnabled
+            httpServerEnabled = await AutomationSettingsStore.shared.isHTTPServerEnabled
+            httpServerPort = await AutomationSettingsStore.shared.httpServerPort
         }
         .onChange(of: automationEnabled) { _, newValue in
             Task {
@@ -926,6 +942,16 @@ struct IOSAutomationSettingsView: View {
         .onChange(of: loggingEnabled) { _, newValue in
             Task {
                 await AutomationSettingsStore.shared.setLoggingEnabled(newValue)
+            }
+        }
+        .onChange(of: httpServerEnabled) { _, newValue in
+            Task {
+                await AutomationSettingsStore.shared.setHTTPServerEnabled(newValue)
+                if newValue {
+                    await HTTPAutomationServer.shared.start()
+                } else {
+                    await HTTPAutomationServer.shared.stop()
+                }
             }
         }
     }
@@ -1106,71 +1132,6 @@ struct IOSExplorationSettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will delete all exploration collections (References, Citations, Similar, Co-Reads). This action cannot be undone.")
-        }
-    }
-}
-
-// MARK: - iCloud Sync Settings (iOS)
-
-/// Minimal iOS iCloud sync settings surface.
-///
-/// The shared `CloudKitSyncSettingsView` was removed during the Rust migration
-/// (it depended on deleted Core Data types). This lightweight shim reads/writes
-/// the surviving `CloudKitSyncSettingsStore` so the "iCloud Sync" row stays
-/// functional on iOS without reviving the 240-line deleted view. Parity with
-/// the macOS `SyncSettingsTab` can be restored later.
-struct IOSCloudKitSyncSettingsView: View {
-    @State private var syncEnabled = true
-    @State private var commentSyncEnabled = true
-    @State private var lastSyncDate: Date?
-    @State private var lastError: String?
-
-    var body: some View {
-        List {
-            Section {
-                Toggle("Enable iCloud Sync", isOn: $syncEnabled)
-                Toggle("Sync Comments", isOn: $commentSyncEnabled)
-                    .disabled(!syncEnabled)
-            } header: {
-                Text("iCloud")
-            } footer: {
-                Text("Sync your library, papers, and settings across devices using your iCloud account.")
-            }
-
-            Section {
-                HStack {
-                    Text("Last Sync")
-                    Spacer()
-                    if let date = lastSyncDate {
-                        Text(date, style: .relative)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Never")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if let error = lastError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            } header: {
-                Text("Status")
-            }
-        }
-        .navigationTitle("iCloud Sync")
-        .onAppear {
-            let store = CloudKitSyncSettingsStore.shared
-            syncEnabled = !store.isDisabledByUser
-            commentSyncEnabled = store.commentSyncEnabled
-            lastSyncDate = store.lastSyncDate
-            lastError = store.lastError
-        }
-        .onChange(of: syncEnabled) { _, newValue in
-            CloudKitSyncSettingsStore.shared.isDisabledByUser = !newValue
-        }
-        .onChange(of: commentSyncEnabled) { _, newValue in
-            CloudKitSyncSettingsStore.shared.commentSyncEnabled = newValue
         }
     }
 }

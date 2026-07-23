@@ -340,9 +340,19 @@ struct IOSPDFTab: View {
 
                 pdfLogger.info("Resolved PDF URL: \(pdfURL.absoluteString)")
 
-                // Download the PDF
+                // Download the PDF with a bounded timeout. URLSession.shared's
+                // default resource timeout is 7 DAYS — a stalled connection
+                // (publisher paywall dropping bytes, captive network) left the
+                // spinner "loading" forever with nothing arriving. 30s to
+                // first byte / 2min total, then fail into .downloadFailed so
+                // the user gets the browser fallback instead of a phantom load.
                 state = .downloading(progress: 0.2)
-                let (data, _) = try await URLSession.shared.data(from: pdfURL)
+                let config = URLSessionConfiguration.ephemeral
+                config.timeoutIntervalForRequest = 30
+                config.timeoutIntervalForResource = 120
+                let session = URLSession(configuration: config)
+                defer { session.finishTasksAndInvalidate() }
+                let (data, _) = try await session.data(from: pdfURL)
 
                 guard !Task.isCancelled else { return }
 

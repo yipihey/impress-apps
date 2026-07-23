@@ -125,9 +125,80 @@ public actor FullTextSearchService {
                 await rebuildIndex()
                 FileManager.default.createFile(atPath: markerFile.path, contents: nil)
                 Logger.search.infoCapture("Index rebuilt successfully", category: "search")
+            } else {
+                // Self-heal a stale index: the marker is written once, but on
+                // iOS the store fills AFTER first launch (feed/inbox/batch
+                // import), so a marker written over an empty store left the
+                // index permanently empty — "search finds nothing" while the
+                // list shows papers. Rebuild whenever the store has grown well
+                // past what the index holds.
+                let indexed = await currentIndexedCount()
+                let inStore = await MainActor.run { RustStoreAdapter.shared.countPublications() }
+                if inStore > 0 && indexed * 2 < inStore {
+                    Logger.search.infoCapture(
+                        "Index stale (\(indexed) indexed vs \(inStore) in store) — rebuilding",
+                        category: "search")
+                    await rebuildIndex()
+                }
             }
+
+            // Keep the index in sync from now on: async ingest paths
+            // (feed/inbox refresh, batch import) mutate the store without
+            // calling the indexer, so subscribe to store events and index
+            // affected publications as they land.
+            startStoreObservation()
         } catch {
             Logger.search.error("Failed to initialize fulltext search: \(error.localizedDescription)")
+        }
+    }
+
+    /// Store-event subscription keeping the FTS index in sync with async
+    /// ingest (the root cause of empty iOS search: ingest wrote the store,
+    /// nothing reindexed).
+    private var storeObservationTask: Task<Void, Never>?
+
+    /// Store count at the last structural catch-up rebuild — prevents
+    /// re-rebuilding endlessly when the store/index count gap can't close.
+    private var lastCatchUpStoreCount: Int = -1
+
+    private func currentIndexedCount() async -> Int {
+        guard let index = searchIndex else { return 0 }
+        return await index.documentCount()
+    }
+
+    private func startStoreObservation() {
+        guard storeObservationTask == nil else { return }
+        storeObservationTask = Task { [weak self] in
+            let events = await MainActor.run { ImbibImpressStore.shared.events.subscribe() }
+            for await event in events {
+                guard let self else { return }
+                switch event {
+                case .itemsMutated(let kind, let ids) where kind == .otherField && !ids.isEmpty:
+                    // Only .otherField touches indexed content (title,
+                    // authors, abstract, notes); read/star/flag/tag toggles
+                    // don't warrant a delete+add+commit round-trip.
+                    await self.indexPublications(ids: Array(ids))
+                case .structural:
+                    await self.catchUpAfterStructuralChange()
+                default:
+                    break
+                }
+            }
+        }
+    }
+
+    /// Structural changes (imports, deletes) carry no ids; catch up whenever
+    /// the store has outgrown the index. rebuildIndex is an idempotent upsert
+    /// (Rust add deletes the id term first) and self-guards via isRebuilding.
+    /// The lastCatchUpStoreCount guard prevents rebuild churn when the count
+    /// gap is un-closable (items outside any library aren't covered by
+    /// rebuildIndex).
+    private func catchUpAfterStructuralChange() async {
+        let indexed = await currentIndexedCount()
+        let inStore = await MainActor.run { RustStoreAdapter.shared.countPublications() }
+        if inStore > indexed && inStore != lastCatchUpStoreCount {
+            lastCatchUpStoreCount = inStore
+            await rebuildIndex()
         }
     }
 

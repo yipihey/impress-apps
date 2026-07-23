@@ -272,6 +272,14 @@ impl SearchIndex {
         Ok(())
     }
 
+    /// Number of documents visible to the current reader.
+    ///
+    /// Used by the app to detect a stale index (indexed count far below the
+    /// store's publication count) and trigger a self-healing rebuild.
+    pub fn num_docs(&self) -> u64 {
+        self.reader.searcher().num_docs()
+    }
+
     /// Search publications
     pub fn search(
         &self,
@@ -618,6 +626,17 @@ pub fn search_index_delete(handle_id: u64, publication_id: String) -> Result<(),
         .ok_or_else(|| SearchIndexError::IndexError("Writer not available".to_string()))?;
 
     handle.index.delete_publication(writer, &publication_id)
+}
+
+/// Number of documents in the search index (as seen by the current reader).
+#[uniffi::export]
+pub fn search_index_num_docs(handle_id: u64) -> Result<u64, SearchIndexError> {
+    let registry = INDEX_REGISTRY.read().unwrap();
+    let handle = registry
+        .get(&handle_id)
+        .ok_or_else(|| SearchIndexError::IndexError("Invalid handle".to_string()))?
+        .clone();
+    Ok(handle.index.num_docs())
 }
 
 /// Commit pending changes to the search index

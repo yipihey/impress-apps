@@ -44,8 +44,14 @@ public struct OnboardingSheet: View {
             stepContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // macOS window sizing ONLY: on iOS a minWidth of 500 forces the
+        // content wider than any iPhone (≤440pt) and the sheet overflows.
+        // iOS sheets size to the presentation; the per-step ScrollViews
+        // handle vertical overflow.
+        #if os(macOS)
         .frame(minWidth: 500, idealWidth: 550, maxWidth: 600)
         .frame(minHeight: 450, idealHeight: 500, maxHeight: 600)
+        #endif
         .interactiveDismissDisabled(onboardingManager.currentStep != .complete)
         .task {
             await checkExistingCredentials()
