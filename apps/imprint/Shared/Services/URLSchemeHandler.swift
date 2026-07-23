@@ -80,6 +80,9 @@ public actor URLSchemeHandler {
         // Both apps share the store, so the manuscript already exists under this
         // UUID — open its editor directly. This is the live path; the legacy
         // `documentUUID` create/bridge dance below predates the unified store.
+        // macOS-only: the `.openManuscriptInEditor` scene observer (and the
+        // desktop handoff flow itself) lives in the macOS app.
+        #if os(macOS)
         if let manuscriptString = queryItems.first(where: { $0.name == "manuscript" })?.value,
            let manuscriptUUID = UUID(uuidString: manuscriptString) {
             let exists = await MainActor.run {
@@ -102,6 +105,7 @@ public actor URLSchemeHandler {
             }
             return true
         }
+        #endif
 
         let imbibManuscript = queryItems.first { $0.name == "imbibManuscript" }?.value
         guard let uuidString = queryItems.first(where: { $0.name == "documentUUID" })?.value,
