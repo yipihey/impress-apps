@@ -84,6 +84,11 @@
 		<string>com.imprint.editing-document</string>
 		<string>com.imprint.viewing-document</string>
 	</array>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>AccentColor</string>
+	</dict>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

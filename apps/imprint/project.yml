@@ -295,6 +295,12 @@ targets:
     info:
       path: imprint-iOS/Info.plist
       properties:
+        # Without a UILaunchScreen declaration iOS treats the app as legacy
+        # and LETTERBOXES the whole window (centered rounded box with black
+        # bands) — reported as "the edit window doesn't fully span the
+        # screen". Mirrors imbib-iOS (project.yml UILaunchScreen block).
+        UILaunchScreen:
+          UIColorName: AccentColor
         CFBundleURLTypes:
           - CFBundleURLName: com.imbib.imprint
             CFBundleURLSchemes:
