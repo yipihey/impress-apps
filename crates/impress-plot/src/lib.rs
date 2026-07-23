@@ -39,7 +39,7 @@ mod render;
 
 pub use axis::{Axis, Limits, Scale, Tick};
 pub use colormap::Colormap;
-pub use contour::{contour_lines, ContourLevels};
+pub use contour::{contour_lines, gaussian_smooth, ContourLevels};
 pub use hist2d::{ColorScale, Hist2D, Normalization};
 pub use plot::{Chosen, Plot, Strategy};
 pub use render::{ContourFigure, Hist2DFigure, LinePlot, PlotOutput, PlotSize, Series};

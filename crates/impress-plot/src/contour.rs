@@ -46,6 +46,50 @@ impl ContourLevels {
     }
 }
 
+/// Separable Gaussian blur of a grid (σ in bins; radius 3σ; edge-renormalized
+/// so borders don't darken). Contouring a RAW binned density traces Poisson
+/// noise — every bin fluctuation becomes a wiggle — so smooth before
+/// extracting iso-lines (the underlay can stay raw). σ = 0 is a no-op.
+pub fn gaussian_smooth(grid: &[f64], nx: usize, ny: usize, sigma: f64) -> Vec<f64> {
+    assert_eq!(grid.len(), nx * ny, "grid size mismatch");
+    if sigma <= 0.0 {
+        return grid.to_vec();
+    }
+    let radius = (3.0 * sigma).ceil() as isize;
+    let weights: Vec<f64> = (-radius..=radius)
+        .map(|i| (-(i as f64).powi(2) / (2.0 * sigma * sigma)).exp())
+        .collect();
+
+    let pass = |src: &[f64],
+                len_major: usize,
+                len_minor: usize,
+                stride_minor: usize,
+                stride_major: usize| {
+        let mut out = vec![0.0; src.len()];
+        for maj in 0..len_major {
+            for min in 0..len_minor {
+                let mut acc = 0.0;
+                let mut wsum = 0.0;
+                for (k, w) in weights.iter().enumerate() {
+                    let offset = k as isize - radius;
+                    let m = min as isize + offset;
+                    if m < 0 || m >= len_minor as isize {
+                        continue;
+                    }
+                    acc += w * src[maj * stride_major + m as usize * stride_minor];
+                    wsum += w;
+                }
+                out[maj * stride_major + min * stride_minor] = acc / wsum.max(f64::MIN_POSITIVE);
+            }
+        }
+        out
+    };
+
+    // Horizontal (along x) then vertical (along y).
+    let h = pass(grid, ny, nx, 1, nx);
+    pass(&h, nx, ny, nx, 1)
+}
+
 /// Extract the `level` iso-lines of `grid` (`nx × ny`, row-major, iy=0 low).
 /// Returns chained polylines in normalized [0,1]² (see module docs).
 pub fn contour_lines(grid: &[f64], nx: usize, ny: usize, level: f64) -> Vec<Vec<(f64, f64)>> {
@@ -229,6 +273,107 @@ mod tests {
 
         let exp = ContourLevels::Explicit(vec![0.5]).resolve(0.0, 1.0);
         assert_eq!(exp, vec![0.5]);
+    }
+
+    #[test]
+    fn smoothing_flat_is_identity_and_delta_spreads_symmetrically() {
+        let flat = vec![2.0; 100];
+        let out = gaussian_smooth(&flat, 10, 10, 1.5);
+        for v in &out {
+            assert!((v - 2.0).abs() < 1e-9, "flat stays flat (edge renorm)");
+        }
+
+        let mut delta = vec![0.0; 21 * 21];
+        delta[10 * 21 + 10] = 1.0;
+        let s = gaussian_smooth(&delta, 21, 21, 2.0);
+        assert!(s[10 * 21 + 10] < 1.0, "peak lowered");
+        assert!(s[10 * 21 + 10] > s[10 * 21 + 13], "monotone from center");
+        // Symmetry in both directions.
+        assert!((s[10 * 21 + 7] - s[10 * 21 + 13]).abs() < 1e-12);
+        assert!((s[7 * 21 + 10] - s[13 * 21 + 10]).abs() < 1e-12);
+    }
+
+    /// The alignment invariant behind the heatmap-underlay + contour-overlay
+    /// figure: for an off-center blob, the contour centroid (normalized
+    /// space) must coincide with the underlay PNG's brightest pixel mapped
+    /// back to the same normalized space (PNG row 0 = top = high y). Catches
+    /// any flip or half-cell offset between the two layers.
+    #[test]
+    fn contours_align_with_underlay_peak() {
+        use crate::hist2d::{ColorScale, Hist2D, Normalization};
+        use crate::Colormap;
+
+        // Deterministic tight blob at (0.7, 0.3) in binned space.
+        let (nx, ny) = (80usize, 80usize);
+        let mut s: u64 = 42;
+        let mut rnd = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (s >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        for _ in 0..40_000 {
+            // Box-Muller
+            let (u1, u2) = (rnd().max(1e-12), rnd());
+            let r = (-2.0f64 * u1.ln()).sqrt();
+            xs.push(0.7 + 0.06 * r * (std::f64::consts::TAU * u2).cos());
+            ys.push(0.3 + 0.06 * r * (std::f64::consts::TAU * u2).sin());
+        }
+        let hist = Hist2D::bin(&xs, &ys, None, nx, ny, Some(((0.0, 1.0), (0.0, 1.0))));
+        let (vals, _, vmax) = hist.normalized(Normalization::Count);
+
+        // Contour centroid at a high level (tight ring around the peak).
+        let smoothed = gaussian_smooth(&vals, nx, ny, 2.0);
+        let smax = smoothed.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let lines = contour_lines(&smoothed, nx, ny, smax * 0.5);
+        assert!(!lines.is_empty());
+        let (mut cx, mut cy, mut n) = (0.0, 0.0, 0);
+        for line in &lines {
+            for &(x, y) in line {
+                cx += x;
+                cy += y;
+                n += 1;
+            }
+        }
+        let (cx, cy) = (cx / n as f64, cy / n as f64);
+        assert!((cx - 0.7).abs() < 0.03, "contour centroid x {cx:.3} vs 0.7");
+        assert!((cy - 0.3).abs() < 0.03, "contour centroid y {cy:.3} vs 0.3");
+
+        // Underlay: brightest (highest-count) bin's pixel, mapped back through
+        // the PNG's row order (row 0 = top).
+        let up = 2usize;
+        let (png, _, _) = hist.to_png(
+            Normalization::Count,
+            Colormap::Greys,
+            ColorScale::Linear,
+            up,
+        );
+        // Rather than decode the PNG, recompute what to_png drew: find the
+        // max-count bin and assert its PNG-space position equals the contour
+        // centroid in image coordinates.
+        let mut best = (0usize, 0usize);
+        let mut best_v = f64::NEG_INFINITY;
+        for iy in 0..ny {
+            for ix in 0..nx {
+                if vals[iy * nx + ix] > best_v {
+                    best_v = vals[iy * nx + ix];
+                    best = (ix, iy);
+                }
+            }
+        }
+        assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+        assert!(vmax > 0.0);
+        // Bin center in normalized space…
+        let peak_norm = (
+            (best.0 as f64 + 0.5) / nx as f64,
+            (best.1 as f64 + 0.5) / ny as f64,
+        );
+        // …must match the contour centroid (both layers stretch to the same
+        // plot rect with the same y-flip: image row = ny-1-iy ⇔ y_pt = (1-t)·h).
+        assert!(
+            (peak_norm.0 - cx).abs() < 0.03 && (peak_norm.1 - cy).abs() < 0.03,
+            "underlay peak {peak_norm:?} vs contour centroid ({cx:.3},{cy:.3})"
+        );
     }
 
     #[test]

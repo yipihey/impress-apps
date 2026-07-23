@@ -11,7 +11,7 @@
 
 use crate::axis::{Axis, Tick};
 use crate::colormap::Colormap;
-use crate::contour::{contour_lines, ContourLevels};
+use crate::contour::{contour_lines, gaussian_smooth, ContourLevels};
 use crate::hist2d::{ColorScale, Hist2D, Normalization};
 use std::fmt::Write as _;
 
@@ -322,10 +322,13 @@ impl Hist2DFigure {
                 size.pad_l, self.title
             );
         }
-        // Heatmap raster stretched to the plot rect.
+        // Heatmap raster stretched to the plot rect. fit: "stretch" is
+        // ESSENTIAL: Typst's default image fit is "cover", which crops a
+        // square PNG drawn into a non-square rect — displacing every
+        // off-center feature (the "underlay doesn't match the axes" bug).
         let _ = writeln!(
             b,
-            "#place(dx: {}pt, dy: {}pt)[#image(\"{}\", width: {}pt, height: {}pt)]",
+            "#place(dx: {}pt, dy: {}pt)[#image(\"{}\", width: {}pt, height: {}pt, fit: \"stretch\")]",
             size.pad_l, size.pad_t, asset_path, pw, ph
         );
 
@@ -366,6 +369,11 @@ pub struct ContourFigure {
     pub cmap: Colormap,
     pub scale: ColorScale,
     pub levels: ContourLevels,
+    /// Gaussian pre-smoothing of the grid for iso-line extraction, in bins
+    /// (0 = off). Raw binned densities contour their Poisson noise; ~2 bins
+    /// of smoothing gives the smooth nested loops a publication figure needs.
+    /// The underlay stays raw.
+    pub smooth_sigma: f64,
     /// Draw the heatmap under the contours (classic density-figure look).
     /// Lines are black over the underlay, colormap-colored without it.
     pub underlay: bool,
@@ -398,19 +406,38 @@ impl ContourFigure {
             let asset_path = format!("/{}", self.asset_id);
             let _ = writeln!(
                 b,
-                "#place(dx: {}pt, dy: {}pt)[#image(\"{}\", width: {}pt, height: {}pt)]",
+                "#place(dx: {}pt, dy: {}pt)[#image(\"{}\", width: {}pt, height: {}pt, fit: \"stretch\")]",
                 size.pad_l, size.pad_t, asset_path, pw, ph
             );
             assets.push((asset_path, png));
         }
 
+        // Smooth the grid for iso-line extraction (the underlay stays raw) and
+        // resolve levels against the smoothed value range — smoothing lowers
+        // peaks, so raw-range levels could sit entirely above the smoothed max.
+        let smoothed = gaussian_smooth(&vals, self.hist.nx, self.hist.ny, self.smooth_sigma);
+        let (mut svmin, mut svmax) = (f64::INFINITY, f64::NEG_INFINITY);
+        for &c in &smoothed {
+            if c > 0.0 {
+                svmin = svmin.min(c);
+                svmax = svmax.max(c);
+            }
+        }
+        if !svmin.is_finite() {
+            (svmin, svmax) = (vmin, vmax);
+        }
+        // Floor the level range at 3% of peak: log levels down at the noise
+        // floor (single counts) draw a busy halo of near-coincident outer
+        // rings that carries no information.
+        svmin = svmin.max(svmax * 0.03);
+
         // Iso-lines. Level positions map through the color scale so line
         // colors match the colorbar; log color scale → log-spaced levels.
         let levels = match (&self.levels, self.scale) {
             (ContourLevels::Linear(n), ColorScale::Log) => {
-                ContourLevels::Log(*n).resolve(vmin, vmax)
+                ContourLevels::Log(*n).resolve(svmin, svmax)
             }
-            (spec, _) => spec.resolve(vmin, vmax),
+            (spec, _) => spec.resolve(svmin, svmax),
         };
         for level in &levels {
             let t_color = match self.scale {
@@ -426,7 +453,7 @@ impl ContourFigure {
             } else {
                 rgb(self.cmap.sample(t_color))
             };
-            for line in contour_lines(&vals, self.hist.nx, self.hist.ny, *level) {
+            for line in contour_lines(&smoothed, self.hist.nx, self.hist.ny, *level) {
                 if line.len() < 2 {
                     continue;
                 }

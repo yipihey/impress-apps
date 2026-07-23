@@ -132,3 +132,38 @@ fn hist_figure_compiles_with_asset() {
     compile(&mut r, &out, "hist_crate");
     println!("wrote hist_crate to {}", out_dir().display());
 }
+
+#[test]
+fn contour_smoothed_sample() {
+    // Same two-blob shape as the live HTTP demo, rendered via Plot.contour
+    // with default smoothing — for visual QA of contour/underlay alignment.
+    let mut s: u64 = 0x5EED;
+    let mut nrm = || {
+        let mut g = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((s >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        let (u1, u2) = (g().max(1e-12), g());
+        (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+    };
+    let (mut xs, mut ys) = (Vec::new(), Vec::new());
+    for i in 0..60_000 {
+        if i % 3 == 0 {
+            xs.push(2.0 + 0.5 * nrm());
+            ys.push(1.6 + 0.5 * nrm());
+        } else {
+            xs.push(-1.0 + 1.0 * nrm());
+            ys.push(-0.4 + 0.8 * nrm());
+        }
+    }
+    let plot = Plot::new(
+        Axis::linear().with_label("x"),
+        Axis::linear().with_label("y"),
+    )
+    .title("density contours (smoothed)")
+    .contour(xs, ys);
+    let out = plot.render(PlotSize::new(340.0, 240.0));
+    let mut r = PersistentTypstRenderer::new();
+    compile(&mut r, &out, "contour_smoothed");
+    println!("wrote contour_smoothed to {}", out_dir().display());
+}

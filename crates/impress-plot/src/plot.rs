@@ -54,6 +54,9 @@ pub struct Plot {
     pub contour_levels: usize,
     /// Draw the heatmap under contour lines (default true — classic look).
     pub contour_underlay: bool,
+    /// Gaussian pre-smoothing (bins) for contour extraction; raw binned
+    /// densities contour their Poisson noise. Default 2.0; 0 = off.
+    pub contour_smooth_sigma: f64,
 }
 
 impl Plot {
@@ -70,6 +73,7 @@ impl Plot {
             asset_id: "plot_raster.png".into(),
             contour_levels: 7,
             contour_underlay: true,
+            contour_smooth_sigma: 2.0,
         }
     }
     pub fn title(mut self, t: impl Into<String>) -> Self {
@@ -193,6 +197,7 @@ impl Plot {
             cmap: self.cmap,
             scale: ColorScale::Log, // density spans orders of magnitude
             levels: ContourLevels::Linear(self.contour_levels.max(1)),
+            smooth_sigma: self.contour_smooth_sigma,
             underlay: self.contour_underlay,
             x: self.x.clone(),
             y: self.y.clone(),
