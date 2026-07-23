@@ -91,7 +91,8 @@ public enum PlotAutomationHandler {
             height: (json["height"] as? Double) ?? 220,
             rasterThreshold: UInt32((json["rasterThreshold"] as? Int) ?? 0),
             contourLevels: UInt32((json["contourLevels"] as? Int) ?? 0),
-            contourLabels: (json["contourLabels"] as? Bool) ?? true
+            contourLabels: (json["contourLabels"] as? Bool) ?? true,
+            contourLineStyles: decodeLineStyles(json["contourLineStyles"])
         )
     }
 
@@ -102,6 +103,19 @@ public enum PlotAutomationHandler {
             max: json?["max"] as? Double,
             label: json?["label"] as? String
         )
+    }
+
+    private static func decodeLineStyles(_ any: Any?) -> [FfiLineStyle] {
+        guard let arr = any as? [String] else { return [] }
+        return arr.compactMap { name in
+            switch name.lowercased() {
+            case "solid": return .solid
+            case "dashed": return .dashed
+            case "dotted": return .dotted
+            case "dashdotted", "dash-dotted": return .dashDotted
+            default: return nil
+            }
+        }
     }
 
     private static func decodeStrategy(_ s: String?) -> FfiStrategy {

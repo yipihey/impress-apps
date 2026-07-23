@@ -60,6 +60,28 @@ pub struct PlotOutput {
     pub assets: Vec<(String, Vec<u8>)>,
 }
 
+/// Stroke style for plot lines, mapped onto Typst's native dash patterns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LineStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+    DashDotted,
+}
+
+impl LineStyle {
+    /// Typst `dash:` preset name (None = solid stroke).
+    fn dash(self) -> Option<&'static str> {
+        match self {
+            LineStyle::Solid => None,
+            LineStyle::Dashed => Some("dashed"),
+            LineStyle::Dotted => Some("dotted"),
+            LineStyle::DashDotted => Some("dash-dotted"),
+        }
+    }
+}
+
 /// One data series.
 #[derive(Clone, Debug)]
 pub enum Series {
@@ -385,6 +407,10 @@ pub struct ContourFigure {
     /// line (matplotlib clabel style), with a white halo for readability over
     /// the heatmap.
     pub labels: bool,
+    /// Line-style CYCLE applied per level (level i → styles[i % len]), so
+    /// adjacent levels alternate and individual contours are easy to trace —
+    /// e.g. [Solid, Dashed] or [Solid, Dashed, Dotted]. Empty → all solid.
+    pub line_styles: Vec<LineStyle>,
     pub x: Axis,
     pub y: Axis,
     pub x_range: (f64, f64),
@@ -488,6 +514,11 @@ impl ContourFigure {
                 None
             };
 
+            let style = if self.line_styles.is_empty() {
+                LineStyle::Solid
+            } else {
+                self.line_styles[level_idx % self.line_styles.len()]
+            };
             for (i, line) in lines_pt.iter().enumerate() {
                 if Some(i) == longest {
                     let total = polyline_arc_length(line);
@@ -497,11 +528,11 @@ impl ContourFigure {
                     let center = flattest_arc_position(line, label_w, prefer);
                     let ((lx, ly), angle) = point_at_arc(line, center);
                     for piece in split_at_gap(line, center, label_w) {
-                        emit_curve_pt(&mut b, &piece, size, &color);
+                        emit_curve_pt(&mut b, &piece, size, &color, style);
                     }
                     emit_inline_label(&mut b, size, (lx, ly), angle, &label_text);
                 } else {
-                    emit_curve_pt(&mut b, line, size, &color);
+                    emit_curve_pt(&mut b, line, size, &color, style);
                 }
             }
         }
@@ -530,12 +561,23 @@ impl ContourFigure {
 // --- shared Typst emission ------------------------------------------------
 
 /// Emit one polyline (already in plot-rect pt space) as a Typst curve.
-fn emit_curve_pt(b: &mut String, pts: &[(f64, f64)], size: PlotSize, color: &str) {
+fn emit_curve_pt(
+    b: &mut String,
+    pts: &[(f64, f64)],
+    size: PlotSize,
+    color: &str,
+    style: LineStyle,
+) {
     if pts.len() < 2 {
         return;
     }
+    // Dashed/dotted strokes use Typst's dictionary stroke form.
+    let stroke = match style.dash() {
+        None => format!("0.7pt + {color}"),
+        Some(dash) => format!("(thickness: 0.7pt, paint: {color}, dash: \"{dash}\")"),
+    };
     let mut c = format!(
-        "#place(dx: {}pt, dy: {}pt)[#curve(stroke: 0.7pt + {color}, ",
+        "#place(dx: {}pt, dy: {}pt)[#curve(stroke: {stroke}, ",
         size.pad_l, size.pad_t
     );
     let _ = write!(c, "curve.move(({:.2}pt, {:.2}pt)), ", pts[0].0, pts[0].1);
@@ -549,6 +591,12 @@ fn emit_curve_pt(b: &mut String, pts: &[(f64, f64)], size: PlotSize, color: &str
 /// Inline contour label: `text` rotated along the line's tangent at plot-rect
 /// point `(lx, ly)`, kept upright, with a 4-offset white halo so it reads on
 /// both the page and a dark heatmap underlay.
+///
+/// Centering: the text sits centered inside a FIXED-size box (the same width
+/// used for the line gap), and the box's top-left is placed so the box center
+/// is exactly `(lx, ly)`; rotation is about that center. This makes the
+/// anchor independent of font metrics — estimating glyph widths anchored the
+/// label off-center (left/low) before.
 fn emit_inline_label(b: &mut String, size: PlotSize, (lx, ly): (f64, f64), angle: f64, text: &str) {
     // Fold to [-90°, 90°] so labels never render upside down.
     let mut deg = angle.to_degrees();
@@ -558,23 +606,25 @@ fn emit_inline_label(b: &mut String, size: PlotSize, (lx, ly): (f64, f64), angle
     if deg < -90.0 {
         deg += 180.0;
     }
-    // Anchor: place the text block so its center sits on the line point;
-    // rotate about that center. Width estimate matches the gap sizing.
     let w = 3.4 * text.chars().count() as f64 + 4.0;
-    let (ax, ay) = (size.pad_l + lx - w / 2.0, size.pad_t + ly - 3.6);
+    let h = 8.0;
+    let (ax, ay) = (size.pad_l + lx - w / 2.0, size.pad_t + ly - h / 2.0);
+    let boxed = |fill: &str| {
+        format!(
+            "#rotate({deg:.1}deg, origin: center, reflow: false)[#box(width: {w:.2}pt, height: {h:.2}pt)[#align(center + horizon)[#text(size: 6pt{fill})[{text}]]]]"
+        )
+    };
     let halo = [(-0.5, 0.0), (0.5, 0.0), (0.0, -0.5), (0.0, 0.5)];
     for (hx, hy) in halo {
         let _ = writeln!(
             b,
-            "#place(dx: {:.2}pt, dy: {:.2}pt)[#rotate({deg:.1}deg, origin: center, reflow: false)[#text(size: 6pt, fill: white)[{text}]]]",
+            "#place(dx: {:.2}pt, dy: {:.2}pt)[{}]",
             ax + hx,
-            ay + hy
+            ay + hy,
+            boxed(", fill: white")
         );
     }
-    let _ = writeln!(
-        b,
-        "#place(dx: {ax:.2}pt, dy: {ay:.2}pt)[#rotate({deg:.1}deg, origin: center, reflow: false)[#text(size: 6pt)[{text}]]]"
-    );
+    let _ = writeln!(b, "#place(dx: {ax:.2}pt, dy: {ay:.2}pt)[{}]", boxed(""));
 }
 
 fn wrap_box(size: PlotSize, body: &str) -> String {

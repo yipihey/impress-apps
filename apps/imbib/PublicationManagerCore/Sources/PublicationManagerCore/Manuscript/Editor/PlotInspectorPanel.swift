@@ -82,6 +82,20 @@ private enum SourceMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+private enum ContourStyleCycle: String, CaseIterable, Identifiable {
+    case solid = "Solid"
+    case solidDashed = "Solid / Dashed"
+    case solidDashedDotted = "Solid / Dashed / Dotted"
+    var id: String { rawValue }
+    var ffi: [FfiLineStyle] {
+        switch self {
+        case .solid: return []
+        case .solidDashed: return [.solid, .dashed]
+        case .solidDashedDotted: return [.solid, .dashed, .dotted]
+        }
+    }
+}
+
 private enum PlotStyle: String, CaseIterable, Identifiable {
     case scatter = "Scatter"
     case line = "Line"
@@ -121,6 +135,7 @@ private struct PlotPanelView: View {
     @State private var yMin = ""
     @State private var yMax = ""
     @State private var colormap: FfiColormap = .viridis
+    @State private var styleCycle: ContourStyleCycle = .solid
 
     // Render output
     @State private var svg = ""
@@ -142,7 +157,7 @@ private struct PlotPanelView: View {
 
     private var renderKey: String {
         "\(sourceMode.rawValue)|\(dataset.rawValue)|\(fileName)|\(xCol)|\(yCol)|\(style.rawValue)"
-            + "|\(xLog)|\(yLog)|\(xMin)|\(xMax)|\(yMin)|\(yMax)|\(colormap.hashValue)"
+            + "|\(xLog)|\(yLog)|\(xMin)|\(xMax)|\(yMin)|\(yMax)|\(colormap.hashValue)|\(styleCycle.rawValue)"
     }
 
     private var preview: some View {
@@ -242,6 +257,11 @@ private struct PlotPanelView: View {
                 ForEach(PlotStyle.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
+            if style == .contour {
+                Picker("Line cycle", selection: $styleCycle) {
+                    ForEach(ContourStyleCycle.allCases) { Text($0.rawValue).tag($0) }
+                }
+            }
             Text("\(table.columns.count) numeric columns · \(table.rowCount) rows")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -284,7 +304,8 @@ private struct PlotPanelView: View {
             height: height,
             rasterThreshold: 0,
             contourLevels: 0,
-            contourLabels: true
+            contourLabels: true,
+            contourLineStyles: (sourceMode == .file && style == .contour) ? styleCycle.ffi : []
         )
     }
 

@@ -14,7 +14,7 @@
 #![cfg(feature = "typst-render")]
 
 use crate::render::{PersistentTypstRenderer, RenderOptions};
-use impress_plot::{Axis, Chosen, Colormap, Plot, PlotSize, Strategy};
+use impress_plot::{Axis, Chosen, Colormap, LineStyle, Plot, PlotSize, Strategy};
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Clone, Copy, Debug)]
@@ -73,6 +73,15 @@ pub enum FfiColormap {
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Clone, Copy, Debug)]
+pub enum FfiLineStyle {
+    Solid,
+    Dashed,
+    Dotted,
+    DashDotted,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Clone, Copy, Debug)]
 pub enum FfiStrategy {
     Auto,
     Vector,
@@ -96,6 +105,9 @@ pub struct FfiPlotSpec {
     pub contour_levels: u32,
     /// Inline level labels on contour rings.
     pub contour_labels: bool,
+    /// Line-style cycle applied per contour level (empty → all solid), e.g.
+    /// [Solid, Dashed] or [Solid, Dashed, Dotted] — makes contours traceable.
+    pub contour_line_styles: Vec<FfiLineStyle>,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -155,6 +167,16 @@ fn build_plot(spec: FfiPlotSpec) -> Plot {
         plot.contour_levels = spec.contour_levels as usize;
     }
     plot.contour_labels = spec.contour_labels;
+    plot.contour_line_styles = spec
+        .contour_line_styles
+        .iter()
+        .map(|s| match s {
+            FfiLineStyle::Solid => LineStyle::Solid,
+            FfiLineStyle::Dashed => LineStyle::Dashed,
+            FfiLineStyle::Dotted => LineStyle::Dotted,
+            FfiLineStyle::DashDotted => LineStyle::DashDotted,
+        })
+        .collect();
     plot.asset_id = "ffi_plot.png".into();
     for s in spec.series {
         let color = [s.color.r, s.color.g, s.color.b];
@@ -512,6 +534,7 @@ mod tests {
             raster_threshold: 0,
             contour_levels: 0,
             contour_labels: true,
+            contour_line_styles: vec![],
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -547,6 +570,7 @@ mod tests {
             raster_threshold: 0,
             contour_levels: 0,
             contour_labels: true,
+            contour_line_styles: vec![],
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -585,6 +609,7 @@ mod tests {
             raster_threshold: 0,
             contour_levels: 5,
             contour_labels: true,
+            contour_line_styles: vec![],
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -645,6 +670,7 @@ mod tests {
             raster_threshold: 0,
             contour_levels: 0,
             contour_labels: true,
+            contour_line_styles: vec![],
         };
 
         let dir = std::env::temp_dir().join(format!("impress_fig_test_{}", std::process::id()));

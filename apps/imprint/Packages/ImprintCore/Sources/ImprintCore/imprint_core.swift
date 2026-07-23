@@ -2829,6 +2829,11 @@ public struct FfiPlotSpec {
      * Inline level labels on contour rings.
      */
     public var contourLabels: Bool
+    /**
+     * Line-style cycle applied per contour level (empty → all solid), e.g.
+     * [Solid, Dashed] or [Solid, Dashed, Dotted] — makes contours traceable.
+     */
+    public var contourLineStyles: [FfiLineStyle]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2841,7 +2846,11 @@ public struct FfiPlotSpec {
          */contourLevels: UInt32, 
         /**
          * Inline level labels on contour rings.
-         */contourLabels: Bool) {
+         */contourLabels: Bool, 
+        /**
+         * Line-style cycle applied per contour level (empty → all solid), e.g.
+         * [Solid, Dashed] or [Solid, Dashed, Dotted] — makes contours traceable.
+         */contourLineStyles: [FfiLineStyle]) {
         self.title = title
         self.x = x
         self.y = y
@@ -2853,6 +2862,7 @@ public struct FfiPlotSpec {
         self.rasterThreshold = rasterThreshold
         self.contourLevels = contourLevels
         self.contourLabels = contourLabels
+        self.contourLineStyles = contourLineStyles
     }
 }
 
@@ -2893,6 +2903,9 @@ extension FfiPlotSpec: Equatable, Hashable {
         if lhs.contourLabels != rhs.contourLabels {
             return false
         }
+        if lhs.contourLineStyles != rhs.contourLineStyles {
+            return false
+        }
         return true
     }
 
@@ -2908,6 +2921,7 @@ extension FfiPlotSpec: Equatable, Hashable {
         hasher.combine(rasterThreshold)
         hasher.combine(contourLevels)
         hasher.combine(contourLabels)
+        hasher.combine(contourLineStyles)
     }
 }
 
@@ -2929,7 +2943,8 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
                 height: FfiConverterDouble.read(from: &buf), 
                 rasterThreshold: FfiConverterUInt32.read(from: &buf), 
                 contourLevels: FfiConverterUInt32.read(from: &buf), 
-                contourLabels: FfiConverterBool.read(from: &buf)
+                contourLabels: FfiConverterBool.read(from: &buf), 
+                contourLineStyles: FfiConverterSequenceTypeFfiLineStyle.read(from: &buf)
         )
     }
 
@@ -2945,6 +2960,7 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.rasterThreshold, into: &buf)
         FfiConverterUInt32.write(value.contourLevels, into: &buf)
         FfiConverterBool.write(value.contourLabels, into: &buf)
+        FfiConverterSequenceTypeFfiLineStyle.write(value.contourLineStyles, into: &buf)
     }
 }
 
@@ -5041,6 +5057,84 @@ extension FfiColormap: Equatable, Hashable {}
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
+public enum FfiLineStyle {
+    
+    case solid
+    case dashed
+    case dotted
+    case dashDotted
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiLineStyle: FfiConverterRustBuffer {
+    typealias SwiftType = FfiLineStyle
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiLineStyle {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .solid
+        
+        case 2: return .dashed
+        
+        case 3: return .dotted
+        
+        case 4: return .dashDotted
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiLineStyle, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .solid:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .dashed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .dotted:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .dashDotted:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLineStyle_lift(_ buf: RustBuffer) throws -> FfiLineStyle {
+    return try FfiConverterTypeFfiLineStyle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLineStyle_lower(_ value: FfiLineStyle) -> RustBuffer {
+    return FfiConverterTypeFfiLineStyle.lower(value)
+}
+
+
+
+extension FfiLineStyle: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 public enum FfiSeriesKind {
     
     case line
@@ -6078,6 +6172,31 @@ fileprivate struct FfiConverterSequenceTypeFfiSeries: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiSeries.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiLineStyle: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiLineStyle]
+
+    public static func write(_ value: [FfiLineStyle], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiLineStyle.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiLineStyle] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiLineStyle]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiLineStyle.read(from: &buf))
         }
         return seq
     }

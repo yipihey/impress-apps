@@ -156,12 +156,13 @@ fn contour_smoothed_sample() {
             ys.push(-0.4 + 0.8 * nrm());
         }
     }
-    let plot = Plot::new(
+    let mut plot = Plot::new(
         Axis::linear().with_label("x"),
         Axis::linear().with_label("y"),
     )
     .title("density contours (smoothed)")
     .contour(xs, ys);
+    plot.contour_line_styles = vec![LineStyle::Solid, LineStyle::Dashed, LineStyle::Dotted];
     let out = plot.render(PlotSize::new(340.0, 240.0));
     let mut r = PersistentTypstRenderer::new();
     compile(&mut r, &out, "contour_smoothed");

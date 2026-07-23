@@ -13,7 +13,9 @@ use crate::axis::Axis;
 use crate::colormap::Colormap;
 use crate::contour::ContourLevels;
 use crate::hist2d::{ColorScale, Hist2D, Normalization};
-use crate::render::{ContourFigure, Hist2DFigure, LinePlot, PlotOutput, PlotSize, Series};
+use crate::render::{
+    ContourFigure, Hist2DFigure, LinePlot, LineStyle, PlotOutput, PlotSize, Series,
+};
 
 /// Requested rendering strategy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +61,9 @@ pub struct Plot {
     pub contour_smooth_sigma: f64,
     /// Inline level labels on contour rings (default true).
     pub contour_labels: bool,
+    /// Line-style cycle per level (e.g. [Solid, Dashed] alternates) so
+    /// contours are easy to trace. Empty → all solid.
+    pub contour_line_styles: Vec<LineStyle>,
 }
 
 impl Plot {
@@ -77,6 +82,7 @@ impl Plot {
             contour_underlay: true,
             contour_smooth_sigma: 2.0,
             contour_labels: true,
+            contour_line_styles: Vec::new(),
         }
     }
     pub fn title(mut self, t: impl Into<String>) -> Self {
@@ -203,6 +209,7 @@ impl Plot {
             smooth_sigma: self.contour_smooth_sigma,
             underlay: self.contour_underlay,
             labels: self.contour_labels,
+            line_styles: self.contour_line_styles.clone(),
             x: self.x.clone(),
             y: self.y.clone(),
             x_range,
