@@ -124,6 +124,44 @@ export const IMBIB_TOOLS: Tool[] = [
     },
   },
   {
+    name: "imbib_render_plot",
+    description:
+      "Render a native plot (impress-plot) from a declarative spec to SVG. Spec: {title?, x?: {scale: 'linear'|'log', min?, max?, label?}, y?: {...}, series: [{kind: 'line'|'scatter', xs: number[], ys: number[], color?: {r,g,b}}], colormap?: 'viridis'|'magma'|'plasma'|'inferno'|'cividis'|'turbo'|'greys', strategy?: 'auto'|'vector'|'raster', width?, height?}. Auto-picks vector below ~10k points, raster 2D-histogram above.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spec: {
+          type: "object",
+          description: "The plot spec (see tool description for shape)",
+        },
+      },
+      required: ["spec"],
+    },
+  },
+  {
+    name: "imbib_save_plot_figure",
+    description:
+      "Save a plot spec's raster heatmap as a figure in a manuscript's app-group figures/ directory and return the Typst snippet to insert into the manuscript source. The manuscript compile resolves the image automatically.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        manuscriptId: {
+          type: "string",
+          description: "The manuscript UUID",
+        },
+        spec: {
+          type: "object",
+          description: "The plot spec (same shape as imbib_render_plot)",
+        },
+        name: {
+          type: "string",
+          description: "Figure file name (sanitized; .png appended)",
+        },
+      },
+      required: ["manuscriptId", "spec"],
+    },
+  },
+  {
     name: "imbib_get_logs",
     description:
       "Get log entries from imbib's in-app console. Useful for debugging and observing app behavior. Logs include PDF imports, sync events, search operations, and more.",
@@ -1090,6 +1128,10 @@ export class ImbibTools {
         return this.listCollections();
       case "imbib_status":
         return this.getStatus();
+      case "imbib_render_plot":
+        return this.renderPlot(args);
+      case "imbib_save_plot_figure":
+        return this.savePlotFigure(args);
       case "imbib_get_logs":
         return this.getLogs(args);
       case "imbib_list_libraries":
@@ -1201,6 +1243,37 @@ export class ImbibTools {
           content: [{ type: "text", text: `Unknown imbib tool: ${name}` }],
         };
     }
+  }
+
+  private async renderPlot(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const spec = args?.spec;
+    if (!spec || typeof spec !== "object") {
+      return { content: [{ type: "text", text: "Error: spec (object) is required" }] };
+    }
+    const result = await this.client.renderPlot(spec as Record<string, unknown>);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+
+  private async savePlotFigure(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const manuscriptId = String(args?.manuscriptId || "");
+    const spec = args?.spec;
+    if (!manuscriptId || !spec || typeof spec !== "object") {
+      return {
+        content: [
+          { type: "text", text: "Error: manuscriptId and spec are required" },
+        ],
+      };
+    }
+    const result = await this.client.savePlotFigure(
+      manuscriptId,
+      spec as Record<string, unknown>,
+      args?.name ? String(args.name) : undefined
+    );
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   private async searchLibrary(

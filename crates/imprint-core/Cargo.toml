@@ -83,10 +83,10 @@ comemo = { version = "0.4", optional = true }
 impress-plot = { path = "../impress-plot", optional = true }
 
 # Columnar data loading for the plot panel's real-dataset binding. CSV + NPZ
-# (numpy) — both pure Rust, no C deps, build for iOS. HDF5/FITS (C deps) and
-# Parquet (heavy dep tree) are separate implore-io features, deferred. Enabled
+# (numpy) + Parquet — all pure Rust, no C deps, cross-compile for iOS.
+# HDF5/FITS (C deps) remain deferred pending vcpkg static vendoring. Enabled
 # with the plot FFI.
-implore-io = { path = "../implore-io", optional = true, features = ["csv", "npz"] }
+implore-io = { path = "../implore-io", optional = true, features = ["csv", "npz", "parquet"] }
 
 # Tectonic self-contained LaTeX engine (optional, behind `tectonic-render`).
 # Default features keep bundled HarfBuzz + reqwest-based bundle fetching.

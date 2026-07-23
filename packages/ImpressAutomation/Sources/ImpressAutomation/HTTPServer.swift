@@ -180,8 +180,8 @@ public actor HTTPServer<Router: HTTPRouter> {
 
     // MARK: - Request Handling
 
-    private func receiveRequest(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+    private func receiveRequest(on connection: NWConnection, buffered: Data = Data()) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1_048_576) { [weak self] data, _, isComplete, error in
             guard let self else { return }
             Task {
                 if let error = error {
@@ -190,18 +190,66 @@ public actor HTTPServer<Router: HTTPRouter> {
                     return
                 }
 
-                guard let data = data, !data.isEmpty else {
-                    if isComplete {
-                        connection.cancel()
-                    }
+                var buffer = buffered
+                if let data, !data.isEmpty {
+                    buffer.append(data)
+                }
+
+                guard !buffer.isEmpty else {
+                    if isComplete { connection.cancel() }
                     return
                 }
 
-                await self.processRequest(data, on: connection)
+                if buffer.count > httpMaxRequestBytes {
+                    await self.sendResponse(
+                        HTTPResponse.badRequest("Request too large"), on: connection)
+                    return
+                }
+
+                // A single receive() returns at most one TCP read (~64KB) — a
+                // large POST body spans several. Accumulate until the headers
+                // AND the full Content-Length body have arrived (this was the
+                // "bodies ≳64KB fail JSON parse" truncation bug).
+                if httpRequestIsComplete(buffer) || isComplete {
+                    await self.processRequest(buffer, on: connection)
+                } else {
+                    await self.receiveRequest(on: connection, buffered: buffer)
+                }
             }
         }
     }
+}
 
+/// Upper bound on an accepted request (headers + body). Plot specs with large
+/// series legitimately reach several MB; this cap only guards against
+/// unbounded memory use on a local port. (File-scope: HTTPServer is a generic
+/// actor, which cannot hold static stored properties.)
+private let httpMaxRequestBytes = 32 * 1024 * 1024
+
+/// True when `buffer` holds a full HTTP request: complete header block, plus
+/// `Content-Length` bytes of body when the header declares one.
+private func httpRequestIsComplete(_ buffer: Data) -> Bool {
+        let crlfcrlf = Data("\r\n\r\n".utf8)
+        guard let headerEnd = buffer.range(of: crlfcrlf) else {
+            return false  // headers not finished
+        }
+        let headerData = buffer[buffer.startIndex..<headerEnd.lowerBound]
+        guard let headerString = String(data: headerData, encoding: .utf8) else {
+            return true  // undecodable — hand to the parser to reject
+        }
+        var contentLength = 0
+        for line in headerString.components(separatedBy: "\r\n") {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" {
+                contentLength = Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+                break
+            }
+        }
+        let bodyBytes = buffer.count - (headerEnd.upperBound - buffer.startIndex)
+        return bodyBytes >= contentLength
+}
+
+extension HTTPServer {
     private func processRequest(_ data: Data, on connection: NWConnection) async {
         guard let requestString = String(data: data, encoding: .utf8) else {
             await sendResponse(HTTPResponse.badRequest("Invalid request encoding"), on: connection)

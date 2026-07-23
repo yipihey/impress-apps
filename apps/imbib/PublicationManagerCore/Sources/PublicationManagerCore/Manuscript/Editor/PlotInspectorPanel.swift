@@ -335,9 +335,9 @@ private struct PlotPanelView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        // CSV/TSV/plain text + numpy .npz (no standard UTI → build from ext).
+        // CSV/TSV/plain text + numpy .npz + Parquet (no standard UTIs → from ext).
         panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
-            + ["npz"].compactMap { UTType(filenameExtension: $0) }
+            + ["npz", "parquet", "pq"].compactMap { UTType(filenameExtension: $0) }
         panel.prompt = "Load"
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
