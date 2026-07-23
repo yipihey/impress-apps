@@ -209,6 +209,150 @@ fn chain_segments(segments: Vec<((f64, f64), (f64, f64))>) -> Vec<Vec<(f64, f64)
     polylines
 }
 
+// ===========================================================================
+// Inline-label geometry (operates on polylines in ANY planar space — the
+// renderer calls it in pt space so arc lengths and text widths are physical).
+// ===========================================================================
+
+/// Total arc length of a polyline.
+pub fn polyline_arc_length(pts: &[(f64, f64)]) -> f64 {
+    pts.windows(2)
+        .map(|w| ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt())
+        .sum()
+}
+
+/// Point and tangent angle (radians, atan2 convention of the input space) at
+/// arc-length position `s` along the polyline.
+pub fn point_at_arc(pts: &[(f64, f64)], s: f64) -> ((f64, f64), f64) {
+    let mut acc = 0.0;
+    for w in pts.windows(2) {
+        let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+        let seg = (dx * dx + dy * dy).sqrt();
+        if acc + seg >= s && seg > 0.0 {
+            let t = ((s - acc) / seg).clamp(0.0, 1.0);
+            return ((w[0].0 + t * dx, w[0].1 + t * dy), dy.atan2(dx));
+        }
+        acc += seg;
+    }
+    let last = *pts.last().unwrap();
+    let angle = if pts.len() >= 2 {
+        let a = pts[pts.len() - 2];
+        (last.1 - a.1).atan2(last.0 - a.0)
+    } else {
+        0.0
+    };
+    (last, angle)
+}
+
+/// Arc-length position of the FLATTEST window of length `window` on the
+/// polyline (minimal total turning), searched near `prefer` first by scoring
+/// turning + a mild distance-from-prefer penalty. Returns the window center.
+pub fn flattest_arc_position(pts: &[(f64, f64)], window: f64, prefer: f64) -> f64 {
+    let total = polyline_arc_length(pts);
+    if total <= window {
+        return total / 2.0;
+    }
+    // Sample candidate centers; score = turning inside window + small pull
+    // toward `prefer` so labels stagger across levels instead of stacking.
+    let steps = 48;
+    let mut best = (f64::INFINITY, total / 2.0);
+    for i in 0..steps {
+        let c = window / 2.0 + (total - window) * (i as f64) / (steps - 1) as f64;
+        let turning = window_turning(pts, c - window / 2.0, c + window / 2.0);
+        // Strong pull toward `prefer`: staggering labels around the rings
+        // matters more than finding the globally flattest spot (nested rings
+        // tend to share one flat region, which stacks all labels there).
+        // Wrap-around distance so closed loops treat the seam as adjacent.
+        let d = (c - prefer).abs() / total;
+        let pull = d.min(1.0 - d) * 2.4;
+        let score = turning + pull;
+        if score < best.0 {
+            best = (score, c);
+        }
+    }
+    best.1
+}
+
+/// Total absolute turning (radians) of the polyline between arc positions.
+fn window_turning(pts: &[(f64, f64)], s0: f64, s1: f64) -> f64 {
+    let mut acc = 0.0;
+    let mut turning = 0.0;
+    let mut prev_angle: Option<f64> = None;
+    for w in pts.windows(2) {
+        let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+        let seg = (dx * dx + dy * dy).sqrt();
+        let (a, b) = (acc, acc + seg);
+        acc = b;
+        if b < s0 || a > s1 || seg == 0.0 {
+            continue;
+        }
+        let angle = dy.atan2(dx);
+        if let Some(p) = prev_angle {
+            let mut d = angle - p;
+            while d > std::f64::consts::PI {
+                d -= std::f64::consts::TAU;
+            }
+            while d < -std::f64::consts::PI {
+                d += std::f64::consts::TAU;
+            }
+            turning += d.abs();
+        }
+        prev_angle = Some(angle);
+    }
+    turning
+}
+
+/// Split a polyline around a gap of length `gap` centered at arc position
+/// `center`, for placing an inline label. Closed loops (first == last) are
+/// re-seamed at the gap so the result is ONE polyline covering everything but
+/// the gap; open lines yield up to two pieces.
+pub fn split_at_gap(pts: &[(f64, f64)], center: f64, gap: f64) -> Vec<Vec<(f64, f64)>> {
+    let total = polyline_arc_length(pts);
+    let (g0, g1) = (center - gap / 2.0, center + gap / 2.0);
+    let closed = pts.len() > 2 && {
+        let (a, b) = (pts[0], *pts.last().unwrap());
+        ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt() < 1e-9
+    };
+
+    if closed {
+        // Walk from g1 around the seam to g0 (one piece).
+        let mut piece = Vec::new();
+        let n_samples = pts.len() * 2;
+        for i in 0..=n_samples {
+            let s = (g1 + (total - gap) * i as f64 / n_samples as f64) % total;
+            piece.push(point_at_arc(pts, s).0);
+        }
+        return vec![piece];
+    }
+
+    let mut before = Vec::new();
+    let mut after = Vec::new();
+    let mut acc = 0.0;
+    for (i, w) in pts.windows(2).enumerate() {
+        let seg = ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt();
+        let (a, b) = (acc, acc + seg);
+        if i == 0 && a < g0 {
+            before.push(w[0]);
+        }
+        if b <= g0 {
+            before.push(w[1]);
+        } else if a < g0 {
+            before.push(point_at_arc(pts, g0).0);
+        }
+        if a >= g1 {
+            if after.is_empty() {
+                after.push(point_at_arc(pts, g1).0);
+            }
+            after.push(w[1]);
+        }
+        acc = b;
+    }
+    [before, after]
+        .into_iter()
+        .filter(|p| p.len() >= 2)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,6 +517,80 @@ mod tests {
         assert!(
             (peak_norm.0 - cx).abs() < 0.03 && (peak_norm.1 - cy).abs() < 0.03,
             "underlay peak {peak_norm:?} vs contour centroid ({cx:.3},{cy:.3})"
+        );
+    }
+
+    #[test]
+    fn label_geometry_on_a_circle() {
+        // Unit circle sampled densely, closed.
+        let n = 400;
+        let pts: Vec<(f64, f64)> = (0..=n)
+            .map(|i| {
+                let a = std::f64::consts::TAU * i as f64 / n as f64;
+                (a.cos(), a.sin())
+            })
+            .collect();
+
+        let len = polyline_arc_length(&pts);
+        assert!(
+            (len - std::f64::consts::TAU).abs() < 1e-3,
+            "circumference ≈ 2π, got {len}"
+        );
+
+        // Tangent at arc s is perpendicular to the radius there.
+        let (p, angle) = point_at_arc(&pts, len * 0.25);
+        let radial = p.1.atan2(p.0);
+        let mut d = (angle - radial).abs() % std::f64::consts::PI;
+        if d > std::f64::consts::FRAC_PI_2 {
+            d = std::f64::consts::PI - d;
+        }
+        assert!(
+            (d - std::f64::consts::FRAC_PI_2).abs() < 0.05,
+            "tangent ⟂ radius, delta {d}"
+        );
+
+        // Splitting a closed loop at a gap yields one piece with total length
+        // ≈ circumference − gap, and no point inside the gap window.
+        let gap = 0.6;
+        let center = len * 0.5;
+        let pieces = split_at_gap(&pts, center, gap);
+        assert_eq!(pieces.len(), 1, "closed loop re-seams to one piece");
+        let plen = polyline_arc_length(&pieces[0]);
+        assert!(
+            (plen - (len - gap)).abs() < 0.1,
+            "piece length {plen} vs {}",
+            len - gap
+        );
+
+        // Open line split → two pieces, gap respected.
+        let open: Vec<(f64, f64)> = (0..=100).map(|i| (i as f64 / 10.0, 0.0)).collect();
+        let pieces = split_at_gap(&open, 5.0, 1.0);
+        assert_eq!(pieces.len(), 2);
+        assert!(pieces[0].last().unwrap().0 <= 4.51);
+        assert!(pieces[1].first().unwrap().0 >= 5.49);
+
+        // Flattest window on a circle is anywhere; on a rounded square it's an
+        // edge, not a corner. Build a rounded-square-ish shape: ellipse with
+        // flattened sides via superellipse exponent.
+        let sq: Vec<(f64, f64)> = (0..=n)
+            .map(|i| {
+                let a = std::f64::consts::TAU * i as f64 / n as f64;
+                let (c, s) = (a.cos(), a.sin());
+                (
+                    c.abs().powf(0.4) * c.signum(),
+                    s.abs().powf(0.4) * s.signum(),
+                )
+            })
+            .collect();
+        let sq_len = polyline_arc_length(&sq);
+        let pos = flattest_arc_position(&sq, sq_len * 0.05, sq_len * 0.4);
+        let (pt, _) = point_at_arc(&sq, pos);
+        // Flat spots of the superellipse are on the axes-aligned sides — the
+        // chosen point should hug ±1 in exactly one coordinate.
+        let m = pt.0.abs().max(pt.1.abs());
+        assert!(
+            m > 0.95,
+            "flattest point should sit on a flat side, got {pt:?}"
         );
     }
 

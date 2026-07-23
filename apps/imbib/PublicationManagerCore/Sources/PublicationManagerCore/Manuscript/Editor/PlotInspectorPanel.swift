@@ -283,7 +283,8 @@ private struct PlotPanelView: View {
             width: width,
             height: height,
             rasterThreshold: 0,
-            contourLevels: 0
+            contourLevels: 0,
+            contourLabels: true
         )
     }
 

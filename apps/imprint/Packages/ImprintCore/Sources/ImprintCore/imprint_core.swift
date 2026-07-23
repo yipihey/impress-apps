@@ -2825,6 +2825,10 @@ public struct FfiPlotSpec {
      * Number of contour levels for Contour series. 0 → default (7).
      */
     public var contourLevels: UInt32
+    /**
+     * Inline level labels on contour rings.
+     */
+    public var contourLabels: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2834,7 +2838,10 @@ public struct FfiPlotSpec {
          */rasterThreshold: UInt32, 
         /**
          * Number of contour levels for Contour series. 0 → default (7).
-         */contourLevels: UInt32) {
+         */contourLevels: UInt32, 
+        /**
+         * Inline level labels on contour rings.
+         */contourLabels: Bool) {
         self.title = title
         self.x = x
         self.y = y
@@ -2845,6 +2852,7 @@ public struct FfiPlotSpec {
         self.height = height
         self.rasterThreshold = rasterThreshold
         self.contourLevels = contourLevels
+        self.contourLabels = contourLabels
     }
 }
 
@@ -2882,6 +2890,9 @@ extension FfiPlotSpec: Equatable, Hashable {
         if lhs.contourLevels != rhs.contourLevels {
             return false
         }
+        if lhs.contourLabels != rhs.contourLabels {
+            return false
+        }
         return true
     }
 
@@ -2896,6 +2907,7 @@ extension FfiPlotSpec: Equatable, Hashable {
         hasher.combine(height)
         hasher.combine(rasterThreshold)
         hasher.combine(contourLevels)
+        hasher.combine(contourLabels)
     }
 }
 
@@ -2916,7 +2928,8 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
                 width: FfiConverterDouble.read(from: &buf), 
                 height: FfiConverterDouble.read(from: &buf), 
                 rasterThreshold: FfiConverterUInt32.read(from: &buf), 
-                contourLevels: FfiConverterUInt32.read(from: &buf)
+                contourLevels: FfiConverterUInt32.read(from: &buf), 
+                contourLabels: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2931,6 +2944,7 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.height, into: &buf)
         FfiConverterUInt32.write(value.rasterThreshold, into: &buf)
         FfiConverterUInt32.write(value.contourLevels, into: &buf)
+        FfiConverterBool.write(value.contourLabels, into: &buf)
     }
 }
 

@@ -57,6 +57,8 @@ pub struct Plot {
     /// Gaussian pre-smoothing (bins) for contour extraction; raw binned
     /// densities contour their Poisson noise. Default 2.0; 0 = off.
     pub contour_smooth_sigma: f64,
+    /// Inline level labels on contour rings (default true).
+    pub contour_labels: bool,
 }
 
 impl Plot {
@@ -74,6 +76,7 @@ impl Plot {
             contour_levels: 7,
             contour_underlay: true,
             contour_smooth_sigma: 2.0,
+            contour_labels: true,
         }
     }
     pub fn title(mut self, t: impl Into<String>) -> Self {
@@ -199,6 +202,7 @@ impl Plot {
             levels: ContourLevels::Linear(self.contour_levels.max(1)),
             smooth_sigma: self.contour_smooth_sigma,
             underlay: self.contour_underlay,
+            labels: self.contour_labels,
             x: self.x.clone(),
             y: self.y.clone(),
             x_range,

@@ -126,7 +126,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_render_plot",
     description:
-      "Render a native plot (impress-plot) from a declarative spec to SVG. Spec: {title?, x?: {scale: 'linear'|'log', min?, max?, label?}, y?: {...}, series: [{kind: 'line'|'scatter'|'contour', xs: number[], ys: number[], color?: {r,g,b}}], colormap?: 'viridis'|'magma'|'plasma'|'inferno'|'cividis'|'turbo'|'greys', strategy?: 'auto'|'vector'|'raster', width?, height?, contourLevels?}. Auto-picks vector below ~10k points, raster 2D-histogram above; kind 'contour' draws density iso-lines (vector) over a heatmap underlay.",
+      "Render a native plot (impress-plot) from a declarative spec to SVG. Spec: {title?, x?: {scale: 'linear'|'log', min?, max?, label?}, y?: {...}, series: [{kind: 'line'|'scatter'|'contour', xs: number[], ys: number[], color?: {r,g,b}}], colormap?: 'viridis'|'magma'|'plasma'|'inferno'|'cividis'|'turbo'|'greys', strategy?: 'auto'|'vector'|'raster', width?, height?, contourLevels?}. Auto-picks vector below ~10k points, raster 2D-histogram above; kind 'contour' draws density iso-lines (vector) over a heatmap underlay, with inline level labels (disable via contourLabels: false).",
     inputSchema: {
       type: "object",
       properties: {

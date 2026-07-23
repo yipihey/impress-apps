@@ -94,6 +94,8 @@ pub struct FfiPlotSpec {
     pub raster_threshold: u32,
     /// Number of contour levels for Contour series. 0 → default (7).
     pub contour_levels: u32,
+    /// Inline level labels on contour rings.
+    pub contour_labels: bool,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -152,6 +154,7 @@ fn build_plot(spec: FfiPlotSpec) -> Plot {
     if spec.contour_levels > 0 {
         plot.contour_levels = spec.contour_levels as usize;
     }
+    plot.contour_labels = spec.contour_labels;
     plot.asset_id = "ffi_plot.png".into();
     for s in spec.series {
         let color = [s.color.r, s.color.g, s.color.b];
@@ -508,6 +511,7 @@ mod tests {
             height: 200.0,
             raster_threshold: 0,
             contour_levels: 0,
+            contour_labels: true,
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -542,6 +546,7 @@ mod tests {
             height: 220.0,
             raster_threshold: 0,
             contour_levels: 0,
+            contour_labels: true,
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -579,6 +584,7 @@ mod tests {
             height: 240.0,
             raster_threshold: 0,
             contour_levels: 5,
+            contour_labels: true,
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -638,6 +644,7 @@ mod tests {
             height: 220.0,
             raster_threshold: 0,
             contour_levels: 0,
+            contour_labels: true,
         };
 
         let dir = std::env::temp_dir().join(format!("impress_fig_test_{}", std::process::id()));

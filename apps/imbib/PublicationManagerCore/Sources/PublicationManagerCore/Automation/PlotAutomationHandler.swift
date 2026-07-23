@@ -90,7 +90,8 @@ public enum PlotAutomationHandler {
             width: (json["width"] as? Double) ?? 340,
             height: (json["height"] as? Double) ?? 220,
             rasterThreshold: UInt32((json["rasterThreshold"] as? Int) ?? 0),
-            contourLevels: UInt32((json["contourLevels"] as? Int) ?? 0)
+            contourLevels: UInt32((json["contourLevels"] as? Int) ?? 0),
+            contourLabels: (json["contourLabels"] as? Bool) ?? true
         )
     }
 

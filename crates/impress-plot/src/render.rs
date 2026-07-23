@@ -11,7 +11,10 @@
 
 use crate::axis::{Axis, Tick};
 use crate::colormap::Colormap;
-use crate::contour::{contour_lines, gaussian_smooth, ContourLevels};
+use crate::contour::{
+    contour_lines, flattest_arc_position, gaussian_smooth, point_at_arc, polyline_arc_length,
+    split_at_gap, ContourLevels,
+};
 use crate::hist2d::{ColorScale, Hist2D, Normalization};
 use std::fmt::Write as _;
 
@@ -377,6 +380,11 @@ pub struct ContourFigure {
     /// Draw the heatmap under the contours (classic density-figure look).
     /// Lines are black over the underlay, colormap-colored without it.
     pub underlay: bool,
+    /// Inline level labels: the longest ring of each level is broken at its
+    /// flattest spot and the level value set into the gap, rotated along the
+    /// line (matplotlib clabel style), with a white halo for readability over
+    /// the heatmap.
+    pub labels: bool,
     pub x: Axis,
     pub y: Axis,
     pub x_range: (f64, f64),
@@ -439,7 +447,8 @@ impl ContourFigure {
             }
             (spec, _) => spec.resolve(svmin, svmax),
         };
-        for level in &levels {
+        let to_pt = |(tx, ty): (f64, f64)| (tx * pw, (1.0 - ty) * ph);
+        for (level_idx, level) in levels.iter().enumerate() {
             let t_color = match self.scale {
                 ColorScale::Linear => (level - vmin) / (vmax - vmin).max(f64::MIN_POSITIVE),
                 ColorScale::Log => {
@@ -453,23 +462,47 @@ impl ContourFigure {
             } else {
                 rgb(self.cmap.sample(t_color))
             };
-            for line in contour_lines(&smoothed, self.hist.nx, self.hist.ny, *level) {
-                if line.len() < 2 {
-                    continue;
+
+            // Map every line of this level to pt space up front so label
+            // placement works with physical lengths.
+            let lines_pt: Vec<Vec<(f64, f64)>> =
+                contour_lines(&smoothed, self.hist.nx, self.hist.ny, *level)
+                    .into_iter()
+                    .filter(|l| l.len() >= 2)
+                    .map(|l| l.into_iter().map(to_pt).collect())
+                    .collect();
+
+            // Label the LONGEST ring of the level (one label per level keeps
+            // the figure quiet); break its line at the flattest spot.
+            let label_text = fmt_sig(*level);
+            let label_w = 3.4 * label_text.chars().count() as f64 + 4.0; // ~6pt font
+            let longest = if self.labels {
+                lines_pt
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| (i, polyline_arc_length(l)))
+                    .filter(|(_, len)| *len > 3.0 * label_w)
+                    .max_by(|a, b| a.1.total_cmp(&b.1))
+                    .map(|(i, _)| i)
+            } else {
+                None
+            };
+
+            for (i, line) in lines_pt.iter().enumerate() {
+                if Some(i) == longest {
+                    let total = polyline_arc_length(line);
+                    // Stagger label positions across levels so they fan out
+                    // instead of stacking along one radial direction.
+                    let prefer = total * (0.15 + 0.61 * level_idx as f64).fract();
+                    let center = flattest_arc_position(line, label_w, prefer);
+                    let ((lx, ly), angle) = point_at_arc(line, center);
+                    for piece in split_at_gap(line, center, label_w) {
+                        emit_curve_pt(&mut b, &piece, size, &color);
+                    }
+                    emit_inline_label(&mut b, size, (lx, ly), angle, &label_text);
+                } else {
+                    emit_curve_pt(&mut b, line, size, &color);
                 }
-                let mut c = format!(
-                    "#place(dx: {}pt, dy: {}pt)[#curve(stroke: 0.7pt + {color}, ",
-                    size.pad_l, size.pad_t
-                );
-                let to_pt = |(tx, ty): (f64, f64)| (tx * pw, (1.0 - ty) * ph);
-                let (x0, y0) = to_pt(line[0]);
-                let _ = write!(c, "curve.move(({x0:.2}pt, {y0:.2}pt)), ");
-                for p in &line[1..] {
-                    let (x, y) = to_pt(*p);
-                    let _ = write!(c, "curve.line(({x:.2}pt, {y:.2}pt)), ");
-                }
-                c.push_str(")]\n");
-                b.push_str(&c);
             }
         }
 
@@ -495,6 +528,54 @@ impl ContourFigure {
 }
 
 // --- shared Typst emission ------------------------------------------------
+
+/// Emit one polyline (already in plot-rect pt space) as a Typst curve.
+fn emit_curve_pt(b: &mut String, pts: &[(f64, f64)], size: PlotSize, color: &str) {
+    if pts.len() < 2 {
+        return;
+    }
+    let mut c = format!(
+        "#place(dx: {}pt, dy: {}pt)[#curve(stroke: 0.7pt + {color}, ",
+        size.pad_l, size.pad_t
+    );
+    let _ = write!(c, "curve.move(({:.2}pt, {:.2}pt)), ", pts[0].0, pts[0].1);
+    for p in &pts[1..] {
+        let _ = write!(c, "curve.line(({:.2}pt, {:.2}pt)), ", p.0, p.1);
+    }
+    c.push_str(")]\n");
+    b.push_str(&c);
+}
+
+/// Inline contour label: `text` rotated along the line's tangent at plot-rect
+/// point `(lx, ly)`, kept upright, with a 4-offset white halo so it reads on
+/// both the page and a dark heatmap underlay.
+fn emit_inline_label(b: &mut String, size: PlotSize, (lx, ly): (f64, f64), angle: f64, text: &str) {
+    // Fold to [-90°, 90°] so labels never render upside down.
+    let mut deg = angle.to_degrees();
+    if deg > 90.0 {
+        deg -= 180.0;
+    }
+    if deg < -90.0 {
+        deg += 180.0;
+    }
+    // Anchor: place the text block so its center sits on the line point;
+    // rotate about that center. Width estimate matches the gap sizing.
+    let w = 3.4 * text.chars().count() as f64 + 4.0;
+    let (ax, ay) = (size.pad_l + lx - w / 2.0, size.pad_t + ly - 3.6);
+    let halo = [(-0.5, 0.0), (0.5, 0.0), (0.0, -0.5), (0.0, 0.5)];
+    for (hx, hy) in halo {
+        let _ = writeln!(
+            b,
+            "#place(dx: {:.2}pt, dy: {:.2}pt)[#rotate({deg:.1}deg, origin: center, reflow: false)[#text(size: 6pt, fill: white)[{text}]]]",
+            ax + hx,
+            ay + hy
+        );
+    }
+    let _ = writeln!(
+        b,
+        "#place(dx: {ax:.2}pt, dy: {ay:.2}pt)[#rotate({deg:.1}deg, origin: center, reflow: false)[#text(size: 6pt)[{text}]]]"
+    );
+}
 
 fn wrap_box(size: PlotSize, body: &str) -> String {
     format!(
