@@ -118,7 +118,8 @@ struct IOSContentView: View {
             IOSSourceEditorView(
                 text: $document.source,
                 selection: $selection,
-                goToLine: $goToLine
+                goToLine: $goToLine,
+                onInsertCitation: { showCitationPicker = true }
             )
             .frame(minWidth: 300)
 
@@ -140,7 +141,8 @@ struct IOSContentView: View {
         IOSSourceEditorView(
             text: $document.source,
             selection: $selection,
-            goToLine: $goToLine
+            goToLine: $goToLine,
+            onInsertCitation: { showCitationPicker = true }
         )
     }
 
@@ -294,6 +296,17 @@ struct IOSContentView: View {
                 } label: {
                     Image(systemName: "chevron.left.forwardslash.chevron.right")
                 }
+
+                // Insert citation — the touch-reachable twin of ⌘S (the
+                // chassis-wide insert-citation shortcut), placed with the
+                // formatting actions so it's thumb-distance while typing.
+                Button {
+                    showCitationPicker = true
+                } label: {
+                    Image(systemName: "at")
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .accessibilityIdentifier("editor.insertCitation")
             }
 
             Spacer()

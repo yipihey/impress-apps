@@ -150,7 +150,11 @@ struct IOSManuscriptDetailView: View {
                     description: Text("This manuscript's body is stored as a blob and is best edited in imprint.")
                 )
             } else {
-                IOSSourceEditorView(text: $body_, selection: $selection)
+                IOSSourceEditorView(
+                    text: $body_,
+                    selection: $selection,
+                    onInsertCitation: { showCitationPicker = true }
+                )
             }
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

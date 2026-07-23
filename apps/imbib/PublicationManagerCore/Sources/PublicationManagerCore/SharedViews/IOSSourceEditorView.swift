@@ -43,14 +43,22 @@ public struct IOSSourceEditorView: View {
     /// Focus state
     @FocusState private var isFocused: Bool
 
+    /// Invoked on hardware-keyboard ⌘S — the manuscript editor's
+    /// insert-citation shortcut (same grammar as the macOS chassis, where ⌘S
+    /// opens the citation palette; manuscripts autosave, so ⌘S-as-save was a
+    /// no-op here). nil → ⌘S falls back to dismissing the keyboard.
+    let onInsertCitation: (() -> Void)?
+
     public init(
         text: Binding<String>,
         selection: Binding<NSRange?>,
-        goToLine: Binding<Int?> = .constant(nil)
+        goToLine: Binding<Int?> = .constant(nil),
+        onInsertCitation: (() -> Void)? = nil
     ) {
         self._text = text
         self._selection = selection
         self._goToLine = goToLine
+        self.onInsertCitation = onInsertCitation
     }
 
     // MARK: - Body
@@ -60,7 +68,8 @@ public struct IOSSourceEditorView: View {
             text: $text,
             selection: $selection,
             goToLine: $goToLine,
-            isFocused: $isFocused
+            isFocused: $isFocused,
+            onInsertCitation: onInsertCitation
         )
         .focused($isFocused)
         .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -77,12 +86,14 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
     @Binding var selection: NSRange?
     @Binding var goToLine: Int?
     @FocusState.Binding var isFocused: Bool
+    var onInsertCitation: (() -> Void)?
 
     // MARK: - UIViewRepresentable
 
     func makeUIView(context: Context) -> UITextView {
         let textView = SourceTextView()
         textView.delegate = context.coordinator
+        textView.onInsertCitation = onInsertCitation
         textView.font = .monospacedSystemFont(ofSize: 16, weight: .regular)
         textView.autocapitalizationType = .none
         textView.autocorrectionType = .no
@@ -105,6 +116,8 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
+        (textView as? SourceTextView)?.onInsertCitation = onInsertCitation
+
         if textView.text != text {
             textView.text = text
         }
@@ -262,8 +275,17 @@ final class SourceTextView: UITextView {
         // `goToLine` binding.
     }
 
+    /// Host hook for ⌘S insert-citation (set by the representable).
+    var onInsertCitation: (() -> Void)?
+
     @objc func saveDocument() {
-        // Trigger save via responder chain
+        // ⌘S — the chassis-wide insert-citation shortcut (manuscripts
+        // autosave; the old resign-first-responder "save" was a no-op).
+        // Hosts without a citation picker keep the keyboard-dismiss fallback.
+        if let onInsertCitation {
+            onInsertCitation()
+            return
+        }
         UIApplication.shared.sendAction(
             #selector(UIResponder.resignFirstResponder),
             to: nil,
