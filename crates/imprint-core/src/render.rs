@@ -432,15 +432,27 @@ mod typst_impl {
         /// Enables embedding rasters (e.g. the big-N 2D-histogram fallback) with
         /// no filesystem. Keyed by the rootless virtual path ("hist.png").
         assets: Arc<RwLock<HashMap<PathBuf, Bytes>>>,
+        /// Optional filesystem root for binary assets NOT in the in-memory map:
+        /// `image("figures/plot.png")` resolves to
+        /// `<figures_root>/figures/plot.png`. This is how manuscript figures
+        /// (per-manuscript app-group dir) reach the compiler. Checked after the
+        /// in-memory map; reads are per-compile (Typst's comemo caches the
+        /// bytes between compiles).
+        figures_root: Arc<RwLock<Option<PathBuf>>>,
     }
 
     impl MutableSourceResolver {
-        fn new(initial_source: &str, assets: Arc<RwLock<HashMap<PathBuf, Bytes>>>) -> Self {
+        fn new(
+            initial_source: &str,
+            assets: Arc<RwLock<HashMap<PathBuf, Bytes>>>,
+            figures_root: Arc<RwLock<Option<PathBuf>>>,
+        ) -> Self {
             let id = main_file_id();
             let source = Source::new(id, initial_source.to_string());
             Self {
                 source: Arc::new(RwLock::new(source)),
                 assets,
+                figures_root,
             }
         }
 
@@ -454,6 +466,20 @@ mod typst_impl {
             let key = id.vpath().as_rootless_path().to_path_buf();
             if let Some(bytes) = self.assets.read().unwrap().get(&key) {
                 return Ok(Cow::Owned(bytes.clone()));
+            }
+            // Filesystem fallback: rooted at the manuscript's figures dir.
+            // Containment guard: only plain relative components — a manuscript
+            // source must not escape the root via `..` (join + starts_with is
+            // NOT a containment check; it passes lexically).
+            let contained = key
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_)));
+            if contained {
+                if let Some(root) = self.figures_root.read().unwrap().as_ref() {
+                    if let Ok(bytes) = std::fs::read(root.join(&key)) {
+                        return Ok(Cow::Owned(Bytes::new(bytes)));
+                    }
+                }
             }
             Err(FileError::NotFound(
                 id.vpath().as_rootless_path().to_path_buf(),
@@ -489,6 +515,9 @@ mod typst_impl {
         /// (not by the resolver) so registrations survive engine rebuilds; the
         /// resolver holds a clone of this handle.
         assets: Arc<RwLock<HashMap<PathBuf, Bytes>>>,
+        /// Filesystem root for on-disk figure assets (see resolver docs). Owned
+        /// here for the same engine-rebuild-survival reason.
+        figures_root: Arc<RwLock<Option<PathBuf>>>,
     }
 
     impl PersistentTypstRenderer {
@@ -511,6 +540,14 @@ mod typst_impl {
             self.assets.write().unwrap().clear();
         }
 
+        /// Set (or clear) the filesystem root for on-disk figure assets —
+        /// `image("figures/plot.png")` in the source resolves to
+        /// `<root>/figures/plot.png`. Per-manuscript callers set this before
+        /// each compile (cheap; no engine rebuild).
+        pub fn set_figures_root(&mut self, root: Option<&str>) {
+            *self.figures_root.write().unwrap() = root.map(PathBuf::from);
+        }
+
         /// Hash a preamble string for change detection
         fn hash_preamble(preamble: &str) -> u64 {
             let mut hasher = DefaultHasher::new();
@@ -527,7 +564,11 @@ mod typst_impl {
             if needs_rebuild {
                 let t0 = std::time::Instant::now();
 
-                let resolver = MutableSourceResolver::new(initial_source, self.assets.clone());
+                let resolver = MutableSourceResolver::new(
+                    initial_source,
+                    self.assets.clone(),
+                    self.figures_root.clone(),
+                );
                 self.source_handle = Some(resolver.source_handle());
 
                 let mut builder = TypstEngine::builder()

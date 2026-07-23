@@ -215,10 +215,15 @@ public class ImprintCoreDocument {
 public struct RenderOptions {
     public var pageSize: PageSize
     public var isDraft: Bool
+    /// Filesystem root for on-disk figure assets: `image("figures/plot.png")`
+    /// in the source resolves under this directory (the per-manuscript
+    /// app-group dir). nil → no filesystem figure resolution.
+    public var figuresRoot: String?
 
-    public init(pageSize: PageSize = .a4, isDraft: Bool = false) {
+    public init(pageSize: PageSize = .a4, isDraft: Bool = false, figuresRoot: String? = nil) {
         self.pageSize = pageSize
         self.isDraft = isDraft
+        self.figuresRoot = figuresRoot
     }
 
     public enum PageSize: String, CaseIterable {
@@ -518,7 +523,8 @@ public actor TypstRenderer {
             marginTop: 72.0,
             marginRight: 72.0,
             marginBottom: 72.0,
-            marginLeft: 72.0
+            marginLeft: 72.0,
+            figuresRoot: options.figuresRoot
         )
 
         let result = await Task.detached(priority: .userInitiated) {
@@ -590,7 +596,8 @@ public actor TypstRenderer {
             marginTop: 72.0,
             marginRight: 72.0,
             marginBottom: 72.0,
-            marginLeft: 72.0
+            marginLeft: 72.0,
+            figuresRoot: options.figuresRoot
         )
 
         log("[ImprintCore] Calling Rust compileTypstToPdf on background thread...")

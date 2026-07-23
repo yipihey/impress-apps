@@ -455,9 +455,39 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
     // MARK: - POST Routes
 
+    /// Parse a request's JSON object body (nil on absent/invalid).
+    static func jsonBody(_ request: HTTPRequest) -> [String: Any]? {
+        guard let body = request.body, let data = body.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
     private func routePOST(path: String, request: HTTPRequest) async -> HTTPResponse {
         if path == "/api/papers/add" {
             return await handleAddPapers(request)
+        }
+
+        // Native plotting (agent-drivable): render a spec to SVG.
+        if path == "/api/plot/render" {
+            guard let json = Self.jsonBody(request) else {
+                return .badRequest("Invalid JSON body")
+            }
+            let (body, status) = PlotAutomationHandler.renderPlot(json: json)
+            return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+        }
+
+        // Native plotting: save a spec's raster as a manuscript figure.
+        // POST /api/manuscripts/{uuid}/plot-figure
+        if path.hasPrefix("/api/manuscripts/") && path.hasSuffix("/plot-figure") {
+            let idString = String(
+                request.path.dropFirst("/api/manuscripts/".count).dropLast("/plot-figure".count))
+            guard let manuscriptID = UUID(uuidString: idString) else {
+                return .badRequest("Invalid manuscript UUID: \(idString)")
+            }
+            guard let json = Self.jsonBody(request) else {
+                return .badRequest("Invalid JSON body")
+            }
+            let (body, status) = PlotAutomationHandler.saveFigure(json: json, manuscriptID: manuscriptID)
+            return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
         }
 
         if path == "/api/performance/reset" {

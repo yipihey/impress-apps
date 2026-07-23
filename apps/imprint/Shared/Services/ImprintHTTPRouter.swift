@@ -19,6 +19,7 @@ import ImpressOperationQueue
 import ImprintCore
 import ImprintRustCore
 import OSLog
+import PublicationManagerCore
 #if os(macOS)
 import AppKit
 #endif
@@ -283,6 +284,31 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handleStatelessCompile(request)
             }
 
+            // Native plotting (agent-drivable; shared handler in PMC).
+            if pathLower == "/api/plot/render" {
+                guard let json = Self.plotJSONBody(request) else {
+                    return .badRequest("Invalid JSON body")
+                }
+                let (body, status) = PlotAutomationHandler.renderPlot(json: json)
+                return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+            }
+
+            // POST /api/manuscripts/{uuid}/plot-figure — save a plot raster
+            // into the manuscript's app-group figures/ dir.
+            if pathLower.hasPrefix("/api/manuscripts/") && pathLower.hasSuffix("/plot-figure") {
+                let idString = String(
+                    path.dropFirst("/api/manuscripts/".count).dropLast("/plot-figure".count))
+                guard let manuscriptID = UUID(uuidString: idString) else {
+                    return .badRequest("Invalid manuscript UUID: \(idString)")
+                }
+                guard let json = Self.plotJSONBody(request) else {
+                    return .badRequest("Invalid JSON body")
+                }
+                let (body, status) = PlotAutomationHandler.saveFigure(
+                    json: json, manuscriptID: manuscriptID)
+                return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+            }
+
             // Bundle compile route (Phase 8.9 / docs/plan-journal-pipeline.md).
             // Accepts a content-addressed bundle SHA + manifest hint, dispatches
             // to imprint-core (typst) or LaTeXCompilationService (LaTeX engines).
@@ -524,6 +550,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     /// GET /api/status
     /// Returns server health and basic info.
+    /// Parse a request's JSON object body (nil on absent/invalid).
+    private static func plotJSONBody(_ request: HTTPRequest) -> [String: Any]? {
+        guard let body = request.body, let data = body.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
     private func handleStatus() async -> HTTPResponse {
         let manuscripts = await MainActor.run {
             ManuscriptStoreAdapter.shared.listManuscripts(limit: 1)
@@ -1089,7 +1121,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
             marginTop: marginValue("top"),
             marginRight: marginValue("right"),
             marginBottom: marginValue("bottom"),
-            marginLeft: marginValue("left")
+            marginLeft: marginValue("left"),
+            // Stateless compile: callers may pass a manuscript UUID to resolve
+            // that manuscript's app-group figures (image("figures/…")).
+            figuresRoot: (json["manuscriptId"] as? String)
+                .flatMap(UUID.init(uuidString:))
+                .map { ManuscriptFiguresDirectory.manuscriptRoot(for: $0).path }
         )
 
         // Run the synchronous Rust compile call on a background thread so it

@@ -252,6 +252,38 @@ export class ImprintClient {
   }
 
   /**
+   * Render a native plot spec to SVG (impress-plot via the app's Rust core).
+   */
+  async renderPlot(spec: Record<string, unknown>): Promise<unknown> {
+    const response = await fetch(`${this.baseURL}/api/plot/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec }),
+    });
+    return await response.json();
+  }
+
+  /**
+   * Save a plot spec's raster as a manuscript figure; returns the Typst
+   * snippet to insert into the manuscript source.
+   */
+  async savePlotFigure(
+    manuscriptId: string,
+    spec: Record<string, unknown>,
+    name?: string
+  ): Promise<unknown> {
+    const response = await fetch(
+      `${this.baseURL}/api/manuscripts/${manuscriptId}/plot-figure`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spec, name }),
+      }
+    );
+    return await response.json();
+  }
+
+  /**
    * Trigger document compilation.
    */
   async compileDocument(id: string): Promise<void> {

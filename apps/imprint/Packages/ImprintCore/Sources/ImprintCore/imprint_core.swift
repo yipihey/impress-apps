@@ -781,6 +781,13 @@ public struct CompileOptions {
     public var marginRight: Double
     public var marginBottom: Double
     public var marginLeft: Double
+    /**
+     * Filesystem root for on-disk figure assets: `image("figures/plot.png")`
+     * in the source resolves to `<figures_root>/figures/plot.png`. Callers
+     * pass the per-manuscript app-group directory; None → no filesystem
+     * assets (in-memory `set_asset` entries still resolve).
+     */
+    public var figuresRoot: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -793,13 +800,20 @@ public struct CompileOptions {
          */fontSize: Double, 
         /**
          * Page margins in points (top, right, bottom, left)
-         */marginTop: Double, marginRight: Double, marginBottom: Double, marginLeft: Double) {
+         */marginTop: Double, marginRight: Double, marginBottom: Double, marginLeft: Double, 
+        /**
+         * Filesystem root for on-disk figure assets: `image("figures/plot.png")`
+         * in the source resolves to `<figures_root>/figures/plot.png`. Callers
+         * pass the per-manuscript app-group directory; None → no filesystem
+         * assets (in-memory `set_asset` entries still resolve).
+         */figuresRoot: String?) {
         self.pageSize = pageSize
         self.fontSize = fontSize
         self.marginTop = marginTop
         self.marginRight = marginRight
         self.marginBottom = marginBottom
         self.marginLeft = marginLeft
+        self.figuresRoot = figuresRoot
     }
 }
 
@@ -825,6 +839,9 @@ extension CompileOptions: Equatable, Hashable {
         if lhs.marginLeft != rhs.marginLeft {
             return false
         }
+        if lhs.figuresRoot != rhs.figuresRoot {
+            return false
+        }
         return true
     }
 
@@ -835,6 +852,7 @@ extension CompileOptions: Equatable, Hashable {
         hasher.combine(marginRight)
         hasher.combine(marginBottom)
         hasher.combine(marginLeft)
+        hasher.combine(figuresRoot)
     }
 }
 
@@ -851,7 +869,8 @@ public struct FfiConverterTypeCompileOptions: FfiConverterRustBuffer {
                 marginTop: FfiConverterDouble.read(from: &buf), 
                 marginRight: FfiConverterDouble.read(from: &buf), 
                 marginBottom: FfiConverterDouble.read(from: &buf), 
-                marginLeft: FfiConverterDouble.read(from: &buf)
+                marginLeft: FfiConverterDouble.read(from: &buf), 
+                figuresRoot: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -862,6 +881,7 @@ public struct FfiConverterTypeCompileOptions: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.marginRight, into: &buf)
         FfiConverterDouble.write(value.marginBottom, into: &buf)
         FfiConverterDouble.write(value.marginLeft, into: &buf)
+        FfiConverterOptionString.write(value.figuresRoot, into: &buf)
     }
 }
 
@@ -3005,6 +3025,95 @@ public func FfiConverterTypeFfiRenderedPlot_lift(_ buf: RustBuffer) throws -> Ff
 #endif
 public func FfiConverterTypeFfiRenderedPlot_lower(_ value: FfiRenderedPlot) -> RustBuffer {
     return FfiConverterTypeFfiRenderedPlot.lower(value)
+}
+
+
+/**
+ * Result of saving a plot as a manuscript figure.
+ */
+public struct FfiSavedFigure {
+    /**
+     * Path relative to the manuscript dir (e.g. "figures/density.png").
+     */
+    public var relPath: String
+    /**
+     * Ready-to-insert Typst snippet referencing `rel_path`.
+     */
+    public var typstSnippet: String
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Path relative to the manuscript dir (e.g. "figures/density.png").
+         */relPath: String, 
+        /**
+         * Ready-to-insert Typst snippet referencing `rel_path`.
+         */typstSnippet: String, error: String?) {
+        self.relPath = relPath
+        self.typstSnippet = typstSnippet
+        self.error = error
+    }
+}
+
+
+
+extension FfiSavedFigure: Equatable, Hashable {
+    public static func ==(lhs: FfiSavedFigure, rhs: FfiSavedFigure) -> Bool {
+        if lhs.relPath != rhs.relPath {
+            return false
+        }
+        if lhs.typstSnippet != rhs.typstSnippet {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(relPath)
+        hasher.combine(typstSnippet)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSavedFigure: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSavedFigure {
+        return
+            try FfiSavedFigure(
+                relPath: FfiConverterString.read(from: &buf), 
+                typstSnippet: FfiConverterString.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSavedFigure, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.relPath, into: &buf)
+        FfiConverterString.write(value.typstSnippet, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSavedFigure_lift(_ buf: RustBuffer) throws -> FfiSavedFigure {
+    return try FfiConverterTypeFfiSavedFigure.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSavedFigure_lower(_ value: FfiSavedFigure) -> RustBuffer {
+    return FfiConverterTypeFfiSavedFigure.lower(value)
 }
 
 
@@ -6248,6 +6357,28 @@ public func renderPlotTypst(spec: FfiPlotSpec) -> FfiPlotSource {
 })
 }
 /**
+ * Save `spec`'s heatmap under `<manuscript_dir>/figures/<name>.png` and
+ * return the Typst snippet to insert. Used for RASTER plots (a heatmap PNG
+ * can't be inlined as Typst source). The PNG is ONLY the heatmap layer — the
+ * snippet keeps the full plot Typst (vector axes, ticks, colorbar) with its
+ * `image(...)` pointing at the saved file, so the inserted figure stays
+ * crisp and document-cohesive; the manuscript compile resolves it via
+ * `CompileOptions.figures_root = manuscript_dir`. Vector plots don't need
+ * this — `render_plot_typst` inserts them inline with no file.
+ *
+ * The whole pipeline is Rust-side: render, write, build snippet. `name` is
+ * sanitized to `[A-Za-z0-9_-]`; the file is overwritten if present.
+ */
+public func savePlotFigure(spec: FfiPlotSpec, manuscriptDir: String, name: String) -> FfiSavedFigure {
+    return try!  FfiConverterTypeFfiSavedFigure.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_save_plot_figure(
+        FfiConverterTypeFfiPlotSpec.lower(spec),
+        FfiConverterString.lower(manuscriptDir),
+        FfiConverterString.lower(name),$0
+    )
+})
+}
+/**
  * Search templates by query string
  */
 public func searchTemplates(query: String) -> [FfiTemplateMetadata] {
@@ -6401,6 +6532,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_render_plot_typst() != 21908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_save_plot_figure() != 47162) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_search_templates() != 22769) {

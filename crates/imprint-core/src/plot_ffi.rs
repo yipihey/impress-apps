@@ -237,6 +237,101 @@ pub fn render_plot_typst(spec: FfiPlotSpec) -> FfiPlotSource {
 }
 
 // ===========================================================================
+// Figure saving: persist a plot into a manuscript's figures/ dir.
+// ===========================================================================
+
+/// Result of saving a plot as a manuscript figure.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Clone, Debug)]
+pub struct FfiSavedFigure {
+    /// Path relative to the manuscript dir (e.g. "figures/density.png").
+    pub rel_path: String,
+    /// Ready-to-insert Typst snippet referencing `rel_path`.
+    pub typst_snippet: String,
+    pub error: Option<String>,
+}
+
+/// Save `spec`'s heatmap under `<manuscript_dir>/figures/<name>.png` and
+/// return the Typst snippet to insert. Used for RASTER plots (a heatmap PNG
+/// can't be inlined as Typst source). The PNG is ONLY the heatmap layer — the
+/// snippet keeps the full plot Typst (vector axes, ticks, colorbar) with its
+/// `image(...)` pointing at the saved file, so the inserted figure stays
+/// crisp and document-cohesive; the manuscript compile resolves it via
+/// `CompileOptions.figures_root = manuscript_dir`. Vector plots don't need
+/// this — `render_plot_typst` inserts them inline with no file.
+///
+/// The whole pipeline is Rust-side: render, write, build snippet. `name` is
+/// sanitized to `[A-Za-z0-9_-]`; the file is overwritten if present.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn save_plot_figure(spec: FfiPlotSpec, manuscript_dir: String, name: String) -> FfiSavedFigure {
+    let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
+    let title = spec.title.clone();
+
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = if safe.is_empty() {
+        "plot".to_string()
+    } else {
+        safe
+    };
+    let rel_path = format!("figures/{safe}.png");
+
+    // Force the raster path and point its asset id at the figures-relative
+    // path, so the generated Typst references image("/figures/<name>.png") —
+    // which the manuscript compile resolves under figures_root.
+    let mut plot = build_plot(spec);
+    plot.strategy = Strategy::Raster;
+    plot.asset_id = rel_path.clone();
+    let out = plot.render(PlotSize::new(w, h));
+
+    let Some((_, png)) = out.assets.into_iter().next() else {
+        return FfiSavedFigure {
+            rel_path,
+            typst_snippet: String::new(),
+            error: Some("Raster render produced no image".into()),
+        };
+    };
+
+    let dir = std::path::Path::new(&manuscript_dir).join("figures");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return FfiSavedFigure {
+            rel_path,
+            typst_snippet: String::new(),
+            error: Some(format!("create figures dir: {e}")),
+        };
+    }
+    if let Err(e) = std::fs::write(dir.join(format!("{safe}.png")), &png) {
+        return FfiSavedFigure {
+            rel_path,
+            typst_snippet: String::new(),
+            error: Some(format!("write figure: {e}")),
+        };
+    }
+
+    // Full plot (vector axes + colorbar, raster heatmap) wrapped as a figure.
+    // Caption falls back to the sanitized name when the spec has no title.
+    let caption = if title.is_empty() {
+        safe.clone()
+    } else {
+        title
+    };
+    let typst_snippet = format!("#figure(\n[\n{}],\n    caption: [{caption}],\n)", out.typst);
+    FfiSavedFigure {
+        rel_path,
+        typst_snippet,
+        error: None,
+    }
+}
+
+// ===========================================================================
 // Real-dataset binding: load numeric columns from a file (CSV today).
 // ===========================================================================
 
@@ -463,5 +558,61 @@ mod tests {
         let table = load_data_table("/nonexistent/nope.csv".into());
         assert!(table.error.is_some());
         assert!(table.columns.is_empty());
+    }
+
+    /// The figures vertical end-to-end: save a raster plot into a manuscript
+    /// dir, then compile a manuscript whose source contains the returned
+    /// snippet with `figures_root` set — the image must resolve and render.
+    #[test]
+    fn save_figure_and_compile_roundtrip() {
+        let n = 30_000usize;
+        let xs: Vec<f64> = (0..n).map(|i| (i % 173) as f64).collect();
+        let ys: Vec<f64> = (0..n).map(|i| (i % 211) as f64).collect();
+        let spec = FfiPlotSpec {
+            title: "density map".into(),
+            x: axis(FfiAxisScale::Linear),
+            y: axis(FfiAxisScale::Linear),
+            series: vec![FfiSeries {
+                kind: FfiSeriesKind::Scatter,
+                xs,
+                ys,
+                color: FfiColor { r: 0, g: 0, b: 0 },
+            }],
+            strategy: FfiStrategy::Auto,
+            colormap: FfiColormap::Viridis,
+            width: 320.0,
+            height: 220.0,
+            raster_threshold: 0,
+        };
+
+        let dir = std::env::temp_dir().join(format!("impress_fig_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mdir = dir.to_string_lossy().to_string();
+
+        let saved = save_plot_figure(spec, mdir.clone(), "density map #1".into());
+        assert!(saved.error.is_none(), "save error: {:?}", saved.error);
+        assert_eq!(saved.rel_path, "figures/density_map__1.png");
+        assert!(dir.join(&saved.rel_path).exists(), "PNG written");
+        assert!(saved.typst_snippet.contains("figures/density_map__1.png"));
+
+        // Compile a manuscript containing the snippet, figures_root set.
+        let source = format!(
+            "= Results\n\nSee the density map.\n\n{}",
+            saved.typst_snippet
+        );
+        let mut r = PersistentTypstRenderer::new();
+        r.set_figures_root(Some(&mdir));
+        let opts = RenderOptions::a4();
+        let (pdf, _map) = r.render_pdf(&source, &opts).expect("compile with figure");
+        assert!(pdf.as_pdf().unwrap().starts_with(b"%PDF-"));
+
+        // Negative control: WITHOUT figures_root the image must not resolve.
+        let mut r2 = PersistentTypstRenderer::new();
+        assert!(
+            r2.render_pdf(&source, &opts).is_err(),
+            "compile without figures_root should fail to resolve the image"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

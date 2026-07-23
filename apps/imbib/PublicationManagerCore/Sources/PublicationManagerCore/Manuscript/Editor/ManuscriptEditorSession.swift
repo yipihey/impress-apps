@@ -158,7 +158,8 @@ public final class ManuscriptEditorSession {
             documentTitle: title,
             latexEngine: "pdflatex",
             latexShellEscape: false,
-            latexShowBoxWarnings: false
+            latexShowBoxWarnings: false,
+            figuresRoot: ManuscriptFiguresDirectory.manuscriptRoot(for: manuscriptID).path
         )
     }
 

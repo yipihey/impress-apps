@@ -20,6 +20,10 @@ public struct CompileInputs: Sendable {
     public let latexEngine: String
     public let latexShellEscape: Bool
     public let latexShowBoxWarnings: Bool
+    /// Per-manuscript app-group dir for on-disk figure assets:
+    /// `image("figures/plot.png")` in the source resolves under it. nil → no
+    /// filesystem figure resolution (Typst path only; LaTeX has its own mirror).
+    public let figuresRoot: String?
 
     public init(
         source: String,
@@ -29,7 +33,8 @@ public struct CompileInputs: Sendable {
         documentTitle: String,
         latexEngine: String,
         latexShellEscape: Bool,
-        latexShowBoxWarnings: Bool
+        latexShowBoxWarnings: Bool,
+        figuresRoot: String? = nil
     ) {
         self.source = source
         self.format = format
@@ -39,6 +44,7 @@ public struct CompileInputs: Sendable {
         self.latexEngine = latexEngine
         self.latexShellEscape = latexShellEscape
         self.latexShowBoxWarnings = latexShowBoxWarnings
+        self.figuresRoot = figuresRoot
     }
 }
 
@@ -195,7 +201,8 @@ public final class ManuscriptCompileController {
             debugHistory += "3 "
             let options = RenderOptions(
                 pageSize: .a4,
-                isDraft: false
+                isDraft: false,
+                figuresRoot: inputs.figuresRoot
             )
 
             if format == "svg" {

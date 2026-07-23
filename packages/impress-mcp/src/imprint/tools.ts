@@ -139,6 +139,44 @@ export const IMPRINT_TOOLS: Tool[] = [
     },
   },
   {
+    name: "imprint_render_plot",
+    description:
+      "Render a native plot (impress-plot) from a declarative spec to SVG. Spec: {title?, x?: {scale: 'linear'|'log', min?, max?, label?}, y?: {...}, series: [{kind: 'line'|'scatter', xs: number[], ys: number[], color?: {r,g,b}}], colormap?: 'viridis'|'magma'|'plasma'|'inferno'|'cividis'|'turbo'|'greys', strategy?: 'auto'|'vector'|'raster', width?, height?}. Auto-picks vector below ~10k points, raster 2D-histogram above.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spec: {
+          type: "object",
+          description: "The plot spec (see tool description for shape)",
+        },
+      },
+      required: ["spec"],
+    },
+  },
+  {
+    name: "imprint_save_plot_figure",
+    description:
+      "Save a plot spec's raster heatmap as a figure in a manuscript's app-group figures/ directory and return the Typst snippet to insert into the manuscript source. The manuscript compile resolves the image automatically.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        manuscriptId: {
+          type: "string",
+          description: "The manuscript UUID",
+        },
+        spec: {
+          type: "object",
+          description: "The plot spec (same shape as imprint_render_plot)",
+        },
+        name: {
+          type: "string",
+          description: "Figure file name (sanitized; .png appended)",
+        },
+      },
+      required: ["manuscriptId", "spec"],
+    },
+  },
+  {
     name: "imprint_update_document",
     description:
       "Update an imprint document's source content or title.",
@@ -825,6 +863,10 @@ export class ImprintTools {
         return this.insertCitation(args);
       case "imprint_compile":
         return this.compile(args);
+      case "imprint_render_plot":
+        return this.renderPlot(args);
+      case "imprint_save_plot_figure":
+        return this.savePlotFigure(args);
       case "imprint_update_document":
         return this.updateDocument(args);
       case "imprint_search":
@@ -1289,6 +1331,37 @@ export class ImprintTools {
         },
       ],
     };
+  }
+
+  private async renderPlot(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const spec = args?.spec;
+    if (!spec || typeof spec !== "object") {
+      return { content: [{ type: "text", text: "Error: spec (object) is required" }] };
+    }
+    const result = await this.client.renderPlot(spec as Record<string, unknown>);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+
+  private async savePlotFigure(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const manuscriptId = String(args?.manuscriptId || "");
+    const spec = args?.spec;
+    if (!manuscriptId || !spec || typeof spec !== "object") {
+      return {
+        content: [
+          { type: "text", text: "Error: manuscriptId and spec are required" },
+        ],
+      };
+    }
+    const result = await this.client.savePlotFigure(
+      manuscriptId,
+      spec as Record<string, unknown>,
+      args?.name ? String(args.name) : undefined
+    );
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   private async compile(

@@ -306,9 +306,25 @@ private struct PlotPanelView: View {
         guard let s = spec(width: 340, height: 220) else { return }
         let src = renderPlotTypst(spec: s)
         if src.inlineSafe {
+            // Vector: the plot IS Typst source — insert inline, no file.
             context.insertAtCursor("\n" + src.typst + "\n")
-        } else {
-            renderError = "Raster plots can't be inserted inline yet — vector only."
+            return
+        }
+        // Raster (big-N): persist the heatmap PNG into the manuscript's
+        // app-group figures/ dir (Rust does render+write+snippet) and insert
+        // the returned figure snippet; the compile resolves it via figuresRoot.
+        let manuscriptID = context.manuscriptID
+        let name = s.title.isEmpty ? "plot" : s.title
+        let insertAtCursor = context.insertAtCursor
+        Task { @MainActor in
+            let dir = ManuscriptFiguresDirectory.manuscriptRoot(for: manuscriptID).path
+            let saved = await PlotRenderQueue.shared.saveFigure(s, manuscriptDir: dir, name: name)
+            if let e = saved.error, !e.isEmpty {
+                renderError = e
+            } else {
+                renderError = nil
+                insertAtCursor("\n" + saved.typstSnippet + "\n")
+            }
         }
     }
 
@@ -363,6 +379,14 @@ private actor PlotRenderQueue {
     func loadTable(_ path: String) async -> FfiDataTable {
         await withCheckedContinuation { cont in
             queue.async { cont.resume(returning: loadDataTable(path: path)) }
+        }
+    }
+
+    func saveFigure(_ spec: FfiPlotSpec, manuscriptDir: String, name: String) async -> FfiSavedFigure {
+        await withCheckedContinuation { cont in
+            queue.async {
+                cont.resume(returning: savePlotFigure(spec: spec, manuscriptDir: manuscriptDir, name: name))
+            }
         }
     }
 }

@@ -188,6 +188,11 @@ pub struct CompileOptions {
     pub margin_right: f64,
     pub margin_bottom: f64,
     pub margin_left: f64,
+    /// Filesystem root for on-disk figure assets: `image("figures/plot.png")`
+    /// in the source resolves to `<figures_root>/figures/plot.png`. Callers
+    /// pass the per-manuscript app-group directory; None → no filesystem
+    /// assets (in-memory `set_asset` entries still resolve).
+    pub figures_root: Option<String>,
 }
 
 #[cfg(feature = "uniffi")]
@@ -200,6 +205,7 @@ impl Default for CompileOptions {
             margin_right: 72.0,
             margin_bottom: 72.0,
             margin_left: 72.0,
+            figures_root: None,
         }
     }
 }
@@ -386,6 +392,7 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
     {
         PERSISTENT_RENDERER.with(|cell| {
             let mut renderer = cell.borrow_mut();
+            renderer.set_figures_root(options.figures_root.as_deref());
             match renderer.render_pdf(&source, &render_options) {
                 Ok((output, layout_entries)) => {
                     if let Some(pdf_bytes) = output.as_pdf() {
@@ -972,6 +979,7 @@ fn compile_typst_to_svg_inner(source: String, options: CompileOptions) -> SvgCom
     {
         PERSISTENT_RENDERER.with(|cell| {
             let mut renderer = cell.borrow_mut();
+            renderer.set_figures_root(options.figures_root.as_deref());
             match renderer.render_svg(&source, &render_options) {
                 Ok((svg_pages, warnings, page_count, layout_entries)) => {
                     // Prefer the real-layout source map; fall back to the text
