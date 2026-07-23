@@ -33,7 +33,6 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/tags` - List tags
 /// - `GET /api/tags/tree` - Get tag tree
 /// - `GET /api/logs` - Query log entries
-/// - `GET /api/libraries/{id}/participants` - List library participants
 /// - `GET /api/libraries/{id}/activity` - Get library activity feed
 /// - `GET /api/papers/{citeKey}/comments` - List comments for a paper
 /// - `GET /api/papers/{citeKey}/assignments` - List assignments for a paper
@@ -61,7 +60,6 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `PUT /api/papers/flag` - Set/clear flags
 /// - `PUT /api/papers/{citeKey}/notes` - Update publication notes
 /// - `PUT /api/collections/{id}/papers` - Add/remove papers from collection
-/// - `PUT /api/libraries/{id}/participants/{participantID}` - Set participant permission
 /// - `PUT /api/artifacts/{id}/tags` - Add tag to artifact
 ///
 /// API Endpoints (DELETE):
@@ -190,10 +188,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleListItemComments(itemID: artifactID)
         }
 
-        // GET /api/sync/status — sync status
-        if path == "/api/sync/status" {
-            return await handleSyncStatus()
-        }
+        // NOTE: GET /api/sync/status was removed 2026-07-23 with the dead
+        // CloudKit stack — there is no sync engine to report on.
 
         // GET /api/papers/{citeKey}/assignments
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/assignments") {
@@ -743,10 +739,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleAddItemComment(itemID: artifactID, request: request)
         }
 
-        // POST /api/sync/comments — trigger comment sync
-        if path == "/api/sync/comments" {
-            return await handleTriggerCommentSync()
-        }
+        // NOTE: POST /api/sync/comments was removed 2026-07-23 with the dead
+        // CloudKit stack — comments live in the local Rust store.
 
         // POST /api/papers/{citeKey}/annotations
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/annotations") {
@@ -1476,7 +1470,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "DELETE /api/artifacts/{id}/tags/{tag}": "Remove tag from artifact",
                 "POST /api/artifacts/{id}/link": "Link artifact to publication (body: citeKey)",
                 // Collaboration GET endpoints
-                "GET /api/libraries/{id}/participants": "List library participants",
                 "GET /api/libraries/{id}/activity": "Get library activity feed (params: limit)",
                 "GET /api/libraries/{id}/assignments": "List assignments in a library",
                 "GET /api/papers/{citeKey}/comments": "List comments for a paper",
@@ -1499,7 +1492,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "PUT /api/papers/tags": "Add/remove tags (body: identifiers, action, tag)",
                 "PUT /api/papers/flag": "Set/clear flag (body: identifiers, color|null, style?, length?)",
                 "PUT /api/collections/{id}/papers": "Add/remove papers (body: action, identifiers)",
-                "PUT /api/libraries/{id}/participants/{participantID}": "Set participant permission (body: permission)",
                 "PUT /api/papers/{citeKey}/notes": "Update notes (body: notes)",
                 // DELETE endpoints
                 "DELETE /api/papers": "Delete papers (body: identifiers)",
@@ -2419,44 +2411,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         return .json(["status": "ok", "updated": true])
     }
 
-    // MARK: - Sync Handlers
-
-    /// POST /api/sync/comments — trigger manual comment sync
-    private func handleTriggerCommentSync() async -> HTTPResponse {
-        await CommentCloudKitEngine.shared.sync()
-        let status = await CommentCloudKitEngine.shared.status()
-        return .json([
-            "status": "ok",
-            "syncStatus": [
-                "lastSyncDate": status.lastSyncDate.map { ISO8601DateFormatter().string(from: $0) } as Any,
-                "lastError": status.lastError as Any,
-                "pendingUploadCount": status.pendingUploadCount,
-            ] as [String: Any]
-        ])
-    }
-
-    /// GET /api/sync/status — sync status
-    private func handleSyncStatus() async -> HTTPResponse {
-        let commentStatus = await CommentCloudKitEngine.shared.status()
-        let settings = CloudKitSyncSettingsStore.shared
-        return .json([
-            "status": "ok",
-            "commentSync": [
-                "enabled": settings.commentSyncEnabled,
-                "isRunning": commentStatus.isRunning,
-                "lastSyncDate": commentStatus.lastSyncDate.map { ISO8601DateFormatter().string(from: $0) } as Any,
-                "lastError": commentStatus.lastError as Any,
-                "pendingUploadCount": commentStatus.pendingUploadCount,
-            ] as [String: Any],
-            "generalSync": [
-                "enabled": settings.shouldAttemptSync,
-                "lastSyncDate": settings.lastSyncDate.map { ISO8601DateFormatter().string(from: $0) } as Any,
-                "lastError": settings.lastError as Any,
-                "lifecycleState": settings.syncLifecycleState.rawValue,
-            ] as [String: Any]
-        ])
-    }
-
     /// DELETE /api/assignments/{id}
     private func handleDeleteAssignment(assignmentID: UUID) async -> HTTPResponse {
         do {
@@ -2494,9 +2448,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
                     "collectionCount": library.collectionCount,
                     "isDefault": library.isDefault,
                     "isInbox": library.isInbox,
-                    "isShared": library.isShared,
-                    "isShareOwner": library.isShareOwner,
-                    "participantCount": library.participantCount,
                     "canEdit": library.canEdit
                 ]
             }
@@ -2581,24 +2532,17 @@ public actor HTTPAutomationRouter: HTTPRouter {
     // MARK: - Collaboration GET Handlers
 
     /// GET /api/libraries/{id}/participants
+    ///
+    /// Library sharing was CloudKit-backed and was removed with the Rust
+    /// store migration (ADR-023). 410 Gone with an explicit reason beats a
+    /// route that silently threw.
     private func handleListParticipants(libraryID: UUID) async -> HTTPResponse {
-        do {
-            let participants = try await LibrarySharingService.shared.participants(for: libraryID)
-            let dicts: [[String: Any]] = participants.map { p in
-                [
-                    "id": p.id,
-                    "displayName": p.displayName as Any,
-                    "emailAddress": p.emailAddress as Any,
-                    "permission": p.permission.rawValue,
-                    "acceptanceStatus": p.acceptanceStatus.rawValue,
-                    "isOwner": p.isOwner,
-                    "isCurrentUser": p.isCurrentUser,
-                ]
-            }
-            return .json(["status": "ok", "participants": dicts])
-        } catch {
-            return mapError(error)
-        }
+        .json(
+            [
+                "status": "error",
+                "reason": "Library sharing is not supported: the CloudKit sharing stack was removed (imbib is local-first; no cross-device library sharing).",
+            ],
+            status: 410)
     }
 
     /// GET /api/libraries/{id}/activity

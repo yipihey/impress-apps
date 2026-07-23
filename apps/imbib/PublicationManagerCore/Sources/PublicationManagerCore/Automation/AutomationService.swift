@@ -1473,9 +1473,6 @@ public actor AutomationService: AutomationOperations {
             collectionCount: 0,  // Would need separate query; omit for now
             isDefault: library.isDefault,
             isInbox: library.isInbox,
-            isShared: false,  // CloudKit sharing not yet available with Rust store
-            isShareOwner: false,
-            participantCount: 0,
             canEdit: true
         )
     }

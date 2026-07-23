@@ -12,23 +12,21 @@ import OSLog
 
 /// Result of a reset to first-run operation.
 public struct ResetResult: Sendable {
-    /// Whether CloudKit zone was successfully purged
-    public let cloudKitPurged: Bool
-
-    /// Error encountered while purging CloudKit (nil if successful or not attempted)
-    public let cloudKitError: Error?
+    /// Error encountered during the reset (nil on success). CloudKit purge
+    /// fields were removed with the dead CloudKit sharing stack (ADR-023 —
+    /// imbib has no CloudKit sync; the store is local Rust SQLite).
+    public let error: Error?
 
     /// Whether local data was successfully deleted
     public let localDataDeleted: Bool
 
-    /// Whether the reset was fully successful (cloud + local)
+    /// Whether the reset was fully successful.
     public var wasFullySuccessful: Bool {
-        cloudKitPurged && localDataDeleted && cloudKitError == nil
+        localDataDeleted && error == nil
     }
 
-    public init(cloudKitPurged: Bool, cloudKitError: Error?, localDataDeleted: Bool) {
-        self.cloudKitPurged = cloudKitPurged
-        self.cloudKitError = cloudKitError
+    public init(error: Error? = nil, localDataDeleted: Bool) {
+        self.error = error
         self.localDataDeleted = localDataDeleted
     }
 }
@@ -73,69 +71,39 @@ public final class FirstRunManager {
     /// Reset the app to first-run state.
     ///
     /// This method:
-    /// 1. Purges CloudKit zone (removes all synced data from iCloud)
-    /// 2. Clears UserDefaults (AppStateStore, ListViewStateStore, ReadingPositionStore, etc.)
-    /// 3. Deletes Papers folder contents
-    /// 4. Invalidates singleton caches (InboxManager, etc.)
-    /// 5. Sets pending reset flag for store file deletion on next launch
-    /// 6. Preserves Keychain API keys (intentionally kept for re-testing with same credentials)
+    /// 1. Clears UserDefaults (AppStateStore, ListViewStateStore, ReadingPositionStore, etc.)
+    /// 2. Deletes Papers folder contents
+    /// 3. Invalidates singleton caches (InboxManager, etc.)
+    /// 4. Preserves Keychain API keys (intentionally kept for re-testing with same credentials)
     ///
-    /// After calling this, the app will behave as if freshly installed on next launch.
-    /// CloudKit zone is purged so sync can remain enabled (zone is empty).
+    /// The CloudKit steps this flow used to run (purge zone, disable sync,
+    /// set a pendingReset flag) were removed with the dead CloudKit stack:
+    /// nothing ever consumed the flag at launch, the sync engine no longer
+    /// runs, and the purge touched an unentitled container (the crash fixed
+    /// in 5edde41 lived in exactly that dead path).
+    ///
+    /// KNOWN LIMITATION (pre-existing): the Rust store's SQLite files are
+    /// NOT deleted here (they can't be removed while the store connection is
+    /// open), and the old "delete on next launch" flag never had a consumer
+    /// — so library items survive a reset. Tracked as a follow-up.
     ///
     /// - Returns: A `ResetResult` describing what was reset and any errors
     @discardableResult
     public func resetToFirstRun() async throws -> ResetResult {
         Logger.library.warningCapture("Resetting app to first-run state", category: "firstrun")
-        print("[imbib] FirstRunManager.resetToFirstRun() starting")
 
-        var cloudKitPurged = false
-        var cloudKitError: Error?
-
-        // 1. Set pending reset flag FIRST
-        // This ensures local store files are deleted on next launch, before CloudKit can sync
-        CloudKitSyncSettingsStore.shared.pendingReset = true
-        print("[imbib] Set pendingReset=true, current value: \(CloudKitSyncSettingsStore.shared.pendingReset)")
-        Logger.library.infoCapture("Set pending reset flag for next launch", category: "firstrun")
-
-        // 2. Disable CloudKit sync to stop ongoing operations
-        CloudKitSyncSettingsStore.shared.isDisabledByUser = true
-        Logger.library.infoCapture("Disabled CloudKit sync", category: "firstrun")
-
-        // 3. Purge CloudKit zone
-        // This ensures cloud data won't sync back when CloudKit is re-enabled
-        if await CloudKitResetService.shared.canPurgeCloudKit() {
-            do {
-                try await CloudKitResetService.shared.purgeCloudKitZone()
-                cloudKitPurged = true
-                Logger.library.infoCapture("CloudKit zone purged successfully", category: "firstrun")
-            } catch {
-                cloudKitError = error
-                Logger.library.errorCapture("Failed to purge CloudKit zone: \(error.localizedDescription)", category: "firstrun")
-            }
-        } else {
-            Logger.library.warningCapture("CloudKit not available, skipping zone purge", category: "firstrun")
-        }
-
-        // 4. Clear UserDefaults stores (except CloudKit settings which has pendingReset flag)
+        // 1. Clear UserDefaults stores
         await clearAllUserDefaultsStores()
 
-        // 5. Delete Papers folder contents
+        // 2. Delete Papers folder contents
         deletePapersFolderContents()
 
-        // 6. Invalidate singleton caches
+        // 3. Invalidate singleton caches
         invalidateSingletonCaches()
-
-        // Note: We do NOT delete Rust store data here - the pendingReset flag ensures
-        // store files are deleted on next launch BEFORE the store loads.
 
         Logger.library.infoCapture("Reset phase 1 complete - app must restart to finish", category: "firstrun")
 
-        return ResetResult(
-            cloudKitPurged: cloudKitPurged,
-            cloudKitError: cloudKitError,
-            localDataDeleted: true
-        )
+        return ResetResult(localDataDeleted: true)
     }
 
     /// Invalidate cached state in singleton managers and notify others.

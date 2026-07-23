@@ -10,7 +10,11 @@ import Testing
 
 // MARK: - Parser Factory Tests
 
-@Suite("BibTeX Parser Factory")
+// .serialized: "Swift parser works through factory" mutates the GLOBAL
+// BibTeXParserFactory.currentBackend (with a defer-restore); under parallel
+// execution the availability-dependent tests read that global mid-mutation
+// and flap run-to-run.
+@Suite("BibTeX Parser Factory", .serialized)
 struct BibTeXParserFactoryTests {
 
     @Test("Default backend matches Rust availability")

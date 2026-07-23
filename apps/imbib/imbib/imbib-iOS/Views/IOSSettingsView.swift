@@ -235,12 +235,10 @@ struct IOSSettingsView: View {
                 }
             } message: {
                 if let result = resetResult {
-                    if result.cloudKitPurged {
-                        Text("iCloud data has been deleted. Please force-quit and relaunch the app to complete the reset.\n\nDo not open imbib on other devices until restart is complete.")
-                    } else if result.cloudKitError != nil {
-                        Text("iCloud data could not be deleted (offline or error). Please force-quit and relaunch the app. You may need to reset again when online.")
+                    if result.wasFullySuccessful {
+                        Text("Local settings and files were cleared. Please force-quit and relaunch the app to complete the reset.")
                     } else {
-                        Text("iCloud was not available. Please force-quit and relaunch the app to complete the reset.")
+                        Text("Some local data could not be cleared. Please force-quit and relaunch the app and try again if needed.")
                     }
                 }
             }
@@ -275,11 +273,7 @@ struct IOSSettingsView: View {
                 await MainActor.run {
                     showingResetInProgress = false
                     // Create a failed result
-                    resetResult = ResetResult(
-                        cloudKitPurged: false,
-                        cloudKitError: error,
-                        localDataDeleted: false
-                    )
+                    resetResult = ResetResult(error: error, localDataDeleted: false)
                 }
             }
         }

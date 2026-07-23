@@ -373,11 +373,11 @@ public struct LibraryResult: Codable, Sendable, Identifiable, Hashable {
     public let collectionCount: Int
     public let isDefault: Bool
     public let isInbox: Bool
-    public let isShared: Bool
-    public let isShareOwner: Bool
-    public let participantCount: Int
     public let canEdit: Bool
 
+    // isShared/isShareOwner/participantCount were removed with the dead
+    // CloudKit sharing stack — they were hardcoded placeholders that made
+    // the automation payload advertise a capability that doesn't exist.
     public init(
         id: UUID,
         name: String,
@@ -385,9 +385,6 @@ public struct LibraryResult: Codable, Sendable, Identifiable, Hashable {
         collectionCount: Int,
         isDefault: Bool = false,
         isInbox: Bool = false,
-        isShared: Bool = false,
-        isShareOwner: Bool = false,
-        participantCount: Int = 0,
         canEdit: Bool = true
     ) {
         self.id = id
@@ -396,9 +393,6 @@ public struct LibraryResult: Codable, Sendable, Identifiable, Hashable {
         self.collectionCount = collectionCount
         self.isDefault = isDefault
         self.isInbox = isInbox
-        self.isShared = isShared
-        self.isShareOwner = isShareOwner
-        self.participantCount = participantCount
         self.canEdit = canEdit
     }
 }

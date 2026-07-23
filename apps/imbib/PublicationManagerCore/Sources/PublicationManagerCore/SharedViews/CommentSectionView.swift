@@ -26,8 +26,6 @@ public struct CommentSectionView: View {
     @State private var editText = ""
     @State private var showDeleteConfirmation = false
     @State private var commentToDelete: Comment?
-    @State private var participants: [ShareParticipant] = []
-    @State private var showShareManagement = false
 
     /// Initialize with any item ID.
     public init(itemID: UUID, itemTitle: String? = nil, libraryID: UUID? = nil) {
@@ -94,21 +92,6 @@ public struct CommentSectionView: View {
         }
         .onAppear {
             comments = RustStoreAdapter.shared.commentsForItem(itemID)
-        }
-        .task {
-            if let libraryID {
-                do {
-                    participants = try await LibrarySharingService.shared.participants(for: libraryID)
-                } catch {
-                    // Not shared or CloudKit unavailable — that's fine
-                    participants = []
-                }
-            }
-        }
-        .sheet(isPresented: $showShareManagement) {
-            if let libraryID {
-                ShareManagementView(libraryID: libraryID)
-            }
         }
         .confirmationDialog(
             "Delete Comment?",
@@ -279,41 +262,12 @@ public struct CommentSectionView: View {
 
     // MARK: - Participants Bar
 
+    /// Comments are local (per-device Rust store). The CloudKit participants
+    /// UI that used to live here was removed with the dead sharing stack —
+    /// only the honest privacy hint remains.
     @ViewBuilder
     private var participantsBar: some View {
-        if !participants.isEmpty {
-            HStack(spacing: 6) {
-                // Participant initials
-                ForEach(participants.prefix(5)) { participant in
-                    Text(participant.initials)
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .frame(width: 22, height: 22)
-                        .background(participant.isCurrentUser ? .blue : .gray)
-                        .clipShape(Circle())
-                        .help(participant.displayLabel)
-                }
-
-                if participants.count > 5 {
-                    Text("+\(participants.count - 5)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text("Shared")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Manage") {
-                    showShareManagement = true
-                }
-                .font(.caption)
-                .controlSize(.small)
-            }
-            .padding(.vertical, 4)
-        } else if libraryID != nil {
+        if libraryID != nil {
             HStack(spacing: 4) {
                 Image(systemName: "lock")
                     .font(.caption2)

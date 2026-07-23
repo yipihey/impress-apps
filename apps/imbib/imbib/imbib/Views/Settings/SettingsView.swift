@@ -1320,18 +1320,14 @@ struct AdvancedSettingsTab: View {
                 await MainActor.run {
                     let alert = NSAlert()
 
-                    if result.cloudKitPurged {
+                    if result.wasFullySuccessful {
                         alert.messageText = "Reset Prepared"
-                        alert.informativeText = "iCloud data has been deleted. The app must restart to delete local data and complete the reset.\n\nIMPORTANT: Do not open imbib on other devices until restart is complete."
+                        alert.informativeText = "Local settings and files were cleared. Please restart the app to complete the reset."
                         alert.alertStyle = .informational
-                    } else if result.cloudKitError != nil {
-                        alert.messageText = "Partial Reset"
-                        alert.informativeText = "iCloud data could not be deleted (offline or error). The app will delete local data on restart, but you may need to reset again when online to fully clear iCloud.\n\nPlease restart the app now."
-                        alert.alertStyle = .warning
                     } else {
-                        alert.messageText = "Reset Prepared"
-                        alert.informativeText = "iCloud was not available. The app will delete local data on restart.\n\nPlease restart the app now."
-                        alert.alertStyle = .informational
+                        alert.messageText = "Partial Reset"
+                        alert.informativeText = "Some local data could not be cleared. Please restart the app and try again if needed."
+                        alert.alertStyle = .warning
                     }
 
                     alert.addButton(withTitle: "Quit Now")
