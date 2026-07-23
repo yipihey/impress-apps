@@ -781,6 +781,13 @@ public struct CompileOptions {
     public var marginRight: Double
     public var marginBottom: Double
     public var marginLeft: Double
+    /**
+     * Filesystem root for on-disk figure assets: `image("figures/plot.png")`
+     * in the source resolves to `<figures_root>/figures/plot.png`. Callers
+     * pass the per-manuscript app-group directory; None → no filesystem
+     * assets (in-memory `set_asset` entries still resolve).
+     */
+    public var figuresRoot: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -793,13 +800,20 @@ public struct CompileOptions {
          */fontSize: Double, 
         /**
          * Page margins in points (top, right, bottom, left)
-         */marginTop: Double, marginRight: Double, marginBottom: Double, marginLeft: Double) {
+         */marginTop: Double, marginRight: Double, marginBottom: Double, marginLeft: Double, 
+        /**
+         * Filesystem root for on-disk figure assets: `image("figures/plot.png")`
+         * in the source resolves to `<figures_root>/figures/plot.png`. Callers
+         * pass the per-manuscript app-group directory; None → no filesystem
+         * assets (in-memory `set_asset` entries still resolve).
+         */figuresRoot: String?) {
         self.pageSize = pageSize
         self.fontSize = fontSize
         self.marginTop = marginTop
         self.marginRight = marginRight
         self.marginBottom = marginBottom
         self.marginLeft = marginLeft
+        self.figuresRoot = figuresRoot
     }
 }
 
@@ -825,6 +839,9 @@ extension CompileOptions: Equatable, Hashable {
         if lhs.marginLeft != rhs.marginLeft {
             return false
         }
+        if lhs.figuresRoot != rhs.figuresRoot {
+            return false
+        }
         return true
     }
 
@@ -835,6 +852,7 @@ extension CompileOptions: Equatable, Hashable {
         hasher.combine(marginRight)
         hasher.combine(marginBottom)
         hasher.combine(marginLeft)
+        hasher.combine(figuresRoot)
     }
 }
 
@@ -851,7 +869,8 @@ public struct FfiConverterTypeCompileOptions: FfiConverterRustBuffer {
                 marginTop: FfiConverterDouble.read(from: &buf), 
                 marginRight: FfiConverterDouble.read(from: &buf), 
                 marginBottom: FfiConverterDouble.read(from: &buf), 
-                marginLeft: FfiConverterDouble.read(from: &buf)
+                marginLeft: FfiConverterDouble.read(from: &buf), 
+                figuresRoot: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -862,6 +881,7 @@ public struct FfiConverterTypeCompileOptions: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.marginRight, into: &buf)
         FfiConverterDouble.write(value.marginBottom, into: &buf)
         FfiConverterDouble.write(value.marginLeft, into: &buf)
+        FfiConverterOptionString.write(value.figuresRoot, into: &buf)
     }
 }
 
@@ -2549,6 +2569,380 @@ public func FfiConverterTypeFfiColor_lower(_ value: FfiColor) -> RustBuffer {
 
 
 /**
+ * One numeric column loaded from a data file.
+ */
+public struct FfiDataColumn {
+    public var name: String
+    public var values: [Double]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, values: [Double]) {
+        self.name = name
+        self.values = values
+    }
+}
+
+
+
+extension FfiDataColumn: Equatable, Hashable {
+    public static func ==(lhs: FfiDataColumn, rhs: FfiDataColumn) -> Bool {
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.values != rhs.values {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(values)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDataColumn: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDataColumn {
+        return
+            try FfiDataColumn(
+                name: FfiConverterString.read(from: &buf), 
+                values: FfiConverterSequenceDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDataColumn, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterSequenceDouble.write(value.values, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDataColumn_lift(_ buf: RustBuffer) throws -> FfiDataColumn {
+    return try FfiConverterTypeFfiDataColumn.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDataColumn_lower(_ value: FfiDataColumn) -> RustBuffer {
+    return FfiConverterTypeFfiDataColumn.lower(value)
+}
+
+
+/**
+ * The numeric columns of a data file — everything the plot panel needs to bind
+ * real x/y series. Non-numeric columns are dropped (they can't be plotted).
+ */
+public struct FfiDataTable {
+    public var columns: [FfiDataColumn]
+    public var rowCount: UInt64
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(columns: [FfiDataColumn], rowCount: UInt64, error: String?) {
+        self.columns = columns
+        self.rowCount = rowCount
+        self.error = error
+    }
+}
+
+
+
+extension FfiDataTable: Equatable, Hashable {
+    public static func ==(lhs: FfiDataTable, rhs: FfiDataTable) -> Bool {
+        if lhs.columns != rhs.columns {
+            return false
+        }
+        if lhs.rowCount != rhs.rowCount {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(columns)
+        hasher.combine(rowCount)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDataTable: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDataTable {
+        return
+            try FfiDataTable(
+                columns: FfiConverterSequenceTypeFfiDataColumn.read(from: &buf), 
+                rowCount: FfiConverterUInt64.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDataTable, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeFfiDataColumn.write(value.columns, into: &buf)
+        FfiConverterUInt64.write(value.rowCount, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDataTable_lift(_ buf: RustBuffer) throws -> FfiDataTable {
+    return try FfiConverterTypeFfiDataTable.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDataTable_lower(_ value: FfiDataTable) -> RustBuffer {
+    return FfiConverterTypeFfiDataTable.lower(value)
+}
+
+
+/**
+ * Direct z-grid input: an existing field (analytic function, simulation
+ * slice) over data ranges — no binning. Values are row-major
+ * `v[iy*nx + ix]` with iy = 0 the LOW-y row.
+ */
+public struct FfiGridSpec {
+    public var title: String
+    public var values: [Double]
+    public var nx: UInt32
+    public var ny: UInt32
+    public var xMin: Double
+    public var xMax: Double
+    public var yMin: Double
+    public var yMax: Double
+    public var xLabel: String?
+    public var yLabel: String?
+    public var style: FfiGridStyle
+    public var colormap: FfiColormap
+    /**
+     * Log color/level scale (fields spanning orders of magnitude).
+     */
+    public var logScale: Bool
+    public var contourLevels: UInt32
+    public var contourLevelValues: [Double]
+    public var contourLabels: Bool
+    public var contourLineStyles: [FfiLineStyle]
+    /**
+     * Contour-extraction smoothing in bins (analytic grids are smooth → 0).
+     */
+    public var smoothSigma: Double
+    public var width: Double
+    public var height: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, values: [Double], nx: UInt32, ny: UInt32, xMin: Double, xMax: Double, yMin: Double, yMax: Double, xLabel: String?, yLabel: String?, style: FfiGridStyle, colormap: FfiColormap, 
+        /**
+         * Log color/level scale (fields spanning orders of magnitude).
+         */logScale: Bool, contourLevels: UInt32, contourLevelValues: [Double], contourLabels: Bool, contourLineStyles: [FfiLineStyle], 
+        /**
+         * Contour-extraction smoothing in bins (analytic grids are smooth → 0).
+         */smoothSigma: Double, width: Double, height: Double) {
+        self.title = title
+        self.values = values
+        self.nx = nx
+        self.ny = ny
+        self.xMin = xMin
+        self.xMax = xMax
+        self.yMin = yMin
+        self.yMax = yMax
+        self.xLabel = xLabel
+        self.yLabel = yLabel
+        self.style = style
+        self.colormap = colormap
+        self.logScale = logScale
+        self.contourLevels = contourLevels
+        self.contourLevelValues = contourLevelValues
+        self.contourLabels = contourLabels
+        self.contourLineStyles = contourLineStyles
+        self.smoothSigma = smoothSigma
+        self.width = width
+        self.height = height
+    }
+}
+
+
+
+extension FfiGridSpec: Equatable, Hashable {
+    public static func ==(lhs: FfiGridSpec, rhs: FfiGridSpec) -> Bool {
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.values != rhs.values {
+            return false
+        }
+        if lhs.nx != rhs.nx {
+            return false
+        }
+        if lhs.ny != rhs.ny {
+            return false
+        }
+        if lhs.xMin != rhs.xMin {
+            return false
+        }
+        if lhs.xMax != rhs.xMax {
+            return false
+        }
+        if lhs.yMin != rhs.yMin {
+            return false
+        }
+        if lhs.yMax != rhs.yMax {
+            return false
+        }
+        if lhs.xLabel != rhs.xLabel {
+            return false
+        }
+        if lhs.yLabel != rhs.yLabel {
+            return false
+        }
+        if lhs.style != rhs.style {
+            return false
+        }
+        if lhs.colormap != rhs.colormap {
+            return false
+        }
+        if lhs.logScale != rhs.logScale {
+            return false
+        }
+        if lhs.contourLevels != rhs.contourLevels {
+            return false
+        }
+        if lhs.contourLevelValues != rhs.contourLevelValues {
+            return false
+        }
+        if lhs.contourLabels != rhs.contourLabels {
+            return false
+        }
+        if lhs.contourLineStyles != rhs.contourLineStyles {
+            return false
+        }
+        if lhs.smoothSigma != rhs.smoothSigma {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(title)
+        hasher.combine(values)
+        hasher.combine(nx)
+        hasher.combine(ny)
+        hasher.combine(xMin)
+        hasher.combine(xMax)
+        hasher.combine(yMin)
+        hasher.combine(yMax)
+        hasher.combine(xLabel)
+        hasher.combine(yLabel)
+        hasher.combine(style)
+        hasher.combine(colormap)
+        hasher.combine(logScale)
+        hasher.combine(contourLevels)
+        hasher.combine(contourLevelValues)
+        hasher.combine(contourLabels)
+        hasher.combine(contourLineStyles)
+        hasher.combine(smoothSigma)
+        hasher.combine(width)
+        hasher.combine(height)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiGridSpec: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiGridSpec {
+        return
+            try FfiGridSpec(
+                title: FfiConverterString.read(from: &buf), 
+                values: FfiConverterSequenceDouble.read(from: &buf), 
+                nx: FfiConverterUInt32.read(from: &buf), 
+                ny: FfiConverterUInt32.read(from: &buf), 
+                xMin: FfiConverterDouble.read(from: &buf), 
+                xMax: FfiConverterDouble.read(from: &buf), 
+                yMin: FfiConverterDouble.read(from: &buf), 
+                yMax: FfiConverterDouble.read(from: &buf), 
+                xLabel: FfiConverterOptionString.read(from: &buf), 
+                yLabel: FfiConverterOptionString.read(from: &buf), 
+                style: FfiConverterTypeFfiGridStyle.read(from: &buf), 
+                colormap: FfiConverterTypeFfiColormap.read(from: &buf), 
+                logScale: FfiConverterBool.read(from: &buf), 
+                contourLevels: FfiConverterUInt32.read(from: &buf), 
+                contourLevelValues: FfiConverterSequenceDouble.read(from: &buf), 
+                contourLabels: FfiConverterBool.read(from: &buf), 
+                contourLineStyles: FfiConverterSequenceTypeFfiLineStyle.read(from: &buf), 
+                smoothSigma: FfiConverterDouble.read(from: &buf), 
+                width: FfiConverterDouble.read(from: &buf), 
+                height: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiGridSpec, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterSequenceDouble.write(value.values, into: &buf)
+        FfiConverterUInt32.write(value.nx, into: &buf)
+        FfiConverterUInt32.write(value.ny, into: &buf)
+        FfiConverterDouble.write(value.xMin, into: &buf)
+        FfiConverterDouble.write(value.xMax, into: &buf)
+        FfiConverterDouble.write(value.yMin, into: &buf)
+        FfiConverterDouble.write(value.yMax, into: &buf)
+        FfiConverterOptionString.write(value.xLabel, into: &buf)
+        FfiConverterOptionString.write(value.yLabel, into: &buf)
+        FfiConverterTypeFfiGridStyle.write(value.style, into: &buf)
+        FfiConverterTypeFfiColormap.write(value.colormap, into: &buf)
+        FfiConverterBool.write(value.logScale, into: &buf)
+        FfiConverterUInt32.write(value.contourLevels, into: &buf)
+        FfiConverterSequenceDouble.write(value.contourLevelValues, into: &buf)
+        FfiConverterBool.write(value.contourLabels, into: &buf)
+        FfiConverterSequenceTypeFfiLineStyle.write(value.contourLineStyles, into: &buf)
+        FfiConverterDouble.write(value.smoothSigma, into: &buf)
+        FfiConverterDouble.write(value.width, into: &buf)
+        FfiConverterDouble.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGridSpec_lift(_ buf: RustBuffer) throws -> FfiGridSpec {
+    return try FfiConverterTypeFfiGridSpec.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGridSpec_lower(_ value: FfiGridSpec) -> RustBuffer {
+    return FfiConverterTypeFfiGridSpec.lower(value)
+}
+
+
+/**
  * The Typst source for a plot, for inserting into a manuscript.
  */
 public struct FfiPlotSource {
@@ -2654,13 +3048,45 @@ public struct FfiPlotSpec {
      * Point count above which `Auto` switches to raster. 0 → default (10 000).
      */
     public var rasterThreshold: UInt32
+    /**
+     * Number of contour levels for Contour series. 0 → default (7).
+     */
+    public var contourLevels: UInt32
+    /**
+     * Inline level labels on contour rings.
+     */
+    public var contourLabels: Bool
+    /**
+     * Line-style cycle applied per contour level (empty → all solid), e.g.
+     * [Solid, Dashed] or [Solid, Dashed, Dotted] — makes contours traceable.
+     */
+    public var contourLineStyles: [FfiLineStyle]
+    /**
+     * Explicit contour level VALUES (normalized density units). Non-empty
+     * overrides `contour_levels` — for comparable levels across figures.
+     */
+    public var contourLevelValues: [Double]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(title: String, x: FfiAxis, y: FfiAxis, series: [FfiSeries], strategy: FfiStrategy, colormap: FfiColormap, width: Double, height: Double, 
         /**
          * Point count above which `Auto` switches to raster. 0 → default (10 000).
-         */rasterThreshold: UInt32) {
+         */rasterThreshold: UInt32, 
+        /**
+         * Number of contour levels for Contour series. 0 → default (7).
+         */contourLevels: UInt32, 
+        /**
+         * Inline level labels on contour rings.
+         */contourLabels: Bool, 
+        /**
+         * Line-style cycle applied per contour level (empty → all solid), e.g.
+         * [Solid, Dashed] or [Solid, Dashed, Dotted] — makes contours traceable.
+         */contourLineStyles: [FfiLineStyle], 
+        /**
+         * Explicit contour level VALUES (normalized density units). Non-empty
+         * overrides `contour_levels` — for comparable levels across figures.
+         */contourLevelValues: [Double]) {
         self.title = title
         self.x = x
         self.y = y
@@ -2670,6 +3096,10 @@ public struct FfiPlotSpec {
         self.width = width
         self.height = height
         self.rasterThreshold = rasterThreshold
+        self.contourLevels = contourLevels
+        self.contourLabels = contourLabels
+        self.contourLineStyles = contourLineStyles
+        self.contourLevelValues = contourLevelValues
     }
 }
 
@@ -2704,6 +3134,18 @@ extension FfiPlotSpec: Equatable, Hashable {
         if lhs.rasterThreshold != rhs.rasterThreshold {
             return false
         }
+        if lhs.contourLevels != rhs.contourLevels {
+            return false
+        }
+        if lhs.contourLabels != rhs.contourLabels {
+            return false
+        }
+        if lhs.contourLineStyles != rhs.contourLineStyles {
+            return false
+        }
+        if lhs.contourLevelValues != rhs.contourLevelValues {
+            return false
+        }
         return true
     }
 
@@ -2717,6 +3159,10 @@ extension FfiPlotSpec: Equatable, Hashable {
         hasher.combine(width)
         hasher.combine(height)
         hasher.combine(rasterThreshold)
+        hasher.combine(contourLevels)
+        hasher.combine(contourLabels)
+        hasher.combine(contourLineStyles)
+        hasher.combine(contourLevelValues)
     }
 }
 
@@ -2736,7 +3182,11 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
                 colormap: FfiConverterTypeFfiColormap.read(from: &buf), 
                 width: FfiConverterDouble.read(from: &buf), 
                 height: FfiConverterDouble.read(from: &buf), 
-                rasterThreshold: FfiConverterUInt32.read(from: &buf)
+                rasterThreshold: FfiConverterUInt32.read(from: &buf), 
+                contourLevels: FfiConverterUInt32.read(from: &buf), 
+                contourLabels: FfiConverterBool.read(from: &buf), 
+                contourLineStyles: FfiConverterSequenceTypeFfiLineStyle.read(from: &buf), 
+                contourLevelValues: FfiConverterSequenceDouble.read(from: &buf)
         )
     }
 
@@ -2750,6 +3200,10 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.width, into: &buf)
         FfiConverterDouble.write(value.height, into: &buf)
         FfiConverterUInt32.write(value.rasterThreshold, into: &buf)
+        FfiConverterUInt32.write(value.contourLevels, into: &buf)
+        FfiConverterBool.write(value.contourLabels, into: &buf)
+        FfiConverterSequenceTypeFfiLineStyle.write(value.contourLineStyles, into: &buf)
+        FfiConverterSequenceDouble.write(value.contourLevelValues, into: &buf)
     }
 }
 
@@ -2858,6 +3312,95 @@ public func FfiConverterTypeFfiRenderedPlot_lift(_ buf: RustBuffer) throws -> Ff
 #endif
 public func FfiConverterTypeFfiRenderedPlot_lower(_ value: FfiRenderedPlot) -> RustBuffer {
     return FfiConverterTypeFfiRenderedPlot.lower(value)
+}
+
+
+/**
+ * Result of saving a plot as a manuscript figure.
+ */
+public struct FfiSavedFigure {
+    /**
+     * Path relative to the manuscript dir (e.g. "figures/density.png").
+     */
+    public var relPath: String
+    /**
+     * Ready-to-insert Typst snippet referencing `rel_path`.
+     */
+    public var typstSnippet: String
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Path relative to the manuscript dir (e.g. "figures/density.png").
+         */relPath: String, 
+        /**
+         * Ready-to-insert Typst snippet referencing `rel_path`.
+         */typstSnippet: String, error: String?) {
+        self.relPath = relPath
+        self.typstSnippet = typstSnippet
+        self.error = error
+    }
+}
+
+
+
+extension FfiSavedFigure: Equatable, Hashable {
+    public static func ==(lhs: FfiSavedFigure, rhs: FfiSavedFigure) -> Bool {
+        if lhs.relPath != rhs.relPath {
+            return false
+        }
+        if lhs.typstSnippet != rhs.typstSnippet {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(relPath)
+        hasher.combine(typstSnippet)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSavedFigure: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSavedFigure {
+        return
+            try FfiSavedFigure(
+                relPath: FfiConverterString.read(from: &buf), 
+                typstSnippet: FfiConverterString.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSavedFigure, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.relPath, into: &buf)
+        FfiConverterString.write(value.typstSnippet, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSavedFigure_lift(_ buf: RustBuffer) throws -> FfiSavedFigure {
+    return try FfiConverterTypeFfiSavedFigure.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSavedFigure_lower(_ value: FfiSavedFigure) -> RustBuffer {
+    return FfiConverterTypeFfiSavedFigure.lower(value)
 }
 
 
@@ -4756,11 +5299,167 @@ extension FfiColormap: Equatable, Hashable {}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Presentation for a direct z-grid figure.
+ */
+
+public enum FfiGridStyle {
+    
+    case heatmap
+    case contour
+    case both
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiGridStyle: FfiConverterRustBuffer {
+    typealias SwiftType = FfiGridStyle
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiGridStyle {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .heatmap
+        
+        case 2: return .contour
+        
+        case 3: return .both
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiGridStyle, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .heatmap:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .contour:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .both:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGridStyle_lift(_ buf: RustBuffer) throws -> FfiGridStyle {
+    return try FfiConverterTypeFfiGridStyle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGridStyle_lower(_ value: FfiGridStyle) -> RustBuffer {
+    return FfiConverterTypeFfiGridStyle.lower(value)
+}
+
+
+
+extension FfiGridStyle: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum FfiLineStyle {
+    
+    case solid
+    case dashed
+    case dotted
+    case dashDotted
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiLineStyle: FfiConverterRustBuffer {
+    typealias SwiftType = FfiLineStyle
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiLineStyle {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .solid
+        
+        case 2: return .dashed
+        
+        case 3: return .dotted
+        
+        case 4: return .dashDotted
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiLineStyle, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .solid:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .dashed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .dotted:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .dashDotted:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLineStyle_lift(_ buf: RustBuffer) throws -> FfiLineStyle {
+    return try FfiConverterTypeFfiLineStyle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLineStyle_lower(_ value: FfiLineStyle) -> RustBuffer {
+    return FfiConverterTypeFfiLineStyle.lower(value)
+}
+
+
+
+extension FfiLineStyle: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum FfiSeriesKind {
     
     case line
     case scatter
+    /**
+     * Density contours of the points (binned, iso-lined, heatmap underlay).
+     */
+    case contour
 }
 
 
@@ -4778,6 +5477,8 @@ public struct FfiConverterTypeFfiSeriesKind: FfiConverterRustBuffer {
         
         case 2: return .scatter
         
+        case 3: return .contour
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -4792,6 +5493,10 @@ public struct FfiConverterTypeFfiSeriesKind: FfiConverterRustBuffer {
         
         case .scatter:
             writeInt(&buf, Int32(2))
+        
+        
+        case .contour:
+            writeInt(&buf, Int32(3))
         
         }
     }
@@ -5742,6 +6447,31 @@ fileprivate struct FfiConverterSequenceTypeFFITemplateMetadata: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiDataColumn: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiDataColumn]
+
+    public static func write(_ value: [FfiDataColumn], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiDataColumn.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiDataColumn] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiDataColumn]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiDataColumn.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiSeries: FfiConverterRustBuffer {
     typealias SwiftType = [FfiSeries]
 
@@ -5759,6 +6489,31 @@ fileprivate struct FfiConverterSequenceTypeFfiSeries: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiSeries.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiLineStyle: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiLineStyle]
+
+    public static func write(_ value: [FfiLineStyle], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiLineStyle.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiLineStyle] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiLineStyle]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiLineStyle.read(from: &buf))
         }
         return seq
     }
@@ -6029,10 +6784,34 @@ public func listTemplatesByCategory(category: FfiTemplateCategory) -> [FfiTempla
     )
 })
 }
+/**
+ * Load a data file's numeric columns as `[Double]` arrays, reusing implore-io's
+ * tested reader (`open_file` → `read_column` → `DataColumn::to_f64`). CSV is
+ * wired today (pure Rust); HDF5/FITS are implore-io features with C deps, a
+ * follow-up. The whole table is read eagerly — fine for typical CSVs; a
+ * schema-first + selective-column path is the big-data optimization.
+ */
+public func loadDataTable(path: String) -> FfiDataTable {
+    return try!  FfiConverterTypeFfiDataTable.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_load_data_table(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
 public func parseImprintUrl(urlString: String) -> ParseResult {
     return try!  FfiConverterTypeParseResult.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_parse_imprint_url(
         FfiConverterString.lower(urlString),$0
+    )
+})
+}
+/**
+ * Render a direct z-grid spec to an SVG figure (heatmap / contours / both).
+ */
+public func renderGridSvg(spec: FfiGridSpec) -> FfiRenderedPlot {
+    return try!  FfiConverterTypeFfiRenderedPlot.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_render_grid_svg(
+        FfiConverterTypeFfiGridSpec.lower(spec),$0
     )
 })
 }
@@ -6058,6 +6837,42 @@ public func renderPlotTypst(spec: FfiPlotSpec) -> FfiPlotSource {
     return try!  FfiConverterTypeFfiPlotSource.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_render_plot_typst(
         FfiConverterTypeFfiPlotSpec.lower(spec),$0
+    )
+})
+}
+/**
+ * Save a z-grid figure into `<manuscript_dir>/figures/` (when it carries a
+ * raster) and return the insertable Typst snippet. Contour-only grids are
+ * pure vector: nothing is written and the snippet stands alone.
+ */
+public func saveGridFigure(spec: FfiGridSpec, manuscriptDir: String, name: String) -> FfiSavedFigure {
+    return try!  FfiConverterTypeFfiSavedFigure.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_save_grid_figure(
+        FfiConverterTypeFfiGridSpec.lower(spec),
+        FfiConverterString.lower(manuscriptDir),
+        FfiConverterString.lower(name),$0
+    )
+})
+}
+/**
+ * Save `spec`'s heatmap under `<manuscript_dir>/figures/<name>.png` and
+ * return the Typst snippet to insert. Used for RASTER plots (a heatmap PNG
+ * can't be inlined as Typst source). The PNG is ONLY the heatmap layer — the
+ * snippet keeps the full plot Typst (vector axes, ticks, colorbar) with its
+ * `image(...)` pointing at the saved file, so the inserted figure stays
+ * crisp and document-cohesive; the manuscript compile resolves it via
+ * `CompileOptions.figures_root = manuscript_dir`. Vector plots don't need
+ * this — `render_plot_typst` inserts them inline with no file.
+ *
+ * The whole pipeline is Rust-side: render, write, build snippet. `name` is
+ * sanitized to `[A-Za-z0-9_-]`; the file is overwritten if present.
+ */
+public func savePlotFigure(spec: FfiPlotSpec, manuscriptDir: String, name: String) -> FfiSavedFigure {
+    return try!  FfiConverterTypeFfiSavedFigure.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_save_plot_figure(
+        FfiConverterTypeFfiPlotSpec.lower(spec),
+        FfiConverterString.lower(manuscriptDir),
+        FfiConverterString.lower(name),$0
     )
 })
 }
@@ -6205,13 +7020,25 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_list_templates_by_category() != 61803) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_load_data_table() != 22909) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_parse_imprint_url() != 592) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_render_grid_svg() != 36381) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_render_plot_svg() != 38886) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_render_plot_typst() != 21908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_save_grid_figure() != 64146) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_save_plot_figure() != 47162) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_search_templates() != 22769) {
