@@ -66,7 +66,12 @@ public enum PlotAutomationHandler {
             guard let xs = doubles(s["xs"]), let ys = doubles(s["ys"]), !xs.isEmpty,
                 xs.count == ys.count
             else { return nil }
-            let kind: FfiSeriesKind = (s["kind"] as? String)?.lowercased() == "line" ? .line : .scatter
+            let kind: FfiSeriesKind
+            switch (s["kind"] as? String)?.lowercased() {
+            case "line": kind = .line
+            case "contour": kind = .contour
+            default: kind = .scatter
+            }
             let c = s["color"] as? [String: Any]
             let color = FfiColor(
                 r: UInt8(clamping: (c?["r"] as? Int) ?? 31),
@@ -84,7 +89,8 @@ public enum PlotAutomationHandler {
             colormap: decodeColormap(json["colormap"] as? String),
             width: (json["width"] as? Double) ?? 340,
             height: (json["height"] as? Double) ?? 220,
-            rasterThreshold: UInt32((json["rasterThreshold"] as? Int) ?? 0)
+            rasterThreshold: UInt32((json["rasterThreshold"] as? Int) ?? 0),
+            contourLevels: UInt32((json["contourLevels"] as? Int) ?? 0)
         )
     }
 

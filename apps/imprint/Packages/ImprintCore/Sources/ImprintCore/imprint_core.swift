@@ -2821,13 +2821,20 @@ public struct FfiPlotSpec {
      * Point count above which `Auto` switches to raster. 0 → default (10 000).
      */
     public var rasterThreshold: UInt32
+    /**
+     * Number of contour levels for Contour series. 0 → default (7).
+     */
+    public var contourLevels: UInt32
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(title: String, x: FfiAxis, y: FfiAxis, series: [FfiSeries], strategy: FfiStrategy, colormap: FfiColormap, width: Double, height: Double, 
         /**
          * Point count above which `Auto` switches to raster. 0 → default (10 000).
-         */rasterThreshold: UInt32) {
+         */rasterThreshold: UInt32, 
+        /**
+         * Number of contour levels for Contour series. 0 → default (7).
+         */contourLevels: UInt32) {
         self.title = title
         self.x = x
         self.y = y
@@ -2837,6 +2844,7 @@ public struct FfiPlotSpec {
         self.width = width
         self.height = height
         self.rasterThreshold = rasterThreshold
+        self.contourLevels = contourLevels
     }
 }
 
@@ -2871,6 +2879,9 @@ extension FfiPlotSpec: Equatable, Hashable {
         if lhs.rasterThreshold != rhs.rasterThreshold {
             return false
         }
+        if lhs.contourLevels != rhs.contourLevels {
+            return false
+        }
         return true
     }
 
@@ -2884,6 +2895,7 @@ extension FfiPlotSpec: Equatable, Hashable {
         hasher.combine(width)
         hasher.combine(height)
         hasher.combine(rasterThreshold)
+        hasher.combine(contourLevels)
     }
 }
 
@@ -2903,7 +2915,8 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
                 colormap: FfiConverterTypeFfiColormap.read(from: &buf), 
                 width: FfiConverterDouble.read(from: &buf), 
                 height: FfiConverterDouble.read(from: &buf), 
-                rasterThreshold: FfiConverterUInt32.read(from: &buf)
+                rasterThreshold: FfiConverterUInt32.read(from: &buf), 
+                contourLevels: FfiConverterUInt32.read(from: &buf)
         )
     }
 
@@ -2917,6 +2930,7 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.width, into: &buf)
         FfiConverterDouble.write(value.height, into: &buf)
         FfiConverterUInt32.write(value.rasterThreshold, into: &buf)
+        FfiConverterUInt32.write(value.contourLevels, into: &buf)
     }
 }
 
@@ -5017,6 +5031,10 @@ public enum FfiSeriesKind {
     
     case line
     case scatter
+    /**
+     * Density contours of the points (binned, iso-lined, heatmap underlay).
+     */
+    case contour
 }
 
 
@@ -5034,6 +5052,8 @@ public struct FfiConverterTypeFfiSeriesKind: FfiConverterRustBuffer {
         
         case 2: return .scatter
         
+        case 3: return .contour
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -5048,6 +5068,10 @@ public struct FfiConverterTypeFfiSeriesKind: FfiConverterRustBuffer {
         
         case .scatter:
             writeInt(&buf, Int32(2))
+        
+        
+        case .contour:
+            writeInt(&buf, Int32(3))
         
         }
     }

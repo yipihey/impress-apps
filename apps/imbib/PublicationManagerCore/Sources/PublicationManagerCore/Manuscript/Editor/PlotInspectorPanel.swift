@@ -85,8 +85,15 @@ private enum SourceMode: String, CaseIterable, Identifiable {
 private enum PlotStyle: String, CaseIterable, Identifiable {
     case scatter = "Scatter"
     case line = "Line"
+    case contour = "Contour"
     var id: String { rawValue }
-    var kind: FfiSeriesKind { self == .line ? .line : .scatter }
+    var kind: FfiSeriesKind {
+        switch self {
+        case .line: return .line
+        case .scatter: return .scatter
+        case .contour: return .contour
+        }
+    }
 }
 
 // MARK: - Panel view
@@ -275,7 +282,8 @@ private struct PlotPanelView: View {
             colormap: colormap,
             width: width,
             height: height,
-            rasterThreshold: 0
+            rasterThreshold: 0,
+            contourLevels: 0
         )
     }
 

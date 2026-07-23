@@ -38,6 +38,8 @@ pub struct FfiAxis {
 pub enum FfiSeriesKind {
     Line,
     Scatter,
+    /// Density contours of the points (binned, iso-lined, heatmap underlay).
+    Contour,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -90,6 +92,8 @@ pub struct FfiPlotSpec {
     pub height: f64,
     /// Point count above which `Auto` switches to raster. 0 → default (10 000).
     pub raster_threshold: u32,
+    /// Number of contour levels for Contour series. 0 → default (7).
+    pub contour_levels: u32,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -145,12 +149,16 @@ fn build_plot(spec: FfiPlotSpec) -> Plot {
     if spec.raster_threshold > 0 {
         plot.raster_threshold = spec.raster_threshold as usize;
     }
+    if spec.contour_levels > 0 {
+        plot.contour_levels = spec.contour_levels as usize;
+    }
     plot.asset_id = "ffi_plot.png".into();
     for s in spec.series {
         let color = [s.color.r, s.color.g, s.color.b];
         plot = match s.kind {
             FfiSeriesKind::Line => plot.line(s.xs, s.ys, color),
             FfiSeriesKind::Scatter => plot.scatter(s.xs, s.ys, color),
+            FfiSeriesKind::Contour => plot.contour(s.xs, s.ys),
         };
     }
     plot
@@ -186,8 +194,10 @@ thread_local! {
 pub fn render_plot_svg(spec: FfiPlotSpec) -> FfiRenderedPlot {
     let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
     let plot = build_plot(spec);
-    let rasterized = matches!(plot.chosen(), Chosen::Raster);
     let out = plot.render(PlotSize::new(w, h));
+    // Raster if the auto-strategy chose it OR the render produced an image
+    // asset (contour plots with a heatmap underlay).
+    let rasterized = matches!(plot.chosen(), Chosen::Raster) || !out.assets.is_empty();
 
     // Render on a page sized to the figure, not an A4 sheet: the trailing
     // `#set page(width: auto, ...)` overrides the renderer's A4 preamble so the
@@ -227,8 +237,8 @@ pub fn render_plot_svg(spec: FfiPlotSpec) -> FfiRenderedPlot {
 pub fn render_plot_typst(spec: FfiPlotSpec) -> FfiPlotSource {
     let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
     let plot = build_plot(spec);
-    let rasterized = matches!(plot.chosen(), Chosen::Raster);
     let out = plot.render(PlotSize::new(w, h));
+    let rasterized = matches!(plot.chosen(), Chosen::Raster) || !out.assets.is_empty();
     FfiPlotSource {
         typst: out.typst,
         rasterized,
@@ -497,6 +507,7 @@ mod tests {
             width: 320.0,
             height: 200.0,
             raster_threshold: 0,
+            contour_levels: 0,
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -530,11 +541,54 @@ mod tests {
             width: 320.0,
             height: 220.0,
             raster_threshold: 0,
+            contour_levels: 0,
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
         assert!(out.rasterized, "big-N should raster");
         assert!(out.svg.contains("data:image/png") || out.svg.contains("<image"));
+    }
+
+    #[test]
+    fn ffi_contour_renders_with_underlay_and_vector_lines() {
+        let n = 20_000usize;
+        let mut s: u64 = 0xFEED;
+        let mut nrm = || {
+            let mut g = || {
+                s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+                ((s >> 11) as f64) / ((1u64 << 53) as f64)
+            };
+            let (u1, u2) = (g().max(1e-12), g());
+            (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+        };
+        let xs: Vec<f64> = (0..n).map(|_| nrm()).collect();
+        let ys: Vec<f64> = (0..n).map(|_| 0.6 * nrm()).collect();
+        let spec = FfiPlotSpec {
+            title: "contour test".into(),
+            x: axis(FfiAxisScale::Linear),
+            y: axis(FfiAxisScale::Linear),
+            series: vec![FfiSeries {
+                kind: FfiSeriesKind::Contour,
+                xs,
+                ys,
+                color: FfiColor { r: 0, g: 0, b: 0 },
+            }],
+            strategy: FfiStrategy::Auto,
+            colormap: FfiColormap::Viridis,
+            width: 340.0,
+            height: 240.0,
+            raster_threshold: 0,
+            contour_levels: 5,
+        };
+        let out = render_plot_svg(spec);
+        assert!(out.error.is_none(), "error: {:?}", out.error);
+        assert!(out.rasterized, "underlay asset → rasterized");
+        // Heatmap underlay (embedded raster) AND vector contour lines.
+        assert!(out.svg.contains("data:image/png") || out.svg.contains("<image"));
+        assert!(
+            out.svg.matches("<path").count() > 10,
+            "vector contour paths present"
+        );
     }
 
     #[test]
@@ -583,6 +637,7 @@ mod tests {
             width: 320.0,
             height: 220.0,
             raster_threshold: 0,
+            contour_levels: 0,
         };
 
         let dir = std::env::temp_dir().join(format!("impress_fig_test_{}", std::process::id()));

@@ -11,6 +11,7 @@
 
 use crate::axis::{Axis, Tick};
 use crate::colormap::Colormap;
+use crate::contour::{contour_lines, ContourLevels};
 use crate::hist2d::{ColorScale, Hist2D, Normalization};
 use std::fmt::Write as _;
 
@@ -71,17 +72,20 @@ pub enum Series {
         color: [u8; 3],
         radius: f64,
     },
+    /// Density-contour the points (binned like the raster path, then
+    /// iso-lined). Handled by [`crate::Plot`], not by [`LinePlot`].
+    Contour { xs: Vec<f64>, ys: Vec<f64> },
 }
 
 impl Series {
     pub(crate) fn xs(&self) -> &[f64] {
         match self {
-            Series::Line { xs, .. } | Series::Scatter { xs, .. } => xs,
+            Series::Line { xs, .. } | Series::Scatter { xs, .. } | Series::Contour { xs, .. } => xs,
         }
     }
     pub(crate) fn ys(&self) -> &[f64] {
         match self {
-            Series::Line { ys, .. } | Series::Scatter { ys, .. } => ys,
+            Series::Line { ys, .. } | Series::Scatter { ys, .. } | Series::Contour { ys, .. } => ys,
         }
     }
     /// Number of points in this series.
@@ -190,6 +194,9 @@ impl LinePlot {
                             );
                         }
                     }
+                    // Contour series never reach LinePlot — Plot routes them
+                    // to ContourFigure before choosing the vector path.
+                    Series::Contour { .. } => {}
                 }
                 seg.clear();
             };
@@ -342,6 +349,120 @@ impl Hist2DFigure {
         PlotOutput {
             typst: wrap_box(size, &b),
             assets: vec![(asset_path, png)],
+        }
+    }
+}
+
+/// Contour figure: iso-lines of a grid (typically a binned density), with an
+/// optional raster heatmap underlay. Contour lines are pure vector (Typst
+/// curves); with the underlay off the whole figure is vector. Same tick-range
+/// convention as [`Hist2DFigure`] — grids binned in normalized-axis space pass
+/// the real data bounds so lin/log axes label correctly.
+#[derive(Clone, Debug)]
+pub struct ContourFigure {
+    pub title: String,
+    pub hist: Hist2D,
+    pub norm: Normalization,
+    pub cmap: Colormap,
+    pub scale: ColorScale,
+    pub levels: ContourLevels,
+    /// Draw the heatmap under the contours (classic density-figure look).
+    /// Lines are black over the underlay, colormap-colored without it.
+    pub underlay: bool,
+    pub x: Axis,
+    pub y: Axis,
+    pub x_range: (f64, f64),
+    pub y_range: (f64, f64),
+    /// Asset id for the underlay PNG (unused when `underlay` is false).
+    pub asset_id: String,
+}
+
+impl ContourFigure {
+    pub fn render(&self, size: PlotSize) -> PlotOutput {
+        let (pw, ph) = (size.pw(), size.ph());
+        let (vals, vmin, vmax) = self.hist.normalized(self.norm);
+
+        let mut b = String::new();
+        let mut assets = Vec::new();
+
+        if !self.title.is_empty() {
+            let _ = writeln!(
+                b,
+                "#place(dx: {}pt, dy: 4pt)[#text(size: 9pt, weight: \"bold\")[{}]]",
+                size.pad_l, self.title
+            );
+        }
+
+        if self.underlay {
+            let (png, _, _) = self.hist.to_png(self.norm, self.cmap, self.scale, 4);
+            let asset_path = format!("/{}", self.asset_id);
+            let _ = writeln!(
+                b,
+                "#place(dx: {}pt, dy: {}pt)[#image(\"{}\", width: {}pt, height: {}pt)]",
+                size.pad_l, size.pad_t, asset_path, pw, ph
+            );
+            assets.push((asset_path, png));
+        }
+
+        // Iso-lines. Level positions map through the color scale so line
+        // colors match the colorbar; log color scale → log-spaced levels.
+        let levels = match (&self.levels, self.scale) {
+            (ContourLevels::Linear(n), ColorScale::Log) => {
+                ContourLevels::Log(*n).resolve(vmin, vmax)
+            }
+            (spec, _) => spec.resolve(vmin, vmax),
+        };
+        for level in &levels {
+            let t_color = match self.scale {
+                ColorScale::Linear => (level - vmin) / (vmax - vmin).max(f64::MIN_POSITIVE),
+                ColorScale::Log => {
+                    let (lo, hi) = (vmin.max(f64::MIN_POSITIVE).ln(), vmax.ln());
+                    ((level.max(f64::MIN_POSITIVE).ln() - lo) / (hi - lo).max(f64::MIN_POSITIVE))
+                        .clamp(0.0, 1.0)
+                }
+            };
+            let color = if self.underlay {
+                "black".to_string()
+            } else {
+                rgb(self.cmap.sample(t_color))
+            };
+            for line in contour_lines(&vals, self.hist.nx, self.hist.ny, *level) {
+                if line.len() < 2 {
+                    continue;
+                }
+                let mut c = format!(
+                    "#place(dx: {}pt, dy: {}pt)[#curve(stroke: 0.7pt + {color}, ",
+                    size.pad_l, size.pad_t
+                );
+                let to_pt = |(tx, ty): (f64, f64)| (tx * pw, (1.0 - ty) * ph);
+                let (x0, y0) = to_pt(line[0]);
+                let _ = write!(c, "curve.move(({x0:.2}pt, {y0:.2}pt)), ");
+                for p in &line[1..] {
+                    let (x, y) = to_pt(*p);
+                    let _ = write!(c, "curve.line(({x:.2}pt, {y:.2}pt)), ");
+                }
+                c.push_str(")]\n");
+                b.push_str(&c);
+            }
+        }
+
+        let (lox, hix) = self.x_range;
+        let (loy, hiy) = self.y_range;
+        emit_frame_and_ticks(
+            &mut b,
+            size,
+            pw,
+            ph,
+            &self.x.ticks(lox, hix, 5),
+            &self.y.ticks(loy, hiy, 5),
+            self.x.label.as_deref(),
+            self.y.label.as_deref(),
+        );
+        emit_colorbar(&mut b, size, ph, self.cmap, vmin, vmax);
+
+        PlotOutput {
+            typst: wrap_box(size, &b),
+            assets,
         }
     }
 }

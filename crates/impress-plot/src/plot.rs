@@ -11,8 +11,9 @@
 
 use crate::axis::Axis;
 use crate::colormap::Colormap;
+use crate::contour::ContourLevels;
 use crate::hist2d::{ColorScale, Hist2D, Normalization};
-use crate::render::{Hist2DFigure, LinePlot, PlotOutput, PlotSize, Series};
+use crate::render::{ContourFigure, Hist2DFigure, LinePlot, PlotOutput, PlotSize, Series};
 
 /// Requested rendering strategy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +49,11 @@ pub struct Plot {
     pub bins: (usize, usize),
     /// Asset id for the raster path.
     pub asset_id: String,
+    /// Number of contour levels for contour series (default 7). Log-spaced
+    /// automatically since the density color scale is log.
+    pub contour_levels: usize,
+    /// Draw the heatmap under contour lines (default true — classic look).
+    pub contour_underlay: bool,
 }
 
 impl Plot {
@@ -62,6 +68,8 @@ impl Plot {
             cmap: Colormap::Viridis,
             bins: (160, 160),
             asset_id: "plot_raster.png".into(),
+            contour_levels: 7,
+            contour_underlay: true,
         }
     }
     pub fn title(mut self, t: impl Into<String>) -> Self {
@@ -90,6 +98,12 @@ impl Plot {
         self.strategy = s;
         self
     }
+    /// Density-contour the points (binned, then iso-lined; heatmap underlay
+    /// per `contour_underlay`).
+    pub fn contour(mut self, xs: Vec<f64>, ys: Vec<f64>) -> Self {
+        self.series.push(Series::Contour { xs, ys });
+        self
+    }
 
     fn total_points(&self) -> usize {
         self.series.iter().map(|s| s.len()).sum()
@@ -111,6 +125,15 @@ impl Plot {
     }
 
     pub fn render(&self, size: PlotSize) -> PlotOutput {
+        // Contour series take their own path regardless of point count (the
+        // binning cost is the same as the raster path).
+        if self
+            .series
+            .iter()
+            .any(|s| matches!(s, Series::Contour { .. }))
+        {
+            return self.render_contour(size);
+        }
         match self.chosen() {
             Chosen::Vector => self.render_vector(size),
             Chosen::Raster => self.render_raster(size),
@@ -124,15 +147,17 @@ impl Plot {
         lp.render(size)
     }
 
-    fn render_raster(&self, size: PlotSize) -> PlotOutput {
+    /// Bin all series' points in normalized-axis space (lin/log + limits
+    /// honored uniformly). Returns the histogram + the resolved data bounds
+    /// used for tick labeling.
+    fn bin_normalized(&self) -> (Hist2D, (f64, f64), (f64, f64)) {
         let (dxmin, dxmax, dymin, dymax) = self.data_extent();
         let (lox, hix) = self.x.resolved(dxmin, dxmax);
         let (loy, hiy) = self.y.resolved(dymin, dymax);
 
-        // Bin in normalized-axis space so lin/log + limits are honored uniformly:
-        // every point becomes (tx, ty) ∈ [0,1]² through the axis transform; the
-        // heatmap then stretches to the plot rect and the axis ticks (also in
-        // t-space) align exactly.
+        // Every point becomes (tx, ty) ∈ [0,1]² through the axis transform; the
+        // heatmap/contours then stretch to the plot rect and the axis ticks
+        // (also in t-space) align exactly.
         let (mut txs, mut tys) = (Vec::new(), Vec::new());
         for s in &self.series {
             let (xs, ys) = (s.xs(), s.ys());
@@ -156,6 +181,30 @@ impl Plot {
             self.bins.1,
             Some(((0.0, 1.0), (0.0, 1.0))),
         );
+        (hist, (lox, hix), (loy, hiy))
+    }
+
+    fn render_contour(&self, size: PlotSize) -> PlotOutput {
+        let (hist, x_range, y_range) = self.bin_normalized();
+        let fig = ContourFigure {
+            title: self.title.clone(),
+            hist,
+            norm: Normalization::Count,
+            cmap: self.cmap,
+            scale: ColorScale::Log, // density spans orders of magnitude
+            levels: ContourLevels::Linear(self.contour_levels.max(1)),
+            underlay: self.contour_underlay,
+            x: self.x.clone(),
+            y: self.y.clone(),
+            x_range,
+            y_range,
+            asset_id: self.asset_id.clone(),
+        };
+        fig.render(size.with_colorbar())
+    }
+
+    fn render_raster(&self, size: PlotSize) -> PlotOutput {
+        let (hist, (lox, hix), (loy, hiy)) = self.bin_normalized();
         let fig = Hist2DFigure {
             title: self.title.clone(),
             hist,
