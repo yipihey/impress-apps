@@ -3311,6 +3311,47 @@ extension RustStoreAdapter {
     }
 
     /// Full manuscript detail (body, metadata, folders) for the detail pane.
+    // MARK: - Saved plot specs (plot-spec@1.0.0)
+
+    /// List saved plot specs, newest-modified first.
+    public func listPlotSpecs(limit: UInt32 = 200) -> [PlotSpecRow] {
+        do {
+            return try store.listPlotSpecs(limit: limit)
+        } catch {
+            Logger.library.errorCapture("listPlotSpecs failed: \(error)", category: "plots")
+            return []
+        }
+    }
+
+    /// Save a plot spec (impress-plot spec JSON; `specKind` "series"|"grid").
+    @discardableResult
+    public func savePlotSpec(
+        name: String, specKind: String, specJSON: String, dataSource: String? = nil
+    ) -> PlotSpecRow? {
+        do {
+            let row = try store.savePlotSpec(
+                name: name, specKind: specKind, specJson: specJSON, dataSource: dataSource)
+            Logger.library.infoCapture(
+                "Saved plot spec '\(name)' (\(specKind), \(specJSON.count) bytes)",
+                category: "plots")
+            didMutate(structural: false)
+            return row
+        } catch {
+            Logger.library.errorCapture("savePlotSpec failed: \(error)", category: "plots")
+            return nil
+        }
+    }
+
+    /// Fetch one saved plot spec.
+    public func getPlotSpec(id: UUID) -> PlotSpecRow? {
+        do {
+            return try store.getPlotSpec(id: id.uuidString)
+        } catch {
+            Logger.library.errorCapture("getPlotSpec failed: \(error)", category: "plots")
+            return nil
+        }
+    }
+
     public func getManuscriptDetail(id: UUID) -> ManuscriptDetail? {
         do {
             return try store.getManuscriptDetail(id: id.uuidString)

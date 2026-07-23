@@ -1081,6 +1081,35 @@ pub fn item_to_manuscript_revision_row(item: &Item) -> ManuscriptRevisionRow {
     }
 }
 
+/// A saved plot specification (`plot-spec@1.0.0`) — the declarative,
+/// backend-neutral figure source of truth (impress-plot spec JSON).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct PlotSpecRow {
+    pub id: String,
+    pub name: String,
+    /// "series" (FfiPlotSpec JSON) or "grid" (FfiGridSpec JSON).
+    pub spec_kind: String,
+    pub spec_json: String,
+    pub data_source: Option<String>,
+    pub date_added: i64,
+    pub date_modified: i64,
+}
+
+/// Convert a `plot-spec@1.0.0` Item into a PlotSpecRow.
+pub fn item_to_plot_spec_row(item: &Item) -> PlotSpecRow {
+    let payload = &item.payload;
+    PlotSpecRow {
+        id: item.id.to_string(),
+        name: get_str(payload, "name").unwrap_or_default(),
+        spec_kind: get_str(payload, "spec_kind").unwrap_or_else(|| "series".into()),
+        spec_json: get_str(payload, "spec_json").unwrap_or_default(),
+        data_source: get_str(payload, "data_source"),
+        date_added: item.created.timestamp_millis(),
+        date_modified: item.modified.timestamp_millis(),
+    }
+}
+
 // --- Helpers ---
 
 fn get_str(payload: &BTreeMap<String, Value>, key: &str) -> Option<String> {

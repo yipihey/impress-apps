@@ -141,7 +141,7 @@ export const IMPRINT_TOOLS: Tool[] = [
   {
     name: "imprint_render_plot",
     description:
-      "Render a native plot (impress-plot) from a declarative spec to SVG. Spec: {title?, x?: {scale: 'linear'|'log', min?, max?, label?}, y?: {...}, series: [{kind: 'line'|'scatter'|'contour', xs: number[], ys: number[], color?: {r,g,b}}], colormap?: 'viridis'|'magma'|'plasma'|'inferno'|'cividis'|'turbo'|'greys', strategy?: 'auto'|'vector'|'raster', width?, height?, contourLevels?}. Auto-picks vector below ~10k points, raster 2D-histogram above; kind 'contour' draws density iso-lines (vector) over a heatmap underlay, with inline level labels (disable via contourLabels: false) and an optional per-level line-style cycle contourLineStyles: ['solid','dashed','dotted','dashDotted'] for traceability.",
+      "Render a native plot (impress-plot) from a declarative spec to SVG. Spec: {title?, x?: {scale: 'linear'|'log', min?, max?, label?}, y?: {...}, series: [{kind: 'line'|'scatter'|'contour', xs: number[], ys: number[], color?: {r,g,b}}], colormap?: 'viridis'|'magma'|'plasma'|'inferno'|'cividis'|'turbo'|'greys', strategy?: 'auto'|'vector'|'raster', width?, height?, contourLevels?}. Pass specId (UUID) instead of spec to render a SAVED spec from the store. Auto-picks vector below ~10k points, raster 2D-histogram above; kind 'contour' draws density iso-lines (vector) over a heatmap underlay, with inline level labels (disable via contourLabels: false) and an optional per-level line-style cycle contourLineStyles: ['solid','dashed','dotted','dashDotted'] for traceability; contourLevelValues: number[] pins explicit levels. Alternatively pass gridSpec {values: number[] (row-major, iy*nx+ix, iy 0 = low y), nx, ny, xMin, xMax, yMin, yMax, style: 'heatmap'|'contour'|'both', colormap?, logScale?, contourLevelValues?, smoothSigma?} to render a direct z-grid field (analytic function, simulation slice) with no binning.",
     inputSchema: {
       type: "object",
       properties: {
@@ -151,6 +151,27 @@ export const IMPRINT_TOOLS: Tool[] = [
         },
       },
       required: ["spec"],
+    },
+  },
+  {
+    name: "imprint_list_plot_specs",
+    description:
+      "List SAVED plot specs from the shared store (name, id, kind). Saved specs are reusable declarative figures; render one via imprint_render_plot with specId.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "imprint_save_plot_spec",
+    description:
+      "Save a plot spec (series `spec` or `gridSpec`) into the shared store under a name, so it can be re-rendered/edited later from either app.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Display name" },
+        spec: { type: "object", description: "Series spec (same shape as imprint_render_plot)" },
+        gridSpec: { type: "object", description: "Grid spec (alternative to spec)" },
+        dataSource: { type: "string", description: "Optional provenance note" },
+      },
+      required: ["name"],
     },
   },
   {
@@ -865,6 +886,10 @@ export class ImprintTools {
         return this.compile(args);
       case "imprint_render_plot":
         return this.renderPlot(args);
+      case "imprint_list_plot_specs":
+        return this.listPlotSpecs();
+      case "imprint_save_plot_spec":
+        return this.savePlotSpec(args);
       case "imprint_save_plot_figure":
         return this.savePlotFigure(args);
       case "imprint_update_document":
@@ -1336,11 +1361,26 @@ export class ImprintTools {
   private async renderPlot(
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }> }> {
-    const spec = args?.spec;
-    if (!spec || typeof spec !== "object") {
-      return { content: [{ type: "text", text: "Error: spec (object) is required" }] };
+    const result = await this.client.renderPlotBody({
+      spec: args?.spec,
+      gridSpec: args?.gridSpec,
+      specId: args?.specId,
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+
+  private async listPlotSpecs(): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const result = await this.client.listPlotSpecs();
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+
+  private async savePlotSpec(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    if (!args?.name) {
+      return { content: [{ type: "text", text: "Error: name is required" }] };
     }
-    const result = await this.client.renderPlot(spec as Record<string, unknown>);
+    const result = await this.client.savePlotSpec(args as Record<string, unknown>);
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 

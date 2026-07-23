@@ -13,6 +13,7 @@ pub mod manuscript_revision;
 pub mod manuscript_section;
 pub mod manuscript_submission;
 pub mod operation;
+pub mod plot_spec;
 pub mod task;
 pub mod throughline;
 pub mod veusz_plot;
@@ -31,6 +32,7 @@ pub use manuscript_revision::register_manuscript_revision_schema;
 pub use manuscript_section::register_imprint_schemas;
 pub use manuscript_submission::register_manuscript_submission_schema;
 pub use operation::register_operation_schema;
+pub use plot_spec::register_plot_spec_schema;
 pub use task::register_task_schemas;
 pub use throughline::register_throughline_schema;
 pub use veusz_plot::register_veusz_plot_schema;
@@ -58,6 +60,7 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_manuscript_submission_schema(registry);
     register_manuscript_collection_schema(registry);
     register_veusz_plot_schema(registry);
+    register_plot_spec_schema(registry);
     register_knowledge_object_schemas(registry);
     // Throughline (ADR-0016): narrative companion documents. Depends on
     // nothing; registered after manuscript for reading order only.

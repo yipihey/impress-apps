@@ -41,5 +41,5 @@ pub use axis::{Axis, Limits, Scale, Tick};
 pub use colormap::Colormap;
 pub use contour::{contour_lines, gaussian_smooth, ContourLevels};
 pub use hist2d::{ColorScale, Hist2D, Normalization};
-pub use plot::{Chosen, Plot, Strategy};
+pub use plot::{Chosen, GridPlot, GridStyle, Plot, Strategy};
 pub use render::{ContourFigure, Hist2DFigure, LinePlot, LineStyle, PlotOutput, PlotSize, Series};

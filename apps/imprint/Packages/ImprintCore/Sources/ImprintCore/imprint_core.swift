@@ -2716,6 +2716,233 @@ public func FfiConverterTypeFfiDataTable_lower(_ value: FfiDataTable) -> RustBuf
 
 
 /**
+ * Direct z-grid input: an existing field (analytic function, simulation
+ * slice) over data ranges — no binning. Values are row-major
+ * `v[iy*nx + ix]` with iy = 0 the LOW-y row.
+ */
+public struct FfiGridSpec {
+    public var title: String
+    public var values: [Double]
+    public var nx: UInt32
+    public var ny: UInt32
+    public var xMin: Double
+    public var xMax: Double
+    public var yMin: Double
+    public var yMax: Double
+    public var xLabel: String?
+    public var yLabel: String?
+    public var style: FfiGridStyle
+    public var colormap: FfiColormap
+    /**
+     * Log color/level scale (fields spanning orders of magnitude).
+     */
+    public var logScale: Bool
+    public var contourLevels: UInt32
+    public var contourLevelValues: [Double]
+    public var contourLabels: Bool
+    public var contourLineStyles: [FfiLineStyle]
+    /**
+     * Contour-extraction smoothing in bins (analytic grids are smooth → 0).
+     */
+    public var smoothSigma: Double
+    public var width: Double
+    public var height: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, values: [Double], nx: UInt32, ny: UInt32, xMin: Double, xMax: Double, yMin: Double, yMax: Double, xLabel: String?, yLabel: String?, style: FfiGridStyle, colormap: FfiColormap, 
+        /**
+         * Log color/level scale (fields spanning orders of magnitude).
+         */logScale: Bool, contourLevels: UInt32, contourLevelValues: [Double], contourLabels: Bool, contourLineStyles: [FfiLineStyle], 
+        /**
+         * Contour-extraction smoothing in bins (analytic grids are smooth → 0).
+         */smoothSigma: Double, width: Double, height: Double) {
+        self.title = title
+        self.values = values
+        self.nx = nx
+        self.ny = ny
+        self.xMin = xMin
+        self.xMax = xMax
+        self.yMin = yMin
+        self.yMax = yMax
+        self.xLabel = xLabel
+        self.yLabel = yLabel
+        self.style = style
+        self.colormap = colormap
+        self.logScale = logScale
+        self.contourLevels = contourLevels
+        self.contourLevelValues = contourLevelValues
+        self.contourLabels = contourLabels
+        self.contourLineStyles = contourLineStyles
+        self.smoothSigma = smoothSigma
+        self.width = width
+        self.height = height
+    }
+}
+
+
+
+extension FfiGridSpec: Equatable, Hashable {
+    public static func ==(lhs: FfiGridSpec, rhs: FfiGridSpec) -> Bool {
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.values != rhs.values {
+            return false
+        }
+        if lhs.nx != rhs.nx {
+            return false
+        }
+        if lhs.ny != rhs.ny {
+            return false
+        }
+        if lhs.xMin != rhs.xMin {
+            return false
+        }
+        if lhs.xMax != rhs.xMax {
+            return false
+        }
+        if lhs.yMin != rhs.yMin {
+            return false
+        }
+        if lhs.yMax != rhs.yMax {
+            return false
+        }
+        if lhs.xLabel != rhs.xLabel {
+            return false
+        }
+        if lhs.yLabel != rhs.yLabel {
+            return false
+        }
+        if lhs.style != rhs.style {
+            return false
+        }
+        if lhs.colormap != rhs.colormap {
+            return false
+        }
+        if lhs.logScale != rhs.logScale {
+            return false
+        }
+        if lhs.contourLevels != rhs.contourLevels {
+            return false
+        }
+        if lhs.contourLevelValues != rhs.contourLevelValues {
+            return false
+        }
+        if lhs.contourLabels != rhs.contourLabels {
+            return false
+        }
+        if lhs.contourLineStyles != rhs.contourLineStyles {
+            return false
+        }
+        if lhs.smoothSigma != rhs.smoothSigma {
+            return false
+        }
+        if lhs.width != rhs.width {
+            return false
+        }
+        if lhs.height != rhs.height {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(title)
+        hasher.combine(values)
+        hasher.combine(nx)
+        hasher.combine(ny)
+        hasher.combine(xMin)
+        hasher.combine(xMax)
+        hasher.combine(yMin)
+        hasher.combine(yMax)
+        hasher.combine(xLabel)
+        hasher.combine(yLabel)
+        hasher.combine(style)
+        hasher.combine(colormap)
+        hasher.combine(logScale)
+        hasher.combine(contourLevels)
+        hasher.combine(contourLevelValues)
+        hasher.combine(contourLabels)
+        hasher.combine(contourLineStyles)
+        hasher.combine(smoothSigma)
+        hasher.combine(width)
+        hasher.combine(height)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiGridSpec: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiGridSpec {
+        return
+            try FfiGridSpec(
+                title: FfiConverterString.read(from: &buf), 
+                values: FfiConverterSequenceDouble.read(from: &buf), 
+                nx: FfiConverterUInt32.read(from: &buf), 
+                ny: FfiConverterUInt32.read(from: &buf), 
+                xMin: FfiConverterDouble.read(from: &buf), 
+                xMax: FfiConverterDouble.read(from: &buf), 
+                yMin: FfiConverterDouble.read(from: &buf), 
+                yMax: FfiConverterDouble.read(from: &buf), 
+                xLabel: FfiConverterOptionString.read(from: &buf), 
+                yLabel: FfiConverterOptionString.read(from: &buf), 
+                style: FfiConverterTypeFfiGridStyle.read(from: &buf), 
+                colormap: FfiConverterTypeFfiColormap.read(from: &buf), 
+                logScale: FfiConverterBool.read(from: &buf), 
+                contourLevels: FfiConverterUInt32.read(from: &buf), 
+                contourLevelValues: FfiConverterSequenceDouble.read(from: &buf), 
+                contourLabels: FfiConverterBool.read(from: &buf), 
+                contourLineStyles: FfiConverterSequenceTypeFfiLineStyle.read(from: &buf), 
+                smoothSigma: FfiConverterDouble.read(from: &buf), 
+                width: FfiConverterDouble.read(from: &buf), 
+                height: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiGridSpec, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterSequenceDouble.write(value.values, into: &buf)
+        FfiConverterUInt32.write(value.nx, into: &buf)
+        FfiConverterUInt32.write(value.ny, into: &buf)
+        FfiConverterDouble.write(value.xMin, into: &buf)
+        FfiConverterDouble.write(value.xMax, into: &buf)
+        FfiConverterDouble.write(value.yMin, into: &buf)
+        FfiConverterDouble.write(value.yMax, into: &buf)
+        FfiConverterOptionString.write(value.xLabel, into: &buf)
+        FfiConverterOptionString.write(value.yLabel, into: &buf)
+        FfiConverterTypeFfiGridStyle.write(value.style, into: &buf)
+        FfiConverterTypeFfiColormap.write(value.colormap, into: &buf)
+        FfiConverterBool.write(value.logScale, into: &buf)
+        FfiConverterUInt32.write(value.contourLevels, into: &buf)
+        FfiConverterSequenceDouble.write(value.contourLevelValues, into: &buf)
+        FfiConverterBool.write(value.contourLabels, into: &buf)
+        FfiConverterSequenceTypeFfiLineStyle.write(value.contourLineStyles, into: &buf)
+        FfiConverterDouble.write(value.smoothSigma, into: &buf)
+        FfiConverterDouble.write(value.width, into: &buf)
+        FfiConverterDouble.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGridSpec_lift(_ buf: RustBuffer) throws -> FfiGridSpec {
+    return try FfiConverterTypeFfiGridSpec.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGridSpec_lower(_ value: FfiGridSpec) -> RustBuffer {
+    return FfiConverterTypeFfiGridSpec.lower(value)
+}
+
+
+/**
  * The Typst source for a plot, for inserting into a manuscript.
  */
 public struct FfiPlotSource {
@@ -2834,6 +3061,11 @@ public struct FfiPlotSpec {
      * [Solid, Dashed] or [Solid, Dashed, Dotted] — makes contours traceable.
      */
     public var contourLineStyles: [FfiLineStyle]
+    /**
+     * Explicit contour level VALUES (normalized density units). Non-empty
+     * overrides `contour_levels` — for comparable levels across figures.
+     */
+    public var contourLevelValues: [Double]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2850,7 +3082,11 @@ public struct FfiPlotSpec {
         /**
          * Line-style cycle applied per contour level (empty → all solid), e.g.
          * [Solid, Dashed] or [Solid, Dashed, Dotted] — makes contours traceable.
-         */contourLineStyles: [FfiLineStyle]) {
+         */contourLineStyles: [FfiLineStyle], 
+        /**
+         * Explicit contour level VALUES (normalized density units). Non-empty
+         * overrides `contour_levels` — for comparable levels across figures.
+         */contourLevelValues: [Double]) {
         self.title = title
         self.x = x
         self.y = y
@@ -2863,6 +3099,7 @@ public struct FfiPlotSpec {
         self.contourLevels = contourLevels
         self.contourLabels = contourLabels
         self.contourLineStyles = contourLineStyles
+        self.contourLevelValues = contourLevelValues
     }
 }
 
@@ -2906,6 +3143,9 @@ extension FfiPlotSpec: Equatable, Hashable {
         if lhs.contourLineStyles != rhs.contourLineStyles {
             return false
         }
+        if lhs.contourLevelValues != rhs.contourLevelValues {
+            return false
+        }
         return true
     }
 
@@ -2922,6 +3162,7 @@ extension FfiPlotSpec: Equatable, Hashable {
         hasher.combine(contourLevels)
         hasher.combine(contourLabels)
         hasher.combine(contourLineStyles)
+        hasher.combine(contourLevelValues)
     }
 }
 
@@ -2944,7 +3185,8 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
                 rasterThreshold: FfiConverterUInt32.read(from: &buf), 
                 contourLevels: FfiConverterUInt32.read(from: &buf), 
                 contourLabels: FfiConverterBool.read(from: &buf), 
-                contourLineStyles: FfiConverterSequenceTypeFfiLineStyle.read(from: &buf)
+                contourLineStyles: FfiConverterSequenceTypeFfiLineStyle.read(from: &buf), 
+                contourLevelValues: FfiConverterSequenceDouble.read(from: &buf)
         )
     }
 
@@ -2961,6 +3203,7 @@ public struct FfiConverterTypeFfiPlotSpec: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.contourLevels, into: &buf)
         FfiConverterBool.write(value.contourLabels, into: &buf)
         FfiConverterSequenceTypeFfiLineStyle.write(value.contourLineStyles, into: &buf)
+        FfiConverterSequenceDouble.write(value.contourLevelValues, into: &buf)
     }
 }
 
@@ -5056,6 +5299,80 @@ extension FfiColormap: Equatable, Hashable {}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Presentation for a direct z-grid figure.
+ */
+
+public enum FfiGridStyle {
+    
+    case heatmap
+    case contour
+    case both
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiGridStyle: FfiConverterRustBuffer {
+    typealias SwiftType = FfiGridStyle
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiGridStyle {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .heatmap
+        
+        case 2: return .contour
+        
+        case 3: return .both
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiGridStyle, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .heatmap:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .contour:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .both:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGridStyle_lift(_ buf: RustBuffer) throws -> FfiGridStyle {
+    return try FfiConverterTypeFfiGridStyle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGridStyle_lower(_ value: FfiGridStyle) -> RustBuffer {
+    return FfiConverterTypeFfiGridStyle.lower(value)
+}
+
+
+
+extension FfiGridStyle: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum FfiLineStyle {
     
@@ -6489,6 +6806,16 @@ public func parseImprintUrl(urlString: String) -> ParseResult {
 })
 }
 /**
+ * Render a direct z-grid spec to an SVG figure (heatmap / contours / both).
+ */
+public func renderGridSvg(spec: FfiGridSpec) -> FfiRenderedPlot {
+    return try!  FfiConverterTypeFfiRenderedPlot.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_render_grid_svg(
+        FfiConverterTypeFfiGridSpec.lower(spec),$0
+    )
+})
+}
+/**
  * Render `spec` to an SVG figure. Picks vector or raster automatically (unless
  * forced), compiling the generated Typst — and any raster asset — through a
  * thread-local persistent engine (fast on repeat).
@@ -6510,6 +6837,20 @@ public func renderPlotTypst(spec: FfiPlotSpec) -> FfiPlotSource {
     return try!  FfiConverterTypeFfiPlotSource.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_render_plot_typst(
         FfiConverterTypeFfiPlotSpec.lower(spec),$0
+    )
+})
+}
+/**
+ * Save a z-grid figure into `<manuscript_dir>/figures/` (when it carries a
+ * raster) and return the insertable Typst snippet. Contour-only grids are
+ * pure vector: nothing is written and the snippet stands alone.
+ */
+public func saveGridFigure(spec: FfiGridSpec, manuscriptDir: String, name: String) -> FfiSavedFigure {
+    return try!  FfiConverterTypeFfiSavedFigure.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_save_grid_figure(
+        FfiConverterTypeFfiGridSpec.lower(spec),
+        FfiConverterString.lower(manuscriptDir),
+        FfiConverterString.lower(name),$0
     )
 })
 }
@@ -6685,10 +7026,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_parse_imprint_url() != 592) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_render_grid_svg() != 36381) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_render_plot_svg() != 38886) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_render_plot_typst() != 21908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_save_grid_figure() != 64146) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_save_plot_figure() != 47162) {

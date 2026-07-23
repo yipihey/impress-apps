@@ -14,7 +14,9 @@
 #![cfg(feature = "typst-render")]
 
 use crate::render::{PersistentTypstRenderer, RenderOptions};
-use impress_plot::{Axis, Chosen, Colormap, LineStyle, Plot, PlotSize, Strategy};
+use impress_plot::{
+    Axis, Chosen, Colormap, GridPlot, GridStyle, LineStyle, Plot, PlotSize, Strategy,
+};
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Clone, Copy, Debug)]
@@ -108,6 +110,48 @@ pub struct FfiPlotSpec {
     /// Line-style cycle applied per contour level (empty → all solid), e.g.
     /// [Solid, Dashed] or [Solid, Dashed, Dotted] — makes contours traceable.
     pub contour_line_styles: Vec<FfiLineStyle>,
+    /// Explicit contour level VALUES (normalized density units). Non-empty
+    /// overrides `contour_levels` — for comparable levels across figures.
+    pub contour_level_values: Vec<f64>,
+}
+
+/// Presentation for a direct z-grid figure.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Clone, Copy, Debug)]
+pub enum FfiGridStyle {
+    Heatmap,
+    Contour,
+    Both,
+}
+
+/// Direct z-grid input: an existing field (analytic function, simulation
+/// slice) over data ranges — no binning. Values are row-major
+/// `v[iy*nx + ix]` with iy = 0 the LOW-y row.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Clone, Debug)]
+pub struct FfiGridSpec {
+    pub title: String,
+    pub values: Vec<f64>,
+    pub nx: u32,
+    pub ny: u32,
+    pub x_min: f64,
+    pub x_max: f64,
+    pub y_min: f64,
+    pub y_max: f64,
+    pub x_label: Option<String>,
+    pub y_label: Option<String>,
+    pub style: FfiGridStyle,
+    pub colormap: FfiColormap,
+    /// Log color/level scale (fields spanning orders of magnitude).
+    pub log_scale: bool,
+    pub contour_levels: u32,
+    pub contour_level_values: Vec<f64>,
+    pub contour_labels: bool,
+    pub contour_line_styles: Vec<FfiLineStyle>,
+    /// Contour-extraction smoothing in bins (analytic grids are smooth → 0).
+    pub smooth_sigma: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -167,16 +211,8 @@ fn build_plot(spec: FfiPlotSpec) -> Plot {
         plot.contour_levels = spec.contour_levels as usize;
     }
     plot.contour_labels = spec.contour_labels;
-    plot.contour_line_styles = spec
-        .contour_line_styles
-        .iter()
-        .map(|s| match s {
-            FfiLineStyle::Solid => LineStyle::Solid,
-            FfiLineStyle::Dashed => LineStyle::Dashed,
-            FfiLineStyle::Dotted => LineStyle::Dotted,
-            FfiLineStyle::DashDotted => LineStyle::DashDotted,
-        })
-        .collect();
+    plot.contour_line_styles = to_line_styles(&spec.contour_line_styles);
+    plot.contour_level_values = spec.contour_level_values.clone();
     plot.asset_id = "ffi_plot.png".into();
     for s in spec.series {
         let color = [s.color.r, s.color.g, s.color.b];
@@ -268,6 +304,170 @@ pub fn render_plot_typst(spec: FfiPlotSpec) -> FfiPlotSource {
         typst: out.typst,
         rasterized,
         inline_safe: out.assets.is_empty(),
+    }
+}
+
+fn to_line_styles(styles: &[FfiLineStyle]) -> Vec<LineStyle> {
+    styles
+        .iter()
+        .map(|s| match s {
+            FfiLineStyle::Solid => LineStyle::Solid,
+            FfiLineStyle::Dashed => LineStyle::Dashed,
+            FfiLineStyle::Dotted => LineStyle::Dotted,
+            FfiLineStyle::DashDotted => LineStyle::DashDotted,
+        })
+        .collect()
+}
+
+/// Build an `impress-plot` [`GridPlot`] from an FFI grid spec.
+fn build_grid(spec: &FfiGridSpec) -> Result<GridPlot, String> {
+    let (nx, ny) = (spec.nx as usize, spec.ny as usize);
+    if nx < 2 || ny < 2 || spec.values.len() != nx * ny {
+        return Err(format!(
+            "grid size mismatch: {} values for {}x{}",
+            spec.values.len(),
+            spec.nx,
+            spec.ny
+        ));
+    }
+    let mut g = GridPlot::new(
+        spec.values.clone(),
+        nx,
+        ny,
+        (spec.x_min, spec.x_max),
+        (spec.y_min, spec.y_max),
+    );
+    g.title = spec.title.clone();
+    g.x_label = spec.x_label.clone();
+    g.y_label = spec.y_label.clone();
+    g.style = match spec.style {
+        FfiGridStyle::Heatmap => GridStyle::Heatmap,
+        FfiGridStyle::Contour => GridStyle::Contour,
+        FfiGridStyle::Both => GridStyle::Both,
+    };
+    g.cmap = to_cmap(spec.colormap);
+    g.scale = if spec.log_scale {
+        impress_plot::ColorScale::Log
+    } else {
+        impress_plot::ColorScale::Linear
+    };
+    if spec.contour_levels > 0 {
+        g.contour_levels = spec.contour_levels as usize;
+    }
+    g.contour_level_values = spec.contour_level_values.clone();
+    g.contour_labels = spec.contour_labels;
+    g.contour_line_styles = to_line_styles(&spec.contour_line_styles);
+    g.smooth_sigma = spec.smooth_sigma;
+    Ok(g)
+}
+
+/// Render a direct z-grid spec to an SVG figure (heatmap / contours / both).
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn render_grid_svg(spec: FfiGridSpec) -> FfiRenderedPlot {
+    let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
+    let grid = match build_grid(&spec) {
+        Ok(g) => g,
+        Err(e) => {
+            return FfiRenderedPlot {
+                svg: String::new(),
+                rasterized: false,
+                error: Some(e),
+            }
+        }
+    };
+    let out = grid.render(PlotSize::new(w, h));
+    let rasterized = !out.assets.is_empty();
+    let figure_source = format!(
+        "#set page(width: auto, height: auto, margin: 3pt)\n{}",
+        out.typst
+    );
+    PLOT_RENDERER.with(|cell| {
+        let mut r = cell.borrow_mut();
+        r.clear_assets();
+        for (path, bytes) in &out.assets {
+            r.set_asset(path, bytes.clone());
+        }
+        match r.render_svg(&figure_source, &RenderOptions::a4()) {
+            Ok((svgs, _warn, _pages, _map)) => FfiRenderedPlot {
+                svg: svgs.into_iter().next().unwrap_or_default(),
+                rasterized,
+                error: None,
+            },
+            Err(e) => FfiRenderedPlot {
+                svg: String::new(),
+                rasterized,
+                error: Some(format!("{e:?}")),
+            },
+        }
+    })
+}
+
+/// Save a z-grid figure into `<manuscript_dir>/figures/` (when it carries a
+/// raster) and return the insertable Typst snippet. Contour-only grids are
+/// pure vector: nothing is written and the snippet stands alone.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn save_grid_figure(spec: FfiGridSpec, manuscript_dir: String, name: String) -> FfiSavedFigure {
+    let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
+    let title = spec.title.clone();
+
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = if safe.is_empty() {
+        "grid".to_string()
+    } else {
+        safe
+    };
+    let rel_path = format!("figures/{safe}.png");
+
+    let mut grid = match build_grid(&spec) {
+        Ok(g) => g,
+        Err(e) => {
+            return FfiSavedFigure {
+                rel_path,
+                typst_snippet: String::new(),
+                error: Some(e),
+            }
+        }
+    };
+    grid.asset_id = rel_path.clone();
+    let out = grid.render(PlotSize::new(w, h));
+
+    if let Some((_, png)) = out.assets.into_iter().next() {
+        let dir = std::path::Path::new(&manuscript_dir).join("figures");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return FfiSavedFigure {
+                rel_path,
+                typst_snippet: String::new(),
+                error: Some(format!("create figures dir: {e}")),
+            };
+        }
+        if let Err(e) = std::fs::write(dir.join(format!("{safe}.png")), &png) {
+            return FfiSavedFigure {
+                rel_path,
+                typst_snippet: String::new(),
+                error: Some(format!("write figure: {e}")),
+            };
+        }
+    }
+
+    let caption = if title.is_empty() {
+        safe.clone()
+    } else {
+        title
+    };
+    let typst_snippet = format!("#figure(\n[\n{}],\n    caption: [{caption}],\n)", out.typst);
+    FfiSavedFigure {
+        rel_path,
+        typst_snippet,
+        error: None,
     }
 }
 
@@ -535,6 +735,7 @@ mod tests {
             contour_levels: 0,
             contour_labels: true,
             contour_line_styles: vec![],
+            contour_level_values: vec![],
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -571,6 +772,7 @@ mod tests {
             contour_levels: 0,
             contour_labels: true,
             contour_line_styles: vec![],
+            contour_level_values: vec![],
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -610,6 +812,7 @@ mod tests {
             contour_levels: 5,
             contour_labels: true,
             contour_line_styles: vec![],
+            contour_level_values: vec![],
         };
         let out = render_plot_svg(spec);
         assert!(out.error.is_none(), "error: {:?}", out.error);
@@ -620,6 +823,52 @@ mod tests {
             out.svg.matches("<path").count() > 10,
             "vector contour paths present"
         );
+    }
+
+    #[test]
+    fn ffi_grid_renders_and_validates() {
+        let (nx, ny) = (80u32, 60u32);
+        let mut values = vec![0.0; (nx * ny) as usize];
+        for iy in 0..ny as usize {
+            for ix in 0..nx as usize {
+                let x = -3.0 + 6.0 * (ix as f64 + 0.5) / nx as f64;
+                let y = -2.0 + 4.0 * (iy as f64 + 0.5) / ny as f64;
+                values[iy * nx as usize + ix] = (x.sin() * y.cos()) + 1.5;
+            }
+        }
+        let spec = FfiGridSpec {
+            title: "saddle".into(),
+            values,
+            nx,
+            ny,
+            x_min: -3.0,
+            x_max: 3.0,
+            y_min: -2.0,
+            y_max: 2.0,
+            x_label: Some("x".into()),
+            y_label: Some("y".into()),
+            style: FfiGridStyle::Both,
+            colormap: FfiColormap::Cividis,
+            log_scale: false,
+            contour_levels: 0,
+            contour_level_values: vec![1.0, 1.5, 2.0],
+            contour_labels: true,
+            contour_line_styles: vec![FfiLineStyle::Solid, FfiLineStyle::Dashed],
+            smooth_sigma: 0.0,
+            width: 340.0,
+            height: 240.0,
+        };
+        let out = render_grid_svg(spec.clone());
+        assert!(out.error.is_none(), "error: {:?}", out.error);
+        assert!(out.rasterized, "Both → underlay asset");
+        assert!(out.svg.contains("data:image/png") || out.svg.contains("<image"));
+        assert!(out.svg.matches("<path").count() > 5, "vector contour paths");
+
+        // Size validation errors cleanly.
+        let mut bad = spec;
+        bad.values.truncate(10);
+        let out2 = render_grid_svg(bad);
+        assert!(out2.error.is_some());
     }
 
     #[test]
@@ -671,6 +920,7 @@ mod tests {
             contour_levels: 0,
             contour_labels: true,
             contour_line_styles: vec![],
+            contour_level_values: vec![],
         };
 
         let dir = std::env::temp_dir().join(format!("impress_fig_test_{}", std::process::id()));

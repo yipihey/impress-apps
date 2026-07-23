@@ -133,6 +133,20 @@ public actor HTTPAutomationRouter: HTTPRouter {
             }
         }
 
+        // Saved plot specs: list / fetch one.
+        if path == "/api/plot/specs" {
+            let (body, status) = await PlotAutomationHandler.listSpecs()
+            return .json(body.merging(["status": "ok"]) { a, _ in a }, status: status)
+        }
+        if path.hasPrefix("/api/plot/specs/") {
+            let idString = String(originalPath.dropFirst("/api/plot/specs/".count))
+            guard let id = UUID(uuidString: idString) else {
+                return .badRequest("Invalid spec UUID")
+            }
+            let (body, status) = await PlotAutomationHandler.getSpec(id: id)
+            return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+        }
+
         if path == "/api/search/external" {
             return await handleSearchExternal(request)
         }
@@ -471,7 +485,24 @@ public actor HTTPAutomationRouter: HTTPRouter {
             guard let json = Self.jsonBody(request) else {
                 return .badRequest("Invalid JSON body")
             }
+            // {specId} renders a saved spec from the store.
+            if let idString = json["specId"] as? String {
+                guard let id = UUID(uuidString: idString) else {
+                    return .badRequest("Invalid specId")
+                }
+                let (body, status) = await PlotAutomationHandler.renderSaved(id: id)
+                return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+            }
             let (body, status) = PlotAutomationHandler.renderPlot(json: json)
+            return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+        }
+
+        // Saved plot specs: create.
+        if path == "/api/plot/specs" {
+            guard let json = Self.jsonBody(request) else {
+                return .badRequest("Invalid JSON body")
+            }
+            let (body, status) = await PlotAutomationHandler.saveSpec(json: json)
             return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
         }
 

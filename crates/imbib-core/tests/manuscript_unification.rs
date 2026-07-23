@@ -335,3 +335,41 @@ fn search_manuscripts_matches_title_and_body() {
     assert_eq!(by_body.len(), 1);
     assert_eq!(by_body[0].title, "Reionization");
 }
+
+#[test]
+fn plot_spec_crud_roundtrip() {
+    let (_dir, path) = temp_db();
+    let store = ImbibStore::open(path).expect("open ImbibStore");
+    let spec_json = r#"{"title":"t","series":[{"kind":"line","xs":[1,2],"ys":[3,4]}]}"#;
+    let row = store
+        .save_plot_spec(
+            "My plot".into(),
+            "series".into(),
+            spec_json.into(),
+            Some("data.csv".into()),
+        )
+        .expect("save");
+    assert_eq!(row.name, "My plot");
+    assert_eq!(row.spec_kind, "series");
+
+    let listed = store.list_plot_specs(10).expect("list");
+    assert!(listed.iter().any(|r| r.id == row.id));
+
+    let got = store
+        .get_plot_spec(row.id.clone())
+        .expect("get")
+        .expect("exists");
+    assert_eq!(got.spec_json, spec_json);
+    assert_eq!(got.data_source.as_deref(), Some("data.csv"));
+
+    // invalid inputs error cleanly
+    assert!(store
+        .save_plot_spec("x".into(), "bogus".into(), "{}".into(), None)
+        .is_err());
+    assert!(store
+        .save_plot_spec("x".into(), "series".into(), "not json".into(), None)
+        .is_err());
+
+    store.delete_item(row.id.clone()).expect("delete");
+    assert!(store.get_plot_spec(row.id).expect("get2").is_none());
+}

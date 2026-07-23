@@ -124,6 +124,18 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return handlePerformance(request)
             }
 
+            if pathLower == "/api/plot/specs" {
+                let (body, status) = await PlotAutomationHandler.listSpecs()
+                return .json(body.merging(["status": "ok"]) { a, _ in a }, status: status)
+            }
+            if pathLower.hasPrefix("/api/plot/specs/") {
+                let idString = String(path.dropFirst("/api/plot/specs/".count))
+                guard let specID = UUID(uuidString: idString) else {
+                    return .badRequest("Invalid spec UUID")
+                }
+                let (body, status) = await PlotAutomationHandler.getSpec(id: specID)
+                return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+            }
             if pathLower == "/api/manuscripts" {
                 return await handleListManuscripts()
             }
@@ -289,7 +301,23 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 guard let json = Self.plotJSONBody(request) else {
                     return .badRequest("Invalid JSON body")
                 }
+                if let idString = json["specId"] as? String {
+                    guard let id = UUID(uuidString: idString) else {
+                        return .badRequest("Invalid specId")
+                    }
+                    let (body, status) = await PlotAutomationHandler.renderSaved(id: id)
+                    return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+                }
                 let (body, status) = PlotAutomationHandler.renderPlot(json: json)
+                return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+            }
+
+            // Saved plot specs: create.
+            if pathLower == "/api/plot/specs" {
+                guard let json = Self.plotJSONBody(request) else {
+                    return .badRequest("Invalid JSON body")
+                }
+                let (body, status) = await PlotAutomationHandler.saveSpec(json: json)
                 return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
             }
 

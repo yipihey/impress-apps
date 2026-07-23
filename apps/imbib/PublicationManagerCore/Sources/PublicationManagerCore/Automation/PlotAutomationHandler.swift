@@ -25,8 +25,19 @@ public enum PlotAutomationHandler {
 
     // MARK: - Endpoints
 
-    /// POST /api/plot/render — render a spec to SVG.
+    /// POST /api/plot/render — render a spec (series-based `spec` OR direct
+    /// z-grid `gridSpec`) to SVG.
     public static func renderPlot(json: [String: Any]) -> (body: [String: Any], status: Int) {
+        if let gridJSON = json["gridSpec"] as? [String: Any] {
+            guard let grid = decodeGridSpec(gridJSON) else {
+                return (["error": "Invalid grid spec"], 400)
+            }
+            let out = renderGridSvg(spec: grid)
+            if let e = out.error, !e.isEmpty {
+                return (["error": e, "rasterized": out.rasterized], 422)
+            }
+            return (["svg": out.svg, "rasterized": out.rasterized], 200)
+        }
         guard let spec = decodeSpec(json["spec"] as? [String: Any] ?? json) else {
             return (["error": "Invalid or missing plot spec"], 400)
         }
@@ -42,16 +53,94 @@ public enum PlotAutomationHandler {
     public static func saveFigure(
         json: [String: Any], manuscriptID: UUID
     ) -> (body: [String: Any], status: Int) {
-        guard let spec = decodeSpec(json["spec"] as? [String: Any] ?? json) else {
-            return (["error": "Invalid or missing plot spec"], 400)
-        }
         let name = (json["name"] as? String) ?? "plot"
         let dir = ManuscriptFiguresDirectory.manuscriptRoot(for: manuscriptID).path
-        let saved = savePlotFigure(spec: spec, manuscriptDir: dir, name: name)
+        let saved: FfiSavedFigure
+        if let gridJSON = json["gridSpec"] as? [String: Any] {
+            guard let grid = decodeGridSpec(gridJSON) else {
+                return (["error": "Invalid grid spec"], 400)
+            }
+            saved = saveGridFigure(spec: grid, manuscriptDir: dir, name: name)
+        } else {
+            guard let spec = decodeSpec(json["spec"] as? [String: Any] ?? json) else {
+                return (["error": "Invalid or missing plot spec"], 400)
+            }
+            saved = savePlotFigure(spec: spec, manuscriptDir: dir, name: name)
+        }
         if let e = saved.error, !e.isEmpty {
             return (["error": e], 422)
         }
         return (["relPath": saved.relPath, "typstSnippet": saved.typstSnippet], 200)
+    }
+
+    // MARK: - Saved plot specs (store-backed)
+
+    /// GET /api/plot/specs — list saved plot specs.
+    @MainActor
+    public static func listSpecs() -> (body: [String: Any], status: Int) {
+        let rows = RustStoreAdapter.shared.listPlotSpecs().map { row -> [String: Any] in
+            [
+                "id": row.id, "name": row.name, "specKind": row.specKind,
+                "dataSource": row.dataSource as Any, "dateModified": row.dateModified,
+            ]
+        }
+        return (["specs": rows, "count": rows.count], 200)
+    }
+
+    /// POST /api/plot/specs {name, spec|gridSpec, dataSource?} — save a spec.
+    @MainActor
+    public static func saveSpec(json: [String: Any]) -> (body: [String: Any], status: Int) {
+        let name = (json["name"] as? String) ?? "Untitled plot"
+        let kind: String
+        let specJSON: [String: Any]
+        if let grid = json["gridSpec"] as? [String: Any] {
+            guard decodeGridSpec(grid) != nil else { return (["error": "Invalid grid spec"], 400) }
+            kind = "grid"
+            specJSON = grid
+        } else if let spec = json["spec"] as? [String: Any] {
+            guard decodeSpec(spec) != nil else { return (["error": "Invalid plot spec"], 400) }
+            kind = "series"
+            specJSON = spec
+        } else {
+            return (["error": "Missing spec or gridSpec"], 400)
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: specJSON),
+            let jsonString = String(data: data, encoding: .utf8)
+        else { return (["error": "Could not serialize spec"], 500) }
+        guard let row = RustStoreAdapter.shared.savePlotSpec(
+            name: name, specKind: kind, specJSON: jsonString,
+            dataSource: json["dataSource"] as? String)
+        else { return (["error": "Store save failed"], 500) }
+        return (["id": row.id, "name": row.name, "specKind": row.specKind], 200)
+    }
+
+    /// GET /api/plot/specs/{id} — fetch one (full spec JSON included).
+    @MainActor
+    public static func getSpec(id: UUID) -> (body: [String: Any], status: Int) {
+        guard let row = RustStoreAdapter.shared.getPlotSpec(id: id) else {
+            return (["error": "Not found"], 404)
+        }
+        let spec = (row.specJson.data(using: .utf8))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        return ([
+            "id": row.id, "name": row.name, "specKind": row.specKind,
+            "spec": spec, "dataSource": row.dataSource as Any,
+        ], 200)
+    }
+
+    /// POST /api/plot/render with {specId} — render a SAVED spec.
+    @MainActor
+    public static func renderSaved(id: UUID) -> (body: [String: Any], status: Int) {
+        guard let row = RustStoreAdapter.shared.getPlotSpec(id: id) else {
+            return (["error": "Not found"], 404)
+        }
+        guard let data = row.specJson.data(using: .utf8),
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return (["error": "Stored spec unreadable"], 500) }
+        if row.specKind == "grid" {
+            return renderPlot(json: ["gridSpec": json])
+        }
+        return renderPlot(json: ["spec": json])
     }
 
     // MARK: - Spec decoding
@@ -92,7 +181,8 @@ public enum PlotAutomationHandler {
             rasterThreshold: UInt32((json["rasterThreshold"] as? Int) ?? 0),
             contourLevels: UInt32((json["contourLevels"] as? Int) ?? 0),
             contourLabels: (json["contourLabels"] as? Bool) ?? true,
-            contourLineStyles: decodeLineStyles(json["contourLineStyles"])
+            contourLineStyles: decodeLineStyles(json["contourLineStyles"]),
+            contourLevelValues: (json["contourLevelValues"] as? [Any]).flatMap(doubles) ?? []
         )
     }
 
@@ -102,6 +192,41 @@ public enum PlotAutomationHandler {
             min: json?["min"] as? Double,
             max: json?["max"] as? Double,
             label: json?["label"] as? String
+        )
+    }
+
+    static func decodeGridSpec(_ json: [String: Any]) -> FfiGridSpec? {
+        guard let values = doubles(json["values"]),
+            let nx = json["nx"] as? Int, let ny = json["ny"] as? Int,
+            nx > 1, ny > 1, values.count == nx * ny
+        else { return nil }
+        let style: FfiGridStyle
+        switch (json["style"] as? String)?.lowercased() {
+        case "heatmap": style = .heatmap
+        case "contour": style = .contour
+        default: style = .both
+        }
+        return FfiGridSpec(
+            title: (json["title"] as? String) ?? "",
+            values: values,
+            nx: UInt32(nx),
+            ny: UInt32(ny),
+            xMin: (json["xMin"] as? Double) ?? 0,
+            xMax: (json["xMax"] as? Double) ?? 1,
+            yMin: (json["yMin"] as? Double) ?? 0,
+            yMax: (json["yMax"] as? Double) ?? 1,
+            xLabel: json["xLabel"] as? String,
+            yLabel: json["yLabel"] as? String,
+            style: style,
+            colormap: decodeColormap(json["colormap"] as? String),
+            logScale: (json["logScale"] as? Bool) ?? false,
+            contourLevels: UInt32((json["contourLevels"] as? Int) ?? 0),
+            contourLevelValues: (json["contourLevelValues"] as? [Any]).flatMap(doubles) ?? [],
+            contourLabels: (json["contourLabels"] as? Bool) ?? true,
+            contourLineStyles: decodeLineStyles(json["contourLineStyles"]),
+            smoothSigma: (json["smoothSigma"] as? Double) ?? 0,
+            width: (json["width"] as? Double) ?? 340,
+            height: (json["height"] as? Double) ?? 240
         )
     }
 

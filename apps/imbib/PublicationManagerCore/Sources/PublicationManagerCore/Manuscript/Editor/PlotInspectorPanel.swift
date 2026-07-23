@@ -79,6 +79,7 @@ private enum DemoDataset: String, CaseIterable, Identifiable {
 private enum SourceMode: String, CaseIterable, Identifiable {
     case demo = "Demo"
     case file = "Data file"
+    case saved = "Saved"
     var id: String { rawValue }
 }
 
@@ -137,6 +138,11 @@ private struct PlotPanelView: View {
     @State private var colormap: FfiColormap = .viridis
     @State private var styleCycle: ContourStyleCycle = .solid
 
+    // Saved specs (store-backed)
+    @State private var savedSpecs: [PlotSpecRow] = []
+    @State private var selectedSavedID: String = ""
+    @State private var loadedSpec: FfiPlotSpec?
+
     // Render output
     @State private var svg = ""
     @State private var rasterized = false
@@ -152,12 +158,15 @@ private struct PlotPanelView: View {
         }
         .background(.background)
         .onChange(of: renderKey) { scheduleRender() }
-        .task { scheduleRender() }
+        .task {
+            refreshSavedSpecs()
+            scheduleRender()
+        }
     }
 
     private var renderKey: String {
         "\(sourceMode.rawValue)|\(dataset.rawValue)|\(fileName)|\(xCol)|\(yCol)|\(style.rawValue)"
-            + "|\(xLog)|\(yLog)|\(xMin)|\(xMax)|\(yMin)|\(yMax)|\(colormap.hashValue)|\(styleCycle.rawValue)"
+            + "|\(xLog)|\(yLog)|\(xMin)|\(xMax)|\(yMin)|\(yMax)|\(colormap.hashValue)|\(styleCycle.rawValue)|\(selectedSavedID)"
     }
 
     private var preview: some View {
@@ -193,6 +202,8 @@ private struct PlotPanelView: View {
                 }
             case .file:
                 fileControls
+            case .saved:
+                savedControls
             }
 
             LabeledContent("X axis") {
@@ -226,12 +237,106 @@ private struct PlotPanelView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if sourceMode != .saved {
+                    Button("Save spec") { saveCurrentSpec() }
+                        .disabled(spec(width: 340, height: 220) == nil)
+                }
                 Button("Insert into manuscript") { insert() }
-                    .disabled(currentSeries() == nil)
+                    .disabled(spec(width: 340, height: 220) == nil)
             }
         }
         .formStyle(.grouped)
         .textFieldStyle(.roundedBorder)
+    }
+
+    @ViewBuilder
+    private var savedControls: some View {
+        if savedSpecs.isEmpty {
+            Text("No saved plots yet — use \"Save spec\" on any plot.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Picker("Plot", selection: $selectedSavedID) {
+                ForEach(savedSpecs, id: \.id) { row in
+                    Text(row.specKind == "grid" ? "\(row.name) (grid)" : row.name).tag(row.id)
+                }
+            }
+            .onChange(of: selectedSavedID) { loadSelectedSpec() }
+        }
+    }
+
+    private func refreshSavedSpecs() {
+        savedSpecs = RustStoreAdapter.shared.listPlotSpecs()
+        if selectedSavedID.isEmpty, let first = savedSpecs.first {
+            selectedSavedID = first.id
+            loadSelectedSpec()
+        }
+    }
+
+    private func loadSelectedSpec() {
+        loadedSpec = nil
+        guard let row = savedSpecs.first(where: { $0.id == selectedSavedID }),
+            row.specKind == "series",
+            let data = row.specJson.data(using: .utf8),
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else {
+            renderError = "Grid specs render via HTTP/MCP; panel loads series specs."
+            return
+        }
+        renderError = nil
+        loadedSpec = PlotAutomationHandler.decodeSpec(json)
+    }
+
+    private func saveCurrentSpec() {
+        guard let s = spec(width: 340, height: 220) else { return }
+        let name: String
+        switch sourceMode {
+        case .demo: name = dataset.rawValue
+        case .file: name = "\(fileName): \(yCol) vs \(xCol)"
+        case .saved: return  // already saved
+        }
+        // Serialize the spec into the HTTP-API JSON shape (the store's format).
+        var json: [String: Any] = [
+            "title": s.title,
+            "x": axisJSON(s.x), "y": axisJSON(s.y),
+            "series": s.series.map { ser -> [String: Any] in
+                [
+                    "kind": ser.kind == .line ? "line" : (ser.kind == .contour ? "contour" : "scatter"),
+                    "xs": ser.xs, "ys": ser.ys,
+                    "color": ["r": Int(ser.color.r), "g": Int(ser.color.g), "b": Int(ser.color.b)],
+                ]
+            },
+            "colormap": colormapName(s.colormap),
+            "width": s.width, "height": s.height,
+            "contourLabels": s.contourLabels,
+        ]
+        if s.contourLevels > 0 { json["contourLevels"] = Int(s.contourLevels) }
+        guard let data = try? JSONSerialization.data(withJSONObject: json),
+            let str = String(data: data, encoding: .utf8)
+        else { return }
+        let source = sourceMode == .file ? fileName : nil
+        RustStoreAdapter.shared.savePlotSpec(
+            name: name, specKind: "series", specJSON: str, dataSource: source)
+        refreshSavedSpecs()
+    }
+
+    private func axisJSON(_ a: FfiAxis) -> [String: Any] {
+        var j: [String: Any] = ["scale": a.scale == .log ? "log" : "linear"]
+        if let v = a.min { j["min"] = v }
+        if let v = a.max { j["max"] = v }
+        if let l = a.label { j["label"] = l }
+        return j
+    }
+
+    private func colormapName(_ c: FfiColormap) -> String {
+        switch c {
+        case .viridis: return "viridis"
+        case .magma: return "magma"
+        case .plasma: return "plasma"
+        case .inferno: return "inferno"
+        case .cividis: return "cividis"
+        case .turbo: return "turbo"
+        case .greys: return "greys"
+        }
     }
 
     @ViewBuilder
@@ -274,6 +379,8 @@ private struct PlotPanelView: View {
         switch sourceMode {
         case .demo:
             return dataset.series()
+        case .saved:
+            return nil  // saved mode renders loadedSpec directly
         case .file:
             guard let t = dataTable,
                 let xc = t.columns.first(where: { $0.name == xCol }),
@@ -286,10 +393,16 @@ private struct PlotPanelView: View {
     }
 
     private func spec(width: Double, height: Double) -> FfiPlotSpec? {
+        if sourceMode == .saved {
+            guard var s = loadedSpec else { return nil }
+            s.width = width
+            s.height = height
+            return s
+        }
         guard let d = currentSeries() else { return nil }
         let (xLabel, yLabel): (String, String) = {
             switch sourceMode {
-            case .demo: return ("x", "y")
+            case .demo, .saved: return ("x", "y")
             case .file: return (xCol, yCol)
             }
         }()
@@ -305,7 +418,8 @@ private struct PlotPanelView: View {
             rasterThreshold: 0,
             contourLevels: 0,
             contourLabels: true,
-            contourLineStyles: (sourceMode == .file && style == .contour) ? styleCycle.ffi : []
+            contourLineStyles: (sourceMode == .file && style == .contour) ? styleCycle.ffi : [],
+            contourLevelValues: []
         )
     }
 

@@ -64,6 +64,10 @@ pub struct Plot {
     /// Line-style cycle per level (e.g. [Solid, Dashed] alternates) so
     /// contours are easy to trace. Empty → all solid.
     pub contour_line_styles: Vec<LineStyle>,
+    /// Explicit contour level VALUES (in normalized density units after
+    /// binning). Non-empty overrides `contour_levels`. Most callers use the
+    /// count; explicit values matter when comparing figures across datasets.
+    pub contour_level_values: Vec<f64>,
 }
 
 impl Plot {
@@ -83,6 +87,7 @@ impl Plot {
             contour_smooth_sigma: 2.0,
             contour_labels: true,
             contour_line_styles: Vec::new(),
+            contour_level_values: Vec::new(),
         }
     }
     pub fn title(mut self, t: impl Into<String>) -> Self {
@@ -205,7 +210,11 @@ impl Plot {
             norm: Normalization::Count,
             cmap: self.cmap,
             scale: ColorScale::Log, // density spans orders of magnitude
-            levels: ContourLevels::Linear(self.contour_levels.max(1)),
+            levels: if self.contour_level_values.is_empty() {
+                ContourLevels::Linear(self.contour_levels.max(1))
+            } else {
+                ContourLevels::Explicit(self.contour_level_values.clone())
+            },
             smooth_sigma: self.contour_smooth_sigma,
             underlay: self.contour_underlay,
             labels: self.contour_labels,
@@ -264,6 +273,131 @@ impl Plot {
     }
 }
 
+/// How a [`GridPlot`] presents its field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GridStyle {
+    /// Heatmap only.
+    Heatmap,
+    /// Contour lines only (pure vector).
+    Contour,
+    /// Heatmap underlay + contour lines (classic).
+    Both,
+}
+
+/// Direct z-grid figure: an EXISTING field (analytic function, simulation
+/// slice, image) over data ranges — no binning. Shares the contour/heatmap
+/// machinery, levels, labels, and line-style cycles with the density path.
+#[derive(Clone, Debug)]
+pub struct GridPlot {
+    pub title: String,
+    /// Row-major values, `v[iy*nx + ix]`, iy = 0 the LOW-y row.
+    pub values: Vec<f64>,
+    pub nx: usize,
+    pub ny: usize,
+    pub x_range: (f64, f64),
+    pub y_range: (f64, f64),
+    pub x_label: Option<String>,
+    pub y_label: Option<String>,
+    pub style: GridStyle,
+    pub cmap: Colormap,
+    /// Color/level scale (log for fields spanning orders of magnitude).
+    pub scale: ColorScale,
+    pub contour_levels: usize,
+    pub contour_level_values: Vec<f64>,
+    pub contour_labels: bool,
+    pub contour_line_styles: Vec<LineStyle>,
+    /// Smoothing for contour extraction (bins). Analytic grids are already
+    /// smooth → default 0 (off), unlike the binned-density default.
+    pub smooth_sigma: f64,
+    pub asset_id: String,
+}
+
+impl GridPlot {
+    pub fn new(
+        values: Vec<f64>,
+        nx: usize,
+        ny: usize,
+        x_range: (f64, f64),
+        y_range: (f64, f64),
+    ) -> Self {
+        Self {
+            title: String::new(),
+            values,
+            nx,
+            ny,
+            x_range,
+            y_range,
+            x_label: None,
+            y_label: None,
+            style: GridStyle::Both,
+            cmap: Colormap::Viridis,
+            scale: ColorScale::Linear,
+            contour_levels: 7,
+            contour_level_values: Vec::new(),
+            contour_labels: true,
+            contour_line_styles: Vec::new(),
+            smooth_sigma: 0.0,
+            asset_id: "grid_plot.png".into(),
+        }
+    }
+
+    pub fn render(&self, size: PlotSize) -> PlotOutput {
+        let hist = Hist2D::from_grid(
+            self.values.clone(),
+            self.nx,
+            self.ny,
+            self.x_range,
+            self.y_range,
+        );
+        let mut x = Axis::linear();
+        x.label = self.x_label.clone();
+        let mut y = Axis::linear();
+        y.label = self.y_label.clone();
+
+        match self.style {
+            GridStyle::Heatmap => {
+                let fig = Hist2DFigure {
+                    title: self.title.clone(),
+                    hist,
+                    norm: Normalization::Count,
+                    cmap: self.cmap,
+                    scale: self.scale,
+                    x,
+                    y,
+                    x_range: self.x_range,
+                    y_range: self.y_range,
+                    asset_id: self.asset_id.clone(),
+                };
+                fig.render(size.with_colorbar())
+            }
+            GridStyle::Contour | GridStyle::Both => {
+                let fig = ContourFigure {
+                    title: self.title.clone(),
+                    hist,
+                    norm: Normalization::Count,
+                    cmap: self.cmap,
+                    scale: self.scale,
+                    levels: if self.contour_level_values.is_empty() {
+                        ContourLevels::Linear(self.contour_levels.max(1))
+                    } else {
+                        ContourLevels::Explicit(self.contour_level_values.clone())
+                    },
+                    smooth_sigma: self.smooth_sigma,
+                    underlay: self.style == GridStyle::Both,
+                    labels: self.contour_labels,
+                    line_styles: self.contour_line_styles.clone(),
+                    x,
+                    y,
+                    x_range: self.x_range,
+                    y_range: self.y_range,
+                    asset_id: self.asset_id.clone(),
+                };
+                fig.render(size.with_colorbar())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,6 +443,44 @@ mod tests {
             .strategy(Strategy::Vector);
         assert_eq!(vector.chosen(), Chosen::Vector);
         assert!(vector.render(PlotSize::new(200.0, 200.0)).assets.is_empty());
+    }
+
+    #[test]
+    fn grid_plot_contours_analytic_field() {
+        // Analytic saddle field z = sin(x)·cos(y) on a grid — no binning.
+        let (nx, ny) = (120usize, 100usize);
+        let mut values = vec![0.0; nx * ny];
+        for iy in 0..ny {
+            for ix in 0..nx {
+                let x = -3.0 + 6.0 * (ix as f64 + 0.5) / nx as f64;
+                let y = -2.0 + 4.0 * (iy as f64 + 0.5) / ny as f64;
+                values[iy * nx + ix] = (x.sin() * y.cos()) + 1.5; // keep positive
+            }
+        }
+        let mut g = GridPlot::new(values, nx, ny, (-3.0, 3.0), (-2.0, 2.0));
+        g.title = "saddle".into();
+        g.contour_level_values = vec![1.0, 1.5, 2.0];
+        let out = g.render(PlotSize::new(340.0, 240.0));
+        assert_eq!(out.assets.len(), 1, "Both style → underlay asset");
+        assert!(out.typst.contains("#curve("), "contour lines present");
+        // Explicit level 1.5 labeled
+        assert!(out.typst.contains("[1.5]"), "explicit level label present");
+
+        // Contour-only style: pure vector, no asset.
+        g.style = GridStyle::Contour;
+        let out2 = g.render(PlotSize::new(340.0, 240.0));
+        assert!(out2.assets.is_empty());
+
+        // Explicit levels flow through the density path too: a tight cluster
+        // whose smoothed peak comfortably exceeds the requested level.
+        let xs: Vec<f64> = (0..2000).map(|i| 5.0 + 0.01 * ((i % 13) as f64)).collect();
+        let ys: Vec<f64> = (0..2000).map(|i| 3.0 + 0.01 * ((i % 11) as f64)).collect();
+        let mut p = Plot::new(Axis::linear(), Axis::linear()).contour(xs, ys);
+        p.contour_level_values = vec![1.0];
+        // Raw counts (no smoothing): occupied bins hold ~14, so level 1.0 cuts.
+        p.contour_smooth_sigma = 0.0;
+        let out3 = p.render(PlotSize::new(300.0, 200.0));
+        assert!(out3.typst.contains("#curve("));
     }
 
     #[test]

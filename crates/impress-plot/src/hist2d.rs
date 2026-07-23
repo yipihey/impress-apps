@@ -38,6 +38,28 @@ pub struct Hist2D {
 }
 
 impl Hist2D {
+    /// Wrap an EXISTING grid of values (row-major, `v[iy*nx+ix]`, iy=0 low-y)
+    /// over the given data ranges — the direct z-grid input for analytic
+    /// fields, simulation slices, etc. No binning happens.
+    pub fn from_grid(
+        values: Vec<f64>,
+        nx: usize,
+        ny: usize,
+        xr: (f64, f64),
+        yr: (f64, f64),
+    ) -> Self {
+        assert_eq!(values.len(), nx * ny, "grid size mismatch");
+        let total_w = values.iter().sum();
+        Self {
+            nx,
+            ny,
+            xr,
+            yr,
+            v: values,
+            total_w,
+        }
+    }
+
     /// Bin `(xs, ys)` with optional per-point `weights` into `nx × ny` cells.
     /// `range = None` auto-fits the data extent. Points outside range are
     /// dropped (matplotlib `hist2d` semantics).

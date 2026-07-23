@@ -3523,6 +3523,63 @@ impl ImbibStore {
         Ok(item_to_manuscript_row(&item, &tag_defs, 0))
     }
 
+    /// List saved plot specs, newest-modified first.
+    pub fn list_plot_specs(&self, limit: u32) -> Result<Vec<PlotSpecRow>, StoreApiError> {
+        let q = ItemQuery {
+            schema: Some("plot-spec".into()),
+            sort: vec![SortDescriptor {
+                field: "modified".into(),
+                ascending: false,
+            }],
+            limit: Some(limit as usize),
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        Ok(items.iter().map(item_to_plot_spec_row).collect())
+    }
+
+    /// Save a plot spec (the declarative impress-plot spec JSON). Always
+    /// creates a new item; overwriting by name is the caller's policy.
+    pub fn save_plot_spec(
+        &self,
+        name: String,
+        spec_kind: String,
+        spec_json: String,
+        data_source: Option<String>,
+    ) -> Result<PlotSpecRow, StoreApiError> {
+        if spec_kind != "series" && spec_kind != "grid" {
+            return Err(StoreApiError::InvalidInput(format!(
+                "spec_kind must be 'series' or 'grid', got '{spec_kind}'"
+            )));
+        }
+        // Parse-check so the store never holds an unrenderable spec.
+        if serde_json::from_str::<serde_json::Value>(&spec_json).is_err() {
+            return Err(StoreApiError::InvalidInput(
+                "spec_json is not valid JSON".into(),
+            ));
+        }
+        let id = Uuid::new_v4();
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("name".into(), Value::String(name));
+        payload.insert("spec_kind".into(), Value::String(spec_kind));
+        payload.insert("spec_json".into(), Value::String(spec_json));
+        if let Some(ds) = data_source {
+            payload.insert("data_source".into(), Value::String(ds));
+        }
+        let item = conversion::bare_item(id, "plot-spec", payload);
+        self.store.insert(item.clone())?;
+        Ok(item_to_plot_spec_row(&item))
+    }
+
+    /// Fetch one saved plot spec.
+    pub fn get_plot_spec(&self, id: String) -> Result<Option<PlotSpecRow>, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        match self.store.get(uuid)? {
+            Some(item) if item.schema == "plot-spec" => Ok(Some(item_to_plot_spec_row(&item))),
+            _ => Ok(None),
+        }
+    }
+
     /// Save a manuscript body, optionally guarded by the last-known
     /// `body_content_hash` (compare-and-set for cross-process safety).
     ///

@@ -868,6 +868,11 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func getManuscriptRow(id: String) throws  -> ManuscriptRow?
     
+    /**
+     * Fetch one saved plot spec.
+     */
+    func getPlotSpec(id: String) throws  -> PlotSpecRow?
+    
     func getPublication(id: String) throws  -> BibliographyRow?
     
     func getPublicationDetail(id: String) throws  -> PublicationDetail?
@@ -983,6 +988,11 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func listMutedItems(muteType: String?) throws  -> [MutedItemRow]
     
+    /**
+     * List saved plot specs, newest-modified first.
+     */
+    func listPlotSpecs(limit: UInt32) throws  -> [PlotSpecRow]
+    
     func listScixLibraries() throws  -> [SciXLibraryRow]
     
     func listSmartSearches(libraryId: String?) throws  -> [SmartSearchRow]
@@ -1078,6 +1088,12 @@ public protocol ImbibStoreProtocol : AnyObject {
      * Restore a deleted tag definition and re-tag publications.
      */
     func restoreTag(snapshot: TagDeleteSnapshot) throws 
+    
+    /**
+     * Save a plot spec (the declarative impress-plot spec JSON). Always
+     * creates a new item; overwriting by name is the caller's policy.
+     */
+    func savePlotSpec(name: String, specKind: String, specJson: String, dataSource: String?) throws  -> PlotSpecRow
     
     /**
      * Search artifacts by text across title, notes, source_url, and original_author.
@@ -2032,6 +2048,17 @@ open func getManuscriptRow(id: String)throws  -> ManuscriptRow? {
 })
 }
     
+    /**
+     * Fetch one saved plot spec.
+     */
+open func getPlotSpec(id: String)throws  -> PlotSpecRow? {
+    return try  FfiConverterOptionTypePlotSpecRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_get_plot_spec(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
 open func getPublication(id: String)throws  -> BibliographyRow? {
     return try  FfiConverterOptionTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_get_publication(self.uniffiClonePointer(),
@@ -2339,6 +2366,17 @@ open func listMutedItems(muteType: String?)throws  -> [MutedItemRow] {
 })
 }
     
+    /**
+     * List saved plot specs, newest-modified first.
+     */
+open func listPlotSpecs(limit: UInt32)throws  -> [PlotSpecRow] {
+    return try  FfiConverterSequenceTypePlotSpecRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_plot_specs(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
 open func listScixLibraries()throws  -> [SciXLibraryRow] {
     return try  FfiConverterSequenceTypeSciXLibraryRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_scix_libraries(self.uniffiClonePointer(),$0
@@ -2599,6 +2637,21 @@ open func restoreTag(snapshot: TagDeleteSnapshot)throws  {try rustCallWithError(
         FfiConverterTypeTagDeleteSnapshot.lower(snapshot),$0
     )
 }
+}
+    
+    /**
+     * Save a plot spec (the declarative impress-plot spec JSON). Always
+     * creates a new item; overwriting by name is the caller's policy.
+     */
+open func savePlotSpec(name: String, specKind: String, specJson: String, dataSource: String?)throws  -> PlotSpecRow {
+    return try  FfiConverterTypePlotSpecRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_save_plot_spec(self.uniffiClonePointer(),
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(specKind),
+        FfiConverterString.lower(specJson),
+        FfiConverterOptionString.lower(dataSource),$0
+    )
+})
 }
     
     /**
@@ -11714,6 +11767,122 @@ public func FfiConverterTypePdfThumbnail_lower(_ value: PdfThumbnail) -> RustBuf
 
 
 /**
+ * A saved plot specification (`plot-spec@1.0.0`) — the declarative,
+ * backend-neutral figure source of truth (impress-plot spec JSON).
+ */
+public struct PlotSpecRow {
+    public var id: String
+    public var name: String
+    /**
+     * "series" (FfiPlotSpec JSON) or "grid" (FfiGridSpec JSON).
+     */
+    public var specKind: String
+    public var specJson: String
+    public var dataSource: String?
+    public var dateAdded: Int64
+    public var dateModified: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, 
+        /**
+         * "series" (FfiPlotSpec JSON) or "grid" (FfiGridSpec JSON).
+         */specKind: String, specJson: String, dataSource: String?, dateAdded: Int64, dateModified: Int64) {
+        self.id = id
+        self.name = name
+        self.specKind = specKind
+        self.specJson = specJson
+        self.dataSource = dataSource
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+    }
+}
+
+
+
+extension PlotSpecRow: Equatable, Hashable {
+    public static func ==(lhs: PlotSpecRow, rhs: PlotSpecRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.specKind != rhs.specKind {
+            return false
+        }
+        if lhs.specJson != rhs.specJson {
+            return false
+        }
+        if lhs.dataSource != rhs.dataSource {
+            return false
+        }
+        if lhs.dateAdded != rhs.dateAdded {
+            return false
+        }
+        if lhs.dateModified != rhs.dateModified {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        hasher.combine(specKind)
+        hasher.combine(specJson)
+        hasher.combine(dataSource)
+        hasher.combine(dateAdded)
+        hasher.combine(dateModified)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePlotSpecRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PlotSpecRow {
+        return
+            try PlotSpecRow(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                specKind: FfiConverterString.read(from: &buf), 
+                specJson: FfiConverterString.read(from: &buf), 
+                dataSource: FfiConverterOptionString.read(from: &buf), 
+                dateAdded: FfiConverterInt64.read(from: &buf), 
+                dateModified: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PlotSpecRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.specKind, into: &buf)
+        FfiConverterString.write(value.specJson, into: &buf)
+        FfiConverterOptionString.write(value.dataSource, into: &buf)
+        FfiConverterInt64.write(value.dateAdded, into: &buf)
+        FfiConverterInt64.write(value.dateModified, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePlotSpecRow_lift(_ buf: RustBuffer) throws -> PlotSpecRow {
+    return try FfiConverterTypePlotSpecRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePlotSpecRow_lower(_ value: PlotSpecRow) -> RustBuffer {
+    return FfiConverterTypePlotSpecRow.lower(value)
+}
+
+
+/**
  * Point on a page
  */
 public struct Point {
@@ -19123,6 +19292,30 @@ fileprivate struct FfiConverterOptionTypeParsedPaperForm: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypePlotSpecRow: FfiConverterRustBuffer {
+    typealias SwiftType = PlotSpecRow?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePlotSpecRow.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePlotSpecRow.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePreferredIdentifier: FfiConverterRustBuffer {
     typealias SwiftType = PreferredIdentifier?
 
@@ -20407,6 +20600,31 @@ fileprivate struct FfiConverterSequenceTypePdfLink: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypePdfLink.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePlotSpecRow: FfiConverterRustBuffer {
+    typealias SwiftType = [PlotSpecRow]
+
+    public static func write(_ value: [PlotSpecRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePlotSpecRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PlotSpecRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PlotSpecRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePlotSpecRow.read(from: &buf))
         }
         return seq
     }
@@ -23662,6 +23880,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_get_manuscript_row() != 44868) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_get_plot_spec() != 3721) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_get_publication() != 23576) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -23746,6 +23967,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_list_muted_items() != 56436) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_plot_specs() != 11053) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_scix_libraries() != 54768) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -23816,6 +24040,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_restore_tag() != 8206) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_save_plot_spec() != 56810) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_search_artifacts() != 15549) {

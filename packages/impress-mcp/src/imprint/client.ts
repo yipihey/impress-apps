@@ -255,10 +255,37 @@ export class ImprintClient {
    * Render a native plot spec to SVG (impress-plot via the app's Rust core).
    */
   async renderPlot(spec: Record<string, unknown>): Promise<unknown> {
+    return this.renderPlotBody({ spec });
+  }
+
+  /**
+   * Render with a full body: {spec} | {gridSpec} | {specId}.
+   */
+  async renderPlotBody(body: Record<string, unknown>): Promise<unknown> {
     const response = await fetch(`${this.baseURL}/api/plot/render`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spec }),
+      body: JSON.stringify(body),
+    });
+    return await response.json();
+  }
+
+  /**
+   * List saved plot specs from the shared store.
+   */
+  async listPlotSpecs(): Promise<unknown> {
+    const response = await fetch(`${this.baseURL}/api/plot/specs`);
+    return await response.json();
+  }
+
+  /**
+   * Save a plot spec ({name, spec|gridSpec, dataSource?}).
+   */
+  async savePlotSpec(body: Record<string, unknown>): Promise<unknown> {
+    const response = await fetch(`${this.baseURL}/api/plot/specs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
     return await response.json();
   }
