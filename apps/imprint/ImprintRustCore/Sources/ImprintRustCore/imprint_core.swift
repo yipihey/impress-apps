@@ -788,6 +788,13 @@ public struct CompileOptions {
      * assets (in-memory `set_asset` entries still resolve).
      */
     public var figuresRoot: String?
+    /**
+     * BibTeX text served to Typst as a virtual `bibliography.bib`, so
+     * `@citeKey` + `#bibliography("bibliography.bib")` resolve without any
+     * project directory. Callers assemble this from the cited publications'
+     * raw BibTeX (store-backed). None → no virtual bibliography.
+     */
+    public var bibSource: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -806,7 +813,13 @@ public struct CompileOptions {
          * in the source resolves to `<figures_root>/figures/plot.png`. Callers
          * pass the per-manuscript app-group directory; None → no filesystem
          * assets (in-memory `set_asset` entries still resolve).
-         */figuresRoot: String?) {
+         */figuresRoot: String?, 
+        /**
+         * BibTeX text served to Typst as a virtual `bibliography.bib`, so
+         * `@citeKey` + `#bibliography("bibliography.bib")` resolve without any
+         * project directory. Callers assemble this from the cited publications'
+         * raw BibTeX (store-backed). None → no virtual bibliography.
+         */bibSource: String?) {
         self.pageSize = pageSize
         self.fontSize = fontSize
         self.marginTop = marginTop
@@ -814,6 +827,7 @@ public struct CompileOptions {
         self.marginBottom = marginBottom
         self.marginLeft = marginLeft
         self.figuresRoot = figuresRoot
+        self.bibSource = bibSource
     }
 }
 
@@ -842,6 +856,9 @@ extension CompileOptions: Equatable, Hashable {
         if lhs.figuresRoot != rhs.figuresRoot {
             return false
         }
+        if lhs.bibSource != rhs.bibSource {
+            return false
+        }
         return true
     }
 
@@ -853,6 +870,7 @@ extension CompileOptions: Equatable, Hashable {
         hasher.combine(marginBottom)
         hasher.combine(marginLeft)
         hasher.combine(figuresRoot)
+        hasher.combine(bibSource)
     }
 }
 
@@ -870,7 +888,8 @@ public struct FfiConverterTypeCompileOptions: FfiConverterRustBuffer {
                 marginRight: FfiConverterDouble.read(from: &buf), 
                 marginBottom: FfiConverterDouble.read(from: &buf), 
                 marginLeft: FfiConverterDouble.read(from: &buf), 
-                figuresRoot: FfiConverterOptionString.read(from: &buf)
+                figuresRoot: FfiConverterOptionString.read(from: &buf), 
+                bibSource: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -882,6 +901,7 @@ public struct FfiConverterTypeCompileOptions: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.marginBottom, into: &buf)
         FfiConverterDouble.write(value.marginLeft, into: &buf)
         FfiConverterOptionString.write(value.figuresRoot, into: &buf)
+        FfiConverterOptionString.write(value.bibSource, into: &buf)
     }
 }
 
@@ -6686,6 +6706,26 @@ public func composeHeading(title: String, level: UInt32, format: String) -> Stri
 })
 }
 /**
+ * Check if Typst rendering is available
+ *
+ * Returns true if the library was built with the typst-render feature.
+ * Extract the distinct `@citeKey` references from a Typst source, in first-
+ * appearance order.
+ *
+ * Canonical cite-key scanner (keep extraction Rust-side — the Swift copies
+ * in BibliographyGenerator/CitationUsageTracker predate this). Rules match
+ * `imprint-service::extract_citation_usages` plus an email guard: an `@`
+ * immediately preceded by a cite-key character (as in `name@example.org`)
+ * is not a citation.
+ */
+public func extractCiteKeys(source: String) -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_extract_cite_keys(
+        FfiConverterString.lower(source),$0
+    )
+})
+}
+/**
  * Get source map entries for a compiled document
  *
  * This can be called separately if you already have PDF data and just need the source map.
@@ -6754,11 +6794,6 @@ public func helloFromImprint() -> String {
     )
 })
 }
-/**
- * Check if Typst rendering is available
- *
- * Returns true if the library was built with the typst-render feature.
- */
 public func isTypstAvailable() -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_is_typst_available($0
@@ -6990,6 +7025,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_compose_heading() != 61643) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_extract_cite_keys() != 50975) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_generate_source_map() != 55964) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7011,7 +7049,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_hello_from_imprint() != 47747) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imprint_core_checksum_func_is_typst_available() != 16186) {
+    if (uniffi_imprint_core_checksum_func_is_typst_available() != 65366) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_list_templates() != 15853) {

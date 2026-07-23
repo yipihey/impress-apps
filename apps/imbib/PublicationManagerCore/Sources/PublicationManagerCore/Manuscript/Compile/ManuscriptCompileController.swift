@@ -189,11 +189,22 @@ public final class ManuscriptCompileController {
     // MARK: - Typst Compilation
 
     private func compileTypst(_ inputs: CompileInputs) async {
-        let sourceText = inputs.source
+        var sourceText = inputs.source
         let format = inputs.previewFormat
         debugStatus = "2:src=\(sourceText.count)ch"
         debugHistory += "2:\(sourceText.count) "
         log("Source text length: \(sourceText.count), format: \(format)")
+
+        // Store-backed citations: resolve the manuscript's `@citeKey`
+        // references against the host's library (citation seam) and serve
+        // the matching BibTeX to Typst as a virtual bibliography.bib. When
+        // the author hasn't placed a #bibliography() themselves, append one
+        // so citations Just Work. No seam / no keys / no matches → exactly
+        // the previous behavior.
+        let bibSource = assembleBibliography(for: sourceText)
+        if bibSource != nil && !sourceText.contains("#bibliography(") {
+            sourceText += "\n#bibliography(\"bibliography.bib\")\n"
+        }
 
         do {
             log("Creating RenderOptions")
@@ -202,7 +213,8 @@ public final class ManuscriptCompileController {
             let options = RenderOptions(
                 pageSize: .a4,
                 isDraft: false,
-                figuresRoot: inputs.figuresRoot
+                figuresRoot: inputs.figuresRoot,
+                bibSource: bibSource
             )
 
             if format == "svg" {
@@ -253,6 +265,30 @@ public final class ManuscriptCompileController {
             compilationError = error.localizedDescription
             debugHistory += "X:\(error) "
         }
+    }
+
+    // (See also ManuscriptCitationKeys at the bottom of this file — the
+    // PMC-facing wrapper app targets use so they don't link ImprintCore.)
+
+    /// Build the virtual bibliography for a Typst source: extract the
+    /// distinct `@citeKey` references (canonical Rust scanner) and export
+    /// their BibTeX from the host's library via the citation seam. Returns
+    /// nil when there are no keys, no seam, or no matches — the compile then
+    /// proceeds without a bibliography, as before.
+    private func assembleBibliography(for source: String) -> String? {
+        guard source.contains("@") else { return nil }
+        let keys = ImprintCore.extractCiteKeys(source: source)
+        guard !keys.isEmpty else { return nil }
+        guard let citations = ManuscriptEditorEnvironment.shared.citationSearch else {
+            return nil
+        }
+        let bib = citations.bibliography(forKeys: keys)
+        if let bib {
+            log("bibliography: \(keys.count) cite key(s), \(bib.count)ch BibTeX")
+        } else {
+            log("bibliography: \(keys.count) cite key(s), none resolved in library")
+        }
+        return bib
     }
 
     // MARK: - LaTeX Compilation
@@ -325,5 +361,17 @@ public final class ManuscriptCompileController {
             compilationError = result.errorMessage
             debugHistory += "X:\(result.errorMessage ?? "preflight") "
         }
+    }
+}
+
+// MARK: - Cite-key extraction (PMC-facing wrapper)
+
+/// Distinct `@citeKey` references in a Typst source, in first-appearance
+/// order — the canonical Rust scanner (`imprint-core::extract_cite_keys`),
+/// re-exposed through PMC so app targets (imbib-iOS) don't need to link
+/// ImprintCore directly.
+public enum ManuscriptCitationKeys {
+    public static func extract(from source: String) -> [String] {
+        ImprintCore.extractCiteKeys(source: source)
     }
 }

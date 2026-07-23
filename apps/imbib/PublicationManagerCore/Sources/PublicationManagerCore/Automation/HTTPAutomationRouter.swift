@@ -13,6 +13,7 @@ import CryptoKit
 import ImpressAutomation
 import ImpressKit
 import ImpressLogging
+import ImprintCore
 import OSLog
 
 nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app", category: "httpRouter")
@@ -131,6 +132,20 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await PerfMetrics.shared.measureAsync(PerfBucket.search, detail: "http") {
                 await handleSearch(request)
             }
+        }
+
+        // GET /api/manuscripts — list manuscripts (id, title, format, status).
+        if path == "/api/manuscripts" {
+            let rows = await MainActor.run { RustStoreAdapter.shared.queryManuscripts() }
+            let payload: [[String: Any]] = rows.map { row in
+                [
+                    "id": row.id,
+                    "title": row.title,
+                    "format": row.format,
+                    "status": row.status,
+                ]
+            }
+            return .json(["status": "ok", "manuscripts": payload, "count": payload.count])
         }
 
         // Saved plot specs: list / fetch one.
@@ -519,6 +534,42 @@ public actor HTTPAutomationRouter: HTTPRouter {
             }
             let (body, status) = PlotAutomationHandler.saveFigure(json: json, manuscriptID: manuscriptID)
             return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
+        }
+
+        // POST /api/manuscripts — create a manuscript.
+        // Body: {title, body?, format?, authors?}
+        if path == "/api/manuscripts" {
+            guard let json = Self.jsonBody(request) else {
+                return .badRequest("Invalid JSON body")
+            }
+            guard let title = json["title"] as? String, !title.isEmpty else {
+                return .badRequest("Missing 'title'")
+            }
+            let bodyText = json["body"] as? String ?? ""
+            let format = json["format"] as? String ?? "typst"
+            let authors = json["authors"] as? [String] ?? []
+            guard let row = await MainActor.run(body: {
+                RustStoreAdapter.shared.createManuscript(
+                    title: title, format: format, body: bodyText, authors: authors)
+            }) else {
+                return .json(["status": "error", "reason": "createManuscript failed"], status: 500)
+            }
+            return .json(["status": "ok", "id": row.id, "title": row.title], status: 201)
+        }
+
+        // POST /api/manuscripts/{uuid}/compile — stateless Typst compile with
+        // the store-backed virtual bibliography (@citeKey → library BibTeX).
+        // The agent-drivable twin of the editor's Preview: verifies the whole
+        // citation pipeline headlessly. Returns byte counts + key resolution,
+        // not the PDF itself (pass "include_pdf": true for base64 data).
+        if path.hasPrefix("/api/manuscripts/") && path.hasSuffix("/compile") {
+            let idString = String(
+                request.path.dropFirst("/api/manuscripts/".count).dropLast("/compile".count))
+            guard let manuscriptID = UUID(uuidString: idString) else {
+                return .badRequest("Invalid manuscript UUID: \(idString)")
+            }
+            let includePDF = (Self.jsonBody(request)?["include_pdf"] as? Bool) ?? false
+            return await Self.compileManuscript(id: manuscriptID, includePDF: includePDF)
         }
 
         if path == "/api/performance/reset" {
@@ -4144,4 +4195,87 @@ nonisolated public struct ExportResponse: Codable, Sendable {
     public let format: String
     public let paperCount: Int
     public let content: String
+}
+
+// MARK: - Manuscript compile (agent verification surface)
+
+extension HTTPAutomationRouter {
+
+    /// Stateless Typst compile of a stored manuscript, with the same
+    /// store-backed virtual bibliography the editor's Preview uses:
+    /// extract `@citeKey` references (canonical Rust scanner) → export their
+    /// BibTeX through the citation seam → inject as bibliography.bib →
+    /// auto-append `#bibliography()` when the source lacks one.
+    ///
+    /// This is the headless twin of ManuscriptCompileController.compileTypst,
+    /// exposed so agents can verify citation resolution and rendering without
+    /// driving the GUI (see the agent-drivability directive).
+    static func compileManuscript(id: UUID, includePDF: Bool) async -> HTTPResponse {
+        // Snapshot everything MainActor-bound in one hop.
+        struct Snapshot {
+            var source: String
+            var format: String
+            var citedKeys: [String]
+            var resolvedKeys: [String]
+            var bibSource: String?
+        }
+        guard var snap = await MainActor.run(body: { () -> Snapshot? in
+            guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: id) else {
+                return nil
+            }
+            let keys = ManuscriptCitationKeys.extract(from: detail.bodyContent)
+            let citations = ManuscriptEditorEnvironment.shared.citationSearch
+            let resolved = keys.filter { citations?.findByCiteKey($0) != nil }
+            let bib = keys.isEmpty ? nil : citations?.bibliography(forKeys: keys)
+            return Snapshot(
+                source: detail.bodyContent,
+                format: detail.format,
+                citedKeys: keys,
+                resolvedKeys: resolved,
+                bibSource: bib
+            )
+        }) else {
+            return .json(["status": "error", "reason": "manuscript not found"], status: 404)
+        }
+
+        guard snap.format != "latex" else {
+            return .json(
+                ["status": "error", "reason": "LaTeX compile is not supported on this endpoint"],
+                status: 422)
+        }
+
+        if snap.bibSource != nil && !snap.source.contains("#bibliography(") {
+            snap.source += "\n#bibliography(\"bibliography.bib\")\n"
+        }
+
+        let renderer = TypstRenderer()
+        let options = ImprintCore.RenderOptions(
+            pageSize: .a4,
+            isDraft: false,
+            figuresRoot: ManuscriptFiguresDirectory.manuscriptRoot(for: id).path,
+            bibSource: snap.bibSource
+        )
+        do {
+            let output = try await renderer.render(snap.source, options: options)
+            var payload: [String: Any] = [
+                "status": output.isSuccess ? "ok" : "error",
+                "pdfBytes": output.pdfData.count,
+                "citedKeys": snap.citedKeys,
+                "resolvedKeys": snap.resolvedKeys,
+                "bibliographyBytes": snap.bibSource?.utf8.count ?? 0,
+                "warnings": output.warnings,
+            ]
+            if !output.isSuccess {
+                payload["errors"] = output.errors
+            }
+            if includePDF && output.isSuccess {
+                payload["pdfBase64"] = output.pdfData.base64EncodedString()
+            }
+            return .json(payload, status: output.isSuccess ? 200 : 422)
+        } catch {
+            return .json(
+                ["status": "error", "reason": error.localizedDescription],
+                status: 500)
+        }
+    }
 }

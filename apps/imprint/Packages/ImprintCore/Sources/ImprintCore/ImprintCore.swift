@@ -219,11 +219,22 @@ public struct RenderOptions {
     /// in the source resolves under this directory (the per-manuscript
     /// app-group dir). nil → no filesystem figure resolution.
     public var figuresRoot: String?
+    /// BibTeX text served to Typst as a virtual `bibliography.bib` so
+    /// `@citeKey` + `#bibliography("bibliography.bib")` resolve without a
+    /// project directory. Assembled by the compile controller from the cited
+    /// publications' store-backed BibTeX. nil → no virtual bibliography.
+    public var bibSource: String?
 
-    public init(pageSize: PageSize = .a4, isDraft: Bool = false, figuresRoot: String? = nil) {
+    public init(
+        pageSize: PageSize = .a4,
+        isDraft: Bool = false,
+        figuresRoot: String? = nil,
+        bibSource: String? = nil
+    ) {
         self.pageSize = pageSize
         self.isDraft = isDraft
         self.figuresRoot = figuresRoot
+        self.bibSource = bibSource
     }
 
     public enum PageSize: String, CaseIterable {
@@ -524,7 +535,8 @@ public actor TypstRenderer {
             marginRight: 72.0,
             marginBottom: 72.0,
             marginLeft: 72.0,
-            figuresRoot: options.figuresRoot
+            figuresRoot: options.figuresRoot,
+            bibSource: options.bibSource
         )
 
         let result = await Task.detached(priority: .userInitiated) {
@@ -597,7 +609,8 @@ public actor TypstRenderer {
             marginRight: 72.0,
             marginBottom: 72.0,
             marginLeft: 72.0,
-            figuresRoot: options.figuresRoot
+            figuresRoot: options.figuresRoot,
+            bibSource: options.bibSource
         )
 
         log("[ImprintCore] Calling Rust compileTypstToPdf on background thread...")

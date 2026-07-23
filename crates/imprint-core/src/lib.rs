@@ -193,6 +193,11 @@ pub struct CompileOptions {
     /// pass the per-manuscript app-group directory; None → no filesystem
     /// assets (in-memory `set_asset` entries still resolve).
     pub figures_root: Option<String>,
+    /// BibTeX text served to Typst as a virtual `bibliography.bib`, so
+    /// `@citeKey` + `#bibliography("bibliography.bib")` resolve without any
+    /// project directory. Callers assemble this from the cited publications'
+    /// raw BibTeX (store-backed). None → no virtual bibliography.
+    pub bib_source: Option<String>,
 }
 
 #[cfg(feature = "uniffi")]
@@ -206,6 +211,7 @@ impl Default for CompileOptions {
             margin_bottom: 72.0,
             margin_left: 72.0,
             figures_root: None,
+            bib_source: None,
         }
     }
 }
@@ -393,6 +399,7 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
         PERSISTENT_RENDERER.with(|cell| {
             let mut renderer = cell.borrow_mut();
             renderer.set_figures_root(options.figures_root.as_deref());
+            renderer.set_bib_source(options.bib_source.as_deref());
             match renderer.render_pdf(&source, &render_options) {
                 Ok((output, layout_entries)) => {
                     if let Some(pdf_bytes) = output.as_pdf() {
@@ -980,6 +987,7 @@ fn compile_typst_to_svg_inner(source: String, options: CompileOptions) -> SvgCom
         PERSISTENT_RENDERER.with(|cell| {
             let mut renderer = cell.borrow_mut();
             renderer.set_figures_root(options.figures_root.as_deref());
+            renderer.set_bib_source(options.bib_source.as_deref());
             match renderer.render_svg(&source, &render_options) {
                 Ok((svg_pages, warnings, page_count, layout_entries)) => {
                     // Prefer the real-layout source map; fall back to the text
@@ -1054,6 +1062,58 @@ pub fn generate_source_map(source: String, options: CompileOptions) -> Vec<FFISo
 /// Check if Typst rendering is available
 ///
 /// Returns true if the library was built with the typst-render feature.
+/// Extract the distinct `@citeKey` references from a Typst source, in first-
+/// appearance order.
+///
+/// Canonical cite-key scanner (keep extraction Rust-side — the Swift copies
+/// in BibliographyGenerator/CitationUsageTracker predate this). Rules match
+/// `imprint-service::extract_citation_usages` plus an email guard: an `@`
+/// immediately preceded by a cite-key character (as in `name@example.org`)
+/// is not a citation.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn extract_cite_keys(source: String) -> Vec<String> {
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < len {
+        if bytes[i] == b'@' {
+            // Email guard: `@` glued to a preceding key char is an address.
+            let preceded_by_key_char = i > 0
+                && (bytes[i - 1].is_ascii_alphanumeric()
+                    || bytes[i - 1] == b'_'
+                    || bytes[i - 1] == b'.'
+                    || bytes[i - 1] == b'-');
+            let key_start = i + 1;
+            if !preceded_by_key_char
+                && key_start < len
+                && bytes[key_start].is_ascii_alphabetic()
+            {
+                let mut j = key_start;
+                while j < len {
+                    let c = bytes[j];
+                    if c.is_ascii_alphanumeric() || c == b'_' || c == b':' || c == b'-' {
+                        j += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if let Ok(key) = std::str::from_utf8(&bytes[key_start..j]) {
+                    if seen.insert(key.to_string()) {
+                        out.push(key.to_string());
+                    }
+                }
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
 #[cfg(feature = "uniffi")]
 #[uniffi::export]
 pub fn is_typst_available() -> bool {

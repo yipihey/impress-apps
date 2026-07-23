@@ -548,6 +548,28 @@ mod typst_impl {
             *self.figures_root.write().unwrap() = root.map(PathBuf::from);
         }
 
+        /// Set (or clear) the in-memory bibliography served to Typst as
+        /// `bibliography("bibliography.bib")`. Rides the existing asset map
+        /// (bib files are loaded through `resolve_binary` like any other
+        /// file), so no resolver changes and no engine rebuild — comemo
+        /// re-reads on content change exactly as it does for `set_asset`
+        /// images. `None` removes the virtual file so a stale bibliography
+        /// never outlives its manuscript.
+        pub fn set_bib_source(&mut self, bib: Option<&str>) {
+            let key = VirtualPath::new("bibliography.bib")
+                .as_rootless_path()
+                .to_path_buf();
+            let mut assets = self.assets.write().unwrap();
+            match bib {
+                Some(text) => {
+                    assets.insert(key, Bytes::new(text.as_bytes().to_vec()));
+                }
+                None => {
+                    assets.remove(&key);
+                }
+            }
+        }
+
         /// Hash a preamble string for change detection
         fn hash_preamble(preamble: &str) -> u64 {
             let mut hasher = DefaultHasher::new();

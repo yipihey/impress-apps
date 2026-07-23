@@ -67,3 +67,35 @@ fn invalid_typst_errors_cleanly() {
     let result = renderer.render_pdf("#let x = ", &RenderOptions::default());
     assert!(result.is_err(), "malformed source should error, not panic");
 }
+
+#[test]
+fn bibliography_resolves_from_virtual_bib() {
+    // `@key` + `#bibliography("bibliography.bib")` must compile when the bib
+    // is injected in-memory via set_bib_source — the store-backed citation
+    // path used by the manuscript chassis (no project directory involved).
+    let mut renderer = PersistentTypstRenderer::new();
+    let bib = "@article{Einstein1905,\n  author = {Albert Einstein},\n  title = {On the Electrodynamics of Moving Bodies},\n  journal = {Annalen der Physik},\n  year = {1905}\n}\n";
+    let src = "= Cited\n\nAs shown in @Einstein1905.\n\n#bibliography(\"bibliography.bib\")\n";
+
+    // Without the bib the compile must fail (file not found).
+    assert!(
+        renderer.render_pdf(src, &RenderOptions::default()).is_err(),
+        "missing bibliography.bib should error"
+    );
+
+    renderer.set_bib_source(Some(bib));
+    let (out, _) = renderer
+        .render_pdf(src, &RenderOptions::default())
+        .expect("render with virtual bib");
+    match out {
+        RenderOutput::Pdf(bytes) => assert_eq!(&bytes[..5], b"%PDF-"),
+        _ => panic!("expected PDF"),
+    }
+
+    // Clearing removes the virtual file again.
+    renderer.set_bib_source(None);
+    assert!(
+        renderer.render_pdf(src, &RenderOptions::default()).is_err(),
+        "cleared bib must not linger"
+    );
+}

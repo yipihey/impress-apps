@@ -73,6 +73,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // imbib installs just this one (both drive impress-plot via ImprintCore).
         ManuscriptEditorEnvironment.shared.sidePanels = [PlotInspectorPanel()]
 
+        // Citation seam: back the editor's @-trigger citation palette, the
+        // cite-key hover preview, and the compile-time virtual bibliography
+        // with imbib's own library. (Without this the shared palette exists
+        // but always shows "no matches" — imprint installed its service,
+        // imbib never installed anything.)
+        ManuscriptEditorEnvironment.shared.citationSearch = ImbibCitationSearchService.shared
+
         // Pre-warm tag autocomplete cache so first `t`-keypress is instant
         TagAutocompleteService.shared.warmCache()
 

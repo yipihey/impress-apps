@@ -146,6 +146,21 @@ public final class ImprintPublicationService: PublicationDataSource {
         }
     }
 
+    /// Store-backed BibTeX export for the compile-time virtual bibliography
+    /// (`@citeKey` + `#bibliography("bibliography.bib")` in chassis compiles).
+    public func bibliography(forKeys keys: [String]) -> String? {
+        guard store != nil else { return nil }
+        let ids = keys.compactMap { findByCiteKey($0)?.id }
+        guard !ids.isEmpty else { return nil }
+        do {
+            let bibtex = try store?.exportBibtex(ids: ids) ?? ""
+            return bibtex.isEmpty ? nil : bibtex
+        } catch {
+            logInfo("bibliography(forKeys:) export failed: \(error)", category: "publications")
+            return nil
+        }
+    }
+
     /// Multi-term search across title/authors/abstract/note.
     ///
     /// The underlying `store.searchPublications` does a single-substring

@@ -74,6 +74,11 @@ struct imbibApp: App {
             OnboardingManager.shared.completeOnboarding()
         }
 
+        // Citation seam: backs the iOS citation picker and the compile-time
+        // virtual bibliography (@citeKey → store BibTeX) in the manuscript
+        // editor. Same install as macOS.
+        ManuscriptEditorEnvironment.shared.citationSearch = ImbibCitationSearchService.shared
+
         // Capture libraryManager for use in Task (can't capture self in struct)
         let capturedLibraryManager = libraryManager
 

@@ -1154,7 +1154,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
             // that manuscript's app-group figures (image("figures/…")).
             figuresRoot: (json["manuscriptId"] as? String)
                 .flatMap(UUID.init(uuidString:))
-                .map { ManuscriptFiguresDirectory.manuscriptRoot(for: $0).path }
+                .map { ManuscriptFiguresDirectory.manuscriptRoot(for: $0).path },
+            // Agent callers may pass raw BibTeX to resolve @citeKey references
+            // via the virtual bibliography.bib (same path the editor uses).
+            bibSource: json["bibliography"] as? String
         )
 
         // Run the synchronous Rust compile call on a background thread so it

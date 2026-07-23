@@ -1,5 +1,12 @@
+// Cross-platform since the @cite work (2026-07-23): the citation seam
+// (`citationSearch`/`citedKeys`/`ManuscriptCitationSearching`) backs the iOS
+// citation picker and the compile-time bibliography on BOTH platforms, so the
+// environment is no longer macOS-only. Only the AppKit-typed members
+// (`presenceCursorHook`, `sidePanels`) stay gated.
 #if os(macOS)
 import AppKit
+#endif
+import Foundation
 import ImbibRustCore
 
 /// GUI-meld Phase 3 — dependency seam for the shared manuscript source editor.
@@ -64,6 +71,7 @@ public final class ManuscriptEditorEnvironment {
     /// `LaTeXCompletionProvider.shared`.
     public var latexCompletions: @MainActor (_ prefix: String, _ source: String, _ offset: Int) async -> [String] = { _, _, _ in [] }
 
+    #if os(macOS)
     // MARK: - Collaboration presence
 
     /// Called on selection change so the host can update a collaboration presence
@@ -76,6 +84,7 @@ public final class ManuscriptEditorEnvironment {
     /// (imprint: AI Assistant / Throughline / Veusz / Paper preview). Default:
     /// empty → imbib shows no inspector. See `ManuscriptSidePanel`.
     public var sidePanels: [any ManuscriptSidePanel] = []
+    #endif
 
     // MARK: - Inverse-sync (LaTeX SyncTeX: preview click → source offset)
 
@@ -148,5 +157,16 @@ public protocol ManuscriptCitationSearching {
     func findByCiteKey(_ citeKey: String) -> BibliographyRow?
     /// Multi-term search over the library, capped at `limit` rows.
     func search(_ query: String, limit: Int) -> [BibliographyRow]
+
+    /// Raw BibTeX for the given cite keys (store-backed export), used by the
+    /// compile pipeline to build the virtual `bibliography.bib` that resolves
+    /// `@citeKey` references. Keys not in the library are skipped. Returns
+    /// nil when none resolve.
+    func bibliography(forKeys keys: [String]) -> String?
 }
-#endif // os(macOS)
+
+extension ManuscriptCitationSearching {
+    /// Default: no bibliography (hosts that only wire search still work; the
+    /// compile then behaves exactly as before this capability existed).
+    public func bibliography(forKeys keys: [String]) -> String? { nil }
+}
