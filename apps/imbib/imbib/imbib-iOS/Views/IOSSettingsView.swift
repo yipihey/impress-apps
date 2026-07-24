@@ -868,6 +868,10 @@ struct IOSAutomationSettingsView: View {
     @State private var loggingEnabled = false
     @State private var httpServerEnabled = false
     @State private var httpServerPort: UInt16 = HTTPAutomationServer.defaultPort
+    @State private var networkAccessEnabled = false
+    @State private var networkToken: String?
+    @State private var deviceAddresses: [String] = []
+    @State private var tokenCopied = false
 
     var body: some View {
         List {
@@ -892,6 +896,60 @@ struct IOSAutomationSettingsView: View {
                 Text("HTTP Server")
             } footer: {
                 Text("Serve the automation API on localhost:\(String(httpServerPort)). On the simulator this lets agents drive and verify imbib from the host (e.g. /api/status, /api/logs).")
+            }
+
+            Section {
+                Toggle("Allow Network Access (Tailscale)", isOn: $networkAccessEnabled)
+                    .disabled(!httpServerEnabled)
+                    .accessibilityIdentifier("automation.networkAccess")
+
+                if networkAccessEnabled, let token = networkToken {
+                    Button {
+                        UIPasteboard.general.string = token
+                        tokenCopied = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            tokenCopied = false
+                        }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Bearer Token")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                Text(token)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer()
+                            Image(systemName: tokenCopied ? "checkmark" : "doc.on.doc")
+                                .foregroundStyle(tokenCopied ? .green : .secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    Button("Regenerate Token", role: .destructive) {
+                        Task {
+                            networkToken = await AutomationSettingsStore.shared.regenerateNetworkToken()
+                            await HTTPAutomationServer.shared.restart()
+                        }
+                    }
+
+                    ForEach(deviceAddresses, id: \.self) { addr in
+                        HStack {
+                            Text(addr.hasPrefix("100.") ? "Tailscale" : "Local")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(addr):\(String(httpServerPort))")
+                                .font(.caption.monospaced())
+                        }
+                    }
+                }
+            } header: {
+                Text("Network Access")
+            } footer: {
+                Text("Off: the server accepts connections from this device only. On: agents on your Tailscale network (e.g. Claude Code on your Mac) can drive imbib with the bearer token — every remote request must present it. The server runs while imbib is open; iOS pauses it in the background.")
             }
 
             Section {
@@ -927,6 +985,16 @@ struct IOSAutomationSettingsView: View {
             loggingEnabled = await AutomationSettingsStore.shared.isLoggingEnabled
             httpServerEnabled = await AutomationSettingsStore.shared.isHTTPServerEnabled
             httpServerPort = await AutomationSettingsStore.shared.httpServerPort
+            networkAccessEnabled = await AutomationSettingsStore.shared.allowNetworkAccess
+            networkToken = await AutomationSettingsStore.shared.networkAuthToken
+            deviceAddresses = DeviceAddresses.nonLoopbackIPv4()
+        }
+        .onChange(of: networkAccessEnabled) { _, newValue in
+            Task {
+                networkToken = await AutomationSettingsStore.shared.setAllowNetworkAccess(newValue)
+                deviceAddresses = DeviceAddresses.nonLoopbackIPv4()
+                await HTTPAutomationServer.shared.restart()
+            }
         }
         .onChange(of: automationEnabled) { _, newValue in
             Task {
@@ -1138,4 +1206,45 @@ struct IOSExplorationSettingsView: View {
             sourceManager: SourceManager(),
             credentialManager: CredentialManager()
         ))
+}
+
+// MARK: - Device Addresses
+
+/// Non-loopback IPv4 addresses of this device's interfaces, so the user can
+/// read the Tailscale address (100.x.y.z) straight off the Automation
+/// settings screen when enabling network access.
+enum DeviceAddresses {
+    static func nonLoopbackIPv4() -> [String] {
+        var addresses: [String] = []
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return [] }
+        defer { freeifaddrs(ifaddr) }
+
+        var ptr: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = ptr {
+            defer { ptr = current.pointee.ifa_next }
+            guard let sa = current.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET) else {
+                continue
+            }
+            let flags = Int32(current.pointee.ifa_flags)
+            guard (flags & IFF_UP) != 0, (flags & IFF_LOOPBACK) == 0 else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(
+                sa, socklen_t(sa.pointee.sa_len),
+                &host, socklen_t(host.count),
+                nil, 0, NI_NUMERICHOST
+            ) == 0 {
+                let addr = String(cString: host)
+                if !addr.isEmpty && !addresses.contains(addr) {
+                    addresses.append(addr)
+                }
+            }
+        }
+        // Tailscale (CGNAT 100.64/10 — in practice 100.x) first, then the rest.
+        return addresses.sorted { a, b in
+            let at = a.hasPrefix("100."), bt = b.hasPrefix("100.")
+            if at != bt { return at }
+            return a < b
+        }
+    }
 }

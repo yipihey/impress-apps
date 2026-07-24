@@ -224,7 +224,24 @@ export interface LogsResponse {
 }
 
 export class ImbibClient {
-  constructor(private baseURL: string) {}
+  constructor(
+    private baseURL: string,
+    private authToken?: string
+  ) {}
+
+  /**
+   * fetch with the bearer token injected when configured (remote/tailnet
+   * targets — e.g. imbib on the user's iPhone). Local no-token behavior
+   * is unchanged.
+   */
+  private authFetch(url: string | URL, init?: RequestInit): Promise<Response> {
+    if (!this.authToken) return fetch(url, init);
+    const headers = {
+      ...((init?.headers as Record<string, string>) ?? {}),
+      Authorization: `Bearer ${this.authToken}`,
+    };
+    return fetch(url, { ...(init ?? {}), headers });
+  }
 
   /**
    * Render a native plot spec to SVG (impress-plot via imbib's Rust core).
@@ -237,7 +254,7 @@ export class ImbibClient {
    * Render with a full body: {spec} | {gridSpec} | {specId}.
    */
   async renderPlotBody(body: Record<string, unknown>): Promise<unknown> {
-    const response = await fetch(`${this.baseURL}/api/plot/render`, {
+    const response = await this.authFetch(`${this.baseURL}/api/plot/render`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -249,7 +266,7 @@ export class ImbibClient {
    * List saved plot specs from the shared store.
    */
   async listPlotSpecs(): Promise<unknown> {
-    const response = await fetch(`${this.baseURL}/api/plot/specs`);
+    const response = await this.authFetch(`${this.baseURL}/api/plot/specs`);
     return await response.json();
   }
 
@@ -257,7 +274,7 @@ export class ImbibClient {
    * Save a plot spec ({name, spec|gridSpec, dataSource?}).
    */
   async savePlotSpec(body: Record<string, unknown>): Promise<unknown> {
-    const response = await fetch(`${this.baseURL}/api/plot/specs`, {
+    const response = await this.authFetch(`${this.baseURL}/api/plot/specs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -274,7 +291,7 @@ export class ImbibClient {
     spec: Record<string, unknown>,
     name?: string
   ): Promise<unknown> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/manuscripts/${manuscriptId}/plot-figure`,
       {
         method: "POST",
@@ -290,7 +307,7 @@ export class ImbibClient {
    */
   async checkStatus(): Promise<ImbibStatus | null> {
     try {
-      const response = await fetch(`${this.baseURL}/api/status`, {
+      const response = await this.authFetch(`${this.baseURL}/api/status`, {
         signal: AbortSignal.timeout(2000),
       });
       if (!response.ok) return null;
@@ -311,7 +328,7 @@ export class ImbibClient {
     if (options.limit) params.set("limit", String(options.limit));
     if (options.offset) params.set("offset", String(options.offset));
 
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/search?${params.toString()}`
     );
     if (!response.ok) {
@@ -331,7 +348,7 @@ export class ImbibClient {
     if (options.source) params.set("source", options.source);
     if (options.limit) params.set("limit", String(options.limit));
 
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/search/external?${params.toString()}`
     );
     if (!response.ok) {
@@ -344,7 +361,7 @@ export class ImbibClient {
    * Get a specific paper by cite key.
    */
   async getPaper(citeKey: string): Promise<Paper | null> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}`
     );
     if (!response.ok) {
@@ -364,7 +381,7 @@ export class ImbibClient {
       format: "bibtex",
     });
 
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/export?${params.toString()}`
     );
     if (!response.ok) {
@@ -395,7 +412,7 @@ export class ImbibClient {
       ? `${this.baseURL}/api/logs?${query}`
       : `${this.baseURL}/api/logs`;
 
-    const response = await fetch(url);
+    const response = await this.authFetch(url);
     if (!response.ok) {
       throw new Error(`Get logs failed: ${response.statusText}`);
     }
@@ -406,7 +423,7 @@ export class ImbibClient {
    * List all collections.
    */
   async listCollections(): Promise<Collection[]> {
-    const response = await fetch(`${this.baseURL}/api/collections`);
+    const response = await this.authFetch(`${this.baseURL}/api/collections`);
     if (!response.ok) {
       throw new Error(`List collections failed: ${response.statusText}`);
     }
@@ -429,7 +446,7 @@ export class ImbibClient {
     identifiers: string[],
     options: { collection?: string; library?: string; downloadPDFs?: boolean } = {}
   ): Promise<AddPapersResponse> {
-    const response = await fetch(`${this.baseURL}/api/papers/add`, {
+    const response = await this.authFetch(`${this.baseURL}/api/papers/add`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -449,7 +466,7 @@ export class ImbibClient {
    * Delete papers from the library.
    */
   async deletePapers(identifiers: string[]): Promise<{ deleted: number }> {
-    const response = await fetch(`${this.baseURL}/api/papers`, {
+    const response = await this.authFetch(`${this.baseURL}/api/papers`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifiers }),
@@ -465,7 +482,7 @@ export class ImbibClient {
    * Mark papers as read or unread.
    */
   async markRead(identifiers: string[], read: boolean): Promise<{ updated: number }> {
-    const response = await fetch(`${this.baseURL}/api/papers/read`, {
+    const response = await this.authFetch(`${this.baseURL}/api/papers/read`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifiers, read }),
@@ -481,7 +498,7 @@ export class ImbibClient {
    * Toggle star status for papers.
    */
   async toggleStar(identifiers: string[]): Promise<{ updated: number }> {
-    const response = await fetch(`${this.baseURL}/api/papers/star`, {
+    const response = await this.authFetch(`${this.baseURL}/api/papers/star`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifiers }),
@@ -502,7 +519,7 @@ export class ImbibClient {
     style?: string,
     length?: string
   ): Promise<{ updated: number }> {
-    const response = await fetch(`${this.baseURL}/api/papers/flag`, {
+    const response = await this.authFetch(`${this.baseURL}/api/papers/flag`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifiers, color, style, length }),
@@ -518,7 +535,7 @@ export class ImbibClient {
    * Add a tag to papers.
    */
   async addTag(identifiers: string[], tag: string): Promise<{ updated: number }> {
-    const response = await fetch(`${this.baseURL}/api/papers/tags`, {
+    const response = await this.authFetch(`${this.baseURL}/api/papers/tags`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifiers, action: "add", tag }),
@@ -534,7 +551,7 @@ export class ImbibClient {
    * Remove a tag from papers.
    */
   async removeTag(identifiers: string[], tag: string): Promise<{ updated: number }> {
-    const response = await fetch(`${this.baseURL}/api/papers/tags`, {
+    const response = await this.authFetch(`${this.baseURL}/api/papers/tags`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifiers, action: "remove", tag }),
@@ -553,7 +570,7 @@ export class ImbibClient {
     name: string,
     options: { libraryID?: string; isSmartCollection?: boolean; predicate?: string } = {}
   ): Promise<Collection> {
-    const response = await fetch(`${this.baseURL}/api/collections`, {
+    const response = await this.authFetch(`${this.baseURL}/api/collections`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -574,7 +591,7 @@ export class ImbibClient {
    * Delete a collection.
    */
   async deleteCollection(id: string): Promise<{ deleted: boolean }> {
-    const response = await fetch(`${this.baseURL}/api/collections/${id}`, {
+    const response = await this.authFetch(`${this.baseURL}/api/collections/${id}`, {
       method: "DELETE",
     });
     if (!response.ok) {
@@ -591,7 +608,7 @@ export class ImbibClient {
     collectionID: string,
     identifiers: string[]
   ): Promise<{ updated: number }> {
-    const response = await fetch(`${this.baseURL}/api/collections/${collectionID}/papers`, {
+    const response = await this.authFetch(`${this.baseURL}/api/collections/${collectionID}/papers`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "add", identifiers }),
@@ -610,7 +627,7 @@ export class ImbibClient {
     libraryID: string,
     identifiers: string[]
   ): Promise<{ assigned: string[]; notFound: string[] }> {
-    const response = await fetch(`${this.baseURL}/api/libraries/add-papers`, {
+    const response = await this.authFetch(`${this.baseURL}/api/libraries/add-papers`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ libraryID, identifiers }),
@@ -633,7 +650,7 @@ export class ImbibClient {
     collectionID: string,
     identifiers: string[]
   ): Promise<{ updated: number }> {
-    const response = await fetch(`${this.baseURL}/api/collections/${collectionID}/papers`, {
+    const response = await this.authFetch(`${this.baseURL}/api/collections/${collectionID}/papers`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "remove", identifiers }),
@@ -649,7 +666,7 @@ export class ImbibClient {
    * Download PDFs for papers.
    */
   async downloadPDFs(identifiers: string[]): Promise<DownloadResponse> {
-    const response = await fetch(`${this.baseURL}/api/papers/download-pdfs`, {
+    const response = await this.authFetch(`${this.baseURL}/api/papers/download-pdfs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifiers }),
@@ -668,7 +685,7 @@ export class ImbibClient {
    * List all libraries.
    */
   async listLibraries(): Promise<Library[]> {
-    const response = await fetch(`${this.baseURL}/api/libraries`);
+    const response = await this.authFetch(`${this.baseURL}/api/libraries`);
     if (!response.ok) {
       throw new Error(`List libraries failed: ${response.statusText}`);
     }
@@ -684,7 +701,7 @@ export class ImbibClient {
    * Create a new library.
    */
   async createLibrary(name: string): Promise<Library> {
-    const response = await fetch(`${this.baseURL}/api/libraries`, {
+    const response = await this.authFetch(`${this.baseURL}/api/libraries`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
@@ -715,7 +732,7 @@ export class ImbibClient {
       ? `${this.baseURL}/api/collections/${collectionID}/papers?${query}`
       : `${this.baseURL}/api/collections/${collectionID}/papers`;
 
-    const response = await fetch(url);
+    const response = await this.authFetch(url);
     if (!response.ok) {
       throw new Error(`List collection papers failed: ${response.statusText}`);
     }
@@ -733,7 +750,7 @@ export class ImbibClient {
     const query = params.toString();
     const url = query ? `${this.baseURL}/api/tags?${query}` : `${this.baseURL}/api/tags`;
 
-    const response = await fetch(url);
+    const response = await this.authFetch(url);
     if (!response.ok) {
       throw new Error(`List tags failed: ${response.statusText}`);
     }
@@ -745,7 +762,7 @@ export class ImbibClient {
    * Get the tag tree as a formatted string.
    */
   async getTagTree(): Promise<string> {
-    const response = await fetch(`${this.baseURL}/api/tags/tree`);
+    const response = await this.authFetch(`${this.baseURL}/api/tags/tree`);
     if (!response.ok) {
       throw new Error(`Get tag tree failed: ${response.statusText}`);
     }
@@ -761,7 +778,7 @@ export class ImbibClient {
    * List participants in a shared library.
    */
   async listParticipants(libraryID: string): Promise<Participant[]> {
-    const response = await fetch(`${this.baseURL}/api/libraries/${libraryID}/participants`);
+    const response = await this.authFetch(`${this.baseURL}/api/libraries/${libraryID}/participants`);
     if (!response.ok) {
       throw new Error(`List participants failed: ${response.statusText}`);
     }
@@ -781,7 +798,7 @@ export class ImbibClient {
       ? `${this.baseURL}/api/libraries/${libraryID}/activity?${query}`
       : `${this.baseURL}/api/libraries/${libraryID}/activity`;
 
-    const response = await fetch(url);
+    const response = await this.authFetch(url);
     if (!response.ok) {
       throw new Error(`Get library activity failed: ${response.statusText}`);
     }
@@ -793,7 +810,7 @@ export class ImbibClient {
    * List comments on a paper.
    */
   async listComments(citeKey: string): Promise<Comment[]> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}/comments`
     );
     if (!response.ok) {
@@ -811,7 +828,7 @@ export class ImbibClient {
     text: string,
     parentCommentID?: string
   ): Promise<Comment> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}/comments`,
       {
         method: "POST",
@@ -830,7 +847,7 @@ export class ImbibClient {
    * Delete a comment.
    */
   async deleteComment(commentID: string): Promise<{ deleted: boolean }> {
-    const response = await fetch(`${this.baseURL}/api/comments/${commentID}`, {
+    const response = await this.authFetch(`${this.baseURL}/api/comments/${commentID}`, {
       method: "DELETE",
     });
     if (!response.ok) {
@@ -846,7 +863,7 @@ export class ImbibClient {
   async listItemComments(
     itemID: string
   ): Promise<{ comments: Record<string, unknown>[]; total: number }> {
-    const response = await fetch(`${this.baseURL}/api/items/${itemID}/comments`);
+    const response = await this.authFetch(`${this.baseURL}/api/items/${itemID}/comments`);
     if (!response.ok) {
       throw new Error(`List item comments failed: ${response.statusText}`);
     }
@@ -867,7 +884,7 @@ export class ImbibClient {
     const body: Record<string, string> = { text };
     if (parentCommentID) body.parentCommentID = parentCommentID;
 
-    const response = await fetch(`${this.baseURL}/api/items/${itemID}/comments`, {
+    const response = await this.authFetch(`${this.baseURL}/api/items/${itemID}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -885,7 +902,7 @@ export class ImbibClient {
     commentID: string,
     text: string
   ): Promise<{ updated: boolean }> {
-    const response = await fetch(`${this.baseURL}/api/comments/${commentID}`, {
+    const response = await this.authFetch(`${this.baseURL}/api/comments/${commentID}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
@@ -900,7 +917,7 @@ export class ImbibClient {
    * Trigger a manual comment sync.
    */
   async syncComments(): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.baseURL}/api/sync/comments`, {
+    const response = await this.authFetch(`${this.baseURL}/api/sync/comments`, {
       method: "POST",
     });
     if (!response.ok) {
@@ -913,7 +930,7 @@ export class ImbibClient {
    * Get sync status.
    */
   async getSyncStatus(): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.baseURL}/api/sync/status`);
+    const response = await this.authFetch(`${this.baseURL}/api/sync/status`);
     if (!response.ok) {
       throw new Error(`Get sync status failed: ${response.statusText}`);
     }
@@ -924,7 +941,7 @@ export class ImbibClient {
    * List assignments in a library.
    */
   async listLibraryAssignments(libraryID: string): Promise<Assignment[]> {
-    const response = await fetch(`${this.baseURL}/api/libraries/${libraryID}/assignments`);
+    const response = await this.authFetch(`${this.baseURL}/api/libraries/${libraryID}/assignments`);
     if (!response.ok) {
       throw new Error(`List assignments failed: ${response.statusText}`);
     }
@@ -936,7 +953,7 @@ export class ImbibClient {
    * List assignments for a specific paper.
    */
   async listPaperAssignments(citeKey: string): Promise<Assignment[]> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}/assignments`
     );
     if (!response.ok) {
@@ -955,7 +972,7 @@ export class ImbibClient {
     libraryID: string,
     options: { note?: string; dueDate?: string } = {}
   ): Promise<Assignment> {
-    const response = await fetch(`${this.baseURL}/api/assignments`, {
+    const response = await this.authFetch(`${this.baseURL}/api/assignments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -977,7 +994,7 @@ export class ImbibClient {
    * Delete an assignment.
    */
   async deleteAssignment(assignmentID: string): Promise<{ deleted: boolean }> {
-    const response = await fetch(`${this.baseURL}/api/assignments/${assignmentID}`, {
+    const response = await this.authFetch(`${this.baseURL}/api/assignments/${assignmentID}`, {
       method: "DELETE",
     });
     if (!response.ok) {
@@ -991,7 +1008,7 @@ export class ImbibClient {
    * Share a library.
    */
   async shareLibrary(libraryID: string): Promise<ShareResult> {
-    const response = await fetch(`${this.baseURL}/api/libraries/${libraryID}/share`, {
+    const response = await this.authFetch(`${this.baseURL}/api/libraries/${libraryID}/share`, {
       method: "POST",
     });
     if (!response.ok) {
@@ -1004,7 +1021,7 @@ export class ImbibClient {
    * Unshare a library or leave a shared library.
    */
   async unshareLibrary(libraryID: string, keepCopy?: boolean): Promise<{ unshared: boolean }> {
-    const response = await fetch(`${this.baseURL}/api/libraries/${libraryID}/share`, {
+    const response = await this.authFetch(`${this.baseURL}/api/libraries/${libraryID}/share`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ keepCopy: keepCopy ?? true }),
@@ -1024,7 +1041,7 @@ export class ImbibClient {
     participantID: string,
     permission: "readOnly" | "readWrite"
   ): Promise<{ updated: boolean }> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/libraries/${libraryID}/participants/${participantID}`,
       {
         method: "PUT",
@@ -1055,7 +1072,7 @@ export class ImbibClient {
       ? `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}/annotations?${query}`
       : `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}/annotations`;
 
-    const response = await fetch(url);
+    const response = await this.authFetch(url);
     if (!response.ok) {
       throw new Error(`List annotations failed: ${response.statusText}`);
     }
@@ -1072,7 +1089,7 @@ export class ImbibClient {
     pageNumber: number,
     options: { contents?: string; selectedText?: string; color?: string } = {}
   ): Promise<Annotation> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}/annotations`,
       {
         method: "POST",
@@ -1097,7 +1114,7 @@ export class ImbibClient {
    * Delete a PDF annotation.
    */
   async deleteAnnotation(annotationID: string): Promise<{ deleted: boolean }> {
-    const response = await fetch(`${this.baseURL}/api/annotations/${annotationID}`, {
+    const response = await this.authFetch(`${this.baseURL}/api/annotations/${annotationID}`, {
       method: "DELETE",
     });
     if (!response.ok) {
@@ -1111,7 +1128,7 @@ export class ImbibClient {
    * Get the notes (BibTeX note field) for a paper.
    */
   async getNotes(citeKey: string): Promise<string | null> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}/notes`
     );
     if (!response.ok) {
@@ -1125,7 +1142,7 @@ export class ImbibClient {
    * Update the notes (BibTeX note field) for a paper.
    */
   async updateNotes(citeKey: string, notes: string | null): Promise<{ notes: string | null }> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/papers/${encodeURIComponent(citeKey)}/notes`,
       {
         method: "PUT",
@@ -1164,7 +1181,7 @@ export class ImbibClient {
       ? `${this.baseURL}/api/artifacts?${query}`
       : `${this.baseURL}/api/artifacts`;
 
-    const response = await fetch(url);
+    const response = await this.authFetch(url);
     if (!response.ok) {
       throw new Error(`List artifacts failed: ${response.statusText}`);
     }
@@ -1176,7 +1193,7 @@ export class ImbibClient {
    * Get a single artifact by ID.
    */
   async getArtifact(id: string): Promise<Artifact | null> {
-    const response = await fetch(`${this.baseURL}/api/artifacts/${id}`);
+    const response = await this.authFetch(`${this.baseURL}/api/artifacts/${id}`);
     if (!response.ok) {
       if (response.status === 404) return null;
       throw new Error(`Get artifact failed: ${response.statusText}`);
@@ -1193,7 +1210,7 @@ export class ImbibClient {
     title: string,
     options: { sourceURL?: string; notes?: string; tags?: string[] } = {}
   ): Promise<Artifact> {
-    const response = await fetch(`${this.baseURL}/api/artifacts`, {
+    const response = await this.authFetch(`${this.baseURL}/api/artifacts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1215,7 +1232,7 @@ export class ImbibClient {
    * Delete an artifact.
    */
   async deleteArtifact(id: string): Promise<{ deleted: boolean }> {
-    const response = await fetch(`${this.baseURL}/api/artifacts/${id}`, {
+    const response = await this.authFetch(`${this.baseURL}/api/artifacts/${id}`, {
       method: "DELETE",
     });
     if (!response.ok) {
@@ -1229,7 +1246,7 @@ export class ImbibClient {
    * Add a tag to an artifact.
    */
   async tagArtifact(id: string, tag: string): Promise<{ updated: boolean }> {
-    const response = await fetch(`${this.baseURL}/api/artifacts/${id}/tags`, {
+    const response = await this.authFetch(`${this.baseURL}/api/artifacts/${id}/tags`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tag }),
@@ -1245,7 +1262,7 @@ export class ImbibClient {
    * Remove a tag from an artifact.
    */
   async untagArtifact(id: string, tag: string): Promise<{ updated: boolean }> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/artifacts/${id}/tags/${encodeURIComponent(tag)}`,
       { method: "DELETE" }
     );
@@ -1263,7 +1280,7 @@ export class ImbibClient {
     artifactID: string,
     citeKey: string
   ): Promise<{ linked: boolean }> {
-    const response = await fetch(
+    const response = await this.authFetch(
       `${this.baseURL}/api/artifacts/${artifactID}/link`,
       {
         method: "POST",
@@ -1288,7 +1305,7 @@ export class ImbibClient {
     library?: string;
     downloadPDFs?: boolean;
   }): Promise<ResolvedPaperResponse> {
-    const res = await fetch(`${this.baseURL}/api/papers/resolve`, {
+    const res = await this.authFetch(`${this.baseURL}/api/papers/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

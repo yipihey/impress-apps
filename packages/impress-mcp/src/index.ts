@@ -57,6 +57,13 @@ import { appForTool, ensureAppRunning, isConnectionError } from "./app-launcher.
 
 // Configuration
 const IMBIB_PORT = Number(process.env.IMBIB_PORT) || 23120;
+// Remote imbib (e.g. the user's iPhone over Tailscale): point IMBIB_BASE_URL
+// at the phone's tailnet address and set IMBIB_TOKEN to the bearer token
+// from imbib iOS Settings > Automation API > Network Access.
+//   IMBIB_BASE_URL=http://100.x.y.z:23120 IMBIB_TOKEN=imbib-net-... npx impress-mcp
+const IMBIB_BASE_URL = process.env.IMBIB_BASE_URL || `http://127.0.0.1:${IMBIB_PORT}`;
+const IMBIB_TOKEN = process.env.IMBIB_TOKEN || undefined;
+const IMBIB_IS_LOCAL = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/.test(IMBIB_BASE_URL);
 const IMPRINT_PORT = Number(process.env.IMPRINT_PORT) || 23121;
 const IMPART_PORT = Number(process.env.IMPART_PORT) || 23122;
 const IMPEL_PORT = Number(process.env.IMPEL_PORT) || 23123;
@@ -115,7 +122,7 @@ const colors = {
 async function runCheck(): Promise<void> {
   console.log(`\n${colors.bold}impress-mcp connection check${colors.reset}\n`);
 
-  const imbibClient = new ImbibClient(`http://127.0.0.1:${IMBIB_PORT}`);
+  const imbibClient = new ImbibClient(IMBIB_BASE_URL, IMBIB_TOKEN);
   const impartClient = new ImpartClient(`http://127.0.0.1:${IMPART_PORT}`);
   const imprintClient = new ImprintClient(`http://127.0.0.1:${IMPRINT_PORT}`);
 
@@ -318,7 +325,7 @@ ${colors.dim}Configuration file locations:
 }
 
 // Initialize clients
-const imbibClient = new ImbibClient(`http://127.0.0.1:${IMBIB_PORT}`);
+const imbibClient = new ImbibClient(IMBIB_BASE_URL, IMBIB_TOKEN);
 const impartClient = new ImpartClient(`http://127.0.0.1:${IMPART_PORT}`);
 const imprintClient = new ImprintClient(`http://127.0.0.1:${IMPRINT_PORT}`);
 const impelClient = new ImpelClient(`http://127.0.0.1:${IMPEL_PORT}`);
@@ -465,6 +472,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // If the app isn't running, try to launch it and retry once
     if (isConnectionError(error)) {
       const app = appForTool(name);
+      // A remote imbib (IMBIB_BASE_URL on the tailnet, e.g. the iPhone)
+      // cannot be launched from this machine — surface the error instead.
+      if (app === "imbib" && !IMBIB_IS_LOCAL) {
+        throw error;
+      }
       if (app) {
         const launched = await ensureAppRunning(app);
         if (launched) {

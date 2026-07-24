@@ -132,6 +132,32 @@ public actor HTTPAutomationRouter: HTTPRouter {
             }
         }
 
+        // GET /api/manuscripts/{uuid} — full manuscript detail incl. body +
+        // content hash. The hash is the CAS cookie for PUT .../body: agents
+        // read (body, contentHash), edit, and write back conditionally so a
+        // concurrent thumb-edit on the device can never be clobbered.
+        if path.hasPrefix("/api/manuscripts/") && !path.dropFirst("/api/manuscripts/".count).contains("/") {
+            let idString = String(originalPath.dropFirst("/api/manuscripts/".count))
+            guard let manuscriptID = UUID(uuidString: idString) else {
+                return .badRequest("Invalid manuscript UUID: \(idString)")
+            }
+            guard let detail = await MainActor.run(body: {
+                RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)
+            }) else {
+                return .json(["status": "error", "reason": "manuscript not found"], status: 404)
+            }
+            return .json([
+                "status": "ok",
+                "id": manuscriptID.uuidString,
+                "title": detail.title,
+                "format": detail.format,
+                "manuscriptStatus": detail.status,
+                "body": detail.bodyContent,
+                "contentHash": detail.bodyContentHash as Any,
+                "bodyIsBlobRef": detail.bodyIsBlobRef,
+            ])
+        }
+
         // GET /api/manuscripts — list manuscripts (id, title, format, status).
         if path == "/api/manuscripts" {
             let rows = await MainActor.run { RustStoreAdapter.shared.queryManuscripts() }
@@ -849,6 +875,46 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Invalid artifact ID")
             }
             return await handleAddArtifactTag(artifactID: artifactID, request: request)
+        }
+
+        // PUT /api/manuscripts/{uuid}/body — compare-and-set body update.
+        // {body, expected_hash?} → setManuscriptBody. Stale hash → 409 with
+        // the current storedHash so the caller re-reads and rebases instead
+        // of overwriting concurrent edits (the same CAS the in-app editors
+        // use — this is the agent-safe manuscript write path).
+        if path.hasPrefix("/api/manuscripts/") && path.hasSuffix("/body") {
+            let idString = String(
+                originalPath.dropFirst("/api/manuscripts/".count).dropLast("/body".count))
+            guard let manuscriptID = UUID(uuidString: idString) else {
+                return .badRequest("Invalid manuscript UUID: \(idString)")
+            }
+            guard let json = Self.jsonBody(request) else {
+                return .badRequest("Invalid JSON body")
+            }
+            guard let body = json["body"] as? String else {
+                return .badRequest("Missing 'body'")
+            }
+            let expectedHash = (json["expected_hash"] as? String) ?? (json["expectedHash"] as? String)
+            guard let outcome = await MainActor.run(body: {
+                RustStoreAdapter.shared.setManuscriptBody(
+                    id: manuscriptID, body: body, expectedHash: expectedHash)
+            }) else {
+                return .json(["status": "error", "reason": "manuscript not found"], status: 404)
+            }
+            if outcome.applied {
+                return .json([
+                    "status": "ok",
+                    "applied": true,
+                    "newHash": outcome.newHash as Any,
+                ])
+            }
+            return .json(
+                [
+                    "status": "conflict",
+                    "applied": false,
+                    "storedHash": outcome.storedHash as Any,
+                ],
+                status: 409)
         }
 
         // PUT /api/libraries/{id}/participants/{participantID}

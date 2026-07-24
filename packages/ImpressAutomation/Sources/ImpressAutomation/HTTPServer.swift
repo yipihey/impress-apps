@@ -24,16 +24,29 @@ public struct HTTPServerConfiguration: Sendable {
     /// Whether to log all requests
     public let logRequests: Bool
 
+    /// Opt-in: also accept NON-loopback peers (e.g. over the user's tailnet).
+    /// When false (default) the listener binds loopback only — the pre-2026-07
+    /// behavior, byte-identical for every existing caller.
+    public let allowNetworkAccess: Bool
+
+    /// Bearer token required from non-loopback peers. Loopback peers are
+    /// never asked for it. See `HTTPAuthPolicy`.
+    public let authToken: String?
+
     public init(
         port: UInt16,
         loggerSubsystem: String,
         loggerCategory: String = "httpServer",
-        logRequests: Bool = false
+        logRequests: Bool = false,
+        allowNetworkAccess: Bool = false,
+        authToken: String? = nil
     ) {
         self.port = port
         self.loggerSubsystem = loggerSubsystem
         self.loggerCategory = loggerCategory
         self.logRequests = logRequests
+        self.allowNetworkAccess = allowNetworkAccess
+        self.authToken = authToken
     }
 }
 
@@ -74,14 +87,23 @@ public actor HTTPServer<Router: HTTPRouter> {
         let port = NWEndpoint.Port(rawValue: configuration.port)!
 
         do {
-            // Create TCP listener on localhost only
             let parameters = NWParameters.tcp
-            parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
-                host: .ipv4(.loopback),
-                port: port
-            )
-
-            listener = try NWListener(using: parameters)
+            if configuration.allowNetworkAccess {
+                // Opt-in network mode: listen on ALL interfaces. Note the
+                // port-only listener form — pinning requiredLocalEndpoint
+                // to 0.0.0.0 makes NWListener unreachable from non-loopback
+                // peers (verified empirically); omitting the endpoint is the
+                // canonical any-interface bind. Non-loopback peers are gated
+                // per-request by HTTPAuthPolicy (bearer token).
+                listener = try NWListener(using: parameters, on: port)
+            } else {
+                // Default: localhost only — the historical guarantee.
+                parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
+                    host: .ipv4(.loopback),
+                    port: port
+                )
+                listener = try NWListener(using: parameters)
+            }
 
             listener?.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
@@ -264,6 +286,32 @@ extension HTTPServer {
 
         logger?.debug("HTTP \(request.method) \(request.path)")
 
+        // Access policy BEFORE routing: loopback peers pass untouched;
+        // non-loopback peers must present the configured bearer token.
+        // Indeterminate peers count as remote (fail closed).
+        let decision = HTTPAuthPolicy.evaluate(
+            peerIsLoopback: Self.isLoopbackPeer(connection),
+            allowNetworkAccess: currentConfiguration?.allowNetworkAccess ?? false,
+            authToken: currentConfiguration?.authToken,
+            authorizationHeader: request.headers["authorization"]
+        )
+        if case .deny(let reason) = decision {
+            logger?.info("HTTP \(request.method) \(request.path) denied (\(reason))")
+            await sendResponse(
+                HTTPResponse(
+                    status: 401,
+                    statusText: "Unauthorized",
+                    headers: [
+                        "WWW-Authenticate": "Bearer",
+                        "Content-Type": "application/json; charset=utf-8",
+                    ],
+                    body: Data("{\"status\":\"error\",\"reason\":\"unauthorized\"}".utf8)
+                ),
+                on: connection
+            )
+            return
+        }
+
         // Route the request
         let response = await router.route(request)
 
@@ -273,6 +321,27 @@ extension HTTPServer {
         }
 
         await sendResponse(response, on: connection)
+    }
+
+    /// Whether the connection's transport peer is positively loopback.
+    /// Anything indeterminate (named endpoints, missing path info) returns
+    /// false — the auth policy treats that as remote.
+    static func isLoopbackPeer(_ connection: NWConnection) -> Bool {
+        let endpoint = connection.currentPath?.remoteEndpoint ?? connection.endpoint
+        guard case .hostPort(let host, _) = endpoint else { return false }
+        switch host {
+        case .ipv4(let addr):
+            return addr.rawValue.first == 127
+        case .ipv6(let addr):
+            if addr.isLoopback { return true }
+            // IPv4-mapped loopback (::ffff:127.x.x.x)
+            if let v4 = addr.asIPv4 { return v4.rawValue.first == 127 }
+            return false
+        case .name:
+            return false
+        @unknown default:
+            return false
+        }
     }
 
     private func sendResponse(_ response: HTTPResponse, on connection: NWConnection) async {

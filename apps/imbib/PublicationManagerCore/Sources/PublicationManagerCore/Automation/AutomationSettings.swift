@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressAutomation
 import OSLog
 
 private let automationLogger = Logger(subsystem: "com.imbib.app", category: "automation")
@@ -28,6 +29,14 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
     /// Port number for the HTTP server (default: 23120)
     public var httpServerPort: UInt16
 
+    /// Opt-in: accept non-loopback peers (the user's tailnet) on the HTTP
+    /// server, gated by `networkAuthToken`. Default OFF — loopback only.
+    public var allowNetworkAccess: Bool
+
+    /// Bearer token required from non-loopback peers. Generated on first
+    /// enable; regenerable in Settings. nil = never enabled.
+    public var networkAuthToken: String?
+
     /// Default settings (automation enabled for MCP integration)
     /// HTTP server only accepts localhost connections for security.
     public static let `default` = AutomationSettings(
@@ -41,12 +50,35 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
         isEnabled: Bool = true,
         logRequests: Bool = true,
         isHTTPServerEnabled: Bool = true,
-        httpServerPort: UInt16 = 23120
+        httpServerPort: UInt16 = 23120,
+        allowNetworkAccess: Bool = false,
+        networkAuthToken: String? = nil
     ) {
         self.isEnabled = isEnabled
         self.logRequests = logRequests
         self.isHTTPServerEnabled = isHTTPServerEnabled
         self.httpServerPort = httpServerPort
+        self.allowNetworkAccess = allowNetworkAccess
+        self.networkAuthToken = networkAuthToken
+    }
+
+    /// Lenient decoding: every field falls back to its default when absent.
+    /// Without this, ADDING a field made the store's `try? decode` fail on
+    /// previously persisted JSON and silently reset ALL settings to
+    /// `.default` (a pre-existing footgun this feature would have tripped —
+    /// losing the user's port override on upgrade).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AutomationSettings.default
+        self.isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? d.isEnabled
+        self.logRequests = try c.decodeIfPresent(Bool.self, forKey: .logRequests) ?? d.logRequests
+        self.isHTTPServerEnabled =
+            try c.decodeIfPresent(Bool.self, forKey: .isHTTPServerEnabled) ?? d.isHTTPServerEnabled
+        self.httpServerPort =
+            try c.decodeIfPresent(UInt16.self, forKey: .httpServerPort) ?? d.httpServerPort
+        self.allowNetworkAccess =
+            try c.decodeIfPresent(Bool.self, forKey: .allowNetworkAccess) ?? false
+        self.networkAuthToken = try c.decodeIfPresent(String.self, forKey: .networkAuthToken)
     }
 }
 
@@ -144,6 +176,39 @@ public actor AutomationSettingsStore {
         var current = await settings
         current.httpServerPort = port
         await update(current)
+    }
+
+    /// Whether non-loopback (tailnet) access is enabled.
+    public var allowNetworkAccess: Bool {
+        get async { await settings.allowNetworkAccess }
+    }
+
+    /// The network bearer token, if one has ever been generated.
+    public var networkAuthToken: String? {
+        get async { await settings.networkAuthToken }
+    }
+
+    /// Enable/disable network access. First enable generates a token if none
+    /// exists yet. Returns the active token when enabling.
+    @discardableResult
+    public func setAllowNetworkAccess(_ enabled: Bool) async -> String? {
+        var current = await settings
+        current.allowNetworkAccess = enabled
+        if enabled && (current.networkAuthToken ?? "").isEmpty {
+            current.networkAuthToken = ImpressAutomation.HTTPAuthPolicy.generateToken()
+        }
+        await update(current)
+        return current.networkAuthToken
+    }
+
+    /// Replace the network token with a fresh one (invalidates the old one
+    /// immediately on the next server restart).
+    public func regenerateNetworkToken() async -> String {
+        var current = await settings
+        let token = ImpressAutomation.HTTPAuthPolicy.generateToken()
+        current.networkAuthToken = token
+        await update(current)
+        return token
     }
 
     /// Reset settings to defaults (for testing or first-run reset)

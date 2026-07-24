@@ -76,7 +76,9 @@ public actor HTTPAutomationServer {
             port: settings.httpServerPort,
             loggerSubsystem: "com.imbib.app",
             loggerCategory: "httpServer",
-            logRequests: settings.logRequests
+            logRequests: settings.logRequests,
+            allowNetworkAccess: settings.allowNetworkAccess,
+            authToken: settings.networkAuthToken
         )
 
         await server.start(configuration: configuration)
@@ -95,7 +97,9 @@ public actor HTTPAutomationServer {
             port: settings.httpServerPort,
             loggerSubsystem: "com.imbib.app",
             loggerCategory: "httpServer",
-            logRequests: settings.logRequests
+            logRequests: settings.logRequests,
+            allowNetworkAccess: settings.allowNetworkAccess,
+            authToken: settings.networkAuthToken
         )
 
         await server.restart(configuration: configuration)
