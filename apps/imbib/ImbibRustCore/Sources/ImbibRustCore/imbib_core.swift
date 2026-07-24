@@ -1152,6 +1152,91 @@ public protocol ImbibStoreProtocol : AnyObject {
     func setStarred(ids: [String], starred: Bool) throws  -> UndoInfo
     
     /**
+     * Apply CKRecord deletions: `ref_...` names delete edges, item-UUID
+     * names run the tombstone rule with `deleted_at = now`.
+     */
+    func syncApplyRemoteDeletions(recordNames: [String]) throws  -> SyncApplyReport
+    
+    /**
+     * Merge fetched remote item records (whole-record LWW in Rust,
+     * suppressed capture, FTS refreshed, manuscript conflict backups).
+     */
+    func syncApplyRemoteItems(records: [SyncItemRecord]) throws  -> SyncApplyReport
+    
+    /**
+     * Apply fetched remote reference records; missing endpoints defer.
+     */
+    func syncApplyRemoteReferences(refs: [SyncReferenceRecord]) throws  -> SyncApplyReport
+    
+    /**
+     * Apply fetched `ImpressTombstone` records (edit-after-delete
+     * resurrects and re-pushes; ties → delete wins).
+     */
+    func syncApplyRemoteTombstones(tombstones: [SyncTombstoneRecord]) throws  -> SyncApplyReport
+    
+    /**
+     * Local tombstones since `since_ms`, as wire records.
+     */
+    func syncLocalTombstones(sinceMs: Int64) throws  -> [SyncTombstoneRecord]
+    
+    /**
+     * Read a sync-namespaced metadata value (`"sync."`-prefixed keys only).
+     */
+    func syncMetadataGet(key: String) throws  -> String?
+    
+    /**
+     * Write (or clear, with `nil`) a sync-namespaced metadata value.
+     */
+    func syncMetadataSet(key: String, value: String?) throws 
+    
+    /**
+     * Pending outbox entries in queue order (push cursor).
+     */
+    func syncOutboxEntries(limit: UInt32) throws  -> [SyncOutboxEntry]
+    
+    /**
+     * Remove confirmed-pushed outbox rows by sequence number.
+     */
+    func syncOutboxRemove(seqs: [Int64]) throws 
+    
+    /**
+     * Drop the archived system fields for a record.
+     */
+    func syncRecordStateDelete(recordName: String) throws 
+    
+    /**
+     * Read the archived CKRecord system fields for a record, if any.
+     */
+    func syncRecordStateGet(recordName: String) throws  -> Data?
+    
+    /**
+     * Archive CKRecord system fields for a record.
+     */
+    func syncRecordStateSet(recordName: String, blob: Data) throws 
+    
+    /**
+     * Re-attempt all deferred references (call after each item batch).
+     */
+    func syncRetryPendingReferences() throws  -> SyncApplyReport
+    
+    /**
+     * Snapshot outbox `item` entries into wire records (op items,
+     * ephemeral rows and already-deleted rows are omitted).
+     */
+    func syncSnapshotItems(ids: [String]) throws  -> [SyncItemRecord]
+    
+    /**
+     * Snapshot outbox `reference` entries (raw `src|tgt|edge` names) into
+     * wire records with hashed `ref_` record names.
+     */
+    func syncSnapshotReferences(recordNames: [String]) throws  -> [SyncReferenceRecord]
+    
+    /**
+     * Live sync queue depths (outbox / deferred refs / tombstones).
+     */
+    func syncStatusCounts() throws  -> SyncCounts
+    
+    /**
      * Undo all operations in a batch. Returns UndoInfo for the redo batch.
      */
     func undoBatch(batchId: String) throws  -> UndoInfo
@@ -2791,6 +2876,183 @@ open func setStarred(ids: [String], starred: Bool)throws  -> UndoInfo {
     uniffi_imbib_core_fn_method_imbibstore_set_starred(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterBool.lower(starred),$0
+    )
+})
+}
+    
+    /**
+     * Apply CKRecord deletions: `ref_...` names delete edges, item-UUID
+     * names run the tombstone rule with `deleted_at = now`.
+     */
+open func syncApplyRemoteDeletions(recordNames: [String])throws  -> SyncApplyReport {
+    return try  FfiConverterTypeSyncApplyReport.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_apply_remote_deletions(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(recordNames),$0
+    )
+})
+}
+    
+    /**
+     * Merge fetched remote item records (whole-record LWW in Rust,
+     * suppressed capture, FTS refreshed, manuscript conflict backups).
+     */
+open func syncApplyRemoteItems(records: [SyncItemRecord])throws  -> SyncApplyReport {
+    return try  FfiConverterTypeSyncApplyReport.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_apply_remote_items(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeSyncItemRecord.lower(records),$0
+    )
+})
+}
+    
+    /**
+     * Apply fetched remote reference records; missing endpoints defer.
+     */
+open func syncApplyRemoteReferences(refs: [SyncReferenceRecord])throws  -> SyncApplyReport {
+    return try  FfiConverterTypeSyncApplyReport.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_apply_remote_references(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeSyncReferenceRecord.lower(refs),$0
+    )
+})
+}
+    
+    /**
+     * Apply fetched `ImpressTombstone` records (edit-after-delete
+     * resurrects and re-pushes; ties → delete wins).
+     */
+open func syncApplyRemoteTombstones(tombstones: [SyncTombstoneRecord])throws  -> SyncApplyReport {
+    return try  FfiConverterTypeSyncApplyReport.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_apply_remote_tombstones(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeSyncTombstoneRecord.lower(tombstones),$0
+    )
+})
+}
+    
+    /**
+     * Local tombstones since `since_ms`, as wire records.
+     */
+open func syncLocalTombstones(sinceMs: Int64)throws  -> [SyncTombstoneRecord] {
+    return try  FfiConverterSequenceTypeSyncTombstoneRecord.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_local_tombstones(self.uniffiClonePointer(),
+        FfiConverterInt64.lower(sinceMs),$0
+    )
+})
+}
+    
+    /**
+     * Read a sync-namespaced metadata value (`"sync."`-prefixed keys only).
+     */
+open func syncMetadataGet(key: String)throws  -> String? {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_metadata_get(self.uniffiClonePointer(),
+        FfiConverterString.lower(key),$0
+    )
+})
+}
+    
+    /**
+     * Write (or clear, with `nil`) a sync-namespaced metadata value.
+     */
+open func syncMetadataSet(key: String, value: String?)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_metadata_set(self.uniffiClonePointer(),
+        FfiConverterString.lower(key),
+        FfiConverterOptionString.lower(value),$0
+    )
+}
+}
+    
+    /**
+     * Pending outbox entries in queue order (push cursor).
+     */
+open func syncOutboxEntries(limit: UInt32)throws  -> [SyncOutboxEntry] {
+    return try  FfiConverterSequenceTypeSyncOutboxEntry.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_outbox_entries(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
+     * Remove confirmed-pushed outbox rows by sequence number.
+     */
+open func syncOutboxRemove(seqs: [Int64])throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_outbox_remove(self.uniffiClonePointer(),
+        FfiConverterSequenceInt64.lower(seqs),$0
+    )
+}
+}
+    
+    /**
+     * Drop the archived system fields for a record.
+     */
+open func syncRecordStateDelete(recordName: String)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_record_state_delete(self.uniffiClonePointer(),
+        FfiConverterString.lower(recordName),$0
+    )
+}
+}
+    
+    /**
+     * Read the archived CKRecord system fields for a record, if any.
+     */
+open func syncRecordStateGet(recordName: String)throws  -> Data? {
+    return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_record_state_get(self.uniffiClonePointer(),
+        FfiConverterString.lower(recordName),$0
+    )
+})
+}
+    
+    /**
+     * Archive CKRecord system fields for a record.
+     */
+open func syncRecordStateSet(recordName: String, blob: Data)throws  {try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_record_state_set(self.uniffiClonePointer(),
+        FfiConverterString.lower(recordName),
+        FfiConverterData.lower(blob),$0
+    )
+}
+}
+    
+    /**
+     * Re-attempt all deferred references (call after each item batch).
+     */
+open func syncRetryPendingReferences()throws  -> SyncApplyReport {
+    return try  FfiConverterTypeSyncApplyReport.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_retry_pending_references(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Snapshot outbox `item` entries into wire records (op items,
+     * ephemeral rows and already-deleted rows are omitted).
+     */
+open func syncSnapshotItems(ids: [String])throws  -> [SyncItemRecord] {
+    return try  FfiConverterSequenceTypeSyncItemRecord.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_snapshot_items(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(ids),$0
+    )
+})
+}
+    
+    /**
+     * Snapshot outbox `reference` entries (raw `src|tgt|edge` names) into
+     * wire records with hashed `ref_` record names.
+     */
+open func syncSnapshotReferences(recordNames: [String])throws  -> [SyncReferenceRecord] {
+    return try  FfiConverterSequenceTypeSyncReferenceRecord.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_snapshot_references(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(recordNames),$0
+    )
+})
+}
+    
+    /**
+     * Live sync queue depths (outbox / deferred refs / tombstones).
+     */
+open func syncStatusCounts()throws  -> SyncCounts {
+    return try  FfiConverterTypeSyncCounts.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sync_status_counts(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -14419,6 +14681,99 @@ public func FfiConverterTypeStoredVector_lower(_ value: StoredVector) -> RustBuf
 }
 
 
+/**
+ * Outcome counters for one remote-apply call.
+ */
+public struct SyncApplyReport {
+    public var applied: UInt32
+    public var skippedLww: UInt32
+    public var deferred: UInt32
+    public var resurrected: UInt32
+    public var conflictBackups: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(applied: UInt32, skippedLww: UInt32, deferred: UInt32, resurrected: UInt32, conflictBackups: UInt32) {
+        self.applied = applied
+        self.skippedLww = skippedLww
+        self.deferred = deferred
+        self.resurrected = resurrected
+        self.conflictBackups = conflictBackups
+    }
+}
+
+
+
+extension SyncApplyReport: Equatable, Hashable {
+    public static func ==(lhs: SyncApplyReport, rhs: SyncApplyReport) -> Bool {
+        if lhs.applied != rhs.applied {
+            return false
+        }
+        if lhs.skippedLww != rhs.skippedLww {
+            return false
+        }
+        if lhs.deferred != rhs.deferred {
+            return false
+        }
+        if lhs.resurrected != rhs.resurrected {
+            return false
+        }
+        if lhs.conflictBackups != rhs.conflictBackups {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(applied)
+        hasher.combine(skippedLww)
+        hasher.combine(deferred)
+        hasher.combine(resurrected)
+        hasher.combine(conflictBackups)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncApplyReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncApplyReport {
+        return
+            try SyncApplyReport(
+                applied: FfiConverterUInt32.read(from: &buf), 
+                skippedLww: FfiConverterUInt32.read(from: &buf), 
+                deferred: FfiConverterUInt32.read(from: &buf), 
+                resurrected: FfiConverterUInt32.read(from: &buf), 
+                conflictBackups: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SyncApplyReport, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.applied, into: &buf)
+        FfiConverterUInt32.write(value.skippedLww, into: &buf)
+        FfiConverterUInt32.write(value.deferred, into: &buf)
+        FfiConverterUInt32.write(value.resurrected, into: &buf)
+        FfiConverterUInt32.write(value.conflictBackups, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncApplyReport_lift(_ buf: RustBuffer) throws -> SyncApplyReport {
+    return try FfiConverterTypeSyncApplyReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncApplyReport_lower(_ value: SyncApplyReport) -> RustBuffer {
+    return FfiConverterTypeSyncApplyReport.lower(value)
+}
+
+
 public struct SyncBibliographyCommand {
     public var imprintDocumentId: String
     public var action: BibSyncAction
@@ -14482,6 +14837,547 @@ public func FfiConverterTypeSyncBibliographyCommand_lift(_ buf: RustBuffer) thro
 #endif
 public func FfiConverterTypeSyncBibliographyCommand_lower(_ value: SyncBibliographyCommand) -> RustBuffer {
     return FfiConverterTypeSyncBibliographyCommand.lower(value)
+}
+
+
+/**
+ * Live sync queue depths for Settings / `/api/sync/status`.
+ */
+public struct SyncCounts {
+    public var outbox: UInt32
+    public var pendingRefs: UInt32
+    public var tombstones: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(outbox: UInt32, pendingRefs: UInt32, tombstones: UInt32) {
+        self.outbox = outbox
+        self.pendingRefs = pendingRefs
+        self.tombstones = tombstones
+    }
+}
+
+
+
+extension SyncCounts: Equatable, Hashable {
+    public static func ==(lhs: SyncCounts, rhs: SyncCounts) -> Bool {
+        if lhs.outbox != rhs.outbox {
+            return false
+        }
+        if lhs.pendingRefs != rhs.pendingRefs {
+            return false
+        }
+        if lhs.tombstones != rhs.tombstones {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(outbox)
+        hasher.combine(pendingRefs)
+        hasher.combine(tombstones)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncCounts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncCounts {
+        return
+            try SyncCounts(
+                outbox: FfiConverterUInt32.read(from: &buf), 
+                pendingRefs: FfiConverterUInt32.read(from: &buf), 
+                tombstones: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SyncCounts, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.outbox, into: &buf)
+        FfiConverterUInt32.write(value.pendingRefs, into: &buf)
+        FfiConverterUInt32.write(value.tombstones, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncCounts_lift(_ buf: RustBuffer) throws -> SyncCounts {
+    return try FfiConverterTypeSyncCounts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncCounts_lower(_ value: SyncCounts) -> RustBuffer {
+    return FfiConverterTypeSyncCounts.lower(value)
+}
+
+
+/**
+ * One syncable envelope item (see `impress_core::sync::SyncItemRecord`).
+ */
+public struct SyncItemRecord {
+    public var id: String
+    public var schemaRef: String
+    public var payloadJson: String
+    public var logicalClock: UInt64
+    public var authorKind: String
+    public var authorId: String
+    public var origin: String
+    public var createdMs: Int64
+    public var modifiedMs: Int64
+    public var tagPaths: [String]
+    public var isRead: Bool
+    public var isStarred: Bool
+    public var flagColor: String?
+    public var flagStyle: String?
+    public var flagLength: String?
+    public var priority: String
+    public var parentId: String?
+    public var envelopeJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, schemaRef: String, payloadJson: String, logicalClock: UInt64, authorKind: String, authorId: String, origin: String, createdMs: Int64, modifiedMs: Int64, tagPaths: [String], isRead: Bool, isStarred: Bool, flagColor: String?, flagStyle: String?, flagLength: String?, priority: String, parentId: String?, envelopeJson: String) {
+        self.id = id
+        self.schemaRef = schemaRef
+        self.payloadJson = payloadJson
+        self.logicalClock = logicalClock
+        self.authorKind = authorKind
+        self.authorId = authorId
+        self.origin = origin
+        self.createdMs = createdMs
+        self.modifiedMs = modifiedMs
+        self.tagPaths = tagPaths
+        self.isRead = isRead
+        self.isStarred = isStarred
+        self.flagColor = flagColor
+        self.flagStyle = flagStyle
+        self.flagLength = flagLength
+        self.priority = priority
+        self.parentId = parentId
+        self.envelopeJson = envelopeJson
+    }
+}
+
+
+
+extension SyncItemRecord: Equatable, Hashable {
+    public static func ==(lhs: SyncItemRecord, rhs: SyncItemRecord) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.schemaRef != rhs.schemaRef {
+            return false
+        }
+        if lhs.payloadJson != rhs.payloadJson {
+            return false
+        }
+        if lhs.logicalClock != rhs.logicalClock {
+            return false
+        }
+        if lhs.authorKind != rhs.authorKind {
+            return false
+        }
+        if lhs.authorId != rhs.authorId {
+            return false
+        }
+        if lhs.origin != rhs.origin {
+            return false
+        }
+        if lhs.createdMs != rhs.createdMs {
+            return false
+        }
+        if lhs.modifiedMs != rhs.modifiedMs {
+            return false
+        }
+        if lhs.tagPaths != rhs.tagPaths {
+            return false
+        }
+        if lhs.isRead != rhs.isRead {
+            return false
+        }
+        if lhs.isStarred != rhs.isStarred {
+            return false
+        }
+        if lhs.flagColor != rhs.flagColor {
+            return false
+        }
+        if lhs.flagStyle != rhs.flagStyle {
+            return false
+        }
+        if lhs.flagLength != rhs.flagLength {
+            return false
+        }
+        if lhs.priority != rhs.priority {
+            return false
+        }
+        if lhs.parentId != rhs.parentId {
+            return false
+        }
+        if lhs.envelopeJson != rhs.envelopeJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(schemaRef)
+        hasher.combine(payloadJson)
+        hasher.combine(logicalClock)
+        hasher.combine(authorKind)
+        hasher.combine(authorId)
+        hasher.combine(origin)
+        hasher.combine(createdMs)
+        hasher.combine(modifiedMs)
+        hasher.combine(tagPaths)
+        hasher.combine(isRead)
+        hasher.combine(isStarred)
+        hasher.combine(flagColor)
+        hasher.combine(flagStyle)
+        hasher.combine(flagLength)
+        hasher.combine(priority)
+        hasher.combine(parentId)
+        hasher.combine(envelopeJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncItemRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncItemRecord {
+        return
+            try SyncItemRecord(
+                id: FfiConverterString.read(from: &buf), 
+                schemaRef: FfiConverterString.read(from: &buf), 
+                payloadJson: FfiConverterString.read(from: &buf), 
+                logicalClock: FfiConverterUInt64.read(from: &buf), 
+                authorKind: FfiConverterString.read(from: &buf), 
+                authorId: FfiConverterString.read(from: &buf), 
+                origin: FfiConverterString.read(from: &buf), 
+                createdMs: FfiConverterInt64.read(from: &buf), 
+                modifiedMs: FfiConverterInt64.read(from: &buf), 
+                tagPaths: FfiConverterSequenceString.read(from: &buf), 
+                isRead: FfiConverterBool.read(from: &buf), 
+                isStarred: FfiConverterBool.read(from: &buf), 
+                flagColor: FfiConverterOptionString.read(from: &buf), 
+                flagStyle: FfiConverterOptionString.read(from: &buf), 
+                flagLength: FfiConverterOptionString.read(from: &buf), 
+                priority: FfiConverterString.read(from: &buf), 
+                parentId: FfiConverterOptionString.read(from: &buf), 
+                envelopeJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SyncItemRecord, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.schemaRef, into: &buf)
+        FfiConverterString.write(value.payloadJson, into: &buf)
+        FfiConverterUInt64.write(value.logicalClock, into: &buf)
+        FfiConverterString.write(value.authorKind, into: &buf)
+        FfiConverterString.write(value.authorId, into: &buf)
+        FfiConverterString.write(value.origin, into: &buf)
+        FfiConverterInt64.write(value.createdMs, into: &buf)
+        FfiConverterInt64.write(value.modifiedMs, into: &buf)
+        FfiConverterSequenceString.write(value.tagPaths, into: &buf)
+        FfiConverterBool.write(value.isRead, into: &buf)
+        FfiConverterBool.write(value.isStarred, into: &buf)
+        FfiConverterOptionString.write(value.flagColor, into: &buf)
+        FfiConverterOptionString.write(value.flagStyle, into: &buf)
+        FfiConverterOptionString.write(value.flagLength, into: &buf)
+        FfiConverterString.write(value.priority, into: &buf)
+        FfiConverterOptionString.write(value.parentId, into: &buf)
+        FfiConverterString.write(value.envelopeJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncItemRecord_lift(_ buf: RustBuffer) throws -> SyncItemRecord {
+    return try FfiConverterTypeSyncItemRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncItemRecord_lower(_ value: SyncItemRecord) -> RustBuffer {
+    return FfiConverterTypeSyncItemRecord.lower(value)
+}
+
+
+/**
+ * One pending sync-outbox entry: `(seq, kind, record_name)`.
+ *
+ * `kind` is one of `item | reference | delete_item | delete_reference`;
+ * `record_name` is the lowercased item UUID, or the raw `src|tgt|edge`
+ * triple for reference kinds.
+ */
+public struct SyncOutboxEntry {
+    public var seq: Int64
+    public var kind: String
+    public var recordName: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(seq: Int64, kind: String, recordName: String) {
+        self.seq = seq
+        self.kind = kind
+        self.recordName = recordName
+    }
+}
+
+
+
+extension SyncOutboxEntry: Equatable, Hashable {
+    public static func ==(lhs: SyncOutboxEntry, rhs: SyncOutboxEntry) -> Bool {
+        if lhs.seq != rhs.seq {
+            return false
+        }
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.recordName != rhs.recordName {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(seq)
+        hasher.combine(kind)
+        hasher.combine(recordName)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncOutboxEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncOutboxEntry {
+        return
+            try SyncOutboxEntry(
+                seq: FfiConverterInt64.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                recordName: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SyncOutboxEntry, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.seq, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.recordName, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncOutboxEntry_lift(_ buf: RustBuffer) throws -> SyncOutboxEntry {
+    return try FfiConverterTypeSyncOutboxEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncOutboxEntry_lower(_ value: SyncOutboxEntry) -> RustBuffer {
+    return FfiConverterTypeSyncOutboxEntry.lower(value)
+}
+
+
+/**
+ * One typed edge, CKRecord-named (`ref_<sha256(src|tgt|edge)[..32]>`).
+ */
+public struct SyncReferenceRecord {
+    public var recordName: String
+    public var sourceId: String
+    public var targetId: String
+    public var edgeType: String
+    public var metadata: String?
+    public var logicalClock: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(recordName: String, sourceId: String, targetId: String, edgeType: String, metadata: String?, logicalClock: UInt64) {
+        self.recordName = recordName
+        self.sourceId = sourceId
+        self.targetId = targetId
+        self.edgeType = edgeType
+        self.metadata = metadata
+        self.logicalClock = logicalClock
+    }
+}
+
+
+
+extension SyncReferenceRecord: Equatable, Hashable {
+    public static func ==(lhs: SyncReferenceRecord, rhs: SyncReferenceRecord) -> Bool {
+        if lhs.recordName != rhs.recordName {
+            return false
+        }
+        if lhs.sourceId != rhs.sourceId {
+            return false
+        }
+        if lhs.targetId != rhs.targetId {
+            return false
+        }
+        if lhs.edgeType != rhs.edgeType {
+            return false
+        }
+        if lhs.metadata != rhs.metadata {
+            return false
+        }
+        if lhs.logicalClock != rhs.logicalClock {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(recordName)
+        hasher.combine(sourceId)
+        hasher.combine(targetId)
+        hasher.combine(edgeType)
+        hasher.combine(metadata)
+        hasher.combine(logicalClock)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncReferenceRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncReferenceRecord {
+        return
+            try SyncReferenceRecord(
+                recordName: FfiConverterString.read(from: &buf), 
+                sourceId: FfiConverterString.read(from: &buf), 
+                targetId: FfiConverterString.read(from: &buf), 
+                edgeType: FfiConverterString.read(from: &buf), 
+                metadata: FfiConverterOptionString.read(from: &buf), 
+                logicalClock: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SyncReferenceRecord, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.recordName, into: &buf)
+        FfiConverterString.write(value.sourceId, into: &buf)
+        FfiConverterString.write(value.targetId, into: &buf)
+        FfiConverterString.write(value.edgeType, into: &buf)
+        FfiConverterOptionString.write(value.metadata, into: &buf)
+        FfiConverterUInt64.write(value.logicalClock, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncReferenceRecord_lift(_ buf: RustBuffer) throws -> SyncReferenceRecord {
+    return try FfiConverterTypeSyncReferenceRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncReferenceRecord_lower(_ value: SyncReferenceRecord) -> RustBuffer {
+    return FfiConverterTypeSyncReferenceRecord.lower(value)
+}
+
+
+/**
+ * One deletion marker (`ImpressTombstone` CKRecord).
+ */
+public struct SyncTombstoneRecord {
+    public var recordName: String
+    public var schemaRef: String
+    public var deletedAtMs: Int64
+    public var origin: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(recordName: String, schemaRef: String, deletedAtMs: Int64, origin: String) {
+        self.recordName = recordName
+        self.schemaRef = schemaRef
+        self.deletedAtMs = deletedAtMs
+        self.origin = origin
+    }
+}
+
+
+
+extension SyncTombstoneRecord: Equatable, Hashable {
+    public static func ==(lhs: SyncTombstoneRecord, rhs: SyncTombstoneRecord) -> Bool {
+        if lhs.recordName != rhs.recordName {
+            return false
+        }
+        if lhs.schemaRef != rhs.schemaRef {
+            return false
+        }
+        if lhs.deletedAtMs != rhs.deletedAtMs {
+            return false
+        }
+        if lhs.origin != rhs.origin {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(recordName)
+        hasher.combine(schemaRef)
+        hasher.combine(deletedAtMs)
+        hasher.combine(origin)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncTombstoneRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncTombstoneRecord {
+        return
+            try SyncTombstoneRecord(
+                recordName: FfiConverterString.read(from: &buf), 
+                schemaRef: FfiConverterString.read(from: &buf), 
+                deletedAtMs: FfiConverterInt64.read(from: &buf), 
+                origin: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SyncTombstoneRecord, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.recordName, into: &buf)
+        FfiConverterString.write(value.schemaRef, into: &buf)
+        FfiConverterInt64.write(value.deletedAtMs, into: &buf)
+        FfiConverterString.write(value.origin, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncTombstoneRecord_lift(_ buf: RustBuffer) throws -> SyncTombstoneRecord {
+    return try FfiConverterTypeSyncTombstoneRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncTombstoneRecord_lower(_ value: SyncTombstoneRecord) -> RustBuffer {
+    return FfiConverterTypeSyncTombstoneRecord.lower(value)
 }
 
 
@@ -19052,6 +19948,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeArtifactRow: FfiConverterRustBuffer {
     typealias SwiftType = ArtifactRow?
 
@@ -19525,6 +20445,31 @@ fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterUInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceInt64: FfiConverterRustBuffer {
+    typealias SwiftType = [Int64]
+
+    public static func write(_ value: [Int64], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Int64] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Int64]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterInt64.read(from: &buf))
         }
         return seq
     }
@@ -20950,6 +21895,106 @@ fileprivate struct FfiConverterSequenceTypeStoredVector: FfiConverterRustBuffer 
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeStoredVector.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSyncItemRecord: FfiConverterRustBuffer {
+    typealias SwiftType = [SyncItemRecord]
+
+    public static func write(_ value: [SyncItemRecord], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSyncItemRecord.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SyncItemRecord] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SyncItemRecord]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSyncItemRecord.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSyncOutboxEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [SyncOutboxEntry]
+
+    public static func write(_ value: [SyncOutboxEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSyncOutboxEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SyncOutboxEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SyncOutboxEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSyncOutboxEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSyncReferenceRecord: FfiConverterRustBuffer {
+    typealias SwiftType = [SyncReferenceRecord]
+
+    public static func write(_ value: [SyncReferenceRecord], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSyncReferenceRecord.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SyncReferenceRecord] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SyncReferenceRecord]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSyncReferenceRecord.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSyncTombstoneRecord: FfiConverterRustBuffer {
+    typealias SwiftType = [SyncTombstoneRecord]
+
+    public static func write(_ value: [SyncTombstoneRecord], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSyncTombstoneRecord.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SyncTombstoneRecord] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SyncTombstoneRecord]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSyncTombstoneRecord.read(from: &buf))
         }
         return seq
     }
@@ -24092,6 +25137,54 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_starred() != 26685) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_apply_remote_deletions() != 19461) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_apply_remote_items() != 9065) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_apply_remote_references() != 31852) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_apply_remote_tombstones() != 49546) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_local_tombstones() != 9306) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_metadata_get() != 63356) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_metadata_set() != 52174) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_outbox_entries() != 43652) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_outbox_remove() != 20480) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_record_state_delete() != 51700) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_record_state_get() != 6181) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_record_state_set() != 57026) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_retry_pending_references() != 51836) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_snapshot_items() != 1916) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_snapshot_references() != 51772) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sync_status_counts() != 34375) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_undo_batch() != 19136) {

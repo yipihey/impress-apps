@@ -287,4 +287,98 @@ public actor ImbibImpressStore {
             events.emit(.structural)
         }
     }
+
+    // MARK: - CloudKit sync engine (ADR-0007 Phase 3, Phase C)
+    //
+    // Async pass-throughs to the Rust apply/snapshot engine. These run on
+    // the gateway actor's executor, so FFI merge work never blocks the main
+    // actor — the CloudSyncEngine (Phase D) drives them exclusively.
+    // After applying a fetched batch the engine posts `postMutation(...)` +
+    // the Darwin `syncApplied` notification itself; these primitives do not.
+
+    /// Pending outbox entries in queue order (push cursor).
+    public func syncOutboxEntries(limit: UInt32) async throws -> [ImbibRustCore.SyncOutboxEntry] {
+        try store.syncOutboxEntries(limit: limit)
+    }
+
+    /// Remove confirmed-pushed outbox rows by sequence number.
+    public func syncOutboxRemove(seqs: [Int64]) async throws {
+        try store.syncOutboxRemove(seqs: seqs)
+    }
+
+    /// Snapshot outbox `item` entries into wire records.
+    public func syncSnapshotItems(ids: [String]) async throws -> [ImbibRustCore.SyncItemRecord] {
+        try store.syncSnapshotItems(ids: ids)
+    }
+
+    /// Snapshot outbox `reference` entries (raw `src|tgt|edge` names).
+    public func syncSnapshotReferences(recordNames: [String]) async throws
+        -> [ImbibRustCore.SyncReferenceRecord]
+    {
+        try store.syncSnapshotReferences(recordNames: recordNames)
+    }
+
+    /// Local tombstones since `sinceMs`, as wire records.
+    public func syncLocalTombstones(sinceMs: Int64) async throws -> [ImbibRustCore.SyncTombstoneRecord] {
+        try store.syncLocalTombstones(sinceMs: sinceMs)
+    }
+
+    /// Merge fetched remote item records (whole-record LWW in Rust).
+    public func syncApplyRemoteItems(records: [ImbibRustCore.SyncItemRecord]) async throws -> ImbibRustCore.SyncApplyReport {
+        try store.syncApplyRemoteItems(records: records)
+    }
+
+    /// Apply fetched remote reference records; missing endpoints defer.
+    public func syncApplyRemoteReferences(refs: [ImbibRustCore.SyncReferenceRecord]) async throws
+        -> ImbibRustCore.SyncApplyReport
+    {
+        try store.syncApplyRemoteReferences(refs: refs)
+    }
+
+    /// Re-attempt all deferred references (call after each item batch).
+    public func syncRetryPendingReferences() async throws -> ImbibRustCore.SyncApplyReport {
+        try store.syncRetryPendingReferences()
+    }
+
+    /// Apply CKRecord deletions (`ref_...` = edges, UUIDs = items).
+    public func syncApplyRemoteDeletions(recordNames: [String]) async throws -> ImbibRustCore.SyncApplyReport {
+        try store.syncApplyRemoteDeletions(recordNames: recordNames)
+    }
+
+    /// Apply fetched `ImpressTombstone` records.
+    public func syncApplyRemoteTombstones(tombstones: [ImbibRustCore.SyncTombstoneRecord]) async throws
+        -> ImbibRustCore.SyncApplyReport
+    {
+        try store.syncApplyRemoteTombstones(tombstones: tombstones)
+    }
+
+    /// Read a sync-namespaced metadata value (`"sync."`-prefixed keys only).
+    public func syncMetadataGet(key: String) async throws -> String? {
+        try store.syncMetadataGet(key: key)
+    }
+
+    /// Write (or clear, with `nil`) a sync-namespaced metadata value.
+    public func syncMetadataSet(key: String, value: String?) async throws {
+        try store.syncMetadataSet(key: key, value: value)
+    }
+
+    /// Read the archived CKRecord system fields for a record, if any.
+    public func syncRecordStateGet(recordName: String) async throws -> Data? {
+        try store.syncRecordStateGet(recordName: recordName)
+    }
+
+    /// Archive CKRecord system fields for a record.
+    public func syncRecordStateSet(recordName: String, blob: Data) async throws {
+        try store.syncRecordStateSet(recordName: recordName, blob: blob)
+    }
+
+    /// Drop the archived system fields for a record.
+    public func syncRecordStateDelete(recordName: String) async throws {
+        try store.syncRecordStateDelete(recordName: recordName)
+    }
+
+    /// Live sync queue depths (outbox / deferred refs / tombstones).
+    public func syncStatusCounts() async throws -> ImbibRustCore.SyncCounts {
+        try store.syncStatusCounts()
+    }
 }

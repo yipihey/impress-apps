@@ -2557,6 +2557,108 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    // MARK: Sync engine surface (ADR-0007 Phase 3, Phase C)
+    //
+    // Typed throwing wrappers over the Rust apply/snapshot engine
+    // (`impress_core::sync` via the ImbibStore FFI). Unlike most adapter
+    // methods these THROW instead of log-and-swallow: the CloudSyncEngine
+    // (Phase D) must see every failure to decide retry vs. backoff, and no
+    // UI ever calls these directly. The record types are the UniFFI mirrors
+    // from ImbibRustCore (`SyncItemRecord`, `SyncReferenceRecord`,
+    // `SyncTombstoneRecord`, `SyncApplyReport`, `SyncCounts`,
+    // `SyncOutboxEntry`).
+    //
+    // None of these bump `dataVersion` directly — remote applies emit store
+    // events through `ImbibImpressStore.events` / `didMutate()` at the
+    // engine layer, after a whole fetched batch lands.
+
+    /// Pending outbox entries in queue order (push cursor).
+    public func syncOutboxEntries(limit: UInt32) throws -> [ImbibRustCore.SyncOutboxEntry] {
+        try store.syncOutboxEntries(limit: limit)
+    }
+
+    /// Remove confirmed-pushed outbox rows by sequence number.
+    public func syncOutboxRemove(seqs: [Int64]) throws {
+        try store.syncOutboxRemove(seqs: seqs)
+    }
+
+    /// Snapshot outbox `item` entries into wire records (op items,
+    /// ephemeral rows and already-deleted rows are omitted).
+    public func syncSnapshotItems(ids: [String]) throws -> [ImbibRustCore.SyncItemRecord] {
+        try store.syncSnapshotItems(ids: ids)
+    }
+
+    /// Snapshot outbox `reference` entries (raw `src|tgt|edge` names) into
+    /// wire records with hashed `ref_` record names.
+    public func syncSnapshotReferences(recordNames: [String]) throws -> [ImbibRustCore.SyncReferenceRecord] {
+        try store.syncSnapshotReferences(recordNames: recordNames)
+    }
+
+    /// Local tombstones since `sinceMs`, as wire records.
+    public func syncLocalTombstones(sinceMs: Int64) throws -> [ImbibRustCore.SyncTombstoneRecord] {
+        try store.syncLocalTombstones(sinceMs: sinceMs)
+    }
+
+    /// Merge fetched remote item records (whole-record LWW in Rust,
+    /// suppressed capture, FTS refreshed, manuscript conflict backups).
+    public func syncApplyRemoteItems(records: [ImbibRustCore.SyncItemRecord]) throws -> ImbibRustCore.SyncApplyReport {
+        try store.syncApplyRemoteItems(records: records)
+    }
+
+    /// Apply fetched remote reference records; missing endpoints defer.
+    public func syncApplyRemoteReferences(refs: [ImbibRustCore.SyncReferenceRecord]) throws -> ImbibRustCore.SyncApplyReport {
+        try store.syncApplyRemoteReferences(refs: refs)
+    }
+
+    /// Re-attempt all deferred references (call after each item batch).
+    public func syncRetryPendingReferences() throws -> ImbibRustCore.SyncApplyReport {
+        try store.syncRetryPendingReferences()
+    }
+
+    /// Apply CKRecord deletions: `ref_...` names delete edges, item-UUID
+    /// names run the tombstone rule with `deleted_at = now`.
+    public func syncApplyRemoteDeletions(recordNames: [String]) throws -> ImbibRustCore.SyncApplyReport {
+        try store.syncApplyRemoteDeletions(recordNames: recordNames)
+    }
+
+    /// Apply fetched `ImpressTombstone` records (edit-after-delete
+    /// resurrects and re-pushes; ties → delete wins).
+    public func syncApplyRemoteTombstones(tombstones: [ImbibRustCore.SyncTombstoneRecord]) throws
+        -> ImbibRustCore.SyncApplyReport
+    {
+        try store.syncApplyRemoteTombstones(tombstones: tombstones)
+    }
+
+    /// Read a sync-namespaced metadata value (`"sync."`-prefixed keys only).
+    public func syncMetadataGet(key: String) throws -> String? {
+        try store.syncMetadataGet(key: key)
+    }
+
+    /// Write (or clear, with `nil`) a sync-namespaced metadata value.
+    public func syncMetadataSet(key: String, value: String?) throws {
+        try store.syncMetadataSet(key: key, value: value)
+    }
+
+    /// Read the archived CKRecord system fields for a record, if any.
+    public func syncRecordStateGet(recordName: String) throws -> Data? {
+        try store.syncRecordStateGet(recordName: recordName)
+    }
+
+    /// Archive CKRecord system fields for a record.
+    public func syncRecordStateSet(recordName: String, blob: Data) throws {
+        try store.syncRecordStateSet(recordName: recordName, blob: blob)
+    }
+
+    /// Drop the archived system fields for a record.
+    public func syncRecordStateDelete(recordName: String) throws {
+        try store.syncRecordStateDelete(recordName: recordName)
+    }
+
+    /// Live sync queue depths (outbox / deferred refs / tombstones).
+    public func syncStatusCounts() throws -> ImbibRustCore.SyncCounts {
+        try store.syncStatusCounts()
+    }
+
     /// List all assignments for a library.
     public func assignments(libraryID: UUID) -> [Assignment] {
         listAssignments().filter { $0.libraryID == libraryID }

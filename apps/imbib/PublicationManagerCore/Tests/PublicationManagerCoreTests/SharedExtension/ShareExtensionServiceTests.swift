@@ -493,6 +493,16 @@ final class ShareExtensionServiceTests: XCTestCase {
     // MARK: - App Group Identifier Tests
 
     func testAppGroupIdentifier_isCorrect() {
-        XCTAssertEqual(ShareExtensionService.appGroupIdentifier, "group.com.imbib.app")
+        // Must match the per-platform constants in ShareExtensionService:
+        // macOS uses the Team-ID-prefixed group (profile wildcard authorizes
+        // without a TCC prompt); iOS keeps the group.* form. The previous
+        // expectation ("group.com.imbib.app") was the stale identifier the
+        // source-side fix in 9bb41fd explicitly retired — the test was not
+        // updated alongside it.
+        #if os(macOS)
+        XCTAssertEqual(ShareExtensionService.appGroupIdentifier, "QG3MEYVHMS.com.impress.imbib")
+        #else
+        XCTAssertEqual(ShareExtensionService.appGroupIdentifier, "group.com.impress.imbib")
+        #endif
     }
 }

@@ -145,6 +145,91 @@ pub struct GuardedUpsertOutcome {
     pub stored_guard: Option<String>,
 }
 
+// ─── Sync engine DTOs (ADR-0007 Phase 3, Phase C) ────────────────────────────
+//
+// FFI mirrors of `impress_core::sync::*`. Field names are kept byte-identical
+// to the imbib-core mirrors so the Swift CKRecord codec can share one shape
+// across both embeddings.
+
+/// One pending sync-outbox entry: `(seq, kind, record_name)`.
+///
+/// `kind` is one of `item | reference | delete_item | delete_reference`;
+/// `record_name` is the lowercased item UUID, or the raw `src|tgt|edge`
+/// triple for reference kinds.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SyncOutboxEntry {
+    pub seq: i64,
+    pub kind: String,
+    pub record_name: String,
+}
+
+/// One syncable envelope item (see `impress_core::sync::SyncItemRecord`).
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SyncItemRecord {
+    pub id: String,
+    pub schema_ref: String,
+    pub payload_json: String,
+    pub logical_clock: u64,
+    pub author_kind: String,
+    pub author_id: String,
+    pub origin: String,
+    pub created_ms: i64,
+    pub modified_ms: i64,
+    pub tag_paths: Vec<String>,
+    pub is_read: bool,
+    pub is_starred: bool,
+    pub flag_color: Option<String>,
+    pub flag_style: Option<String>,
+    pub flag_length: Option<String>,
+    pub priority: String,
+    pub parent_id: Option<String>,
+    pub envelope_json: String,
+}
+
+/// One typed edge, CKRecord-named (`ref_<sha256(src|tgt|edge)[..32]>`).
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SyncReferenceRecord {
+    pub record_name: String,
+    pub source_id: String,
+    pub target_id: String,
+    pub edge_type: String,
+    pub metadata: Option<String>,
+    pub logical_clock: u64,
+}
+
+/// One deletion marker (`ImpressTombstone` CKRecord).
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SyncTombstoneRecord {
+    pub record_name: String,
+    pub schema_ref: String,
+    pub deleted_at_ms: i64,
+    pub origin: String,
+}
+
+/// Outcome counters for one remote-apply call.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SyncApplyReport {
+    pub applied: u32,
+    pub skipped_lww: u32,
+    pub deferred: u32,
+    pub resurrected: u32,
+    pub conflict_backups: u32,
+}
+
+/// Live sync queue depths.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SyncCounts {
+    pub outbox: u32,
+    pub pending_refs: u32,
+    pub tombstones: u32,
+}
+
 // ─── Store object ────────────────────────────────────────────────────────────
 
 /// A handle to the shared impress-core SQLite database.
@@ -593,9 +678,266 @@ impl SharedStore {
         let items = impress_core::manuscript_ops::list_revisions(&self.inner, item_id)?;
         Ok(items.into_iter().map(item_to_row).collect())
     }
+
+    // ─── CloudKit sync engine surface (ADR-0007 Phase 3, Phase C) ──────────
+    //
+    // Thin delegation to the Rust apply/snapshot engine in
+    // `impress_core::sync`. Field shapes match the imbib-core mirrors.
+
+    /// Pending outbox entries in queue order (push cursor).
+    pub fn sync_outbox_entries(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<SyncOutboxEntry>, SharedStoreError> {
+        let entries = self.inner.sync_outbox_entries(limit)?;
+        Ok(entries
+            .into_iter()
+            .map(|(seq, kind, record_name)| SyncOutboxEntry {
+                seq,
+                kind,
+                record_name,
+            })
+            .collect())
+    }
+
+    /// Remove confirmed-pushed outbox rows by sequence number.
+    pub fn sync_outbox_remove(&self, seqs: Vec<i64>) -> Result<(), SharedStoreError> {
+        self.inner.sync_outbox_remove(seqs)?;
+        Ok(())
+    }
+
+    /// Snapshot outbox `item` entries into wire records (op items,
+    /// ephemeral rows and already-deleted rows are omitted).
+    pub fn sync_snapshot_items(
+        &self,
+        ids: Vec<String>,
+    ) -> Result<Vec<SyncItemRecord>, SharedStoreError> {
+        let records = self.inner.sync_snapshot_items(ids)?;
+        Ok(records.into_iter().map(sync_item_to_ffi).collect())
+    }
+
+    /// Snapshot outbox `reference` entries (raw `src|tgt|edge` names) into
+    /// wire records with hashed `ref_` record names.
+    pub fn sync_snapshot_references(
+        &self,
+        record_names: Vec<String>,
+    ) -> Result<Vec<SyncReferenceRecord>, SharedStoreError> {
+        let records = self.inner.sync_snapshot_references(record_names)?;
+        Ok(records.into_iter().map(sync_reference_to_ffi).collect())
+    }
+
+    /// Local tombstones since `since_ms`, as wire records.
+    pub fn sync_local_tombstones(
+        &self,
+        since_ms: i64,
+    ) -> Result<Vec<SyncTombstoneRecord>, SharedStoreError> {
+        let records = self.inner.sync_local_tombstones(since_ms)?;
+        Ok(records.into_iter().map(sync_tombstone_to_ffi).collect())
+    }
+
+    /// Merge fetched remote item records (whole-record LWW in Rust,
+    /// suppressed capture, FTS refreshed, manuscript conflict backups).
+    pub fn sync_apply_remote_items(
+        &self,
+        records: Vec<SyncItemRecord>,
+    ) -> Result<SyncApplyReport, SharedStoreError> {
+        let report = self
+            .inner
+            .sync_apply_remote_items(records.into_iter().map(sync_item_from_ffi).collect())?;
+        Ok(sync_report_to_ffi(report))
+    }
+
+    /// Apply fetched remote reference records; missing endpoints defer.
+    pub fn sync_apply_remote_references(
+        &self,
+        refs: Vec<SyncReferenceRecord>,
+    ) -> Result<SyncApplyReport, SharedStoreError> {
+        let report = self.inner.sync_apply_remote_references(
+            refs.into_iter().map(sync_reference_from_ffi).collect(),
+        )?;
+        Ok(sync_report_to_ffi(report))
+    }
+
+    /// Re-attempt all deferred references (call after each item batch).
+    pub fn sync_retry_pending_references(&self) -> Result<SyncApplyReport, SharedStoreError> {
+        Ok(sync_report_to_ffi(
+            self.inner.sync_retry_pending_references()?,
+        ))
+    }
+
+    /// Apply CKRecord deletions: `ref_...` names delete edges, item-UUID
+    /// names run the tombstone rule with `deleted_at = now`.
+    pub fn sync_apply_remote_deletions(
+        &self,
+        record_names: Vec<String>,
+    ) -> Result<SyncApplyReport, SharedStoreError> {
+        Ok(sync_report_to_ffi(
+            self.inner.sync_apply_remote_deletions(record_names)?,
+        ))
+    }
+
+    /// Apply fetched `ImpressTombstone` records (edit-after-delete
+    /// resurrects and re-pushes; ties → delete wins).
+    pub fn sync_apply_remote_tombstones(
+        &self,
+        tombstones: Vec<SyncTombstoneRecord>,
+    ) -> Result<SyncApplyReport, SharedStoreError> {
+        let report = self.inner.sync_apply_remote_tombstones(
+            tombstones
+                .into_iter()
+                .map(sync_tombstone_from_ffi)
+                .collect(),
+        )?;
+        Ok(sync_report_to_ffi(report))
+    }
+
+    /// Read a sync-namespaced metadata value (`"sync."`-prefixed keys only).
+    pub fn sync_metadata_get(&self, key: String) -> Result<Option<String>, SharedStoreError> {
+        Ok(self.inner.sync_metadata_get(&key)?)
+    }
+
+    /// Write (or clear, with `nil`) a sync-namespaced metadata value.
+    pub fn sync_metadata_set(
+        &self,
+        key: String,
+        value: Option<String>,
+    ) -> Result<(), SharedStoreError> {
+        self.inner.sync_metadata_set(&key, value)?;
+        Ok(())
+    }
+
+    /// Read the archived CKRecord system fields for a record, if any.
+    pub fn sync_record_state_get(
+        &self,
+        record_name: String,
+    ) -> Result<Option<Vec<u8>>, SharedStoreError> {
+        Ok(self.inner.sync_record_state_get(&record_name)?)
+    }
+
+    /// Archive CKRecord system fields for a record.
+    pub fn sync_record_state_set(
+        &self,
+        record_name: String,
+        blob: Vec<u8>,
+    ) -> Result<(), SharedStoreError> {
+        self.inner.sync_record_state_set(&record_name, blob)?;
+        Ok(())
+    }
+
+    /// Drop the archived system fields for a record.
+    pub fn sync_record_state_delete(&self, record_name: String) -> Result<(), SharedStoreError> {
+        self.inner.sync_record_state_delete(&record_name)?;
+        Ok(())
+    }
+
+    /// Live sync queue depths (outbox / deferred refs / tombstones).
+    pub fn sync_status_counts(&self) -> Result<SyncCounts, SharedStoreError> {
+        let counts = self.inner.sync_status_counts()?;
+        Ok(SyncCounts {
+            outbox: counts.outbox,
+            pending_refs: counts.pending_refs,
+            tombstones: counts.tombstones,
+        })
+    }
 }
 
 // ─── Private helpers ─────────────────────────────────────────────────────────
+
+fn sync_item_to_ffi(r: impress_core::sync::SyncItemRecord) -> SyncItemRecord {
+    SyncItemRecord {
+        id: r.id,
+        schema_ref: r.schema_ref,
+        payload_json: r.payload_json,
+        logical_clock: r.logical_clock,
+        author_kind: r.author_kind,
+        author_id: r.author_id,
+        origin: r.origin,
+        created_ms: r.created_ms,
+        modified_ms: r.modified_ms,
+        tag_paths: r.tag_paths,
+        is_read: r.is_read,
+        is_starred: r.is_starred,
+        flag_color: r.flag_color,
+        flag_style: r.flag_style,
+        flag_length: r.flag_length,
+        priority: r.priority,
+        parent_id: r.parent_id,
+        envelope_json: r.envelope_json,
+    }
+}
+
+fn sync_item_from_ffi(r: SyncItemRecord) -> impress_core::sync::SyncItemRecord {
+    impress_core::sync::SyncItemRecord {
+        id: r.id,
+        schema_ref: r.schema_ref,
+        payload_json: r.payload_json,
+        logical_clock: r.logical_clock,
+        author_kind: r.author_kind,
+        author_id: r.author_id,
+        origin: r.origin,
+        created_ms: r.created_ms,
+        modified_ms: r.modified_ms,
+        tag_paths: r.tag_paths,
+        is_read: r.is_read,
+        is_starred: r.is_starred,
+        flag_color: r.flag_color,
+        flag_style: r.flag_style,
+        flag_length: r.flag_length,
+        priority: r.priority,
+        parent_id: r.parent_id,
+        envelope_json: r.envelope_json,
+    }
+}
+
+fn sync_reference_to_ffi(r: impress_core::sync::SyncReferenceRecord) -> SyncReferenceRecord {
+    SyncReferenceRecord {
+        record_name: r.record_name,
+        source_id: r.source_id,
+        target_id: r.target_id,
+        edge_type: r.edge_type,
+        metadata: r.metadata,
+        logical_clock: r.logical_clock,
+    }
+}
+
+fn sync_reference_from_ffi(r: SyncReferenceRecord) -> impress_core::sync::SyncReferenceRecord {
+    impress_core::sync::SyncReferenceRecord {
+        record_name: r.record_name,
+        source_id: r.source_id,
+        target_id: r.target_id,
+        edge_type: r.edge_type,
+        metadata: r.metadata,
+        logical_clock: r.logical_clock,
+    }
+}
+
+fn sync_tombstone_to_ffi(r: impress_core::sync::SyncTombstoneRecord) -> SyncTombstoneRecord {
+    SyncTombstoneRecord {
+        record_name: r.record_name,
+        schema_ref: r.schema_ref,
+        deleted_at_ms: r.deleted_at_ms,
+        origin: r.origin,
+    }
+}
+
+fn sync_tombstone_from_ffi(r: SyncTombstoneRecord) -> impress_core::sync::SyncTombstoneRecord {
+    impress_core::sync::SyncTombstoneRecord {
+        record_name: r.record_name,
+        schema_ref: r.schema_ref,
+        deleted_at_ms: r.deleted_at_ms,
+        origin: r.origin,
+    }
+}
+
+fn sync_report_to_ffi(r: impress_core::sync::SyncApplyReport) -> SyncApplyReport {
+    SyncApplyReport {
+        applied: r.applied,
+        skipped_lww: r.skipped_lww,
+        deferred: r.deferred,
+        resurrected: r.resurrected,
+        conflict_backups: r.conflict_backups,
+    }
+}
 
 fn build_item(id: ItemId, schema: String, payload: BTreeMap<String, Value>) -> Item {
     use chrono::Utc;
