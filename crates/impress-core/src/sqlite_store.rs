@@ -58,6 +58,11 @@ impl ReaderPool {
                 .map_err(|e| StoreError::Storage(format!("reader pragma foreign_keys: {}", e)))?;
             conn.pragma_update(None, "query_only", "ON")
                 .map_err(|e| StoreError::Storage(format!("reader pragma query_only: {}", e)))?;
+            // Multi-process safety (ADR-0007 Phase 3): a background sync
+            // writer in one app must not make sibling apps' reads fail with
+            // immediate SQLITE_BUSY during WAL checkpoints.
+            conn.busy_timeout(std::time::Duration::from_millis(5000))
+                .map_err(|e| StoreError::Storage(format!("reader busy_timeout: {}", e)))?;
             conn.set_prepared_statement_cache_capacity(64);
             conns.push(conn);
         }
@@ -198,6 +203,7 @@ impl SqliteItemStore {
         Self::init_schema(&conn)?;
         Self::migrate_schema(&conn)?;
         Self::init_tombstones(&conn)?;
+        Self::init_sync_support(&conn)?;
 
         // Increase prepared statement cache from default 16 to 64.
         // With dynamic SQL from compile_query(), 16 slots evict useful statements.
@@ -268,6 +274,10 @@ impl SqliteItemStore {
     }
 
     fn init_schema(conn: &Connection) -> Result<(), StoreError> {
+        // Multi-process safety (ADR-0007 Phase 3): three apps + a sync
+        // engine share this file; block-and-retry beats instant SQLITE_BUSY.
+        conn.busy_timeout(std::time::Duration::from_millis(5000))
+            .map_err(|e| StoreError::Storage(format!("writer busy_timeout: {}", e)))?;
         conn.execute_batch(
             "
             PRAGMA journal_mode = WAL;
@@ -511,6 +521,166 @@ impl SqliteItemStore {
         Ok(())
     }
 
+    /// ADR-0007 Phase 3 sync support: outbox + record-state tables (durable,
+    /// in the main database) and per-connection change-capture triggers.
+    ///
+    /// The triggers are TEMP deliberately — twice over:
+    /// 1. SQLite forbids main-database triggers from referencing TEMP
+    ///    tables, and the echo-suppression flag `_sync_apply` must be
+    ///    per-connection (a remote apply on THIS connection must not
+    ///    enqueue, while a concurrent sibling process's writes still do).
+    ///    TEMP triggers may reference both TEMP and main tables.
+    /// 2. Per-connection creation means every process that opens the store
+    ///    through `SqliteItemStore::open` gets capture automatically, and
+    ///    read-only pool connections (query_only) never need them.
+    /// Consequence: ad-hoc `sqlite3` CLI writes bypass capture — all writes
+    /// must go through the store (already the repo rule).
+    ///
+    /// The backfill stamps a comparable HLC (`modified << 16`) onto rows
+    /// that predate clock stamping (all envelope rows had logical_clock=0).
+    fn init_sync_support(conn: &Connection) -> Result<(), StoreError> {
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS sync_outbox (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,        -- 'item' | 'reference' | 'delete_item' | 'delete_reference'
+                record_name TEXT NOT NULL, -- item UUID, or raw 'src|tgt|edge' for references
+                item_id TEXT,
+                queued_at INTEGER NOT NULL,
+                UNIQUE(kind, record_name) ON CONFLICT REPLACE
+            );
+            CREATE TABLE IF NOT EXISTS sync_record_state (
+                record_name TEXT PRIMARY KEY,
+                system_fields BLOB NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sync_pending_refs (
+                record_name TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                edge_type TEXT NOT NULL,
+                metadata TEXT,
+                logical_clock INTEGER NOT NULL,
+                received_at INTEGER NOT NULL
+            );
+            ",
+        )
+        .map_err(|e| StoreError::Storage(format!("init sync tables: {}", e)))?;
+
+        // One-shot backfill for pre-Phase-3 rows (idempotent: only rows
+        // still at clock 0).
+        conn.execute(
+            "UPDATE items SET logical_clock = modified << 16 WHERE logical_clock = 0",
+            [],
+        )
+        .map_err(|e| StoreError::Storage(format!("clock backfill: {}", e)))?;
+
+        // Per-connection echo-suppression flag + capture triggers.
+        conn.execute_batch(
+            "
+            CREATE TEMP TABLE IF NOT EXISTS _sync_apply (flag INTEGER);
+
+            CREATE TEMP TRIGGER IF NOT EXISTS trg_sync_items_ins
+            AFTER INSERT ON items
+            WHEN NEW.op_target_id IS NULL
+             AND COALESCE(NEW.retention, 'durable') != 'ephemeral'
+             AND NOT EXISTS (SELECT 1 FROM _sync_apply)
+            BEGIN
+                INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
+                VALUES ('item', lower(NEW.id), NEW.id, strftime('%s','now') * 1000)
+                ON CONFLICT(kind, record_name) DO UPDATE SET queued_at = excluded.queued_at;
+            END;
+
+            CREATE TEMP TRIGGER IF NOT EXISTS trg_sync_items_upd
+            AFTER UPDATE ON items
+            WHEN NEW.op_target_id IS NULL
+             AND COALESCE(NEW.retention, 'durable') != 'ephemeral'
+             AND NOT EXISTS (SELECT 1 FROM _sync_apply)
+            BEGIN
+                INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
+                VALUES ('item', lower(NEW.id), NEW.id, strftime('%s','now') * 1000)
+                ON CONFLICT(kind, record_name) DO UPDATE SET queued_at = excluded.queued_at;
+            END;
+
+            CREATE TEMP TRIGGER IF NOT EXISTS trg_sync_tags_ins
+            AFTER INSERT ON item_tags
+            WHEN NOT EXISTS (SELECT 1 FROM _sync_apply)
+            BEGIN
+                INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
+                SELECT 'item', lower(NEW.item_id), NEW.item_id, strftime('%s','now') * 1000
+                WHERE EXISTS (SELECT 1 FROM items i WHERE i.id = NEW.item_id
+                              AND i.op_target_id IS NULL)
+                ON CONFLICT(kind, record_name) DO UPDATE SET queued_at = excluded.queued_at;
+            END;
+
+            CREATE TEMP TRIGGER IF NOT EXISTS trg_sync_tags_del
+            AFTER DELETE ON item_tags
+            WHEN NOT EXISTS (SELECT 1 FROM _sync_apply)
+            BEGIN
+                INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
+                SELECT 'item', lower(OLD.item_id), OLD.item_id, strftime('%s','now') * 1000
+                WHERE EXISTS (SELECT 1 FROM items i WHERE i.id = OLD.item_id
+                              AND i.op_target_id IS NULL)
+                ON CONFLICT(kind, record_name) DO UPDATE SET queued_at = excluded.queued_at;
+            END;
+
+            CREATE TEMP TRIGGER IF NOT EXISTS trg_sync_refs_ins
+            AFTER INSERT ON item_references
+            WHEN NOT EXISTS (SELECT 1 FROM _sync_apply)
+            BEGIN
+                INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
+                VALUES ('reference',
+                        NEW.source_id || '|' || NEW.target_id || '|' || NEW.edge_type,
+                        NEW.source_id,
+                        strftime('%s','now') * 1000)
+                ON CONFLICT(kind, record_name) DO UPDATE SET queued_at = excluded.queued_at;
+            END;
+
+            CREATE TEMP TRIGGER IF NOT EXISTS trg_sync_refs_del
+            AFTER DELETE ON item_references
+            WHEN NOT EXISTS (SELECT 1 FROM _sync_apply)
+            BEGIN
+                INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
+                VALUES ('delete_reference',
+                        OLD.source_id || '|' || OLD.target_id || '|' || OLD.edge_type,
+                        OLD.source_id,
+                        strftime('%s','now') * 1000)
+                ON CONFLICT(kind, record_name) DO UPDATE SET queued_at = excluded.queued_at;
+            END;
+            ",
+        )
+        .map_err(|e| StoreError::Storage(format!("init sync triggers: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Read pending sync-outbox entries in queue order: `(seq, kind,
+    /// record_name)`. The drain-time filter (op items, ephemeral) is applied
+    /// by the Phase B snapshot stage; this is the raw queue.
+    pub fn sync_outbox_entries(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<(i64, String, String)>, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT seq, kind, record_name FROM sync_outbox ORDER BY seq LIMIT ?1")
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map(params![limit], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StoreError::Storage(e.to_string()))
+    }
+
     /// Initialize store metadata (origin, logical_clock, tag_namespace).
     fn init_store_metadata(conn: &Connection, config: &StoreConfig) -> Result<String, StoreError> {
         // Get or create origin_id
@@ -624,27 +794,60 @@ impl SqliteItemStore {
         Self::next_hlc_clock(conn)
     }
 
-    /// Merge a remote logical clock (Lamport clock merge).
-    pub fn merge_clock(&self, remote_clock: u64) -> Result<u64, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| StoreError::Storage(e.to_string()))?;
-        let current: String = conn
+    /// Observe a remote HLC value (ADR-0007 Phase 3 sync receive rule).
+    ///
+    /// Raises this store's HLC state so every FUTURE local clock sorts
+    /// after the remote event: unpack the remote `(wall_ms, counter)` and
+    /// take the component-wise max into `hlc_last_wall_ms`/`hlc_counter`.
+    /// Replaces the old `merge_clock` (a Lamport `max+1` on the packed
+    /// integer that never touched HLC state — local and merged clocks
+    /// could diverge).
+    #[allow(dead_code)] // consumed by sync.rs from Phase B onward
+    pub(crate) fn hlc_observe_remote(
+        conn: &Connection,
+        remote_clock: u64,
+    ) -> Result<(), StoreError> {
+        let remote_wall_ms = remote_clock >> 16;
+        let remote_counter = remote_clock & 0xFFFF;
+
+        let last_wall_ms: u64 = conn
             .query_row(
-                "SELECT value FROM store_metadata WHERE key = 'logical_clock'",
+                "SELECT value FROM store_metadata WHERE key = 'hlc_last_wall_ms'",
                 [],
-                |row| row.get(0),
+                |row| row.get::<_, String>(0),
             )
-            .map_err(|e| StoreError::Storage(format!("read clock: {}", e)))?;
-        let current_val: u64 = current.parse().unwrap_or(0);
-        let new_val = current_val.max(remote_clock) + 1;
+            .map_err(|e| StoreError::Storage(format!("read hlc_last_wall_ms: {}", e)))?
+            .parse::<u64>()
+            .unwrap_or(0);
+        let last_counter: u64 = conn
+            .query_row(
+                "SELECT value FROM store_metadata WHERE key = 'hlc_counter'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| StoreError::Storage(format!("read hlc_counter: {}", e)))?
+            .parse::<u64>()
+            .unwrap_or(0);
+
+        let (new_wall, new_counter) = if remote_wall_ms > last_wall_ms {
+            (remote_wall_ms, remote_counter)
+        } else if remote_wall_ms == last_wall_ms {
+            (last_wall_ms, last_counter.max(remote_counter))
+        } else {
+            return Ok(()); // remote is behind us; nothing to observe
+        };
+
         conn.execute(
-            "UPDATE store_metadata SET value = ?1 WHERE key = 'logical_clock'",
-            params![new_val.to_string()],
+            "UPDATE store_metadata SET value = ?1 WHERE key = 'hlc_last_wall_ms'",
+            params![new_wall.to_string()],
         )
-        .map_err(|e| StoreError::Storage(format!("merge clock: {}", e)))?;
-        Ok(new_val)
+        .map_err(|e| StoreError::Storage(format!("observe hlc wall: {}", e)))?;
+        conn.execute(
+            "UPDATE store_metadata SET value = ?1 WHERE key = 'hlc_counter'",
+            params![new_counter.to_string()],
+        )
+        .map_err(|e| StoreError::Storage(format!("observe hlc counter: {}", e)))?;
+        Ok(())
     }
 
     /// Fan an event out to every live subscriber whose filter matches
@@ -742,6 +945,18 @@ impl SqliteItemStore {
         let produced_by = item.produced_by.map(|p| p.to_string());
         let origin = item.origin.as_deref().unwrap_or(origin_id);
 
+        // ADR-0007 Phase 3: every envelope row carries a real HLC version so
+        // sync conflict resolution (LWW by clock) has something to compare.
+        // A zero clock means "locally authored, not yet versioned" — stamp
+        // it now. A NONZERO incoming clock is preserved verbatim: that is
+        // the remote-apply path (sync) and the undo-restore path, both of
+        // which must keep the original causal position.
+        let logical_clock = if item.logical_clock == 0 {
+            Self::next_hlc_clock(conn)?
+        } else {
+            item.logical_clock
+        };
+
         conn.execute(
             "INSERT INTO items (id, schema_ref, payload, created, modified, author, author_kind,
               is_read, is_starred, flag_color, flag_style, flag_length, parent_id,
@@ -763,7 +978,7 @@ impl SqliteItemStore {
                 flag_style,
                 flag_length,
                 parent_id,
-                item.logical_clock as i64,
+                logical_clock as i64,
                 origin,
                 item.canonical_id,
                 item.priority.to_string(),
@@ -966,7 +1181,13 @@ impl SqliteItemStore {
 
         // Materialize the change on the target
         let now = Utc::now().timestamp_millis();
-        Self::materialize_operation(&conn, &spec.target_id.to_string(), &spec.op_type, now)?;
+        Self::materialize_operation(
+            &conn,
+            &spec.target_id.to_string(),
+            &spec.op_type,
+            now,
+            clock,
+        )?;
 
         let target_schema = Self::schema_of(&conn, &spec.target_id.to_string());
         drop(conn);
@@ -1063,7 +1284,7 @@ impl SqliteItemStore {
             )?;
 
             let now = Utc::now().timestamp_millis();
-            Self::materialize_operation(&tx, &target_str, &spec.op_type, now)?;
+            Self::materialize_operation(&tx, &target_str, &spec.op_type, now, clock)?;
 
             op_ids.push(op_id);
             targets.push(spec.target_id);
@@ -1566,7 +1787,18 @@ impl SqliteItemStore {
         target_id_str: &str,
         op_type: &OperationType,
         now: i64,
+        clock: u64,
     ) -> Result<(), StoreError> {
+        // ADR-0007 Phase 3: the materialized target row inherits the op's
+        // HLC clock — op and target share one causal event, and sync LWW
+        // compares target-row clocks. Stamped up front so every branch of
+        // the match below is covered by one statement.
+        conn.execute(
+            "UPDATE items SET logical_clock = ?1 WHERE id = ?2",
+            params![clock as i64, target_id_str],
+        )
+        .map_err(|e| StoreError::Storage(format!("stamp clock: {}", e)))?;
+
         match op_type {
             OperationType::SetPayload(field, value) => {
                 let json_val =
@@ -2945,10 +3177,21 @@ impl SqliteItemStore {
             .conn
             .lock()
             .map_err(|e| StoreError::Storage(e.to_string()))?;
+        Self::record_tombstone_on(&conn, &id.to_string(), schema, &self.origin_id)
+    }
+
+    /// Connection-level tombstone write, callable while the writer lock is
+    /// already held (the `delete()` path — ADR-0007 Phase 3).
+    fn record_tombstone_on(
+        conn: &Connection,
+        id_str: &str,
+        schema: &str,
+        origin_id: &str,
+    ) -> Result<(), StoreError> {
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT OR REPLACE INTO tombstones (id, schema_ref, deleted_at, origin) VALUES (?1, ?2, ?3, ?4)",
-            params![id.to_string(), schema, now, &self.origin_id],
+            params![id_str, schema, now, origin_id],
         )
         .map_err(|e| StoreError::Storage(format!("record_tombstone: {}", e)))?;
         Ok(())
@@ -3374,6 +3617,64 @@ impl ItemStore for SqliteItemStore {
 
         // Capture the schema before the row disappears (event filtering).
         let schema = Self::schema_of(&conn, &id_str);
+
+        // ADR-0007 Phase 3: record deletion for sync BEFORE the row and its
+        // edges vanish. Skipped entirely when this connection is applying
+        // remote changes (`_sync_apply` set) — remote deletions must not
+        // re-enter the outbox or grow the tombstone table with echoes.
+        // Op items and ephemeral rows never sync, so they get no tombstone.
+        let suppressed: bool = conn
+            .query_row("SELECT EXISTS(SELECT 1 FROM _sync_apply)", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map(|v| v != 0)
+            .unwrap_or(false);
+        if !suppressed {
+            let syncs: bool = conn
+                .query_row(
+                    "SELECT op_target_id IS NULL
+                            AND COALESCE(retention, 'durable') != 'ephemeral'
+                     FROM items WHERE id = ?1",
+                    params![&id_str],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map(|v| v != 0)
+                .unwrap_or(false);
+            if syncs {
+                if let Some(ref s) = schema {
+                    Self::record_tombstone_on(&conn, &id_str, s, &self.origin_id)?;
+                }
+                let now_ms = Utc::now().timestamp_millis();
+                conn.execute(
+                    "INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
+                     VALUES ('delete_item', lower(?1), ?1, ?2)
+                     ON CONFLICT(kind, record_name) DO UPDATE SET queued_at = excluded.queued_at",
+                    params![&id_str, now_ms],
+                )
+                .map_err(|e| StoreError::Storage(format!("outbox delete_item: {}", e)))?;
+                // A pushed-but-never-confirmed 'item' row for the same id is
+                // now moot; the delete supersedes it.
+                conn.execute(
+                    "DELETE FROM sync_outbox WHERE kind = 'item' AND record_name = lower(?1)",
+                    params![&id_str],
+                )
+                .map_err(|e| StoreError::Storage(format!("outbox prune: {}", e)))?;
+                // Outgoing/incoming edges are about to CASCADE away. The
+                // temp trigger on item_references also fires for cascades,
+                // but enqueue explicitly here so correctness doesn't hinge
+                // on FK-action trigger semantics (UNIQUE dedupes overlap).
+                conn.execute(
+                    "INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
+                     SELECT 'delete_reference',
+                            source_id || '|' || target_id || '|' || edge_type,
+                            source_id, ?2
+                     FROM item_references WHERE source_id = ?1 OR target_id = ?1
+                     ON CONFLICT(kind, record_name) DO UPDATE SET queued_at = excluded.queued_at",
+                    params![&id_str, now_ms],
+                )
+                .map_err(|e| StoreError::Storage(format!("outbox edge deletes: {}", e)))?;
+            }
+        }
 
         // Delete FTS entry first
         Self::delete_fts(&conn, &id_str)?;
@@ -4758,14 +5059,35 @@ mod tests {
     }
 
     #[test]
-    fn clock_merge() {
+    fn hlc_observes_remote_clock() {
         let store = SqliteItemStore::open_in_memory().unwrap();
-        // Local clock starts at 0
-        let merged = store.merge_clock(100).unwrap();
-        assert_eq!(merged, 101); // max(0, 100) + 1
+        // A remote clock far in the future (wall component dominates).
+        let remote_wall_ms: u64 = 4_000_000_000_000; // ~2096, safely ahead
+        let remote = (remote_wall_ms << 16) | 7;
+        {
+            let conn = store.conn.lock().unwrap();
+            SqliteItemStore::hlc_observe_remote(&conn, remote).unwrap();
+        }
+        // Every future local clock must sort after the observed remote.
+        let next = {
+            let conn = store.conn.lock().unwrap();
+            SqliteItemStore::next_hlc_clock(&conn).unwrap()
+        };
+        assert!(
+            next > remote,
+            "local HLC {next} must advance past observed remote {remote}"
+        );
 
-        let merged2 = store.merge_clock(50).unwrap();
-        assert_eq!(merged2, 102); // max(101, 50) + 1
+        // Observing an older clock is a no-op (monotonicity preserved).
+        {
+            let conn = store.conn.lock().unwrap();
+            SqliteItemStore::hlc_observe_remote(&conn, 1234).unwrap();
+        }
+        let next2 = {
+            let conn = store.conn.lock().unwrap();
+            SqliteItemStore::next_hlc_clock(&conn).unwrap()
+        };
+        assert!(next2 > next);
     }
 
     #[test]
@@ -5381,5 +5703,93 @@ mod tests {
 
         drop(store);
         let _ = std::fs::remove_file(&path);
+    }
+    // ===== ADR-0007 Phase 3: outbox capture + tombstones + suppression =====
+
+    #[test]
+    fn sync_outbox_captures_item_lifecycle() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let item = make_item("test/paper", "Sync Capture");
+        let id = store.insert(item).unwrap();
+
+        // Insert enqueued the item; clock stamped (no more zero clocks).
+        let entries = store.sync_outbox_entries(100).unwrap();
+        assert!(entries
+            .iter()
+            .any(|(_, k, r)| k == "item" && r == &id.to_string().to_lowercase()));
+        let stored = store.get(id).unwrap().unwrap();
+        assert_ne!(stored.logical_clock, 0, "insert must stamp an HLC clock");
+
+        // A field mutation re-enqueues (dedup keeps one row) and bumps clock.
+        let clock_before = stored.logical_clock;
+        store
+            .update(id, vec![FieldMutation::SetRead(true)])
+            .unwrap();
+        let after = store.get(id).unwrap().unwrap();
+        assert!(
+            after.logical_clock > clock_before,
+            "op must advance the clock"
+        );
+        let item_rows: Vec<_> = store
+            .sync_outbox_entries(100)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, k, r)| k == "item" && r == &id.to_string().to_lowercase())
+            .collect();
+        assert_eq!(item_rows.len(), 1, "UNIQUE(kind,record_name) dedupes");
+
+        // The op item itself must NOT be enqueued.
+        let ops = store.operations_for(id, None).unwrap();
+        assert!(!ops.is_empty());
+        let entries = store.sync_outbox_entries(100).unwrap();
+        for op in &ops {
+            assert!(
+                !entries
+                    .iter()
+                    .any(|(_, _, r)| r == &op.id.to_string().to_lowercase()),
+                "operation items never enter the outbox"
+            );
+        }
+
+        // Delete: tombstone recorded, delete_item enqueued, stale 'item' row pruned.
+        store.delete(id).unwrap();
+        let entries = store.sync_outbox_entries(100).unwrap();
+        assert!(entries
+            .iter()
+            .any(|(_, k, r)| k == "delete_item" && r == &id.to_string().to_lowercase()));
+        assert!(
+            !entries
+                .iter()
+                .any(|(_, k, r)| k == "item" && r == &id.to_string().to_lowercase()),
+            "pending item push is superseded by the delete"
+        );
+        let tombs = store.list_tombstones_since(0).unwrap();
+        assert!(tombs.iter().any(|(tid, _, _)| tid == &id.to_string()));
+    }
+
+    #[test]
+    fn sync_outbox_suppressed_during_remote_apply() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        // Simulate a remote apply: set the per-connection suppression flag.
+        {
+            let conn = store.conn.lock().unwrap();
+            conn.execute("INSERT INTO _sync_apply (flag) VALUES (1)", [])
+                .unwrap();
+        }
+        let item = make_item("test/paper", "Remote Applied");
+        let id = store.insert(item).unwrap();
+        store.delete(id).unwrap();
+        {
+            let conn = store.conn.lock().unwrap();
+            conn.execute("DELETE FROM _sync_apply", []).unwrap();
+        }
+        assert!(
+            store.sync_outbox_entries(100).unwrap().is_empty(),
+            "suppressed writes must not enqueue"
+        );
+        assert!(
+            store.list_tombstones_since(0).unwrap().is_empty(),
+            "remote deletions must not create local tombstones"
+        );
     }
 }

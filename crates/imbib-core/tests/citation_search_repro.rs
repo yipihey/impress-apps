@@ -46,7 +46,9 @@ fn citation_picker_terms_find_kaplan() {
     let ids = store.import_bibtex(KAPLAN.into(), lib.id).expect("import");
     assert_eq!(ids.len(), 1, "import should add the paper");
 
-    for term in ["Scaling", "scaling", "Language", "Kaplan", "kaplan", "Law", "Laws"] {
+    for term in [
+        "Scaling", "scaling", "Language", "Kaplan", "kaplan", "Law", "Laws",
+    ] {
         println!("term {:>10}: {} hit(s)", term, search(&store, term));
     }
 
