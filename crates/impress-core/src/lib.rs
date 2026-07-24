@@ -15,6 +15,8 @@ pub mod manuscript_ops;
 pub mod sql_query;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_store;
+#[cfg(feature = "sqlite")]
+pub mod sync;
 
 pub use event::*;
 pub use item::*;

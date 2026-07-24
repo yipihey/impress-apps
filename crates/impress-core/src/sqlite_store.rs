@@ -135,15 +135,15 @@ impl Default for StoreConfig {
 ///   `None` and fall back to the writer connection for reads (since
 ///   `:memory:` databases are private to one connection).
 pub struct SqliteItemStore {
-    conn: Mutex<Connection>,
+    pub(crate) conn: Mutex<Connection>,
     readers: Option<ReaderPool>,
     /// Broadcast event bus (ADR-0015 D3): every subscriber gets an
     /// independent channel, optionally filtered by schema-ref prefix.
     /// Dead subscribers (dropped receivers) are pruned on emit.
     subscribers: Mutex<Vec<EventSubscriber>>,
-    default_author: String,
-    default_author_kind: ActorKind,
-    origin_id: String,
+    pub(crate) default_author: String,
+    pub(crate) default_author_kind: ActorKind,
+    pub(crate) origin_id: String,
     tag_namespace: String,
 }
 
@@ -628,6 +628,15 @@ impl SqliteItemStore {
             AFTER INSERT ON item_references
             WHEN NOT EXISTS (SELECT 1 FROM _sync_apply)
             BEGIN
+                -- Coalescing (Phase B): a re-added edge supersedes a pending
+                -- deletion of the same edge — exactly CKSyncEngine's
+                -- per-record pending-change coalescing (save beats delete).
+                -- Without this, one outbox can hold BOTH kinds for one edge
+                -- and the receiver's apply order decides whether the edge
+                -- survives — divergence.
+                DELETE FROM sync_outbox
+                WHERE kind = 'delete_reference'
+                  AND record_name = NEW.source_id || '|' || NEW.target_id || '|' || NEW.edge_type;
                 INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
                 VALUES ('reference',
                         NEW.source_id || '|' || NEW.target_id || '|' || NEW.edge_type,
@@ -640,6 +649,11 @@ impl SqliteItemStore {
             AFTER DELETE ON item_references
             WHEN NOT EXISTS (SELECT 1 FROM _sync_apply)
             BEGIN
+                -- Coalescing (Phase B): the deletion supersedes a pending
+                -- add of the same edge (mirror of trg_sync_refs_ins).
+                DELETE FROM sync_outbox
+                WHERE kind = 'reference'
+                  AND record_name = OLD.source_id || '|' || OLD.target_id || '|' || OLD.edge_type;
                 INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
                 VALUES ('delete_reference',
                         OLD.source_id || '|' || OLD.target_id || '|' || OLD.edge_type,
@@ -731,7 +745,7 @@ impl SqliteItemStore {
     /// Format: `(wall_ms << 16) | counter`
     /// The counter monotonically increases within the same millisecond and resets to 0
     /// when the wall clock advances. HLC state is persisted in `store_metadata`.
-    fn next_hlc_clock(conn: &Connection) -> Result<u64, StoreError> {
+    pub(crate) fn next_hlc_clock(conn: &Connection) -> Result<u64, StoreError> {
         let now_wall_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -802,7 +816,6 @@ impl SqliteItemStore {
     /// Replaces the old `merge_clock` (a Lamport `max+1` on the packed
     /// integer that never touched HLC state — local and merged clocks
     /// could diverge).
-    #[allow(dead_code)] // consumed by sync.rs from Phase B onward
     pub(crate) fn hlc_observe_remote(
         conn: &Connection,
         remote_clock: u64,
@@ -853,7 +866,7 @@ impl SqliteItemStore {
     /// Fan an event out to every live subscriber whose filter matches
     /// `schema` (None = undeterminable → deliver to all). Subscribers with
     /// dropped receivers are pruned here.
-    fn emit(&self, schema: Option<&str>, event: ItemEvent) {
+    pub(crate) fn emit(&self, schema: Option<&str>, event: ItemEvent) {
         let Ok(mut subs) = self.subscribers.lock() else {
             return;
         };
@@ -1965,7 +1978,7 @@ impl SqliteItemStore {
     /// Rebuild the FTS row for an item from its current payload in `items`.
     /// Mirrors the field set used by `update_fts`; like insert, an item with
     /// no FTS-indexed fields gets no row.
-    fn refresh_fts(conn: &Connection, target_id_str: &str) -> Result<(), StoreError> {
+    pub(crate) fn refresh_fts(conn: &Connection, target_id_str: &str) -> Result<(), StoreError> {
         Self::delete_fts(conn, target_id_str)?;
         conn.execute(
             "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
@@ -2585,7 +2598,7 @@ impl SqliteItemStore {
     }
 
     /// Delete FTS entries for an item.
-    fn delete_fts(conn: &Connection, item_id_str: &str) -> Result<(), StoreError> {
+    pub(crate) fn delete_fts(conn: &Connection, item_id_str: &str) -> Result<(), StoreError> {
         conn.execute(
             "DELETE FROM items_fts WHERE item_id = ?1",
             params![item_id_str],
@@ -3182,7 +3195,7 @@ impl SqliteItemStore {
 
     /// Connection-level tombstone write, callable while the writer lock is
     /// already held (the `delete()` path — ADR-0007 Phase 3).
-    fn record_tombstone_on(
+    pub(crate) fn record_tombstone_on(
         conn: &Connection,
         id_str: &str,
         schema: &str,
@@ -3673,6 +3686,21 @@ impl ItemStore for SqliteItemStore {
                     params![&id_str, now_ms],
                 )
                 .map_err(|e| StoreError::Storage(format!("outbox edge deletes: {}", e)))?;
+                // Coalescing (Phase B): never leave a pending 'reference'
+                // push for an edge that is about to CASCADE away — the
+                // deletion supersedes it (the refs_del trigger also does
+                // this per row; explicit here so correctness doesn't hinge
+                // on FK-action trigger semantics, same as the enqueue above).
+                conn.execute(
+                    "DELETE FROM sync_outbox
+                     WHERE kind = 'reference'
+                       AND record_name IN (
+                           SELECT source_id || '|' || target_id || '|' || edge_type
+                           FROM item_references
+                           WHERE source_id = ?1 OR target_id = ?1)",
+                    params![&id_str],
+                )
+                .map_err(|e| StoreError::Storage(format!("outbox edge add prune: {}", e)))?;
             }
         }
 
@@ -3930,7 +3958,7 @@ impl SqliteItemStore {
 
 // --- Helpers ---
 
-fn actor_kind_str(kind: ActorKind) -> &'static str {
+pub(crate) fn actor_kind_str(kind: ActorKind) -> &'static str {
     match kind {
         ActorKind::Human => "human",
         ActorKind::Agent => "agent",
@@ -3938,7 +3966,7 @@ fn actor_kind_str(kind: ActorKind) -> &'static str {
     }
 }
 
-fn parse_actor_kind(s: &str) -> ActorKind {
+pub(crate) fn parse_actor_kind(s: &str) -> ActorKind {
     match s {
         "agent" => ActorKind::Agent,
         "system" => ActorKind::System,
