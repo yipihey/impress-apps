@@ -462,6 +462,52 @@ impl SqliteItemStore {
             .map_err(|e| StoreError::Storage(format!("migrate_fts rebuild: {}", e)))?;
         }
 
+        // FTS self-heal: rows written by older builds (before per-op FTS
+        // refresh existed, or via paths that bypassed it) are never
+        // reconciled by the write path, leaving items that no Contains
+        // search can find — on-device symptom: the citation picker missing
+        // papers that are plainly in the library. Compare the count of
+        // FTS-eligible items with the count of indexed rows and rebuild
+        // wholesale on mismatch. FTS5 data is derived; the rebuild is
+        // idempotent and only runs when the index has drifted.
+        let eligible: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM items
+                 WHERE (json_extract(payload, '$.title') IS NOT NULL
+                        OR json_extract(payload, '$.author_text') IS NOT NULL
+                        OR json_extract(payload, '$.abstract_text') IS NOT NULL
+                        OR json_extract(payload, '$.note') IS NOT NULL
+                        OR json_extract(payload, '$.body_content') IS NOT NULL)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| StoreError::Storage(format!("fts self-heal count: {}", e)))?;
+        let indexed: i64 = conn
+            .query_row("SELECT COUNT(*) FROM items_fts", [], |row| row.get(0))
+            .map_err(|e| StoreError::Storage(format!("fts self-heal fts count: {}", e)))?;
+        if eligible != indexed {
+            conn.execute_batch("DELETE FROM items_fts;")
+                .map_err(|e| StoreError::Storage(format!("fts self-heal clear: {}", e)))?;
+            conn.execute(
+                "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
+                 SELECT
+                     id,
+                     COALESCE(json_extract(payload, '$.title'), ''),
+                     COALESCE(json_extract(payload, '$.author_text'), ''),
+                     COALESCE(json_extract(payload, '$.abstract_text'), ''),
+                     COALESCE(json_extract(payload, '$.note'), ''),
+                     COALESCE(json_extract(payload, '$.body_content'), '')
+                 FROM items
+                 WHERE (json_extract(payload, '$.title') IS NOT NULL
+                        OR json_extract(payload, '$.author_text') IS NOT NULL
+                        OR json_extract(payload, '$.abstract_text') IS NOT NULL
+                        OR json_extract(payload, '$.note') IS NOT NULL
+                        OR json_extract(payload, '$.body_content') IS NOT NULL)",
+                [],
+            )
+            .map_err(|e| StoreError::Storage(format!("fts self-heal rebuild: {}", e)))?;
+        }
+
         Ok(())
     }
 

@@ -19,6 +19,7 @@ struct IOSInfoTab: View {
 
     @Environment(\.themeColors) private var theme
     @Environment(\.fontScale) private var fontScale
+    @Environment(LibraryManager.self) private var libraryManager
     @State private var showPDFBrowser = false
     @State private var showFilePicker = false
     @State private var showShareSheet = false
@@ -641,24 +642,53 @@ struct IOSInfoTab: View {
 
     // MARK: - Exploration
 
+    // These previously posted `.explore*` notifications that NOTHING
+    // observed (the macOS flow never used them as triggers) — taps fired
+    // into a void, no ADS/SciX search ran. Now they call ExplorationService
+    // directly, exactly like the macOS InfoTab: the service runs the search,
+    // creates the exploration collection, and posts `.navigateToCollection`,
+    // which the iOS sidebar + content view already consume.
+
+    /// Shared plumbing for all five explore buttons.
+    private func explore(
+        _ flag: Binding<Bool>,
+        _ operation: @escaping @MainActor (UUID) async throws -> Void
+    ) {
+        let pubID = publicationID
+        flag.wrappedValue = true
+        explorationError = nil
+        Task {
+            do {
+                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
+                ExplorationService.shared.setEnrichmentService(enrichmentService)
+                ExplorationService.shared.setLibraryManager(libraryManager)
+                try await operation(pubID)
+                flag.wrappedValue = false
+            } catch {
+                flag.wrappedValue = false
+                explorationError = error.localizedDescription
+            }
+        }
+    }
+
     private func showReferences() {
-        NotificationCenter.default.post(name: .exploreReferences, object: publicationID)
+        explore($isExploringReferences) { _ = try await ExplorationService.shared.exploreReferences(of: $0) }
     }
 
     private func showCitations() {
-        NotificationCenter.default.post(name: .exploreCitations, object: publicationID)
+        explore($isExploringCitations) { _ = try await ExplorationService.shared.exploreCitations(of: $0) }
     }
 
     private func showSimilar() {
-        NotificationCenter.default.post(name: .exploreSimilar, object: publicationID)
+        explore($isExploringSimilar) { _ = try await ExplorationService.shared.exploreSimilar(of: $0) }
     }
 
     private func showCoReads() {
-        NotificationCenter.default.post(name: .exploreCoReads, object: publicationID)
+        explore($isExploringCoReads) { _ = try await ExplorationService.shared.exploreCoReads(of: $0) }
     }
 
     private func showWoSRelated() {
-        NotificationCenter.default.post(name: .exploreWoSRelated, object: publicationID)
+        explore($isExploringWoSRelated) { _ = try await ExplorationService.shared.exploreWoSRelated(of: $0) }
     }
 }
 

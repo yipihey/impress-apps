@@ -636,4 +636,352 @@ private struct FlowChips: View {
     }
 }
 
+#elseif os(iOS)
+
+/// Touch-shaped twin of the macOS ⌘S Smart Search overlay, over the SAME
+/// `SmartSearchService` (already injected by imbib-iOS at launch). Used two
+/// ways: embedded as the content pane for the sidebar's "Smart Search (AI)"
+/// row, and presented full-screen from the root swipe-right gesture — the
+/// iOS answer to "⌘S anywhere".
+///
+/// Deliberately a lean re-shape rather than shared code with the macOS
+/// overlay: the palette chrome there is keyboard-first AppKit idiom
+/// (onKeyPress navigation, hover, fixed 640pt card) that doesn't survive
+/// translation. The service holds all behavior; this view is thin.
+public struct IOSSmartSearchView: View {
+
+    @Environment(SmartSearchService.self) private var service
+
+    /// Non-nil when presented modally (shows a Close button).
+    var onDismiss: (() -> Void)?
+
+    @State private var inputText: String = ""
+    @FocusState private var isInputFocused: Bool
+
+    public init(onDismiss: (() -> Void)? = nil) {
+        self.onDismiss = onDismiss
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            inputBar
+            Divider()
+            stateContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            if footerSelectedCount > 0 || hasCandidates {
+                addBar
+            }
+        }
+        .navigationTitle("Smart Search")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let onDismiss {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        service.cancel()
+                        onDismiss()
+                    }
+                }
+            }
+        }
+        .onAppear {
+            if !service.lastInput.isEmpty { inputText = service.lastInput }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isInputFocused = true
+            }
+        }
+        .onChange(of: inputText) { _, new in
+            service.updateInput(new)
+        }
+        .onChange(of: service.state) { _, new in
+            if case .added = new, let onDismiss {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { onDismiss() }
+            }
+        }
+    }
+
+    // MARK: - Input
+
+    @ViewBuilder
+    private var inputBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkle.magnifyingglass").foregroundStyle(.secondary)
+            TextField(
+                "DOI · arXiv id · reference · or what you remember",
+                text: $inputText,
+                axis: .vertical
+            )
+            .lineLimit(1...4)
+            .textFieldStyle(.plain)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
+            .focused($isInputFocused)
+            .onSubmit { submit() }
+
+            if isWorking {
+                ProgressView()
+            } else if !inputText.isEmpty {
+                Button {
+                    inputText = ""
+                    service.reset()
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                Button("Search") { submit() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - State content
+
+    @ViewBuilder
+    private var stateContent: some View {
+        switch service.state {
+        case .idle, .classified:
+            idleHints
+        case .parsing:
+            spinner("Parsing reference…")
+        case .rewriting:
+            spinner("Building query…")
+        case .resolving(let detail):
+            spinner(detail)
+        case .candidates(let list):
+            candidatesList(list)
+        case .batch(let blocks):
+            batchList(blocks)
+        case .empty(let reason):
+            emptyView(reason)
+        case .error(let msg):
+            errorView(msg)
+        case .adding(let count):
+            spinner("Adding \(count) paper\(count == 1 ? "" : "s")…")
+        case .added(let count):
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text("Added \(count) paper\(count == 1 ? "" : "s")").fontWeight(.medium)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+        }
+    }
+
+    private func spinner(_ message: String) -> some View {
+        VStack(spacing: 8) {
+            ProgressView()
+            Text(message).font(.callout).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+    }
+
+    @ViewBuilder
+    private var idleHints: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Try:").font(.caption).foregroundStyle(.tertiary)
+            ForEach([
+                "Abel, T. et al. 2002, Science, 295, 93",
+                "10.1126/science.295.5552.93",
+                #"au:"Riess" abs:"dark energy" year:2020-2025"#,
+                "first stars Abel science",
+            ], id: \.self) { example in
+                Button {
+                    inputText = example
+                    submit()
+                } label: {
+                    Text(example)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.secondary.opacity(0.10))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private func candidatesList(_ list: [SmartSearchCandidate]) -> some View {
+        VStack(spacing: 0) {
+            List(list) { c in
+                candidateRow(c)
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggleSelected(c.id) }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+            .listStyle(.plain)
+
+            if !service.pendingSourceIDs.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Still searching…").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 16).padding(.vertical, 6)
+                .background(.regularMaterial)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func candidateRow(_ c: SmartSearchCandidate) -> some View {
+        let isSelected = service.selectedCandidateIDs.contains(c.id)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: c.alreadyInLibrary != nil
+                  ? "books.vertical.fill"
+                  : (isSelected ? "checkmark.circle.fill" : "circle"))
+                .foregroundStyle(c.alreadyInLibrary != nil
+                                 ? AnyShapeStyle(.secondary)
+                                 : (isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary)))
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(c.title).font(.callout).lineLimit(3)
+                HStack(spacing: 6) {
+                    if !c.authors.isEmpty {
+                        Text(c.authors.prefix(3).joined(separator: ", ")
+                             + (c.authors.count > 3 ? " et al." : ""))
+                            .lineLimit(1)
+                    }
+                    if let y = c.year { Text("· \(String(y))") }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(c.sourceLabel)
+                        .font(.caption2)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.12))
+                        .clipShape(Capsule())
+                    if c.alreadyInLibrary != nil {
+                        Text("In library").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func batchList(_ blocks: [SmartSearchBlock]) -> some View {
+        List(blocks) { block in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(block.raw).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                switch block.status {
+                case .pending:
+                    Text("Pending…").font(.caption2).foregroundStyle(.tertiary)
+                case .parsing, .resolving:
+                    HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Working…") }
+                        .font(.caption2).foregroundStyle(.secondary)
+                case .resolved(let cand):
+                    candidateRow(cand)
+                case .candidates(let list):
+                    ForEach(list.prefix(3)) { c in
+                        candidateRow(c)
+                            .contentShape(Rectangle())
+                            .onTapGesture { service.selectedBatchCandidates[block.id] = c.id }
+                            .background(service.selectedBatchCandidates[block.id] == c.id
+                                        ? Color.accentColor.opacity(0.10) : Color.clear)
+                    }
+                case .notFound(let reason):
+                    Text("Not found: \(reason)").font(.caption2).foregroundStyle(.orange)
+                case .error(let msg):
+                    Text("Error: \(msg)").font(.caption2).foregroundStyle(.red)
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func emptyView(_ reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("No matches", systemImage: "magnifyingglass").fontWeight(.medium)
+            Text(reason).font(.caption).foregroundStyle(.secondary)
+            Button("Search as Free Text") {
+                service.updateInput(inputText)
+                service.submit()
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private func errorView(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Search failed", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange).fontWeight(.medium)
+            Text(message).font(.caption).foregroundStyle(.secondary)
+            Button("Try Again") { submit() }.buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+    }
+
+    // MARK: - Add bar
+
+    @ViewBuilder
+    private var addBar: some View {
+        HStack {
+            Text("\(footerSelectedCount) selected")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button("Add Selected") { service.addSelected() }
+                .buttonStyle(.borderedProminent)
+                .disabled(footerSelectedCount == 0)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Helpers
+
+    private func submit() {
+        service.updateInput(inputText)
+        service.submit()
+    }
+
+    private func toggleSelected(_ id: String) {
+        if service.selectedCandidateIDs.contains(id) {
+            service.selectedCandidateIDs.remove(id)
+        } else {
+            service.selectedCandidateIDs.insert(id)
+        }
+    }
+
+    private var hasCandidates: Bool {
+        switch service.state {
+        case .candidates(let l) where !l.isEmpty: return true
+        case .batch(let b) where !b.isEmpty: return true
+        default: return false
+        }
+    }
+
+    private var isWorking: Bool {
+        switch service.state {
+        case .parsing, .rewriting, .resolving, .adding: return true
+        default: return false
+        }
+    }
+
+    private var footerSelectedCount: Int {
+        switch service.state {
+        case .candidates(let list):
+            return list.filter { service.selectedCandidateIDs.contains($0.id) && $0.alreadyInLibrary == nil }.count
+        case .batch:
+            return service.selectedBatchCandidates.count
+        default:
+            return 0
+        }
+    }
+}
+
 #endif

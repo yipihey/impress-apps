@@ -603,8 +603,20 @@ struct SectionContentView: View {
 
         switch formType {
         case .nlSearch:
-            Text("Use Cmd+S for natural language search")
-                .navigationTitle(mode == .inboxFeed ? "Create AI Feed" : "Smart Search (AI)")
+            // Selecting the AI row opens the ⌘S Smart Search overlay
+            // directly (the old copy just told the user which key to press).
+            VStack(spacing: 12) {
+                Button {
+                    ImbibSearchAction.onlineSourceSearch(source: .toolbarButton).post()
+                } label: {
+                    Label("Open Smart Search", systemImage: "sparkle.magnifyingglass")
+                }
+                .buttonStyle(.borderedProminent)
+                Text("Or press ⌘S from anywhere.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .navigationTitle(mode == .inboxFeed ? "Create AI Feed" : "Smart Search (AI)")
         case .adsModern:
             ADSModernSearchFormView(mode: mode, editingFeedID: editingFeedID)
                 .navigationTitle(mode == .inboxFeed ? "Create ADS Feed" : "SciX Search")

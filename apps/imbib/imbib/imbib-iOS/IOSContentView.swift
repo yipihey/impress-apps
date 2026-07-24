@@ -40,6 +40,12 @@ struct IOSContentView: View {
     // Settings
     @State private var showSettings = false
 
+    /// Smart Search presented full-screen — the iOS "⌘S anywhere": reached
+    /// from the root swipe-right gesture (and available to any future
+    /// trigger). The sidebar's "Smart Search (AI)" row shows the same view
+    /// embedded as its content pane.
+    @State private var showSmartSearch = false
+
     // Keyboard shortcuts help sheet (Cmd+/)
     @State private var showShortcutsHelp = false
 
@@ -93,6 +99,11 @@ struct IOSContentView: View {
             }
             .sheet(isPresented: $showOnboarding) {
                 OnboardingSheet()
+            }
+            .fullScreenCover(isPresented: $showSmartSearch) {
+                NavigationStack {
+                    IOSSmartSearchView(onDismiss: { showSmartSearch = false })
+                }
             }
             .fullScreenCover(isPresented: localFindPresented) {
                 GlobalSearchPaletteView(
@@ -193,6 +204,25 @@ struct IOSContentView: View {
                     selectedSection = .smartSearch(smartSearchID)
                     columnVisibility = .detailOnly
                 }
+            )
+            // Swipe RIGHT anywhere on the root sidebar → Smart Search,
+            // giving it the privileged "top screen" feel of macOS ⌘S.
+            // A content drag, deliberately NOT an edge gesture: the left
+            // screen edge is owned by the split view's sidebar-reveal and
+            // the navigation back-swipe, so the drag must start >30pt in
+            // and be decisively horizontal to fire. simultaneousGesture so
+            // list taps/scrolls are unaffected. Compact only — on iPad the
+            // sidebar is persistent and the row/toolbar affordances serve.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 40)
+                    .onEnded { value in
+                        guard horizontalSizeClass == .compact else { return }
+                        let dx = value.translation.width
+                        let dy = abs(value.translation.height)
+                        if value.startLocation.x > 30, dx > 90, dy < dx / 2 {
+                            showSmartSearch = true
+                        }
+                    }
             )
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -317,7 +347,10 @@ struct IOSContentView: View {
         case .searchForm(let formType):
             switch formType {
             case .nlSearch:
-                Text("Use Cmd+S for natural language search")
+                // The real Smart Search interface (was a dead-end "Use Cmd+S"
+                // hint — meaningless on touch). Same SmartSearchService the
+                // macOS ⌘S overlay drives.
+                IOSSmartSearchView()
             case .adsModern:
                 ADSModernSearchFormView()
             case .adsClassic:

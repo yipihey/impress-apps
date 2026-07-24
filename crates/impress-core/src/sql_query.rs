@@ -287,8 +287,14 @@ fn is_fts_field(field: &str) -> bool {
 
 /// Escape FTS5 special characters in a query string.
 fn fts_escape(text: &str) -> String {
-    // For FTS5, wrap terms in double quotes to treat as literal
-    format!("\"{}\"", text.replace('"', "\"\""))
+    // For FTS5, wrap terms in double quotes to treat as literal, and append
+    // `*` so the final token matches by PREFIX ("Scal" finds "Scaling").
+    // Without it, Contains was whole-token-only — misleading for a
+    // predicate named Contains, and it broke type-ahead surfaces like the
+    // citation picker, where every partial word returned nothing until the
+    // exact token was fully typed. A quoted prefix phrase ("dark mat"*) is
+    // a strict superset of the old exact-phrase match.
+    format!("\"{}\"*", text.replace('"', "\"\""))
 }
 
 /// Convert an impress Value to a rusqlite SqlValue.
