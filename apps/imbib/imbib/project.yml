@@ -206,6 +206,7 @@ targets:
           - QG3MEYVHMS.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.impress.imbib
+          - iCloud.com.impress.suite
         com.apple.developer.icloud-services:
           - CloudKit
         com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.impress.imbib
@@ -305,6 +306,9 @@ targets:
           - CFBundleURLName: com.impress.imbib
             CFBundleURLSchemes:
               - imbib
+        # Phase D activation: iOS cannot read its own entitlements at
+        # runtime, so CloudSyncAvailability consults this marker.
+        ImpressSyncContainerIdentifier: iCloud.com.impress.suite
         UILaunchScreen:
           UIColorName: AccentColor
         UIRequiresFullScreen: true

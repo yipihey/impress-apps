@@ -29,13 +29,19 @@ final class SyncAvailabilityTests: XCTestCase {
         XCTAssertFalse(availability.isAvailable)
     }
 
-    /// This build carries no `iCloud.com.impress.suite` entitlement, so the
-    /// probe must say so. If this ever flips to true without the activation
-    /// doc being applied, something is wrong with the provisioning.
-    func testThisBuildIsNotEntitledForTheSyncContainer() {
+    /// The TEST PROCESS is never entitled for the sync container, so tests
+    /// can never reach live CloudKit no matter what the app bundle carries.
+    ///
+    /// This deliberately survives Phase D activation (entitlements added to
+    /// the app targets 2026-07-25): `swift test` runs an unsigned xctest
+    /// binary, so `SecTaskCopyValueForEntitlement` finds nothing here even
+    /// though the shipping app now has the container. Keeping the assertion
+    /// pins that isolation — if it ever flips, a test run could mutate the
+    /// user's real iCloud data.
+    func testTestProcessIsNeverEntitledForTheSyncContainer() {
         XCTAssertFalse(
             CloudSyncAvailability.isEntitledForContainer,
-            "Phase D ships with the container absent from the entitlements files")
+            "an unsigned test binary must never present the sync entitlement")
     }
 
     /// The container is never constructed while unentitled — the guarded
