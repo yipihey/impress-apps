@@ -160,6 +160,11 @@ struct imbibApp: App {
             await cleanupExplorationCollectionsOnStartup(libraryManager: capturedLibraryManager)
         }
 
+        // CloudKit sync (ADR-0007 Phase 3) — same launcher as macOS. It waits
+        // out its own 120s grace period and is a no-op unless the user enabled
+        // sync AND this build is provisioned for the sync container.
+        CloudSyncEngineLauncher.startAfterGrace()
+
         // Request notification permissions for badge.
         // Skipped under UI testing so the system permission alert doesn't
         // block the automation session.

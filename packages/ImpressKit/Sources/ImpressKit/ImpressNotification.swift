@@ -42,6 +42,14 @@ public struct ImpressNotification: Sendable {
     /// imbib | impel: a manuscript's lifecycle status changed (created, status set, accept/reject)
     public static let manuscriptStatusChanged     = "manuscript-status-changed"
 
+    // MARK: - Sync Events (ADR-0007 Phase 3)
+
+    /// imbib: a CloudKit fetch was applied to the shared store — siblings
+    /// (imprint, impel) should re-query, since remote edits landed underneath
+    /// them. Posted by `CloudSyncEngine` after each applied batch. Only the
+    /// lease holder posts it.
+    public static let syncApplied = "sync-applied"
+
     // MARK: - Posting
 
     /// Posts a Darwin notification from the specified app.

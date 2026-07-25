@@ -533,6 +533,13 @@ struct imbibApp: App {
                 await PDFHealthCheckService.shared.runCheck()
             }
 
+            // CloudKit sync (ADR-0007 Phase 3) — the launcher owns its own
+            // 120s grace delay and short-circuits when the feature flag is
+            // off (the default), when the build carries no container
+            // entitlement, or in test processes. Nothing CloudKit-shaped is
+            // constructed before all of that passes.
+            CloudSyncEngineLauncher.startAfterGrace()
+
             // Spotlight indexing — deferred 90s per startup grace period
             Task.detached {
                 try? await Task.sleep(for: .seconds(90))
