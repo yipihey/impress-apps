@@ -47,6 +47,8 @@ struct IOSUnifiedPublicationListWrapper: View {
         case scixLibrary(UUID)
         case flagged(String?)  // Flagged publications (nil = any flag, or specific color name)
         case citedInManuscripts
+        /// Papers the user viewed or added by hand — never automated ingest.
+        case recent
 
         var id: UUID {
             switch self {
@@ -60,6 +62,8 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return IOSUnifiedPublicationListWrapper.flaggedID(for: color)
             case .citedInManuscripts:
                 return UUID(uuidString: "00000000-0000-0000-AAAA-000000000004")!
+            case .recent:
+                return UUID(uuidString: "00000000-0000-0000-AAAA-000000000005")!
             }
         }
 
@@ -72,7 +76,7 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return RustStoreAdapter.shared.getLibrary(id: id)?.isInbox ?? false
             case .smartSearch(let id):
                 return RustStoreAdapter.shared.getSmartSearch(id: id)?.feedsToInbox ?? false
-            case .collection, .scixLibrary, .flagged, .citedInManuscripts:
+            case .collection, .scixLibrary, .flagged, .citedInManuscripts, .recent:
                 return false
             }
         }
@@ -98,6 +102,8 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "Flagged"
             case .citedInManuscripts:
                 return "Cited in Manuscripts"
+            case .recent:
+                return "Recent"
             }
         }
 
@@ -118,6 +124,8 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "No Flagged Papers"
             case .citedInManuscripts:
                 return "No Cited Papers"
+            case .recent:
+                return "Nothing Recent"
             }
         }
 
@@ -138,6 +146,8 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "Flag papers to see them here."
             case .citedInManuscripts:
                 return "Cite a paper in imprint to see it here."
+            case .recent:
+                return "Papers you open or add by hand show up here."
             }
         }
 
@@ -153,7 +163,7 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return .scixLibrary(id)
             case .flagged:
                 return .flagged(id)
-            case .citedInManuscripts:
+            case .citedInManuscripts, .recent:
                 return .library(id)
             }
         }
@@ -177,7 +187,7 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return nil
             case .scixLibrary:
                 return nil // SciX libraries are remote
-            case .flagged, .citedInManuscripts:
+            case .flagged, .citedInManuscripts, .recent:
                 return nil // Cross-library virtual source
             }
         }
@@ -198,6 +208,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             case .scixLibrary(let id): return .scixLibrary(id)
             case .flagged(let color): return .flagged(color)
             case .citedInManuscripts: return .citedInManuscripts
+            case .recent: return .recent
             }
         }
     }
@@ -472,7 +483,7 @@ struct IOSUnifiedPublicationListWrapper: View {
         switch source {
         case .library, .libraryByID:
             return !source.isInbox
-        case .smartSearch, .collection, .scixLibrary, .flagged, .citedInManuscripts:
+        case .smartSearch, .collection, .scixLibrary, .flagged, .citedInManuscripts, .recent:
             return false
         }
     }
@@ -576,7 +587,7 @@ struct IOSUnifiedPublicationListWrapper: View {
         defer { isRefreshing = false }
 
         switch source {
-        case .library, .libraryByID, .collection, .flagged, .citedInManuscripts:
+        case .library, .libraryByID, .collection, .flagged, .citedInManuscripts, .recent:
             refreshPublicationsList()
 
         case .smartSearch(let id):

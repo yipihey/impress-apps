@@ -238,9 +238,17 @@ public actor HTTPAutomationRouter: HTTPRouter {
         // ===== Phase D additions: specific /api/papers/* routes (must come
         // BEFORE the /api/papers/{citeKey} catch-all below) =====
 
-        // GET /api/papers/recent
+        // GET /api/papers/recent[?source=activity]
         if path == "/api/papers/recent" {
+            if request.queryParams["source"] == "activity" {
+                return await handleQueryRecentActivity(request)
+            }
             return await handleQueryRecent(request)
+        }
+
+        // GET /api/papers/recent-activity
+        if path == "/api/papers/recent-activity" {
+            return await handleQueryRecentActivity(request)
         }
 
         // GET /api/papers/starred
@@ -3667,6 +3675,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return .badRequest("Missing or invalid 'library_id'")
         }
         let ids = RustStoreAdapter.shared.importBibTeX(text, libraryId: libID)
+        // An agent importing BibTeX over the automation API is a directed add,
+        // exactly like the Import sheet — so it belongs in Recent. (Feeds do
+        // NOT come through here; they use batchImportSearchResults.)
+        RustStoreAdapter.shared.recordRecentAdd(ids: ids)
         return .json(["status": "ok", "ids": ids.map { $0.uuidString }])
     }
 
@@ -4018,6 +4030,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
     // MARK: - ===== Phase D: paper queries (recent / starred) =====
 
     /// GET /api/papers/recent?limit=N&parent_id=...
+    ///
+    /// **Recently ADDED, by creation date** — the original meaning of this
+    /// route, unchanged. It includes papers that arrived via automated ingest
+    /// (inbox feeds, smart-search refreshes, group feeds), because `created`
+    /// does not distinguish who put them there.
+    ///
+    /// For "what did the user actually touch?" pass `?source=activity`, or
+    /// call `/api/papers/recent-activity` — see `handleQueryRecentActivity`.
     @MainActor
     private func handleQueryRecent(_ request: HTTPRequest) async -> HTTPResponse {
         let limit = request.queryParams["limit"].flatMap { UInt32($0) } ?? 50
@@ -4025,6 +4045,43 @@ public actor HTTPAutomationRouter: HTTPRouter {
         do {
             let papers = try RustStoreAdapter.shared.imbibStore.queryRecent(limit: limit, parentId: parent)
             return .json(["status": "ok", "papers": papers.map { bibToDict($0) }])
+        } catch {
+            return .serverError(error.localizedDescription)
+        }
+    }
+
+    /// GET /api/papers/recent-activity?limit=N
+    /// (also reachable as `GET /api/papers/recent?source=activity`)
+    ///
+    /// **Recent USER ACTIVITY** — papers the user viewed or added by hand,
+    /// most recent first. Deliberately excludes automated ingest: feeds,
+    /// smart-search provider refreshes and group feeds never record activity.
+    /// This is the list behind imbib's "Recent" virtual library.
+    ///
+    /// Each paper carries two extra fields: `activity_kind` (`"viewed"` or
+    /// `"added"`) and `activity_at` (epoch milliseconds).
+    ///
+    /// `limit` defaults to the user's "Recent papers to keep" preference.
+    @MainActor
+    private func handleQueryRecentActivity(_ request: HTTPRequest) async -> HTTPResponse {
+        let limit = request.queryParams["limit"].flatMap { UInt32($0) }
+            ?? UInt32(SyncedSettingsStore.shared.recentPapersToKeep)
+        let store = RustStoreAdapter.shared
+        let entries = store.recentActivityEntries(limit: limit)
+        let activityByID = Dictionary(
+            entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        do {
+            let papers = try store.imbibStore.queryRecentActivity(limit: limit)
+            let payload: [[String: Any]] = papers.map { paper in
+                var dict = bibToDict(paper)
+                if let activity = activityByID[UUID(uuidString: paper.id) ?? UUID()] {
+                    dict["activity_kind"] = activity.kind
+                    dict["activity_at"] = Int(activity.occurredAt.timeIntervalSince1970 * 1000)
+                }
+                return dict
+            }
+            return .json(["status": "ok", "papers": payload])
         } catch {
             return .serverError(error.localizedDescription)
         }

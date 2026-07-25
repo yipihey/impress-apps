@@ -154,6 +154,8 @@ public final class LibraryViewModel {
 
         let content = try String(contentsOf: url, encoding: .utf8)
         let ids = store.importBibTeX(content, libraryId: libraryID)
+        // The user picked this file — these papers belong in Recent.
+        store.recordRecentAdd(ids: ids)
         await loadPublications()
 
         // Queue newly imported for enrichment
@@ -171,14 +173,18 @@ public final class LibraryViewModel {
         let entries = try parser.parse(content)
 
         var importedCount = 0
+        var importedIDs: [UUID] = []
         store.beginBatchMutation()
         for risEntry in entries {
             let bibEntry = risEntry.toBibTeX()
             let bibtex = bibEntry.rawBibTeX ?? bibEntry.synthesizeBibTeX()
             let ids = store.importBibTeX(bibtex, libraryId: libraryID)
             importedCount += ids.count
+            importedIDs.append(contentsOf: ids)
         }
         store.endBatchMutation()
+        // The user picked this file — these papers belong in Recent.
+        store.recordRecentAdd(ids: importedIDs)
 
         await loadPublications()
 

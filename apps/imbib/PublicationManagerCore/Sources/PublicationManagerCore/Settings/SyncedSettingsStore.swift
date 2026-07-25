@@ -63,6 +63,11 @@ public enum SyncedSettingsKey: String, CaseIterable {
 
     // Exploration Settings
     case explorationRetention = "sync.exploration.retention"
+
+    // Recent Settings
+    // How many papers the "Recent" virtual library shows. The COUNT syncs;
+    // the recency data itself rides the item store like any other field.
+    case recentPapersToKeep = "sync.recent.papersToKeep"
 }
 
 /// Notification posted when synced settings change from another device
@@ -464,6 +469,34 @@ public final class SyncedSettingsStore: @unchecked Sendable {
         }
         set {
             set(newValue.rawValue, forKey: .explorationRetention)
+        }
+    }
+
+    // MARK: - Recent
+
+    /// Allowed range for `recentPapersToKeep`.
+    public static let recentPapersToKeepRange = 10...200
+    /// Default number of papers shown in the "Recent" virtual library.
+    public static let recentPapersToKeepDefault = 50
+
+    /// How many papers the "Recent" virtual library shows (10–200, default 50).
+    ///
+    /// This is purely a display limit — recency itself is a per-paper stamp in
+    /// the item store, so changing this never discards history.
+    public var recentPapersToKeep: Int {
+        get {
+            guard let value = int(forKey: .recentPapersToKeep), value > 0 else {
+                return Self.recentPapersToKeepDefault
+            }
+            return min(
+                max(value, Self.recentPapersToKeepRange.lowerBound),
+                Self.recentPapersToKeepRange.upperBound)
+        }
+        set {
+            let clamped = min(
+                max(newValue, Self.recentPapersToKeepRange.lowerBound),
+                Self.recentPapersToKeepRange.upperBound)
+            set(clamped, forKey: .recentPapersToKeep)
         }
     }
 }

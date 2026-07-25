@@ -40,6 +40,7 @@ public enum ImbibTab: Hashable {
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
     case citedInManuscripts   // pseudo smart library — papers cited in any imprint manuscript
+    case recent               // papers the user viewed or added by hand (never automated ingest)
     case reviewQueue          // pending agent review-requests from the shared impress store
 
     // Journal pipeline (per ADR-0011 D8)

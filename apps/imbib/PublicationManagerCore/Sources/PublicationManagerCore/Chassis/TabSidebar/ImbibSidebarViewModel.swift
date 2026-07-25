@@ -548,6 +548,17 @@ final class ImbibSidebarViewModel {
     private func inboxChildren() -> [ImbibSidebarNode] {
         var nodes: [ImbibSidebarNode] = []
 
+        // "Recent" — papers the user viewed or added by hand. Sits above the
+        // feeds because it is about the user's own activity, not ingest.
+        nodes.append(
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.recent,
+                nodeType: .recent,
+                displayName: "Recent",
+                iconName: "clock.arrow.circlepath"
+            )
+        )
+
         // Top-level feeds (no parent collection — feeds don't have parent collection in domain model)
         let feeds = fetchInboxFeeds()
         for feed in feeds {

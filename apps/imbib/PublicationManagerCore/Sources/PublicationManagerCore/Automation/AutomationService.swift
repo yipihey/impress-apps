@@ -403,6 +403,17 @@ public actor AutomationService: AutomationOperations {
             }
         }
 
+        // Recent activity: adding papers here is always user- or agent-directed
+        // (smart-search "Add Selected", the automation/MCP add endpoint, App
+        // Intents). Automated ingest does NOT come through this path — feeds go
+        // via batchImportSearchResults — so recording here is safe.
+        let addedIDs = added.map { $0.id }
+        if !addedIDs.isEmpty {
+            await MainActor.run {
+                RustStoreAdapter.shared.recordRecentAdd(ids: addedIDs)
+            }
+        }
+
         return AddPapersResult(
             added: added,
             duplicates: duplicates,

@@ -586,6 +586,9 @@ struct SearchSettingsView: View {
 struct ListViewSettingsView: View {
     @State private var settings: ListViewSettings = .default
 
+    /// Mirrors `SyncedSettingsStore.recentPapersToKeep` (iCloud-synced).
+    @State private var recentPapersToKeep = SyncedSettingsStore.shared.recentPapersToKeep
+
     var body: some View {
         List {
             // Field Visibility
@@ -624,8 +627,28 @@ struct ListViewSettingsView: View {
             } header: {
                 Text("Density")
             }
+
+            // Recent
+            Section {
+                Stepper(
+                    "Recent Papers to Keep: \(recentPapersToKeep)",
+                    value: $recentPapersToKeep,
+                    in: 10...200,
+                    step: 10
+                )
+            } header: {
+                Text("Recent")
+            } footer: {
+                Text(
+                    "How many papers the Recent list shows. Recent tracks papers you open "
+                        + "or add by hand — not papers that arrive from feeds."
+                )
+            }
         }
         .navigationTitle("List View")
+        .onChange(of: recentPapersToKeep) { _, newValue in
+            SyncedSettingsStore.shared.recentPapersToKeep = newValue
+        }
         .task {
             settings = await ListViewSettingsStore.shared.settings
         }

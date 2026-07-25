@@ -219,6 +219,14 @@ final class MockPublicationStore: PublicationStoreProtocol {
 
     // MARK: - Publication Mutations
 
+    /// Ids passed to `recordRecentAdd` — lets tests assert that manual import
+    /// paths record Recent activity and automated ones do not.
+    var recordedRecentAddIDs: [UUID] = []
+
+    func recordRecentAdd(ids: [UUID]) {
+        recordedRecentAddIDs.append(contentsOf: ids)
+    }
+
     @discardableResult
     func importBibTeX(_ bibtex: String, libraryId: UUID) -> [UUID] {
         importBibTeXCallCount += 1

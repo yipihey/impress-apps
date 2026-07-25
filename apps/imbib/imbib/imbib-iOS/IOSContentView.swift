@@ -399,6 +399,12 @@ struct IOSContentView: View {
                 selectedPublicationID: $selectedPublicationID
             )
 
+        case .recent:
+            IOSUnifiedPublicationListWrapper(
+                source: .recent,
+                selectedPublicationID: $selectedPublicationID
+            )
+
         case .manuscripts:
             IOSManuscriptList(selectedManuscriptID: $selectedManuscriptID)
 
@@ -455,7 +461,7 @@ struct IOSContentView: View {
             return libID
         case .flagged:
             return RustStoreAdapter.shared.getDefaultLibrary()?.id
-        case .citedInManuscripts:
+        case .citedInManuscripts, .recent:
             // Cross-library pseudo source — no owning library.
             return nil
         default:
@@ -483,6 +489,8 @@ struct IOSContentView: View {
             return .flagged(source.id)
         case .citedInManuscripts:
             return .library(UUID(uuidString: "00000000-0000-0000-AAAA-000000000004")!)
+        case .recent:
+            return .library(UUID(uuidString: "00000000-0000-0000-AAAA-000000000005")!)
         default:
             return nil
         }
@@ -520,7 +528,8 @@ struct IOSContentView: View {
         case .inboxCollection(let colID):
             return .collection(colID, "Collection")
 
-        case .inbox, .search, .searchForm, .flagged, .citedInManuscripts, .manuscripts, .none:
+        case .inbox, .search, .searchForm, .flagged, .citedInManuscripts, .recent, .manuscripts,
+             .none:
             return .global
         }
     }
@@ -632,6 +641,7 @@ enum SidebarSection: Hashable {
     case scixLibrary(UUID)            // SciXLibrary ID
     case flagged(String?)             // Flagged publications (nil = any flag, or specific color name)
     case citedInManuscripts           // Papers cited in any imprint manuscript
+    case recent                       // Papers the user viewed or added by hand
     case manuscripts                  // All manuscripts (manuscript@1.0.0 items)
 }
 

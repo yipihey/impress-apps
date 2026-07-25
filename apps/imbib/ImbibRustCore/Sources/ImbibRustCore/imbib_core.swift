@@ -1029,6 +1029,20 @@ public protocol ImbibStoreProtocol : AnyObject {
     func queryRecent(limit: UInt32, parentId: String?) throws  -> [BibliographyRow]
     
     /**
+     * Publications with recent user activity, most recent first.
+     *
+     * NOTE the deliberate name: `query_recent` already exists and means
+     * "most recently ADDED, by creation date" (it backs
+     * `GET /api/papers/recent`). This is a different question — "what did I
+     * actually touch?" — so it gets its own name rather than redefining that
+     * one out from under its callers.
+     *
+     * Rows whose item has vanished (deleted between the id scan and the
+     * fetch) are skipped rather than erroring.
+     */
+    func queryRecentActivity(limit: UInt32) throws  -> [BibliographyRow]
+    
+    /**
      * Query publications linked to a SciX library via item_references (Contains edges).
      *
      * SciX libraries store their membership via `AddReference(Contains)` rather than
@@ -1042,10 +1056,30 @@ public protocol ImbibStoreProtocol : AnyObject {
     func queryUnread(parentId: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
     /**
+     * Recent activity as `(publication_id, kind, occurred_at_ms)`, most
+     * recent first. `kind` is `"viewed"` or `"added"`.
+     */
+    func recentActivityEntries(limit: UInt32) throws  -> [RecentActivityRow]
+    
+    /**
      * Fetch recent undo groups for the history panel.
      * Returns one entry per batch (or per unbatched operation), most recent first.
      */
     func recentUndoGroups(maxEntries: UInt32) throws  -> [UndoGroupRow]
+    
+    /**
+     * Record that the user added a publication by hand.
+     */
+    func recordRecentAdd(id: String) throws  -> Bool
+    
+    /**
+     * Record that the user opened/viewed a publication.
+     *
+     * Debounced in the store (5 minutes for a repeat of the same kind), so
+     * scrolling a list does not produce a sync push per paper. Returns
+     * `true` when the stamp was actually written.
+     */
+    func recordRecentView(id: String) throws  -> Bool
     
     func removeFromCollection(publicationIds: [String], collectionId: String) throws  -> UndoInfo
     
@@ -2573,6 +2607,26 @@ open func queryRecent(limit: UInt32, parentId: String?)throws  -> [BibliographyR
 }
     
     /**
+     * Publications with recent user activity, most recent first.
+     *
+     * NOTE the deliberate name: `query_recent` already exists and means
+     * "most recently ADDED, by creation date" (it backs
+     * `GET /api/papers/recent`). This is a different question — "what did I
+     * actually touch?" — so it gets its own name rather than redefining that
+     * one out from under its callers.
+     *
+     * Rows whose item has vanished (deleted between the id scan and the
+     * fetch) are skipped rather than erroring.
+     */
+open func queryRecentActivity(limit: UInt32)throws  -> [BibliographyRow] {
+    return try  FfiConverterSequenceTypeBibliographyRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_query_recent_activity(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
      * Query publications linked to a SciX library via item_references (Contains edges).
      *
      * SciX libraries store their membership via `AddReference(Contains)` rather than
@@ -2616,6 +2670,18 @@ open func queryUnread(parentId: String?, sortField: String, ascending: Bool, lim
 }
     
     /**
+     * Recent activity as `(publication_id, kind, occurred_at_ms)`, most
+     * recent first. `kind` is `"viewed"` or `"added"`.
+     */
+open func recentActivityEntries(limit: UInt32)throws  -> [RecentActivityRow] {
+    return try  FfiConverterSequenceTypeRecentActivityRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_recent_activity_entries(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
      * Fetch recent undo groups for the history panel.
      * Returns one entry per batch (or per unbatched operation), most recent first.
      */
@@ -2623,6 +2689,32 @@ open func recentUndoGroups(maxEntries: UInt32)throws  -> [UndoGroupRow] {
     return try  FfiConverterSequenceTypeUndoGroupRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_recent_undo_groups(self.uniffiClonePointer(),
         FfiConverterUInt32.lower(maxEntries),$0
+    )
+})
+}
+    
+    /**
+     * Record that the user added a publication by hand.
+     */
+open func recordRecentAdd(id: String)throws  -> Bool {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_record_recent_add(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Record that the user opened/viewed a publication.
+     *
+     * Debounced in the store (5 minutes for a repeat of the same kind), so
+     * scrolling a list does not produce a sync push per paper. Returns
+     * `true` when the stamp was actually written.
+     */
+open func recordRecentView(id: String)throws  -> Bool {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_record_recent_view(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
     )
 })
 }
@@ -13506,6 +13598,102 @@ public func FfiConverterTypeRISTag_lower(_ value: RisTag) -> RustBuffer {
 
 
 /**
+ * One entry of the "Recent" activity list: a publication the user viewed or
+ * added by hand. Automated ingest never produces these.
+ */
+public struct RecentActivityRow {
+    /**
+     * Publication UUID string.
+     */
+    public var id: String
+    /**
+     * `"viewed"` or `"added"`.
+     */
+    public var kind: String
+    /**
+     * Epoch milliseconds of the activity.
+     */
+    public var occurredAt: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Publication UUID string.
+         */id: String, 
+        /**
+         * `"viewed"` or `"added"`.
+         */kind: String, 
+        /**
+         * Epoch milliseconds of the activity.
+         */occurredAt: Int64) {
+        self.id = id
+        self.kind = kind
+        self.occurredAt = occurredAt
+    }
+}
+
+
+
+extension RecentActivityRow: Equatable, Hashable {
+    public static func ==(lhs: RecentActivityRow, rhs: RecentActivityRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.occurredAt != rhs.occurredAt {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(kind)
+        hasher.combine(occurredAt)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecentActivityRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecentActivityRow {
+        return
+            try RecentActivityRow(
+                id: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                occurredAt: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RecentActivityRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterInt64.write(value.occurredAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecentActivityRow_lift(_ buf: RustBuffer) throws -> RecentActivityRow {
+    return try FfiConverterTypeRecentActivityRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecentActivityRow_lower(_ value: RecentActivityRow) -> RustBuffer {
+    return FfiConverterTypeRecentActivityRow.lower(value)
+}
+
+
+/**
  * A rectangle on a PDF page (in PDF coordinates)
  */
 public struct Rect {
@@ -21703,6 +21891,31 @@ fileprivate struct FfiConverterSequenceTypeRISTag: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeRecentActivityRow: FfiConverterRustBuffer {
+    typealias SwiftType = [RecentActivityRow]
+
+    public static func write(_ value: [RecentActivityRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRecentActivityRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RecentActivityRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RecentActivityRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRecentActivityRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeRect: FfiConverterRustBuffer {
     typealias SwiftType = [Rect]
 
@@ -25061,6 +25274,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_query_recent() != 35555) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_query_recent_activity() != 13056) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_query_scix_library_publications() != 59774) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25070,7 +25286,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_query_unread() != 17038) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_recent_activity_entries() != 40360) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_recent_undo_groups() != 908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_record_recent_add() != 24989) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_record_recent_view() != 47945) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_remove_from_collection() != 19847) {

@@ -196,11 +196,14 @@ public final class ShareExtensionHandler {
            let libraryModel = libraryManager.find(id: libraryID) {
             // Import to specific library
             let ids = store.importBibTeX(bibtex, libraryId: libraryModel.id)
+            // Sharing a paper into imbib is a deliberate user act — Recent.
+            store.recordRecentAdd(ids: ids)
             Logger.shareExtension.infoCapture("Imported paper \(identifier) to library \(libraryModel.name) (ids: \(ids.count))", category: "shareext")
         } else {
             // Import to Inbox library
             if let inboxLib = store.getInboxLibrary() {
                 let ids = store.importBibTeX(bibtex, libraryId: inboxLib.id)
+                store.recordRecentAdd(ids: ids)
                 Logger.shareExtension.infoCapture("Imported paper \(identifier) to Inbox (ids: \(ids.count))", category: "shareext")
             } else {
                 Logger.shareExtension.errorCapture("No inbox library available for import", category: "shareext")
@@ -249,6 +252,12 @@ public final class ShareExtensionHandler {
                 bibtexEntries: entries,
                 libraryId: inboxLib.id
             )
+
+            // The user explicitly shared this docs() selection, so it counts as
+            // a manual add even though the bulk path is used. (Recording lives
+            // here, at the user-initiated caller — never inside
+            // `batchImportSearchResults`, which feed refreshes also use.)
+            store.recordRecentAdd(ids: importedIDs)
 
             Logger.shareExtension.infoCapture(
                 "Imported \(importedIDs.count) new, linked \(existingIDs.count) existing to Inbox",

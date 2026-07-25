@@ -221,6 +221,8 @@ struct UnifiedPublicationListWrapper: View {
             return "Dismissed"
         case .citedInManuscripts:
             return "Cited in Manuscripts"
+        case .recent:
+            return "Recent"
         case .combined(let children):
             return "\(children.count) Sources"
         }
@@ -234,7 +236,8 @@ struct UnifiedPublicationListWrapper: View {
         case .smartSearch(let id):
             return RustStoreAdapter.shared.getSmartSearch(id: id)?.libraryID
                 ?? RustStoreAdapter.shared.getDefaultLibrary()?.id
-        case .collection, .flagged, .unread, .starred, .tag, .dismissed, .citedInManuscripts:
+        case .collection, .flagged, .unread, .starred, .tag, .dismissed, .citedInManuscripts,
+             .recent:
             return RustStoreAdapter.shared.getDefaultLibrary()?.id
         case .combined:
             // Multi-source: no single "current" library — fall back to default
@@ -267,6 +270,8 @@ struct UnifiedPublicationListWrapper: View {
             return .library(source.viewID)
         case .citedInManuscripts:
             return .library(source.viewID)
+        case .recent:
+            return .library(source.viewID)
         case .combined:
             return .library(source.viewID)
         }
@@ -298,6 +303,8 @@ struct UnifiedPublicationListWrapper: View {
             return "No Dismissed Papers"
         case .citedInManuscripts:
             return "No Cited Papers"
+        case .recent:
+            return "Nothing Recent"
         case .combined:
             return "No Publications"
         }
@@ -327,6 +334,8 @@ struct UnifiedPublicationListWrapper: View {
             return "No dismissed papers."
         case .citedInManuscripts:
             return "Cite a paper in imprint to see it here."
+        case .recent:
+            return "Papers you open or add by hand show up here."
         case .combined(let children):
             return "Combined view of \(children.count) libraries / collections."
         }
@@ -341,7 +350,8 @@ struct UnifiedPublicationListWrapper: View {
             return true
         case .smartSearch(let id):
             return RustStoreAdapter.shared.getSmartSearch(id: id)?.feedsToInbox ?? false
-        case .library, .collection, .flagged, .scixLibrary, .unread, .starred, .tag, .dismissed, .citedInManuscripts, .combined:
+        case .library, .collection, .flagged, .scixLibrary, .unread, .starred, .tag, .dismissed,
+             .citedInManuscripts, .recent, .combined:
             return false
         }
     }
@@ -1172,7 +1182,7 @@ struct UnifiedPublicationListWrapper: View {
                 refreshPublicationsList(force: true)
             }
 
-        case .unread, .starred, .tag, .inbox, .dismissed, .citedInManuscripts:
+        case .unread, .starred, .tag, .inbox, .dismissed, .citedInManuscripts, .recent:
             logger.info("Virtual source refresh requested")
             try? await Task.sleep(for: .milliseconds(100))
             await MainActor.run {

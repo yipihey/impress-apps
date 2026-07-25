@@ -500,6 +500,11 @@ struct ContentView: View {
 
         let count = importedIDs.count
 
+        // Manual import (the Import preview sheet) is user-initiated, so these
+        // papers belong in Recent. Feed / refresh ingest does not come through
+        // here — it goes via batchImportSearchResults.
+        store.recordRecentAdd(ids: importedIDs)
+
         await libraryViewModel.loadPublications()
 
         return count

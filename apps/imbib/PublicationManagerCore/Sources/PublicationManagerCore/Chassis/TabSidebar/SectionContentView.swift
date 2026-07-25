@@ -191,6 +191,8 @@ struct SectionContentView: View {
             return libraryManager.dismissedLibrary.map { _ in .dismissed }
         case .citedInManuscripts:
             return .citedInManuscripts
+        case .recent:
+            return .recent
         case .allArtifacts, .artifactType, .reviewQueue:
             return nil
         case .journalAll, .journalByStatus, .journalSubmissions, .manuscript, .manuscriptFolder:
@@ -222,7 +224,7 @@ struct SectionContentView: View {
             return nil
         case .dismissed:
             return libraryManager.dismissedLibrary?.id
-        case .citedInManuscripts:
+        case .citedInManuscripts, .recent:
             // Cross-library pseudo source — no owning library.
             return nil
         case .allArtifacts, .artifactType, .reviewQueue:

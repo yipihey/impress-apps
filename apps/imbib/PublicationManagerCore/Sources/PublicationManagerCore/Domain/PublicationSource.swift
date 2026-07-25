@@ -26,6 +26,13 @@ public enum PublicationSource: Hashable, Sendable {
     /// `CitedInManuscriptsSnapshot` singleton.
     case citedInManuscripts
 
+    /// Papers the user actually TOUCHED recently — viewed, or added by hand.
+    /// Deliberately excludes automated ingest (inbox feeds, smart-search
+    /// provider refreshes, group feeds); those bump `modified`, which is why
+    /// `modified` is not usable as a recency proxy. Backed by an explicit
+    /// `last_activity_at` stamp written only at user-initiated call sites.
+    case recent
+
     /// Union of multiple sources — papers from all child sources, deduped
     /// by paper UUID. Used by Cmd-click multi-selection of libraries / collections.
     /// The list query, count, and viewID derive from the contained array.
@@ -71,6 +78,8 @@ public enum PublicationSource: Hashable, Sendable {
             return UUID(uuidString: "00000000-0000-0000-AAAA-000000000003")!
         case .citedInManuscripts:
             return UUID(uuidString: "00000000-0000-0000-AAAA-000000000004")!
+        case .recent:
+            return UUID(uuidString: "00000000-0000-0000-AAAA-000000000005")!
         case .combined(let sources):
             // Order-independent deterministic id: sort child viewIDs and
             // FNV-hash their bytes. Two `.combined` sources with the same

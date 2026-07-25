@@ -92,6 +92,15 @@ struct DetailView: View {
             await autoMarkAsRead()
         }
         .task(id: publicationID) {
+            // Opening a paper is a user-initiated view — it belongs in Recent.
+            // The one-second dwell keeps rapid scrubbing through a list from
+            // filling Recent with papers the user merely passed over; the task
+            // is cancelled as soon as the selection changes.
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            RustStoreAdapter.shared.recordRecentView(id: publicationID)
+        }
+        .task(id: publicationID) {
             // Keep the OPEN detail in sync with background mutations
             // (enrichment filling in abstract/PDF, tag/flag changes from
             // other surfaces). Previously the detail loaded once and went

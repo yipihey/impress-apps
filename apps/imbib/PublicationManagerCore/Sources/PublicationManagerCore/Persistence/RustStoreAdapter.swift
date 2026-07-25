@@ -295,6 +295,87 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    // MARK: - Recent activity
+
+    /// Record that the user opened/viewed a publication.
+    ///
+    /// "Recent" means papers the user actually TOUCHED — viewed, or added by
+    /// hand. Papers that arrive through automated ingest (inbox feeds, smart
+    /// search provider refreshes, group feeds) must never call this.
+    ///
+    /// Best-effort telemetry: failures are logged and swallowed, never thrown
+    /// into the UI. Deliberately does **not** call `didMutate()` — recency is
+    /// not a store-graph change, and bumping the data version on every paper
+    /// opened would rebuild every list in the app. The Recent list refreshes
+    /// through the views' normal `.task`/`onAppear` reload instead.
+    public func recordRecentView(id: UUID) {
+        do {
+            let wrote = try store.recordRecentView(id: id.uuidString)
+            if wrote {
+                Logger.library.debugCapture(
+                    "recent: viewed \(id.uuidString)", category: "recent")
+            }
+        } catch {
+            Logger.library.error("recordRecentView failed: \(error)")
+        }
+    }
+
+    /// Record that the user added publications by hand.
+    ///
+    /// Call from user-initiated add paths only (smart-search "Add Selected",
+    /// the automation add-papers endpoint, manual BibTeX import). Feed and
+    /// refresh ingest paths must not.
+    public func recordRecentAdd(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        var wrote = 0
+        for id in ids {
+            do {
+                if try store.recordRecentAdd(id: id.uuidString) { wrote += 1 }
+            } catch {
+                Logger.library.error("recordRecentAdd failed for \(id): \(error)")
+            }
+        }
+        Logger.library.infoCapture(
+            "recent: added \(wrote)/\(ids.count) papers", category: "recent")
+    }
+
+    /// Publications the user recently viewed or added by hand, newest first.
+    ///
+    /// Distinct from `queryRecent(limit:parentId:)`, which means "most
+    /// recently added by creation date" and includes automated ingest.
+    public func queryRecentActivity(limit: UInt32? = nil) -> [PublicationRowData] {
+        let effectiveLimit = limit ?? UInt32(SyncedSettingsStore.shared.recentPapersToKeep)
+        return StoreTimings.shared.measure("queryRecentActivity") {
+            do {
+                let rows = try store.queryRecentActivity(limit: effectiveLimit)
+                return rows.compactMap { PublicationRowData(from: $0) }
+            } catch {
+                Logger.library.error("queryRecentActivity failed: \(error)")
+                return []
+            }
+        }
+    }
+
+    /// Recent activity as `(id, kind, occurredAt)` — `kind` is "viewed" or "added".
+    public func recentActivityEntries(limit: UInt32? = nil) -> [(
+        id: UUID, kind: String, occurredAt: Date
+    )] {
+        let effectiveLimit = limit ?? UInt32(SyncedSettingsStore.shared.recentPapersToKeep)
+        do {
+            return try store.recentActivityEntries(limit: effectiveLimit).compactMap { row in
+                guard let uuid = UUID(uuidString: row.id) else { return nil }
+                return (
+                    id: uuid,
+                    kind: row.kind,
+                    occurredAt: Date(timeIntervalSince1970: Double(row.occurredAt) / 1000.0)
+                )
+            }
+        } catch {
+            Logger.library.error("recentActivityEntries failed: \(error)")
+            return []
+        }
+    }
+
     /// Query starred publications.
     public func queryStarred(
         parentId: UUID? = nil,
@@ -2075,6 +2156,18 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             return queryPublications(parentId: dismissedID, sort: sort, ascending: ascending, limit: limit, offset: offset)
         case .citedInManuscripts:
             return queryCitedInManuscripts(sort: sort, ascending: ascending, limit: limit, offset: offset)
+        case .recent:
+            // Ordering is the point of this source — the store returns rows in
+            // activity order, so `sort`/`ascending` are deliberately ignored
+            // (same convention as `.citedInManuscripts`).
+            //
+            // The list is capped at the user's "recent papers to keep"
+            // preference, never at the caller's page size, and `countPublications`
+            // applies the same cap — so the first page is always the whole list
+            // and any later page is empty.
+            let cap = UInt32(SyncedSettingsStore.shared.recentPapersToKeep)
+            if let offset, offset > 0 { return [] }
+            return queryRecentActivity(limit: min(limit ?? cap, cap))
         case .combined(let children):
             return queryCombined(children: children, ascending: ascending, limit: limit, offset: offset)
         }
@@ -2229,6 +2322,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                 case .citedInManuscripts:
                     // Snapshot is authoritative — no SQL COUNT needed.
                     return UInt32(CitedInManuscriptsSnapshot.shared.citedPaperIDs.count)
+                case .recent:
+                    // Bounded by the "recent papers to keep" preference, so
+                    // counting the capped list is cheap and exact.
+                    return UInt32(
+                        try store.recentActivityEntries(
+                            limit: UInt32(SyncedSettingsStore.shared.recentPapersToKeep)
+                        ).count)
                 case .combined(let children):
                     // Reuse queryCombined's cache. Calling with no limit/offset
                     // returns the full merged set; we just need its count, and

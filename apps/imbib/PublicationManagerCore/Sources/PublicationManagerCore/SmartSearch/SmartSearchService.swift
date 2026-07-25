@@ -857,6 +857,11 @@ public final class SmartSearchService {
                 category: "smartsearch"
             )
 
+            // Recent activity for these papers is recorded inside
+            // `AutomationService.addPapers` (which every user-initiated add
+            // funnels through), so there is nothing to do here — recording
+            // again would only be a debounced no-op.
+
             // Index newly-added papers for Cmd+F (global / full-text search)
             // immediately. Detached so the .added toast is shown without
             // waiting on the indexer. addPapers returns only after the store

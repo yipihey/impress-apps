@@ -89,6 +89,11 @@ public protocol PublicationStoreProtocol {
     func updateBoolField(id: UUID, field: String, value: Bool)
     func updateIntField(id: UUID, field: String, value: Int64?)
 
+    /// Record that the user added these papers by hand (Recent activity).
+    /// Best-effort telemetry — implementations must never throw or mutate the
+    /// store graph. Automated ingest paths must not call this.
+    func recordRecentAdd(ids: [UUID])
+
     func setRead(ids: [UUID], read: Bool)
     func setStarred(ids: [UUID], starred: Bool)
     func setFlag(ids: [UUID], color: String?, style: String?, length: String?)

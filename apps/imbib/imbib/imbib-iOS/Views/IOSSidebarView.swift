@@ -428,6 +428,12 @@ struct IOSSidebarView: View {
 
     @ViewBuilder
     private var inboxSectionContent: some View {
+        // "Recent" — papers the user viewed or added by hand. Sits above the
+        // inbox collections because it is about the user's own activity, not
+        // ingest. Mirrors the macOS sidebar's Inbox-section node.
+        Label("Recent", systemImage: "clock.arrow.circlepath")
+            .tag(SidebarSection.recent)
+
         let roots = inboxCollections
             .filter { $0.parentID == nil && !$0.isSmart }
             .sorted { $0.name < $1.name }

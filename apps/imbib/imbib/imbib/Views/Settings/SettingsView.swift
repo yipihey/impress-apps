@@ -236,6 +236,10 @@ struct GeneralSettingsTab: View {
 
     @State private var automationSettings = AutomationSettings.default
 
+    /// Mirrors `SyncedSettingsStore.recentPapersToKeep` (iCloud-synced) into
+    /// local view state so the stepper/field stay responsive.
+    @State private var recentPapersToKeep = SyncedSettingsStore.shared.recentPapersToKeep
+
     var body: some View {
         Form {
             Section("Library") {
@@ -252,6 +256,31 @@ struct GeneralSettingsTab: View {
 
                 Toggle("Open PDFs in external viewer", isOn: $openPDFExternally)
                     .accessibilityIdentifier(AccessibilityID.Settings.PDF.openExternalToggle)
+
+                HStack {
+                    Text("Recent papers to keep:")
+
+                    TextField(
+                        "Count",
+                        value: $recentPapersToKeep,
+                        format: .number
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 80)
+
+                    Stepper("", value: $recentPapersToKeep, in: 10...200, step: 10)
+                        .labelsHidden()
+                }
+
+                Text(
+                    "How many papers the Recent list shows. Recent tracks papers you open "
+                        + "or add by hand — not papers that arrive from feeds."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .onChange(of: recentPapersToKeep) { _, newValue in
+                    SyncedSettingsStore.shared.recentPapersToKeep = newValue
+                }
             }
 
             Section("Smart Search") {

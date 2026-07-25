@@ -167,6 +167,17 @@ struct DetailView: View {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
         }
+        .task(id: publicationID) {
+            // Opening a paper is a user-initiated view — it belongs in Recent.
+            // (Automated ingest paths must never record activity.) The
+            // one-second dwell keeps arrow-key scrubbing through a list from
+            // filling Recent with papers the user merely passed over; the task
+            // is cancelled as soon as the selection changes.
+            guard let id = publicationID else { return }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            RustStoreAdapter.shared.recordRecentView(id: id)
+        }
         .onChange(of: publicationID, initial: true) { _, newID in
             guard let id = newID else { cachedPublication = nil; return }
             cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: id)

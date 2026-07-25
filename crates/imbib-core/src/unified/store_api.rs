@@ -63,6 +63,19 @@ impl From<impress_core::UndoInfo> for UndoInfo {
     }
 }
 
+/// One entry of the "Recent" activity list: a publication the user viewed or
+/// added by hand. Automated ingest never produces these.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct RecentActivityRow {
+    /// Publication UUID string.
+    pub id: String,
+    /// `"viewed"` or `"added"`.
+    pub kind: String,
+    /// Epoch milliseconds of the activity.
+    pub occurred_at: i64,
+}
+
 /// Result of a (possibly guarded) manuscript body save.
 ///
 /// `applied == false` means the compare-and-set guard rejected the write:
@@ -938,6 +951,77 @@ impl ImbibStore {
             }
             None => Ok(None),
         }
+    }
+
+    // --- Recent activity ---
+    //
+    // "Recent" means papers the user VIEWED or ADDED BY HAND. It deliberately
+    // does NOT include papers that arrived through automated ingest (inbox
+    // feeds, smart-search provider refreshes, group feeds) — those bump
+    // `modified`, which is exactly why `modified` is not usable as a recency
+    // proxy. Recency is an explicit `last_activity_at` stamp on the payload,
+    // written only from user-initiated call sites, and it rides the normal
+    // item sync so it follows the researcher across devices.
+
+    /// Record that the user opened/viewed a publication.
+    ///
+    /// Debounced in the store (5 minutes for a repeat of the same kind), so
+    /// scrolling a list does not produce a sync push per paper. Returns
+    /// `true` when the stamp was actually written.
+    pub fn record_recent_view(&self, id: String) -> Result<bool, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        Ok(self.store.record_recent(&uuid.to_string(), "viewed")?)
+    }
+
+    /// Record that the user added a publication by hand.
+    pub fn record_recent_add(&self, id: String) -> Result<bool, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        Ok(self.store.record_recent(&uuid.to_string(), "added")?)
+    }
+
+    /// Publications with recent user activity, most recent first.
+    ///
+    /// NOTE the deliberate name: `query_recent` already exists and means
+    /// "most recently ADDED, by creation date" (it backs
+    /// `GET /api/papers/recent`). This is a different question — "what did I
+    /// actually touch?" — so it gets its own name rather than redefining that
+    /// one out from under its callers.
+    ///
+    /// Rows whose item has vanished (deleted between the id scan and the
+    /// fetch) are skipped rather than erroring.
+    pub fn query_recent_activity(&self, limit: u32) -> Result<Vec<BibliographyRow>, StoreApiError> {
+        let ids = self
+            .store
+            .recent_item_ids("imbib/bibliography-entry", limit)?;
+        let mut items = Vec::with_capacity(ids.len());
+        for id in &ids {
+            let Ok(uuid) = Uuid::parse_str(id) else {
+                continue;
+            };
+            if let Some(item) = self.store.get(uuid)? {
+                items.push(item);
+            }
+        }
+        let tag_defs = self.load_tag_definitions()?;
+        self.items_to_bibliography_rows(&items, &tag_defs)
+    }
+
+    /// Recent activity as `(publication_id, kind, occurred_at_ms)`, most
+    /// recent first. `kind` is `"viewed"` or `"added"`.
+    pub fn recent_activity_entries(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<RecentActivityRow>, StoreApiError> {
+        Ok(self
+            .store
+            .recent_entries("imbib/bibliography-entry", limit)?
+            .into_iter()
+            .map(|(id, kind, occurred_at)| RecentActivityRow {
+                id,
+                kind,
+                occurred_at,
+            })
+            .collect())
     }
 
     pub fn get_flagged_publications(
@@ -5113,6 +5197,50 @@ mod tests {
 
         // No identifiers at all should return false
         assert!(!store.is_paper_dismissed(None, None, None, None).unwrap());
+    }
+
+    #[test]
+    fn recent_activity_records_only_what_it_is_told() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let bibtex = r#"
+@article{A, title={Paper A}, doi={10.1234/a}}
+@article{B, title={Paper B}, doi={10.1234/b}}
+@article{C, title={Paper C}, doi={10.1234/c}}
+"#;
+        store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
+        let all = store
+            .query_publications(lib.id, "title".into(), true, None, None)
+            .unwrap();
+        assert_eq!(all.len(), 3);
+
+        // Importing alone leaves the Recent list empty — automated ingest must
+        // never show up here.
+        assert!(store.query_recent_activity(50).unwrap().is_empty());
+
+        let a = all[0].id.clone();
+        let b = all[1].id.clone();
+
+        assert!(store.record_recent_view(a.clone()).unwrap());
+        assert!(store.record_recent_add(b.clone()).unwrap());
+
+        let recent = store.query_recent_activity(50).unwrap();
+        assert_eq!(recent.len(), 2, "only the two touched papers appear");
+        assert_eq!(recent[0].id, b, "most recent first");
+        assert_eq!(recent[1].id, a);
+
+        let activity = store.recent_activity_entries(50).unwrap();
+        assert_eq!(activity[0].kind, "added");
+        assert_eq!(activity[1].kind, "viewed");
+        assert!(activity[0].occurred_at >= activity[1].occurred_at);
+
+        // Debounce: an immediate repeat of the same kind is suppressed and
+        // does not reorder the list.
+        assert!(!store.record_recent_view(a.clone()).unwrap());
+        assert_eq!(store.query_recent_activity(50).unwrap()[0].id, b);
+
+        // The limit is the whole retention policy.
+        assert_eq!(store.query_recent_activity(1).unwrap().len(), 1);
     }
 
     #[test]

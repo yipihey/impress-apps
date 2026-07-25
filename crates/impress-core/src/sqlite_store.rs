@@ -352,6 +352,11 @@ impl SqliteItemStore {
             "CREATE INDEX IF NOT EXISTS idx_items_visibility ON items(visibility)",
             "CREATE INDEX IF NOT EXISTS idx_items_op_target ON items(op_target_id, logical_clock) WHERE op_target_id IS NOT NULL",
             "CREATE INDEX IF NOT EXISTS idx_items_batch ON items(batch_id) WHERE batch_id IS NOT NULL",
+            // Recency ("Recent" virtual library) — a partial expression index so
+            // the ORDER BY in recent_entries() doesn't scan the whole library.
+            "CREATE INDEX IF NOT EXISTS idx_items_last_activity
+                ON items(json_extract(payload, '$.last_activity_at') DESC, logical_clock DESC)
+                WHERE json_extract(payload, '$.last_activity_at') IS NOT NULL",
         ] {
             // .ok() — on existing DBs these columns don't exist yet; migrate_schema handles it
             let _ = conn.execute(idx_sql, []);
@@ -3167,6 +3172,130 @@ impl SqliteItemStore {
         }
     }
 
+    // --- Recent activity (rides item sync) ---
+
+    /// Debounce window for `record_recent`: a repeat of the same kind inside
+    /// this window is a no-op. Without it, every scroll-through of a list
+    /// would push a CloudKit record change per paper.
+    const RECENT_DEBOUNCE_MS: i64 = 5 * 60 * 1000;
+
+    /// Record a user-initiated interaction with an item by stamping
+    /// `last_activity_at` / `last_activity_kind` onto its payload.
+    ///
+    /// `kind` is `"viewed"` or `"added"`.
+    ///
+    /// This is deliberately a **direct SQL UPDATE**, not `update()` /
+    /// `apply_operation()`: we do not want an operation item recorded per
+    /// paper view (history noise), but we DO want the row's HLC clock bumped
+    /// so sync LWW resolves "most recently viewed on any device" correctly.
+    /// The Phase A capture trigger on `items` fires from this UPDATE, so the
+    /// sync outbox picks the change up with no extra work — recency syncs
+    /// across the researcher's devices for free.
+    ///
+    /// Call this **only from user-initiated code paths**. Automated ingest
+    /// (feed refreshes, smart-search provider refreshes, enrichment) must not.
+    ///
+    /// Returns `true` when the row was written, `false` when the debounce
+    /// window suppressed it.
+    pub fn record_recent(&self, item_id: &str, kind: &str) -> Result<bool, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+
+        let existing: Option<(Option<i64>, Option<String>)> = conn
+            .query_row(
+                "SELECT json_extract(payload, '$.last_activity_at'),
+                        json_extract(payload, '$.last_activity_kind')
+                 FROM items WHERE id = ?1",
+                params![item_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| StoreError::Storage(format!("record_recent lookup: {}", e)))?;
+
+        let Some((prev_at, prev_kind)) = existing else {
+            let id = Uuid::parse_str(item_id)
+                .map_err(|_| StoreError::Storage(format!("record_recent: bad id {}", item_id)))?;
+            return Err(StoreError::NotFound(id));
+        };
+
+        let now = Utc::now().timestamp_millis();
+        if let Some(prev_at) = prev_at {
+            if prev_kind.as_deref() == Some(kind) && now - prev_at < Self::RECENT_DEBOUNCE_MS {
+                return Ok(false);
+            }
+        }
+
+        let clock = Self::next_hlc_clock(&conn)?;
+        conn.execute(
+            "UPDATE items
+                SET payload = json_set(payload,
+                        '$.last_activity_at', ?2,
+                        '$.last_activity_kind', ?3),
+                    modified = ?4,
+                    logical_clock = ?5
+              WHERE id = ?1",
+            params![item_id, now, kind, now, clock as i64],
+        )
+        .map_err(|e| StoreError::Storage(format!("record_recent: {}", e)))?;
+        Ok(true)
+    }
+
+    /// Item ids with recent user activity, most recent first.
+    ///
+    /// Ties on `last_activity_at` (two records inside the same millisecond)
+    /// break on the HLC clock, which is strictly monotonic per device — so
+    /// "I opened B right after A" orders correctly even at millisecond
+    /// resolution.
+    ///
+    /// Restricted to `schema_ref` so a caller asking for recent papers does
+    /// not get manuscripts or notes back.
+    pub fn recent_item_ids(&self, schema: &str, limit: u32) -> Result<Vec<String>, StoreError> {
+        Ok(self
+            .recent_entries(schema, limit)?
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect())
+    }
+
+    /// Recent activity with its kind: `(item_id, kind, occurred_at_ms)`,
+    /// most recent first.
+    pub fn recent_entries(
+        &self,
+        schema: &str,
+        limit: u32,
+    ) -> Result<Vec<(String, String, i64)>, StoreError> {
+        self.with_read(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id,
+                            COALESCE(json_extract(payload, '$.last_activity_kind'), 'viewed'),
+                            json_extract(payload, '$.last_activity_at')
+                       FROM items
+                      WHERE schema_ref = ?1
+                        AND op_target_id IS NULL
+                        AND json_extract(payload, '$.last_activity_at') IS NOT NULL
+                      ORDER BY json_extract(payload, '$.last_activity_at') DESC,
+                               logical_clock DESC,
+                               id ASC
+                      LIMIT ?2",
+                )
+                .map_err(|e| StoreError::Storage(format!("prepare recent_entries: {}", e)))?;
+            let rows = stmt
+                .query_map(params![schema, limit], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                })
+                .map_err(|e| StoreError::Storage(format!("recent_entries: {}", e)))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| StoreError::Storage(format!("recent_entries: {}", e)))
+        })
+    }
+
     // --- Tombstones for sync delete tracking ---
 
     /// Initialize tombstones table (called from init_schema/migrate_schema).
@@ -4630,6 +4759,150 @@ mod tests {
         // The dead subscriber was pruned during emit.
         let subs = store.subscribers.lock().unwrap();
         assert_eq!(subs.len(), 1);
+    }
+
+    // --- recency (last_activity_at payload stamp, rides item sync) ---
+
+    /// Force an item's recorded activity stamp into the past so the debounce
+    /// window is provably clear, without sleeping in a test.
+    fn backdate_activity(store: &SqliteItemStore, id: &str, ms_ago: i64) {
+        let conn = store.conn.lock().unwrap();
+        let when = Utc::now().timestamp_millis() - ms_ago;
+        conn.execute(
+            "UPDATE items SET payload = json_set(payload, '$.last_activity_at', ?2) WHERE id = ?1",
+            params![id, when],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn record_recent_debounce_suppresses_rapid_repeat() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let id = store.insert(make_item("test", "A")).unwrap().to_string();
+
+        assert!(
+            store.record_recent(&id, "viewed").unwrap(),
+            "first write lands"
+        );
+        assert!(
+            !store.record_recent(&id, "viewed").unwrap(),
+            "same kind inside the debounce window is suppressed"
+        );
+
+        // A different kind is a real state change and is never debounced.
+        assert!(
+            store.record_recent(&id, "added").unwrap(),
+            "kind change writes through the debounce window"
+        );
+    }
+
+    #[test]
+    fn record_recent_past_debounce_window_updates_and_reorders() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let a = store.insert(make_item("test", "A")).unwrap().to_string();
+        let b = store.insert(make_item("test", "B")).unwrap().to_string();
+
+        store.record_recent(&a, "viewed").unwrap();
+        backdate_activity(&store, &a, SqliteItemStore::RECENT_DEBOUNCE_MS * 2);
+        store.record_recent(&b, "viewed").unwrap();
+        backdate_activity(&store, &b, SqliteItemStore::RECENT_DEBOUNCE_MS);
+
+        assert_eq!(
+            store.recent_item_ids("test", 10).unwrap(),
+            vec![b.clone(), a.clone()],
+            "ordering is by last_activity_at DESC"
+        );
+
+        // Re-viewing A past the window moves it back to the top.
+        assert!(store.record_recent(&a, "viewed").unwrap());
+        assert_eq!(
+            store.recent_item_ids("test", 10).unwrap(),
+            vec![a.clone(), b.clone()]
+        );
+    }
+
+    #[test]
+    fn recent_entries_reports_kind_and_respects_schema_and_limit() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let paper = store
+            .insert(make_item("imbib/bibliography-entry", "Paper"))
+            .unwrap()
+            .to_string();
+        let manuscript = store
+            .insert(make_item("imprint/manuscript", "Manuscript"))
+            .unwrap()
+            .to_string();
+        let untouched = store
+            .insert(make_item("imbib/bibliography-entry", "Never Opened"))
+            .unwrap()
+            .to_string();
+
+        store.record_recent(&paper, "added").unwrap();
+        store.record_recent(&manuscript, "viewed").unwrap();
+
+        let entries = store
+            .recent_entries("imbib/bibliography-entry", 10)
+            .unwrap();
+        assert_eq!(entries.len(), 1, "other schemas are not mixed in");
+        assert_eq!(entries[0].0, paper);
+        assert_eq!(entries[0].1, "added");
+        assert!(entries[0].2 > 0);
+        assert!(
+            !entries.iter().any(|e| e.0 == untouched),
+            "items with no activity stamp are excluded"
+        );
+
+        assert_eq!(
+            store
+                .recent_item_ids("imbib/bibliography-entry", 0)
+                .unwrap()
+                .len(),
+            0,
+            "limit is honoured"
+        );
+    }
+
+    #[test]
+    fn record_recent_enqueues_sync_outbox() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let id = store.insert(make_item("test", "Syncs")).unwrap();
+
+        // Clear whatever the insert itself queued; we care only about what
+        // record_recent adds on top.
+        {
+            let conn = store.conn.lock().unwrap();
+            conn.execute("DELETE FROM sync_outbox", []).unwrap();
+        }
+
+        assert!(store.record_recent(&id.to_string(), "viewed").unwrap());
+
+        let outbox = store.sync_outbox_entries(100).unwrap();
+        assert!(
+            outbox
+                .iter()
+                .any(|(_, kind, name)| kind == "item" && *name == id.to_string().to_lowercase()),
+            "the direct UPDATE must trip the Phase A capture trigger so recency syncs"
+        );
+
+        // And the HLC clock advanced, so LWW can resolve across devices.
+        let conn = store.conn.lock().unwrap();
+        let clock: i64 = conn
+            .query_row(
+                "SELECT logical_clock FROM items WHERE id = ?1",
+                params![id.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(clock > 0, "record_recent must bump the row's HLC clock");
+    }
+
+    #[test]
+    fn record_recent_on_missing_item_is_not_found() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let err = store
+            .record_recent(&Uuid::new_v4().to_string(), "viewed")
+            .unwrap_err();
+        assert!(matches!(err, StoreError::NotFound(_)));
     }
 
     #[test]
