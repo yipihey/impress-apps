@@ -5,6 +5,7 @@
  * impart conversations to create manuscript outlines in imprint.
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImpartClient } from "../impart/client.js";
 import { ImprintClient } from "../imprint/client.js";
@@ -90,7 +91,7 @@ export class ConversationManuscriptBridge {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       case "impress_conversation_to_outline":
         return this.conversationToOutline(args);
@@ -116,7 +117,7 @@ export class ConversationManuscriptBridge {
 
   private async conversationToOutline(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversation_id as string;
     const documentId = args?.document_id as string | undefined;
     const style = (args?.style as string) || "academic";
@@ -328,7 +329,7 @@ export class ConversationManuscriptBridge {
 
   private async exportConversationCitations(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversation_id as string;
     const documentId = args?.document_id as string | undefined;
 
@@ -436,7 +437,7 @@ export class ConversationManuscriptBridge {
 
   private async conversationDecisions(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversation_id as string;
 
     if (!conversationId) {

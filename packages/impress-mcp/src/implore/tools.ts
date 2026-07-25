@@ -2,8 +2,26 @@
  * MCP tools for implore (data visualization)
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
+import { imageWithCaption, isInlineable, stripDataURI, text } from "../content.js";
+import { rasterizePDFPage } from "../raster.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImploreClient } from "./client.js";
+
+/**
+ * Total base64 budget for a single batch result. A batch can hold dozens of
+ * slices; inlining them all would evict the rest of the conversation, so the
+ * handler shows images until this is spent and lists the remainder as text.
+ */
+const MAX_INLINE_BATCH_BYTES = 6 * 1024 * 1024;
+
+/** Compact number formatting for image captions. */
+function fmtNum(value: number | undefined): string {
+  if (value === undefined || value === null || Number.isNaN(value)) return "?";
+  const abs = Math.abs(value);
+  if (abs !== 0 && (abs < 1e-3 || abs >= 1e5)) return value.toExponential(3);
+  return String(Number(value.toFixed(4)));
+}
 
 export const IMPLORE_TOOLS: Tool[] = [
   {
@@ -74,7 +92,7 @@ export const IMPLORE_TOOLS: Tool[] = [
   {
     name: "implore_export_figure",
     description:
-      "Export a figure as PNG, SVG, or PDF. Returns the figure data encoded appropriately.",
+      "Export a figure and show it. PNG is returned INLINE as an image; PDF is rendered to PNG and returned inline; SVG is returned as source text (clients cannot display SVG). Prefer png when the point is for the user to SEE the figure.",
     inputSchema: {
       type: "object",
       properties: {
@@ -228,7 +246,7 @@ export const IMPLORE_TOOLS: Tool[] = [
   {
     name: "implore_rg_slice_png",
     description:
-      "Export the current RG slice as a PNG image. Returns base64-encoded PNG data. Use implore_rg_slice_save to write to disk for visual inspection with Read tool.",
+      "Show the current RG slice. Returns the PNG INLINE as an image — the user sees it in the conversation, no file access needed. The caption carries the quantity, axis, position, colormap and value range. Use implore_rg_slice_save only when you specifically need the file on disk.",
     inputSchema: {
       type: "object",
       properties: {
@@ -244,7 +262,7 @@ export const IMPLORE_TOOLS: Tool[] = [
   {
     name: "implore_rg_slice_save",
     description:
-      "Save the current RG slice as a PNG file to disk. Use this to export a slice, then use the Read tool to visually inspect the image.",
+      "Write the current RG slice to a PNG file on disk. Only for keeping a copy or feeding another tool — to SHOW the slice to the user, call implore_rg_slice_png, which returns the image inline.",
     inputSchema: {
       type: "object",
       properties: {
@@ -307,7 +325,7 @@ export const IMPLORE_TOOLS: Tool[] = [
   {
     name: "implore_rg_batch",
     description:
-      "Capture multiple slice positions at once. Returns array of {position, min, max, png_base64} without changing the viewer state.",
+      "Capture multiple slice positions at once, without changing the viewer state. Returns the slices INLINE as images (each captioned with its position and value range); if the batch exceeds the inline budget the remainder is summarised as text. Keep the position list short — 4-6 is a comfortable batch.",
     inputSchema: {
       type: "object",
       properties: {
@@ -348,7 +366,7 @@ export const IMPLORE_TOOLS: Tool[] = [
   {
     name: "implore_plot_series",
     description:
-      "Plot one or more named 1D data series as a line chart (SVG). Returns SVG string. Data series come from loaded .npz files — use implore_rg_state to see available series names.",
+      "Plot one or more named 1D data series as a line chart. Returns SVG SOURCE as text (clients cannot display SVG, so the user will not see a picture). Data series come from loaded .npz files — use implore_rg_state to see available series names.",
     inputSchema: {
       type: "object",
       properties: {
@@ -368,7 +386,7 @@ export const IMPLORE_TOOLS: Tool[] = [
   {
     name: "implore_rg_cascade_plot",
     description:
-      "Generate the canonical cascade statistics plot (mu vs cascade level). Returns SVG string. Only works if the loaded .npz has cascade statistics.",
+      "Generate the canonical cascade statistics plot (mu vs cascade level). Returns SVG SOURCE as text (not a viewable image). Only works if the loaded .npz has cascade statistics.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -378,7 +396,7 @@ export const IMPLORE_TOOLS: Tool[] = [
   {
     name: "implore_plot_histogram",
     description:
-      "Plot a histogram of a 3D field's value distribution. Returns SVG string with automatic binning, KDE overlay, and statistics.",
+      "Plot a histogram of a 3D field's value distribution. Returns SVG SOURCE as text (not a viewable image), with automatic binning, KDE overlay, and statistics.",
     inputSchema: {
       type: "object",
       properties: {
@@ -402,7 +420,7 @@ export class ImploreToolHandler {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       case "implore_get_status":
         return this.getStatus();
@@ -453,7 +471,7 @@ export class ImploreToolHandler {
     }
   }
 
-  private async getStatus(): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async getStatus(): Promise<ToolResult> {
     const status = await this.client.checkStatus();
     if (!status) {
       return {
@@ -470,7 +488,7 @@ export class ImploreToolHandler {
     };
   }
 
-  private async listDatasets(): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async listDatasets(): Promise<ToolResult> {
     const result = await this.client.listDatasets();
     return {
       content: [
@@ -484,7 +502,7 @@ export class ImploreToolHandler {
 
   private async getDataset(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const datasetId = args?.dataset_id as string;
     if (!datasetId) {
       return { content: [{ type: "text", text: "Error: dataset_id is required" }] };
@@ -500,7 +518,7 @@ export class ImploreToolHandler {
 
   private async listFigures(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const datasetId = args?.dataset_id as string | undefined;
     const result = await this.client.listFigures(datasetId);
     return {
@@ -510,7 +528,7 @@ export class ImploreToolHandler {
 
   private async getFigure(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const figureId = args?.figure_id as string;
     if (!figureId) {
       return { content: [{ type: "text", text: "Error: figure_id is required" }] };
@@ -526,7 +544,7 @@ export class ImploreToolHandler {
 
   private async exportFigure(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const figureId = args?.figure_id as string;
     const format = (args?.format as "png" | "svg" | "pdf") || "png";
     const width = args?.width as number | undefined;
@@ -542,14 +560,53 @@ export class ImploreToolHandler {
       height,
       scale,
     });
-    return {
-      content: [{ type: "text", text: JSON.stringify(exported, null, 2) }],
-    };
+
+    const dims = `${exported.width}x${exported.height}`;
+
+    // SVG stays text: MCP image content is raster, and most clients will not
+    // render image/svg+xml.
+    if (exported.format === "svg") {
+      return text(
+        `Figure ${figureId} exported as SVG (${dims}). This is source, not a viewable image — ` +
+          `re-export with format "png" to see it in the conversation.\n\n${exported.data}`
+      );
+    }
+
+    if (exported.format === "pdf") {
+      const raster = await rasterizePDFPage(Buffer.from(stripDataURI(exported.data), "base64"), {
+        basename: `implore-figure-${figureId}`,
+      });
+      if (!raster.ok) {
+        return text(
+          `Figure ${figureId} exported as PDF (${dims}) but could not be rendered inline — ${raster.error}.` +
+            (raster.pdfPath ? `\nPDF on disk: ${raster.pdfPath}` : "")
+        );
+      }
+      return imageWithCaption(
+        raster.base64,
+        "image/png",
+        `implore figure ${figureId} — PDF export (${dims}), page ${raster.page} of ${raster.pageCount} rendered to PNG.\nPDF on disk: ${raster.pdfPath}`
+      );
+    }
+
+    const base64 = stripDataURI(exported.data);
+    const kb = Math.round((base64.length * 3) / 4 / 1024);
+    if (!isInlineable(base64)) {
+      return text(
+        `Figure ${figureId} exported as PNG (${dims}, ~${kb} KB) — too large to show inline. ` +
+          `Re-export with a smaller width/height/scale.`
+      );
+    }
+    return imageWithCaption(
+      base64,
+      "image/png",
+      `implore figure ${figureId} — PNG ${dims}, ~${kb} KB.`
+    );
   }
 
   private async createFigure(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const datasetId = args?.dataset_id as string;
     const type = args?.type as string;
 
@@ -574,7 +631,7 @@ export class ImploreToolHandler {
 
   private async getLogs(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.getLogs({
       limit: args?.limit as number | undefined,
       level: args?.level as string | undefined,
@@ -590,7 +647,7 @@ export class ImploreToolHandler {
 
   private async rgLoad(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const path = args?.path as string;
     if (!path) {
       return { content: [{ type: "text", text: "Error: path is required" }] };
@@ -601,7 +658,7 @@ export class ImploreToolHandler {
     };
   }
 
-  private async rgState(): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async rgState(): Promise<ToolResult> {
     const result = await this.client.rgGetState();
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -610,7 +667,7 @@ export class ImploreToolHandler {
 
   private async rgControl(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.rgControl({
       quantity: args?.quantity as string | undefined,
       axis: args?.axis as string | undefined,
@@ -624,16 +681,53 @@ export class ImploreToolHandler {
 
   private async rgSlicePng(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
-    const result = await this.client.rgSlicePng(args?.format as string);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+  ): Promise<ToolResult> {
+    const result = (await this.client.rgSlicePng(args?.format as string)) as {
+      png_base64?: string;
+      width?: number;
+      height?: number;
+      min?: number;
+      max?: number;
+      error?: string;
     };
+
+    if (!result?.png_base64) {
+      return text(
+        `No slice PNG returned${result?.error ? `: ${result.error}` : ""}. ` +
+          `Load a dataset with implore_rg_load first, then implore_rg_control to pick quantity/axis/position.`
+      );
+    }
+
+    const base64 = stripDataURI(result.png_base64);
+    const context = await this.rgCaptionContext();
+    const caption =
+      `RG slice${context} — ${result.width ?? "?"}x${result.height ?? "?"} px, ` +
+      `value range ${fmtNum(result.min)} … ${fmtNum(result.max)}.`;
+
+    if (!isInlineable(base64)) {
+      return text(
+        `${caption}\nImage is too large to show inline (~${Math.round((base64.length * 3) / 4 / 1024)} KB). ` +
+          `Use implore_rg_slice_save to write it to disk instead.`
+      );
+    }
+    return imageWithCaption(base64, "image/png", caption);
+  }
+
+  /** Describe the current viewer state for image captions (best effort). */
+  private async rgCaptionContext(): Promise<string> {
+    try {
+      const state = await this.client.rgGetState();
+      const viewer = (state as { viewer?: Record<string, unknown> })?.viewer;
+      if (!viewer) return "";
+      return ` (${viewer.quantity ?? "?"}, ${viewer.axis ?? "?"} = ${viewer.slicePosition ?? "?"}, ${viewer.colormap ?? "?"})`;
+    } catch {
+      return "";
+    }
   }
 
   private async rgSliceSave(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const path = args?.path as string;
     if (!path) {
       return { content: [{ type: "text", text: "Error: path is required" }] };
@@ -646,7 +740,7 @@ export class ImploreToolHandler {
 
   private async rgSliceRaw(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.rgSliceRaw({
       quantity: args?.quantity as string | undefined,
       axis: args?.axis as string | undefined,
@@ -660,7 +754,7 @@ export class ImploreToolHandler {
 
   private async rgStatistics(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.rgStatistics({
       quantity: args?.quantity as string | undefined,
       scope: args?.scope as string | undefined,
@@ -672,23 +766,79 @@ export class ImploreToolHandler {
 
   private async rgBatch(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const positions = args?.positions as number[];
     if (!positions || !Array.isArray(positions)) {
       return { content: [{ type: "text", text: "Error: positions (array) is required" }] };
     }
-    const result = await this.client.rgBatch({
+    const result = (await this.client.rgBatch({
       positions,
       quantity: args?.quantity as string | undefined,
       axis: args?.axis as string | undefined,
       colormap: args?.colormap as string | undefined,
-    });
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    })) as {
+      quantity?: string;
+      axis?: string;
+      colormap?: string;
+      slices?: Array<{
+        position: number;
+        min?: number;
+        max?: number;
+        width?: number;
+        height?: number;
+        png_base64?: string;
+        error?: string;
+      }>;
     };
+
+    const slices = result?.slices ?? [];
+    if (slices.length === 0) {
+      return text(`Batch returned no slices. Response: ${JSON.stringify(result)}`);
+    }
+
+    const header =
+      `RG batch — ${result.quantity ?? "?"} along ${result.axis ?? "?"}, colormap ${result.colormap ?? "?"}, ` +
+      `${slices.length} position${slices.length === 1 ? "" : "s"}.`;
+
+    // Inline as many images as fit in the budget, then summarise the rest as
+    // text. A batch of 20 512px slices would otherwise blow the context.
+    const content: ToolContent[] = [{ type: "text", text: header }];
+    let budget = MAX_INLINE_BATCH_BYTES;
+    let shown = 0;
+    const summarised: string[] = [];
+
+    for (const slice of slices) {
+      const base64 = slice.png_base64 ? stripDataURI(slice.png_base64) : undefined;
+      const label =
+        `position ${slice.position}` +
+        (slice.width ? ` · ${slice.width}x${slice.height} px` : "") +
+        ` · range ${fmtNum(slice.min)} … ${fmtNum(slice.max)}` +
+        (slice.error ? ` · error: ${slice.error}` : "");
+
+      if (base64 && isInlineable(base64) && base64.length <= budget) {
+        budget -= base64.length;
+        shown += 1;
+        content.push({ type: "image", data: base64, mimeType: "image/png" });
+        content.push({ type: "text", text: label });
+      } else {
+        summarised.push(label + (base64 ? " · image omitted (batch size budget)" : " · no image"));
+      }
+    }
+
+    if (summarised.length > 0) {
+      content.push({
+        type: "text",
+        text:
+          `Showing ${shown} of ${slices.length} slices as images. Remaining ${summarised.length}:\n` +
+          summarised.map((s) => `- ${s}`).join("\n") +
+          `\nRe-run implore_rg_batch with fewer positions to see these.`,
+      });
+    }
+
+    return { content };
   }
 
-  private async rgColormaps(): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async rgColormaps(): Promise<ToolResult> {
     const result = await this.client.rgColormaps();
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -699,7 +849,7 @@ export class ImploreToolHandler {
 
   private async plotSeries(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const series = args?.series as string[];
     if (!series || !Array.isArray(series) || series.length === 0) {
       return { content: [{ type: "text", text: "Error: series (non-empty array of strings) is required" }] };
@@ -711,7 +861,7 @@ export class ImploreToolHandler {
     };
   }
 
-  private async rgCascadePlot(): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async rgCascadePlot(): Promise<ToolResult> {
     const result = await this.client.rgCascadePlot();
     return {
       content: [{ type: "text", text: result }],
@@ -720,7 +870,7 @@ export class ImploreToolHandler {
 
   private async plotHistogram(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const quantity = args?.quantity as string | undefined;
     const bins = args?.bins as number | undefined;
     const result = await this.client.plotHistogram(quantity, bins);

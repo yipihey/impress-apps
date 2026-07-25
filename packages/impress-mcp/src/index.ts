@@ -20,11 +20,13 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { ToolResult } from "./content.js";
 
 import { ImbibClient } from "./imbib/client.js";
 import { ImbibTools, IMBIB_TOOLS } from "./imbib/tools.js";
@@ -38,6 +40,7 @@ import { ImploreClient } from "./implore/client.js";
 import { ImploreToolHandler, IMPLORE_TOOLS } from "./implore/tools.js";
 import { PaperResources } from "./resources/papers.js";
 import { DocumentResources } from "./resources/documents.js";
+import { GuideResource, GUIDE_URI } from "./resources/guide.js";
 import { IMPRESS_PROMPTS, renderPrompt } from "./prompts/index.js";
 
 // Cross-app bridges
@@ -353,6 +356,40 @@ const sectionCitationBridge = new SectionCitationBridge(imbibClient, imprintClie
 // Initialize resource handlers
 const paperResources = new PaperResources(imbibClient);
 const documentResources = new DocumentResources(imprintClient);
+const guideResource = new GuideResource();
+
+/**
+ * Server instructions — paid on every connection, so kept short.
+ *
+ * A fresh agent otherwise meets this server as ~200 undifferentiated tool
+ * names with no statement of what impress is or how the pieces relate. The
+ * long version lives in the `impress://guide` resource; this is the map that
+ * makes an agent reach for it.
+ */
+const INSTRUCTIONS = `impress is a research operating environment — one workspace with five facets, not five apps.
+
+- imbib: bibliography, papers, PDFs, annotations, notes, tags
+- imprint: Typst/LaTeX manuscripts — sections, citations, compile
+- implore: data visualisation — datasets, figures, volume slices
+- impel: agent orchestration — threads, escalations, review queues
+- impart: communication — conversations, messages, decisions
+Cross-app bridge tools are prefixed impress_.
+
+All five share ONE local SQLite graph store, so cross-app references are cheap: cite a paper into a manuscript by cite key, embed a figure by id. Never shuttle PDFs or .bib files by hand. Everything is local-first on the user's machine.
+
+Canonical workflows:
+1. Find/import a paper: imbib_resolve_identifier (DOI, arXiv id, URL, title, or loose citation) → imbib_add_papers. It IS the right entry point for "find me this paper"; it checks the local library before the network. If it returns ambiguous candidates, ask — do not guess.
+2. Cite into a manuscript: imprint_get_outline_v2 (section keys) → imbib_resolve_identifier → imprint_insert_citation_in_section (pass the BibTeX).
+3. Compile and show: imprint_compile → imprint_get_pdf, which returns the rendered page INLINE as an image.
+4. Figure into a manuscript: implore/plot spec → imprint_save_plot_figure or impress_embed_figure → compile → show.
+
+Images come back inline. imprint_get_pdf, implore_export_figure, implore_rg_slice_png and implore_rg_batch return real image blocks the user can see — assume the user is on a phone with no file system, and never answer a visual question with a file path. SVG-producing tools return source text, not pictures; route plots through a manuscript compile to show them.
+
+imprint mutations are async: they return an operationId, and the edit is not real until imprint_wait_for_operation reports state === "completed".
+
+Do not rewrite the user's prose. Propose changes with imprint_create_comment + proposedText and let them accept in the UI; imprint_patch_section / imprint_replace are for text you were explicitly asked to change. In imbib, deleting means moving to Dismissed (a trash).
+
+Read the impress://guide resource before a non-trivial task — it maps every capability, and disambiguates the five overlapping search tools.`;
 
 // Create server
 const server = new Server(
@@ -361,6 +398,7 @@ const server = new Server(
     version: "1.0.0",
   },
   {
+    instructions: INSTRUCTIONS,
     capabilities: {
       tools: {},
       resources: {},
@@ -389,7 +427,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 async function dispatchTool(
   name: string,
   args: Record<string, unknown> | undefined
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<ToolResult> {
   // imbib tools
   if (name.startsWith("imbib_")) {
     return await imbibTools.handleTool(name, args);
@@ -473,9 +511,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (isConnectionError(error)) {
       const app = appForTool(name);
       // A remote imbib (IMBIB_BASE_URL on the tailnet, e.g. the iPhone)
-      // cannot be launched from this machine — surface the error instead.
+      // cannot be launched from this machine. Rethrowing the raw fetch error
+      // ("fetch failed") tells the user nothing they can act on — this is the
+      // failure they will actually hit, so name the likely causes.
       if (app === "imbib" && !IMBIB_IS_LOCAL) {
-        throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `Cannot reach imbib at ${IMBIB_BASE_URL} (${message}).\n\n` +
+                `This is a REMOTE imbib — most likely the user's phone — so it cannot be launched from here. Ask them to check, in order:\n` +
+                `1. Is the phone awake and unlocked? iOS suspends the HTTP server when imbib is backgrounded.\n` +
+                `2. Is imbib open and in the foreground on the phone?\n` +
+                `3. Is the phone on the tailnet / same network, and is ${IMBIB_BASE_URL} still its address?\n` +
+                `4. Is Settings → Automation → Network Access enabled, with a bearer token matching IMBIB_TOKEN${IMBIB_TOKEN ? "" : " (currently UNSET — a token is required for network access)"}?\n\n` +
+                `Do not report the library as empty or the paper as missing — nothing was read.`,
+            },
+          ],
+          isError: true,
+        };
       }
       if (app) {
         const launched = await ensureAppRunning(app);
@@ -485,7 +541,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           } catch (retryError) {
             const msg = retryError instanceof Error ? retryError.message : String(retryError);
             return {
-              content: [{ type: "text", text: `Error executing ${name} (after launching ${app}): ${msg}` }],
+              content: [
+                { type: "text" as const, text: `Error executing ${name} (after launching ${app}): ${msg}` },
+              ],
               isError: true,
             };
           }
@@ -495,21 +553,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     const message = error instanceof Error ? error.message : String(error);
     return {
-      content: [{ type: "text", text: `Error executing ${name}: ${message}` }],
+      content: [{ type: "text" as const, text: `Error executing ${name}: ${message}` }],
       isError: true,
     };
   }
 });
 
-// List available resources
+// List available resources. The guide is first and always present — it is
+// static, so it works even with every app closed, which is exactly when an
+// agent most needs to know what it is connected to.
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
   const imbibResources = await paperResources.list();
   const imprintResourcesList = await documentResources.list();
 
   return {
-    resources: [...imbibResources, ...imprintResourcesList],
+    resources: [...guideResource.list(), ...imbibResources, ...imprintResourcesList],
   };
 });
+
+// Addressable-but-not-enumerable resources (one paper, one document).
+server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+  resourceTemplates: [
+    {
+      uriTemplate: "impress://imbib/papers/{citeKey}",
+      name: "imbib paper",
+      mimeType: "application/json",
+      description: "Full metadata for one paper by cite key (as returned by imbib_search_library).",
+    },
+    {
+      uriTemplate: "impress://imprint/documents/{documentId}",
+      name: "imprint document source",
+      mimeType: "text/x-typst",
+      description: "The Typst source of one open manuscript, by document UUID.",
+    },
+  ],
+}));
 
 // List available prompts
 server.setRequestHandler(ListPromptsRequestSchema, async () => ({
@@ -526,6 +604,10 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
 
   try {
+    if (uri === GUIDE_URI) {
+      return guideResource.read(uri);
+    }
+
     if (uri.startsWith("impress://imbib/")) {
       return await paperResources.read(uri);
     }

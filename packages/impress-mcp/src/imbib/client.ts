@@ -236,6 +236,125 @@ export interface LogsResponse {
   };
 }
 
+/** A row of `GET /api/manuscripts` — metadata only, never the body. */
+export interface ManuscriptSummary {
+  id: string;
+  title: string;
+  format: string;   // "typst" | "latex" | "" (unset)
+  status: string;   // "draft" | …
+}
+
+/**
+ * `GET /api/manuscripts/{id}`. `contentHash` is the CAS cookie: it must be
+ * handed back to `setManuscriptBody` for the write to be accepted.
+ */
+export interface ManuscriptDetail {
+  id: string;
+  title: string;
+  format: string;
+  manuscriptStatus: string;
+  body: string;
+  contentHash: string | null;
+  bodyIsBlobRef: boolean;
+}
+
+/**
+ * Outcome of a compare-and-set body write. `conflict` means the stored hash
+ * moved under us and NOTHING was written — re-read, rebase, retry.
+ */
+export interface ManuscriptWriteResult {
+  applied: boolean;
+  conflict: boolean;
+  newHash?: string;
+  storedHash?: string;
+  notFound?: boolean;
+}
+
+/** `POST /api/manuscripts/{id}/compile`. */
+export interface ManuscriptCompileResult {
+  status: string;           // "ok" | "error"
+  pdfBytes?: number;
+  citedKeys?: string[];     // @keys found in the source
+  resolvedKeys?: string[];  // subset that matched a library entry
+  bibliographyBytes?: number;
+  warnings?: string[];
+  errors?: string[];
+  reason?: string;
+  pdfBase64?: string;       // only when include_pdf was requested
+}
+
+/** A revertible store operation from `GET /api/undo/recent`. */
+export interface UndoGroup {
+  operation_id: string;
+  operation_count: number;
+  description: string;
+  timestamp: number;   // epoch milliseconds
+  batch_id?: string;   // present when the action spanned several operations
+}
+
+/**
+ * The snake_case paper shape returned by imbib's recent/starred/query routes
+ * (`bibToDict`). Deliberately NOT the camelCase `Paper` above — these routes
+ * return a lighter row and never include BibTeX.
+ */
+export interface RecentPaper {
+  id: string;
+  cite_key: string;
+  title: string;
+  authors: string;    // one pre-joined string, not an array
+  is_read: boolean;
+  is_starred: boolean;
+  has_pdf: boolean;
+  tags: string[];
+  year?: number;
+  venue?: string;
+  doi?: string;
+  arxiv_id?: string;
+  flag_color?: string;
+  activity_kind?: string;  // recent-activity only: "viewed" | "added"
+  activity_at?: number;    // recent-activity only: epoch milliseconds
+}
+
+/**
+ * `GET /api/sync/status` — the ADR-0007 Phase-3 CloudKit engine snapshot.
+ * `reason_code` is the machine-readable verdict that explains WHY sync is or
+ * is not running.
+ */
+export interface SyncStatus {
+  enabled: boolean;
+  available: boolean;
+  reason_code: string;   // available | disabled_by_user | not_entitled |
+                         // account_unavailable | lease_held_by_other |
+                         // account_check_failed | unit_test_process
+  explanation?: string;
+  account_status?: string | null;
+  lease_holder?: string | null;
+  engine_running?: boolean;
+  last_push_ms?: number | null;
+  last_pull_ms?: number | null;
+  outbox?: number;
+  pending_refs?: number;
+  tombstones?: number;
+  bootstrap_done?: boolean;
+  merge_report?: Record<string, unknown> | null;
+  last_error?: string | null;
+  container?: string;
+  zone?: string;
+}
+
+/**
+ * Thrown when imbib answers 401/403. Distinct from a generic failure so
+ * callers that otherwise swallow errors (`checkStatus`) can still surface it:
+ * a stale `IMBIB_TOKEN` used to show up as `"Search failed: Unauthorized"`,
+ * which tells the agent nothing about the fix.
+ */
+export class ImbibAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImbibAuthError";
+  }
+}
+
 export class ImbibClient {
   constructor(
     private baseURL: string,
@@ -246,14 +365,64 @@ export class ImbibClient {
    * fetch with the bearer token injected when configured (remote/tailnet
    * targets — e.g. imbib on the user's iPhone). Local no-token behavior
    * is unchanged.
+   *
+   * 401/403 is turned into an `ImbibAuthError` here rather than at each of
+   * the ~40 call sites, so every tool reports the same actionable fix. This
+   * is the failure mode of the phone workflow: the token is per-device and
+   * is regenerated whenever Network Access is toggled.
    */
-  private authFetch(url: string | URL, init?: RequestInit): Promise<Response> {
-    if (!this.authToken) return fetch(url, init);
-    const headers = {
-      ...((init?.headers as Record<string, string>) ?? {}),
-      Authorization: `Bearer ${this.authToken}`,
-    };
-    return fetch(url, { ...(init ?? {}), headers });
+  private async authFetch(url: string | URL, init?: RequestInit): Promise<Response> {
+    const response = await (this.authToken
+      ? fetch(url, {
+          ...(init ?? {}),
+          headers: {
+            ...((init?.headers as Record<string, string>) ?? {}),
+            Authorization: `Bearer ${this.authToken}`,
+          },
+        })
+      : fetch(url, init));
+
+    if (response.status === 401 || response.status === 403) {
+      throw new ImbibAuthError(
+        `imbib at ${this.baseURL} rejected this request as unauthorized (HTTP ${response.status}). ` +
+          (this.authToken
+            ? "A bearer token WAS sent, so it is wrong or expired — tokens are regenerated whenever Network Access is toggled off and on. "
+            : "NO bearer token was sent, but this imbib requires one. ") +
+          "Fix: on the device serving that URL, open imbib → Settings → Automation API → Network Access, " +
+          "copy the current access token, and set IMBIB_TOKEN in the MCP server's environment " +
+          "(IMBIB_BASE_URL must point at the same device). Restart the MCP server afterwards."
+      );
+    }
+    return response;
+  }
+
+  /**
+   * Best-effort detail from a non-OK response body, appended to error text.
+   * imbib's error payloads use `error` or `reason`; falling back to raw text
+   * still beats `response.statusText` alone.
+   */
+  private async errorDetail(response: Response): Promise<string> {
+    try {
+      const body = await response.text();
+      if (!body) return "";
+      try {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        const message = parsed.error ?? parsed.reason ?? parsed.message;
+        if (typeof message === "string") return ` — ${message}`;
+      } catch {
+        /* not JSON; fall through to raw text */
+      }
+      return ` — ${body.slice(0, 300)}`;
+    } catch {
+      return "";
+    }
+  }
+
+  /** Build a failure Error carrying status code and server-side detail. */
+  private async failure(op: string, response: Response): Promise<Error> {
+    return new Error(
+      `${op} failed: HTTP ${response.status} ${response.statusText}${await this.errorDetail(response)}`
+    );
   }
 
   /**
@@ -325,7 +494,10 @@ export class ImbibClient {
       });
       if (!response.ok) return null;
       return (await response.json()) as ImbibStatus;
-    } catch {
+    } catch (error) {
+      // "not running" and "running but refusing my token" are different
+      // diagnoses; only the former should collapse to null.
+      if (error instanceof ImbibAuthError) throw error;
       return null;
     }
   }
@@ -970,28 +1142,408 @@ export class ImbibClient {
     return (await response.json()) as { updated: boolean };
   }
 
+  // NOTE: `syncComments()` (POST /api/sync/comments) was removed here to match
+  // imbib: the route was deleted in 5400ae1 along with the dead CloudKit
+  // comment stack (tombstone at HTTPAutomationRouter.swift:857) and every call
+  // 404'd. The live sync surface is `getSyncStatus()` + `syncNudge()` below.
+
   /**
-   * Trigger a manual comment sync.
+   * GET /api/sync/status — the real ADR-0007 Phase-3 CloudKit engine state,
+   * identical to what imbib's Settings pane renders. Always 200; "off" and
+   * "not entitled" are reported states, not errors.
    */
-  async syncComments(): Promise<Record<string, unknown>> {
-    const response = await this.authFetch(`${this.baseURL}/api/sync/comments`, {
-      method: "POST",
-    });
+  async getSyncStatus(): Promise<SyncStatus> {
+    const response = await this.authFetch(`${this.baseURL}/api/sync/status`);
     if (!response.ok) {
-      throw new Error(`Sync comments failed: ${response.statusText}`);
+      throw await this.failure("Get sync status", response);
     }
-    return (await response.json()) as Record<string, unknown>;
+    return (await response.json()) as SyncStatus;
   }
 
   /**
-   * Get sync status.
+   * POST /api/sync/nudge — ask the engine for an immediate push+pull.
+   * Never errors on a disabled engine: `accepted:false` plus a reason is a
+   * normal outcome.
    */
-  async getSyncStatus(): Promise<Record<string, unknown>> {
-    const response = await this.authFetch(`${this.baseURL}/api/sync/status`);
+  async syncNudge(): Promise<{ accepted: boolean; reason?: string }> {
+    const response = await this.authFetch(`${this.baseURL}/api/sync/nudge`, {
+      method: "POST",
+    });
     if (!response.ok) {
-      throw new Error(`Get sync status failed: ${response.statusText}`);
+      throw await this.failure("Sync nudge", response);
     }
-    return (await response.json()) as Record<string, unknown>;
+    return (await response.json()) as { accepted: boolean; reason?: string };
+  }
+
+  // --------------------------------------------------------------------------
+  // Manuscripts (CAS-safe write path)
+  //
+  // Manuscripts are first-class rows in the shared impress store (ADR-0018),
+  // so imbib serves them even though the authoring GUI lives in imprint —
+  // and imbib is the only app in the suite whose HTTP surface is reachable
+  // from iOS. Body writes are compare-and-set on a content hash.
+  // --------------------------------------------------------------------------
+
+  /** GET /api/manuscripts — id/title/format/status only (no bodies). */
+  async listManuscripts(): Promise<ManuscriptSummary[]> {
+    const response = await this.authFetch(`${this.baseURL}/api/manuscripts`);
+    if (!response.ok) {
+      throw await this.failure("List manuscripts", response);
+    }
+    const data = (await response.json()) as { manuscripts?: ManuscriptSummary[] };
+    return data.manuscripts ?? [];
+  }
+
+  /**
+   * GET /api/manuscripts/{id} — full body plus the `contentHash` that
+   * `setManuscriptBody` requires. Returns null when the id is unknown.
+   */
+  async getManuscript(id: string): Promise<ManuscriptDetail | null> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/manuscripts/${encodeURIComponent(id)}`
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw await this.failure("Get manuscript", response);
+    }
+    return (await response.json()) as ManuscriptDetail;
+  }
+
+  /** POST /api/manuscripts — create. Returns the new row's id. */
+  async createManuscript(input: {
+    title: string;
+    body?: string;
+    format?: string;
+    authors?: string[];
+  }): Promise<{ id: string; title: string }> {
+    const response = await this.authFetch(`${this.baseURL}/api/manuscripts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: input.title,
+        body: input.body ?? "",
+        format: input.format ?? "typst",
+        authors: input.authors ?? [],
+      }),
+    });
+    if (!response.ok) {
+      throw await this.failure("Create manuscript", response);
+    }
+    return (await response.json()) as { id: string; title: string };
+  }
+
+  /**
+   * PUT /api/manuscripts/{id}/body — compare-and-set.
+   *
+   * `expectedHash` must be the `contentHash` from the read that produced the
+   * text being edited. A mismatch answers HTTP 409 and the write is NOT
+   * applied; the response carries `storedHash` so the caller can re-read and
+   * rebase. Never returns a thrown error for the conflict case — a conflict
+   * is data the caller must act on, not a transport failure.
+   */
+  async setManuscriptBody(
+    id: string,
+    body: string,
+    expectedHash?: string
+  ): Promise<ManuscriptWriteResult> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/manuscripts/${encodeURIComponent(id)}/body`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body, expected_hash: expectedHash }),
+      }
+    );
+    if (response.status === 409) {
+      const data = (await response.json()) as { storedHash?: string };
+      return { applied: false, conflict: true, storedHash: data.storedHash };
+    }
+    if (response.status === 404) {
+      return { applied: false, conflict: false, notFound: true };
+    }
+    if (!response.ok) {
+      throw await this.failure("Write manuscript body", response);
+    }
+    const data = (await response.json()) as { newHash?: string };
+    return { applied: true, conflict: false, newHash: data.newHash };
+  }
+
+  /**
+   * POST /api/manuscripts/{id}/compile — headless Typst compile with the
+   * store-backed virtual bibliography (`@citeKey` → library BibTeX).
+   * Status 422 (compile errors, or a LaTeX manuscript) still returns a
+   * structured payload, so it is not treated as a transport failure.
+   */
+  async compileManuscript(
+    id: string,
+    includePDF = false
+  ): Promise<ManuscriptCompileResult> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/manuscripts/${encodeURIComponent(id)}/compile`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_pdf: includePDF }),
+      }
+    );
+    if (response.status === 404) {
+      throw new Error(`Compile manuscript failed: no manuscript with id ${id}`);
+    }
+    if (!response.ok && response.status !== 422) {
+      throw await this.failure("Compile manuscript", response);
+    }
+    return (await response.json()) as ManuscriptCompileResult;
+  }
+
+  // --------------------------------------------------------------------------
+  // Undo — the safety net under every destructive tool
+  // --------------------------------------------------------------------------
+
+  /** GET /api/undo/recent?max_entries=N — newest store operations first. */
+  async recentUndoGroups(maxEntries?: number): Promise<UndoGroup[]> {
+    const suffix = maxEntries ? `?max_entries=${maxEntries}` : "";
+    const response = await this.authFetch(`${this.baseURL}/api/undo/recent${suffix}`);
+    if (!response.ok) {
+      throw await this.failure("List recent undo groups", response);
+    }
+    const data = (await response.json()) as { groups?: UndoGroup[] };
+    return data.groups ?? [];
+  }
+
+  /** POST /api/undo/operation/{id} — revert one operation. */
+  async undoOperation(operationID: string): Promise<{ operationCount: number }> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/undo/operation/${encodeURIComponent(operationID)}`,
+      { method: "POST" }
+    );
+    if (response.status === 404) {
+      throw new Error(
+        `Undo failed: no operation with id ${operationID}. ` +
+          "Call imbib_recent_undo_groups for current, valid operation ids " +
+          "(ids are per-store and do not survive a restore)."
+      );
+    }
+    if (!response.ok) {
+      throw await this.failure("Undo operation", response);
+    }
+    const data = (await response.json()) as { operation_count?: number };
+    return { operationCount: data.operation_count ?? 0 };
+  }
+
+  /** POST /api/undo/batch/{id} — revert every operation in a batch at once. */
+  async undoBatch(batchID: string): Promise<{ operationCount: number }> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/undo/batch/${encodeURIComponent(batchID)}`,
+      { method: "POST" }
+    );
+    if (response.status === 404) {
+      throw new Error(
+        `Undo failed: no batch with id ${batchID}. ` +
+          "Call imbib_recent_undo_groups — only some groups carry a batch_id " +
+          "(a batch exists when several rows changed in one user-level action)."
+      );
+    }
+    if (!response.ok) {
+      throw await this.failure("Undo batch", response);
+    }
+    const data = (await response.json()) as { operation_count?: number };
+    return { operationCount: data.operation_count ?? 0 };
+  }
+
+  // --------------------------------------------------------------------------
+  // Recent / starred / counts — the "what was I just doing?" surface
+  // --------------------------------------------------------------------------
+
+  /** GET /api/papers/recent — recently ADDED (creation date), incl. feeds. */
+  async queryRecent(options: { limit?: number; parentID?: string } = {}): Promise<RecentPaper[]> {
+    const params = new URLSearchParams();
+    if (options.limit) params.set("limit", String(options.limit));
+    if (options.parentID) params.set("parent_id", options.parentID);
+    const query = params.toString();
+    const response = await this.authFetch(
+      `${this.baseURL}/api/papers/recent${query ? `?${query}` : ""}`
+    );
+    if (!response.ok) {
+      throw await this.failure("Query recent papers", response);
+    }
+    const data = (await response.json()) as { papers?: RecentPaper[] };
+    return data.papers ?? [];
+  }
+
+  /** GET /api/papers/recent-activity — papers the USER viewed or added. */
+  async queryRecentActivity(options: { limit?: number } = {}): Promise<RecentPaper[]> {
+    const suffix = options.limit ? `?limit=${options.limit}` : "";
+    const response = await this.authFetch(
+      `${this.baseURL}/api/papers/recent-activity${suffix}`
+    );
+    if (!response.ok) {
+      throw await this.failure("Query recent activity", response);
+    }
+    const data = (await response.json()) as { papers?: RecentPaper[] };
+    return data.papers ?? [];
+  }
+
+  /** GET /api/papers/starred — starred papers, newest-added first. */
+  async queryStarred(options: { limit?: number; parentID?: string } = {}): Promise<RecentPaper[]> {
+    const params = new URLSearchParams();
+    if (options.limit) params.set("limit", String(options.limit));
+    if (options.parentID) params.set("parent_id", options.parentID);
+    const query = params.toString();
+    const response = await this.authFetch(
+      `${this.baseURL}/api/papers/starred${query ? `?${query}` : ""}`
+    );
+    if (!response.ok) {
+      throw await this.failure("Query starred papers", response);
+    }
+    const data = (await response.json()) as { papers?: RecentPaper[] };
+    return data.papers ?? [];
+  }
+
+  /**
+   * GET /api/papers/count/{unread|starred|flagged|by-tag} — a scalar count,
+   * far cheaper than fetching the rows to length them.
+   */
+  async countPapers(
+    kind: "unread" | "starred" | "flagged" | "by-tag",
+    options: { parentID?: string; color?: string; tag?: string } = {}
+  ): Promise<number> {
+    const params = new URLSearchParams();
+    if (options.parentID) params.set("parent_id", options.parentID);
+    if (kind === "flagged" && options.color) params.set("color", options.color);
+    if (kind === "by-tag") {
+      if (!options.tag) throw new Error("Count by-tag requires a 'tag' path");
+      params.set("tag", options.tag);
+    }
+    const query = params.toString();
+    const response = await this.authFetch(
+      `${this.baseURL}/api/papers/count/${kind}${query ? `?${query}` : ""}`
+    );
+    if (!response.ok) {
+      throw await this.failure(`Count ${kind} papers`, response);
+    }
+    const data = (await response.json()) as { count?: number };
+    return data.count ?? 0;
+  }
+
+  // --------------------------------------------------------------------------
+  // Smart search creation / detail (deletion lives above)
+  // --------------------------------------------------------------------------
+
+  /** GET /api/smart-searches/{id}. Returns null when unknown. */
+  async getSmartSearch(id: string): Promise<SmartSearch | null> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/smart-searches/${encodeURIComponent(id)}`
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw await this.failure("Get smart search", response);
+    }
+    const data = (await response.json()) as { search: SmartSearch };
+    return data.search;
+  }
+
+  /** POST /api/smart-searches — create a saved query in a library. */
+  async createSmartSearch(input: {
+    name: string;
+    query: string;
+    libraryID: string;
+    maxResults?: number;
+    feedsToInbox?: boolean;
+    autoRefreshEnabled?: boolean;
+    refreshIntervalSeconds?: number;
+    sourceIDs?: string[];
+  }): Promise<SmartSearch> {
+    const response = await this.authFetch(`${this.baseURL}/api/smart-searches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: input.name,
+        query: input.query,
+        library_id: input.libraryID,
+        max_results: input.maxResults ?? 100,
+        feeds_to_inbox: input.feedsToInbox ?? false,
+        auto_refresh_enabled: input.autoRefreshEnabled ?? false,
+        refresh_interval_seconds: input.refreshIntervalSeconds ?? 3600,
+        // imbib takes the source list as a JSON *string* (source_ids_json).
+        source_ids_json: input.sourceIDs ? JSON.stringify(input.sourceIDs) : undefined,
+      }),
+    });
+    if (!response.ok) {
+      throw await this.failure("Create smart search", response);
+    }
+    const data = (await response.json()) as { search: SmartSearch };
+    return data.search;
+  }
+
+  // --------------------------------------------------------------------------
+  // Tag vocabulary management (attaching tags to papers is addTag/removeTag)
+  // --------------------------------------------------------------------------
+
+  /** POST /api/tags — create a tag path, optionally with display colors. */
+  async createTag(input: {
+    path: string;
+    colorLight?: string;
+    colorDark?: string;
+  }): Promise<void> {
+    const response = await this.authFetch(`${this.baseURL}/api/tags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: input.path,
+        color_light: input.colorLight,
+        color_dark: input.colorDark,
+      }),
+    });
+    if (!response.ok) {
+      throw await this.failure("Create tag", response);
+    }
+  }
+
+  /** PUT /api/tags/{path}/rename — rename/re-parent a tag across all papers. */
+  async renameTag(path: string, newPath: string): Promise<void> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/tags/${encodeURIComponent(path)}/rename`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_path: newPath }),
+      }
+    );
+    if (!response.ok) {
+      throw await this.failure("Rename tag", response);
+    }
+  }
+
+  /** PUT /api/tags/{path} — set light/dark display colors. */
+  async updateTagColor(
+    path: string,
+    colors: { colorLight?: string; colorDark?: string }
+  ): Promise<void> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/tags/${encodeURIComponent(path)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          color_light: colors.colorLight,
+          color_dark: colors.colorDark,
+        }),
+      }
+    );
+    if (!response.ok) {
+      throw await this.failure("Update tag color", response);
+    }
+  }
+
+  /** DELETE /api/tags/{path} — remove the tag from the vocabulary. */
+  async deleteTag(path: string): Promise<void> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/tags/${encodeURIComponent(path)}`,
+      { method: "DELETE" }
+    );
+    if (!response.ok) {
+      throw await this.failure("Delete tag", response);
+    }
   }
 
   /**
@@ -1462,6 +2014,23 @@ export class ImbibClient {
   }
 
   /**
+   * POST /api/backups/prune — keep the `keep` newest snapshots, delete the
+   * rest (with their manifests). `keep: 0` deletes every backup.
+   */
+  async pruneBackups(keep: number, directory?: string): Promise<string[]> {
+    const response = await this.authFetch(`${this.baseURL}/api/backups/prune`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keep, directory }),
+    });
+    if (!response.ok) {
+      throw await this.failure("Prune backups", response);
+    }
+    const data = (await response.json()) as { removed?: string[] };
+    return data.removed ?? [];
+  }
+
+  /**
    * Delete a backup and its manifest sidecar.
    */
   async deleteBackup(path: string): Promise<boolean> {
@@ -1475,6 +2044,110 @@ export class ImbibClient {
     }
     return data.deleted ?? false;
   }
+
+  // ---------------------------------------------------------------------
+  // Manuscript templates (journal/conference styles, shared with imprint)
+  // ---------------------------------------------------------------------
+
+  /**
+   * List the manuscript templates, optionally filtered by category or a
+   * free-text query over name/description/tags.
+   */
+  async listTemplates(
+    opts: { category?: string; query?: string } = {}
+  ): Promise<ManuscriptTemplate[]> {
+    const params = new URLSearchParams();
+    if (opts.category) params.set("category", opts.category);
+    if (opts.query) params.set("q", opts.query);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const response = await this.authFetch(`${this.baseURL}/api/templates${suffix}`);
+    if (!response.ok) {
+      throw await this.failure("List templates", response);
+    }
+    const data = (await response.json()) as {
+      status: string;
+      templates?: ManuscriptTemplate[];
+    };
+    return data.templates ?? [];
+  }
+
+  /**
+   * Create a manuscript pre-formatted with a template's style.
+   */
+  async createManuscriptFromTemplate(
+    input: TemplateManuscriptInput
+  ): Promise<TemplateManuscriptResult> {
+    const body: Record<string, unknown> = {
+      template_id: input.templateId,
+      title: input.title,
+    };
+    if (input.authors) body.authors = input.authors;
+    if (input.affiliations) body.affiliations = input.affiliations;
+    if (input.abstract !== undefined) body.abstract = input.abstract;
+    if (input.keywords) body.keywords = input.keywords;
+    if (input.includeSections !== undefined) body.include_sections = input.includeSections;
+    const response = await this.authFetch(
+      `${this.baseURL}/api/manuscripts/from-template`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+    if (!response.ok) {
+      throw await this.failure("Create manuscript from template", response);
+    }
+    return (await response.json()) as TemplateManuscriptResult;
+  }
+}
+
+export interface TemplatePageDefaults {
+  size?: string;
+  columns?: number;
+  font_size?: number;
+  margin_top?: number;
+  margin_bottom?: number;
+  margin_left?: number;
+  margin_right?: number;
+}
+
+export interface TemplateJournalInfo {
+  publisher?: string;
+  url?: string;
+  latex_class?: string;
+  issn?: string;
+}
+
+export interface ManuscriptTemplate {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  author?: string;
+  license?: string;
+  category?: string;
+  tags?: string[];
+  is_builtin?: boolean;
+  page_defaults?: TemplatePageDefaults;
+  journal?: TemplateJournalInfo;
+}
+
+export interface TemplateManuscriptInput {
+  templateId: string;
+  title: string;
+  authors?: string[];
+  affiliations?: string[];
+  abstract?: string;
+  keywords?: string[];
+  includeSections?: boolean;
+}
+
+export interface TemplateManuscriptResult {
+  status: string;
+  id: string;
+  title: string;
+  template_id: string;
+  body_length?: number;
 }
 
 /**

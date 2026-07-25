@@ -5,6 +5,7 @@
  * Supports imbib papers, imprint documents, and impart conversations.
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImbibClient } from "../imbib/client.js";
 import { ImprintClient } from "../imprint/client.js";
@@ -116,7 +117,7 @@ export class ArtifactResolverBridge {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       case "impress_resolve_artifact":
         return this.resolveArtifact(args);
@@ -137,7 +138,7 @@ export class ArtifactResolverBridge {
 
   private async resolveArtifact(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const uri = args?.uri as string;
     const includeContent = (args?.include_content as boolean) ?? false;
 
@@ -171,7 +172,7 @@ export class ArtifactResolverBridge {
   private async resolveImbibArtifact(
     parsed: ParsedURI,
     includeContent: boolean
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     if (!this.imbibClient) {
       return {
         content: [
@@ -224,7 +225,7 @@ export class ArtifactResolverBridge {
   private async resolveImprintArtifact(
     parsed: ParsedURI,
     includeContent: boolean
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     if (!this.imprintClient) {
       return {
         content: [
@@ -274,7 +275,7 @@ export class ArtifactResolverBridge {
   private async resolveImpartArtifact(
     parsed: ParsedURI,
     includeContent: boolean
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     if (!this.impartClient) {
       return {
         content: [
@@ -342,7 +343,7 @@ export class ArtifactResolverBridge {
 
   private async listArtifacts(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const appFilter = (args?.app as string) || "all";
     const limit = (args?.limit as number) || 10;
 

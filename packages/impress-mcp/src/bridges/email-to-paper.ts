@@ -5,6 +5,7 @@
  * Recognizes DOIs, arXiv IDs, PubMed IDs, and common paper URLs.
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImbibClient } from "../imbib/client.js";
 import { ImpartClient, ResearchMessage } from "../impart/client.js";
@@ -175,7 +176,7 @@ export class EmailToPaperBridge {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       case "impress_extract_papers_from_conversation":
         return this.extractFromConversation(args);
@@ -198,7 +199,7 @@ export class EmailToPaperBridge {
 
   private async extractFromConversation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversation_id as string;
     const messageLimit = args?.message_limit as number | undefined;
 
@@ -278,7 +279,7 @@ export class EmailToPaperBridge {
 
   private async addFromConversation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversation_id as string;
     const collectionId = args?.collection_id as string | undefined;
     const libraryId = args?.library_id as string | undefined;
@@ -401,7 +402,7 @@ export class EmailToPaperBridge {
 
   private async extractFromText(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const text = args?.text as string;
     const addToLibrary = (args?.add_to_library as boolean) ?? false;
     const downloadPdfs = (args?.download_pdfs as boolean) ?? false;
