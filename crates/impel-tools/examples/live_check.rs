@@ -5,7 +5,10 @@ fn main() {
         Some("http://127.0.0.1:23120".into()),
         Some("http://127.0.0.1:23121".into()),
     );
-    println!("backends: imbib={:?} imprint={:?}", backends.imbib, backends.imprint);
+    println!(
+        "backends: imbib={:?} imprint={:?}",
+        backends.imbib, backends.imprint
+    );
 
     let all = impel_tools::list_tools();
     let available = impel_tools::list_available_tools();

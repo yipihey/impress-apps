@@ -6,6 +6,7 @@ on:
     paths:
       - 'crates/impel-core/**'
       - 'crates/impel-server/**'
+      - 'crates/impel-tools/**'
       - 'crates/impress-*/**'
       - 'apps/impel-tui/**'
       - '.github/workflows/impel-rust.yml'
@@ -14,6 +15,7 @@ on:
     paths:
       - 'crates/impel-core/**'
       - 'crates/impel-server/**'
+      - 'crates/impel-tools/**'
       - 'crates/impress-*/**'
       - 'apps/impel-tui/**'
       - '.github/workflows/impel-rust.yml'
@@ -58,6 +60,19 @@ jobs:
 
       - name: Run tests (with sqlite)
         run: cargo test -p impel-core --features sqlite
+
+      # impel-tools projects the #[impress_service] inventory into impel's
+      # agent loop. Its tests assert the inventory is actually linked in, so
+      # this lane catches a service crate dropping out of the dependency graph
+      # — which would silently shrink the agent's tool surface.
+      - name: Check formatting (impel-tools)
+        run: cargo fmt -p impel-tools --check
+
+      - name: Clippy (impel-tools)
+        run: cargo clippy -p impel-tools -- -D warnings
+
+      - name: Run tests (impel-tools)
+        run: cargo test -p impel-tools
 
   test-tui:
     name: Test impel-tui
