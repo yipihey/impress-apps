@@ -208,7 +208,9 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             coordinator.isUpdatingProgrammatically = true
             outlineView.reloadData()
             coordinator.restoreExpansionState()
-            coordinator.restoreSelection()
+            // A data reload must not destroy a multi-row selection the user is
+            // still working with (store events bump dataVersion constantly).
+            coordinator.restoreSelection(preservingMultiple: true)
             coordinator.isUpdatingProgrammatically = false
         }
 
@@ -252,6 +254,9 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         var configuration: SidebarOutlineConfiguration<Node>
         var expansionState: TreeExpansionState
         var selectedNodeID: UUID?
+        /// Every currently-selected node, in row order. Tracked so a data
+        /// reload can restore a multi-row selection instead of collapsing it.
+        var selectedNodeIDs: [UUID] = []
         var selectionBinding: Binding<UUID?>
         var editingNodeIDBinding: Binding<UUID?>
 
@@ -384,16 +389,45 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             }
         }
 
-        func restoreSelection() {
+        /// Re-apply the selection after a reload.
+        ///
+        /// - Parameter preservingMultiple: when true (a data reload), a
+        ///   multi-row selection is restored in full. When false (an explicit
+        ///   single-selection sync from the binding), the old single-row
+        ///   behavior applies verbatim.
+        ///
+        /// Restoring from `selectedNodeID` alone collapses a Cmd-click
+        /// selection to one row. Because the host bumps `dataVersion` on every
+        /// store event, ANY background mutation would silently drop the user's
+        /// multi-selection mid-gesture — after which a right-click offers only
+        /// the single-row menu.
+        func restoreSelection(preservingMultiple: Bool = false) {
             guard let outlineView = outlineView else { return }
+
+            if preservingMultiple, selectedNodeIDs.count > 1 {
+                let rows = selectedNodeIDs.compactMap { id -> Int? in
+                    guard let wrapper = wrapperCache[id] else { return nil }
+                    let row = outlineView.row(forItem: wrapper)
+                    return row >= 0 ? row : nil
+                }
+                if rows.count > 1 {
+                    outlineView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+                    return
+                }
+            }
+
             if let selectedID = selectedNodeID, let wrapper = wrapperCache[selectedID] {
                 let row = outlineView.row(forItem: wrapper)
                 if row >= 0 {
                     outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                    // Collapsing to one row is now the truth — otherwise a
+                    // stale multi-set would be resurrected by the next reload.
+                    selectedNodeIDs = [selectedID]
                     return
                 }
             }
             outlineView.deselectAll(nil)
+            selectedNodeIDs = []
         }
 
         // MARK: - NSOutlineViewDataSource
@@ -515,6 +549,13 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             } else {
                 selectedNodeID = nil
                 selectionBinding.wrappedValue = nil
+            }
+
+            // Remember the whole selected set so a data reload can put it back.
+            // `selectedNodeID` alone cannot: restoring from it collapses a
+            // multi-row selection to one row.
+            selectedNodeIDs = outlineView.selectedRowIndexes.compactMap { idx in
+                (outlineView.item(atRow: idx) as? SidebarOutlineNodeWrapper)?.id
             }
 
             // Multi-selection callback (new, additive). Only fires when the
