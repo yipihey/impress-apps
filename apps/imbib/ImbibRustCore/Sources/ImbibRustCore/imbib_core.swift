@@ -698,6 +698,21 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func createAssignment(publicationId: String, assigneeName: String, assignedByName: String?, note: String?, dueDate: Int64?) throws  -> AssignmentRow
     
+    /**
+     * Take a consistent snapshot of the whole shared store into `directory`,
+     * naming it `imbib-backup-<timestamp>.impressbackup`.
+     *
+     * Consistent under concurrent writers: other imbib/imprint/impel
+     * processes may write throughout. The result is a plain SQLite database
+     * plus a `.json` manifest sidecar.
+     */
+    func createBackup(directory: String, appVersion: String, label: String?) throws  -> BackupRecordRow
+    
+    /**
+     * Snapshot to an exact path (for a Save panel). Fails if it exists.
+     */
+    func createBackupAtPath(path: String, appVersion: String, label: String?) throws  -> BackupRecordRow
+    
     func createCollection(name: String, libraryId: String, isSmart: Bool, query: String?) throws  -> CollectionRow
     
     func createComment(publicationId: String, text: String, authorIdentifier: String?, authorDisplayName: String?, parentCommentId: String?) throws  -> CommentRow
@@ -752,6 +767,12 @@ public protocol ImbibStoreProtocol : AnyObject {
      * Delete an artifact by ID.
      */
     func deleteArtifact(id: String) throws 
+    
+    /**
+     * Delete a backup and its manifest. Refuses anything that is not a
+     * `.impressbackup` file.
+     */
+    func deleteBackup(path: String) throws  -> Bool
     
     /**
      * Delete a collection and its membership edges.
@@ -887,6 +908,12 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func importFromBibtexFile(path: String, libraryId: String) throws  -> UInt32
     
+    /**
+     * Validate a backup without touching the live store: integrity check,
+     * required tables, and digest match against its manifest.
+     */
+    func inspectBackup(path: String) throws  -> BackupInspectionRow
+    
     func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?, citeKey: String?) throws  -> Bool
     
     /**
@@ -929,6 +956,12 @@ public protocol ImbibStoreProtocol : AnyObject {
     func listArtifacts(schemaFilter: String?, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [ArtifactRow]
     
     func listAssignments(publicationId: String?) throws  -> [AssignmentRow]
+    
+    /**
+     * Every valid backup in `directory`, newest first. Junk files are
+     * skipped rather than failing the listing.
+     */
+    func listBackups(directory: String) throws  -> [BackupRecordRow]
     
     func listCollectionMembers(collectionId: String, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
@@ -1005,6 +1038,12 @@ public protocol ImbibStoreProtocol : AnyObject {
     func listTagsWithCounts() throws  -> [TagWithCountRow]
     
     func movePublications(ids: [String], toLibraryId: String) throws  -> UndoInfo
+    
+    /**
+     * Keep the `keep` newest backups in `directory`, delete the rest.
+     * Returns the paths removed.
+     */
+    func pruneBackups(directory: String, keep: UInt32) throws  -> [String]
     
     /**
      * Remove all dismissed papers from a collection.
@@ -1107,6 +1146,22 @@ public protocol ImbibStoreProtocol : AnyObject {
      * Re-parent an item (e.g. fix orphaned smart searches whose parent was deleted).
      */
     func reparentItem(id: String, newParentId: String) throws 
+    
+    /**
+     * Replace the live store's contents with `path`.
+     *
+     * The backup is validated first, then current state is snapshotted into
+     * `safety_directory`, then the copy runs through SQLite's online backup
+     * API on the live connection. An invalid backup is rejected before
+     * anything is modified.
+     *
+     * **Sync (ADR-0020):** restored rows carry old HLC clocks and will lose
+     * LWW against anything a peer changed since. `clear_sync_state` (pass
+     * true) drops the outbox and per-record engine state so a rewound
+     * library is not pushed at other devices. Callers should still require
+     * the user to turn sync off first.
+     */
+    func restoreBackup(path: String, appVersion: String, safetyDirectory: String?, clearSyncState: Bool) throws  -> RestoreReportRow
     
     /**
      * Restore a deleted library and re-parent its children.
@@ -1680,6 +1735,37 @@ open func createAssignment(publicationId: String, assigneeName: String, assigned
 })
 }
     
+    /**
+     * Take a consistent snapshot of the whole shared store into `directory`,
+     * naming it `imbib-backup-<timestamp>.impressbackup`.
+     *
+     * Consistent under concurrent writers: other imbib/imprint/impel
+     * processes may write throughout. The result is a plain SQLite database
+     * plus a `.json` manifest sidecar.
+     */
+open func createBackup(directory: String, appVersion: String, label: String?)throws  -> BackupRecordRow {
+    return try  FfiConverterTypeBackupRecordRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_create_backup(self.uniffiClonePointer(),
+        FfiConverterString.lower(directory),
+        FfiConverterString.lower(appVersion),
+        FfiConverterOptionString.lower(label),$0
+    )
+})
+}
+    
+    /**
+     * Snapshot to an exact path (for a Save panel). Fails if it exists.
+     */
+open func createBackupAtPath(path: String, appVersion: String, label: String?)throws  -> BackupRecordRow {
+    return try  FfiConverterTypeBackupRecordRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_create_backup_at_path(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(appVersion),
+        FfiConverterOptionString.lower(label),$0
+    )
+})
+}
+    
 open func createCollection(name: String, libraryId: String, isSmart: Bool, query: String?)throws  -> CollectionRow {
     return try  FfiConverterTypeCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_create_collection(self.uniffiClonePointer(),
@@ -1856,6 +1942,18 @@ open func deleteArtifact(id: String)throws  {try rustCallWithError(FfiConverterT
         FfiConverterString.lower(id),$0
     )
 }
+}
+    
+    /**
+     * Delete a backup and its manifest. Refuses anything that is not a
+     * `.impressbackup` file.
+     */
+open func deleteBackup(path: String)throws  -> Bool {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_backup(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),$0
+    )
+})
 }
     
     /**
@@ -2236,6 +2334,18 @@ open func importFromBibtexFile(path: String, libraryId: String)throws  -> UInt32
 })
 }
     
+    /**
+     * Validate a backup without touching the live store: integrity check,
+     * required tables, and digest match against its manifest.
+     */
+open func inspectBackup(path: String)throws  -> BackupInspectionRow {
+    return try  FfiConverterTypeBackupInspectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_inspect_backup(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
 open func isPaperDismissed(doi: String?, arxivId: String?, bibcode: String?, citeKey: String?)throws  -> Bool {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_is_paper_dismissed(self.uniffiClonePointer(),
@@ -2336,6 +2446,18 @@ open func listAssignments(publicationId: String?)throws  -> [AssignmentRow] {
     return try  FfiConverterSequenceTypeAssignmentRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_assignments(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(publicationId),$0
+    )
+})
+}
+    
+    /**
+     * Every valid backup in `directory`, newest first. Junk files are
+     * skipped rather than failing the listing.
+     */
+open func listBackups(directory: String)throws  -> [BackupRecordRow] {
+    return try  FfiConverterSequenceTypeBackupRecordRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_backups(self.uniffiClonePointer(),
+        FfiConverterString.lower(directory),$0
     )
 })
 }
@@ -2533,6 +2655,19 @@ open func movePublications(ids: [String], toLibraryId: String)throws  -> UndoInf
     uniffi_imbib_core_fn_method_imbibstore_move_publications(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterString.lower(toLibraryId),$0
+    )
+})
+}
+    
+    /**
+     * Keep the `keep` newest backups in `directory`, delete the rest.
+     * Returns the paths removed.
+     */
+open func pruneBackups(directory: String, keep: UInt32)throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_prune_backups(self.uniffiClonePointer(),
+        FfiConverterString.lower(directory),
+        FfiConverterUInt32.lower(keep),$0
     )
 })
 }
@@ -2784,6 +2919,31 @@ open func reparentItem(id: String, newParentId: String)throws  {try rustCallWith
         FfiConverterString.lower(newParentId),$0
     )
 }
+}
+    
+    /**
+     * Replace the live store's contents with `path`.
+     *
+     * The backup is validated first, then current state is snapshotted into
+     * `safety_directory`, then the copy runs through SQLite's online backup
+     * API on the live connection. An invalid backup is rejected before
+     * anything is modified.
+     *
+     * **Sync (ADR-0020):** restored rows carry old HLC clocks and will lose
+     * LWW against anything a peer changed since. `clear_sync_state` (pass
+     * true) drops the outbox and per-record engine state so a rewound
+     * library is not pushed at other devices. Callers should still require
+     * the user to turn sync off first.
+     */
+open func restoreBackup(path: String, appVersion: String, safetyDirectory: String?, clearSyncState: Bool)throws  -> RestoreReportRow {
+    return try  FfiConverterTypeRestoreReportRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_restore_backup(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(appVersion),
+        FfiConverterOptionString.lower(safetyDirectory),
+        FfiConverterBool.lower(clearSyncState),$0
+    )
+})
 }
     
     /**
@@ -4761,6 +4921,436 @@ public func FfiConverterTypeAuthorStats_lift(_ buf: RustBuffer) throws -> Author
 #endif
 public func FfiConverterTypeAuthorStats_lower(_ value: AuthorStats) -> RustBuffer {
     return FfiConverterTypeAuthorStats.lower(value)
+}
+
+
+/**
+ * Verdict on a candidate backup file.
+ */
+public struct BackupInspectionRow {
+    public var path: String
+    public var valid: Bool
+    /**
+     * Why it was rejected. Empty when `valid`.
+     */
+    public var issues: [String]
+    public var manifest: BackupManifestRow?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, valid: Bool, 
+        /**
+         * Why it was rejected. Empty when `valid`.
+         */issues: [String], manifest: BackupManifestRow?) {
+        self.path = path
+        self.valid = valid
+        self.issues = issues
+        self.manifest = manifest
+    }
+}
+
+
+
+extension BackupInspectionRow: Equatable, Hashable {
+    public static func ==(lhs: BackupInspectionRow, rhs: BackupInspectionRow) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.valid != rhs.valid {
+            return false
+        }
+        if lhs.issues != rhs.issues {
+            return false
+        }
+        if lhs.manifest != rhs.manifest {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(valid)
+        hasher.combine(issues)
+        hasher.combine(manifest)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBackupInspectionRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BackupInspectionRow {
+        return
+            try BackupInspectionRow(
+                path: FfiConverterString.read(from: &buf), 
+                valid: FfiConverterBool.read(from: &buf), 
+                issues: FfiConverterSequenceString.read(from: &buf), 
+                manifest: FfiConverterOptionTypeBackupManifestRow.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BackupInspectionRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterBool.write(value.valid, into: &buf)
+        FfiConverterSequenceString.write(value.issues, into: &buf)
+        FfiConverterOptionTypeBackupManifestRow.write(value.manifest, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupInspectionRow_lift(_ buf: RustBuffer) throws -> BackupInspectionRow {
+    return try FfiConverterTypeBackupInspectionRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupInspectionRow_lower(_ value: BackupInspectionRow) -> RustBuffer {
+    return FfiConverterTypeBackupInspectionRow.lower(value)
+}
+
+
+/**
+ * Provenance and contents of one backup file.
+ */
+public struct BackupManifestRow {
+    public var formatVersion: UInt32
+    /**
+     * Epoch milliseconds.
+     */
+    public var createdAtMs: Int64
+    public var app: String
+    public var appVersion: String
+    public var coreVersion: String
+    public var schemaVersion: Int64
+    public var originId: String
+    public var label: String?
+    public var itemCount: Int64
+    /**
+     * Items excluding operation history — what the user thinks of as content.
+     */
+    public var contentItemCount: Int64
+    public var referenceCount: Int64
+    public var tagCount: Int64
+    public var tombstoneCount: Int64
+    public var countsBySchema: [BackupSchemaCount]
+    public var byteSize: Int64
+    public var sha256: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(formatVersion: UInt32, 
+        /**
+         * Epoch milliseconds.
+         */createdAtMs: Int64, app: String, appVersion: String, coreVersion: String, schemaVersion: Int64, originId: String, label: String?, itemCount: Int64, 
+        /**
+         * Items excluding operation history — what the user thinks of as content.
+         */contentItemCount: Int64, referenceCount: Int64, tagCount: Int64, tombstoneCount: Int64, countsBySchema: [BackupSchemaCount], byteSize: Int64, sha256: String) {
+        self.formatVersion = formatVersion
+        self.createdAtMs = createdAtMs
+        self.app = app
+        self.appVersion = appVersion
+        self.coreVersion = coreVersion
+        self.schemaVersion = schemaVersion
+        self.originId = originId
+        self.label = label
+        self.itemCount = itemCount
+        self.contentItemCount = contentItemCount
+        self.referenceCount = referenceCount
+        self.tagCount = tagCount
+        self.tombstoneCount = tombstoneCount
+        self.countsBySchema = countsBySchema
+        self.byteSize = byteSize
+        self.sha256 = sha256
+    }
+}
+
+
+
+extension BackupManifestRow: Equatable, Hashable {
+    public static func ==(lhs: BackupManifestRow, rhs: BackupManifestRow) -> Bool {
+        if lhs.formatVersion != rhs.formatVersion {
+            return false
+        }
+        if lhs.createdAtMs != rhs.createdAtMs {
+            return false
+        }
+        if lhs.app != rhs.app {
+            return false
+        }
+        if lhs.appVersion != rhs.appVersion {
+            return false
+        }
+        if lhs.coreVersion != rhs.coreVersion {
+            return false
+        }
+        if lhs.schemaVersion != rhs.schemaVersion {
+            return false
+        }
+        if lhs.originId != rhs.originId {
+            return false
+        }
+        if lhs.label != rhs.label {
+            return false
+        }
+        if lhs.itemCount != rhs.itemCount {
+            return false
+        }
+        if lhs.contentItemCount != rhs.contentItemCount {
+            return false
+        }
+        if lhs.referenceCount != rhs.referenceCount {
+            return false
+        }
+        if lhs.tagCount != rhs.tagCount {
+            return false
+        }
+        if lhs.tombstoneCount != rhs.tombstoneCount {
+            return false
+        }
+        if lhs.countsBySchema != rhs.countsBySchema {
+            return false
+        }
+        if lhs.byteSize != rhs.byteSize {
+            return false
+        }
+        if lhs.sha256 != rhs.sha256 {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(formatVersion)
+        hasher.combine(createdAtMs)
+        hasher.combine(app)
+        hasher.combine(appVersion)
+        hasher.combine(coreVersion)
+        hasher.combine(schemaVersion)
+        hasher.combine(originId)
+        hasher.combine(label)
+        hasher.combine(itemCount)
+        hasher.combine(contentItemCount)
+        hasher.combine(referenceCount)
+        hasher.combine(tagCount)
+        hasher.combine(tombstoneCount)
+        hasher.combine(countsBySchema)
+        hasher.combine(byteSize)
+        hasher.combine(sha256)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBackupManifestRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BackupManifestRow {
+        return
+            try BackupManifestRow(
+                formatVersion: FfiConverterUInt32.read(from: &buf), 
+                createdAtMs: FfiConverterInt64.read(from: &buf), 
+                app: FfiConverterString.read(from: &buf), 
+                appVersion: FfiConverterString.read(from: &buf), 
+                coreVersion: FfiConverterString.read(from: &buf), 
+                schemaVersion: FfiConverterInt64.read(from: &buf), 
+                originId: FfiConverterString.read(from: &buf), 
+                label: FfiConverterOptionString.read(from: &buf), 
+                itemCount: FfiConverterInt64.read(from: &buf), 
+                contentItemCount: FfiConverterInt64.read(from: &buf), 
+                referenceCount: FfiConverterInt64.read(from: &buf), 
+                tagCount: FfiConverterInt64.read(from: &buf), 
+                tombstoneCount: FfiConverterInt64.read(from: &buf), 
+                countsBySchema: FfiConverterSequenceTypeBackupSchemaCount.read(from: &buf), 
+                byteSize: FfiConverterInt64.read(from: &buf), 
+                sha256: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BackupManifestRow, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.formatVersion, into: &buf)
+        FfiConverterInt64.write(value.createdAtMs, into: &buf)
+        FfiConverterString.write(value.app, into: &buf)
+        FfiConverterString.write(value.appVersion, into: &buf)
+        FfiConverterString.write(value.coreVersion, into: &buf)
+        FfiConverterInt64.write(value.schemaVersion, into: &buf)
+        FfiConverterString.write(value.originId, into: &buf)
+        FfiConverterOptionString.write(value.label, into: &buf)
+        FfiConverterInt64.write(value.itemCount, into: &buf)
+        FfiConverterInt64.write(value.contentItemCount, into: &buf)
+        FfiConverterInt64.write(value.referenceCount, into: &buf)
+        FfiConverterInt64.write(value.tagCount, into: &buf)
+        FfiConverterInt64.write(value.tombstoneCount, into: &buf)
+        FfiConverterSequenceTypeBackupSchemaCount.write(value.countsBySchema, into: &buf)
+        FfiConverterInt64.write(value.byteSize, into: &buf)
+        FfiConverterString.write(value.sha256, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupManifestRow_lift(_ buf: RustBuffer) throws -> BackupManifestRow {
+    return try FfiConverterTypeBackupManifestRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupManifestRow_lower(_ value: BackupManifestRow) -> RustBuffer {
+    return FfiConverterTypeBackupManifestRow.lower(value)
+}
+
+
+/**
+ * One backup on disk.
+ */
+public struct BackupRecordRow {
+    public var path: String
+    public var manifestPath: String?
+    public var manifest: BackupManifestRow
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, manifestPath: String?, manifest: BackupManifestRow) {
+        self.path = path
+        self.manifestPath = manifestPath
+        self.manifest = manifest
+    }
+}
+
+
+
+extension BackupRecordRow: Equatable, Hashable {
+    public static func ==(lhs: BackupRecordRow, rhs: BackupRecordRow) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.manifestPath != rhs.manifestPath {
+            return false
+        }
+        if lhs.manifest != rhs.manifest {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(manifestPath)
+        hasher.combine(manifest)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBackupRecordRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BackupRecordRow {
+        return
+            try BackupRecordRow(
+                path: FfiConverterString.read(from: &buf), 
+                manifestPath: FfiConverterOptionString.read(from: &buf), 
+                manifest: FfiConverterTypeBackupManifestRow.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BackupRecordRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterOptionString.write(value.manifestPath, into: &buf)
+        FfiConverterTypeBackupManifestRow.write(value.manifest, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupRecordRow_lift(_ buf: RustBuffer) throws -> BackupRecordRow {
+    return try FfiConverterTypeBackupRecordRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupRecordRow_lower(_ value: BackupRecordRow) -> RustBuffer {
+    return FfiConverterTypeBackupRecordRow.lower(value)
+}
+
+
+/**
+ * Rows of one schema inside a backup, e.g. `publication@1.0.0 → 4213`.
+ */
+public struct BackupSchemaCount {
+    public var schemaRef: String
+    public var count: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(schemaRef: String, count: Int64) {
+        self.schemaRef = schemaRef
+        self.count = count
+    }
+}
+
+
+
+extension BackupSchemaCount: Equatable, Hashable {
+    public static func ==(lhs: BackupSchemaCount, rhs: BackupSchemaCount) -> Bool {
+        if lhs.schemaRef != rhs.schemaRef {
+            return false
+        }
+        if lhs.count != rhs.count {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(schemaRef)
+        hasher.combine(count)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBackupSchemaCount: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BackupSchemaCount {
+        return
+            try BackupSchemaCount(
+                schemaRef: FfiConverterString.read(from: &buf), 
+                count: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BackupSchemaCount, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.schemaRef, into: &buf)
+        FfiConverterInt64.write(value.count, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupSchemaCount_lift(_ buf: RustBuffer) throws -> BackupSchemaCount {
+    return try FfiConverterTypeBackupSchemaCount.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupSchemaCount_lower(_ value: BackupSchemaCount) -> RustBuffer {
+    return FfiConverterTypeBackupSchemaCount.lower(value)
 }
 
 
@@ -13797,6 +14387,121 @@ public func FfiConverterTypeRect_lower(_ value: Rect) -> RustBuffer {
 
 
 /**
+ * What a restore did.
+ */
+public struct RestoreReportRow {
+    public var restoredFrom: String
+    /**
+     * Automatic snapshot of the state that was replaced.
+     */
+    public var safetySnapshot: String?
+    public var itemCountBefore: Int64
+    public var itemCountAfter: Int64
+    public var clearedSyncState: Bool
+    /**
+     * Always true — every running app now holds caches for a database that
+     * no longer exists.
+     */
+    public var requiresRelaunch: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(restoredFrom: String, 
+        /**
+         * Automatic snapshot of the state that was replaced.
+         */safetySnapshot: String?, itemCountBefore: Int64, itemCountAfter: Int64, clearedSyncState: Bool, 
+        /**
+         * Always true — every running app now holds caches for a database that
+         * no longer exists.
+         */requiresRelaunch: Bool) {
+        self.restoredFrom = restoredFrom
+        self.safetySnapshot = safetySnapshot
+        self.itemCountBefore = itemCountBefore
+        self.itemCountAfter = itemCountAfter
+        self.clearedSyncState = clearedSyncState
+        self.requiresRelaunch = requiresRelaunch
+    }
+}
+
+
+
+extension RestoreReportRow: Equatable, Hashable {
+    public static func ==(lhs: RestoreReportRow, rhs: RestoreReportRow) -> Bool {
+        if lhs.restoredFrom != rhs.restoredFrom {
+            return false
+        }
+        if lhs.safetySnapshot != rhs.safetySnapshot {
+            return false
+        }
+        if lhs.itemCountBefore != rhs.itemCountBefore {
+            return false
+        }
+        if lhs.itemCountAfter != rhs.itemCountAfter {
+            return false
+        }
+        if lhs.clearedSyncState != rhs.clearedSyncState {
+            return false
+        }
+        if lhs.requiresRelaunch != rhs.requiresRelaunch {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(restoredFrom)
+        hasher.combine(safetySnapshot)
+        hasher.combine(itemCountBefore)
+        hasher.combine(itemCountAfter)
+        hasher.combine(clearedSyncState)
+        hasher.combine(requiresRelaunch)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRestoreReportRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RestoreReportRow {
+        return
+            try RestoreReportRow(
+                restoredFrom: FfiConverterString.read(from: &buf), 
+                safetySnapshot: FfiConverterOptionString.read(from: &buf), 
+                itemCountBefore: FfiConverterInt64.read(from: &buf), 
+                itemCountAfter: FfiConverterInt64.read(from: &buf), 
+                clearedSyncState: FfiConverterBool.read(from: &buf), 
+                requiresRelaunch: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RestoreReportRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.restoredFrom, into: &buf)
+        FfiConverterOptionString.write(value.safetySnapshot, into: &buf)
+        FfiConverterInt64.write(value.itemCountBefore, into: &buf)
+        FfiConverterInt64.write(value.itemCountAfter, into: &buf)
+        FfiConverterBool.write(value.clearedSyncState, into: &buf)
+        FfiConverterBool.write(value.requiresRelaunch, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRestoreReportRow_lift(_ buf: RustBuffer) throws -> RestoreReportRow {
+    return try FfiConverterTypeRestoreReportRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRestoreReportRow_lower(_ value: RestoreReportRow) -> RustBuffer {
+    return FfiConverterTypeRestoreReportRow.lower(value)
+}
+
+
+/**
  * SciX (ADS) remote library summary.
  */
 public struct SciXLibraryRow {
@@ -20202,6 +20907,30 @@ fileprivate struct FfiConverterOptionTypeArtifactRow: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeBackupManifestRow: FfiConverterRustBuffer {
+    typealias SwiftType = BackupManifestRow?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeBackupManifestRow.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeBackupManifestRow.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeBibliographyRow: FfiConverterRustBuffer {
     typealias SwiftType = BibliographyRow?
 
@@ -20976,6 +21705,56 @@ fileprivate struct FfiConverterSequenceTypeAuthorRow: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeAuthorRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeBackupRecordRow: FfiConverterRustBuffer {
+    typealias SwiftType = [BackupRecordRow]
+
+    public static func write(_ value: [BackupRecordRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeBackupRecordRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [BackupRecordRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [BackupRecordRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeBackupRecordRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeBackupSchemaCount: FfiConverterRustBuffer {
+    typealias SwiftType = [BackupSchemaCount]
+
+    public static func write(_ value: [BackupSchemaCount], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeBackupSchemaCount.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [BackupSchemaCount] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [BackupSchemaCount]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeBackupSchemaCount.read(from: &buf))
         }
         return seq
     }
@@ -25031,6 +25810,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_create_assignment() != 45754) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_backup() != 31368) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_backup_at_path() != 13106) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_collection() != 21173) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25074,6 +25859,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_artifact() != 55877) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_backup() != 49343) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_collection() != 9910) {
@@ -25193,6 +25981,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_import_from_bibtex_file() != 59232) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_inspect_backup() != 31380) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_is_paper_dismissed() != 12541) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25215,6 +26006,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_assignments() != 26664) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_backups() != 36620) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_collection_members() != 54062) {
@@ -25272,6 +26066,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_move_publications() != 10397) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_prune_backups() != 63351) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_purge_dismissed_from_collection() != 7576) {
@@ -25332,6 +26129,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_reparent_item() != 7572) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_restore_backup() != 30743) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_restore_library() != 32065) {

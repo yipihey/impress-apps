@@ -1156,6 +1156,86 @@ export const IMBIB_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    name: "imbib_create_backup",
+    description:
+      "Create a library backup: a consistent SQLite snapshot of the entire shared impress store (papers, tags, collections, flags, manuscripts, annotations, artifacts), taken safely while imbib/imprint/impel keep writing. Portable — the file opens in plain sqlite3 with no impress software. Use before risky bulk operations (large imports, deduplication, mass tagging).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        label: {
+          type: "string",
+          description: "Optional human label recorded in the manifest, e.g. 'before ADS bulk import'.",
+        },
+        directory: {
+          type: "string",
+          description: "Optional destination directory. Defaults to ~/Library/Application Support/imbib/Backups.",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_list_backups",
+    description:
+      "List library backups, newest first, with their creation time, label, item counts and size.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        directory: {
+          type: "string",
+          description: "Optional directory to list. Defaults to the standard backups folder.",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_inspect_backup",
+    description:
+      "Validate a backup file without touching the live store: SQLite integrity check, required tables, and a SHA-256 match against its manifest. Returns valid=false plus reasons for a corrupt or tampered file. Always run this before imbib_restore_backup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Absolute path of the .impressbackup file.",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "imbib_restore_backup",
+    description:
+      "DESTRUCTIVE. Replace the entire shared store (imbib AND imprint AND impel data) with a backup. The backup is validated first and the current state is snapshotted to a safety folder before anything changes. Refuses with code 'sync_enabled' while iCloud sync is on, because restored rows carry old clocks and other devices would overwrite them — turn sync off first rather than passing force. imbib must be relaunched afterwards. Ask the user to confirm before calling this.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Absolute path of the .impressbackup file to restore.",
+        },
+        force: {
+          type: "boolean",
+          description: "Restore even though iCloud sync is enabled. Only with explicit user consent — the restore may be overwritten by other devices.",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "imbib_delete_backup",
+    description: "Delete one backup file and its JSON manifest sidecar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Absolute path of the .impressbackup file.",
+        },
+      },
+      required: ["path"],
+    },
+  },
 ];
 
 export class ImbibTools {
@@ -1251,6 +1331,18 @@ export class ImbibTools {
         return this.syncComments();
       case "imbib_sync_status":
         return this.getSyncStatus();
+
+      // Library backup & restore
+      case "imbib_create_backup":
+        return this.createBackup(args);
+      case "imbib_list_backups":
+        return this.listBackups(args);
+      case "imbib_inspect_backup":
+        return this.inspectBackup(args);
+      case "imbib_restore_backup":
+        return this.restoreBackup(args);
+      case "imbib_delete_backup":
+        return this.deleteBackup(args);
       case "imbib_list_assignments":
         return this.listAssignments(args);
       case "imbib_list_paper_assignments":
@@ -2356,6 +2448,123 @@ export class ImbibTools {
           type: "text",
           text: result.updated ? "Comment updated" : "Failed to update comment",
         },
+      ],
+    };
+  }
+
+
+  // -----------------------------------------------------------------------
+  // Library backup & restore
+  // -----------------------------------------------------------------------
+
+  private async createBackup(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const backup = await this.client.createBackup({
+      label: args?.label as string | undefined,
+      directory: args?.directory as string | undefined,
+    });
+    const manifest = (backup.manifest ?? {}) as Record<string, unknown>;
+    return {
+      content: [
+        {
+          type: "text",
+          text: [
+            `Backup created: ${backup.filename}`,
+            `Path: ${backup.path}`,
+            `Items: ${manifest.contentItemCount} (${manifest.publicationCount} publications)`,
+            `Size: ${manifest.sizeString}`,
+            `SHA-256: ${manifest.sha256}`,
+          ].join("\n"),
+        },
+      ],
+    };
+  }
+
+  private async listBackups(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const result = await this.client.listBackups(args?.directory as string | undefined);
+    if (result.backups.length === 0) {
+      return {
+        content: [{ type: "text", text: `No backups in ${result.directory}` }],
+      };
+    }
+    const list = result.backups
+      .map((b) => {
+        const m = (b.manifest ?? {}) as Record<string, unknown>;
+        const label = m.label ? ` — "${m.label}"` : "";
+        return `- **${b.filename}**${label}\n  ${m.createdAt} · ${m.contentItemCount} items · ${m.sizeString}\n  ${b.path}`;
+      })
+      .join("\n");
+    return {
+      content: [
+        {
+          type: "text",
+          text: `# Backups (${result.backups.length}) in ${result.directory}\n\n${list}`,
+        },
+      ],
+    };
+  }
+
+  private async inspectBackup(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const path = args?.path as string | undefined;
+    if (!path) {
+      return { content: [{ type: "text", text: "Error: path is required" }] };
+    }
+    const result = await this.client.inspectBackup(path);
+    const manifest = result.manifest as Record<string, unknown> | undefined;
+    const issues = (result.issues as string[] | undefined) ?? [];
+    const lines = [`Valid: ${result.valid}`];
+    if (issues.length > 0) lines.push(`Issues: ${issues.join("; ")}`);
+    if (manifest) {
+      lines.push(
+        `Created: ${manifest.createdAt}`,
+        `App: ${manifest.app} ${manifest.appVersion}`,
+        `Items: ${manifest.contentItemCount} (${manifest.publicationCount} publications)`,
+        `Size: ${manifest.sizeString}`
+      );
+    }
+    return { content: [{ type: "text", text: lines.join("\n") }] };
+  }
+
+  private async restoreBackup(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const path = args?.path as string | undefined;
+    if (!path) {
+      return { content: [{ type: "text", text: "Error: path is required" }] };
+    }
+    const result = await this.client.restoreBackup(path, (args?.force as boolean) ?? false);
+    return {
+      content: [
+        {
+          type: "text",
+          text: [
+            `Restored from ${path}`,
+            `Items: ${result.itemCountBefore} → ${result.itemCountAfter}`,
+            `Safety snapshot of the replaced state: ${result.safetySnapshot ?? "none"}`,
+            `Sync bookkeeping cleared: ${result.clearedSyncState}`,
+            "Relaunch imbib (and any running imprint/impel) so their caches match the restored database.",
+          ].join("\n"),
+        },
+      ],
+    };
+  }
+
+  private async deleteBackup(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const path = args?.path as string | undefined;
+    if (!path) {
+      return { content: [{ type: "text", text: "Error: path is required" }] };
+    }
+    const deleted = await this.client.deleteBackup(path);
+    return {
+      content: [
+        { type: "text", text: deleted ? `Deleted ${path}` : `No backup at ${path}` },
       ],
     };
   }

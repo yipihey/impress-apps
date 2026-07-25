@@ -34,6 +34,12 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/tags/tree` - Get tag tree
 /// - `GET /api/logs` - Query log entries
 /// - `GET /api/sync/status` - CloudKit sync state (ADR-0007 Phase 3)
+/// - `GET /api/backups` - List library backups (newest first)
+/// - `GET /api/backups/inspect?path=` - Validate a backup file
+/// - `POST /api/backups` - Create a consistent whole-store snapshot
+/// - `POST /api/backups/restore` - Restore a backup (DESTRUCTIVE; sync-guarded)
+/// - `POST /api/backups/prune` - Keep the N newest backups
+/// - `DELETE /api/backups?path=` - Delete a backup
 /// - `GET /api/libraries/{id}/activity` - Get library activity feed
 /// - `GET /api/papers/{citeKey}/comments` - List comments for a paper
 /// - `GET /api/papers/{citeKey}/assignments` - List assignments for a paper
@@ -515,6 +521,19 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleSyncStatus()
         }
 
+        // Library backup (see BackupAutomationHandler for the contract).
+        if path == "/api/backups/inspect" {
+            let out = await BackupAutomationHandler.inspectBackup(path: request.queryParams["path"])
+            return .json(out.body.merging(["status": out.status == 200 ? "ok" : "error"]) { a, _ in a },
+                         status: out.status)
+        }
+
+        if path == "/api/backups" {
+            let out = await BackupAutomationHandler.listBackups(
+                directory: request.queryParams["directory"])
+            return .json(out.body.merging(["status": "ok"]) { a, _ in a }, status: out.status)
+        }
+
         if path == "/api/layout" {
             return await handleGetLayout()
         }
@@ -646,6 +665,27 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/sync/nudge" {
             return await handleSyncNudge()
+        }
+
+        // Library backup. POST /api/backups/restore REPLACES the whole shared
+        // store — see BackupAutomationHandler for the sync guard.
+        if path == "/api/backups/restore" {
+            let out = await BackupAutomationHandler.restoreBackup(
+                json: Self.jsonBody(request) ?? [:])
+            return .json(out.body.merging(["status": out.status == 200 ? "ok" : "error"]) { a, _ in a },
+                         status: out.status)
+        }
+
+        if path == "/api/backups/prune" {
+            let out = await BackupAutomationHandler.pruneBackups(json: Self.jsonBody(request) ?? [:])
+            return .json(out.body.merging(["status": out.status == 200 ? "ok" : "error"]) { a, _ in a },
+                         status: out.status)
+        }
+
+        if path == "/api/backups" {
+            let out = await BackupAutomationHandler.createBackup(json: Self.jsonBody(request) ?? [:])
+            return .json(out.body.merging(["status": out.status == 201 ? "ok" : "error"]) { a, _ in a },
+                         status: out.status)
         }
 
         if path == "/api/layout" {
@@ -988,6 +1028,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
     private func routeDELETE(path: String, originalPath: String, request: HTTPRequest) async -> HTTPResponse {
         if path == "/api/papers" {
             return await handleDeletePapers(request)
+        }
+
+        // DELETE /api/backups?path= — remove one snapshot and its manifest.
+        if path == "/api/backups" {
+            let out = await BackupAutomationHandler.deleteBackup(path: request.queryParams["path"])
+            return .json(out.body.merging(["status": out.status == 200 ? "ok" : "error"]) { a, _ in a },
+                         status: out.status)
         }
 
         // DELETE /api/comments/{id}
@@ -1618,6 +1665,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/tags/tree": "Get formatted tag tree",
                 "GET /api/logs": "Query in-app log entries (params: limit, level, category, search, after)",
                 "GET /api/commands": "List available commands for universal command palette",
+                // Library backup & restore
+                "GET /api/backups": "List backups, newest first (params: directory)",
+                "GET /api/backups/inspect?path=": "Validate a backup file without touching the store",
+                "POST /api/backups": "Create a consistent whole-store snapshot (body: label?, directory?)",
+                "POST /api/backups/restore": "DESTRUCTIVE: replace the store from a backup (body: path, force?)",
+                "POST /api/backups/prune": "Keep the N newest backups (body: keep, directory?)",
+                "DELETE /api/backups?path=": "Delete a backup and its manifest",
                 // Artifact endpoints
                 "GET /api/artifacts": "List/search artifacts (params: type, query, limit, offset)",
                 "GET /api/artifacts/{id}": "Get single artifact by ID",

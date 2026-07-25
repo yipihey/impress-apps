@@ -1377,6 +1377,104 @@ export class ImbibClient {
     }
     return (await res.json()) as ResolvedPaperResponse;
   }
+
+  // ---------------------------------------------------------------------
+  // Library backup & restore
+  //
+  // A backup is a consistent SQLite snapshot of the whole shared impress
+  // store (imbib + imprint + impel), taken with VACUUM INTO while other
+  // processes keep writing, plus a JSON manifest sidecar. Restore is
+  // DESTRUCTIVE and refuses while CloudKit sync is enabled unless forced.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Create a whole-store snapshot. Returns the backup record.
+   */
+  async createBackup(options: { label?: string; directory?: string } = {}): Promise<
+    Record<string, unknown>
+  > {
+    const response = await this.authFetch(`${this.baseURL}/api/backups`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: options.label,
+        directory: options.directory,
+      }),
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new Error(`Create backup failed: ${data.error ?? response.statusText}`);
+    }
+    return (data.backup as Record<string, unknown>) ?? data;
+  }
+
+  /**
+   * List backups, newest first.
+   */
+  async listBackups(directory?: string): Promise<{
+    directory: string;
+    backups: Array<Record<string, unknown>>;
+  }> {
+    const suffix = directory ? `?directory=${encodeURIComponent(directory)}` : "";
+    const response = await this.authFetch(`${this.baseURL}/api/backups${suffix}`);
+    if (!response.ok) {
+      throw new Error(`List backups failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as {
+      directory: string;
+      backups: Array<Record<string, unknown>>;
+    };
+    return data;
+  }
+
+  /**
+   * Validate a backup file without touching the live store.
+   */
+  async inspectBackup(path: string): Promise<Record<string, unknown>> {
+    // encodeURIComponent, not URLSearchParams: the latter form-encodes spaces
+    // as `+`, and imbib's query parser reads `+` literally.
+    const response = await this.authFetch(
+      `${this.baseURL}/api/backups/inspect?path=${encodeURIComponent(path)}`
+    );
+    const data = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new Error(`Inspect backup failed: ${data.error ?? response.statusText}`);
+    }
+    return data;
+  }
+
+  /**
+   * DESTRUCTIVE: replace the live store's contents with a backup.
+   * Returns 409 (`code: "sync_enabled"`) unless sync is off or `force`.
+   */
+  async restoreBackup(path: string, force = false): Promise<Record<string, unknown>> {
+    const response = await this.authFetch(`${this.baseURL}/api/backups/restore`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, force }),
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = data.issues ? ` (${(data.issues as string[]).join("; ")})` : "";
+      throw new Error(`Restore failed: ${data.error ?? response.statusText}${detail}`);
+    }
+    return data;
+  }
+
+  /**
+   * Delete a backup and its manifest sidecar.
+   */
+  async deleteBackup(path: string): Promise<boolean> {
+    const response = await this.authFetch(
+      `${this.baseURL}/api/backups?path=${encodeURIComponent(path)}`,
+      { method: "DELETE" }
+    );
+    const data = (await response.json()) as { deleted?: boolean; error?: string };
+    if (!response.ok) {
+      throw new Error(`Delete backup failed: ${data.error ?? response.statusText}`);
+    }
+    return data.deleted ?? false;
+  }
 }
 
 /**

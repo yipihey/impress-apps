@@ -988,231 +988,371 @@ struct SyncSettingsTab: View {
 
 // MARK: - Backup Settings Section
 
-// TODO: Reimplement BackupSettingsSection using Rust-backed storage.
-// LibraryBackupService, BackupInfo, BackupRestoreService, RestoreOptionsView,
-// and RestoreResultView were Core Data-based and have not yet been migrated.
-// When reimplemented, remove the #if false guard and the placeholder below.
+// A backup is a consistent SQLite snapshot of the WHOLE shared impress store
+// (imbib + imprint + impel), produced by `impress_core::backup` via
+// `LibraryBackupService`. Whole-store rather than per-library: the graph store
+// interleaves publications, tags, collections, manuscripts and annotations in
+// one item table, and a partial restore is a merge problem, not a copy.
+//
+// Form gotchas honoured (see apps/imbib/CLAUDE.md): no `List` inside a Form
+// Section — the backup rows are a hand-built `VStack` — and no bare
+// `TextField` in an `HStack`.
 
 struct BackupSettingsSection: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Library Backup")
-                .font(.headline)
+    @State private var backups: [LibraryBackupRecord] = []
+    @State private var isWorking = false
+    @State private var statusMessage: String?
+    @State private var errorMessage: String?
 
-            Text("Backup and restore is not yet available after the storage migration. This feature will be reimplemented in a future update.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
+    // Restore flow
+    @State private var pendingRestore: LibraryBackupRecord?
+    @State private var restoreReport: LibraryRestoreReport?
 
-#if false
-// --- Original backup implementation (requires LibraryBackupService, BackupInfo, BackupRestoreService) ---
-
-struct _BackupSettingsSection_Original: View {
-    @State private var isExporting = false
-    @State private var exportProgress: LibraryBackupService.BackupProgress?
-    @State private var lastBackupDate: Date?
-    @State private var availableBackups: [BackupInfo] = []
-
-    // Restore state
-    @State private var selectedBackupForRestore: BackupInfo?
-    @State private var showRestoreResult: BackupRestoreService.RestoreResult?
+    private var syncIsOn: Bool { SyncSettings.isEnabled }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Export button
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Library Backup")
-                        .font(.headline)
-                    if let lastBackup = lastBackupDate {
-                        Text("Last backup: \(lastBackup, style: .relative) ago")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("No recent backups")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            header
 
-                Spacer()
-
-                Button {
-                    Task { await exportBackup() }
-                } label: {
-                    if isExporting {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Label("Export Library", systemImage: "square.and.arrow.up")
-                    }
-                }
-                .disabled(isExporting)
+            if syncIsOn {
+                syncWarning
             }
 
-            if let progress = exportProgress {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: progress.fractionComplete)
-                    Text(progress.phase.rawValue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            if let statusMessage {
+                Label(statusMessage, systemImage: "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
 
             Divider()
 
-            // Recent backups list
-            if !availableBackups.isEmpty {
-                Text("Recent Backups")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            backupList
+        }
+        .task { await reload() }
+        // Confirmation is deliberately a dialog, not an inline toggle:
+        // restore replaces every row in the shared store.
+        .confirmationDialog(
+            "Restore this backup?",
+            isPresented: Binding(
+                get: { pendingRestore != nil },
+                set: { if !$0 { pendingRestore = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Restore and Replace Library", role: .destructive) {
+                if let record = pendingRestore {
+                    pendingRestore = nil
+                    performRestore(record)
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingRestore = nil }
+        } message: {
+            Text(restoreWarningText)
+        }
+        .alert(
+            "Library Restored",
+            isPresented: Binding(
+                get: { restoreReport != nil },
+                set: { if !$0 { restoreReport = nil } }
+            )
+        ) {
+            Button("Quit imbib") {
+                restoreReport = nil
+                NSApplication.shared.terminate(nil)
+            }
+            Button("Later", role: .cancel) { restoreReport = nil }
+        } message: {
+            if let report = restoreReport {
+                Text(restoreResultText(report))
+            }
+        }
+    }
 
-                ForEach(Array(availableBackups.prefix(3))) { backup in
+    // MARK: - Pieces
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Library Backup")
+                    .font(.headline)
+                if let latest = backups.first {
+                    // Split out of the view builder: a single interpolation
+                    // with a relative date plus two more values blows past the
+                    // type checker's budget.
+                    Text(lastBackupSummary(latest))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("No backups yet. A backup is a complete, consistent snapshot of your whole impress library — papers, tags, collections, manuscripts and annotations — in a single SQLite file that opens anywhere.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer()
+
+            if isWorking {
+                ProgressView().controlSize(.small)
+            }
+
+            Button {
+                createBackup()
+            } label: {
+                Label("Back Up Now", systemImage: "arrow.down.doc")
+            }
+            .disabled(isWorking)
+            .help("Snapshot the whole library. Safe to run while you keep working.")
+
+            Button {
+                revealBackupsFolder()
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.borderless)
+            .help("Show the backups folder in Finder")
+
+            Button {
+                restoreFromFile()
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+            }
+            .buttonStyle(.borderless)
+            .disabled(isWorking)
+            .help("Restore from a backup file elsewhere on disk…")
+        }
+    }
+
+    private var syncWarning: some View {
+        Label(
+            "iCloud sync is on. Restoring rewinds every record, and your other devices would "
+                + "overwrite the restored data with what they already hold. Turn sync off in the "
+                + "iCloud Sync section above before restoring.",
+            systemImage: "exclamationmark.triangle.fill"
+        )
+        .font(.caption)
+        .foregroundStyle(.orange)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private var backupList: some View {
+        if backups.isEmpty {
+            Text("No backups found")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .italic()
+        } else {
+            Text("Recent Backups")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                ForEach(backups.prefix(5)) { backup in
                     BackupRow(
                         backup: backup,
-                        onRestore: {
-                            selectedBackupForRestore = backup
-                        },
-                        onShowInFinder: {
-                            showBackupInFinder(backup)
-                        }
+                        restoreDisabled: isWorking || syncIsOn,
+                        onRestore: { pendingRestore = backup },
+                        onReveal: { reveal(backup.url) },
+                        onDelete: { delete(backup) }
                     )
                 }
-            } else {
-                Text("No backups found")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .italic()
             }
-        }
-        .onAppear {
-            loadBackupInfo()
-        }
-        .sheet(item: $selectedBackupForRestore) { backup in
-            RestoreOptionsView(
-                backupInfo: backup,
-                onDismiss: {
-                    selectedBackupForRestore = nil
-                },
-                onComplete: { result in
-                    selectedBackupForRestore = nil
-                    showRestoreResult = result
-                    loadBackupInfo()
-                }
-            )
-            .frame(minWidth: 450, minHeight: 350)
-        }
-        .sheet(item: Binding(
-            get: { showRestoreResult.map { RestoreResultWrapper(result: $0) } },
-            set: { showRestoreResult = $0?.result }
-        )) { wrapper in
-            RestoreResultView(
-                result: wrapper.result,
-                onDismiss: {
-                    showRestoreResult = nil
-                }
-            )
-            .frame(minWidth: 400, minHeight: 300)
         }
     }
 
-    private func exportBackup() async {
-        isExporting = true
-        defer { isExporting = false }
-
-        let service = LibraryBackupService()
-        do {
-            let backupURL = try await service.exportFullBackup { progress in
-                Task { @MainActor in
-                    self.exportProgress = progress
-                }
-            }
-            exportProgress = nil
-            lastBackupDate = Date()
-            loadBackupInfo()
-
-            // Show in Finder
-            #if os(macOS)
-            NSWorkspace.shared.selectFile(backupURL.path, inFileViewerRootedAtPath: backupURL.deletingLastPathComponent().path)
-            #endif
-        } catch {
-            exportProgress = nil
-            // Handle error
+    /// Built outside the view builder — string concatenation of this size in a
+    /// `Text(...)` argument exceeds the type checker's budget.
+    private func restoreResultText(_ report: LibraryRestoreReport) -> String {
+        let safety: String
+        if let path = report.safetySnapshot {
+            safety = " to " + URL(fileURLWithPath: path).lastPathComponent
+        } else {
+            safety = ""
         }
+        let counts = "\(report.itemCountAfter) records restored (was \(report.itemCountBefore))."
+        let saved = "A snapshot of the replaced library was saved first" + safety + "."
+        let relaunch = "Quit and reopen imbib — and any running imprint or impel — so they stop "
+            + "showing records from the previous library."
+        return counts + "\n\n" + saved + "\n\n" + relaunch
     }
 
-    private func loadBackupInfo() {
-        let service = LibraryBackupService()
+    private func lastBackupSummary(_ record: LibraryBackupRecord) -> String {
+        let when = record.manifest.createdAt.formatted(date: .abbreviated, time: .shortened)
+        let records = record.manifest.contentItemCount
+        return "Last backup \(when) — \(records) records, \(record.manifest.sizeString)"
+    }
+
+    private var restoreWarningText: String {
+        guard let record = pendingRestore else { return "" }
+        return """
+            \(record.filename) — \(record.manifest.contentItemCount) records from \
+            \(record.manifest.createdAt.formatted(date: .abbreviated, time: .shortened)).
+
+            This replaces your ENTIRE impress library, including imprint manuscripts and impel \
+            tasks. Anything added since this backup will be gone. The current library is \
+            snapshotted first, so this is reversible.
+
+            imbib must be relaunched afterwards.
+            """
+    }
+
+    // MARK: - Actions
+
+    private func reload() async {
+        let records = await LibraryBackupService.shared.listBackups()
+        backups = records
+    }
+
+    private func createBackup() {
+        isWorking = true
+        errorMessage = nil
+        statusMessage = nil
         Task {
-            let backups = await service.listBackups()
-            await MainActor.run {
-                availableBackups = backups
-                lastBackupDate = backups.first?.createdAt
+            do {
+                let record = try await LibraryBackupService.shared.createBackup()
+                statusMessage = "Backed up \(record.manifest.contentItemCount) records to \(record.filename)"
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            await reload()
+            isWorking = false
+        }
+    }
+
+    private func performRestore(_ record: LibraryBackupRecord) {
+        // Capture before the Task: @State is heap-backed and the dialog that
+        // set `pendingRestore` has already dismissed (root CLAUDE.md).
+        let url = record.url
+        isWorking = true
+        errorMessage = nil
+        statusMessage = nil
+        Task {
+            do {
+                let report = try await LibraryBackupService.shared.restore(from: url)
+                await LibraryBackupService.announceRestoreToUI()
+                restoreReport = report
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            await reload()
+            isWorking = false
+        }
+    }
+
+    private func delete(_ record: LibraryBackupRecord) {
+        let url = record.url
+        Task {
+            do {
+                _ = try await LibraryBackupService.shared.delete(url)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            await reload()
+        }
+    }
+
+    private func restoreFromFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = []
+        panel.allowsOtherFileTypes = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose an imbib backup (.impressbackup) to restore."
+        panel.directoryURL = LibraryBackupService.backupsDirectory
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        isWorking = true
+        errorMessage = nil
+        Task {
+            do {
+                let inspection = try await LibraryBackupService.shared.inspect(url)
+                guard inspection.valid, let manifest = inspection.manifest else {
+                    errorMessage = "Not a usable backup: \(inspection.issues.joined(separator: "; "))"
+                    isWorking = false
+                    return
+                }
+                isWorking = false
+                pendingRestore = LibraryBackupRecord(
+                    path: url.path, manifestPath: nil, manifest: manifest)
+            } catch {
+                errorMessage = error.localizedDescription
+                isWorking = false
             }
         }
     }
 
-    private func showBackupInFinder(_ backup: BackupInfo) {
-        #if os(macOS)
+    private func revealBackupsFolder() {
+        let dir = LibraryBackupService.backupsDirectory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: dir.path)
+    }
+
+    private func reveal(_ url: URL) {
         NSWorkspace.shared.selectFile(
-            backup.url.path,
-            inFileViewerRootedAtPath: backup.url.deletingLastPathComponent().path
-        )
-        #endif
+            url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
     }
 }
 
 // MARK: - Backup Row
 
 private struct BackupRow: View {
-    let backup: BackupInfo
+    let backup: LibraryBackupRecord
+    let restoreDisabled: Bool
     let onRestore: () -> Void
-    let onShowInFinder: () -> Void
+    let onReveal: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading) {
-                Text(backup.url.lastPathComponent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(backup.manifest.createdAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption)
-                Text("\(backup.publicationCount) publications, \(backup.attachmentCount) files")
+                Text(detailLine)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            Text(backup.sizeString)
+            Text(backup.manifest.sizeString)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button("Restore") {
-                onRestore()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Restore from this backup")
+            Button("Restore", action: onRestore)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(restoreDisabled)
+                .help(
+                    restoreDisabled
+                        ? "Turn iCloud sync off before restoring"
+                        : "Replace the library with this backup")
 
-            Button {
-                onShowInFinder()
-            } label: {
-                Image(systemName: "folder")
-            }
-            .buttonStyle(.borderless)
-            .help("Show in Finder")
+            Button(action: onReveal) { Image(systemName: "folder") }
+                .buttonStyle(.borderless)
+                .help("Show in Finder")
+
+            Button(action: onDelete) { Image(systemName: "trash") }
+                .buttonStyle(.borderless)
+                .help("Delete this backup")
         }
     }
-}
 
-// MARK: - Restore Result Wrapper
-
-/// Wrapper to make RestoreResult identifiable for sheet presentation.
-private struct RestoreResultWrapper: Identifiable {
-    let id = UUID()
-    let result: BackupRestoreService.RestoreResult
+    private var detailLine: String {
+        var parts = ["\(backup.manifest.publicationCount) papers"]
+        parts.append("\(backup.manifest.contentItemCount) records")
+        if let label = backup.manifest.label, !label.isEmpty {
+            parts.append("“\(label)”")
+        }
+        return parts.joined(separator: " · ")
+    }
 }
-#endif
 
 // MARK: - Advanced Settings
 

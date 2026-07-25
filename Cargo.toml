@@ -172,7 +172,7 @@ impel-tui = { path = "apps/impel-tui" }
 impel-server = { path = "crates/impel-server" }
 
 # impel dependencies
-rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }
+rusqlite = { version = "0.32", features = ["bundled", "serde_json", "backup"] }
 mail-parser = "0.9"
 petgraph = "0.6"
 ratatui = "0.29"

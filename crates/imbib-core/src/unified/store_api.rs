@@ -353,7 +353,9 @@ impl From<impress_core::sync::SyncCounts> for SyncCounts {
 /// The main entry point for Swift. Wraps SqliteItemStore + SchemaRegistry.
 #[cfg_attr(feature = "native", derive(uniffi::Object))]
 pub struct ImbibStore {
-    store: SqliteItemStore,
+    // `pub(super)` so sibling modules of `unified` (e.g. `backup_api`) can add
+    // exported methods without living in this 7k-line file.
+    pub(super) store: SqliteItemStore,
     #[allow(dead_code)] // Available for validation in future phases
     registry: impress_core::SchemaRegistry,
     tag_defs_cache: std::sync::Mutex<Option<Vec<TagDisplayRow>>>,

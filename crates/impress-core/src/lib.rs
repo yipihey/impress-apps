@@ -10,6 +10,8 @@ pub mod store;
 pub mod task;
 
 #[cfg(feature = "sqlite")]
+pub mod backup;
+#[cfg(feature = "sqlite")]
 pub mod manuscript_ops;
 #[cfg(feature = "sqlite")]
 pub mod sql_query;
