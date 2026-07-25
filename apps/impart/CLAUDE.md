@@ -16,7 +16,7 @@ Cross-platform (macOS/iOS) communication tool for email, chat, and messaging. Pa
 │                  ImpartRustCore (FFI)                       │
 │      IMAP │ SMTP │ MIME │ Threading │ Search                │
 ├─────────────────────────────────────────────────────────────┤
-│                    Core Data + CloudKit                     │
+│                    Core Data (local only)                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -24,7 +24,7 @@ Cross-platform (macOS/iOS) communication tool for email, chat, and messaging. Pa
 
 | Area | Decision | Details |
 |------|----------|---------|
-| Data | Core Data + CloudKit | Repository pattern, offline-first |
+| Data | Core Data (local only) | Repository pattern, offline-first; CloudKit wiring is commented out |
 | IMAP/SMTP | Rust core | Performance, cross-platform potential |
 | Threading | JWZ algorithm | Standard email threading via Rust |
 | MIME | Rust parser | Full RFC 2045 compliance |

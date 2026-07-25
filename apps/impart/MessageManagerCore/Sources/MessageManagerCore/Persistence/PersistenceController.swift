@@ -69,17 +69,15 @@ public final class PersistenceController: Sendable {
         let description = NSPersistentStoreDescription(url: storeURL)
         container.persistentStoreDescriptions = [description]
 
-        // Enable persistent history tracking for CloudKit
+        // Persistent history tracking, so sibling processes see remote-change
+        // notifications when the store is written from an extension.
         description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
 
-        // CloudKit container - temporarily disabled pending provisioning setup
-        // TODO: Re-enable once CloudKit container is configured in Apple Developer portal
-        // if !inMemory {
-        //     description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
-        //         containerIdentifier: "iCloud.com.imbib.shared"
-        //     )
-        // }
+        // No CloudKit mirroring: this store is local-only by design. Multi-device
+        // sync is handled suite-wide by the impress graph store (ADR-0020), not by
+        // per-app NSPersistentCloudKitContainer mirroring. The old
+        // `iCloud.com.imbib.shared` container this once pointed at has been retired.
 
         container.loadPersistentStores { storeDescription, error in
             if let error = error as NSError? {

@@ -27,7 +27,7 @@ Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compat
 │                 PublicationManagerCore (95% of code)        │
 │    Models │ Repositories │ Services │ Plugins │ ViewModels │
 ├─────────────────────────────────────────────────────────────┤
-│                    Core Data + CloudKit                     │
+│         Rust graph store (impress-core, SQLite)             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -35,7 +35,7 @@ Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compat
 
 | Area | Decision | Details |
 |------|----------|---------|
-| Data | Core Data + CloudKit | Repository pattern via `PublicationRepository` |
+| Data | Rust graph store (SQLite) | All access via `RustStoreAdapter.shared`; Core Data is migration-only legacy |
 | BibTeX | Source of truth | Round-trip fidelity, `Bdsk-File-*` support, cite keys: `{LastName}{Year}{TitleWord}` |
 | PDFs | Human-readable names | `Author_Year_Title.pdf`, relative paths from .bib location |
 | Plugins | Actor-based | `SourcePlugin` protocol, built-in: ArXiv, Crossref, ADS, PubMed, Semantic Scholar, OpenAlex, DBLP |
@@ -283,9 +283,9 @@ The imbib macOS main view is `NavigationSplitView` > `SectionContentView` (HSpli
 
 ## Project Status
 
-**Complete**: Foundation, PDF import, multi-library, smart searches, RIS format, automation API, Siri Shortcuts
+**Complete**: Foundation, PDF import, multi-library, smart searches, RIS format, automation API, Siri Shortcuts, suite-wide CloudKit sync of the graph store (ADR-0020; feature-flagged, default OFF)
 
-**In Progress**: CloudKit sync, PDF annotation, flagging & tagging integration
+**In Progress**: PDF annotation, flagging & tagging integration
 
 **Not Yet**: JSON plugin bundles, JavaScriptCore transforms, CSL formatting
 

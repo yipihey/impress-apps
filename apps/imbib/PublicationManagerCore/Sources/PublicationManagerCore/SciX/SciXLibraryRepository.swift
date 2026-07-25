@@ -22,10 +22,10 @@ public final class SciXLibraryRepository {
 
     public private(set) var libraries: [SciXLibrary] = []
 
-    /// Observer for CloudKit remote change notifications
-    private var cloudKitObserver: (any NSObjectProtocol)?
+    /// Observer for `.rustStoreDidMutate` notifications from the Rust store
+    private var storeObserver: (any NSObjectProtocol)?
 
-    /// Debounce task for CloudKit change handling
+    /// Debounce task for store-change handling
     private var debounceTask: Task<Void, Never>?
 
     /// Last time we reloaded libraries (for debouncing)
@@ -42,15 +42,15 @@ public final class SciXLibraryRepository {
     // MARK: - Initialization
 
     public init() {
-        setupCloudKitObserver()
+        setupStoreObserver()
         loadLibraries()
     }
 
-    // MARK: - CloudKit Sync
+    // MARK: - Store Change Observation
 
-    /// Set up observer for CloudKit remote changes to trigger reload
-    private func setupCloudKitObserver() {
-        cloudKitObserver = NotificationCenter.default.addObserver(
+    /// Set up observer for Rust store mutations to trigger a debounced reload
+    private func setupStoreObserver() {
+        storeObserver = NotificationCenter.default.addObserver(
             forName: .rustStoreDidMutate,
             object: nil,
             queue: .main
@@ -82,11 +82,11 @@ public final class SciXLibraryRepository {
         }
     }
 
-    /// Remove the CloudKit observer when no longer needed
+    /// Remove the store observer when no longer needed
     public func removeObserver() {
-        if let observer = cloudKitObserver {
+        if let observer = storeObserver {
             NotificationCenter.default.removeObserver(observer)
-            cloudKitObserver = nil
+            storeObserver = nil
         }
     }
 

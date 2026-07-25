@@ -18,7 +18,6 @@ native = ["uniffi", "sqlite"]
 [dependencies]
 # Workspace crates
 impress-domain = { workspace = true }
-impress-collab = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite"] }
 
 # Serialization and error handling

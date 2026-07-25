@@ -18,10 +18,10 @@ We are committed to protecting your privacy. Our apps are designed with privacy-
 
 | What We Collect | Why | Where Stored |
 |-----------------|-----|--------------|
-| Publication metadata | Core app functionality | Local device + iCloud (if enabled) |
+| Publication metadata | Core app functionality | Local device; also iCloud if you turn sync on (off by default) |
 | API credentials you provide | Access academic databases | Device Keychain (encrypted) |
 | Search queries | Retrieve academic literature | Sent to academic APIs, not logged |
-| Documents you create | Core app functionality | Local device only |
+| Documents you create | Core app functionality | Local device; manuscript metadata and bodies under 1 MB also sync if you turn sync on |
 | App preferences | Personalization | Local device only |
 
 **We do NOT collect:** Personal identifiers, usage analytics, location data, contacts, or any data for advertising purposes.
@@ -38,12 +38,15 @@ We are committed to protecting your privacy. Our apps are designed with privacy-
 - **BibTeX/RIS files**: Your bibliography in open, portable formats
 - **App preferences**: UI settings, keyboard shortcuts, enrichment preferences
 
-#### Data Synced via iCloud (Optional)
-If you enable iCloud sync in Settings:
-- Publication metadata syncs to your private iCloud account
-- Only you can access this data through your Apple ID
-- You can disable sync at any time in Settings
-- API credentials are **never** synced to iCloud
+#### Data Synced via iCloud (Optional, off by default)
+Sync is **disabled by default**. If you turn it on in Settings:
+- The shared impress graph store — publications, manuscripts, tags, and the
+  links between them — syncs to the **private** database of your own iCloud
+  account, in the `iCloud.com.impress.suite` container
+- Only you can access this data, through your Apple ID; there is no sharing
+  with other users and no server we operate
+- You can disable sync at any time in Settings; your data stays on the device
+- API credentials are **never** synced
 
 #### API Credentials
 When you provide API keys for academic services (NASA ADS, Web of Science, etc.):
@@ -102,22 +105,34 @@ We want to be explicit about what we don't do:
 
 ---
 
-## iCloud Sync (imbib only)
+## iCloud Sync (suite-wide, off by default)
+
+Sync covers the shared impress graph store used by all impress apps, not just
+imbib. It runs in one container, `iCloud.com.impress.suite`, entirely within
+your own private iCloud database.
 
 ### What Syncs
 - Publication metadata (titles, authors, abstracts, citations, tags, notes)
 - Library organization (collections, smart searches)
 - Reading positions
+- Manuscript metadata, and manuscript bodies **under 1 MB**
+- Some cross-device app settings, via iCloud key-value storage
 
 ### What Does NOT Sync
-- PDF files (remain local)
-- API credentials (stored only in device Keychain)
-- App preferences (stored only in local UserDefaults)
+- **PDF files and other attachments** — these stay on the device that has them
+- **Manuscript bodies over 1 MB** — stored outside the synced store; other
+  devices see the manuscript but report the body as unavailable
+- API credentials (stored only in the device Keychain)
+- Undo history and operation history (per-device)
+- Preferences not explicitly listed as synced settings
 
 ### Your Control
-- iCloud sync is **optional** and can be disabled in Settings
-- When disabled, all data remains only on your device
-- You can reset sync data at any time
+- Sync is **optional and off by default**; you turn it on in imbib's Settings
+- Turning it off is always safe — your data is local and stays local
+- When off, nothing leaves your device except the academic API requests you
+  explicitly make
+- Only imbib runs the sync engine; changes made in imprint or impel are queued
+  and upload the next time imbib is running
 
 ### Apple's Role
 iCloud data is governed by [Apple's Privacy Policy](https://www.apple.com/legal/privacy/). Data is encrypted in transit and at rest in Apple's data centers.
@@ -173,7 +188,7 @@ We do not share your data with any other third parties. We do not sell, rent, or
 - iCloud data can be managed through iCloud settings
 
 ### Disable Features
-- Disable iCloud sync in Settings (imbib)
+- iCloud sync is off unless you enable it in Settings (imbib); disable it there at any time
 - Remove API keys to prevent external searches
 - Use offline mode for local-only operation
 

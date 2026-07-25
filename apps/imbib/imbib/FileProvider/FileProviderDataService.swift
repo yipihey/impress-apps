@@ -70,7 +70,9 @@ final class FileProviderDataService {
     }
 
     func materializeFile(for publication: FileProviderPublication) async -> URL? {
-        // TODO: Download from CloudKit if needed
+        // PDF attachments live in the local BlobStore and are not carried by
+        // suite sync (ADR-0020 known limitations), so there is nothing to fetch
+        // remotely: if the file is not already on disk it is unavailable here.
         return nil
     }
 }

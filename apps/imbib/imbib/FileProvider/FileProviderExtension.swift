@@ -91,7 +91,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
                 return
             }
 
-            // Materialize from CloudKit if needed
+            // Materialize from the store-backed blob cache if needed
             if let materializedURL = await FileProviderDataService.shared.materializeFile(for: publication) {
                 let item = FileProviderItem(publication: publication)
                 completionHandler(materializedURL, item, nil)

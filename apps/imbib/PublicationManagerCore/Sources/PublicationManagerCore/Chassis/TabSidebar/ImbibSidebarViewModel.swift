@@ -91,10 +91,6 @@ final class ImbibSidebarViewModel {
     var scixLibraryToDelete: SciXLibrary?
     var showSciXDeleteConfirmation = false
 
-    // MARK: - Sharing
-
-    var itemToShareViaICloud: SidebarICloudShareItem?
-
     // MARK: - Exploration
 
     var explorationRefreshTrigger = UUID()
@@ -1596,11 +1592,6 @@ final class ImbibSidebarViewModel {
         importItem.representedObject = libraryID
         menu.addItem(importItem)
 
-        let shareItem = NSMenuItem(title: "Share...", action: #selector(ContextMenuActions.shareLibrary(_:)), keyEquivalent: "")
-        shareItem.target = ContextMenuActions.shared
-        shareItem.representedObject = libraryID
-        menu.addItem(shareItem)
-
         menu.addItem(.separator())
 
         let deleteItem = NSMenuItem(title: "Delete Library", action: #selector(ContextMenuActions.deleteLibrary(_:)), keyEquivalent: "")
@@ -1655,11 +1646,6 @@ final class ImbibSidebarViewModel {
             newSubItem.target = ContextMenuActions.shared
             newSubItem.representedObject = ["collectionID": collectionID, "libraryID": libraryID] as [String: UUID]
             menu.addItem(newSubItem)
-
-            let shareItem = NSMenuItem(title: "Share...", action: #selector(ContextMenuActions.shareCollection(_:)), keyEquivalent: "")
-            shareItem.target = ContextMenuActions.shared
-            shareItem.representedObject = collectionID
-            menu.addItem(shareItem)
 
             menu.addItem(.separator())
         }
@@ -2327,24 +2313,6 @@ final class ContextMenuActions: NSObject {
     @objc func importToLibrary(_ sender: NSMenuItem) {
         guard let libraryID = sender.representedObject as? UUID else { return }
         viewModel?.importToLibrary(libraryID)
-    }
-
-    @objc func shareLibrary(_ sender: NSMenuItem) {
-        guard let libraryID = sender.representedObject as? UUID,
-              let library = RustStoreAdapter.shared.getLibrary(id: libraryID) else { return }
-        let vm = viewModel
-        DispatchQueue.main.async {
-            vm?.itemToShareViaICloud = .library(library)
-        }
-    }
-
-    @objc func shareCollection(_ sender: NSMenuItem) {
-        guard let collectionID = sender.representedObject as? UUID,
-              let collection = viewModel?.findCollectionModelPublic(collectionID) else { return }
-        let vm = viewModel
-        DispatchQueue.main.async {
-            vm?.itemToShareViaICloud = .collection(collection)
-        }
     }
 
     @objc func hideSearchForm(_ sender: NSMenuItem) {

@@ -8,6 +8,25 @@
 
 ---
 
+## Status update (2026-07-25)
+
+This ADR is a historical record of the phased roadmap; the body below is
+unchanged. Where the roadmap and reality diverge, reality is:
+
+- **Phase 2 (D26, iCloud Drive backup): SKIPPED entirely.** It was never built
+  and will not be — Phase 3 subsumed the need.
+- **Phase 3: SHIPPED 2026-07-25**, as specified in
+  [ADR-0020: Sync Engine Implementation](ADR-0020-sync-engine-implementation.md).
+  ADR-0020 records where implementation amended the decisions below (notably a
+  trigger-fed outbox for change detection, and one suite-wide zone in a new
+  `iCloud.com.impress.suite` container rather than per-library zones). Read
+  ADR-0020 first for anything about how sync actually works today.
+- **Phase 4 (D28, multi-user collaboration / sharing): NOT BUILT.** Library
+  sharing between users does not exist; the sharing endpoints and MCP tools
+  return an unavailable error.
+
+---
+
 ## Context
 
 ADR-0004 established the two-layer storage system: a SQLite graph store for structured item data and Automerge documents for collaborative content. It sketched a sync architecture but left the phasing and implementation mechanics unspecified, describing personal multi-device sync and multi-user collaboration as adjacent concerns with a shared CloudKit strategy.

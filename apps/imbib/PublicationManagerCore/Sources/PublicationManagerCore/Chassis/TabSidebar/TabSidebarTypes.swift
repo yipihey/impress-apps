@@ -195,19 +195,4 @@ struct FlagCounts {
     static let empty = FlagCounts()
 }
 
-// MARK: - Shareable Item (iCloud Sharing)
-
-/// Represents an item that can be shared via iCloud.
-/// TODO: Reconnect to CloudKit sharing after Rust migration.
-public enum SidebarICloudShareItem: Identifiable {
-    case library(LibraryModel)
-    case collection(CollectionModel)
-
-    public var id: String {
-        switch self {
-        case .library(let lib): return "library-\(lib.id)"
-        case .collection(let col): return "collection-\(col.id)"
-        }
-    }
-}
 #endif

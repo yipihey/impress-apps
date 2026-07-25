@@ -223,10 +223,6 @@ targets:
           # wildcard, so access never triggers the app-group TCC prompt.
           - QG3MEYVHMS.com.imbib.shared
           - QG3MEYVHMS.com.impress.suite
-        com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.imbib.shared
-        com.apple.developer.ubiquity-container-identifiers:
-          - iCloud.com.imbib.shared
 
   imprintTests:
     type: bundle.unit-test
@@ -374,10 +370,6 @@ targets:
         com.apple.security.application-groups:
           - group.com.imbib.shared
           - group.com.impress.suite
-        com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.imbib.shared
-        com.apple.developer.ubiquity-container-identifiers:
-          - iCloud.com.imbib.shared
 
   imprint-ShareExtension:
     type: app-extension

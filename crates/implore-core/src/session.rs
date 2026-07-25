@@ -8,7 +8,7 @@
 
 use crate::dataset::Dataset;
 use crate::view::ViewState;
-use impress_collab::{Permissions, PresenceInfo};
+use impress_collab::Permissions;
 use serde::{Deserialize, Serialize};
 
 /// A collaborative visualization session
@@ -28,9 +28,6 @@ pub struct VisualizationSession {
 
     /// Current view state (camera, colormap, etc.)
     pub view_state: ViewState,
-
-    /// Collaboration participants
-    pub participants: Vec<SessionParticipant>,
 
     /// Owner's permissions (the base permissions)
     pub permissions: Permissions,
@@ -57,7 +54,6 @@ impl VisualizationSession {
             name: name.into(),
             dataset_id: None,
             view_state: ViewState::default(),
-            participants: Vec::new(),
             permissions: Permissions::OWNER,
             figures: Vec::new(),
             created_at: now.clone(),
@@ -71,30 +67,6 @@ impl VisualizationSession {
         let mut session = Self::new(name);
         session.dataset_id = Some(dataset.id.clone());
         session
-    }
-
-    /// Add a participant to the session
-    pub fn add_participant(&mut self, participant: SessionParticipant) {
-        self.participants.push(participant);
-        self.touch();
-    }
-
-    /// Remove a participant by user ID
-    pub fn remove_participant(&mut self, user_id: &str) -> Option<SessionParticipant> {
-        if let Some(pos) = self.participants.iter().position(|p| p.user_id == user_id) {
-            self.touch();
-            Some(self.participants.remove(pos))
-        } else {
-            None
-        }
-    }
-
-    /// Get active participants (not offline)
-    pub fn active_participants(&self) -> Vec<&SessionParticipant> {
-        self.participants
-            .iter()
-            .filter(|p| !matches!(p.presence.status, impress_collab::PresenceStatus::Offline))
-            .collect()
     }
 
     /// Add a figure to the session
@@ -124,53 +96,6 @@ impl VisualizationSession {
 impl Default for VisualizationSession {
     fn default() -> Self {
         Self::new("Untitled Session")
-    }
-}
-
-/// A participant in a visualization session
-///
-/// Note: This struct is not exported via UniFFI due to dependency on types from impress_collab.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionParticipant {
-    /// User identifier
-    pub user_id: String,
-
-    /// Display name
-    pub display_name: String,
-
-    /// Presence information
-    pub presence: PresenceInfo,
-
-    /// Permissions for this participant
-    pub permissions: Permissions,
-
-    /// When this participant joined
-    pub joined_at: String,
-}
-
-impl SessionParticipant {
-    /// Create a new participant
-    pub fn new(user_id: impl Into<String>, display_name: impl Into<String>) -> Self {
-        let user_id_str = user_id.into();
-        let display_name_str = display_name.into();
-        Self {
-            presence: PresenceInfo::new(
-                uuid::Uuid::new_v4().to_string(),
-                user_id_str.clone(),
-                display_name_str.clone(),
-                String::new(), // resource_id set when joining session
-            ),
-            user_id: user_id_str,
-            display_name: display_name_str,
-            permissions: Permissions::VIEW,
-            joined_at: chrono::Utc::now().to_rfc3339(),
-        }
-    }
-
-    /// Create a participant with edit permissions
-    pub fn with_edit_permissions(mut self) -> Self {
-        self.permissions = Permissions::EDITOR;
-        self
     }
 }
 
@@ -349,20 +274,6 @@ mod tests {
         let session = VisualizationSession::new("Test Session");
         assert_eq!(session.name, "Test Session");
         assert!(session.dataset_id.is_none());
-        assert!(session.participants.is_empty());
-    }
-
-    #[test]
-    fn test_participant_management() {
-        let mut session = VisualizationSession::new("Test");
-        let participant = SessionParticipant::new("user1", "Alice");
-
-        session.add_participant(participant);
-        assert_eq!(session.participants.len(), 1);
-
-        let removed = session.remove_participant("user1");
-        assert!(removed.is_some());
-        assert!(session.participants.is_empty());
     }
 
     #[test]

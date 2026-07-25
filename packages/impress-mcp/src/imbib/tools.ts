@@ -547,7 +547,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_list_participants",
     description:
-      "List all participants in a shared library. Shows who has access, their permissions, and share status.",
+      "NOT AVAILABLE: library sharing between users is not implemented — this endpoint always returns a sharingUnavailable error. (Multi-device sync of your OWN library does exist; see ADR-0020.) Would list participants of a shared library.",
     inputSchema: {
       type: "object",
       properties: {
@@ -781,7 +781,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_share_library",
     description:
-      "Share a library via CloudKit. Creates a share URL that can be sent to collaborators.",
+      "NOT AVAILABLE: library sharing between users is not implemented — this endpoint always returns a sharingUnavailable error. (Multi-device sync of your OWN library does exist; see ADR-0020.) Would share a library with collaborators.",
     inputSchema: {
       type: "object",
       properties: {
@@ -796,7 +796,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_unshare_library",
     description:
-      "Stop sharing a library or leave a shared library you're participating in.",
+      "NOT AVAILABLE: library sharing between users is not implemented — this endpoint always returns a sharingUnavailable error. (Multi-device sync of your OWN library does exist; see ADR-0020.) Would stop sharing a library, or leave one you are participating in.",
     inputSchema: {
       type: "object",
       properties: {
@@ -816,7 +816,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_set_participant_permission",
     description:
-      "Change a participant's permission level in a shared library. Only the share owner can do this.",
+      "NOT AVAILABLE: library sharing between users is not implemented — this endpoint always returns a sharingUnavailable error. (Multi-device sync of your OWN library does exist; see ADR-0020.) Would change a participant's permission level in a shared library.",
     inputSchema: {
       type: "object",
       properties: {

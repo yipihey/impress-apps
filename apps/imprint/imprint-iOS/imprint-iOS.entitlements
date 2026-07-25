@@ -7,13 +7,5 @@
 		<string>group.com.imbib.shared</string>
 		<string>group.com.impress.suite</string>
 	</array>
-	<key>com.apple.developer.icloud-container-identifiers</key>
-	<array>
-		<string>iCloud.com.imbib.shared</string>
-	</array>
-	<key>com.apple.developer.ubiquity-container-identifiers</key>
-	<array>
-		<string>iCloud.com.imbib.shared</string>
-	</array>
 </dict>
 </plist>

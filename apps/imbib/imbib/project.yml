@@ -30,8 +30,6 @@ packages:
     path: ../PublicationManagerCore
   ImpressHelixCore:
     path: ../../../packages/ImpressHelixCore
-  ImpressPresence:
-    path: ../../../packages/ImpressPresence
   ImbibRustCore:
     path: ../ImbibRustCore
   # Transitive dependencies of PublicationManagerCore — declared here so
@@ -121,7 +119,6 @@ targets:
     dependencies:
       - package: PublicationManagerCore
       - package: ImpressHelixCore
-      - package: ImpressPresence
       - package: ImpressKit
       - target: imbib-ShareExtension
         embed: true

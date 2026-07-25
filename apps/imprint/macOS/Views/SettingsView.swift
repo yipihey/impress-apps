@@ -366,7 +366,6 @@ struct ExportSettingsView: View {
 /// Account and sync settings
 struct AccountSettingsView: View {
     @State private var isSignedIn = false
-    @State private var syncEnabled = true
 
     var body: some View {
         Form {
@@ -377,19 +376,26 @@ struct AccountSettingsView: View {
                             .foregroundStyle(.green)
                         Text("Signed in with iCloud")
                     }
-
-                    Toggle("Sync documents", isOn: $syncEnabled)
                 } else {
-                    Text("Sign in to iCloud in System Settings to enable sync")
+                    HStack {
+                        Image(systemName: "exclamationmark.circle")
+                            .foregroundStyle(.secondary)
+                        Text("Not signed in to iCloud")
+                    }
+                    Text("Sign in to iCloud in System Settings if you want to sync the impress store across devices.")
+                        .font(.callout)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Section("Collaboration") {
-                Text("Real-time collaboration uses CloudKit")
+            Section("Sync") {
+                Text("Manuscripts live in the shared impress store. Multi-device sync of that store is a suite-wide setting configured in imbib — imprint has no separate sync of its own.")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
 
-                Link("Learn more about collaboration", destination: URL(string: "https://imbib.com/imprint/collaboration")!)
+                Text("Manuscript bodies over 1 MB and PDF attachments are stored outside the synced store and do not travel between devices.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

@@ -3,16 +3,17 @@
 //  imprint
 //
 //  Core Data stack for imprint project hierarchy and document references.
-//  Uses NSPersistentCloudKitContainer for CloudKit sharing.
+//
+//  Local-only store. Multi-device sync is handled suite-wide by the impress
+//  graph store (ADR-0020), not by this controller. This stack survives solely
+//  as the migration source for users whose project hierarchy still lives in
+//  Core Data (see ManuscriptMigrationRunner).
 //
 
 import Foundation
 import CoreData
 import OSLog
 import ImpressLogging
-#if canImport(CloudKit)
-import CloudKit
-#endif
 
 // MARK: - Persistence Controller
 
@@ -21,10 +22,8 @@ public final class ImprintPersistenceController: @unchecked Sendable {
     // MARK: - Shared Instance
 
     public static let shared: ImprintPersistenceController = {
-        // CloudKit sharing will be enabled in a future release once the container schema is finalized.
-        // For now, use local-only storage to avoid CloudKit initialization crashes.
         Logger.persistence.infoCapture("Using local-only storage for project hierarchy", category: "persistence")
-        return ImprintPersistenceController(enableCloudKit: false)
+        return ImprintPersistenceController()
     }()
 
     /// Preview/testing instance with in-memory store
@@ -37,23 +36,14 @@ public final class ImprintPersistenceController: @unchecked Sendable {
 
     /// Private store (user's own data)
     public private(set) var privateStore: NSPersistentStore?
-    /// Shared store (CloudKit shared zones)
-    public private(set) var sharedStore: NSPersistentStore?
-
-    private static let cloudKitContainerID = "iCloud.com.imbib.shared"
 
     // MARK: - Initialization
 
-    public init(inMemory: Bool = false, enableCloudKit: Bool = false) {
+    public init(inMemory: Bool = false) {
         let model = Self.createManagedObjectModel()
 
-        if enableCloudKit {
-            container = NSPersistentCloudKitContainer(name: "ImprintProjects", managedObjectModel: model)
-            Logger.persistence.infoCapture("Using NSPersistentCloudKitContainer", category: "persistence")
-        } else {
-            container = NSPersistentContainer(name: "ImprintProjects", managedObjectModel: model)
-            Logger.persistence.infoCapture("Using standard NSPersistentContainer", category: "persistence")
-        }
+        container = NSPersistentContainer(name: "ImprintProjects", managedObjectModel: model)
+        Logger.persistence.infoCapture("Using standard NSPersistentContainer", category: "persistence")
 
         if let privateDesc = container.persistentStoreDescriptions.first {
             if inMemory {
@@ -62,40 +52,6 @@ public final class ImprintPersistenceController: @unchecked Sendable {
 
             privateDesc.shouldMigrateStoreAutomatically = true
             privateDesc.shouldInferMappingModelAutomatically = true
-
-            if enableCloudKit {
-                privateDesc.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
-                    containerIdentifier: Self.cloudKitContainerID
-                )
-                privateDesc.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-                privateDesc.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-
-                // Add shared store for CloudKit shared zones
-                let sharedStoreURL: URL
-                if inMemory {
-                    sharedStoreURL = URL(fileURLWithPath: "/dev/null")
-                } else if let customURL = privateDesc.url {
-                    sharedStoreURL = customURL
-                        .deletingLastPathComponent()
-                        .appendingPathComponent("imprint-shared.sqlite")
-                } else {
-                    sharedStoreURL = NSPersistentContainer.defaultDirectoryURL()
-                        .appendingPathComponent("imprint-shared.sqlite")
-                }
-
-                let sharedDesc = NSPersistentStoreDescription(url: sharedStoreURL)
-                let sharedOptions = NSPersistentCloudKitContainerOptions(
-                    containerIdentifier: Self.cloudKitContainerID
-                )
-                sharedOptions.databaseScope = .shared
-                sharedDesc.cloudKitContainerOptions = sharedOptions
-                sharedDesc.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-                sharedDesc.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-                sharedDesc.shouldMigrateStoreAutomatically = true
-                sharedDesc.shouldInferMappingModelAutomatically = true
-
-                container.persistentStoreDescriptions = [privateDesc, sharedDesc]
-            }
         }
 
         let expectedStoreCount = container.persistentStoreDescriptions.count
@@ -112,11 +68,7 @@ public final class ImprintPersistenceController: @unchecked Sendable {
             Logger.persistence.infoCapture("Loaded persistent store: \(description.url?.absoluteString ?? "unknown")", category: "persistence")
 
             if let loadedStore = self.container.persistentStoreCoordinator.persistentStore(for: description.url!) {
-                if description.cloudKitContainerOptions?.databaseScope == .shared {
-                    self.sharedStore = loadedStore
-                } else {
-                    self.privateStore = loadedStore
-                }
+                self.privateStore = loadedStore
             }
 
             loadedStoreCount += 1
