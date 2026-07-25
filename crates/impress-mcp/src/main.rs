@@ -19,7 +19,6 @@ use imprint_selftest as _force_link_imprint_selftest;
 #[allow(unused_imports)]
 use imprint_service as _force_link_imprint_service;
 
-use imbib_core::search::{ChunkIndex, EmbeddingStore, SemanticSearch};
 use std::path::PathBuf;
 use tools::ToolContext;
 
@@ -69,20 +68,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         i += 1;
     }
 
-    // 1. Open embedding store
-    let embedding_store = EmbeddingStore::open(embeddings_path.to_str().unwrap_or_default())
-        .map_err(|e| format!("Failed to open embedding store: {}", e))?;
+    // The embedding stack (store + HNSW rebuild + fastembed model) is NOT
+    // built here. It is built on the first semantic-search call — see
+    // `ToolContext::semantic`. Building it eagerly cost seconds on a large
+    // library and could reach the network for the model, which made this
+    // binary unusable as a sidecar spawned at app launch (impel). Clients
+    // that only use the `#[impress_service]` inventory tools never pay it.
 
-    // 2. Build HNSW index from chunk vectors with correct publication mapping
-    let chunk_index = ChunkIndex::new();
-    rebuild_chunk_index(&embedding_store, &chunk_index)?;
-
-    // 4. Initialize fastembed model
-    eprintln!("impress-mcp: initializing embedding model...");
-    let semantic =
-        SemanticSearch::new().map_err(|e| format!("Failed to initialize SemanticSearch: {}", e))?;
-
-    // 5. Open main store (optional — metadata enrichment degrades gracefully)
+    // Open main store (optional — metadata enrichment degrades gracefully)
     let main_store = if store_path.exists() {
         match store::open_main_store(&store_path) {
             Ok(conn) => {
@@ -102,43 +95,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let index_size = chunk_index.len();
-    let pub_count = chunk_index.indexed_publications().len();
-    eprintln!(
-        "impress-mcp: ready — {} chunks indexed across {} publications",
-        index_size, pub_count
-    );
+    eprintln!("impress-mcp: ready (semantic search deferred until first use)");
 
-    let ctx = ToolContext {
-        embedding_store,
-        chunk_index,
-        semantic,
-        main_store,
-    };
+    let ctx = ToolContext::deferred(embeddings_path, main_store);
 
     server::run_server(ctx)
-}
-
-/// Rebuild the HNSW chunk index from the embedding store.
-///
-/// Chunk vectors have source_id = chunk_id. We look up each chunk to get
-/// the publication_id and build the index with proper mapping.
-fn rebuild_chunk_index(store: &EmbeddingStore, index: &ChunkIndex) -> Result<(), String> {
-    let chunk_vectors = store.load_vectors_by_type("chunk")?;
-    if chunk_vectors.is_empty() {
-        return Ok(());
-    }
-
-    let mut batch: Vec<(String, String, Vec<f32>)> = Vec::with_capacity(chunk_vectors.len());
-    for v in chunk_vectors {
-        // Look up the chunk to get its publication_id
-        if let Ok(Some(chunk)) = store.get_chunk(&v.source_id) {
-            batch.push((v.source_id, chunk.publication_id, v.vector));
-        }
-    }
-
-    if !batch.is_empty() {
-        index.add_batch(batch);
-    }
-    Ok(())
 }
