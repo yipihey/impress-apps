@@ -1,0 +1,30 @@
+[package]
+name = "impel-tools"
+description = "The impress suite's tool surface, as impel's agent loop sees it. Projects the #[impress_service] inventory over UniFFI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib", "lib"]
+name = "impel_tools"
+
+[dependencies]
+# Linking the service crates is what populates the inventory: each
+# #[impress_method] submits an McpToolDescriptor at link time. Nothing in this
+# crate references their types directly — the dependency IS the mechanism.
+imbib-service = { workspace = true }
+imbib-service-http = { workspace = true }
+imprint-service = { workspace = true }
+imprint-service-http = { workspace = true }
+
+impress-service-core = { workspace = true }
+
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uniffi = { workspace = true }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"

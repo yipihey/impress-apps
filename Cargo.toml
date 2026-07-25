@@ -26,6 +26,8 @@ members = [
     "crates/impel-throughline",
     # impel-taskd - live task scheduler daemon over the shared store
     "crates/impel-taskd",
+    # impel-tools - projects the #[impress_service] inventory into impel's agent loop
+    "crates/impel-tools",
     "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",
