@@ -15,6 +15,7 @@
 import SwiftUI
 import PDFKit
 import ImpressSyntaxHighlight
+import ImprintCore  // SourceMapEntry / SourceMapUtils — source↔preview sync
 
 public struct ManuscriptSourceTab: View {
 
@@ -163,16 +164,21 @@ public struct ManuscriptSourceTab: View {
             ManuscriptLaTeXImprintPrompt(session: session)
         } else if let data = session.vm.pdfData {
             // Inline split: editor is already on-screen, so a preview click just
-            // moves the caret (no tab switch).
-            ManuscriptPDFPreview(data: data, onInverseSync: { page, x, y in
-                let session = self.session
-                Task {
-                    if let offset = await ManuscriptInverseSync.resolveOffset(
-                        session: session, page: page, x: x, y: y) {
-                        session.cursorPosition = offset
+            // moves the caret (no tab switch). Forward sync keeps the preview
+            // tracking the caret as the user writes.
+            ManuscriptPDFPreview(
+                data: data,
+                cursorOffset: session.cursorPosition,
+                sourceMapEntries: session.vm.sourceMapEntries,
+                onInverseSync: { page, x, y in
+                    let session = self.session
+                    Task {
+                        if let offset = await ManuscriptInverseSync.resolveOffset(
+                            session: session, page: page, x: x, y: y) {
+                            session.cursorPosition = offset
+                        }
                     }
-                }
-            })
+                })
         } else {
             VStack(spacing: 8) {
                 if session.vm.isCompiling {
@@ -450,6 +456,12 @@ struct ManuscriptOutlineRail: View {
 /// view behaves exactly as before (no-op click).
 struct ManuscriptPDFPreview: NSViewRepresentable {
     let data: Data
+    /// Caret offset in the source. When it moves, the preview scrolls to the
+    /// matching region so the user never has to hunt for where they were.
+    /// `nil` disables forward sync (e.g. a preview with no live editor).
+    var cursorOffset: Int? = nil
+    /// Compiled source map used to resolve `cursorOffset` → page + point.
+    var sourceMapEntries: [SourceMapEntry] = []
     var onInverseSync: ((_ page: Int, _ x: Double, _ y: Double) -> Void)? = nil
 
     func makeNSView(context: Context) -> PDFView {
@@ -463,17 +475,43 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
         click.isEnabled = onInverseSync != nil
         view.addGestureRecognizer(click)
         context.coordinator.clickRecognizer = click
+        context.coordinator.entries = sourceMapEntries
+        // First appearance (e.g. switching Source → Preview): land on the
+        // caret's region rather than page 1. Deferred one turn because the
+        // document has only just been assigned and has no layout yet.
+        if let offset = cursorOffset {
+            DispatchQueue.main.async { [weak view] in
+                guard let view else { return }
+                context.coordinator.scrollToSource(offset: offset, in: view)
+            }
+        }
         return view
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
         // Only rebuild when the bytes actually changed (avoids scroll reset).
-        if context.coordinator.lastData != data {
+        let rebuilt = context.coordinator.lastData != data
+        if rebuilt {
             view.document = PDFDocument(data: data)
             context.coordinator.lastData = data
+            // A recompile invalidates the previous scroll target.
+            context.coordinator.lastSyncedOffset = nil
         }
         context.coordinator.onInverseSync = onInverseSync
         context.coordinator.clickRecognizer?.isEnabled = onInverseSync != nil
+        context.coordinator.entries = sourceMapEntries
+
+        if let offset = cursorOffset {
+            if rebuilt {
+                // Wait for the fresh document before scrolling.
+                DispatchQueue.main.async { [weak view] in
+                    guard let view else { return }
+                    context.coordinator.scrollToSource(offset: offset, in: view)
+                }
+            } else {
+                context.coordinator.scrollToSource(offset: offset, in: view)
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(lastData: data, onInverseSync: onInverseSync) }
@@ -482,10 +520,46 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
         var lastData: Data
         var onInverseSync: ((_ page: Int, _ x: Double, _ y: Double) -> Void)?
         weak var clickRecognizer: NSClickGestureRecognizer?
+        var entries: [SourceMapEntry] = []
+        /// Last offset we scrolled to. Also set when the user clicks in the
+        /// preview, so the caret move that click causes doesn't bounce the
+        /// view back through forward sync.
+        var lastSyncedOffset: Int?
 
         init(lastData: Data, onInverseSync: ((_ page: Int, _ x: Double, _ y: Double) -> Void)?) {
             self.lastData = lastData
             self.onInverseSync = onInverseSync
+        }
+
+        /// Forward sync: scroll the preview to the region rendered from
+        /// `offset` in the source. No-op when the offset is unchanged, the map
+        /// is empty, or the offset doesn't map into the layout.
+        func scrollToSource(offset: Int, in view: PDFView) {
+            guard offset != lastSyncedOffset else { return }
+            guard !entries.isEmpty, let document = view.document else {
+                logInfo("forward-sync skipped: map=\(entries.count) doc=\(view.document != nil)",
+                        category: "manuscript-sync")
+                return
+            }
+            guard let region = SourceMapUtils.sourceToRender(
+                entries: entries, sourceOffset: offset) else {
+                logInfo("forward-sync: offset \(offset) maps nowhere", category: "manuscript-sync")
+                return
+            }
+            guard region.page >= 0, region.page < document.pageCount,
+                  let page = document.page(at: region.page) else { return }
+            logInfo("forward-sync: offset \(offset) → page \(region.page + 1)",
+                    category: "manuscript-sync")
+
+            // Source-map coordinates are top-left origin; PDF pages are
+            // bottom-left. Mirror the conversion the click path uses.
+            let pageBounds = page.bounds(for: .mediaBox)
+            let target = CGRect(
+                x: region.center.x - 50,
+                y: (pageBounds.height - region.center.y) - 50,
+                width: 100, height: 100)
+            view.go(to: target, on: page)
+            lastSyncedOffset = offset
         }
 
         /// Convert a click to (1-indexed page, top-left-origin PDF point) and
@@ -502,6 +576,12 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
             let pageBounds = page.bounds(for: .mediaBox)
             let x = Double(pagePoint.x)
             let y = Double(pageBounds.height - pagePoint.y)  // bottom-left → top-left
+            // Pre-claim the offset this click is about to produce, so the
+            // resulting caret move doesn't scroll the preview out from under
+            // the user's click.
+            let resolved = SourceMapUtils.lookup(
+                entries: entries, page: pageIndex, x: x, y: y)
+            if resolved.found { lastSyncedOffset = resolved.sourceOffset }
             onInverseSync(pageIndex + 1, x, y)
         }
     }

@@ -90,16 +90,27 @@ public struct ManuscriptDetailPane: View {
             } else if let data = session?.vm.pdfData {
                 // Preview tab: a click both jumps the caret AND switches to the
                 // Source tab so the jump is visible.
-                ManuscriptPDFPreview(data: data, onInverseSync: { page, x, y in
-                    guard let session = self.session else { return }
-                    Task {
-                        if let offset = await ManuscriptInverseSync.resolveOffset(
-                            session: session, page: page, x: x, y: y) {
-                            session.cursorPosition = offset
-                            selectedTab = .source
+                ManuscriptPDFPreview(
+                    data: data,
+                    // Entering the Preview tab lands on the region matching the
+                    // caret instead of page 1.
+                    cursorOffset: session?.cursorPosition,
+                    sourceMapEntries: session?.vm.sourceMapEntries ?? [],
+                    onInverseSync: { page, x, y in
+                        guard let session = self.session else { return }
+                        Task {
+                            if let offset = await ManuscriptInverseSync.resolveOffset(
+                                session: session, page: page, x: x, y: y) {
+                                // Switch FIRST, then move the caret: the editor
+                                // has to exist before it can scroll to the
+                                // offset. Setting cursorPosition while the tab
+                                // is still .pdf lands in a view that isn't in
+                                // the hierarchy, and the jump is lost.
+                                selectedTab = .source
+                                session.cursorPosition = offset
+                            }
                         }
-                    }
-                })
+                    })
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "doc.richtext").font(.system(size: 32))

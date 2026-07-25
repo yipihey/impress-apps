@@ -17,6 +17,10 @@ import SwiftUI
 /// SwiftUI view shown inside the hover preview popover.
 struct CiteKeyHoverView: View {
     let row: BibliographyRow
+    /// Called when the pointer enters (true) or leaves (false) the popover
+    /// content. The controller uses this to keep the popover alive while the
+    /// user is travelling toward — or reading — it.
+    var onHoverChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -112,18 +116,40 @@ struct CiteKeyHoverView: View {
         .padding(12)
         .frame(width: 420, alignment: .leading)
         .background(.regularMaterial)
+        .onHover { onHoverChanged($0) }
     }
 }
 
 // MARK: - Controller
 
 /// Manages the lifecycle of the hover preview popover.
+///
+/// The popover is anchored *below* the cite key, so reaching its
+/// "Open in paper panel" button means the pointer must leave the cite-key
+/// characters and cross a gap of ordinary text. A naive dismiss-on-exit
+/// therefore makes the button unreachable — the popover vanishes the moment
+/// the user moves toward it. Two things keep it alive:
+///
+///   1. Leaving the key schedules a *deferred* close (`scheduleDismiss`)
+///      rather than closing immediately, giving the pointer time to travel.
+///   2. Hovering the popover content cancels that pending close entirely
+///      (`popoverHoverChanged`), so it stays up as long as it is being read.
+///
+/// Only `dismiss()` closes immediately; it is for genuine teardown (editor
+/// disappearing, document switching).
 @MainActor
 final class CiteKeyHoverController {
+    /// Grace period after the pointer leaves the cite key before the popover
+    /// closes. Long enough to cross the anchor gap without feeling sticky.
+    private static let dismissGrace: Duration = .milliseconds(350)
+
     private var popover: NSPopover?
     private var currentKey: String?
     private weak var currentTextView: NSTextView?
     private var debounceTask: Task<Void, Never>?
+    private var dismissTask: Task<Void, Never>?
+    /// True while the pointer is inside the popover content.
+    private var pointerInsidePopover = false
 
     /// Show (or update) the hover preview at the given character range.
     func show(
@@ -131,6 +157,10 @@ final class CiteKeyHoverController {
         citeKey: String,
         range: NSRange
     ) {
+        // Any hover over a cite key cancels a pending close.
+        dismissTask?.cancel()
+        dismissTask = nil
+
         // If already showing for this key, nothing to do
         if currentKey == citeKey, popover?.isShown == true { return }
 
@@ -148,10 +178,52 @@ final class CiteKeyHoverController {
         }
     }
 
-    /// Dismiss the popover if visible.
+    /// Close after a short grace period, unless the pointer reaches the popover
+    /// (or returns to the cite key) first. Use this for every pointer-driven
+    /// exit; use `dismiss()` only for hard teardown.
+    func scheduleDismiss() {
+        // A pending open that never got to show should just be abandoned.
+        debounceTask?.cancel()
+        debounceTask = nil
+
+        guard popover?.isShown == true else {
+            dismiss()
+            return
+        }
+        guard dismissTask == nil else { return }  // already counting down
+
+        dismissTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.dismissGrace)
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.dismissTask = nil
+                // The pointer made it into the popover — it stays until the
+                // pointer leaves again, which re-enters this path.
+                if self.pointerInsidePopover { return }
+                self.dismiss()
+            }
+        }
+    }
+
+    /// Called from the popover's SwiftUI content as the pointer enters/leaves.
+    func popoverHoverChanged(_ inside: Bool) {
+        pointerInsidePopover = inside
+        if inside {
+            dismissTask?.cancel()
+            dismissTask = nil
+        } else {
+            scheduleDismiss()
+        }
+    }
+
+    /// Dismiss the popover immediately.
     func dismiss() {
         debounceTask?.cancel()
         debounceTask = nil
+        dismissTask?.cancel()
+        dismissTask = nil
+        pointerInsidePopover = false
         popover?.close()
         popover = nil
         currentKey = nil
@@ -170,9 +242,16 @@ final class CiteKeyHoverController {
 
         // Close any previous popover
         popover?.close()
+        pointerInsidePopover = false
 
-        let content = CiteKeyHoverView(row: row)
+        let content = CiteKeyHoverView(row: row) { [weak self] inside in
+            self?.popoverHoverChanged(inside)
+        }
         let hosting = NSHostingController(rootView: content)
+        // Size to the content: a fixed height clips tall previews, and the
+        // "Open in paper panel" button is the last thing in the stack — it is
+        // exactly what gets cut off.
+        hosting.sizingOptions = .preferredContentSize
         hosting.view.frame = NSRect(x: 0, y: 0, width: 420, height: 200)
 
         let pop = NSPopover()

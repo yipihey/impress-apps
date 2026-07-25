@@ -50,10 +50,6 @@ public final class ManuscriptEditorSession {
     /// the editor's onSelectionChange — used to anchor a new comment.
     public var selectedRange: NSRange = NSRange(location: 0, length: 0)
 
-    /// Set by a cross-tab SyncTeX inverse-sync jump (PDF tab → Source tab).
-    /// The Source tab observes this, scrolls, then clears it.
-    public var pendingScrollLine: Int?
-
     /// The `body_content_hash` the store held at load / last successful save —
     /// the compare-and-set token guarding against cross-process clobber.
     public private(set) var savedHash: String?

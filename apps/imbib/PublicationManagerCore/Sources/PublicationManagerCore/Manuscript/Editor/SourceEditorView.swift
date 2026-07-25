@@ -312,7 +312,8 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // Cell brackets: add/remove per the toggle, then refresh from the text.
         syncBracketRuler(textView, context: context)
 
-        // Handle programmatic cursor navigation (e.g., outline click)
+        // Handle programmatic cursor navigation (outline click, or a jump back
+        // from the compiled preview).
         let requestedPosition = cursorPosition
         if requestedPosition != context.coordinator.lastReportedCursorPosition,
            requestedPosition >= 0,
@@ -320,23 +321,53 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             context.coordinator.lastReportedCursorPosition = requestedPosition
             let range = NSRange(location: requestedPosition, length: 0)
             textView.setSelectedRange(range)
-            // Scroll to place the target line at the top of the visible area
-            if let layoutManager = textView.layoutManager,
-               let textContainer = textView.textContainer {
-                let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-                let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-                let targetY = lineRect.origin.y
-                let visibleHeight = scrollView.contentView.bounds.height
-                let maxY = max(0, (scrollView.documentView?.frame.height ?? 0) - visibleHeight)
-                let clampedY = min(max(0, targetY), maxY)
-                scrollView.contentView.scroll(to: NSPoint(x: 0, y: clampedY))
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-            } else {
-                textView.scrollRangeToVisible(range)
+            Self.revealCaret(range, in: textView, scrollView: scrollView)
+
+            // On a freshly-created editor (switching back to the Source tab)
+            // the scroll view has not been laid out at its final size yet, so
+            // the first measurement can be short. Re-apply once the geometry
+            // settles; it is a no-op when the first attempt already landed.
+            if !context.coordinator.didApplyInitialScroll {
+                context.coordinator.didApplyInitialScroll = true
+                DispatchQueue.main.async { [weak textView, weak scrollView] in
+                    guard let textView, let scrollView else { return }
+                    Self.revealCaret(range, in: textView, scrollView: scrollView)
+                }
             }
+
             // Make the text view first responder so the cursor blinks
             textView.window?.makeFirstResponder(textView)
         }
+    }
+
+    /// Scroll `range` to the top of the visible area.
+    ///
+    /// Layout MUST be forced first: `boundingRect(forGlyphRange:)` reports
+    /// against whatever has been laid out so far, and NSLayoutManager lays out
+    /// lazily. On a newly-created editor almost nothing is laid out, so the
+    /// target line measures near y=0 and the view "scrolls" to the top — which
+    /// is exactly the symptom of a preview→source jump landing at the
+    /// beginning of the document instead of at the click.
+    private static func revealCaret(_ range: NSRange, in textView: NSTextView, scrollView: NSScrollView) {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            textView.scrollRangeToVisible(range)
+            return
+        }
+        // Force layout of everything up to and including the target line.
+        let head = NSRange(location: 0, length: min(range.location + 1, (textView.string as NSString).length))
+        layoutManager.ensureLayout(forCharacterRange: head)
+
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let targetY = lineRect.origin.y
+        logInfo("reveal caret at offset \(range.location) → y=\(Int(targetY))",
+                category: "manuscript-sync")
+        let visibleHeight = scrollView.contentView.bounds.height
+        let maxY = max(0, (scrollView.documentView?.frame.height ?? 0) - visibleHeight)
+        let clampedY = min(max(0, targetY), maxY)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: clampedY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -471,6 +502,9 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         /// Tracks cursor position set by the coordinator itself, so updateNSView
         /// can distinguish programmatic navigation from user edits.
         var lastReportedCursorPosition: Int = 0
+        /// Whether the first programmatic caret reveal has run for this editor.
+        /// Guards a one-shot deferred retry while the view is still sizing.
+        var didApplyInitialScroll = false
 
         init(_ parent: TypstEditorRepresentable) {
             self.parent = parent
@@ -724,20 +758,23 @@ class TypstTextView: HelixTextView {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        hoverController?.dismiss()
+        // Deferred, not immediate: moving the pointer *into* the hover popover
+        // exits this text view, and an immediate dismiss would make the
+        // popover's button unreachable.
+        hoverController?.scheduleDismiss()
     }
 
     private func handleHover(event: NSEvent) {
         let pointInView = convert(event.locationInWindow, from: nil)
         let charIndex = characterIndexForInsertion(at: pointInView)
         guard charIndex != NSNotFound, charIndex >= 0, charIndex < string.count else {
-            hoverController?.dismiss()
+            hoverController?.scheduleDismiss()
             return
         }
         if let match = CiteKeyAtLocation.find(in: string, at: charIndex, format: currentFormat) {
             hoverController?.show(in: self, citeKey: match.key, range: match.range)
         } else {
-            hoverController?.dismiss()
+            hoverController?.scheduleDismiss()
         }
     }
 
