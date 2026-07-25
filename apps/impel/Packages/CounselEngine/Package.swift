@@ -34,6 +34,7 @@ let package = Package(
             name: "CounselEngine",
             dependencies: [
                 "ImpelMail",
+                "ImpelToolsFFI",
                 "ImpressAI",
                 "ImpressLogging",
                 "ImpressStoreKit",
@@ -43,6 +44,28 @@ let package = Package(
             ],
             path: "Sources/CounselEngine",
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        // UniFFI bindings for `crates/impel-tools`, which projects the
+        // #[impress_service] inventory into the agent loop's tool surface.
+        // Both this file and the XCFramework are produced by
+        // `crates/impel-tools/build-xcframework.sh` — regenerate together.
+        .target(
+            name: "ImpelToolsFFI",
+            dependencies: ["impel_toolsFFI"],
+            path: "Sources/ImpelToolsFFI",
+            // UniFFI emits a mutable global (`initializationResult`) that Swift 6
+            // strict concurrency rejects. Generated code — pin the language mode
+            // rather than patching it, since the file is regenerated on every build.
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [
+                .linkedFramework("SystemConfiguration"),
+                .linkedFramework("Security"),
+                .linkedFramework("CoreFoundation"),
+            ]
+        ),
+        .binaryTarget(
+            name: "impel_toolsFFI",
+            path: "../../../../crates/impel-tools/frameworks/ImpelTools.xcframework"
         ),
         .executableTarget(
             name: "journal-submit",

@@ -1,294 +1,224 @@
 import Foundation
+import ImpelToolsFFI
 import ImpressAI
 import ImpressKit
+import ImpressLogging
 import OSLog
 
-/// Registry of tools available to the Counsel agent loop.
+/// The tools available to the Counsel agent loop.
 ///
-/// Tools dispatch via HTTP to sibling apps using `SiblingBridge`.
-/// Tool schemas match the MCP server definitions from `impress-mcp`.
+/// This used to be a hand-written list: 11 `AITool` literals built out of nested
+/// `AnySendable` dictionaries, plus one `switch` case per tool that unpacked the
+/// arguments and knew which sibling endpoint to call. Nothing checked that the
+/// two halves agreed with each other, or with the suite. They did not — 11 tools
+/// declared against 124 `#[impress_service]` methods that imbib and imprint
+/// already generate. Anything shipped after the list was written (library backup,
+/// for one) never reached the agent at all.
+///
+/// Both halves are now a projection of the `impel-tools` inventory, which is the
+/// same inventory `crates/impress-mcp` serves. Declarations come from the trait
+/// method's signature, descriptions from its doc comment, and dispatch is the
+/// method's own generated handler. Adding a capability anywhere in the suite
+/// makes it available here with no change to this file.
+///
+/// **Availability is not assumed.** `configure` reports, per sibling app,
+/// whether the HTTP backend actually installed. When it did not — the app is not
+/// running — that app's tools are withheld rather than advertised and failed on
+/// call, because the alternative is worse than absence: the Rust layer would
+/// otherwise fall through to the shared SQLite store and write it behind the
+/// running app's back.
 public actor CounselToolRegistry {
     private let logger = Logger(subsystem: "com.impress.impel", category: "tool-registry")
-    private let bridge = SiblingBridge.shared
+
+    /// Capabilities that have no `#[impress_service]` trait yet and so cannot
+    /// come from the inventory. This list is the backlog for extending the
+    /// codegen, and it is deliberately visible: an invisible fallback is how the
+    /// hand-written registry drifted in the first place.
+    ///
+    /// - implore and impart have no `*-service` crate at all.
+    /// - imbib's backup routes are HTTP-only (`BackupAutomationHandler`).
+    private static let knownGaps = [
+        "implore: figures and plotting",
+        "impart: conversations",
+        "imbib: library backup and restore",
+    ]
+
+    private var backends: ToolBackends?
+    private var cachedTools: [AITool]?
 
     public init() {}
 
+    // MARK: - Configuration
+
+    /// Point the service traits at the running siblings. Idempotent; the Rust
+    /// side latches the first call.
+    ///
+    /// Called lazily on first use rather than at init: this reaches out over
+    /// HTTP, and nothing that touches the network belongs on the app-launch
+    /// path (see the startup-grace invariant in the root CLAUDE.md).
+    private func ensureConfigured() -> ToolBackends {
+        if let backends { return backends }
+
+        let resolved = configure(
+            imbibUrl: Self.automationURL(for: .imbib),
+            imprintUrl: Self.automationURL(for: .imprint)
+        )
+        backends = resolved
+
+        logger.infoCapture(
+            "Tool backends: imbib=\(String(describing: resolved.imbib)) "
+                + "imprint=\(String(describing: resolved.imprint))",
+            category: "tool-registry"
+        )
+        return resolved
+    }
+
     // MARK: - Tool Definitions
 
-    /// Returns all available tools as AITool definitions for the Anthropic API.
+    /// Every tool whose owning app is reachable right now.
+    ///
+    /// Not cached across configuration changes on purpose — a sibling launched
+    /// mid-session should become usable without restarting impel.
     public func allTools() -> [AITool] {
-        imbibTools + imprintTools + imploreTools + impartTools
+        _ = ensureConfigured()
+
+        if let cachedTools { return cachedTools }
+
+        let descriptors = listAvailableTools()
+        let tools = descriptors.compactMap { descriptor -> AITool? in
+            guard let schema = Self.decodeSchema(descriptor.inputSchemaJson) else {
+                // A descriptor whose schema will not parse is a codegen bug, not
+                // a runtime condition. Drop it rather than send the model a tool
+                // it cannot call, and say so loudly.
+                logger.errorCapture(
+                    "Tool \(descriptor.name) has an unparseable input schema; dropped",
+                    category: "tool-registry"
+                )
+                return nil
+            }
+            return AITool(
+                name: descriptor.name,
+                description: descriptor.description,
+                inputSchema: schema
+            )
+        }
+
+        let namespaces = Set(descriptors.map(\.namespace)).sorted()
+        logger.infoCapture(
+            "Tools available: \(tools.count) across \(namespaces.count) namespaces "
+                + "(\(namespaces.joined(separator: ", ")))",
+            category: "tool-registry"
+        )
+        if tools.isEmpty {
+            logger.warningCapture(
+                "No tools available — no sibling app is reachable. "
+                    + "The agent will have nothing to call.",
+                category: "tool-registry"
+            )
+        }
+
+        cachedTools = tools
+        return tools
     }
 
-    private var imbibTools: [AITool] {
-        [
-            AITool(
-                name: "imbib_search_library",
-                description: "Search the imbib bibliography library for papers matching a query.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "query": AnySendable(["type": AnySendable("string"), "description": AnySendable("Search query for papers")] as [String: AnySendable]),
-                        "limit": AnySendable(["type": AnySendable("integer"), "description": AnySendable("Max results (default 20)")] as [String: AnySendable])
-                    ] as [String: AnySendable]),
-                    "required": AnySendable([AnySendable("query")])
-                ]
-            ),
-            AITool(
-                name: "imbib_search_sources",
-                description: "Search online sources (arXiv, ADS, Crossref, etc.) for papers.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "query": AnySendable(["type": AnySendable("string"), "description": AnySendable("Search query")] as [String: AnySendable]),
-                        "sources": AnySendable(["type": AnySendable("string"), "description": AnySendable("Comma-separated sources: arxiv,ads,crossref")] as [String: AnySendable]),
-                        "limit": AnySendable(["type": AnySendable("integer"), "description": AnySendable("Max results per source")] as [String: AnySendable])
-                    ] as [String: AnySendable]),
-                    "required": AnySendable([AnySendable("query")])
-                ]
-            ),
-            AITool(
-                name: "imbib_add_papers",
-                description: "Add papers to the imbib library by identifier (DOI, arXiv ID, or BibTeX).",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "identifiers": AnySendable(["type": AnySendable("array"), "items": AnySendable(["type": AnySendable("string")] as [String: AnySendable]), "description": AnySendable("Array of DOIs, arXiv IDs, or BibTeX strings")] as [String: AnySendable]),
-                        "library": AnySendable(["type": AnySendable("string"), "description": AnySendable("Target library name (optional)")] as [String: AnySendable])
-                    ] as [String: AnySendable]),
-                    "required": AnySendable([AnySendable("identifiers")])
-                ]
-            ),
-            AITool(
-                name: "imbib_get_paper",
-                description: "Get detailed information about a paper by cite key.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "citeKey": AnySendable(["type": AnySendable("string"), "description": AnySendable("BibTeX cite key")] as [String: AnySendable])
-                    ] as [String: AnySendable]),
-                    "required": AnySendable([AnySendable("citeKey")])
-                ]
-            ),
-            AITool(
-                name: "imbib_export_bibtex",
-                description: "Export BibTeX for specified papers.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "citeKeys": AnySendable(["type": AnySendable("array"), "items": AnySendable(["type": AnySendable("string")] as [String: AnySendable]), "description": AnySendable("Cite keys to export")] as [String: AnySendable])
-                    ] as [String: AnySendable]),
-                    "required": AnySendable([AnySendable("citeKeys")])
-                ]
-            ),
-            AITool(
-                name: "imbib_create_artifact",
-                description: "Create a research artifact in imbib. Artifacts capture non-paper items like notes, webpages, datasets, presentations, and code.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "type": AnySendable(["type": AnySendable("string"), "description": AnySendable("Artifact type"), "enum": AnySendable([AnySendable("presentation"), AnySendable("poster"), AnySendable("dataset"), AnySendable("webpage"), AnySendable("note"), AnySendable("media"), AnySendable("code"), AnySendable("general")])] as [String: AnySendable]),
-                        "title": AnySendable(["type": AnySendable("string"), "description": AnySendable("Artifact title")] as [String: AnySendable]),
-                        "source_url": AnySendable(["type": AnySendable("string"), "description": AnySendable("Source URL (optional)")] as [String: AnySendable]),
-                        "notes": AnySendable(["type": AnySendable("string"), "description": AnySendable("Notes or content (optional)")] as [String: AnySendable]),
-                        "tags": AnySendable(["type": AnySendable("array"), "items": AnySendable(["type": AnySendable("string")] as [String: AnySendable]), "description": AnySendable("Tags (optional)")] as [String: AnySendable])
-                    ] as [String: AnySendable]),
-                    "required": AnySendable([AnySendable("type"), AnySendable("title")])
-                ]
-            ),
-            AITool(
-                name: "imbib_search_artifacts",
-                description: "Search research artifacts in imbib by title, notes, or metadata.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "query": AnySendable(["type": AnySendable("string"), "description": AnySendable("Search query")] as [String: AnySendable]),
-                        "type": AnySendable(["type": AnySendable("string"), "description": AnySendable("Filter by artifact type (optional)")] as [String: AnySendable]),
-                        "limit": AnySendable(["type": AnySendable("integer"), "description": AnySendable("Max results (default 20)")] as [String: AnySendable])
-                    ] as [String: AnySendable]),
-                    "required": AnySendable([AnySendable("query")])
-                ]
-            ),
-        ]
+    /// Drop the cached list so the next `allTools()` re-probes. Call when a
+    /// sibling app is known to have started or stopped.
+    public func invalidate() {
+        cachedTools = nil
     }
 
-    private var imprintTools: [AITool] {
-        [
-            AITool(
-                name: "imprint_list_documents",
-                description: "List open documents in imprint.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([:] as [String: AnySendable])
-                ]
-            ),
-            AITool(
-                name: "imprint_get_document",
-                description: "Get the content of a document by ID.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "id": AnySendable(["type": AnySendable("string"), "description": AnySendable("Document UUID")] as [String: AnySendable])
-                    ] as [String: AnySendable]),
-                    "required": AnySendable([AnySendable("id")])
-                ]
-            ),
-        ]
-    }
-
-    private var imploreTools: [AITool] {
-        [
-            AITool(
-                name: "implore_list_figures",
-                description: "List figures in implore.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([:] as [String: AnySendable])
-                ]
-            ),
-        ]
-    }
-
-    private var impartTools: [AITool] {
-        [
-            AITool(
-                name: "impart_list_conversations",
-                description: "List research conversations in impart.",
-                inputSchema: [
-                    "type": AnySendable("object"),
-                    "properties": AnySendable([
-                        "limit": AnySendable(["type": AnySendable("integer"), "description": AnySendable("Max results")] as [String: AnySendable])
-                    ] as [String: AnySendable])
-                ]
-            ),
-        ]
-    }
+    /// Capability areas the inventory does not cover yet, for diagnostics.
+    public nonisolated var gaps: [String] { Self.knownGaps }
 
     // MARK: - Tool Execution
 
-    /// Execute a tool call by dispatching to the appropriate sibling app's HTTP API.
+    /// Execute a tool call by name against the generated handler.
     public func execute(_ toolUse: AIToolUse) async -> AIToolResult {
-        let name = toolUse.name
-        let input = toolUse.input
+        _ = ensureConfigured()
+
+        let argsJSON: String
+        do {
+            argsJSON = try Self.encodeArguments(toolUse.input)
+        } catch {
+            logger.errorCapture(
+                "Tool \(toolUse.name): could not encode arguments: \(error.localizedDescription)",
+                category: "tool-registry"
+            )
+            return AIToolResult(
+                toolUseId: toolUse.id,
+                content: "Could not encode arguments: \(error.localizedDescription)",
+                isError: true
+            )
+        }
 
         do {
-            let result: String
-            switch name {
-            // imbib tools
-            case "imbib_search_library":
-                let query = stringParam(input, "query") ?? ""
-                let limit = intParam(input, "limit") ?? 20
-                let papers = try await ImbibBridge.searchLibrary(query: query, limit: limit)
-                result = try jsonEncode(papers)
-
-            case "imbib_search_sources":
-                let query = stringParam(input, "query") ?? ""
-                let source = stringParam(input, "sources")
-                let limit = intParam(input, "limit") ?? 10
-                let candidates = try await ImbibBridge.searchExternal(query: query, source: source, limit: limit)
-                result = try jsonEncode(candidates)
-
-            case "imbib_add_papers":
-                let identifiers = arrayParam(input, "identifiers") ?? []
-                let library = stringParam(input, "library").flatMap { UUID(uuidString: $0) }
-                let addResult = try await ImbibBridge.addPapers(identifiers: identifiers, library: library)
-                result = try jsonEncode(addResult)
-
-            case "imbib_get_paper":
-                let citeKey = stringParam(input, "citeKey") ?? ""
-                if let paper = try await ImbibBridge.getPaper(citeKey: citeKey) {
-                    result = try jsonEncode(paper)
-                } else {
-                    result = "{}"
-                }
-
-            case "imbib_export_bibtex":
-                let citeKeys = arrayParam(input, "citeKeys") ?? []
-                result = try await ImbibBridge.exportBibTeX(citeKeys: citeKeys)
-
-            case "imbib_create_artifact":
-                let artifactType = stringParam(input, "type") ?? "general"
-                let title = stringParam(input, "title") ?? ""
-                let sourceURL = stringParam(input, "source_url")
-                let notes = stringParam(input, "notes")
-                let tags = arrayParam(input, "tags")
-                var body: [String: Any] = [
-                    "type": artifactType,
-                    "title": title
-                ]
-                if let sourceURL { body["source_url"] = sourceURL }
-                if let notes { body["notes"] = notes }
-                if let tags { body["tags"] = tags }
-                let data = try await bridge.postRaw("/api/artifacts", to: .imbib, body: body)
-                result = String(data: data, encoding: .utf8) ?? "{}"
-
-            case "imbib_search_artifacts":
-                let query = stringParam(input, "query") ?? ""
-                let type = stringParam(input, "type")
-                let limit = intParam(input, "limit") ?? 20
-                var queryParams = ["query": query, "limit": String(limit)]
-                if let type { queryParams["type"] = type }
-                let data = try await bridge.getRaw("/api/artifacts", from: .imbib, query: queryParams)
-                result = String(data: data, encoding: .utf8) ?? "[]"
-
-            // imprint tools
-            case "imprint_list_documents":
-                let docs: [DocumentInfo] = try await bridge.get("/api/documents", from: .imprint)
-                result = try jsonEncode(docs)
-
-            case "imprint_get_document":
-                let id = stringParam(input, "id") ?? ""
-                let data = try await bridge.getRaw("/api/documents/\(id)", from: .imprint)
-                result = String(data: data, encoding: .utf8) ?? "{}"
-
-            // implore tools
-            case "implore_list_figures":
-                let figures: [FigureInfo] = try await bridge.get("/api/figures", from: .implore)
-                result = try jsonEncode(figures)
-
-            // impart tools
-            case "impart_list_conversations":
-                let limit = intParam(input, "limit") ?? 20
-                let convos: [ConversationInfo] = try await bridge.get(
-                    "/api/research/conversations", from: .impart,
-                    query: ["limit": String(limit)]
-                )
-                result = try jsonEncode(convos)
-
-            default:
-                return AIToolResult(toolUseId: toolUse.id, content: "Unknown tool: \(name)", isError: true)
-            }
-
-            logger.info("Tool \(name) executed successfully")
+            let result = try callTool(name: toolUse.name, argsJson: argsJSON)
+            logger.infoCapture("Tool \(toolUse.name) executed successfully", category: "tool-registry")
             return AIToolResult(toolUseId: toolUse.id, content: result)
-
+        } catch let error as ToolError {
+            // `appUnavailable` is a fact about the environment, not a failure of
+            // the call. Distinguish it so the transcript does not read as a bug
+            // and the model does not retry into the same wall.
+            let message = Self.describe(error)
+            switch error {
+            case .AppUnavailable:
+                logger.warningCapture("Tool \(toolUse.name): \(message)", category: "tool-registry")
+                cachedTools = nil
+            default:
+                logger.errorCapture("Tool \(toolUse.name): \(message)", category: "tool-registry")
+            }
+            return AIToolResult(toolUseId: toolUse.id, content: message, isError: true)
         } catch {
-            logger.error("Tool \(name) failed: \(error.localizedDescription)")
-            return AIToolResult(toolUseId: toolUse.id, content: "Error: \(error.localizedDescription)", isError: true)
+            logger.errorCapture(
+                "Tool \(toolUse.name) failed: \(error.localizedDescription)",
+                category: "tool-registry"
+            )
+            return AIToolResult(
+                toolUseId: toolUse.id,
+                content: "Error: \(error.localizedDescription)",
+                isError: true
+            )
         }
     }
 
-    // MARK: - Parameter Helpers
-
-    private func stringParam(_ input: [String: AnySendable], _ key: String) -> String? {
-        input[key]?.get() as String?
+    /// The sibling's automation API base. Loopback only — this is the same
+    /// endpoint `SiblingBridge` probes, and the Rust HTTP backend takes it as a
+    /// base URL rather than a port.
+    private static func automationURL(for app: SiblingApp) -> String {
+        "http://127.0.0.1:\(app.httpPort)"
     }
 
-    private func intParam(_ input: [String: AnySendable], _ key: String) -> Int? {
-        if let i: Int = input[key]?.get() { return i }
-        if let d: Double = input[key]?.get() { return Int(d) }
-        return nil
+    // MARK: - JSON bridging
+
+    /// A generated JSON Schema string as the `[String: AnySendable]` the
+    /// Anthropic client wants.
+    private static func decodeSchema(_ json: String) -> [String: AnySendable]? {
+        guard
+            let data = json.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return object.mapValues(AnySendable.fromJSON)
     }
 
-    private func arrayParam(_ input: [String: AnySendable], _ key: String) -> [String]? {
-        if let arr: [AnySendable] = input[key]?.get() {
-            return arr.compactMap { $0.get() as String? }
+    /// The model's tool input as the JSON object the generated handler expects.
+    private static func encodeArguments(_ input: [String: AnySendable]) throws -> String {
+        let object = input.mapValues { $0.toJSONValue() }
+        let data = try JSONSerialization.data(withJSONObject: object)
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private static func describe(_ error: ToolError) -> String {
+        // Cases keep the Rust spelling: UniFFI does not lower-camel enum cases.
+        switch error {
+        case let .UnknownTool(name):
+            return "Unknown tool: \(name)"
+        case let .BadArguments(name, message):
+            return "\(name): arguments were not a JSON object — \(message)"
+        case let .Handler(name, message):
+            return "\(name) failed: \(message)"
+        case let .AppUnavailable(app, name):
+            return "\(app) is not running, so \(name) is unavailable. "
+                + "Open \(app) and try again, or use a different approach."
         }
-        return nil
-    }
-
-    private func jsonEncode<T: Encodable>(_ value: T) throws -> String {
-        let data = try JSONEncoder().encode(value)
-        return String(data: data, encoding: .utf8) ?? "null"
     }
 }
