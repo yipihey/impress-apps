@@ -39,6 +39,30 @@ final class IntentClassifierTests: XCTestCase {
         } else { XCTFail("DOI with prefix not detected") }
     }
 
+    func testClassify_arxivSpacePrefix() {
+        // Hand-typed on a phone: "arXiv 2602.04407" must resolve as an
+        // identifier, not fall through to free text (junk results).
+        if case .identifier(.arxiv(let v)) = IntentClassifier.classify("arXiv 2602.04407") {
+            XCTAssertEqual(v, "2602.04407")
+        } else {
+            XCTFail("space-prefixed arXiv id should classify as identifier")
+        }
+    }
+
+    func testClassify_arxivColonPrefix() {
+        if case .identifier(.arxiv(let v)) = IntentClassifier.classify("arXiv:2602.04407") {
+            XCTAssertEqual(v, "2602.04407")
+        } else {
+            XCTFail("colon-prefixed arXiv id should classify as identifier")
+        }
+    }
+
+    func testClassify_arxivWordInProseStaysFreeText() {
+        if case .identifier = IntentClassifier.classify("arXiv papers about dark matter") {
+            XCTFail("prose mentioning arXiv must not classify as identifier")
+        }
+    }
+
     func testClassify_arxivNew() {
         if case .identifier(.arxiv(let v)) = IntentClassifier.classify("2112.01234") {
             XCTAssertEqual(v, "2112.01234")

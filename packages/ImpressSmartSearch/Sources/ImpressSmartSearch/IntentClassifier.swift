@@ -252,6 +252,12 @@ public enum IntentClassifier {
         let stripped: String
         if lower.hasPrefix("doi:") { stripped = String(input.dropFirst(4)).trimmingCharacters(in: .whitespaces) }
         else if lower.hasPrefix("arxiv:") { stripped = String(input.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
+        // Space-separated prefixes too ("arXiv 2602.04407", "doi 10.…") —
+        // common when typed by hand on a phone; the strict whole-match
+        // regexes below still reject anything that isn't a clean identifier,
+        // so prose can't slip through.
+        else if lower.hasPrefix("arxiv ") { stripped = String(input.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
+        else if lower.hasPrefix("doi ") { stripped = String(input.dropFirst(4)).trimmingCharacters(in: .whitespaces) }
         else if lower.hasPrefix("pmid:") { stripped = String(input.dropFirst(5)).trimmingCharacters(in: .whitespaces) }
         else if lower.hasPrefix("bibcode:") { stripped = String(input.dropFirst(8)).trimmingCharacters(in: .whitespaces) }
         else { stripped = input }

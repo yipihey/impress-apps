@@ -108,7 +108,14 @@ struct imbibApp: App {
             async let sourcesInit: Void = {
                 await sourceManager.registerBuiltInSources()
                 DragDropCoordinator.shared.sourceManager = sourceManager
-                appLogger.info("Built-in sources registered")
+                // Wire the shared AutomationService to the REGISTERED source
+                // manager — macOS has always done this (imbibApp.swift:489);
+                // iOS never did, so AutomationService held an empty default
+                // SourceManager: /api/papers/add and Smart Search's
+                // identifier path (which delegates to the resolve cascade)
+                // failed every external lookup with "Paper not found".
+                await AutomationService.shared.configure(sourceManager: sourceManager)
+                appLogger.info("Built-in sources registered + AutomationService configured")
 
                 // Browser URL providers for interactive PDF downloads.
                 await BrowserURLProviderRegistry.shared.register(ArXivSource.self, priority: 20)

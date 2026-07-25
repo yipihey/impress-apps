@@ -249,7 +249,10 @@ public actor ArXivQueryAssistant: QueryAssistant {
         await rateLimiter.waitIfNeeded()
 
         // Build URL with max_results=1 (arXiv doesn't have a count-only endpoint)
-        var components = URLComponents(string: "http://export.arxiv.org/api/query")!
+        // https: arXiv 301-redirects plain http now, and iOS ATS refuses the
+        // initial cleartext connection outright — the request dies before
+        // any redirect can happen.
+        var components = URLComponents(string: "https://export.arxiv.org/api/query")!
         components.queryItems = [
             URLQueryItem(name: "search_query", value: query),
             URLQueryItem(name: "max_results", value: "1"),  // Minimal results
