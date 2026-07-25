@@ -1087,10 +1087,7 @@ pub fn extract_cite_keys(source: String) -> Vec<String> {
                     || bytes[i - 1] == b'.'
                     || bytes[i - 1] == b'-');
             let key_start = i + 1;
-            if !preceded_by_key_char
-                && key_start < len
-                && bytes[key_start].is_ascii_alphabetic()
-            {
+            if !preceded_by_key_char && key_start < len && bytes[key_start].is_ascii_alphabetic() {
                 let mut j = key_start;
                 while j < len {
                     let c = bytes[j];
