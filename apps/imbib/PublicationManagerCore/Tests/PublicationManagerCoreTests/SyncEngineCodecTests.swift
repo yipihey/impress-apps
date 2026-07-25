@@ -83,6 +83,25 @@ final class SyncEngineCodecTests: XCTestCase {
                        "envelope_json carries canonical_id/visibility/... untouched")
     }
 
+    /// CloudKit infers a Development-environment schema from the first
+    /// record carrying each field, and an EMPTY list gives it no element
+    /// type — the save fails outright with "cannot use an empty list to
+    /// initialize a new field". Hit live on 2026-07-25 the first time an
+    /// untagged paper was pushed. The encoder must therefore OMIT the
+    /// field rather than write `[]`.
+    func testEmptyTagPathsAreOmittedNotEmptyList() throws {
+        let untagged = makeItem(tags: [])
+        let record = try SyncRecordCodec.encode(item: untagged, zoneID: zoneID)
+        XCTAssertNil(
+            record["tag_paths"],
+            "an empty tag list must be absent from the record, never []")
+
+        // And a tagged item still carries them.
+        let tagged = makeItem(tags: ["physics/cosmology"])
+        let taggedRecord = try SyncRecordCodec.encode(item: tagged, zoneID: zoneID)
+        XCTAssertEqual(taggedRecord["tag_paths"] as? [String], ["physics/cosmology"])
+    }
+
     func testItemWithNoOptionalsRoundTrips() throws {
         var bare = makeItem(tags: [])
         bare = SyncItemRecord(

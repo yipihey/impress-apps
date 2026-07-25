@@ -138,7 +138,20 @@ public enum SyncRecordCodec {
         record[ItemField.origin] = item.origin as CKRecordValue
         record[ItemField.createdMs] = item.createdMs as CKRecordValue
         record[ItemField.modifiedMs] = item.modifiedMs as CKRecordValue
-        record[ItemField.tagPaths] = item.tagPaths as CKRecordValue
+        // Empty list ⇒ omit the field entirely. CloudKit infers the schema of
+        // a Development environment from the first record carrying each
+        // field, and an empty list gives it no element type to infer:
+        //   "cannot use an empty list to initialize a new field
+        //    (field 'tag_paths' in record type 'ImpressItem')"
+        // — a hard save failure, hit live the first time an untagged paper
+        // was pushed. Absent and empty are equivalent on decode (`?? []`),
+        // so omitting loses nothing; clearing a paper's last tag still
+        // works because CKRecord treats assigning nil as a field delete.
+        if item.tagPaths.isEmpty {
+            record[ItemField.tagPaths] = nil as CKRecordValue?
+        } else {
+            record[ItemField.tagPaths] = item.tagPaths as CKRecordValue
+        }
         record[ItemField.isRead] = (item.isRead ? 1 : 0) as CKRecordValue
         record[ItemField.isStarred] = (item.isStarred ? 1 : 0) as CKRecordValue
         record[ItemField.flagColor] = item.flagColor as CKRecordValue?
