@@ -28,6 +28,7 @@ public enum SyncSettings {
         static let lastPull = "sync.cloudkit.lastPullAt"
         static let lastError = "sync.cloudkit.lastError"
         static let lastErrorAt = "sync.cloudkit.lastErrorAt"
+        static let lastMergeReport = "sync.cloudkit.lastMergeReport"
     }
 
     /// The CloudKit container this suite syncs through (plan decision 6).
@@ -75,6 +76,26 @@ public enum SyncSettings {
         set { SharedDefaults.suite.set(newValue, forKey: Keys.lastErrorAt) }
     }
 
+    /// The last `FirstSyncMerge` outcome, if a first sync has ever run.
+    ///
+    /// Persisted because the merge happens once, silently, minutes after
+    /// launch — long before anyone opens Settings to look at it.
+    public static var lastMergeReport: FirstSyncMergeReport? {
+        get {
+            guard let data = SharedDefaults.suite.data(forKey: Keys.lastMergeReport) else {
+                return nil
+            }
+            return try? JSONDecoder().decode(FirstSyncMergeReport.self, from: data)
+        }
+        set {
+            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                SharedDefaults.suite.removeObject(forKey: Keys.lastMergeReport)
+                return
+            }
+            SharedDefaults.suite.set(data, forKey: Keys.lastMergeReport)
+        }
+    }
+
     /// Record a failure for the Settings pane.
     public static func recordError(_ message: String) {
         lastError = message
@@ -91,7 +112,9 @@ public enum SyncSettings {
     /// account changes). Never touches user data — only these breadcrumbs.
     public static func resetDiagnostics() {
         let suite = SharedDefaults.suite
-        for key in [Keys.lastPush, Keys.lastPull, Keys.lastError, Keys.lastErrorAt] {
+        for key in [
+            Keys.lastPush, Keys.lastPull, Keys.lastError, Keys.lastErrorAt, Keys.lastMergeReport
+        ] {
             suite.removeObject(forKey: key)
         }
     }

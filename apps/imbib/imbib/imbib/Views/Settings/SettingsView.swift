@@ -942,17 +942,31 @@ extension MuteType {
 
 // MARK: - Sync Settings
 
+/// CloudKit sync settings (ADR-0007 Phase 3).
+///
+/// Replaces the "available after CloudKit reconnection" placeholder that stood
+/// here while the graph store had no sync at all. Every row is driven by
+/// `SyncStatusModel` — this view computes nothing itself, so it can never
+/// disagree with the iOS pane or `GET /api/sync/status`.
 struct SyncSettingsTab: View {
+    @State private var model = SyncStatusModel.shared
+
     var body: some View {
         Form {
-            Section("Sync Health") {
-                Text("Sync status monitoring will be available after CloudKit reconnection.")
-                    .foregroundStyle(.secondary)
+            Section("iCloud Sync") {
+                SyncStatusSection(model: model)
             }
 
-            Section("iCloud Settings") {
-                Text("iCloud sync settings will be available after CloudKit reconnection.")
-                    .foregroundStyle(.secondary)
+            Section("Status") {
+                SyncDiagnosticsSection(snapshot: model.snapshot)
+            }
+
+            Section {
+                SyncScopeFooter()
+            }
+
+            Section("Actions") {
+                SyncActionsSection(model: model)
             }
 
             Section("Backup") {
@@ -962,6 +976,13 @@ struct SyncSettingsTab: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .padding(.horizontal)
+        // Poll only while the pane is on screen.
+        .task {
+            model.startAutoRefresh()
+        }
+        .onDisappear {
+            model.stopAutoRefresh()
+        }
     }
 }
 

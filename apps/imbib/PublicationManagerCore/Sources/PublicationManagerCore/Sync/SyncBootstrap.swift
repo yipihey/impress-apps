@@ -56,6 +56,9 @@ public enum SyncBootstrap {
         await engine.nudge()
 
         let report = await runMerge()
+        // Persist it: the merge runs once, unattended, and Settings will want
+        // to explain what it did long after this task has finished.
+        SyncSettings.lastMergeReport = report
         await markDone()
 
         Logger.sync.infoCapture(

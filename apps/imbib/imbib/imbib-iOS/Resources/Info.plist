@@ -29,6 +29,8 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ImpressSyncContainerIdentifier</key>
+	<string>iCloud.com.impress.suite</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>imprint</string>

@@ -33,6 +33,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/tags` - List tags
 /// - `GET /api/tags/tree` - Get tag tree
 /// - `GET /api/logs` - Query log entries
+/// - `GET /api/sync/status` - CloudKit sync state (ADR-0007 Phase 3)
 /// - `GET /api/libraries/{id}/activity` - Get library activity feed
 /// - `GET /api/papers/{citeKey}/comments` - List comments for a paper
 /// - `GET /api/papers/{citeKey}/assignments` - List assignments for a paper
@@ -52,6 +53,36 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `POST /api/libraries/{id}/share` - Share a library
 /// - `POST /api/artifacts` - Create artifact (JSON body)
 /// - `POST /api/artifacts/{id}/link` - Link artifact to publication
+/// - `POST /api/sync/nudge` - Trigger a sync pass (ADR-0007 Phase 3)
+///
+/// ## Sync endpoints (ADR-0007 Phase 3)
+///
+/// `GET /api/sync/status` reports the same state the Settings panes show —
+/// both read `SyncStatusSnapshot`, so the API and the UI cannot disagree:
+/// ```json
+/// { "status": "ok", "enabled": false, "available": false,
+///   "reason_code": "disabled_by_user", "explanation": "iCloud sync is turned off.",
+///   "account_status": null, "lease_holder": null, "engine_running": false,
+///   "last_push_ms": null, "last_pull_ms": null,
+///   "outbox": 12, "pending_refs": 0, "tombstones": 3,
+///   "bootstrap_done": false, "merge_report": null, "last_error": null,
+///   "container": "iCloud.com.impress.suite", "zone": "ImpressGraph" }
+/// ```
+/// `reason_code` is the machine-readable verdict: `available`, `disabled_by_user`,
+/// `not_entitled`, `account_unavailable`, `lease_held_by_other`,
+/// `account_check_failed`, `unit_test_process`. Note the queue counters are
+/// meaningful even while sync is off — the outbox fills up regardless, which
+/// is what makes enabling sync later safe.
+///
+/// `POST /api/sync/nudge` requests an immediate push+pull. It answers
+/// `{"status":"ok","accepted":true|false,"reason":"…"}`; `accepted:false`
+/// carries the same explanation the Settings pane would show (sync off, not
+/// entitled, no iCloud account, another app holds the lease). It never 500s
+/// on an unavailable engine — refusing is a normal outcome, not an error.
+///
+/// These replace nothing: the previous `/api/sync/status` and
+/// `/api/sync/comments` routes were deleted in 5400ae1 along with the dead
+/// CloudKit comment stack. This is an honest new surface over the real engine.
 ///
 /// API Endpoints (PUT):
 /// - `PUT /api/papers/read` - Mark papers read/unread
@@ -478,6 +509,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return handlePerformance()
         }
 
+        if path == "/api/sync/status" {
+            return await handleSyncStatus()
+        }
+
         if path == "/api/layout" {
             return await handleGetLayout()
         }
@@ -605,6 +640,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
         if path == "/api/performance/reset" {
             PerfMetrics.shared.reset()
             return .json(["status": "ok"])
+        }
+
+        if path == "/api/sync/nudge" {
+            return await handleSyncNudge()
         }
 
         if path == "/api/layout" {
@@ -1362,6 +1401,34 @@ public actor HTTPAutomationRouter: HTTPRouter {
     // MARK: - Performance (PerfMetrics)
 
     /// GET /api/performance — PerfMetrics snapshot (same shape as imprint's).
+    // MARK: - Sync (ADR-0007 Phase 3)
+
+    /// GET /api/sync/status — the sync engine's state, identical to what the
+    /// Settings panes render (both build a `SyncStatusSnapshot`).
+    ///
+    /// Always 200: "sync is off" and "not entitled" are legitimate states to
+    /// report, not request failures.
+    private func handleSyncStatus() async -> HTTPResponse {
+        let snapshot = await SyncStatusSnapshot.gather()
+        var json = snapshot.jsonDictionary()
+        json["status"] = "ok"
+        return .json(json)
+    }
+
+    /// POST /api/sync/nudge — request an immediate push+pull.
+    ///
+    /// Answers `accepted:false` with a reason when the engine can't run,
+    /// rather than erroring: an agent polling this needs to distinguish
+    /// "refused because sync is off" from "the request was malformed".
+    private func handleSyncNudge() async -> HTTPResponse {
+        let outcome = await SyncActions.nudge()
+        return .json([
+            "status": "ok",
+            "accepted": outcome.accepted,
+            "reason": outcome.reason
+        ])
+    }
+
     private func handlePerformance() -> HTTPResponse {
         let snap = PerfMetrics.shared.snapshot()
         let buckets: [[String: Any]] = snap.buckets.map { b in

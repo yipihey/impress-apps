@@ -78,12 +78,13 @@ struct IOSSettingsView: View {
                     .accessibilityIdentifier(AccessibilityID.Settings.Tabs.recommendations)
                 }
 
-                // NOTE: the "iCloud Sync" row was removed 2026-07-23. It was
-                // wired to CloudKitSyncSettingsStore, whose engine
-                // (CommentCloudKitEngine) died in the Rust migration — the
-                // toggle advertised cross-device sync that does not exist
-                // (the store is per-device; ingest is network feeds), which
-                // misled users into perceiving "sync" as broken/slow.
+                // NOTE: the original "iCloud Sync" row lived here until
+                // 2026-07-23. It was wired to CloudKitSyncSettingsStore, whose
+                // engine (CommentCloudKitEngine) died in the Rust migration —
+                // the toggle advertised cross-device sync that did not exist,
+                // which misled users into perceiving "sync" as broken/slow.
+                // Real sync arrived with ADR-0007 Phase 3; its pane now lives
+                // in the Library section below (IOSSyncSettingsView).
 
                 // PDF Storage Settings (iOS-specific)
                 Section {
@@ -127,6 +128,16 @@ struct IOSSettingsView: View {
                         IOSExplorationSettingsView()
                     } label: {
                         Label("Exploration", systemImage: "arrow.triangle.branch")
+                    }
+
+                    // iCloud Sync (ADR-0007 Phase 3). This is the honest
+                    // successor to the row deleted on 2026-07-23, which
+                    // pointed at a CloudKit stack that no longer existed and
+                    // implied syncing that wasn't happening.
+                    NavigationLink {
+                        IOSSyncSettingsView()
+                    } label: {
+                        Label("iCloud Sync", systemImage: "arrow.triangle.2.circlepath.icloud")
                     }
                 }
 
@@ -1268,6 +1279,52 @@ enum DeviceAddresses {
             let at = a.hasPrefix("100."), bt = b.hasPrefix("100.")
             if at != bt { return at }
             return a < b
+        }
+    }
+}
+
+// MARK: - iCloud Sync
+
+/// iOS Sync pane (ADR-0007 Phase 3, Phase E).
+///
+/// The honest successor to the "iCloud Sync" row deleted on 2026-07-23: that
+/// one pointed at a CloudKit stack which no longer existed, so it implied a
+/// syncing that was not happening. This pane shows real state from
+/// `SyncStatusModel` — the same source the macOS tab and
+/// `GET /api/sync/status` read — and states plainly what does and does not
+/// sync, so nobody has to infer it.
+struct IOSSyncSettingsView: View {
+    @State private var model = SyncStatusModel.shared
+
+    var body: some View {
+        List {
+            Section {
+                SyncStatusSection(model: model)
+            } footer: {
+                Text("Keeps your library in step across your Mac and iOS devices "
+                     + "using your personal iCloud account. Your data stays in your "
+                     + "own iCloud — it is never sent anywhere else.")
+            }
+
+            Section("Status") {
+                SyncDiagnosticsSection(snapshot: model.snapshot)
+            }
+
+            Section {
+                SyncScopeFooter()
+            }
+
+            Section("Actions") {
+                SyncActionsSection(model: model)
+            }
+        }
+        .navigationTitle("iCloud Sync")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            model.startAutoRefresh()
+        }
+        .onDisappear {
+            model.stopAutoRefresh()
         }
     }
 }

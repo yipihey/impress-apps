@@ -47,7 +47,11 @@ import ImpressLogging
 import OSLog
 
 /// Outcome of a first-sync merge pass, surfaced in Settings (Phase E).
-public struct FirstSyncMergeReport: Sendable, Equatable {
+///
+/// `Codable` so the last run can be persisted in `SyncSettings` — a merge
+/// happens once, silently, long before the user opens Settings, so the report
+/// has to outlive the pass that produced it.
+public struct FirstSyncMergeReport: Sendable, Equatable, Codable {
     /// Identifier groups with more than one publication.
     public var duplicateGroups: Int = 0
     /// Groups merged (spanning ≥2 origins).
