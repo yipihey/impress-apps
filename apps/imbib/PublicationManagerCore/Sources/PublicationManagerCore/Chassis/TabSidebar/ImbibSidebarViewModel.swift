@@ -1441,13 +1441,31 @@ final class ImbibSidebarViewModel {
             deleteItem.representedObject = colID
             menu.addItem(deleteItem)
 
+        case .explorationSearch(let searchID):
+            // Exploration smart searches lost their context menu when the
+            // SwiftUI sidebar was replaced by the NSOutlineView chassis
+            // (b748151): the node kind never got a branch here, so right-click
+            // produced no menu at all and the search could not be deleted.
+            let deleteItem = NSMenuItem(title: "Delete Search", action: #selector(ContextMenuActions.deleteExplorationSearch(_:)), keyEquivalent: "")
+            deleteItem.target = ContextMenuActions.shared
+            deleteItem.representedObject = searchID
+            menu.addItem(deleteItem)
+
         case .scixLibrary(let libraryID):
             buildSciXLibraryContextMenu(menu, libraryID: libraryID)
 
         default:
+            Self.logger.infoCapture(
+                "Sidebar context menu: no items for node kind \(String(describing: node.nodeType)) ('\(node.displayName)')",
+                category: "sidebar"
+            )
             return nil
         }
 
+        Self.logger.infoCapture(
+            "Sidebar context menu: \(menu.items.count) item(s) for '\(node.displayName)' (\(String(describing: node.nodeType)))",
+            category: "sidebar"
+        )
         return menu.items.isEmpty ? nil : menu
     }
 
@@ -1455,6 +1473,12 @@ final class ImbibSidebarViewModel {
         // Same-kind branches only — mixed-kind multi-selection falls through to nil
         // (which lets NSOutlineView fall back to the single-item menu for the
         // right-clicked node). Each branch returns its own menu.
+        // Exception: the Exploration section mixes searches and collections,
+        // so branch 4 treats them as one deletable kind.
+        Self.logger.infoCapture(
+            "Sidebar multi-selection context menu: \(nodes.count) node(s) — \(nodes.map(\.displayName).prefix(6).joined(separator: ", "))",
+            category: "sidebar"
+        )
 
         // 1. All-libraries multi-selection.
         let libraryIDs = nodes.compactMap { node -> UUID? in
@@ -1497,30 +1521,100 @@ final class ImbibSidebarViewModel {
             if case .explorationCollection(let colID) = node.nodeType { return colID }
             return nil
         }
-        guard explorationIDs.count == nodes.count, !explorationIDs.isEmpty else { return nil }
+        if explorationIDs.count == nodes.count, !explorationIDs.isEmpty {
+            let menu = NSMenu()
+            let count = explorationIDs.count
+            let deleteItem = NSMenuItem(
+                title: "Delete \(count) Collections",
+                action: #selector(ContextMenuActions.deleteMultipleExplorationCollections(_:)),
+                keyEquivalent: ""
+            )
+            deleteItem.target = ContextMenuActions.shared
+            deleteItem.representedObject = explorationIDs
+            menu.addItem(deleteItem)
+            return menu
+        }
 
-        let menu = NSMenu()
-        let count = explorationIDs.count
-        let deleteItem = NSMenuItem(
-            title: "Delete \(count) Collections",
-            action: #selector(ContextMenuActions.deleteMultipleExplorationCollections(_:)),
-            keyEquivalent: ""
+        // 4. Exploration searches, alone or mixed with exploration collections.
+        //    The Exploration section is mostly smart searches, so this is the
+        //    branch the user's "delete many Explorations at once" needs.
+        let explorationSearchIDs = nodes.compactMap { node -> UUID? in
+            if case .explorationSearch(let searchID) = node.nodeType { return searchID }
+            return nil
+        }
+        if !explorationSearchIDs.isEmpty,
+           explorationSearchIDs.count + explorationIDs.count == nodes.count {
+            let menu = NSMenu()
+            let total = explorationSearchIDs.count + explorationIDs.count
+            let title = explorationIDs.isEmpty
+                ? "Delete \(total) Searches"
+                : "Delete \(total) Items"
+            let deleteItem = NSMenuItem(
+                title: title,
+                action: #selector(ContextMenuActions.deleteMultipleExplorationItems(_:)),
+                keyEquivalent: ""
+            )
+            deleteItem.target = ContextMenuActions.shared
+            deleteItem.representedObject = [
+                "searches": explorationSearchIDs,
+                "collections": explorationIDs,
+            ] as [String: [UUID]]
+            menu.addItem(deleteItem)
+            return menu
+        }
+
+        Self.logger.infoCapture(
+            "Sidebar multi-selection context menu: mixed kinds — falling back to the single-row menu",
+            category: "sidebar"
         )
-        deleteItem.target = ContextMenuActions.shared
-        deleteItem.representedObject = explorationIDs
-        menu.addItem(deleteItem)
-        return menu
+        return nil
     }
 
     func deleteExplorationCollections(_ collectionIDs: [UUID]) {
+        deleteExplorationItems(searchIDs: [], collectionIDs: collectionIDs)
+    }
+
+    /// Delete Exploration smart searches (the "lightbulb" rows in the
+    /// Exploration section). Same semantics as the iOS sidebar's swipe-delete
+    /// and the pre-chassis macOS sidebar: the search definition goes away, the
+    /// papers it pulled into the Exploration library stay put.
+    func deleteExplorationSearches(_ searchIDs: [UUID]) {
+        deleteExplorationItems(searchIDs: searchIDs, collectionIDs: [])
+    }
+
+    /// Single code path for deleting Exploration rows, one or many, searches
+    /// and/or collections. Bulk deletes are wrapped in a store batch so the
+    /// sidebar/list rebuild once instead of N times; each individual delete is
+    /// the same call the single-row menu makes, so undo behaves identically.
+    func deleteExplorationItems(searchIDs: [UUID], collectionIDs: [UUID]) {
+        let total = searchIDs.count + collectionIDs.count
+        guard total > 0 else { return }
+        Self.logger.infoCapture(
+            "Deleting \(searchIDs.count) exploration search(es) and \(collectionIDs.count) exploration collection(s)",
+            category: "sidebar"
+        )
+
+        let isBatch = total > 1
+        if isBatch { store.beginBatchMutation() }
+
+        for searchID in searchIDs {
+            if case .exploration(let id) = selectedTab, id == searchID {
+                selectedNodeID = nil
+            }
+            store.deleteSmartSearch(id: searchID)
+        }
         for colID in collectionIDs {
             if case .explorationCollection(let id) = selectedTab, id == colID {
                 selectedNodeID = nil
             }
             libraryManager?.deleteExplorationCollection(id: colID)
         }
+
+        if isBatch { store.endBatchMutation() }
+
         explorationRefreshTrigger = UUID()
         bumpDataVersion()
+        Self.logger.infoCapture("Exploration delete complete (\(total) item(s))", category: "sidebar")
     }
 
     private func buildSectionContextMenu(_ menu: NSMenu, section: SidebarSectionType) {
@@ -2074,6 +2168,8 @@ final class ImbibSidebarViewModel {
                 deleteCollection(id)
             case .explorationCollection(let id):
                 deleteExplorationCollection(id)
+            case .explorationSearch(let id):
+                deleteExplorationSearches([id])
             default:
                 break  // Unsupported node kind — no Delete action in v1.
             }
@@ -2103,6 +2199,17 @@ final class ImbibSidebarViewModel {
         }
         if explorationIDs.count == nodes.count {
             deleteExplorationCollections(explorationIDs)
+            return
+        }
+        // Exploration searches, alone or mixed with exploration collections —
+        // mirrors branch 4 of `buildMultiSelectionContextMenu`.
+        let explorationSearchIDs = nodes.compactMap { node -> UUID? in
+            if case .explorationSearch(let id) = node.nodeType { return id }
+            return nil
+        }
+        if !explorationSearchIDs.isEmpty,
+           explorationSearchIDs.count + explorationIDs.count == nodes.count {
+            deleteExplorationItems(searchIDs: explorationSearchIDs, collectionIDs: explorationIDs)
         }
         // Mixed kinds → no-op (consistent with right-click behavior).
     }
@@ -2293,6 +2400,21 @@ final class ContextMenuActions: NSObject {
     @objc func deleteMultipleExplorationCollections(_ sender: NSMenuItem) {
         guard let collectionIDs = sender.representedObject as? [UUID] else { return }
         viewModel?.deleteExplorationCollections(collectionIDs)
+    }
+
+    @objc func deleteExplorationSearch(_ sender: NSMenuItem) {
+        guard let searchID = sender.representedObject as? UUID else { return }
+        viewModel?.deleteExplorationSearches([searchID])
+    }
+
+    /// Bulk delete of Exploration rows — searches, collections, or both.
+    /// `representedObject` is `["searches": [UUID], "collections": [UUID]]`.
+    @objc func deleteMultipleExplorationItems(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? [String: [UUID]] else { return }
+        viewModel?.deleteExplorationItems(
+            searchIDs: payload["searches"] ?? [],
+            collectionIDs: payload["collections"] ?? []
+        )
     }
 
     @objc func deleteMultipleLibraries(_ sender: NSMenuItem) {

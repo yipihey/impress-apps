@@ -446,6 +446,36 @@ export const IMBIB_TOOLS: Tool[] = [
     },
   },
   {
+    name: "imbib_list_smart_searches",
+    description:
+      "List saved smart searches. Pass the Exploration library's ID to enumerate the rows of imbib's Exploration sidebar section.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        libraryID: {
+          type: "string",
+          description: "Library UUID to scope the listing (optional; omit for all libraries)",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_delete_smart_searches",
+    description:
+      "Delete one or more smart searches (Exploration sidebar rows). Only the search definitions are removed — papers they pulled into the library stay.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        identifiers: {
+          type: "array",
+          items: { type: "string" },
+          description: "Smart search UUIDs to delete",
+        },
+      },
+      required: ["identifiers"],
+    },
+  },
+  {
     name: "imbib_add_to_collection",
     description: "Add papers to an existing collection.",
     inputSchema: {
@@ -1187,6 +1217,10 @@ export class ImbibTools {
         return this.createCollection(args);
       case "imbib_delete_collection":
         return this.deleteCollection(args);
+      case "imbib_list_smart_searches":
+        return this.listSmartSearches(args);
+      case "imbib_delete_smart_searches":
+        return this.deleteSmartSearches(args);
       case "imbib_add_to_collection":
         return this.addToCollection(args);
       case "imbib_add_to_library":
@@ -1922,6 +1956,42 @@ export class ImbibTools {
     return {
       content: [
         { type: "text", text: result.deleted ? "Collection deleted" : "Collection not found" },
+      ],
+    };
+  }
+
+  private async listSmartSearches(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const libraryID = args?.libraryID as string | undefined;
+    const searches = await this.client.listSmartSearches(libraryID);
+    if (searches.length === 0) {
+      return { content: [{ type: "text", text: "No smart searches found" }] };
+    }
+    const lines = searches.map((s) => `- **${s.name}** (${s.id}): \`${s.query}\``);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Found ${searches.length} smart search(es):\n\n${lines.join("\n")}`,
+        },
+      ],
+    };
+  }
+
+  private async deleteSmartSearches(
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+    const identifiers = args?.identifiers as string[] | undefined;
+    if (!identifiers || identifiers.length === 0) {
+      return {
+        content: [{ type: "text", text: "Error: identifiers is required" }],
+      };
+    }
+    const result = await this.client.deleteSmartSearches(identifiers);
+    return {
+      content: [
+        { type: "text", text: `Deleted ${result.deleted} of ${identifiers.length} smart search(es)` },
       ],
     };
   }

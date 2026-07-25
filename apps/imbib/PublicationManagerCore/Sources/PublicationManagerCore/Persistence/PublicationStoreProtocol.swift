@@ -129,6 +129,9 @@ public protocol PublicationStoreProtocol {
     func listSmartSearches(libraryId: UUID?) -> [SmartSearch]
     func getSmartSearch(id: UUID) -> SmartSearch?
 
+    /// Delete a smart search definition. Papers it pulled in are left alone.
+    func deleteSmartSearch(id: UUID)
+
     @discardableResult
     func createInboxFeed(
         name: String,

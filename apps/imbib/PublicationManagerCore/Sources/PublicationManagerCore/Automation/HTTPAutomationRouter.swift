@@ -98,6 +98,8 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `DELETE /api/collections/{id}` - Delete a collection
 /// - `DELETE /api/libraries/{id}` - Delete a single library (papers unlinked, undoable)
 /// - `DELETE /api/libraries` - Batch delete libraries (body: `{"identifiers":[UUID,…],"deleteFiles":false}`)
+/// - `DELETE /api/smart-searches/{id}` - Delete a smart search (Exploration row); papers untouched
+/// - `DELETE /api/smart-searches` - Batch delete smart searches (body: `{"identifiers":[UUID,…]}`)
 /// - `DELETE /api/comments/{id}` - Delete a comment
 /// - `DELETE /api/annotations/{id}` - Delete a PDF annotation
 /// - `DELETE /api/assignments/{id}` - Delete an assignment
@@ -1071,6 +1073,20 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleDeleteCollection(collectionID: collectionID)
         }
 
+        // DELETE /api/smart-searches (batch — must precede single-id route)
+        if path == "/api/smart-searches" {
+            return await handleDeleteSmartSearchesBatch(request)
+        }
+
+        // DELETE /api/smart-searches/{id}
+        if path.hasPrefix("/api/smart-searches/") {
+            let segment = String(originalPath.dropFirst("/api/smart-searches/".count))
+            guard let searchID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid smart-search ID")
+            }
+            return await handleDeleteSmartSearch(id: searchID)
+        }
+
         // DELETE /api/libraries (batch — must precede single-id route)
         if path == "/api/libraries" {
             return await handleDeleteLibrariesBatch(request)
@@ -1640,7 +1656,9 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "DELETE /api/comments/{id}": "Delete a comment",
                 "DELETE /api/assignments/{id}": "Delete an assignment",
                 "DELETE /api/libraries/{id}/share": "Unshare a library (body: keepCopy?)",
-                "DELETE /api/annotations/{id}": "Delete an annotation"
+                "DELETE /api/annotations/{id}": "Delete an annotation",
+                "DELETE /api/smart-searches/{id}": "Delete a smart search (Exploration row)",
+                "DELETE /api/smart-searches": "Batch delete smart searches (body: identifiers)"
             ],
             "documentation": "https://github.com/yipihey/impress-apps/wiki/HTTP-API"
         ]
@@ -3970,6 +3988,44 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return .serverError("Failed to create smart search")
         }
         return .json(["status": "ok", "search": smartSearchToDict(s)])
+    }
+
+    /// DELETE /api/smart-searches/{id}
+    /// Deletes an Exploration/library smart search definition. Papers the
+    /// search pulled into its library are left alone — same semantics as the
+    /// sidebar's "Delete Search" context-menu item.
+    @MainActor
+    private func handleDeleteSmartSearch(id: UUID) async -> HTTPResponse {
+        guard RustStoreAdapter.shared.getSmartSearch(id: id) != nil else {
+            return .notFound("Smart search not found: \(id.uuidString)")
+        }
+        RustStoreAdapter.shared.deleteSmartSearch(id: id)
+        return .json(["status": "ok", "deleted": 1])
+    }
+
+    /// DELETE /api/smart-searches  (batch)
+    /// Body: `{"identifiers": [UUID, …]}`. Wraps the deletes in one store
+    /// batch so observers rebuild once (mirrors `DELETE /api/libraries`).
+    @MainActor
+    private func handleDeleteSmartSearchesBatch(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let identifierStrings = json["identifiers"] as? [String] else {
+            return .badRequest("Missing or invalid 'identifiers' array (expected [UUID-string, …])")
+        }
+        let ids = identifierStrings.compactMap { UUID(uuidString: $0) }
+        guard ids.count == identifierStrings.count else {
+            return .badRequest("One or more 'identifiers' entries is not a valid UUID")
+        }
+        let store = RustStoreAdapter.shared
+        let existing = ids.filter { store.getSmartSearch(id: $0) != nil }
+        if existing.count > 1 { store.beginBatchMutation() }
+        for id in existing {
+            store.deleteSmartSearch(id: id)
+        }
+        if existing.count > 1 { store.endBatchMutation() }
+        return .json(["status": "ok", "deleted": existing.count, "requested": ids.count])
     }
 
     // MARK: - ===== Phase D: SciX libraries =====

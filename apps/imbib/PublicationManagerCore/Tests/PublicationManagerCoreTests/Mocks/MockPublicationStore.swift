@@ -35,6 +35,7 @@ final class MockPublicationStore: PublicationStoreProtocol {
     var movePublicationsCallCount = 0
     var setReadCallCount = 0
     var setStarredCallCount = 0
+    var deleteSmartSearchCallCount = 0
     var lastImportedBibTeX: String?
 
     // MARK: - Helpers
@@ -473,6 +474,12 @@ final class MockPublicationStore: PublicationStoreProtocol {
 
     func getSmartSearch(id: UUID) -> SmartSearch? {
         smartSearches[id]
+    }
+
+    func deleteSmartSearch(id: UUID) {
+        smartSearches.removeValue(forKey: id)
+        deleteSmartSearchCallCount += 1
+        didMutate()
     }
 
     @discardableResult

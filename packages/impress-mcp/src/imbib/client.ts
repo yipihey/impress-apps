@@ -44,6 +44,19 @@ export interface Collection {
   libraryName?: string;
 }
 
+/** A saved query. In the Exploration library these are the sidebar's Exploration rows. */
+export interface SmartSearch {
+  id: string;
+  name: string;
+  query: string;
+  library_id: string;
+  max_results?: number;
+  feeds_to_inbox?: boolean;
+  auto_refresh_enabled?: boolean;
+  refresh_interval_seconds?: number;
+  source_ids?: string[];
+}
+
 export interface Library {
   id: string;
   name: string;
@@ -598,6 +611,50 @@ export class ImbibClient {
       throw new Error(`Delete collection failed: ${response.statusText}`);
     }
     const data = (await response.json()) as { status: string; deleted: boolean };
+    return { deleted: data.deleted };
+  }
+
+  /**
+   * List smart searches (the rows of imbib's Exploration section when
+   * `libraryID` is the Exploration library). Omit `libraryID` for all.
+   */
+  async listSmartSearches(libraryID?: string): Promise<SmartSearch[]> {
+    const url = libraryID
+      ? `${this.baseURL}/api/smart-searches?library_id=${encodeURIComponent(libraryID)}`
+      : `${this.baseURL}/api/smart-searches`;
+    const response = await this.authFetch(url);
+    if (!response.ok) {
+      throw new Error(`List smart searches failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; searches: SmartSearch[] };
+    return data.searches ?? [];
+  }
+
+  /**
+   * Delete one or more smart searches. Papers the searches pulled into their
+   * library are left alone — only the search definitions are removed.
+   */
+  async deleteSmartSearches(ids: string[]): Promise<{ deleted: number }> {
+    if (ids.length === 1) {
+      const response = await this.authFetch(
+        `${this.baseURL}/api/smart-searches/${ids[0]}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) {
+        throw new Error(`Delete smart search failed: ${response.statusText}`);
+      }
+      const data = (await response.json()) as { status: string; deleted: number };
+      return { deleted: data.deleted };
+    }
+    const response = await this.authFetch(`${this.baseURL}/api/smart-searches`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifiers: ids }),
+    });
+    if (!response.ok) {
+      throw new Error(`Delete smart searches failed: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { status: string; deleted: number };
     return { deleted: data.deleted };
   }
 
