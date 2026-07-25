@@ -5221,10 +5221,21 @@ public struct BibliographyRow {
     public var tags: [TagDisplayRow]
     public var libraryName: String?
     public var enrichmentDate: String?
+    /**
+     * User-activity stamp (ms since epoch): last time the user viewed the
+     * paper or added it by hand. Deliberately distinct from `date_modified`,
+     * which automated ingest also bumps. None = never touched.
+     */
+    public var lastActivityAt: Int64?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, citeKey: String, title: String, authorString: String, year: Int32?, abstractText: String?, isRead: Bool, isStarred: Bool, flagColor: String?, flagStyle: String?, flagLength: String?, hasDownloadedPdf: Bool, hasOtherAttachments: Bool, citationCount: Int32, referenceCount: Int32, doi: String?, arxivId: String?, bibcode: String?, venue: String?, note: String?, dateAdded: Int64, dateModified: Int64, primaryCategory: String?, categories: [String], tags: [TagDisplayRow], libraryName: String?, enrichmentDate: String?) {
+    public init(id: String, citeKey: String, title: String, authorString: String, year: Int32?, abstractText: String?, isRead: Bool, isStarred: Bool, flagColor: String?, flagStyle: String?, flagLength: String?, hasDownloadedPdf: Bool, hasOtherAttachments: Bool, citationCount: Int32, referenceCount: Int32, doi: String?, arxivId: String?, bibcode: String?, venue: String?, note: String?, dateAdded: Int64, dateModified: Int64, primaryCategory: String?, categories: [String], tags: [TagDisplayRow], libraryName: String?, enrichmentDate: String?, 
+        /**
+         * User-activity stamp (ms since epoch): last time the user viewed the
+         * paper or added it by hand. Deliberately distinct from `date_modified`,
+         * which automated ingest also bumps. None = never touched.
+         */lastActivityAt: Int64?) {
         self.id = id
         self.citeKey = citeKey
         self.title = title
@@ -5252,6 +5263,7 @@ public struct BibliographyRow {
         self.tags = tags
         self.libraryName = libraryName
         self.enrichmentDate = enrichmentDate
+        self.lastActivityAt = lastActivityAt
     }
 }
 
@@ -5340,6 +5352,9 @@ extension BibliographyRow: Equatable, Hashable {
         if lhs.enrichmentDate != rhs.enrichmentDate {
             return false
         }
+        if lhs.lastActivityAt != rhs.lastActivityAt {
+            return false
+        }
         return true
     }
 
@@ -5371,6 +5386,7 @@ extension BibliographyRow: Equatable, Hashable {
         hasher.combine(tags)
         hasher.combine(libraryName)
         hasher.combine(enrichmentDate)
+        hasher.combine(lastActivityAt)
     }
 }
 
@@ -5408,7 +5424,8 @@ public struct FfiConverterTypeBibliographyRow: FfiConverterRustBuffer {
                 categories: FfiConverterSequenceString.read(from: &buf), 
                 tags: FfiConverterSequenceTypeTagDisplayRow.read(from: &buf), 
                 libraryName: FfiConverterOptionString.read(from: &buf), 
-                enrichmentDate: FfiConverterOptionString.read(from: &buf)
+                enrichmentDate: FfiConverterOptionString.read(from: &buf), 
+                lastActivityAt: FfiConverterOptionInt64.read(from: &buf)
         )
     }
 
@@ -5440,6 +5457,7 @@ public struct FfiConverterTypeBibliographyRow: FfiConverterRustBuffer {
         FfiConverterSequenceTypeTagDisplayRow.write(value.tags, into: &buf)
         FfiConverterOptionString.write(value.libraryName, into: &buf)
         FfiConverterOptionString.write(value.enrichmentDate, into: &buf)
+        FfiConverterOptionInt64.write(value.lastActivityAt, into: &buf)
     }
 }
 

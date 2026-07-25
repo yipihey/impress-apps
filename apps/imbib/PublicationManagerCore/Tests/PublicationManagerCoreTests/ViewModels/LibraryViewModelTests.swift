@@ -38,7 +38,7 @@ final class LibraryViewModelTests: XCTestCase {
     }
 
     func testLibrarySortOrder_allCases() {
-        XCTAssertEqual(LibrarySortOrder.allCases.count, 8)
+        XCTAssertEqual(LibrarySortOrder.allCases.count, 9)
     }
 
     func testLibrarySortOrder_identifiable() {

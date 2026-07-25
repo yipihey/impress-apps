@@ -3335,6 +3335,7 @@ nonisolated extension PublicationRowData {
         self.note = row.note
         self.dateAdded = Date(timeIntervalSince1970: TimeInterval(row.dateAdded) / 1000.0)
         self.dateModified = Date(timeIntervalSince1970: TimeInterval(row.dateModified) / 1000.0)
+        self.lastActivityAt = row.lastActivityAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
         self.primaryCategory = row.primaryCategory
         self.categories = row.categories
 

@@ -1929,6 +1929,19 @@ struct UnifiedPublicationListWrapper: View {
             if lhs.dateAdded == rhs.dateAdded { return .orderedSame }
             let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
             return ascending ? result : result.flipped
+        case .recentActivity:
+            // nil stamp = never touched = distant past. This matches SQLite's
+            // NULL ordering (last under DESC, first under ASC) so the local
+            // re-sort never fights the server-side ORDER BY.
+            let la = lhs.lastActivityAt ?? .distantPast
+            let ra = rhs.lastActivityAt ?? .distantPast
+            if la != ra {
+                let result: ComparisonResult = la > ra ? .orderedAscending : .orderedDescending
+                return ascending ? result : result.flipped
+            }
+            if lhs.dateAdded == rhs.dateAdded { return .orderedSame }
+            let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
+            return ascending ? result : result.flipped
         }
     }
 

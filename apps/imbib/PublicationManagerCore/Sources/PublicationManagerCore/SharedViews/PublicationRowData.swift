@@ -85,6 +85,10 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// Date last modified (for sorting)
     public let dateModified: Date
 
+    /// Last user activity (viewed / added by hand). Distinct from `dateModified`,
+    /// which automated ingest also bumps. nil = never touched by the user.
+    public let lastActivityAt: Date?
+
     // MARK: - arXiv Categories
 
     /// Primary arXiv category (e.g., "cs.LG", "astro-ph.GA")
@@ -135,6 +139,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         note: String? = nil,
         dateAdded: Date = Date(),
         dateModified: Date = Date(),
+        lastActivityAt: Date? = nil,
         primaryCategory: String? = nil,
         categories: [String] = [],
         tagDisplays: [TagDisplayData] = [],
@@ -161,6 +166,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.note = note
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.lastActivityAt = lastActivityAt
         self.primaryCategory = primaryCategory
         self.categories = categories
         self.tagDisplays = tagDisplays

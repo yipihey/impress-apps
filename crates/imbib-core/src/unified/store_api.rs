@@ -4588,6 +4588,12 @@ fn normalize_sort_field(field: &str) -> String {
         "year" => "payload.year".into(),
         "citeKey" | "cite_key" => "payload.cite_key".into(),
         "citationCount" | "citation_count" => "payload.citation_count".into(),
+        // Recency of USER ACTIVITY (viewed, or added by hand) — the same
+        // payload field that backs the Recent library. Papers never touched
+        // have no value; SQLite sorts NULLs last under DESC, so untouched
+        // papers fall to the bottom of a "Recently Used" sort, which is the
+        // intent.
+        "lastActivity" | "last_activity" | "recent" => "payload.last_activity_at".into(),
         f => f.into(),
     }
 }
@@ -4602,6 +4608,20 @@ fn build_sort_descriptors(sort_field: &str, ascending: bool) -> Vec<SortDescript
             SortDescriptor {
                 field: "is_starred".into(),
                 ascending: false,
+            },
+            SortDescriptor {
+                field: "created".into(),
+                ascending,
+            },
+        ],
+        // Recency needs a deterministic secondary: every never-touched paper
+        // has a NULL stamp, so without one the whole untouched tail would sit
+        // in arbitrary (rowid) order and reshuffle against the Swift-side
+        // re-sort, which tie-breaks on created.
+        "lastActivity" | "last_activity" | "recent" => vec![
+            SortDescriptor {
+                field: "payload.last_activity_at".into(),
+                ascending,
             },
             SortDescriptor {
                 field: "created".into(),
@@ -6279,6 +6299,23 @@ mod tests {
             .add_to_collection(vec![ids[0].clone(), ids[1].clone()], coll.id.clone())
             .unwrap();
         assert_eq!(store.count_collection_members_public(coll.id).unwrap(), 2);
+    }
+
+    #[test]
+    fn normalize_sort_field_maps_recency_aliases() {
+        // All three spellings reach the Recent library's payload field.
+        for alias in ["lastActivity", "last_activity", "recent"] {
+            assert_eq!(normalize_sort_field(alias), "payload.last_activity_at");
+        }
+        // The descriptor builder adds a deterministic `created` secondary so
+        // the all-NULL untouched tail has a stable order matching the Swift
+        // comparator's dateAdded tie-break.
+        let descs = build_sort_descriptors("recent", false);
+        assert_eq!(descs.len(), 2);
+        assert_eq!(descs[0].field, "payload.last_activity_at");
+        assert!(!descs[0].ascending);
+        assert_eq!(descs[1].field, "created");
+        assert!(!descs[1].ascending);
     }
 
     #[test]

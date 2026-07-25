@@ -479,6 +479,10 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
     case citeKey
     case citationCount
     case starred
+    /// Most recently viewed or hand-added first — the same activity stamp
+    /// that backs the Recent library, available as a sort in every library
+    /// and collection.
+    case recentActivity
     case recommended
 
     public var id: String { rawValue }
@@ -492,6 +496,7 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         case .citeKey: return "Cite Key"
         case .citationCount: return "Citation Count"
         case .starred: return "Starred First"
+        case .recentActivity: return "Recently Used"
         case .recommended: return "Recommended"
         }
     }
@@ -505,13 +510,15 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         case .citeKey: return "cite_key"
         case .citationCount: return "citation_count"
         case .starred: return "starred"
+        case .recentActivity: return "last_activity"
         case .recommended: return "created"
         }
     }
 
     public var defaultAscending: Bool {
         switch self {
-        case .dateAdded, .dateModified, .year, .citationCount, .starred, .recommended:
+        case .dateAdded, .dateModified, .year, .citationCount, .starred, .recommended,
+             .recentActivity:
             return false
         case .title, .citeKey:
             return true

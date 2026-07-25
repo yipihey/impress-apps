@@ -66,6 +66,10 @@ pub struct BibliographyRow {
     pub tags: Vec<TagDisplayRow>,
     pub library_name: Option<String>,
     pub enrichment_date: Option<String>,
+    /// User-activity stamp (ms since epoch): last time the user viewed the
+    /// paper or added it by hand. Deliberately distinct from `date_modified`,
+    /// which automated ingest also bumps. None = never touched.
+    pub last_activity_at: Option<i64>,
 }
 
 /// Tag display data for list rows.
@@ -527,6 +531,7 @@ pub fn item_to_bibliography_row(
         tags,
         library_name: None, // Filled in by the store API layer
         enrichment_date: get_str(payload, "enrichment_date"),
+        last_activity_at: get_i64(payload, "last_activity_at"),
     }
 }
 
