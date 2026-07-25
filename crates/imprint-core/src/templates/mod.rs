@@ -37,9 +37,11 @@
 
 mod builtin;
 mod parser;
+mod scaffold;
 
 pub use builtin::*;
 pub use parser::*;
+pub use scaffold::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -564,6 +566,73 @@ mod tests {
         );
         for template in journal_templates {
             assert_eq!(template.metadata.category, TemplateCategory::Journal);
+        }
+    }
+
+    #[test]
+    fn test_builtin_template_ids_are_unique() {
+        let templates = builtin::builtin_templates();
+        let mut seen = std::collections::HashSet::new();
+        for template in &templates {
+            assert!(
+                seen.insert(template.id().to_string()),
+                "duplicate built-in template id: {}",
+                template.id()
+            );
+        }
+        // A duplicate id would be silently swallowed by the HashMap in
+        // `load_builtin_templates`, so the registry must have every one.
+        let registry = TemplateRegistry::new();
+        assert_eq!(registry.len(), templates.len());
+    }
+
+    #[test]
+    fn test_builtin_template_metadata_is_well_formed() {
+        let registry = TemplateRegistry::new();
+        for template in registry.list() {
+            parser::validate_template(template)
+                .unwrap_or_else(|e| panic!("template '{}' is invalid: {}", template.id(), e));
+            assert!(
+                !template.metadata.description.is_empty(),
+                "template '{}' has no description",
+                template.id()
+            );
+            assert!(
+                !template.metadata.tags.is_empty(),
+                "template '{}' has no tags (it would be unsearchable)",
+                template.id()
+            );
+            assert!(
+                template.is_builtin(),
+                "template '{}' is not marked built-in",
+                template.id()
+            );
+        }
+    }
+
+    /// Category assignment is part of the public API surface (the HTTP and MCP
+    /// layers filter on it), so pin the ones callers rely on.
+    #[test]
+    fn test_builtin_template_categories_are_stable() {
+        let registry = TemplateRegistry::new();
+        let expected = [
+            ("generic", TemplateCategory::Custom),
+            ("apj", TemplateCategory::Journal),
+            ("mnras", TemplateCategory::Journal),
+            ("nature", TemplateCategory::Journal),
+            ("prd", TemplateCategory::Journal),
+            ("neurips", TemplateCategory::Conference),
+            ("icml", TemplateCategory::Conference),
+        ];
+        for (id, category) in expected {
+            let template = registry
+                .get(id)
+                .unwrap_or_else(|| panic!("template '{}' should exist", id));
+            assert_eq!(
+                template.metadata.category, category,
+                "template '{}' changed category",
+                id
+            );
         }
     }
 

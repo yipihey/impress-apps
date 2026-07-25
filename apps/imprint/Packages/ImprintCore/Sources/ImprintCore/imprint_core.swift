@@ -1935,6 +1935,146 @@ public func FfiConverterTypeFFIRenderRegion_lower(_ value: FfiRenderRegion) -> R
 
 
 /**
+ * Seed values for a new document created from a template.
+ *
+ * Everything except `title` may be empty; the scaffolder fills sensible
+ * placeholders and omits any argument the chosen template does not declare.
+ */
+public struct FfiScaffoldOptions {
+    /**
+     * Manuscript title.
+     */
+    public var title: String
+    /**
+     * Author names, in order.
+     */
+    public var authors: [String]
+    /**
+     * Affiliation strings, referenced by superscript index.
+     */
+    public var affiliations: [String]
+    /**
+     * Abstract text (used for the `summary` slot on templates that use it).
+     */
+    public var abstractText: String?
+    /**
+     * Keywords, for templates that accept them.
+     */
+    public var keywords: [String]
+    /**
+     * Append the standard Introduction/Methods/Results/... skeleton.
+     */
+    public var includeSections: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Manuscript title.
+         */title: String, 
+        /**
+         * Author names, in order.
+         */authors: [String], 
+        /**
+         * Affiliation strings, referenced by superscript index.
+         */affiliations: [String], 
+        /**
+         * Abstract text (used for the `summary` slot on templates that use it).
+         */abstractText: String?, 
+        /**
+         * Keywords, for templates that accept them.
+         */keywords: [String], 
+        /**
+         * Append the standard Introduction/Methods/Results/... skeleton.
+         */includeSections: Bool) {
+        self.title = title
+        self.authors = authors
+        self.affiliations = affiliations
+        self.abstractText = abstractText
+        self.keywords = keywords
+        self.includeSections = includeSections
+    }
+}
+
+
+
+extension FfiScaffoldOptions: Equatable, Hashable {
+    public static func ==(lhs: FfiScaffoldOptions, rhs: FfiScaffoldOptions) -> Bool {
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.affiliations != rhs.affiliations {
+            return false
+        }
+        if lhs.abstractText != rhs.abstractText {
+            return false
+        }
+        if lhs.keywords != rhs.keywords {
+            return false
+        }
+        if lhs.includeSections != rhs.includeSections {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(title)
+        hasher.combine(authors)
+        hasher.combine(affiliations)
+        hasher.combine(abstractText)
+        hasher.combine(keywords)
+        hasher.combine(includeSections)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIScaffoldOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiScaffoldOptions {
+        return
+            try FfiScaffoldOptions(
+                title: FfiConverterString.read(from: &buf), 
+                authors: FfiConverterSequenceString.read(from: &buf), 
+                affiliations: FfiConverterSequenceString.read(from: &buf), 
+                abstractText: FfiConverterOptionString.read(from: &buf), 
+                keywords: FfiConverterSequenceString.read(from: &buf), 
+                includeSections: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiScaffoldOptions, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterSequenceString.write(value.authors, into: &buf)
+        FfiConverterSequenceString.write(value.affiliations, into: &buf)
+        FfiConverterOptionString.write(value.abstractText, into: &buf)
+        FfiConverterSequenceString.write(value.keywords, into: &buf)
+        FfiConverterBool.write(value.includeSections, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIScaffoldOptions_lift(_ buf: RustBuffer) throws -> FfiScaffoldOptions {
+    return try FfiConverterTypeFFIScaffoldOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIScaffoldOptions_lower(_ value: FfiScaffoldOptions) -> RustBuffer {
+    return FfiConverterTypeFFIScaffoldOptions.lower(value)
+}
+
+
+/**
  * A source map entry linking source to rendered position
  */
 public struct FfiSourceMapEntry {
@@ -6833,6 +6973,24 @@ public func loadDataTable(path: String) -> FfiDataTable {
     )
 })
 }
+/**
+ * Build a complete, compilable Typst document from a template.
+ *
+ * A template's raw `typst_source` is only a style definition — compiling it
+ * alone yields an empty document. This returns the style definition plus the
+ * `#show:` invocation seeded with `options`, plus an optional section
+ * skeleton, which is what "new manuscript from template X" should store.
+ *
+ * Returns `None` if no template has the given id.
+ */
+public func newDocumentFromTemplate(templateId: String, options: FfiScaffoldOptions) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_new_document_from_template(
+        FfiConverterString.lower(templateId),
+        FfiConverterTypeFFIScaffoldOptions.lower(options),$0
+    )
+})
+}
 public func parseImprintUrl(urlString: String) -> ParseResult {
     return try!  FfiConverterTypeParseResult.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_parse_imprint_url(
@@ -7059,6 +7217,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_load_data_table() != 22909) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_new_document_from_template() != 16638) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_parse_imprint_url() != 592) {

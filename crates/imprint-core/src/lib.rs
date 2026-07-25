@@ -1380,10 +1380,253 @@ pub fn template_count() -> u32 {
     registry.len() as u32
 }
 
+/// Seed values for a new document created from a template.
+///
+/// Everything except `title` may be empty; the scaffolder fills sensible
+/// placeholders and omits any argument the chosen template does not declare.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FFIScaffoldOptions {
+    /// Manuscript title.
+    pub title: String,
+    /// Author names, in order.
+    pub authors: Vec<String>,
+    /// Affiliation strings, referenced by superscript index.
+    pub affiliations: Vec<String>,
+    /// Abstract text (used for the `summary` slot on templates that use it).
+    pub abstract_text: Option<String>,
+    /// Keywords, for templates that accept them.
+    pub keywords: Vec<String>,
+    /// Append the standard Introduction/Methods/Results/... skeleton.
+    pub include_sections: bool,
+}
+
+#[cfg(feature = "uniffi")]
+impl Default for FFIScaffoldOptions {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            authors: Vec::new(),
+            affiliations: Vec::new(),
+            abstract_text: None,
+            keywords: Vec::new(),
+            include_sections: true,
+        }
+    }
+}
+
+#[cfg(feature = "uniffi")]
+impl From<&FFIScaffoldOptions> for templates::ScaffoldOptions {
+    fn from(o: &FFIScaffoldOptions) -> Self {
+        templates::ScaffoldOptions {
+            title: o.title.clone(),
+            authors: o.authors.clone(),
+            affiliations: o.affiliations.clone(),
+            abstract_text: o.abstract_text.clone(),
+            keywords: o.keywords.clone(),
+            include_sections: o.include_sections,
+        }
+    }
+}
+
+/// Build a complete, compilable Typst document from a template.
+///
+/// A template's raw `typst_source` is only a style definition — compiling it
+/// alone yields an empty document. This returns the style definition plus the
+/// `#show:` invocation seeded with `options`, plus an optional section
+/// skeleton, which is what "new manuscript from template X" should store.
+///
+/// Returns `None` if no template has the given id.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn new_document_from_template(
+    template_id: String,
+    options: FFIScaffoldOptions,
+) -> Option<String> {
+    let registry = templates::TemplateRegistry::new();
+    let template = registry.get(&template_id)?;
+    let opts = templates::ScaffoldOptions::from(&options);
+    Some(templates::scaffold_document(template, &opts))
+}
+
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
     use super::*;
+
+    // ========================================================================
+    // Template shipping guarantees
+    //
+    // A template that does not compile is worse than no template: the user
+    // picks a journal, gets a document, and it is broken on first compile with
+    // an error in code they did not write. These tests are the gate.
+    // ========================================================================
+
+    /// Every built-in template, scaffolded into a starter document, must
+    /// compile to a non-empty PDF with at least one page.
+    #[test]
+    #[cfg(all(feature = "typst-render", feature = "uniffi"))]
+    fn test_every_builtin_template_scaffolds_and_compiles() {
+        let registry = templates::TemplateRegistry::new();
+        let mut failures: Vec<String> = Vec::new();
+
+        for template in registry.list() {
+            let id = template.id().to_string();
+
+            let options = FFIScaffoldOptions {
+                title: "Constraints on the Growth of Structure".to_string(),
+                authors: vec!["Jane Doe".to_string(), "Richard Roe".to_string()],
+                affiliations: vec![
+                    "Department of Physics, Stanford University".to_string(),
+                    "Kavli Institute for Particle Astrophysics".to_string(),
+                ],
+                abstract_text: Some(
+                    "We measure the amplitude of matter clustering and find agreement \
+                     with the concordance cosmology."
+                        .to_string(),
+                ),
+                keywords: vec!["cosmology".to_string(), "large-scale structure".to_string()],
+                include_sections: true,
+            };
+
+            let Some(source) = new_document_from_template(id.clone(), options) else {
+                failures.push(format!("{}: scaffolding returned None", id));
+                continue;
+            };
+
+            let page_size = match template.metadata.page_defaults.size.as_str() {
+                "letter" | "us-letter" => FFIPageSize::Letter,
+                "a5" => FFIPageSize::A5,
+                _ => FFIPageSize::A4,
+            };
+            let compile_options = CompileOptions {
+                page_size,
+                font_size: template.metadata.page_defaults.font_size,
+                ..CompileOptions::default()
+            };
+
+            let result = compile_typst_to_pdf(source, compile_options);
+
+            if let Some(error) = &result.error {
+                failures.push(format!("{}: {}", id, error.replace('\n', " | ")));
+                continue;
+            }
+            if result.page_count == 0 {
+                failures.push(format!("{}: compiled to zero pages", id));
+                continue;
+            }
+            match &result.pdf_data {
+                Some(data) if !data.is_empty() => {}
+                _ => failures.push(format!("{}: compiled but produced no PDF bytes", id)),
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "{} of {} built-in templates failed to compile:\n  {}",
+            failures.len(),
+            registry.len(),
+            failures.join("\n  ")
+        );
+    }
+
+    /// The raw template source is a style definition only: it is valid Typst,
+    /// but compiling it yields a single *blank* page because the show-function
+    /// it declares is never invoked. This pins the distinction that motivates
+    /// the scaffolder — storing `typst_source` directly as a new manuscript
+    /// would hand the user an empty document.
+    #[test]
+    #[cfg(all(feature = "typst-render", feature = "uniffi"))]
+    fn test_raw_template_source_is_valid_typst_but_renders_nothing() {
+        let registry = templates::TemplateRegistry::new();
+        let apj = registry.get("apj").expect("apj template should exist");
+
+        let raw = compile_typst_to_pdf(apj.typst_source.clone(), CompileOptions::default());
+        assert!(
+            raw.error.is_none(),
+            "raw apj source should be valid Typst, got: {:?}",
+            raw.error
+        );
+        // The template mentions `#show: apj.with(...)` only inside its trailing
+        // `// Usage:` comment — it never actually invokes it.
+        let invokes_show = apj
+            .typst_source
+            .lines()
+            .any(|l| !l.trim_start().starts_with("//") && l.trim_start().starts_with("#show:"));
+        assert!(
+            !invokes_show,
+            "raw template source should declare a show-function, never invoke it"
+        );
+
+        let scaffolded = new_document_from_template(
+            "apj".to_string(),
+            FFIScaffoldOptions {
+                title: "A Real Title".to_string(),
+                ..FFIScaffoldOptions::default()
+            },
+        )
+        .expect("apj should scaffold");
+        assert!(scaffolded.contains("#show: apj.with("));
+
+        let seeded = compile_typst_to_pdf(scaffolded, CompileOptions::default());
+        assert!(
+            seeded.error.is_none(),
+            "scaffold should compile: {:?}",
+            seeded.error
+        );
+
+        // The raw source renders a blank page; the scaffold renders a title,
+        // an abstract and five sections. The byte counts are not close.
+        let raw_bytes = raw.pdf_data.as_ref().map(|d| d.len()).unwrap_or(0);
+        let seeded_bytes = seeded.pdf_data.as_ref().map(|d| d.len()).unwrap_or(0);
+        assert!(
+            seeded_bytes > raw_bytes * 2,
+            "scaffolded PDF ({} bytes) should carry far more content than the \
+             raw template's blank page ({} bytes)",
+            seeded_bytes,
+            raw_bytes
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "uniffi")]
+    fn test_ffi_template_listing_surface() {
+        let listed = list_templates();
+        assert_eq!(listed.len() as u32, template_count());
+        assert!(
+            listed.iter().any(|t| t.id == "apj"),
+            "apj must be listed; ids seen: {:?}",
+            listed.iter().map(|t| &t.id).collect::<Vec<_>>()
+        );
+
+        let apj = get_template("apj".to_string()).expect("apj should resolve");
+        assert_eq!(apj.metadata.category, FFITemplateCategory::Journal);
+        assert!(apj.metadata.is_builtin);
+        assert!(!apj.typst_source.is_empty());
+        assert_eq!(
+            get_template_source("apj".to_string()).as_deref(),
+            Some(apj.typst_source.as_str())
+        );
+
+        assert!(get_template("no-such-template".to_string()).is_none());
+        assert!(new_document_from_template(
+            "no-such-template".to_string(),
+            FFIScaffoldOptions::default()
+        )
+        .is_none());
+
+        let journals = list_templates_by_category(FFITemplateCategory::Journal);
+        assert!(journals
+            .iter()
+            .all(|t| t.category == FFITemplateCategory::Journal));
+        assert!(journals.iter().any(|t| t.id == "apj"));
+
+        let hits = search_templates("astronomy".to_string());
+        assert!(
+            hits.iter().any(|t| t.id == "apj"),
+            "searching 'astronomy' should surface apj"
+        );
+    }
 
     #[test]
     #[cfg(feature = "typst-render")]

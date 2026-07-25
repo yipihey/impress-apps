@@ -48,6 +48,11 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/libraries/{id}/assignments` - List assignments in a library
 /// - `GET /api/artifacts` - List/search artifacts (params: type, query, limit, offset)
 /// - `GET /api/artifacts/{id}` - Get single artifact
+/// - `GET /api/manuscripts` - List manuscripts (id, title, format, status)
+/// - `GET /api/manuscripts/{uuid}` - Manuscript detail incl. body + content hash
+/// - `GET /api/templates` - List manuscript templates (params: category, q)
+/// - `GET /api/templates/{id}` - Template metadata
+/// - `GET /api/templates/{id}/source` - Raw Typst style definition
 ///
 /// API Endpoints (POST):
 /// - `POST /api/papers/add` - Add papers by identifier
@@ -60,6 +65,13 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `POST /api/artifacts` - Create artifact (JSON body)
 /// - `POST /api/artifacts/{id}/link` - Link artifact to publication
 /// - `POST /api/sync/nudge` - Trigger a sync pass (ADR-0007 Phase 3)
+/// - `POST /api/manuscripts` - Create a manuscript (body: title, body?/template?, format?, authors?)
+/// - `POST /api/manuscripts/from-template` - Create a manuscript from a journal
+///   template (body: template_id, title, authors?, affiliations?, abstract?,
+///   keywords?, include_sections?)
+/// - `POST /api/manuscripts/{uuid}/compile` - Compile a manuscript to PDF
+/// - `POST /api/manuscripts/{uuid}/plot-figure` - Save a plot figure into a manuscript
+/// - `PUT /api/manuscripts/{uuid}/body` - Compare-and-set body update (409 on stale hash)
 ///
 /// ## Sync endpoints (ADR-0007 Phase 3)
 ///
@@ -209,6 +221,61 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 ]
             }
             return .json(["status": "ok", "manuscripts": payload, "count": payload.count])
+        }
+
+        // GET /api/templates/{id}/source — raw Typst style definition.
+        //
+        // This is the template's `#let <name>(...)` block only. Compiling it
+        // renders a blank page; to start a manuscript use the scaffolded
+        // source from POST /api/manuscripts/from-template instead.
+        if path.hasPrefix("/api/templates/") && path.hasSuffix("/source") {
+            let id = String(
+                path.dropFirst("/api/templates/".count).dropLast("/source".count))
+            guard let source = TemplateCatalog.source(id: id) else {
+                return .json(
+                    ["status": "error", "reason": "unknown template: \(id)"], status: 404)
+            }
+            return .json(["status": "ok", "id": id, "source": source])
+        }
+
+        // GET /api/templates/{id} — metadata for one template.
+        if path.hasPrefix("/api/templates/") && !path.dropFirst("/api/templates/".count).contains("/") {
+            let id = String(path.dropFirst("/api/templates/".count))
+            guard let metadata = TemplateCatalog.metadata(id: id) else {
+                return .json(
+                    ["status": "error", "reason": "unknown template: \(id)"], status: 404)
+            }
+            return .json(["status": "ok", "template": TemplateCatalog.dictionary(for: metadata)])
+        }
+
+        // GET /api/templates — list manuscript templates.
+        // Params: category (journal|conference|thesis|report|custom), q (search).
+        if path == "/api/templates" {
+            let categoryParam = request.queryParams["category"]
+            let queryParam = request.queryParams["q"]
+
+            let templates: [FfiTemplateMetadata]
+            if let categoryParam, !categoryParam.isEmpty {
+                guard let category = TemplateCatalog.category(named: categoryParam) else {
+                    return .badRequest(
+                        "Unknown category '\(categoryParam)'. Valid: journal, conference, thesis, report, custom")
+                }
+                templates = TemplateCatalog.inCategory(category)
+            } else if let queryParam, !queryParam.isEmpty {
+                templates = TemplateCatalog.search(queryParam)
+            } else {
+                templates = TemplateCatalog.all()
+            }
+
+            routerLogger.infoCapture(
+                "GET /api/templates → \(templates.count) templates "
+                    + "(category=\(categoryParam ?? "-"), q=\(queryParam ?? "-"))",
+                category: "templates")
+            return .json([
+                "status": "ok",
+                "templates": templates.map { TemplateCatalog.dictionary(for: $0) },
+                "count": templates.count,
+            ])
         }
 
         // Saved plot specs: list / fetch one.
@@ -622,8 +689,76 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return .json(body.merging(["status": status == 200 ? "ok" : "error"]) { a, _ in a }, status: status)
         }
 
+        // POST /api/manuscripts/from-template — create a manuscript seeded with
+        // a journal template's starter document.
+        //
+        // Body: {template_id, title, authors?, affiliations?, abstract?,
+        //        keywords?, include_sections?}
+        //
+        // The stored body is the scaffold produced by the Rust template engine
+        // (style definition + `#show:` invocation + section skeleton), not the
+        // raw template source — the raw source renders a blank page.
+        if path == "/api/manuscripts/from-template" {
+            guard let json = Self.jsonBody(request) else {
+                return .badRequest("Invalid JSON body")
+            }
+            guard let templateID = (json["template_id"] as? String ?? json["template"] as? String),
+                !templateID.isEmpty
+            else {
+                return .badRequest("Missing 'template_id'")
+            }
+            guard let title = json["title"] as? String, !title.isEmpty else {
+                return .badRequest("Missing 'title'")
+            }
+            let authors = json["authors"] as? [String] ?? []
+            let affiliations = json["affiliations"] as? [String] ?? []
+            let abstract = json["abstract"] as? String
+            let keywords = json["keywords"] as? [String] ?? []
+            let includeSections = json["include_sections"] as? Bool ?? true
+
+            routerLogger.infoCapture(
+                "POST /api/manuscripts/from-template: template='\(templateID)' "
+                    + "title='\(title)' authors=\(authors.count)",
+                category: "templates")
+
+            guard
+                let starter = TemplateCatalog.starterDocument(
+                    templateID: templateID,
+                    title: title,
+                    authors: authors,
+                    affiliations: affiliations,
+                    abstract: abstract,
+                    keywords: keywords,
+                    includeSections: includeSections)
+            else {
+                return .json(
+                    ["status": "error", "reason": "unknown template: \(templateID)"], status: 404)
+            }
+
+            guard let row = await MainActor.run(body: {
+                RustStoreAdapter.shared.createManuscript(
+                    title: title, format: "typst", body: starter, authors: authors)
+            }) else {
+                return .json(["status": "error", "reason": "createManuscript failed"], status: 500)
+            }
+            routerLogger.infoCapture(
+                "Created manuscript \(row.id) from template '\(templateID)' "
+                    + "(\(starter.count) chars seeded)",
+                category: "templates")
+            return .json(
+                [
+                    "status": "ok",
+                    "id": row.id,
+                    "title": row.title,
+                    "template_id": templateID,
+                    "body_length": starter.count,
+                ], status: 201)
+        }
+
         // POST /api/manuscripts — create a manuscript.
-        // Body: {title, body?, format?, authors?}
+        // Body: {title, body?, format?, authors?, template?}
+        // `template` seeds the body from a journal template when `body` is
+        // absent; pass /api/manuscripts/from-template for the full option set.
         if path == "/api/manuscripts" {
             guard let json = Self.jsonBody(request) else {
                 return .badRequest("Invalid JSON body")
@@ -631,9 +766,25 @@ public actor HTTPAutomationRouter: HTTPRouter {
             guard let title = json["title"] as? String, !title.isEmpty else {
                 return .badRequest("Missing 'title'")
             }
-            let bodyText = json["body"] as? String ?? ""
+            var bodyText = json["body"] as? String ?? ""
             let format = json["format"] as? String ?? "typst"
             let authors = json["authors"] as? [String] ?? []
+
+            if let templateID = json["template"] as? String, !templateID.isEmpty {
+                guard bodyText.isEmpty else {
+                    return .badRequest("Pass either 'body' or 'template', not both")
+                }
+                guard
+                    let starter = TemplateCatalog.starterDocument(
+                        templateID: templateID, title: title, authors: authors)
+                else {
+                    return .json(
+                        ["status": "error", "reason": "unknown template: \(templateID)"],
+                        status: 404)
+                }
+                bodyText = starter
+            }
+
             guard let row = await MainActor.run(body: {
                 RustStoreAdapter.shared.createManuscript(
                     title: title, format: format, body: bodyText, authors: authors)
@@ -1665,6 +1816,21 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/tags/tree": "Get formatted tag tree",
                 "GET /api/logs": "Query in-app log entries (params: limit, level, category, search, after)",
                 "GET /api/commands": "List available commands for universal command palette",
+                // Manuscripts & templates (the manuscript surface reachable from iOS)
+                "GET /api/manuscripts": "List manuscripts (id, title, format, status)",
+                "GET /api/manuscripts/{uuid}": "Manuscript detail incl. body and content hash",
+                "GET /api/templates":
+                    "List manuscript templates (params: category=journal|conference|thesis|report|custom, q)",
+                "GET /api/templates/{id}": "Template metadata (journal, page defaults, tags)",
+                "GET /api/templates/{id}/source":
+                    "Raw Typst style definition — renders blank on its own; use from-template to create",
+                "POST /api/manuscripts":
+                    "Create a manuscript (body: title, body? or template?, format?, authors?)",
+                "POST /api/manuscripts/from-template":
+                    "Start a manuscript in a journal's format (body: template_id, title, authors?, affiliations?, abstract?, keywords?, include_sections?)",
+                "POST /api/manuscripts/{uuid}/compile": "Compile a manuscript to PDF",
+                "PUT /api/manuscripts/{uuid}/body":
+                    "Compare-and-set body update (body: body, expected_hash; 409 on stale)",
                 // Library backup & restore
                 "GET /api/backups": "List backups, newest first (params: directory)",
                 "GET /api/backups/inspect?path=": "Validate a backup file without touching the store",

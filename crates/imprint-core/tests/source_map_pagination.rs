@@ -48,7 +48,10 @@ fn multipage_document_maps_entries_beyond_page_zero() {
     assert!(result.pdf_data.is_some(), "no PDF produced");
 
     let entries = &result.source_map_entries;
-    assert!(!entries.is_empty(), "source map is empty — no position sync possible");
+    assert!(
+        !entries.is_empty(),
+        "source map is empty — no position sync possible"
+    );
 
     let mut pages: Vec<u32> = entries.iter().map(|e| e.page).collect();
     pages.sort_unstable();

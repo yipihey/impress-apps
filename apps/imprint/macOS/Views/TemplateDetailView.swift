@@ -1,3 +1,6 @@
+import AppKit
+import ImpressLogging
+import OSLog
 import SwiftUI
 
 /// Detailed view of a template with preview and actions
@@ -5,6 +8,7 @@ struct TemplateDetailView: View {
     let templateId: String
 
     var templateService = TemplateService.shared
+    @Environment(\.openWindow) private var openWindow
     @State private var showingEditor = false
     @State private var showingPreview = false
 
@@ -256,9 +260,43 @@ struct TemplateDetailView: View {
 
     // MARK: - Actions
 
+    /// Create a new manuscript seeded with this template's starter document and
+    /// open it in an editor window. The scaffold comes from the Rust template
+    /// engine — the raw template source alone would render a blank page.
     private func applyTemplate() {
-        // TODO: Apply template to current document or create new
-        print("Apply template: \(templateId)")
+        let id = templateId
+        let name = metadata?.name ?? id
+
+        Logger.documents.infoCapture(
+            "Use Template pressed for '\(id)'", category: "templates")
+
+        guard let starter = templateService.starterDocument(templateID: id, title: name) else {
+            presentFailure("Template '\(id)' could not be loaded.")
+            return
+        }
+
+        do {
+            let manuscriptID = try ManuscriptStoreAdapter.shared.createManuscript(
+                title: "Untitled (\(name))", format: .typst, body: starter)
+            Logger.documents.infoCapture(
+                "Created manuscript \(manuscriptID.uuidString) from template '\(id)' "
+                    + "(\(starter.count) chars seeded)",
+                category: "templates")
+            openWindow(id: "manuscript-editor", value: manuscriptID)
+        } catch {
+            Logger.documents.errorCapture(
+                "createManuscript failed for template '\(id)': \(error.localizedDescription)",
+                category: "templates")
+            presentFailure(error.localizedDescription)
+        }
+    }
+
+    private func presentFailure(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't create manuscript"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     private func exportTemplate() {
