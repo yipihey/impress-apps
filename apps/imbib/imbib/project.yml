@@ -378,6 +378,7 @@ targets:
           - group.com.impress.suite
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.impress.imbib
+          - iCloud.com.impress.suite
         com.apple.developer.icloud-services:
           - CloudKit
         com.apple.developer.ubiquity-container-identifiers:
