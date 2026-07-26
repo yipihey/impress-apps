@@ -1,0 +1,77 @@
+name: imprint - Swift Tests
+
+# The ImprintCore package tests ran nowhere until 2026-07-26:
+# imprint-apps.yml only *builds* the app targets and imprint-rust.yml is
+# cargo-only. Half of them were not even tracked (see the .gitignore note
+# about apps/*/Packages/*/Tests/), so a clean clone silently lost them.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/imprint/Packages/**'
+      - 'packages/**'
+      - 'crates/imprint-core/**'
+      - 'crates/impress-core/**'
+      - 'crates/impress-store-ffi/**'
+      - '.github/workflows/imprint-swift.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/imprint/Packages/**'
+      - 'packages/**'
+      - 'crates/imprint-core/**'
+      - 'crates/impress-core/**'
+      - 'crates/impress-store-ffi/**'
+      - '.github/workflows/imprint-swift.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package-tests:
+    name: Test ImprintCore package
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-imprint-swift-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-imprint-
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-imprint-${{ hashFiles('apps/imprint/Packages/*/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-imprint-
+
+      # This script produces BOTH apps/imprint/Frameworks/ImprintCore.xcframework
+      # and the generated apps/imprint/ImprintRustCore/ package. Both are
+      # gitignored, and ImprintCore's manifest cannot even resolve without them.
+      - name: Build ImprintCore.xcframework
+        run: bash crates/imprint-core/build-xcframework.sh
+
+      # ImprintCore -> ImpressRustCore -> ImpressStoreFfi.xcframework.
+      - name: Build ImpressStoreFfi.xcframework
+        run: bash crates/impress-store-ffi/build-xcframework.sh
+
+      - name: Test ImprintCore
+        working-directory: apps/imprint/Packages/ImprintCore
+        run: swift test

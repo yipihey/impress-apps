@@ -1,0 +1,148 @@
+name: impel - Swift Tests
+
+# impel had no Swift lane until 2026-07-26: `.gitignore` excluded
+# apps/*/Packages/*/Tests/, so the `.testTarget(path: "Tests/...")` in
+# each impel package manifest pointed at a directory that did not exist
+# in a clean clone. Every `swift build` / `xcodebuild` there died with
+# `invalid custom path 'Tests/...'`. The tests are tracked now; this
+# workflow is what keeps them from rotting again.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/impel/**'
+      - 'packages/**'
+      - 'crates/impress-core/**'
+      - 'crates/impress-store-ffi/**'
+      - '.github/workflows/impel-swift.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/impel/**'
+      - 'packages/**'
+      - 'crates/impress-core/**'
+      - 'crates/impress-store-ffi/**'
+      - '.github/workflows/impel-swift.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package-tests:
+    name: Test impel Swift packages
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impel-swift-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-impel-${{ hashFiles('apps/impel/Packages/*/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-impel-
+
+      # CounselEngine links ImpressRustCore, whose binary target is the
+      # gitignored ImpressStoreFfi.xcframework — it must be produced here.
+      - name: Build ImpressStoreFfi.xcframework
+        run: bash crates/impress-store-ffi/build-xcframework.sh
+
+      - name: Test ImpelCore
+        working-directory: apps/impel/Packages/ImpelCore
+        run: swift test
+
+      - name: Test ImpelMail
+        working-directory: apps/impel/Packages/ImpelMail
+        run: swift test
+
+      - name: Test CounselEngine
+        working-directory: apps/impel/Packages/CounselEngine
+        run: swift test
+
+  build-app:
+    name: Build impel (macOS) + app unit tests
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impel-swift-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Build ImpressStoreFfi.xcframework
+        run: bash crates/impress-store-ffi/build-xcframework.sh
+
+      - name: Generate Xcode project
+        working-directory: apps/impel
+        run: xcodegen generate
+
+      - name: Build impel (macOS)
+        working-directory: apps/impel
+        run: |
+          set -o pipefail
+          xcodebuild -project impel.xcodeproj \
+            -scheme impel \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tail -50
+
+      # Unit bundle only. impelUITests is in the scheme's test action but
+      # drives the real app through XCUITest, which needs accessibility
+      # permissions the runner does not grant.
+      - name: Run impelTests (unit bundle)
+        working-directory: apps/impel
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project impel.xcodeproj \
+            -scheme impel \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:impelTests \
+            -resultBundlePath ${{ runner.temp }}/TestResults-impel.xcresult \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tail -50
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-impel
+          path: ${{ runner.temp }}/TestResults-impel.xcresult
