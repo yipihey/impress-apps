@@ -214,30 +214,6 @@ fn legacy_tool_definitions() -> Value {
             }
         },
         {
-            "name": "render_pdf_page",
-            "description": "Render one page of a PDF on disk to a PNG and return it as an image, so it can actually be SEEN in the conversation. MCP carries raster images, not PDFs, which is why a compiled manuscript otherwise arrives as a path and a byte count. Feed it the path from imprint-app-service_get-pdf or imbib-manuscripts-service_compile-manuscript. Pages are 1-based and clamped to the document.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "pdf_path": {
-                        "type": "string",
-                        "description": "Absolute path to the PDF, as returned by a compile tool"
-                    },
-                    "page": {
-                        "type": "integer",
-                        "description": "1-based page number (default: 1)",
-                        "default": 1
-                    },
-                    "max_dim": {
-                        "type": "integer",
-                        "description": "Longest edge in pixels (default: 1100, readable for body text)",
-                        "default": 1100
-                    }
-                },
-                "required": ["pdf_path"]
-            }
-        },
-        {
             "name": "get_paper_chunks",
             "description": "Get all text chunks for a specific publication. Use this for full-context RAG after finding a paper via search_papers. Chunks are ordered by position in the document.",
             "inputSchema": {
@@ -263,6 +239,30 @@ fn legacy_tool_definitions() -> Value {
                         "default": 50
                     }
                 }
+            }
+        },
+        {
+            "name": "render_pdf_page",
+            "description": "Render one page of a PDF on disk to a PNG and return it as an image, so it can actually be SEEN in the conversation. MCP carries raster images, not PDFs, which is why a compiled manuscript otherwise arrives as a path and a byte count. Feed it the path from imprint-app-service_get-pdf or imbib-manuscripts-service_compile-manuscript. Pages are 1-based and clamped to the document.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "pdf_path": {
+                        "type": "string",
+                        "description": "Absolute path to the PDF, as returned by a compile tool"
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "1-based page number (default: 1)",
+                        "default": 1
+                    },
+                    "max_dim": {
+                        "type": "integer",
+                        "description": "Longest edge in pixels (default: 1100, readable for body text)",
+                        "default": 1100
+                    }
+                },
+                "required": ["pdf_path"]
             }
         }
     ])
@@ -414,10 +414,13 @@ mod tests {
 
     #[test]
     fn test_legacy_tool_definitions_count() {
-        // The three hand-written semantic-search tools always exist.
+        // Four hand-written tools: the three semantic-search ones, plus
+        // render_pdf_page. Everything else in the server is generated from
+        // #[impress_service]; this number should only ever grow for something
+        // that is a property of the TRANSPORT rather than of an app.
         let tools = legacy_tool_definitions();
         assert!(tools.is_array());
-        assert_eq!(tools.as_array().unwrap().len(), 3);
+        assert_eq!(tools.as_array().unwrap().len(), 4);
     }
 
     #[test]

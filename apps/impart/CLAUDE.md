@@ -77,7 +77,8 @@ protocol MailProvider: Sendable {
 - **imbib**: Paper extraction from email attachments/links
 - **imprint**: Citation links in composed messages
 - **impel**: Agent review queue for AI-drafted responses
-- **MCP**: Tools exposed via impress-mcp server
+- **MCP**: Tools exposed via `crates/impress-mcp`, generated from the
+  `#[impress_service]` traits in `crates/impart-service`
 
 ## HTTP API (Port 23122)
 

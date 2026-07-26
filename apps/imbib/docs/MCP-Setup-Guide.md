@@ -4,7 +4,7 @@ Connect your AI tools—Claude Desktop, Claude Code, Cursor, Zed, and more—to 
 
 ## What is MCP?
 
-The **Model Context Protocol** (MCP) is an open standard that lets AI assistants interact with external tools and data sources. With the `impress-mcp` server, AI assistants can:
+The **Model Context Protocol** (MCP) is an open standard that lets AI assistants interact with external tools and data sources. With the `impress-mcp` server — a Rust binary built from this repository — AI assistants can:
 
 - Search your paper library and retrieve citations
 - Read and edit your documents
@@ -32,17 +32,26 @@ Both imbib and imprint need their HTTP APIs enabled:
 2. Go to **Settings → Automation**
 3. Enable "Enable HTTP API"
 
-### Step 2: Install the MCP Server
+### Step 2: Build and sign the MCP server
+
+The server is a Rust binary in this repository (`crates/impress-mcp`). It is not
+published to a package registry — build it from source:
 
 ```bash
-npm install -g impress-mcp
+bash crates/impress-mcp/sign.sh
 ```
 
-Or use directly with npx (no installation required):
+That builds `target/release/impress-mcp` and codesigns it with the app-group
+entitlement, which is what lets it read the shared impress store. Confirm it
+worked:
 
 ```bash
-npx impress-mcp
+bash crates/impress-mcp/verify-access.sh
 ```
+
+A pass means the server can reach your real library. If it reports that the
+entitlement is missing, re-run `sign.sh`; if it cannot open the database, grant
+the binary Full Disk Access in System Settings and run it again.
 
 ### Step 3: Configure Your AI Tool
 
@@ -60,8 +69,7 @@ Choose your AI tool below and add the configuration.
 {
   "mcpServers": {
     "impress": {
-      "command": "npx",
-      "args": ["impress-mcp"]
+      "command": "/absolute/path/to/impress-apps/target/release/impress-mcp"
     }
   }
 }
@@ -74,7 +82,7 @@ After editing, restart Claude Desktop.
 Option 1 - Use the `claude mcp add` command:
 
 ```bash
-claude mcp add impress npx impress-mcp
+claude mcp add impress /absolute/path/to/impress-apps/target/release/impress-mcp
 ```
 
 Option 2 - Add to your settings file at `~/.claude/settings.json`:
@@ -83,8 +91,7 @@ Option 2 - Add to your settings file at `~/.claude/settings.json`:
 {
   "mcpServers": {
     "impress": {
-      "command": "npx",
-      "args": ["impress-mcp"]
+      "command": "/absolute/path/to/impress-apps/target/release/impress-mcp"
     }
   }
 }
@@ -97,9 +104,8 @@ Option 2 - Add to your settings file at `~/.claude/settings.json`:
 3. Click "Add Server"
 4. Configure:
    - **Name:** impress
-   - **Command:** npx
-   - **Args:** impress-mcp
-
+   - **Command:** /absolute/path/to/impress-apps/target/release/impress-mcp
+   
 ### Zed
 
 Add to your Zed settings:
@@ -109,8 +115,7 @@ Add to your Zed settings:
   "language_models": {
     "mcp_servers": {
       "impress": {
-        "command": "npx",
-        "args": ["impress-mcp"]
+        "command": "/absolute/path/to/impress-apps/target/release/impress-mcp"
       }
     }
   }
@@ -123,8 +128,7 @@ Any tool that supports MCP can use the same configuration pattern:
 
 ```json
 {
-  "command": "npx",
-  "args": ["impress-mcp"]
+  "command": "/absolute/path/to/impress-apps/target/release/impress-mcp"
 }
 ```
 
@@ -136,8 +140,7 @@ If you've changed the default ports, set environment variables:
 {
   "mcpServers": {
     "impress": {
-      "command": "npx",
-      "args": ["impress-mcp"],
+      "command": "/absolute/path/to/impress-apps/target/release/impress-mcp",
       "env": {
         "IMBIB_PORT": "23120",
         "IMPRINT_PORT": "23121"
@@ -206,7 +209,7 @@ AI: [Compiles document] → [Reports any issues]
 Run the diagnostic command to verify everything is set up correctly:
 
 ```bash
-npx impress-mcp --check
+target/release/impress-mcp --help
 ```
 
 **Successful output:**
@@ -225,8 +228,7 @@ Ready! Add this to your AI tool:
 {
   "mcpServers": {
     "impress": {
-      "command": "npx",
-      "args": ["impress-mcp"]
+      "command": "/absolute/path/to/impress-apps/target/release/impress-mcp"
     }
   }
 }
@@ -282,9 +284,8 @@ The impress-mcp server is designed with security as a priority:
 
 | Problem | Solution |
 |---------|----------|
-| "command not found: npx" | Install Node.js from nodejs.org |
-| "Cannot find module 'impress-mcp'" | Run `npm install -g impress-mcp` |
-| Server starts but tools don't work | Run `npx impress-mcp --check` to diagnose |
+| "no such file or directory" | Build it: `bash crates/impress-mcp/sign.sh` |
+| Server starts but tools don't work | Run `target/release/impress-mcp --help` to diagnose |
 
 ### AI Tool Issues
 
@@ -296,7 +297,7 @@ The impress-mcp server is designed with security as a priority:
 
 ### Getting Help
 
-1. Run `npx impress-mcp --check` for diagnostics
+1. Run `target/release/impress-mcp --help` for diagnostics
 2. Check the app console windows for error messages
 3. Verify settings in both imbib and imprint
 
@@ -320,7 +321,7 @@ For direct HTTP API usage, see the [HTTP API Guide](HTTP-API-Guide.md).
 
 1. **Enable** HTTP APIs in imbib and imprint settings
 2. **Configure** your AI tool with the impress-mcp server
-3. **Verify** with `npx impress-mcp --check`
+3. **Verify** with `target/release/impress-mcp --help`
 4. **Use** natural language to search your library and manage documents
 
 Your library stays private, all communication is local, and integration is opt-in.

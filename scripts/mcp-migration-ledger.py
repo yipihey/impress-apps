@@ -10,8 +10,14 @@ Usage:
     python3 scripts/mcp-migration-ledger.py              # write the ledger
     python3 scripts/mcp-migration-ledger.py --check      # exit 1 if stale
 
-Once packages/impress-mcp is deleted this can no longer run; the generated
-markdown is then the historical record. That is intended.
+packages/impress-mcp WAS DELETED on 2026-07-26, so this can no longer run: the
+left-hand column has no source. docs/mcp-migration-ledger.md is now the
+historical record, and this script is kept beside it so the record can be
+audited — you can see exactly how each verdict was reached rather than having to
+trust the table.
+
+Do not delete this. A ledger whose generator is gone is just a table somebody
+typed.
 """
 from __future__ import annotations
 
@@ -185,6 +191,12 @@ def _norm(tokens):
 
 
 def ts_tools():
+    if not TS_SRC.exists():
+        sys.exit(
+            "packages/impress-mcp is gone — the retirement is complete.\n"
+            "docs/mcp-migration-ledger.md is the historical record; this script\n"
+            "cannot regenerate it without the TypeScript source it described."
+        )
     out, seen = [], set()
     for path in sorted(TS_SRC.rglob("*.ts")):
         text = path.read_text(encoding="utf-8")

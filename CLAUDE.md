@@ -106,8 +106,11 @@ commit added 21 imbib tools to it by hand and **eleven already existed in the
 Rust inventory**, generated the whole time. Two definitions of the same
 capability drift; the only question is when you notice.
 
-The remaining `.ts`/`.tsx` in the tree is debt with a retirement plan, not
-precedent — see `docs/mcp-migration-ledger.md`.
+The TypeScript MCP server was retired in July 2026 — 229 tools reconciled,
+24,958 lines deleted. `docs/mcp-migration-ledger.md` records where each tool
+went and why the 28 deferred and 40 dropped ones were not carried over. The
+remaining `.ts`/`.tsx` (a dormant Next.js app under `apps/imbib/imbib-web`) is
+debt pending an audit, not precedent.
 
 ### Local-First, Sync-Capable
 - All data lives locally by default
@@ -150,10 +153,9 @@ impress-apps/
 │   ├── ImpressAutomation/ # HTTPServer, HTTPRouter, AutomationSettingsSection
 │   ├── ImpressTheme/   # AppearanceMode, AppearanceSettingsSection, font scale
 │   ├── ImpressCommandPalette/ # Command registry and palette view
-│   └── impress-mcp/    # TypeScript MCP server — BEING RETIRED, do not extend
 └── crates/
     ├── imbib-core/     # Rust core for imbib
-    ├── impress-mcp/    # MCP server (generated from #[impress_service]) — add tools HERE
+    ├── impress-mcp/    # THE MCP server (generated from #[impress_service])
     └── *-service/      # #[impress_service] traits: one method → MCP + CLI + impel tool
 ```
 
@@ -420,7 +422,9 @@ Each app runs a local HTTP server exposing `GET /api/logs`:
 
 Query parameters: `limit`, `offset`, `level` (comma-separated), `category`, `search`, `after` (ISO8601).
 
-The MCP server (`impress-mcp`) also exposes `imbib_get_logs` and `impart_get_logs` tools for AI agent access.
+The MCP server (`crates/impress-mcp`) also exposes `imbib-app-service_get-logs` and
+`impart-service_get-logs` for AI agent access — generated from the service traits,
+like every other tool.
 
 ### Three-Point Trace Pattern
 

@@ -63,6 +63,7 @@ function run(argv) {
 "#;
 
 /// A rendered page.
+#[derive(Debug)]
 pub struct Raster {
     /// Raw PNG bytes.
     pub png: Vec<u8>,
