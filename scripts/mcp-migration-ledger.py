@@ -116,6 +116,33 @@ MANUAL_COVERED = {
     # search tool IS cross-document search. Building a second one nearly
     # recreated the duplication this migration exists to remove.
     "imprint_cross_document_search": "imprint-manuscript-service_search",
+    # --- Verified equivalences the token heuristic cannot see ---
+    # Three TS export tools collapse to one Rust method with a format argument.
+    "imprint_export_typst": "imprint-manuscript-service_export-document",
+    "imprint_export_text": "imprint-manuscript-service_export-document",
+    "imprint_export_latex": "imprint-manuscript-service_export-document",
+    # Section create and patch are both an upsert.
+    "imprint_create_section": "imprint-manuscript-service_put-section",
+    "imprint_patch_section": "imprint-manuscript-service_put-section",
+    "imprint_get_outline": "imprint-manuscript-service_document-outline",
+    "imprint_get_outline_v2": "imprint-manuscript-service_document-outline",
+    "imprint_get_citation_usages": "imprint-manuscript-service_document-citations",
+    # Citing is a cross-app act, so it lives in the bridges rather than in
+    # imprint: it has to resolve the key in imbib before writing.
+    "imprint_insert_citation": "impress-bridges-service_cite-paper",
+    "imprint_add_citation": "impress-bridges-service_cite-paper",
+    "imprint_insert_citation_in_section": "impress-bridges-service_cite-in-section",
+    "imprint_remove_citation": "imprint-manuscript-service_replace-in-section",
+    # Exact signature matches the tokens miss.
+    "imbib_recent_papers": "imbib-library-service_query-recent",
+    "imbib_starred_papers": "imbib-library-service_query-starred",
+    "imbib_set_tag_color": "imbib-tags-service_update-tag",
+    "implore_get_status": "implore-service_status",
+    # Manuscripts are shared-store rows served by imbib (ADR-0018), so both
+    # apps' manuscript tools land on the one imbib-manuscripts-service.
+    "imprint_list_manuscripts": "imbib-manuscripts-service_list-manuscripts",
+    "imprint_list_templates": "imbib-manuscripts-service_list-templates",
+    "imprint_create_from_template": "imbib-manuscripts-service_create-manuscript-from-template",
     "imprint_compile": "imprint-manuscript-service_compile-typst",
     "imprint_get_manuscript_sections": "imprint-manuscript-service_list-sections",
     "imprint_get_section_body": "imprint-manuscript-service_get-section",

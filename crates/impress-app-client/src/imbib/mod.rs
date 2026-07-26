@@ -14,6 +14,7 @@ mod annotations;
 mod app;
 mod artifacts;
 mod libraries;
+mod manuscripts;
 mod scix;
 mod search;
 mod tags;

@@ -104,6 +104,7 @@ pub mod app_service;
 pub mod artifacts_service;
 pub mod backup_service;
 pub mod library_service;
+pub mod manuscripts_service;
 pub mod scix_service;
 pub mod search_service;
 pub mod store_singleton;

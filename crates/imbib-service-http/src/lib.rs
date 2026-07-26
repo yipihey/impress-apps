@@ -24,6 +24,9 @@ use imbib_service::library_service::{
     LinkedFileRecord, MutationResult, MutedItemRecord, PaperImport, PublicationDetailRecord,
     PublicationSummary,
 };
+use imbib_service::manuscripts_service::{
+    CompileResult, ImbibManuscriptsService, ManuscriptRecord, TemplateRecord, WriteResult,
+};
 use imbib_service::scix_service::{ImbibScixService, SciXLibraryRecord};
 use imbib_service::search_service::{ImbibSearchService, SmartSearchRecord};
 use imbib_service::tags_service::{ImbibTagsService, TagRecord, TagWithCount};
@@ -1287,6 +1290,105 @@ impl ImbibAppService for HttpImbibAppService {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ImbibManuscriptsService
+// ---------------------------------------------------------------------------
+
+pub struct HttpImbibManuscriptsService {
+    client: Arc<ImbibClient>,
+}
+
+impl HttpImbibManuscriptsService {
+    pub fn new(client: Arc<ImbibClient>) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait::async_trait]
+impl ImbibManuscriptsService for HttpImbibManuscriptsService {
+    async fn list_manuscripts(&self) -> Vec<ManuscriptRecord> {
+        self.client.list_manuscripts().await.unwrap_or_else(|e| {
+            log_err("list_manuscripts", e);
+            vec![]
+        })
+    }
+    async fn get_manuscript(&self, manuscript_id: String) -> Option<ManuscriptRecord> {
+        self.client
+            .get_manuscript(&manuscript_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("get_manuscript", e);
+                None
+            })
+    }
+    async fn create_manuscript(
+        &self,
+        title: String,
+        format: Option<String>,
+    ) -> Option<ManuscriptRecord> {
+        self.client
+            .create_manuscript(title, format)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("create_manuscript", e);
+                None
+            })
+    }
+    async fn write_manuscript_body(
+        &self,
+        manuscript_id: String,
+        body: String,
+        expected_hash: String,
+    ) -> WriteResult {
+        self.client
+            .write_manuscript_body(&manuscript_id, body, expected_hash)
+            .await
+            .unwrap_or_else(|e| {
+                let message = format!("could not write the manuscript: {e}");
+                log_err("write_manuscript_body", e);
+                WriteResult {
+                    ok: false,
+                    content_hash: None,
+                    message,
+                }
+            })
+    }
+    async fn compile_manuscript(&self, manuscript_id: String) -> CompileResult {
+        self.client
+            .compile_manuscript(&manuscript_id)
+            .await
+            .unwrap_or_else(|e| {
+                let msg = format!("compile request failed: {e}");
+                log_err("compile_manuscript", e);
+                CompileResult {
+                    ok: false,
+                    pdf_path: None,
+                    page_count: None,
+                    messages: vec![msg],
+                }
+            })
+    }
+    async fn list_templates(&self) -> Vec<TemplateRecord> {
+        self.client.list_templates().await.unwrap_or_else(|e| {
+            log_err("list_templates", e);
+            vec![]
+        })
+    }
+    async fn create_manuscript_from_template(
+        &self,
+        template_id: String,
+        title: String,
+    ) -> Option<ManuscriptRecord> {
+        self.client
+            .create_manuscript_from_template(template_id, title)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("create_manuscript_from_template", e);
+                None
+            })
+    }
+}
+
 pub struct HttpBackend {
     client: Arc<ImbibClient>,
 }
@@ -1315,6 +1417,9 @@ impl ImbibBackend for HttpBackend {
     }
     fn artifacts(&self) -> Arc<dyn ImbibArtifactsService> {
         Arc::new(HttpImbibArtifactsService::new(self.client.clone()))
+    }
+    fn manuscripts(&self) -> Arc<dyn ImbibManuscriptsService> {
+        Arc::new(HttpImbibManuscriptsService::new(self.client.clone()))
     }
     fn app(&self) -> Arc<dyn ImbibAppService> {
         Arc::new(HttpImbibAppService::new(self.client.clone()))

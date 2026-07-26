@@ -18,6 +18,7 @@ use crate::app_service::{DefaultImbibAppService, ImbibAppService};
 use crate::artifacts_service::{DefaultImbibArtifactsService, ImbibArtifactsService};
 use crate::backup_service::{DefaultImbibBackupService, ImbibBackupService};
 use crate::library_service::{DefaultImbibLibraryService, ImbibLibraryService};
+use crate::manuscripts_service::{DefaultImbibManuscriptsService, ImbibManuscriptsService};
 use crate::scix_service::{DefaultImbibScixService, ImbibScixService};
 use crate::search_service::{DefaultImbibSearchService, ImbibSearchService};
 use crate::store_singleton::store_instance;
@@ -35,6 +36,13 @@ pub trait ImbibBackend: Send + Sync + 'static {
     fn annotations(&self) -> Arc<dyn ImbibAnnotationsService>;
     fn artifacts(&self) -> Arc<dyn ImbibArtifactsService>;
     fn scix(&self) -> Arc<dyn ImbibScixService>;
+
+    /// Manuscripts as shared-store rows. Defaulted to the refusing impl:
+    /// creating, writing and compiling all go through imbib's API so the
+    /// running app sees the change.
+    fn manuscripts(&self) -> Arc<dyn ImbibManuscriptsService> {
+        Arc::new(DefaultImbibManuscriptsService::new(store_instance()))
+    }
 
     /// App-level capabilities (source search, sync, logs, activity).
     /// Defaulted to the refusing implementation: with imbib closed none of
@@ -93,6 +101,13 @@ pub fn search_service_instance() -> Arc<dyn ImbibSearchService> {
     match BACKEND.get() {
         Some(b) => b.search(),
         None => Arc::new(DefaultImbibSearchService::new(store_instance())),
+    }
+}
+
+pub fn manuscripts_service_instance() -> Arc<dyn ImbibManuscriptsService> {
+    match BACKEND.get() {
+        Some(b) => b.manuscripts(),
+        None => Arc::new(DefaultImbibManuscriptsService::new(store_instance())),
     }
 }
 
