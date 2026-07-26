@@ -289,6 +289,40 @@ mod tests {
         }
     }
 
+    /// A ratchet on useless descriptions.
+    ///
+    /// The codegen only picks up `///` comments written **inside**
+    /// `impress_service_impl! { methods = [...] }`. Doc comments on the trait
+    /// itself are ignored, and those methods silently get
+    /// `"Invoke ServiceName.method_name"` — which tells a model nothing, and
+    /// which the earlier non-empty assertion happily accepted.
+    ///
+    /// Most of the inventory is still in that state. This does not fail the
+    /// build over it; it stops the number growing, so new services are written
+    /// with the docs in the place that reaches the model. Lower the bound as
+    /// services are fixed — it may only go down.
+    #[test]
+    fn generic_descriptions_do_not_grow() {
+        const BUDGET: usize = 113;
+
+        let tools = list_tools();
+        let generic: Vec<&str> = tools
+            .iter()
+            .filter(|t| t.description.starts_with("Invoke "))
+            .map(|t| t.name.as_str())
+            .collect();
+
+        assert!(
+            generic.len() <= BUDGET,
+            "tools with a generic 'Invoke X.y' description rose to {} (budget {}). \
+             Write the description inside impress_service_impl!'s methods = [...] \
+             list, not on the trait method. Offenders include: {:?}",
+            generic.len(),
+            BUDGET,
+            &generic[..generic.len().min(5)],
+        );
+    }
+
     #[test]
     fn namespaces_are_derived_for_service_tools() {
         assert_eq!(

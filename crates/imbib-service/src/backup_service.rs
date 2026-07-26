@@ -166,6 +166,16 @@ pub trait ImbibBackupService: Send + Sync + 'static {
     /// Delete one backup file and its manifest sidecar.
     #[impress_method]
     async fn delete_backup(&self, path: String) -> bool;
+
+    /// Retention sweep: keep the `keep` newest backups in a directory and
+    /// delete the rest, along with their manifests. Returns the paths removed.
+    ///
+    /// DESTRUCTIVE and not recoverable by undo — undo covers store rows, never
+    /// files on disk. List the directory first and confirm the number with the
+    /// user; `keep: 0` deletes every backup. To remove one specific snapshot
+    /// instead, use `delete_backup`.
+    #[impress_method]
+    async fn prune_backups(&self, directory: String, keep: u32) -> Vec<String>;
 }
 
 #[derive(Clone)]
@@ -274,17 +284,53 @@ impl ImbibBackupService for DefaultImbibBackupService {
             false
         })
     }
+
+    async fn prune_backups(&self, directory: String, keep: u32) -> Vec<String> {
+        self.store
+            .prune_backups(resolve_dir(directory), keep)
+            .unwrap_or_else(|e| {
+                log("prune_backups", e);
+                vec![]
+            })
+    }
 }
 
 impress_service_impl! {
     service = ImbibBackupService,
     impl = DefaultImbibBackupService,
     instance = || crate::backend::backup_service_instance(),
+    // NOTE: these `///` comments are the tool descriptions the model sees.
+    // Doc comments on the trait above are NOT picked up by the codegen — only
+    // the ones inside `methods = [...]` reach `McpToolDescriptor.description`.
+    // Everything else falls back to "Invoke ImbibBackupService.foo", which
+    // tells a model nothing. The trait's own docs are for implementers.
     methods = [
+        /// Snapshot the whole shared impress store — papers, tags, collections,
+        /// manuscripts and annotations — into a single SQLite file that opens
+        /// anywhere. Safe while imbib, imprint and impel are all writing: it is
+        /// a consistent read, not a file copy. Empty `directory` = the default
+        /// backups folder. Take one before anything large or irreversible.
         create_backup(directory: String, label: Option<String>) -> Vec<BackupRecord>,
+        /// List backups in a directory, newest first, with record counts and
+        /// sizes. Empty `directory` = the default backups folder.
         list_backups(directory: String) -> Vec<BackupRecord>,
+        /// Validate a backup file without touching the live store: integrity
+        /// check, required tables, and a digest match against its manifest.
+        /// Run this before restoring anything you did not just create.
         inspect_backup(path: String) -> BackupInspection,
+        /// Replace the ENTIRE library with a backup — including imprint
+        /// manuscripts and impel data, since all three share one store.
+        /// Requires the imbib app to be running: it refuses while iCloud sync
+        /// is on (restored rows carry old clocks and a peer would overwrite
+        /// them) and it must tell the UI every cached row is gone. With imbib
+        /// closed this returns a refusal, not a partial restore.
         restore_backup(path: String) -> RestoreReport,
+        /// Delete one backup file and its manifest sidecar.
         delete_backup(path: String) -> bool,
+        /// Retention sweep: keep the `keep` newest backups in a directory and
+        /// delete the rest. DESTRUCTIVE and not recoverable by undo — undo
+        /// covers store rows, never files on disk. List the directory first and
+        /// confirm the number with the user; `keep: 0` deletes every backup.
+        prune_backups(directory: String, keep: u32) -> Vec<String>,
     ],
 }
