@@ -1,0 +1,146 @@
+name: implore - Swift Tests
+
+# implore had no Swift lane until 2026-07-26: implore-rust.yml is
+# cargo-only and nothing in .github ever ran
+# crates/implore-core/build-xcframework.sh, so neither the app nor the
+# ImploreCore package was compiled by CI at all. That is how the script's
+# `-d` guard on apps/implore/Frameworks (which silently skipped the copy
+# on any fresh checkout) survived unnoticed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/implore/**'
+      - 'packages/**'
+      - 'crates/implore-core/**'
+      - 'crates/impress-core/**'
+      - 'crates/impress-helix/**'
+      - 'crates/impress-store-ffi/**'
+      - '.github/workflows/implore-swift.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/implore/**'
+      - 'packages/**'
+      - 'crates/implore-core/**'
+      - 'crates/impress-core/**'
+      - 'crates/impress-helix/**'
+      - 'crates/impress-store-ffi/**'
+      - '.github/workflows/implore-swift.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package-tests:
+    name: Test ImploreCore package
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-implore-swift-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-implore-
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-implore-${{ hashFiles('apps/implore/Packages/*/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-implore-
+
+      # Also copies into apps/implore/Frameworks/, which is where
+      # ImploreRustCore's binary target points.
+      - name: Build ImploreCore.xcframework
+        run: bash crates/implore-core/build-xcframework.sh
+
+      # ImploreCore -> ImpressRustCore -> ImpressStoreFfi.xcframework.
+      - name: Build ImpressStoreFfi.xcframework
+        run: bash crates/impress-store-ffi/build-xcframework.sh
+
+      - name: Test ImploreCore
+        working-directory: apps/implore/Packages/ImploreCore
+        run: swift test
+
+  build-app:
+    name: Build implore (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-implore-swift-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-implore-
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Build ImploreCore.xcframework
+        run: bash crates/implore-core/build-xcframework.sh
+
+      - name: Build ImpressStoreFfi.xcframework
+        run: bash crates/impress-store-ffi/build-xcframework.sh
+
+      # The app links ImpressHelixCore for its editor surfaces.
+      - name: Build ImpressHelix.xcframework
+        run: bash crates/impress-helix/build-xcframework.sh
+
+      # implore ships .metal shaders (Sources/Metal/Shaders/). Xcode 26
+      # no longer bundles the Metal compiler — without this the build dies
+      # with "cannot execute tool 'metal' due to missing Metal Toolchain".
+      # Tolerated failure: on Xcode versions that still bundle it, the
+      # component name is unknown and the download is a no-op. If the
+      # toolchain is genuinely missing, the build step below says so.
+      - name: Ensure Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
+      - name: Generate Xcode project
+        working-directory: apps/implore
+        run: xcodegen generate
+
+      # Build only. implore's sole Xcode test target is imploreUITests,
+      # which drives the real app through XCUITest and needs accessibility
+      # permissions the runner does not grant; the unit-level coverage
+      # lives in the ImploreCore package job above.
+      - name: Build implore (macOS)
+        working-directory: apps/implore
+        run: |
+          set -o pipefail
+          xcodebuild -project implore.xcodeproj \
+            -scheme implore \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tail -50

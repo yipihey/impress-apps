@@ -45,11 +45,13 @@ apps/*/*.xcodeproj/
 **/frameworks/
 **/*.xcframework/
 **/*RustCore/
-# Tests under app-embedded Packages/ are built into the app target and
-# shouldn't be tracked separately. Top-level packages/*/Tests/ (SPM
-# package tests) ARE tracked — earlier `**/Packages/*/Tests/` rule was
-# too broad and silently dropped them.
-apps/*/Packages/*/Tests/
+# NOTE: do NOT add an ignore rule for `apps/*/Packages/*/Tests/`. It was
+# here until 2026-07-26 on the false premise that these tests are "built
+# into the app target" — they are not; app unit tests live in
+# apps/<app>/Tests. The rule made every Package.swift that declares a
+# `.testTarget(path: "Tests/...")` fail in a clean clone with
+# `invalid custom path`, which is why impel had no Swift CI lane. All SPM
+# test sources are tracked.
 
 # Environment
 .env

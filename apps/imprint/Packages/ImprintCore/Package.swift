@@ -33,16 +33,13 @@ let package = Package(
             path: "Sources/ImprintCore",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        // NOTE: The test target does not build successfully under
-        // `swift test` because SwiftPM does not re-link the
-        // `impress_store_ffiFFI` binary target (in the ImpressRustCore
-        // package) into the test executable. This is a pre-existing
-        // SwiftPM limitation, not a regression from the gateway work.
-        // The tests do compile and run under `xcodebuild test -scheme
-        // imprint` because Xcode resolves the binary target correctly.
-        // The gateway test file (`ImprintImpressStoreTests.swift`)
-        // exercises the read methods against an in-memory SharedStore
-        // and will run once we fix the SwiftPM linking.
+        // `swift test` works here, including the `impress_store_ffiFFI`
+        // binary target from ImpressRustCore, provided both xcframeworks
+        // have been built first:
+        //   bash crates/imprint-core/build-xcframework.sh
+        //   bash crates/impress-store-ffi/build-xcframework.sh
+        // (The first also generates the ../../ImprintRustCore package this
+        // manifest depends on.) imprint-swift.yml runs exactly that.
         .testTarget(
             name: "ImprintCoreTests",
             dependencies: ["ImprintCore"],
