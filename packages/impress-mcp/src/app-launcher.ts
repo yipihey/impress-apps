@@ -116,17 +116,52 @@ export async function ensureAppRunning(appName: string): Promise<boolean> {
 }
 
 /**
- * Check if an error is a connection refused error (app not running).
+ * Check whether an error means "nothing is listening" (so launching the app
+ * is worth a try) as opposed to "the app answered and said no".
+ *
+ * This must be tight. A loose substring match — the old `msg.includes("connect")`
+ * — fires on ordinary application errors ("could not connect the figure to a
+ * document", "disconnected participant"), which then launches an app the user
+ * did not ask for and retries a call that was never going to succeed.
+ * Prefer matching the transport-level codes, which Node puts on the error
+ * itself or on `cause`.
  */
+const CONNECTION_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "EHOSTDOWN",
+  "ENETUNREACH",
+  "ENETDOWN",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
 export function isConnectionError(error: unknown): boolean {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    return (
-      msg.includes("econnrefused") ||
-      msg.includes("fetch failed") ||
-      msg.includes("connect") ||
-      msg.includes("network")
-    );
+  if (!(error instanceof Error)) return false;
+
+  // Node's fetch wraps the real cause: TypeError("fetch failed") { cause: Error { code } }.
+  for (let current: unknown = error, depth = 0; current instanceof Error && depth < 4; depth++) {
+    const code = (current as NodeJS.ErrnoException).code;
+    if (typeof code === "string" && CONNECTION_ERROR_CODES.has(code.toUpperCase())) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
   }
-  return false;
+
+  // Fall back to whole-phrase matches on the message. These are emitted
+  // verbatim by fetch/undici and by this package's own clients; none of them
+  // occur in an application-level error message.
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("fetch failed") ||
+    msg.includes("econnrefused") ||
+    msg.includes("connection refused") ||
+    msg.includes("connect timeout") ||
+    msg.includes("network request failed") ||
+    msg.includes("is not running")
+  );
 }

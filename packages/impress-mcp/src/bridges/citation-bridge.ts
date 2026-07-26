@@ -5,6 +5,7 @@
  * This bridge fetches BibTeX from imbib and inserts citations into imprint.
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImbibClient } from "../imbib/client.js";
 import { ImprintClient } from "../imprint/client.js";
@@ -99,7 +100,7 @@ export class CitationBridge {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       case "impress_cite_paper":
         return this.citePaper(args);
@@ -122,7 +123,7 @@ export class CitationBridge {
 
   private async citePaper(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = args?.document_id as string;
     const citeKey = args?.cite_key as string;
     const position = args?.position as number | undefined;
@@ -211,7 +212,7 @@ export class CitationBridge {
 
   private async citeMultiple(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = args?.document_id as string;
     const citeKeys = args?.cite_keys as string[];
 
@@ -276,7 +277,7 @@ export class CitationBridge {
 
   private async getCitationSuggestions(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const query = args?.query as string;
     const limit = (args?.limit as number) || 5;
 

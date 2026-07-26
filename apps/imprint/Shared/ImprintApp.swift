@@ -559,6 +559,23 @@ struct ImprintApp: App {
             )
         }
 
+        // New-manuscript-from-template chooser. A `Window` rather than a sheet
+        // because File-menu commands have no view to present a sheet from.
+        // Opened with Cmd+Shift+N.
+        Window("New Manuscript from Template", id: "new-from-template") {
+            NewManuscriptFromTemplateView(
+                onCreate: { id in
+                    openWindow(id: "manuscript-editor", value: id)
+                },
+                onClose: {
+                    NSApp.keyWindow?.close()
+                }
+            )
+            .withAppearance()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
         // Cross-document search window — indexed from the shared store
         // by `ManuscriptSearchService`. Opened with Cmd+Shift+F.
         Window("Search Across Manuscripts", id: "cross-document-search") {
@@ -718,6 +735,14 @@ struct ImprintApp: App {
                 createNewManuscript(format: .latex)
             }
             .keyboardShortcut("N", modifiers: [.command, .option])
+
+            // Starts a manuscript already in a journal's format (ApJ, MNRAS,
+            // Nature, NeurIPS, …). The template's Typst source is scaffolded
+            // into a complete starter document by the Rust template engine.
+            Button("New Manuscript from Template…") {
+                openWindow(id: "new-from-template")
+            }
+            .keyboardShortcut("N", modifiers: [.command, .shift])
 
             Divider()
 

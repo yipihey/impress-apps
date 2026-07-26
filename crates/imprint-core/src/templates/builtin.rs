@@ -244,8 +244,8 @@ fn mnras_template() -> Template {
     paper: "a4",
     margin: (top: 2cm, bottom: 2cm, left: 2cm, right: 2cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   // MNRAS typography
   set text(font: "Times New Roman", size: 9pt)
@@ -392,8 +392,8 @@ fn apj_template() -> Template {
     paper: "us-letter",
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
     columns: 2,
-    column-gutter: 6mm,
   )
+  set columns(gutter: 6mm)
 
   set text(font: "Times New Roman", size: 10pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.52em)
@@ -523,8 +523,8 @@ fn apjs_template() -> Template {
     paper: "us-letter",
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
     columns: 2,
-    column-gutter: 6mm,
   )
+  set columns(gutter: 6mm)
 
   set text(font: "Times New Roman", size: 10pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.52em)
@@ -774,8 +774,8 @@ fn aa_template() -> Template {
     paper: "a4",
     margin: (top: 2cm, bottom: 2cm, left: 2cm, right: 2cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   set text(font: "Times New Roman", size: 9pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.5em)
@@ -1026,8 +1026,8 @@ fn prd_template() -> Template {
     paper: "us-letter",
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2cm, right: 2cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   set text(font: "Times New Roman", size: 10pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.52em)
@@ -1154,8 +1154,8 @@ fn prl_template() -> Template {
     paper: "us-letter",
     margin: (top: 2cm, bottom: 2cm, left: 1.8cm, right: 1.8cm),
     columns: 2,
-    column-gutter: 4mm,
   )
+  set columns(gutter: 4mm)
 
   set text(font: "Times New Roman", size: 10pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.5em)
@@ -1528,8 +1528,8 @@ fn icml_template() -> Template {
     paper: "us-letter",
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
     columns: 2,
-    column-gutter: 6mm,
   )
+  set columns(gutter: 6mm)
 
   set text(font: "Times New Roman", size: 10pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.52em)
@@ -1924,7 +1924,7 @@ fn science_template() -> Template {
       if type(author) == str { author } else {
         author.name
         if "affil" in author { super(str(author.affil)) }
-        if "corresponding" in author and author.corresponding { text[*] }
+        if "corresponding" in author and author.corresponding { text[\*] }
       }
       if i < authors.len() - 1 { ", " }
     }
@@ -2033,8 +2033,8 @@ fn pnas_template() -> Template {
     paper: "us-letter",
     margin: (top: 2cm, bottom: 2cm, left: 2cm, right: 2cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   set text(font: "Times New Roman", size: 9pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.5em)
@@ -2285,7 +2285,7 @@ fn elife_template() -> Template {
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
   )
 
-  set text(font: "Noto Sans", size: 11pt)
+  set text(font: "Helvetica", size: 11pt)
   set par(justify: true, leading: 0.6em)
 
   set heading(numbering: none)
@@ -2526,8 +2526,8 @@ fn nejm_template() -> Template {
     paper: "us-letter",
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   set text(font: "Times New Roman", size: 9pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.5em)
@@ -2642,8 +2642,8 @@ fn lancet_template() -> Template {
     paper: "a4",
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   set text(font: "Times New Roman", size: 9pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.5em)
@@ -2758,8 +2758,8 @@ fn bmj_template() -> Template {
     paper: "a4",
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   set text(font: "Times New Roman", size: 9pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.5em)
@@ -2893,8 +2893,8 @@ fn jama_template() -> Template {
     paper: "us-letter",
     margin: (top: 2.5cm, bottom: 2.5cm, left: 2.5cm, right: 2.5cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   set text(font: "Times New Roman", size: 9pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.5em)
@@ -3026,8 +3026,8 @@ fn bioinformatics_template() -> Template {
     paper: "a4",
     margin: (top: 2cm, bottom: 2cm, left: 2cm, right: 2cm),
     columns: 2,
-    column-gutter: 5mm,
   )
+  set columns(gutter: 5mm)
 
   set text(font: "Times New Roman", size: 9pt)
   set par(justify: true, first-line-indent: 1em, leading: 0.5em)

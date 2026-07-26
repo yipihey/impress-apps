@@ -2,6 +2,8 @@
  * MCP tool definitions for imbib
  */
 
+import { text, isInlineable, type ToolResult, type ToolContent } from "../content.js";
+import { rasterizePDFPage } from "../raster.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   ImbibClient,
@@ -12,6 +14,8 @@ import {
   type Comment,
   type Assignment,
   type Annotation,
+  type RecentPaper,
+  type SmartSearch,
 } from "./client.js";
 
 export const IMBIB_TOOLS: Tool[] = [
@@ -71,6 +75,83 @@ export const IMBIB_TOOLS: Tool[] = [
         },
       },
       required: ["query"],
+    },
+  },
+  {
+    name: "imbib_recent_activity",
+    description:
+      "What the USER was recently working on: papers they viewed or added by hand, most recent first, each carrying activity_kind ('viewed' or 'added') and activity_at. This is imbib's 'Recent' virtual library, and it is the right opener for 'what was I just reading?' / 'pick up where I left off'. Automated ingest is deliberately excluded — inbox feeds, smart-search refreshes and group feeds never record activity, so this list is genuinely the user's own trail. For newly ARRIVED papers regardless of who put them there, use imbib_recent_papers instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "number",
+          description:
+            "Maximum papers to return. Defaults to the user's 'Recent papers to keep' preference.",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_recent_papers",
+    description:
+      "Papers most recently ADDED to the library, by creation date. Includes everything that arrived through automated ingest (inbox feeds, smart-search refreshes, group feeds), so it answers 'what's new?' rather than 'what was I doing?'. For the latter — the user's own viewing/adding trail — use imbib_recent_activity. Scope to one library or collection with parentId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Maximum papers to return (default 50)" },
+        parentId: {
+          type: "string",
+          description:
+            "Optional library or collection UUID to scope the listing (from imbib_list_libraries / imbib_list_collections)",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_starred_papers",
+    description:
+      "List the user's starred papers, most recently added first. Stars are the user's manual 'this one matters' marker — set/clear them with imbib_toggle_star. Complements imbib_recent_activity (chronological) with a curated set. If you only need the number, use imbib_count_papers, which does not fetch rows.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Maximum papers to return (default 50)" },
+        parentId: {
+          type: "string",
+          description: "Optional library or collection UUID to scope the listing",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_count_papers",
+    description:
+      "Get a single count — unread, starred, flagged, or by-tag — without fetching any paper rows. Use whenever the user asks 'how many …'; it is far cheaper than listing and lengthing the result, and unlike imbib_list_tags it does not walk the whole tag vocabulary.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["unread", "starred", "flagged", "by-tag"],
+          description: "Which count to take",
+        },
+        parentId: {
+          type: "string",
+          description:
+            "Optional library/collection UUID to scope 'unread', 'starred' and 'by-tag'",
+        },
+        color: {
+          type: "string",
+          description:
+            "For kind='flagged': restrict to one flag color (red/amber/blue/gray). Omit for all flagged papers.",
+        },
+        tag: {
+          type: "string",
+          description:
+            "For kind='by-tag' (required): the tag path, e.g. 'ai/field/cosmology'",
+        },
+      },
+      required: ["kind"],
     },
   },
   {
@@ -182,6 +263,108 @@ export const IMBIB_TOOLS: Tool[] = [
       required: ["manuscriptId", "spec"],
     },
   },
+  // --------------------------------------------------------------------------
+  // Manuscripts
+  //
+  // Manuscripts are rows in the shared impress store (ADR-0018), authored in
+  // imprint but served by imbib — and imbib is the only impress app whose HTTP
+  // surface is reachable from iOS, so these are the manuscript tools that work
+  // when the user is on their phone. Body writes are compare-and-set.
+  // --------------------------------------------------------------------------
+  {
+    name: "imbib_list_manuscripts",
+    description:
+      "List the manuscripts in the shared impress store: UUID, title, format ('typst'/'latex'/unset) and status. Metadata only — no body text. START HERE for any manuscript request: every other imbib manuscript tool needs the UUID this returns. Read the text with imbib_get_manuscript. Prefer this over imprint_list_manuscripts whenever the agent may be driving imbib remotely: imprint's HTTP router is macOS-only, imbib's works from the phone too.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "imbib_get_manuscript",
+    description:
+      "Read one manuscript: its full body text plus its contentHash. ALWAYS call this immediately before imbib_write_manuscript_body — the contentHash is the compare-and-set token that authorises your write, and it is the only thing stopping you from silently overwriting an edit the user made on their phone while you were thinking. Use imbib_list_manuscripts to find the UUID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        manuscriptId: {
+          type: "string",
+          description: "Manuscript UUID (from imbib_list_manuscripts)",
+        },
+      },
+      required: ["manuscriptId"],
+    },
+  },
+  {
+    name: "imbib_create_manuscript",
+    description:
+      "Create a NEW manuscript row and return its UUID. For changing an existing document use imbib_write_manuscript_body instead. Note: imbib exposes no delete-manuscript route, so a manuscript created here can only be removed from inside the app — do not create scratch/test manuscripts in the user's store.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Manuscript title (required)" },
+        body: {
+          type: "string",
+          description: "Optional initial source text (default: empty)",
+        },
+        format: {
+          type: "string",
+          enum: ["typst", "latex"],
+          description:
+            "Source format (default 'typst'). Only typst manuscripts can be compiled by imbib_compile_manuscript.",
+        },
+        authors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional author names",
+        },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "imbib_write_manuscript_body",
+    description:
+      "Replace a manuscript's ENTIRE body text, compare-and-set. There is no patch/append/insert route — send the whole document. Requires expectedHash: the contentHash returned by imbib_get_manuscript for the exact text you edited. If the stored text has moved since that read (the user typed on their phone, another agent wrote), the call reports a CONFLICT and writes NOTHING; the correct response is to re-read with imbib_get_manuscript, re-apply your edit to the NEW text, and write again with the NEW hash. Never retry the same hash, and never set unconditional:true to force a stale write past a conflict — that destroys the user's writing. Verify the result with imbib_compile_manuscript.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        manuscriptId: { type: "string", description: "Manuscript UUID" },
+        body: {
+          type: "string",
+          description: "The complete new body text (replaces everything)",
+        },
+        expectedHash: {
+          type: "string",
+          description:
+            "contentHash from the imbib_get_manuscript call whose text you edited. Required unless unconditional:true.",
+        },
+        unconditional: {
+          type: "boolean",
+          description:
+            "Escape hatch: write without a hash check. Only legitimate for a manuscript whose contentHash is null (never had a body). Using it to resolve a conflict overwrites concurrent edits.",
+        },
+      },
+      required: ["manuscriptId", "body"],
+    },
+  },
+  {
+    name: "imbib_compile_manuscript",
+    description:
+      "Compile a Typst manuscript headlessly, with the store-backed virtual bibliography (@citeKey references are resolved against the imbib library). Returns pass/fail, warnings/errors, PDF size, and citedKeys vs resolvedKeys — keys in the first list but not the second are your BROKEN citations. By default also renders page 1 as an image so the user can actually see the result in the conversation; set preview:false to skip that. LaTeX-format manuscripts are refused by this route. Use after every imbib_write_manuscript_body to confirm the document still builds.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        manuscriptId: { type: "string", description: "Manuscript UUID" },
+        preview: {
+          type: "boolean",
+          description:
+            "Render page 1 of the PDF as an inline image (default true). Set false for a text-only verification.",
+        },
+      },
+      required: ["manuscriptId"],
+    },
+  },
   {
     name: "imbib_get_logs",
     description:
@@ -271,7 +454,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_delete_papers",
     description:
-      "Delete papers from the imbib library. Use with caution - this permanently removes papers.",
+      "Delete papers from the imbib library. DESTRUCTIVE AND NOT UNDOABLE: this route removes the rows outright and writes nothing to the operation log, so imbib_undo cannot bring them back (verified live 2026-07-25). The only safety net is an imbib_create_backup taken beforehand — do that whenever the instruction is spoken, bulk, or at all ambiguous about which papers are meant, and confirm the list with the user first. To take papers out of the user's way without destroying them, prefer imbib_remove_from_collection, or move them to the Dismissed library (imbib's trash) with imbib_add_to_library.",
     inputSchema: {
       type: "object",
       properties: {
@@ -282,6 +465,42 @@ export const IMBIB_TOOLS: Tool[] = [
         },
       },
       required: ["identifiers"],
+    },
+  },
+  // --------------------------------------------------------------------------
+  // Undo — the safety net under every destructive tool above
+  // --------------------------------------------------------------------------
+  {
+    name: "imbib_recent_undo_groups",
+    description:
+      "List the most recent revertible store operations, newest first: operation_id, a human description, timestamp, and (when one user action touched several rows) batch_id. This is the 'what did I just change?' / 'can I take that back?' tool — call it right after a mutation to capture the id that reverses it, then pass that id to imbib_undo. IMPORTANT — the log covers EDITS, not deletions: field changes (title, abstract, notes, read/star/flag, manuscript body writes) and tag attach/detach via imbib_add_tag / imbib_remove_tag are recorded and revertible. Deleting papers, collections, libraries, smart searches or tags is NOT recorded and CANNOT be undone this way — the only protection there is an imbib_create_backup taken beforehand. Verified live 2026-07-25.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        maxEntries: {
+          type: "number",
+          description: "How many groups to return, newest first (default 25)",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_undo",
+    description:
+      "Reverse a store change recorded by imbib_recent_undo_groups by applying its inverse. Pass batchId when the group has one — a batch covers every operation the user's single action produced, so undoing one operation of a multi-row edit would leave the rest changed. Otherwise pass operationId. Ids come ONLY from imbib_recent_undo_groups; they cannot be constructed and do not survive imbib_restore_backup. Scope, exactly: it reverts recorded EDITS (fields, notes, read/star/flag, manuscript body writes, tag attach/detach). It cannot resurrect anything deleted — papers, collections, smart searches, tags — because those routes do not write to the operation log; nor does it touch files on disk, so it cannot bring back a pruned backup or a removed PDF.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operationId: {
+          type: "string",
+          description: "operation_id from imbib_recent_undo_groups (single operation)",
+        },
+        batchId: {
+          type: "string",
+          description:
+            "batch_id from imbib_recent_undo_groups — preferred when present; reverses the whole action",
+        },
+      },
     },
   },
   {
@@ -351,7 +570,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_add_tag",
     description:
-      "Add a tag to papers. Tags use hierarchical paths like 'methods/sims' or 'topic/cosmology'. Parent tags are created automatically.",
+      "Attach a tag to specific papers. Tags use hierarchical paths like 'methods/sims' or 'topic/cosmology'; missing tags (and their parents) are created automatically, so you do NOT need imbib_create_tag first. This changes tag MEMBERSHIP; to manage the tag vocabulary itself use imbib_create_tag / imbib_rename_tag / imbib_delete_tag.",
     inputSchema: {
       type: "object",
       properties: {
@@ -371,7 +590,8 @@ export const IMBIB_TOOLS: Tool[] = [
   },
   {
     name: "imbib_remove_tag",
-    description: "Remove a tag from papers.",
+    description:
+      "Detach a tag from the papers you name. The tag itself survives and stays on every other paper — to remove it from the library entirely use imbib_delete_tag. This one IS recorded in the operation log, so it can be reversed with imbib_recent_undo_groups + imbib_undo.",
     inputSchema: {
       type: "object",
       properties: {
@@ -388,10 +608,78 @@ export const IMBIB_TOOLS: Tool[] = [
       required: ["identifiers", "tag"],
     },
   },
+  // --------------------------------------------------------------------------
+  // Tag vocabulary management.
+  //
+  // These operate on the tag TREE, library-wide. Attaching/detaching tags on
+  // individual papers is imbib_add_tag / imbib_remove_tag above.
+  // --------------------------------------------------------------------------
+  {
+    name: "imbib_create_tag",
+    description:
+      "Create a tag in the library's tag vocabulary, optionally with light/dark display colors. Paths are hierarchical with '/' (e.g. 'method/mcmc'). This does NOT put the tag on any paper — imbib_add_tag does that, and it creates missing tags implicitly, so reach for this tool only when the user wants a category to exist up front or wants to give a brand-new tag a color.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Hierarchical tag path, e.g. 'project/thesis'",
+        },
+        colorLight: {
+          type: "string",
+          description: "Optional hex color for light appearance, e.g. '#336699'",
+        },
+        colorDark: {
+          type: "string",
+          description: "Optional hex color for dark appearance",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "imbib_rename_tag",
+    description:
+      "Rename or re-parent a tag path across the whole library; every paper carrying it keeps it under the new path. This is the tool for reorganising a tag hierarchy (e.g. 'cosmology' → 'topic/cosmology'). Distinct from imbib_remove_tag, which detaches a tag from named papers without touching the vocabulary. Not undoable by imbib_undo (tag CRUD bypasses the operation log) — but it is trivially reversible by renaming back, as long as you remember the old path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Existing tag path" },
+        newPath: { type: "string", description: "New tag path" },
+      },
+      required: ["path", "newPath"],
+    },
+  },
+  {
+    name: "imbib_set_tag_color",
+    description:
+      "Set a tag's light and/or dark display colors (hex, e.g. '#336699'). Purely cosmetic — tag membership and hierarchy are untouched. To create a tag with colors in one step use imbib_create_tag.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Tag path to recolor" },
+        colorLight: { type: "string", description: "Hex color for light appearance" },
+        colorDark: { type: "string", description: "Hex color for dark appearance" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "imbib_delete_tag",
+    description:
+      "Delete a tag from the library vocabulary; it is detached from EVERY paper that carried it, including papers the user never mentioned. When they only want it off certain papers, use imbib_remove_tag instead — that IS undoable, this is not: tag CRUD bypasses the operation log, so imbib_undo cannot restore the tag or its memberships (verified live 2026-07-25). Check the blast radius first with imbib_count_papers (kind:'by-tag').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Tag path to delete" },
+      },
+      required: ["path"],
+    },
+  },
   {
     name: "imbib_list_tags",
     description:
-      "List all tags in the library with their usage counts. Useful for finding existing tags before tagging papers.",
+      "List tags in the library with their usage counts. Useful for finding existing tags before tagging papers. EXPENSIVE on a large library: imbib recomputes a count for every tag in the vocabulary (the prefix filter is applied after that), which on a few thousand tags takes minutes and blocks the app's UI while it runs. When you only need one number use imbib_count_papers (kind:'by-tag'); when you only need to attach a tag, just call imbib_add_tag, which creates missing tags on the fly.",
     inputSchema: {
       type: "object",
       properties: {
@@ -415,7 +703,8 @@ export const IMBIB_TOOLS: Tool[] = [
         },
         libraryID: {
           type: "string",
-          description: "Library UUID (optional, uses default if not specified)",
+          description:
+            "Library UUID from imbib_list_libraries. Nominally optional, but when the store has no library flagged as default the route fails with 'No library found to create collection in' — so pass it explicitly.",
         },
         isSmartCollection: {
           type: "boolean",
@@ -433,7 +722,7 @@ export const IMBIB_TOOLS: Tool[] = [
   {
     name: "imbib_delete_collection",
     description:
-      "Delete a collection. This does not delete the papers in the collection.",
+      "Delete a collection. The papers inside it are NOT deleted — they stay in their libraries. The collection itself is gone for good, though: this route bypasses the operation log, so imbib_undo cannot restore it (verified live 2026-07-25). Only an earlier imbib_create_backup can.",
     inputSchema: {
       type: "object",
       properties: {
@@ -460,9 +749,66 @@ export const IMBIB_TOOLS: Tool[] = [
     },
   },
   {
+    name: "imbib_get_smart_search",
+    description:
+      "Fetch one smart search by UUID: its query string, owning library, result cap, and its feeds-to-inbox / auto-refresh settings. Use to inspect or confirm a search before changing or deleting it; find the UUID with imbib_list_smart_searches.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Smart search UUID" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "imbib_create_smart_search",
+    description:
+      "Save a query as a smart search (an Exploration sidebar row) in a library — the 'keep an eye on this topic' tool. To run a search ONCE without saving anything, use imbib_search_library (the local library) or imbib_search_sources (external databases) instead. feedsToInbox routes new hits into the user's Inbox and autoRefreshEnabled makes imbib re-run the query on a timer; both default OFF, so turn them on only when the user explicitly asks for an ongoing feed rather than a saved query. List with imbib_list_smart_searches, remove with imbib_delete_smart_searches.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Display name for the sidebar row" },
+        query: {
+          type: "string",
+          description:
+            "The saved query string (same syntax as imbib_search_sources, e.g. 'author:Abel star formation')",
+        },
+        libraryID: {
+          type: "string",
+          description:
+            "UUID of the library that owns the search (from imbib_list_libraries; usually the 'Exploration' library)",
+        },
+        maxResults: {
+          type: "number",
+          description: "Cap on results the search keeps (default 100)",
+        },
+        feedsToInbox: {
+          type: "boolean",
+          description:
+            "Route new hits into the Inbox (default false). Only enable when the user wants an ongoing feed.",
+        },
+        autoRefreshEnabled: {
+          type: "boolean",
+          description: "Re-run the query on a timer (default false)",
+        },
+        refreshIntervalSeconds: {
+          type: "number",
+          description: "Timer interval when autoRefreshEnabled (default 3600)",
+        },
+        sourceIDs: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional list of source plugin ids to search (ads, arxiv, crossref, …). Omit for the user's defaults.",
+        },
+      },
+      required: ["name", "query", "libraryID"],
+    },
+  },
+  {
     name: "imbib_delete_smart_searches",
     description:
-      "Delete one or more smart searches (Exploration sidebar rows). Only the search definitions are removed — papers they pulled into the library stay.",
+      "Delete one or more smart searches (Exploration sidebar rows). Only the search definitions are removed — papers they pulled into the library stay. The definitions themselves are not recoverable: this route bypasses the operation log, so imbib_undo cannot restore them (verified live 2026-07-25). Read one back with imbib_get_smart_search first if you might need to recreate it via imbib_create_smart_search.",
     inputSchema: {
       type: "object",
       properties: {
@@ -716,19 +1062,23 @@ export const IMBIB_TOOLS: Tool[] = [
       required: ["commentID", "text"],
     },
   },
+  // NOTE: imbib_sync_comments is gone. Its route (POST /api/sync/comments) was
+  // deleted in 5400ae1 with the dead CloudKit comment stack — see the tombstone
+  // at HTTPAutomationRouter.swift:857 — so every call 404'd. The live sync
+  // surface is imbib_sync_status + imbib_sync_nudge below.
   {
-    name: "imbib_sync_comments",
+    name: "imbib_sync_status",
     description:
-      "Trigger a manual CloudKit comment sync cycle. Pushes local changes and pulls remote changes.",
+      "Report imbib's CloudKit sync engine state — the same snapshot the app's Settings pane renders, so the two cannot disagree. The field to read first is reason_code: it is the machine-readable verdict for WHY sync is or is not running ('available', 'disabled_by_user', 'not_entitled', 'account_unavailable', 'lease_held_by_other', 'account_check_failed', 'unit_test_process'). Also reports enabled/available, engine_running, lease_holder (which impress app currently owns the sync lease), the queue depths outbox / pending_refs / tombstones (these accumulate even while sync is OFF, which is what makes turning it on later safe), bootstrap_done, last push/pull times, last_error, merge_report, container and zone. Use this to diagnose 'my change hasn't shown up on my phone'; use imbib_sync_nudge to actually push it. This is whole-library graph sync (ADR-0007 Phase 3) and has nothing to do with comment sync, which no longer exists.",
     inputSchema: {
       type: "object",
       properties: {},
     },
   },
   {
-    name: "imbib_sync_status",
+    name: "imbib_sync_nudge",
     description:
-      "Get the current sync status including last sync date, errors, and pending upload count.",
+      "Ask imbib's sync engine for an immediate push+pull instead of waiting for its own schedule. THIS IS THE TOOL THAT DELIVERS YOUR WORK TO THE USER'S OTHER DEVICES: every change made through the other imbib tools lands in the local store first and only reaches their phone on the next sync pass. Call it after finishing a batch of edits, and whenever the user says 'send that to my phone' or 'why can't I see it yet'. Refusal is a normal answer, not an error — it reports accepted:false with a reason (sync off, not entitled, no iCloud account, another app holds the lease); imbib_sync_status gives the full diagnosis.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -1189,6 +1539,27 @@ export const IMBIB_TOOLS: Tool[] = [
     },
   },
   {
+    name: "imbib_prune_backups",
+    description:
+      "Retention sweep: keep the N newest backups in a directory and delete the rest, along with their manifests. Use to stop imbib_create_backup snapshots accumulating. DESTRUCTIVE and NOT recoverable by imbib_undo — undo covers store rows, never files on disk. Run imbib_list_backups first and confirm the number with the user; keep:0 deletes every backup. To remove one specific snapshot instead, use imbib_delete_backup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keep: {
+          type: "number",
+          description:
+            "How many of the newest backups to retain. Everything older is deleted. 0 deletes all of them.",
+        },
+        directory: {
+          type: "string",
+          description:
+            "Optional directory to prune. Defaults to the standard backups folder.",
+        },
+      },
+      required: ["keep"],
+    },
+  },
+  {
     name: "imbib_inspect_backup",
     description:
       "Validate a backup file without touching the live store: SQLite integrity check, required tables, and a SHA-256 match against its manifest. Returns valid=false plus reasons for a corrupt or tampered file. Always run this before imbib_restore_backup.",
@@ -1236,6 +1607,66 @@ export const IMBIB_TOOLS: Tool[] = [
       required: ["path"],
     },
   },
+  {
+    name: "imbib_list_templates",
+    description:
+      "List the available journal/conference manuscript templates, optionally filtered by category or search term. Use before creating a manuscript from a template to find the right template id. 25 templates ship built in, including: generic, mnras, apj, apjs, jcap, aa, araa, prd, prl, jhep, neurips, icml, jcp, nature, science, pnas, plos, elife, cell, nejm, lancet, bmj, jama, bioinformatics, naturemed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          description: "Filter by category: journal, conference, thesis, report, or custom.",
+        },
+        query: {
+          type: "string",
+          description: "Free-text search over template name, description and tags (e.g. 'astronomy', 'machine learning', 'Nature').",
+        },
+      },
+    },
+  },
+  {
+    name: "imbib_create_manuscript_from_template",
+    description:
+      "Start a new manuscript in a journal's required format (e.g. ApJ, MNRAS, Nature, NeurIPS). Use this instead of creating a blank manuscript whenever the user names a journal or conference. Pre-fills the template's page style, title block, authors/affiliations, abstract, keywords and — unless include_sections is false — the standard section skeleton. Find the template id with imbib_list_templates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        template_id: {
+          type: "string",
+          description: "Template id from imbib_list_templates (e.g. 'apj', 'mnras', 'neurips', 'generic').",
+        },
+        title: {
+          type: "string",
+          description: "Manuscript title.",
+        },
+        authors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Author names, in order.",
+        },
+        affiliations: {
+          type: "array",
+          items: { type: "string" },
+          description: "Affiliations, in the order referenced by the authors.",
+        },
+        abstract: {
+          type: "string",
+          description: "Abstract text.",
+        },
+        keywords: {
+          type: "array",
+          items: { type: "string" },
+          description: "Keywords / subject terms.",
+        },
+        include_sections: {
+          type: "boolean",
+          description: "Include the template's standard section skeleton (Introduction, Methods, ...). Default true.",
+        },
+      },
+      required: ["template_id", "title"],
+    },
+  },
 ];
 
 export class ImbibTools {
@@ -1244,7 +1675,7 @@ export class ImbibTools {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       // Read operations
       case "imbib_search_library":
@@ -1277,6 +1708,42 @@ export class ImbibTools {
         return this.listTags(args);
       case "imbib_collection_papers":
         return this.collectionPapers(args);
+      case "imbib_recent_papers":
+        return this.recentPapers(args);
+      case "imbib_recent_activity":
+        return this.recentActivity(args);
+      case "imbib_starred_papers":
+        return this.starredPapers(args);
+      case "imbib_count_papers":
+        return this.countPapers(args);
+
+      // Manuscripts (CAS-safe write path)
+      case "imbib_list_manuscripts":
+        return this.listManuscripts();
+      case "imbib_get_manuscript":
+        return this.getManuscript(args);
+      case "imbib_create_manuscript":
+        return this.createManuscript(args);
+      case "imbib_write_manuscript_body":
+        return this.writeManuscriptBody(args);
+      case "imbib_compile_manuscript":
+        return this.compileManuscript(args);
+
+      // Undo
+      case "imbib_recent_undo_groups":
+        return this.recentUndoGroups(args);
+      case "imbib_undo":
+        return this.undo(args);
+
+      // Tag vocabulary management
+      case "imbib_create_tag":
+        return this.createTag(args);
+      case "imbib_rename_tag":
+        return this.renameTag(args);
+      case "imbib_set_tag_color":
+        return this.setTagColor(args);
+      case "imbib_delete_tag":
+        return this.deleteTag(args);
 
       // Write operations
       case "imbib_add_papers":
@@ -1299,6 +1766,10 @@ export class ImbibTools {
         return this.deleteCollection(args);
       case "imbib_list_smart_searches":
         return this.listSmartSearches(args);
+      case "imbib_get_smart_search":
+        return this.getSmartSearch(args);
+      case "imbib_create_smart_search":
+        return this.createSmartSearch(args);
       case "imbib_delete_smart_searches":
         return this.deleteSmartSearches(args);
       case "imbib_add_to_collection":
@@ -1327,16 +1798,18 @@ export class ImbibTools {
         return this.addItemComment(args);
       case "imbib_edit_comment":
         return this.editComment(args);
-      case "imbib_sync_comments":
-        return this.syncComments();
       case "imbib_sync_status":
         return this.getSyncStatus();
+      case "imbib_sync_nudge":
+        return this.syncNudge();
 
       // Library backup & restore
       case "imbib_create_backup":
         return this.createBackup(args);
       case "imbib_list_backups":
         return this.listBackups(args);
+      case "imbib_prune_backups":
+        return this.pruneBackups(args);
       case "imbib_inspect_backup":
         return this.inspectBackup(args);
       case "imbib_restore_backup":
@@ -1389,6 +1862,11 @@ export class ImbibTools {
       case "imbib_resolve_identifier":
         return this.resolveIdentifier(args);
 
+      case "imbib_list_templates":
+        return this.listTemplates(args);
+      case "imbib_create_manuscript_from_template":
+        return this.createManuscriptFromTemplate(args);
+
       default:
         return {
           content: [{ type: "text", text: `Unknown imbib tool: ${name}` }],
@@ -1398,7 +1876,7 @@ export class ImbibTools {
 
   private async renderPlot(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.renderPlotBody({
       spec: args?.spec,
       gridSpec: args?.gridSpec,
@@ -1407,14 +1885,14 @@ export class ImbibTools {
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
-  private async listPlotSpecs(): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async listPlotSpecs(): Promise<ToolResult> {
     const result = await this.client.listPlotSpecs();
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   private async savePlotSpec(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     if (!args?.name) {
       return { content: [{ type: "text", text: "Error: name is required" }] };
     }
@@ -1424,7 +1902,7 @@ export class ImbibTools {
 
   private async savePlotFigure(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const manuscriptId = String(args?.manuscriptId || "");
     const spec = args?.spec;
     if (!manuscriptId || !spec || typeof spec !== "object") {
@@ -1444,7 +1922,7 @@ export class ImbibTools {
 
   private async searchLibrary(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const query = String(args?.query || "");
     const limit = args?.limit as number | undefined;
     const offset = args?.offset as number | undefined;
@@ -1491,7 +1969,7 @@ export class ImbibTools {
 
   private async searchSources(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const query = String(args?.query || "");
     if (!query) {
       return {
@@ -1546,7 +2024,7 @@ export class ImbibTools {
 
   private async getPaper(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = String(args?.citeKey || "");
     if (!citeKey) {
       return {
@@ -1591,7 +2069,7 @@ export class ImbibTools {
 
   private async exportBibTeX(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKeys = args?.citeKeys as string[] | undefined;
     if (!citeKeys || citeKeys.length === 0) {
       return {
@@ -1614,7 +2092,7 @@ export class ImbibTools {
   }
 
   private async listCollections(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const collections = await this.client.listCollections();
 
@@ -1643,7 +2121,7 @@ export class ImbibTools {
 
   private async getLogs(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.getLogs({
       limit: args?.limit as number | undefined,
       level: args?.level as string | undefined,
@@ -1680,7 +2158,7 @@ export class ImbibTools {
   }
 
   private async getStatus(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const status = await this.client.checkStatus();
 
@@ -1719,7 +2197,7 @@ export class ImbibTools {
 
   private async createLibrary(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const name = String(args?.name || "");
     if (!name) {
       return {
@@ -1740,7 +2218,7 @@ export class ImbibTools {
   }
 
   private async listLibraries(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const libraries = await this.client.listLibraries();
 
@@ -1772,7 +2250,7 @@ export class ImbibTools {
 
   private async listTags(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const prefix = args?.prefix as string | undefined;
     const tags = await this.client.listTags(prefix);
 
@@ -1799,7 +2277,7 @@ export class ImbibTools {
 
   private async collectionPapers(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const collectionID = args?.collectionID as string | undefined;
     if (!collectionID) {
       return {
@@ -1833,7 +2311,7 @@ export class ImbibTools {
 
   private async addPapers(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     if (!identifiers || identifiers.length === 0) {
       return {
@@ -1876,7 +2354,7 @@ export class ImbibTools {
 
   private async deletePapers(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     if (!identifiers || identifiers.length === 0) {
       return {
@@ -1894,7 +2372,7 @@ export class ImbibTools {
 
   private async markRead(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     const read = args?.read as boolean | undefined;
 
@@ -1920,7 +2398,7 @@ export class ImbibTools {
 
   private async toggleStar(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     if (!identifiers || identifiers.length === 0) {
       return {
@@ -1938,7 +2416,7 @@ export class ImbibTools {
 
   private async setFlag(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     if (!identifiers || identifiers.length === 0) {
       return {
@@ -1959,7 +2437,7 @@ export class ImbibTools {
 
   private async addTag(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     const tag = args?.tag as string | undefined;
 
@@ -1984,7 +2462,7 @@ export class ImbibTools {
 
   private async removeTag(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     const tag = args?.tag as string | undefined;
 
@@ -2009,7 +2487,7 @@ export class ImbibTools {
 
   private async createCollection(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const name = args?.name as string | undefined;
     if (!name) {
       return {
@@ -2036,7 +2514,7 @@ export class ImbibTools {
 
   private async deleteCollection(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string | undefined;
     if (!id) {
       return {
@@ -2054,7 +2532,7 @@ export class ImbibTools {
 
   private async listSmartSearches(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const libraryID = args?.libraryID as string | undefined;
     const searches = await this.client.listSmartSearches(libraryID);
     if (searches.length === 0) {
@@ -2073,7 +2551,7 @@ export class ImbibTools {
 
   private async deleteSmartSearches(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     if (!identifiers || identifiers.length === 0) {
       return {
@@ -2090,7 +2568,7 @@ export class ImbibTools {
 
   private async addToCollection(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const collectionID = args?.collectionID as string | undefined;
     const identifiers = args?.identifiers as string[] | undefined;
 
@@ -2115,7 +2593,7 @@ export class ImbibTools {
 
   private async addToLibrary(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const libraryID = args?.libraryID as string | undefined;
     const identifiers = args?.identifiers as string[] | undefined;
 
@@ -2140,7 +2618,7 @@ export class ImbibTools {
 
   private async removeFromCollection(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const collectionID = args?.collectionID as string | undefined;
     const identifiers = args?.identifiers as string[] | undefined;
 
@@ -2165,7 +2643,7 @@ export class ImbibTools {
 
   private async downloadPDFs(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const identifiers = args?.identifiers as string[] | undefined;
     if (!identifiers || identifiers.length === 0) {
       return {
@@ -2207,7 +2685,7 @@ export class ImbibTools {
 
   private async listParticipants(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const libraryID = args?.libraryID as string | undefined;
     if (!libraryID) {
       return {
@@ -2244,7 +2722,7 @@ export class ImbibTools {
 
   private async getLibraryActivity(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const libraryID = args?.libraryID as string | undefined;
     if (!libraryID) {
       return {
@@ -2283,7 +2761,7 @@ export class ImbibTools {
 
   private async listComments(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = args?.citeKey as string | undefined;
     if (!citeKey) {
       return {
@@ -2324,7 +2802,7 @@ export class ImbibTools {
 
   private async addComment(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = args?.citeKey as string | undefined;
     const text = args?.text as string | undefined;
 
@@ -2355,7 +2833,7 @@ export class ImbibTools {
 
   private async deleteComment(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const commentID = args?.commentID as string | undefined;
     if (!commentID) {
       return {
@@ -2373,7 +2851,7 @@ export class ImbibTools {
 
   private async listItemComments(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const itemID = args?.itemID as string | undefined;
     if (!itemID) {
       return {
@@ -2407,7 +2885,7 @@ export class ImbibTools {
 
   private async addItemComment(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const itemID = args?.itemID as string | undefined;
     const text = args?.text as string | undefined;
     const parentCommentID = args?.parentCommentID as string | undefined;
@@ -2431,7 +2909,7 @@ export class ImbibTools {
 
   private async editComment(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const commentID = args?.commentID as string | undefined;
     const text = args?.text as string | undefined;
 
@@ -2459,7 +2937,7 @@ export class ImbibTools {
 
   private async createBackup(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const backup = await this.client.createBackup({
       label: args?.label as string | undefined,
       directory: args?.directory as string | undefined,
@@ -2483,7 +2961,7 @@ export class ImbibTools {
 
   private async listBackups(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.listBackups(args?.directory as string | undefined);
     if (result.backups.length === 0) {
       return {
@@ -2509,7 +2987,7 @@ export class ImbibTools {
 
   private async inspectBackup(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const path = args?.path as string | undefined;
     if (!path) {
       return { content: [{ type: "text", text: "Error: path is required" }] };
@@ -2532,7 +3010,7 @@ export class ImbibTools {
 
   private async restoreBackup(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const path = args?.path as string | undefined;
     if (!path) {
       return { content: [{ type: "text", text: "Error: path is required" }] };
@@ -2556,7 +3034,7 @@ export class ImbibTools {
 
   private async deleteBackup(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const path = args?.path as string | undefined;
     if (!path) {
       return { content: [{ type: "text", text: "Error: path is required" }] };
@@ -2569,51 +3047,574 @@ export class ImbibTools {
     };
   }
 
-  private async syncComments(): Promise<{
-    content: Array<{ type: string; text: string }>;
-  }> {
-    const result = await this.client.syncComments();
-    const status = (result as Record<string, unknown>).syncStatus as Record<string, unknown> | undefined;
-    const parts: string[] = ["Comment sync triggered."];
-    if (status?.lastSyncDate) parts.push(`Last sync: ${status.lastSyncDate}`);
-    if (status?.lastError) parts.push(`Error: ${status.lastError}`);
-    if (status?.pendingUploadCount !== undefined) parts.push(`Pending uploads: ${status.pendingUploadCount}`);
-
-    return {
-      content: [{ type: "text", text: parts.join("\n") }],
-    };
-  }
-
-  private async getSyncStatus(): Promise<{
-    content: Array<{ type: string; text: string }>;
-  }> {
-    const result = await this.client.getSyncStatus();
-    const cs = (result as Record<string, unknown>).commentSync as Record<string, unknown> | undefined ?? {};
-    const gs = (result as Record<string, unknown>).generalSync as Record<string, unknown> | undefined ?? {};
+  /**
+   * Render the real ADR-0007 Phase-3 snapshot. `reason_code` leads because it
+   * is the field that explains *why* nothing is syncing; the counters below it
+   * are meaningful even when the engine is off.
+   */
+  private async getSyncStatus(): Promise<ToolResult> {
+    const s = await this.client.getSyncStatus();
+    const stamp = (ms?: number | null) =>
+      ms ? new Date(ms).toISOString() : "never";
 
     const lines = [
-      "## Comment Sync",
-      `  Enabled: ${cs.enabled}`,
-      `  Running: ${cs.isRunning}`,
-      `  Last sync: ${cs.lastSyncDate || "never"}`,
-      `  Error: ${cs.lastError || "none"}`,
-      `  Pending: ${cs.pendingUploadCount || 0}`,
+      "# imbib sync (CloudKit graph sync, ADR-0007 Phase 3)",
       "",
-      "## General Sync",
-      `  Enabled: ${gs.enabled}`,
-      `  Last sync: ${gs.lastSyncDate || "never"}`,
-      `  Error: ${gs.lastError || "none"}`,
-      `  State: ${gs.lifecycleState}`,
-    ];
+      `**Verdict (reason_code):** ${s.reason_code}`,
+      s.explanation ? `**Explanation:** ${s.explanation}` : "",
+      "",
+      `Enabled: ${s.enabled}   Available: ${s.available}   Engine running: ${s.engine_running ?? "unknown"}`,
+      `Lease holder: ${s.lease_holder ?? "none"}   iCloud account: ${s.account_status ?? "unknown"}`,
+      `Bootstrap done: ${s.bootstrap_done ?? "unknown"}`,
+      `Last push: ${stamp(s.last_push_ms)}   Last pull: ${stamp(s.last_pull_ms)}`,
+      "",
+      "## Queues (these fill up even while sync is off)",
+      `  Outbox: ${s.outbox ?? 0}   Pending refs: ${s.pending_refs ?? 0}   Tombstones: ${s.tombstones ?? 0}`,
+      "",
+      `Container: ${s.container ?? "?"}   Zone: ${s.zone ?? "?"}`,
+      s.last_error ? `\n**Last error:** ${s.last_error}` : "",
+      s.merge_report
+        ? `\nMerge report: ${JSON.stringify(s.merge_report)}`
+        : "",
+      "",
+      s.reason_code === "available"
+        ? "Sync is healthy. Use imbib_sync_nudge to push pending work to the user's other devices now."
+        : "Sync is NOT running — changes will stay on this device until the reason_code above is resolved.",
+    ].filter((line) => line !== "");
 
-    return {
-      content: [{ type: "text", text: lines.join("\n") }],
-    };
+    return text(lines.join("\n"));
+  }
+
+  private async syncNudge(): Promise<ToolResult> {
+    const result = await this.client.syncNudge();
+    if (result.accepted) {
+      return text(
+        "Sync pass requested — imbib is pushing local changes and pulling remote ones now.\n" +
+          "It completes asynchronously; call imbib_sync_status and check last_push_ms / outbox to confirm it landed."
+      );
+    }
+    return text(
+      `Sync was NOT started: ${result.reason ?? "no reason given"}\n\n` +
+        "This is a refusal, not a failure — the engine cannot run right now. " +
+        "Call imbib_sync_status and read reason_code for the full diagnosis; " +
+        "until it is resolved, changes stay on this device only."
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Manuscripts
+  // --------------------------------------------------------------------------
+
+  private async listManuscripts(): Promise<ToolResult> {
+    const rows = await this.client.listManuscripts();
+    if (rows.length === 0) {
+      return text("No manuscripts in the shared impress store.");
+    }
+    const lines = rows.map(
+      (m) =>
+        `- **${m.title}**\n  id: ${m.id}   format: ${m.format || "(unset)"}   status: ${m.status}`
+    );
+    return text(
+      `# Manuscripts (${rows.length})\n\n${lines.join("\n")}\n\n` +
+        "Read one with imbib_get_manuscript (returns body + contentHash for CAS writes)."
+    );
+  }
+
+  private async getManuscript(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const id = args?.manuscriptId as string | undefined;
+    if (!id) return text("Error: manuscriptId is required");
+
+    const m = await this.client.getManuscript(id);
+    if (!m) {
+      return text(
+        `No manuscript with id ${id}. Call imbib_list_manuscripts for valid UUIDs.`
+      );
+    }
+    return text(
+      [
+        `# ${m.title}`,
+        "",
+        `id: ${m.id}`,
+        `format: ${m.format || "(unset)"}   status: ${m.manuscriptStatus}`,
+        `contentHash: ${m.contentHash ?? "null (no body has ever been written)"}`,
+        m.bodyIsBlobRef ? "body is stored as a blob ref" : "",
+        "",
+        "Pass that contentHash as expectedHash to imbib_write_manuscript_body;",
+        "it is what prevents your write from clobbering a concurrent edit.",
+        "",
+        "## Body",
+        "",
+        m.body,
+      ]
+        .filter((line) => line !== "")
+        .join("\n")
+    );
+  }
+
+  private async createManuscript(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const title = args?.title as string | undefined;
+    if (!title) return text("Error: title is required");
+
+    const created = await this.client.createManuscript({
+      title,
+      body: args?.body as string | undefined,
+      format: args?.format as string | undefined,
+      authors: args?.authors as string[] | undefined,
+    });
+    return text(
+      `Created manuscript "${created.title}"\nid: ${created.id}\n\n` +
+        "Read it with imbib_get_manuscript to obtain the contentHash before writing to it."
+    );
+  }
+
+  /**
+   * The CAS write. A 409 is reported as a normal (non-error) result with
+   * explicit rebase instructions — an agent that retries the same hash, or
+   * reaches for `unconditional`, destroys the user's concurrent edits.
+   */
+  private async writeManuscriptBody(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const id = args?.manuscriptId as string | undefined;
+    const body = args?.body as string | undefined;
+    const expectedHash = args?.expectedHash as string | undefined;
+    const unconditional = args?.unconditional === true;
+
+    if (!id) return text("Error: manuscriptId is required");
+    if (typeof body !== "string") return text("Error: body is required");
+    if (!expectedHash && !unconditional) {
+      return text(
+        "Refused: no expectedHash supplied.\n\n" +
+          "Call imbib_get_manuscript first, edit the body it returns, and pass that call's " +
+          "contentHash as expectedHash. Writing without a hash overwrites whatever is stored, " +
+          "including edits the user just made on another device. If this manuscript genuinely " +
+          "has no body yet (contentHash was null), pass unconditional:true."
+      );
+    }
+
+    const result = await this.client.setManuscriptBody(id, body, expectedHash);
+
+    if (result.notFound) {
+      return text(
+        `No manuscript with id ${id}. Call imbib_list_manuscripts for valid UUIDs.`
+      );
+    }
+
+    if (result.conflict) {
+      return text(
+        [
+          "CONFLICT — nothing was written.",
+          "",
+          `You sent expectedHash ${expectedHash}, but the manuscript's current hash is ${result.storedHash}.`,
+          "Someone else changed the text after your read (the user typing on their phone, or another agent).",
+          "",
+          "Recover like this, in order:",
+          "  1. imbib_get_manuscript to fetch the CURRENT body and contentHash.",
+          "  2. Re-apply your intended edit to that new text — do not reuse the text you had.",
+          "  3. imbib_write_manuscript_body again with the NEW contentHash.",
+          "",
+          "Do NOT retry with the same expectedHash (it will conflict again), and do NOT pass",
+          "unconditional:true to force it through — that discards the other edit permanently.",
+        ].join("\n")
+      );
+    }
+
+    return text(
+      `Manuscript body written.\nNew contentHash: ${result.newHash}\n\n` +
+        "Use that hash for your next write. Verify the document still builds with imbib_compile_manuscript."
+    );
+  }
+
+  /**
+   * Compile + (by default) show page 1.
+   *
+   * The PDF base64 is deliberately never returned as text: it is not a valid
+   * MCP image type and dumping it would spend enormous context to display
+   * nothing. Instead the first page is rasterised to PNG so the result is
+   * actually visible — which matters because when the user is on their phone
+   * the conversation is the only display surface they have.
+   */
+  private async compileManuscript(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const id = args?.manuscriptId as string | undefined;
+    if (!id) return text("Error: manuscriptId is required");
+    const wantPreview = args?.preview !== false;
+
+    const result = await this.client.compileManuscript(id, wantPreview);
+
+    const cited = result.citedKeys ?? [];
+    const resolved = result.resolvedKeys ?? [];
+    const unresolved = cited.filter((k) => !resolved.includes(k));
+
+    const lines: string[] = [
+      result.status === "ok" ? "# Compile OK" : "# Compile FAILED",
+      "",
+    ];
+    if (result.reason) lines.push(`Reason: ${result.reason}`, "");
+    if (result.pdfBytes !== undefined) {
+      lines.push(`PDF: ${result.pdfBytes.toLocaleString()} bytes`);
+    }
+    lines.push(
+      `Citations: ${cited.length} cited, ${resolved.length} resolved against the imbib library`
+    );
+    if (unresolved.length > 0) {
+      lines.push(
+        `**Unresolved @keys (these will render as broken citations):** ${unresolved.join(", ")}`,
+        "Add the missing papers with imbib_add_papers or imbib_resolve_identifier, then recompile."
+      );
+    }
+    if (result.bibliographyBytes) {
+      lines.push(`Virtual bibliography: ${result.bibliographyBytes} bytes`);
+    }
+    if (result.errors?.length) {
+      lines.push("", "## Errors", ...result.errors.map((e) => `- ${e}`));
+    }
+    if (result.warnings?.length) {
+      lines.push("", "## Warnings", ...result.warnings.map((w) => `- ${w}`));
+    }
+
+    if (wantPreview && result.pdfBase64) {
+      // The PDF bytes are never returned as text: base64 is not a valid MCP
+      // image type, so dumping it would spend enormous context and display
+      // nothing. Rasterise page 1 instead (shared helper, PDFKit via JXA).
+      const raster = await rasterizePDFPage(Buffer.from(result.pdfBase64, "base64"), {
+        basename: `manuscript-${id}`,
+      });
+      if (raster.ok && isInlineable(raster.base64)) {
+        return {
+          content: [
+            { type: "image", data: raster.base64, mimeType: "image/png" },
+            {
+              type: "text",
+              text: [
+                ...lines,
+                "",
+                `(image: page 1 of ${raster.pageCount}; full PDF staged at ${raster.pdfPath})`,
+              ].join("\n"),
+            },
+          ],
+        };
+      }
+      lines.push(
+        "",
+        raster.ok
+          ? `(page-1 preview omitted: the raster exceeded the inline image budget. Full PDF: ${raster.pdfPath})`
+          : `(page-1 preview unavailable: ${raster.error})`
+      );
+    }
+
+    return text(lines.join("\n"));
+  }
+
+  // --------------------------------------------------------------------------
+  // Undo
+  // --------------------------------------------------------------------------
+
+  private async recentUndoGroups(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const maxEntries = args?.maxEntries as number | undefined;
+    const groups = await this.client.recentUndoGroups(maxEntries);
+    if (groups.length === 0) {
+      return text("No revertible operations recorded.");
+    }
+    const lines = groups.map((g) => {
+      const when = new Date(g.timestamp).toISOString();
+      const batch = g.batch_id ? `\n  batch_id: ${g.batch_id}  (prefer this)` : "";
+      return `- ${g.description} (${g.operation_count} op${g.operation_count === 1 ? "" : "s"}, ${when})\n  operation_id: ${g.operation_id}${batch}`;
+    });
+    return text(
+      `# Recent revertible operations (${groups.length}, newest first)\n\n${lines.join("\n")}\n\n` +
+        "Reverse one with imbib_undo. Pass batchId when a group has one — it covers the whole user action."
+    );
+  }
+
+  private async undo(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const operationId = args?.operationId as string | undefined;
+    const batchId = args?.batchId as string | undefined;
+    if (!operationId && !batchId) {
+      return text(
+        "Error: pass operationId or batchId (get them from imbib_recent_undo_groups; prefer batchId when present)."
+      );
+    }
+    if (batchId) {
+      const result = await this.client.undoBatch(batchId);
+      // imbib answers 200 with a zero count for a batch id it has never seen,
+      // so a count of 0 means "nothing matched", not "reverted successfully".
+      if (result.operationCount === 0) {
+        return text(
+          `NOTHING was undone: no operations are recorded under batch ${batchId}. ` +
+            "Either the id is wrong, or that action never reached the operation log " +
+            "(deletes of papers/collections/smart-searches/tags are not recorded). " +
+            "Call imbib_recent_undo_groups to see what is actually revertible."
+        );
+      }
+      return text(
+        `Reverted batch ${batchId} — ${result.operationCount} operation(s) undone.\n` +
+          "Confirm with imbib_recent_undo_groups or by re-reading the affected records."
+      );
+    }
+    const result = await this.client.undoOperation(operationId as string);
+    if (result.operationCount === 0) {
+      return text(
+        `NOTHING was undone for operation ${operationId} — no inverse was applied. ` +
+          "Call imbib_recent_undo_groups and confirm the id is still listed."
+      );
+    }
+    return text(
+      `Reverted operation ${operationId} — ${result.operationCount} operation(s) undone.\n` +
+        "If the original action touched several rows, check imbib_recent_undo_groups for a batch_id and undo that instead."
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Recent / starred / counts
+  // --------------------------------------------------------------------------
+
+  private async recentPapers(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const papers = await this.client.queryRecent({
+      limit: args?.limit as number | undefined,
+      parentID: args?.parentId as string | undefined,
+    });
+    if (papers.length === 0) return text("No recently added papers.");
+    return text(
+      `# Recently added (${papers.length})\n\n${this.formatRecentPapers(papers)}\n\n` +
+        "This includes automated ingest. For what the USER actually touched, use imbib_recent_activity."
+    );
+  }
+
+  private async recentActivity(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const papers = await this.client.queryRecentActivity({
+      limit: args?.limit as number | undefined,
+    });
+    if (papers.length === 0) {
+      return text(
+        "No recent user activity recorded. (Papers arriving via feeds do not count as activity — try imbib_recent_papers.)"
+      );
+    }
+    return text(
+      `# Recent activity — what the user has been working on (${papers.length})\n\n${this.formatRecentPapers(papers)}`
+    );
+  }
+
+  private async starredPapers(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const papers = await this.client.queryStarred({
+      limit: args?.limit as number | undefined,
+      parentID: args?.parentId as string | undefined,
+    });
+    if (papers.length === 0) return text("No starred papers.");
+    return text(
+      `# Starred papers (${papers.length})\n\n${this.formatRecentPapers(papers)}`
+    );
+  }
+
+  private async countPapers(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const kind = args?.kind as
+      | "unread"
+      | "starred"
+      | "flagged"
+      | "by-tag"
+      | undefined;
+    if (!kind) {
+      return text("Error: kind is required (unread | starred | flagged | by-tag)");
+    }
+    if (kind === "by-tag" && !args?.tag) {
+      return text("Error: kind='by-tag' also requires tag (e.g. 'ai/field/cosmology')");
+    }
+    const count = await this.client.countPapers(kind, {
+      parentID: args?.parentId as string | undefined,
+      color: args?.color as string | undefined,
+      tag: args?.tag as string | undefined,
+    });
+    const scope: string[] = [];
+    if (args?.parentId) scope.push(`in ${args.parentId}`);
+    if (kind === "flagged" && args?.color) scope.push(`color ${args.color}`);
+    if (kind === "by-tag") scope.push(`tag '${args?.tag}'`);
+    const suffix = scope.length ? ` (${scope.join(", ")})` : "";
+    return text(`${count} ${kind} paper(s)${suffix}`);
+  }
+
+  /** Compact renderer for the snake_case rows the query routes return. */
+  private formatRecentPapers(papers: RecentPaper[]): string {
+    return papers
+      .map((p) => {
+        const bits: string[] = [];
+        if (p.activity_kind) {
+          bits.push(
+            `${p.activity_kind}${p.activity_at ? ` ${new Date(p.activity_at).toISOString()}` : ""}`
+          );
+        }
+        if (p.year) bits.push(String(p.year));
+        if (p.venue) bits.push(p.venue);
+        if (!p.is_read) bits.push("unread");
+        if (p.is_starred) bits.push("starred");
+        if (p.has_pdf) bits.push("PDF");
+        const meta = bits.length ? `\n  ${bits.join(" · ")}` : "";
+        const tags = p.tags.length ? `\n  tags: ${p.tags.join(", ")}` : "";
+        return `- **${p.title}**\n  ${p.cite_key} — ${p.authors}${meta}${tags}`;
+      })
+      .join("\n");
+  }
+
+  // --------------------------------------------------------------------------
+  // Smart search create / detail
+  // --------------------------------------------------------------------------
+
+  private async getSmartSearch(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const id = args?.id as string | undefined;
+    if (!id) return text("Error: id is required");
+    const s = await this.client.getSmartSearch(id);
+    if (!s) {
+      return text(
+        `No smart search with id ${id}. Call imbib_list_smart_searches for valid UUIDs.`
+      );
+    }
+    return text(this.formatSmartSearch(s));
+  }
+
+  private async createSmartSearch(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const name = args?.name as string | undefined;
+    const query = args?.query as string | undefined;
+    const libraryID = args?.libraryID as string | undefined;
+    if (!name) return text("Error: name is required");
+    if (typeof query !== "string") return text("Error: query is required");
+    if (!libraryID) {
+      return text(
+        "Error: libraryID is required — get one from imbib_list_libraries (usually the 'Exploration' library)."
+      );
+    }
+    const s = await this.client.createSmartSearch({
+      name,
+      query,
+      libraryID,
+      maxResults: args?.maxResults as number | undefined,
+      feedsToInbox: args?.feedsToInbox as boolean | undefined,
+      autoRefreshEnabled: args?.autoRefreshEnabled as boolean | undefined,
+      refreshIntervalSeconds: args?.refreshIntervalSeconds as number | undefined,
+      sourceIDs: args?.sourceIDs as string[] | undefined,
+    });
+    return text(`Created smart search.\n\n${this.formatSmartSearch(s)}`);
+  }
+
+  private formatSmartSearch(s: SmartSearch): string {
+    return [
+      `**${s.name}**`,
+      `  id: ${s.id}`,
+      `  query: ${s.query}`,
+      `  library: ${s.library_id}`,
+      `  max results: ${s.max_results ?? "?"}`,
+      `  feeds to inbox: ${s.feeds_to_inbox ?? false}   auto refresh: ${s.auto_refresh_enabled ?? false}` +
+        (s.auto_refresh_enabled
+          ? ` (every ${s.refresh_interval_seconds ?? "?"}s)`
+          : ""),
+      s.source_ids?.length ? `  sources: ${s.source_ids.join(", ")}` : "",
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+  }
+
+  // --------------------------------------------------------------------------
+  // Tag vocabulary management
+  // --------------------------------------------------------------------------
+
+  private async createTag(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const path = args?.path as string | undefined;
+    if (!path) return text("Error: path is required");
+    await this.client.createTag({
+      path,
+      colorLight: args?.colorLight as string | undefined,
+      colorDark: args?.colorDark as string | undefined,
+    });
+    return text(
+      `Tag '${path}' created in the vocabulary. It is not on any paper yet — use imbib_add_tag for that.`
+    );
+  }
+
+  private async renameTag(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const path = args?.path as string | undefined;
+    const newPath = args?.newPath as string | undefined;
+    if (!path || !newPath) return text("Error: path and newPath are required");
+    await this.client.renameTag(path, newPath);
+    return text(
+      `Renamed tag '${path}' → '${newPath}' across the whole library.\n` +
+        `imbib_undo does not cover tag CRUD — to reverse this, rename '${newPath}' back to '${path}'.`
+    );
+  }
+
+  private async setTagColor(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const path = args?.path as string | undefined;
+    if (!path) return text("Error: path is required");
+    const colorLight = args?.colorLight as string | undefined;
+    const colorDark = args?.colorDark as string | undefined;
+    if (!colorLight && !colorDark) {
+      return text("Error: pass colorLight and/or colorDark");
+    }
+    await this.client.updateTagColor(path, { colorLight, colorDark });
+    return text(`Updated colors for tag '${path}'.`);
+  }
+
+  private async deleteTag(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const path = args?.path as string | undefined;
+    if (!path) return text("Error: path is required");
+    await this.client.deleteTag(path);
+    return text(
+      `Deleted tag '${path}' — it is now off every paper that carried it.\n` +
+        "This is not undoable: tag CRUD bypasses the operation log, so imbib_undo cannot restore it. " +
+        "Recreating the tag with imbib_create_tag does NOT restore which papers had it."
+    );
+  }
+
+  private async pruneBackups(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const keep = args?.keep;
+    if (typeof keep !== "number" || keep < 0 || !Number.isInteger(keep)) {
+      return text("Error: keep must be a non-negative integer");
+    }
+    const removed = await this.client.pruneBackups(
+      keep,
+      args?.directory as string | undefined
+    );
+    if (removed.length === 0) {
+      return text(`Nothing pruned — there were at most ${keep} backup(s) already.`);
+    }
+    return text(
+      `Pruned ${removed.length} backup(s), keeping the ${keep} newest:\n` +
+        removed.map((p) => `- ${p}`).join("\n") +
+        "\n\nThese are gone from disk; imbib_undo cannot bring them back."
+    );
   }
 
   private async listAssignments(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const libraryID = args?.libraryID as string | undefined;
     if (!libraryID) {
       return {
@@ -2642,7 +3643,7 @@ export class ImbibTools {
 
   private async listPaperAssignments(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = args?.citeKey as string | undefined;
     if (!citeKey) {
       return {
@@ -2671,7 +3672,7 @@ export class ImbibTools {
 
   private async createAssignment(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = args?.citeKey as string | undefined;
     const assigneeName = args?.assigneeName as string | undefined;
     const libraryID = args?.libraryID as string | undefined;
@@ -2710,7 +3711,7 @@ export class ImbibTools {
 
   private async deleteAssignment(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const assignmentID = args?.assignmentID as string | undefined;
     if (!assignmentID) {
       return {
@@ -2728,7 +3729,7 @@ export class ImbibTools {
 
   private async shareLibrary(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const libraryID = args?.libraryID as string | undefined;
     if (!libraryID) {
       return {
@@ -2751,7 +3752,7 @@ export class ImbibTools {
 
   private async unshareLibrary(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const libraryID = args?.libraryID as string | undefined;
     if (!libraryID) {
       return {
@@ -2777,7 +3778,7 @@ export class ImbibTools {
 
   private async setParticipantPermission(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const libraryID = args?.libraryID as string | undefined;
     const participantID = args?.participantID as string | undefined;
     const permission = args?.permission as "readOnly" | "readWrite" | undefined;
@@ -2817,7 +3818,7 @@ export class ImbibTools {
 
   private async createArtifact(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const artifactType = args?.type as string | undefined;
     const title = args?.title as string | undefined;
 
@@ -2850,7 +3851,7 @@ export class ImbibTools {
 
   private async searchArtifacts(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const query = String(args?.query || "");
     if (!query) {
       return {
@@ -2885,7 +3886,7 @@ export class ImbibTools {
 
   private async listArtifactsHandler(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const artifactType = args?.type as string | undefined;
     const limit = args?.limit as number | undefined;
     const offset = args?.offset as number | undefined;
@@ -2917,7 +3918,7 @@ export class ImbibTools {
 
   private async getArtifact(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string | undefined;
     if (!id) {
       return {
@@ -2960,7 +3961,7 @@ export class ImbibTools {
 
   private async deleteArtifact(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string | undefined;
     if (!id) {
       return {
@@ -2983,7 +3984,7 @@ export class ImbibTools {
 
   private async tagArtifact(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string | undefined;
     const tag = args?.tag as string | undefined;
 
@@ -3008,7 +4009,7 @@ export class ImbibTools {
 
   private async linkArtifactToPaper(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const artifactID = args?.artifactID as string | undefined;
     const citeKey = args?.citeKey as string | undefined;
 
@@ -3090,7 +4091,7 @@ export class ImbibTools {
 
   private async listAnnotations(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = args?.citeKey as string | undefined;
     if (!citeKey) {
       return {
@@ -3131,7 +4132,7 @@ export class ImbibTools {
 
   private async addAnnotation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = args?.citeKey as string | undefined;
     const type = args?.type as string | undefined;
     const pageNumber = args?.pageNumber as number | undefined;
@@ -3170,7 +4171,7 @@ export class ImbibTools {
 
   private async deleteAnnotation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const annotationID = args?.annotationID as string | undefined;
     if (!annotationID) {
       return {
@@ -3188,7 +4189,7 @@ export class ImbibTools {
 
   private async getNotes(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = args?.citeKey as string | undefined;
     if (!citeKey) {
       return {
@@ -3216,7 +4217,7 @@ export class ImbibTools {
 
   private async updateNotes(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const citeKey = args?.citeKey as string | undefined;
     if (!citeKey) {
       return {
@@ -3236,7 +4237,7 @@ export class ImbibTools {
 
   private async resolveIdentifier(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const query = (args?.query as string | undefined) ?? "";
     const bibtex = (args?.bibtex as string | undefined) ?? "";
     if (!query.trim() && !bibtex.trim()) {
@@ -3249,5 +4250,87 @@ export class ImbibTools {
       downloadPDFs: args?.downloadPDFs as boolean | undefined,
     });
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+
+  // MARK: - Manuscript templates
+
+  private async listTemplates(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const category = args?.category ? String(args.category) : undefined;
+    const query = args?.query ? String(args.query) : undefined;
+    try {
+      const templates = await this.client.listTemplates({ category, query });
+      if (templates.length === 0) {
+        const filter = [
+          category ? `category '${category}'` : "",
+          query ? `query '${query}'` : "",
+        ]
+          .filter(Boolean)
+          .join(" and ");
+        return text(
+          filter
+            ? `No manuscript templates match ${filter}.`
+            : "No manuscript templates available."
+        );
+      }
+      // Group by category so the agent can scan for the right family fast.
+      const byCategory = new Map<string, typeof templates>();
+      for (const t of templates) {
+        const key = t.category || "other";
+        const bucket = byCategory.get(key);
+        if (bucket) bucket.push(t);
+        else byCategory.set(key, [t]);
+      }
+      const blocks = [...byCategory.entries()].map(([cat, group]) => {
+        const lines = group.map((t) => {
+          const desc = t.description ? ` — ${t.description}` : "";
+          const publisher = t.journal?.publisher ? ` (${t.journal.publisher})` : "";
+          return `- \`${t.id}\` · ${t.name}${publisher}${desc}`;
+        });
+        return `## ${cat}\n${lines.join("\n")}`;
+      });
+      return text(
+        `# Manuscript templates (${templates.length})\n\n${blocks.join("\n\n")}\n\n` +
+          `Create one with imbib_create_manuscript_from_template (template_id + title).`
+      );
+    } catch (e) {
+      return text(
+        `Error: list templates failed: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+  }
+
+  private async createManuscriptFromTemplate(
+    args: Record<string, unknown> | undefined
+  ): Promise<ToolResult> {
+    const templateId = String(args?.template_id || "");
+    const title = String(args?.title || "");
+    if (!templateId) {
+      return text("Error: template_id is required (see imbib_list_templates)");
+    }
+    if (!title) {
+      return text("Error: title is required");
+    }
+    try {
+      const r = await this.client.createManuscriptFromTemplate({
+        templateId,
+        title,
+        authors: args?.authors as string[] | undefined,
+        affiliations: args?.affiliations as string[] | undefined,
+        abstract: args?.abstract as string | undefined,
+        keywords: args?.keywords as string[] | undefined,
+        includeSections: args?.include_sections as boolean | undefined,
+      });
+      return text(
+        `Created **${r.title}** from template \`${r.template_id}\`\n` +
+          `manuscript id: ${r.id}\n` +
+          (r.body_length !== undefined ? `body: ${r.body_length} characters\n` : "")
+      );
+    } catch (e) {
+      return text(
+        `Error: create manuscript from template failed: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
   }
 }

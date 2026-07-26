@@ -5,6 +5,7 @@
  * agents, handle escalations, and coordinate autonomous research workflows.
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImpelClient } from "./client.js";
 
@@ -656,7 +657,7 @@ export class ImpelTools {
 
   private async submitJournalManuscript(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     if (!args || typeof args !== "object") {
       throw new Error("impel_journal_submit: missing arguments");
     }
@@ -703,7 +704,7 @@ export class ImpelTools {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       // Journal pipeline
       case "impel_journal_submit":
@@ -797,7 +798,7 @@ export class ImpelTools {
   // --------------------------------------------------------------------------
 
   private async getStatus(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const status = await this.client.checkStatus();
 
@@ -837,7 +838,7 @@ export class ImpelTools {
 
   private async listThreads(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.listThreads({
       state: args?.state as string | undefined,
       min_temperature: args?.min_temperature as number | undefined,
@@ -867,7 +868,7 @@ export class ImpelTools {
 
   private async getThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -913,7 +914,7 @@ export class ImpelTools {
 
   private async getThreadEvents(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const threadId = args?.thread_id as string;
     if (!threadId) {
       return {
@@ -945,7 +946,7 @@ export class ImpelTools {
   }
 
   private async getAvailableThreads(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const result = await this.client.getAvailableThreads();
 
@@ -976,7 +977,7 @@ export class ImpelTools {
 
   private async createThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const title = args?.title as string;
     const description = args?.description as string;
     if (!title || !description) {
@@ -1006,7 +1007,7 @@ export class ImpelTools {
 
   private async activateThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1021,7 +1022,7 @@ export class ImpelTools {
 
   private async claimThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const threadId = args?.thread_id as string;
     const agentId = args?.agent_id as string;
     if (!threadId || !agentId) {
@@ -1043,7 +1044,7 @@ export class ImpelTools {
 
   private async releaseThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const threadId = args?.thread_id as string;
     const agentId = args?.agent_id as string;
     if (!threadId || !agentId) {
@@ -1065,7 +1066,7 @@ export class ImpelTools {
 
   private async blockThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1080,7 +1081,7 @@ export class ImpelTools {
 
   private async unblockThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1095,7 +1096,7 @@ export class ImpelTools {
 
   private async submitForReview(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1112,7 +1113,7 @@ export class ImpelTools {
 
   private async completeThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1127,7 +1128,7 @@ export class ImpelTools {
 
   private async killThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1142,7 +1143,7 @@ export class ImpelTools {
 
   private async setTemperature(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     const temperature = args?.temperature as number;
     if (!id || temperature === undefined) {
@@ -1174,7 +1175,7 @@ export class ImpelTools {
   // --------------------------------------------------------------------------
 
   private async listPersonas(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const result = await this.client.listPersonas();
 
@@ -1201,7 +1202,7 @@ export class ImpelTools {
 
   private async getPersona(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1259,7 +1260,7 @@ export class ImpelTools {
   // --------------------------------------------------------------------------
 
   private async listAgents(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const result = await this.client.listAgents();
 
@@ -1288,7 +1289,7 @@ export class ImpelTools {
 
   private async getAgent(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1324,7 +1325,7 @@ export class ImpelTools {
 
   private async registerAgent(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const agentType = args?.agent_type as string;
     if (!agentType) {
       return {
@@ -1349,7 +1350,7 @@ export class ImpelTools {
 
   private async terminateAgent(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1368,7 +1369,7 @@ export class ImpelTools {
 
   private async listEscalations(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const openOnly = args?.open_only !== false;
     const result = await this.client.listEscalations(openOnly);
 
@@ -1402,7 +1403,7 @@ export class ImpelTools {
 
   private async getEscalation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };
@@ -1466,7 +1467,7 @@ export class ImpelTools {
 
   private async createEscalation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const category = args?.category as string;
     const title = args?.title as string;
     const description = args?.description as string;
@@ -1507,7 +1508,7 @@ export class ImpelTools {
 
   private async acknowledgeEscalation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     const by = args?.by as string;
     if (!id || !by) {
@@ -1527,7 +1528,7 @@ export class ImpelTools {
 
   private async resolveEscalation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     const by = args?.by as string;
     const resolution = args?.resolution as string;
@@ -1557,7 +1558,7 @@ export class ImpelTools {
 
   private async getEvents(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.getEvents();
 
     if (result.events.length === 0) {
@@ -1587,7 +1588,7 @@ export class ImpelTools {
 
   private async getNextThread(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const agentId = args?.agent_id as string;
     if (!agentId) {
       return {
@@ -1644,7 +1645,7 @@ export class ImpelTools {
 
   private async pollEscalation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return { content: [{ type: "text", text: "Error: id is required" }] };

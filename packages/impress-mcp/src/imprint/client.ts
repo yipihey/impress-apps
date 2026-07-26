@@ -389,6 +389,46 @@ export class ImprintClient {
   }
 
   /**
+   * Stateless compile: POST source bytes, get PDF bytes back.
+   *
+   * `GET /api/documents/{id}/pdf` only serves imprint's *editor* cache, which
+   * is populated by the GUI compiling the document it has open — so a headless
+   * agent asking for a PDF of any other document gets a 404 forever. This
+   * route compiles the source directly with no document lifecycle, which is
+   * what "show me the manuscript" actually needs when nobody is at the Mac.
+   *
+   * Returns null when the route is absent (older imprint builds), so callers
+   * can fall back rather than reporting a hard failure.
+   */
+  async compileTypstStateless(body: {
+    source: string;
+    bibliography?: string;
+    manuscriptId?: string;
+  }): Promise<
+    | { ok: true; pdf: ArrayBuffer; pageCount?: number; compileMs?: number; warnings?: string }
+    | { ok: false; error: string }
+    | null
+  > {
+    const response = await fetch(`${this.baseURL}/api/compile/typst`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (response.status === 404) return null; // route not in this build
+
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+      return { ok: false, error: detail?.error || `stateless compile failed: ${response.statusText}` };
+    }
+
+    const pageCount = Number(response.headers.get("X-Imprint-Page-Count")) || undefined;
+    const compileMs = Number(response.headers.get("X-Imprint-Compile-Ms")) || undefined;
+    const warnings = response.headers.get("X-Imprint-Warnings") || undefined;
+    return { ok: true, pdf: await response.arrayBuffer(), pageCount, compileMs, warnings };
+  }
+
+  /**
    * Get document bibliography.
    */
   async getBibliography(id: string): Promise<BibliographyResponse | null> {
@@ -950,6 +990,104 @@ export class ImprintClient {
     }
     return data.suggestions ?? [];
   }
+
+  /**
+   * List the built-in manuscript templates (journal/conference styles),
+   * optionally filtered by category or free-text query.
+   */
+  async listTemplates(
+    opts: { category?: string; query?: string } = {}
+  ): Promise<ManuscriptTemplate[]> {
+    const params = new URLSearchParams();
+    if (opts.category) params.set("category", opts.category);
+    if (opts.query) params.set("q", opts.query);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${this.baseURL}/api/templates${suffix}`);
+    if (!res.ok) throw new Error(`List templates failed: ${res.statusText}`);
+    const data = await res.json() as { status: string; templates?: ManuscriptTemplate[] };
+    return data.templates ?? [];
+  }
+
+  /**
+   * Create a new document pre-formatted with a template's style.
+   */
+  async createDocumentFromTemplate(
+    input: TemplateDocumentInput
+  ): Promise<TemplateDocumentResult> {
+    const body: Record<string, unknown> = {
+      template_id: input.templateId,
+      title: input.title,
+    };
+    if (input.authors) body.authors = input.authors;
+    if (input.affiliations) body.affiliations = input.affiliations;
+    if (input.abstract !== undefined) body.abstract = input.abstract;
+    if (input.keywords) body.keywords = input.keywords;
+    if (input.includeSections !== undefined) body.include_sections = input.includeSections;
+    const res = await fetch(`${this.baseURL}/api/documents/from-template`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json() as TemplateDocumentResult & {
+      status: string;
+      reason?: string;
+      error?: string;
+    };
+    if (!res.ok || data.status !== "ok") {
+      throw new Error(
+        data.reason || data.error || `Create from template failed: ${res.statusText}`
+      );
+    }
+    return data;
+  }
+}
+
+export interface TemplatePageDefaults {
+  size?: string;
+  columns?: number;
+  font_size?: number;
+  margin_top?: number;
+  margin_bottom?: number;
+  margin_left?: number;
+  margin_right?: number;
+}
+
+export interface TemplateJournalInfo {
+  publisher?: string;
+  url?: string;
+  latex_class?: string;
+  issn?: string;
+}
+
+export interface ManuscriptTemplate {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  author?: string;
+  license?: string;
+  category?: string;
+  tags?: string[];
+  is_builtin?: boolean;
+  page_defaults?: TemplatePageDefaults;
+  journal?: TemplateJournalInfo;
+}
+
+export interface TemplateDocumentInput {
+  templateId: string;
+  title: string;
+  authors?: string[];
+  affiliations?: string[];
+  abstract?: string;
+  keywords?: string[];
+  includeSections?: boolean;
+}
+
+export interface TemplateDocumentResult {
+  id: string;
+  title: string;
+  template_id: string;
+  body_length?: number;
 }
 
 export interface CitationCandidate {

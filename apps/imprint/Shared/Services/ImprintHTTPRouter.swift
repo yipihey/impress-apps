@@ -49,7 +49,12 @@ import AppKit
 /// - `POST /api/documents/{id}/insert` - Insert text at position
 /// - `POST /api/documents/{id}/delete` - Delete text range
 /// - `POST /api/documents/{id}/bibliography` - Add citation to bibliography
-/// - `POST /api/documents/create` - Create new document
+/// - `POST /api/documents/create` - Create new document (does NOT persist; see from-template)
+/// - `POST /api/documents/from-template` - Create a manuscript from a journal template
+///   (body: template_id, title, authors?, affiliations?, abstract?, keywords?, include_sections?)
+/// - `GET /api/templates` - List manuscript templates (params: category, q)
+/// - `GET /api/templates/{id}` - Template metadata (journal info, page defaults, tags)
+/// - `GET /api/templates/{id}/source` - Raw Typst style definition (renders blank alone)
 /// - `PUT /api/documents/{id}/metadata` - Update document metadata
 /// - `DELETE /api/documents/{id}/bibliography/{key}` - Remove citation
 /// - `GET /api/latex/status` - TeX distribution info and available engines
@@ -138,6 +143,25 @@ public actor ImprintHTTPRouter: HTTPRouter {
             }
             if pathLower == "/api/manuscripts" {
                 return await handleListManuscripts()
+            }
+
+            // Manuscript templates. Order matters: the two-segment forms must
+            // be tested before the bare collection path.
+            if pathLower.hasPrefix("/api/templates/") && pathLower.hasSuffix("/source") {
+                let id = String(
+                    pathLower.dropFirst("/api/templates/".count).dropLast("/source".count))
+                return handleGetTemplateSource(id: id)
+            }
+
+            if pathLower.hasPrefix("/api/templates/")
+                && !pathLower.dropFirst("/api/templates/".count).contains("/")
+            {
+                let id = String(pathLower.dropFirst("/api/templates/".count))
+                return handleGetTemplate(id: id)
+            }
+
+            if pathLower == "/api/templates" {
+                return handleListTemplates(request)
             }
 
             if pathLower == "/api/citation-usages" {
@@ -346,6 +370,10 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
             if pathLower == "/api/documents/create" {
                 return await handleCreateDocument(request)
+            }
+
+            if pathLower == "/api/documents/from-template" {
+                return await handleCreateDocumentFromTemplate(request)
             }
 
             if pathLower == "/api/store-timings/reset" {
@@ -1063,6 +1091,136 @@ public actor ImprintHTTPRouter: HTTPRouter {
         #else
         return .badRequest("Document creation not supported on this platform")
         #endif
+    }
+
+    // MARK: - Template Handlers
+
+    /// GET /api/templates
+    /// List manuscript templates. Params: `category`, `q`.
+    ///
+    /// All logic lives in the Rust registry behind `TemplateCatalog`; this is a
+    /// pure forwarding handler. Stateless and synchronous — no background work,
+    /// so it is safe during the launch grace window.
+    private func handleListTemplates(_ request: HTTPRequest) -> HTTPResponse {
+        let categoryParam = request.queryParams["category"]
+        let queryParam = request.queryParams["q"]
+
+        // Qualified: both ImprintCore and ImprintRustCore export this type.
+        let templates: [ImprintCore.FfiTemplateMetadata]
+        if let categoryParam, !categoryParam.isEmpty {
+            guard let category = TemplateCatalog.category(named: categoryParam) else {
+                return .badRequest(
+                    "Unknown category '\(categoryParam)'. Valid: journal, conference, thesis, report, custom")
+            }
+            templates = TemplateCatalog.inCategory(category)
+        } else if let queryParam, !queryParam.isEmpty {
+            templates = TemplateCatalog.search(queryParam)
+        } else {
+            templates = TemplateCatalog.all()
+        }
+
+        Logger.httpRouter.infoCapture(
+            "GET /api/templates → \(templates.count) templates "
+                + "(category=\(categoryParam ?? "-"), q=\(queryParam ?? "-"))",
+            category: "templates")
+        return .json([
+            "status": "ok",
+            "templates": templates.map { TemplateCatalog.dictionary(for: $0) },
+            "count": templates.count,
+        ])
+    }
+
+    /// GET /api/templates/{id}
+    /// Metadata for a single template.
+    private func handleGetTemplate(id: String) -> HTTPResponse {
+        guard let metadata = TemplateCatalog.metadata(id: id) else {
+            return .notFound("Unknown template: \(id)")
+        }
+        return .json(["status": "ok", "template": TemplateCatalog.dictionary(for: metadata)])
+    }
+
+    /// GET /api/templates/{id}/source
+    /// Raw Typst style definition for a template.
+    ///
+    /// This is the `#let <name>(...)` block only — compiling it renders a blank
+    /// page because the show-function is never invoked. To start a manuscript,
+    /// use `POST /api/documents/from-template`, which returns a scaffolded
+    /// document that actually renders.
+    private func handleGetTemplateSource(id: String) -> HTTPResponse {
+        guard let source = TemplateCatalog.source(id: id) else {
+            return .notFound("Unknown template: \(id)")
+        }
+        return .json(["status": "ok", "id": id, "source": source])
+    }
+
+    /// POST /api/documents/from-template
+    /// Create a manuscript seeded with a journal template's starter document.
+    ///
+    /// Body: `{template_id, title, authors?, affiliations?, abstract?,
+    ///         keywords?, include_sections?}`
+    ///
+    /// Unlike `/api/documents/create` (which does not persist anything), this
+    /// writes a real manuscript through `ManuscriptStoreAdapter` and returns its
+    /// id, so the document is immediately openable and compilable.
+    private func handleCreateDocumentFromTemplate(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = Self.plotJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let templateID = (json["template_id"] as? String ?? json["template"] as? String),
+            !templateID.isEmpty
+        else {
+            return .badRequest("Missing 'template_id'")
+        }
+        guard let title = json["title"] as? String, !title.isEmpty else {
+            return .badRequest("Missing 'title'")
+        }
+        let authors = json["authors"] as? [String] ?? []
+        let affiliations = json["affiliations"] as? [String] ?? []
+        let abstract = json["abstract"] as? String
+        let keywords = json["keywords"] as? [String] ?? []
+        let includeSections = json["include_sections"] as? Bool ?? true
+
+        Logger.httpRouter.infoCapture(
+            "POST /api/documents/from-template: template='\(templateID)' title='\(title)' "
+                + "authors=\(authors.count)",
+            category: "templates")
+
+        guard
+            let starter = TemplateCatalog.starterDocument(
+                templateID: templateID,
+                title: title,
+                authors: authors,
+                affiliations: affiliations,
+                abstract: abstract,
+                keywords: keywords,
+                includeSections: includeSections)
+        else {
+            return .notFound("Unknown template: \(templateID)")
+        }
+
+        do {
+            let id = try await MainActor.run {
+                try ManuscriptStoreAdapter.shared.createManuscript(
+                    title: title, format: .typst, body: starter, authors: authors)
+            }
+            Logger.httpRouter.infoCapture(
+                "Created manuscript \(id.uuidString) from template '\(templateID)' "
+                    + "(\(starter.count) chars seeded)",
+                category: "templates")
+            return .json(
+                [
+                    "status": "ok",
+                    "id": id.uuidString,
+                    "title": title,
+                    "template_id": templateID,
+                    "body_length": starter.count,
+                ], status: 201)
+        } catch {
+            Logger.httpRouter.errorCapture(
+                "from-template create failed for '\(templateID)': \(error.localizedDescription)",
+                category: "templates")
+            return .serverError("createManuscript failed: \(error.localizedDescription)")
+        }
     }
 
     /// POST /api/documents/{id}/compile
@@ -2981,6 +3139,13 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 "GET /api/documents/{id}/export/text": "Export as plain text",
                 "GET /api/documents/{id}/export/typst": "Export Typst source + bibliography",
                 "POST /api/documents/create": "Create new document (body: {title, source})",
+                "GET /api/templates":
+                    "List manuscript templates (params: category=journal|conference|thesis|report|custom, q)",
+                "GET /api/templates/{id}": "Template metadata (journal, page defaults, tags)",
+                "GET /api/templates/{id}/source":
+                    "Raw Typst style definition — renders blank alone; use from-template to create",
+                "POST /api/documents/from-template":
+                    "Start a manuscript in a journal's format (body: {template_id, title, authors?, affiliations?, abstract?, keywords?, include_sections?})",
                 "POST /api/documents/{id}/compile": "Compile document to PDF",
                 "POST /api/documents/{id}/insert-citation": "Insert citation (body: {citeKey, bibtex?, position?})",
                 "POST /api/documents/{id}/update": "Update document content (body: {source?, title?})",

@@ -8,6 +8,7 @@
  * This is the recommended way for agents to cite a paper today.
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImbibClient } from "../imbib/client.js";
 import { ImprintClient } from "../imprint/client.js";
@@ -60,7 +61,7 @@ export class SectionCitationBridge {
     private imprint: ImprintClient
   ) {}
 
-  async handleTool(name: string, args: Record<string, unknown> | undefined) {
+  async handleTool(name: string, args: Record<string, unknown> | undefined): Promise<ToolResult> {
     if (name !== "impress_cite_in_section") {
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
     }
@@ -115,10 +116,10 @@ export class SectionCitationBridge {
   }
 }
 
-function textBlock(text: string): { content: Array<{ type: string; text: string }> } {
+function textBlock(text: string): ToolResult {
   return { content: [{ type: "text", text }] };
 }
 
-function err(msg: string): { content: Array<{ type: string; text: string }>; isError: boolean } {
+function err(msg: string): { content: ToolContent[]; isError: boolean } {
   return { content: [{ type: "text", text: `Error: ${msg}` }], isError: true };
 }

@@ -2,6 +2,7 @@
  * MCP tool definitions for impart
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImpartClient } from "./client.js";
 
@@ -251,7 +252,7 @@ export class ImpartTools {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       case "impart_status":
         return this.getStatus();
@@ -281,7 +282,7 @@ export class ImpartTools {
   }
 
   private async getStatus(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const status = await this.client.checkStatus();
 
@@ -315,7 +316,7 @@ export class ImpartTools {
 
   private async getLogs(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.getLogs({
       limit: args?.limit as number | undefined,
       level: args?.level as string | undefined,
@@ -357,7 +358,7 @@ export class ImpartTools {
 
   private async listConversations(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     try {
       const result = await this.client.listConversations({
         limit: args?.limit as number | undefined,
@@ -404,7 +405,7 @@ export class ImpartTools {
 
   private async getConversation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const id = args?.id as string;
     if (!id) {
       return {
@@ -471,7 +472,7 @@ export class ImpartTools {
 
   private async createConversation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const title = args?.title as string;
     if (!title) {
       return {
@@ -515,7 +516,7 @@ export class ImpartTools {
 
   private async addMessage(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversationId as string;
     const senderRole = args?.senderRole as "human" | "counsel" | "system";
     const senderId = args?.senderId as string;
@@ -571,7 +572,7 @@ export class ImpartTools {
 
   private async branchConversation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversationId as string;
     const fromMessageId = args?.fromMessageId as string;
     const title = args?.title as string;
@@ -624,7 +625,7 @@ export class ImpartTools {
 
   private async updateConversation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversationId as string;
     if (!conversationId) {
       return {
@@ -684,7 +685,7 @@ export class ImpartTools {
 
   private async recordArtifact(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversationId as string;
     const uri = args?.uri as string;
     const type = args?.type as string;
@@ -738,7 +739,7 @@ export class ImpartTools {
 
   private async recordDecision(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const conversationId = args?.conversationId as string;
     const description = args?.description as string;
     const rationale = args?.rationale as string;

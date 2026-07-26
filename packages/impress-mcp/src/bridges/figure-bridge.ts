@@ -5,6 +5,8 @@
  * Exports figures and inserts Typst image references.
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
+import { isInlineable, stripDataURI } from "../content.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImploreClient } from "../implore/client.js";
 import { ImprintClient } from "../imprint/client.js";
@@ -17,7 +19,7 @@ export const FIGURE_BRIDGE_TOOLS: Tool[] = [
   {
     name: "impress_embed_figure",
     description:
-      "Embed a figure from implore into an imprint document. Exports the figure and inserts a Typst #image() reference. The figure file is saved alongside the document.",
+      "Embed a figure from implore into an imprint document: exports the figure and inserts a Typst #image() reference. Use format 'png' to also see the figure inline in the reply. NOTE: this inserts the reference only — the exported bytes still have to be placed at the referenced figures/ path before the document will compile with the image.",
     inputSchema: {
       type: "object",
       properties: {
@@ -133,7 +135,7 @@ export class FigureBridge {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       case "impress_embed_figure":
         return this.embedFigure(args);
@@ -156,7 +158,7 @@ export class FigureBridge {
 
   private async embedFigure(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = args?.document_id as string;
     const figureId = args?.figure_id as string;
     const position = args?.position as number | undefined;
@@ -233,34 +235,44 @@ export class FigureBridge {
       };
     }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: [
-            `# Figure Embedded`,
-            "",
-            `**Figure:** ${figure.name || figureId}`,
-            `**Type:** ${figure.type}`,
-            `**Dataset:** ${figure.datasetId}`,
-            "",
-            `**Inserted into document:** ${documentId}`,
-            `**Filename:** ${filename}`,
-            label ? `**Label:** <${label}>` : "",
-            caption ? `**Caption:** ${caption}` : "",
-            "",
-            "```typst",
-            figureTypst.trim(),
-            "```",
-            "",
-            "Note: The figure file should be exported to the document's figures directory.",
-            `Data URL length: ${exported.data.length} characters`,
-          ]
-            .filter((line) => line !== "")
-            .join("\n"),
-        },
-      ],
-    };
+    const summary = [
+      `# Figure Embedded`,
+      "",
+      `**Figure:** ${figure.name || figureId}`,
+      `**Type:** ${figure.type}`,
+      `**Dataset:** ${figure.datasetId}`,
+      "",
+      `**Inserted into document:** ${documentId}`,
+      `**Filename:** ${filename}`,
+      label ? `**Label:** <${label}>` : "",
+      caption ? `**Caption:** ${caption}` : "",
+      "",
+      "```typst",
+      figureTypst.trim(),
+      "```",
+      "",
+      // Be blunt: only the reference was inserted. Reporting a bare byte count
+      // let an agent believe the figure was filed when the compile will fail
+      // to resolve the image.
+      `NOT DONE YET: only the #image() reference was inserted. The ${exported.data.length}-char export was not written to the document's ${filename} — put the file there (or re-create the figure with imprint_save_plot_figure, which writes into the manuscript's figures/ directory) before compiling, or the image will not resolve.`,
+    ].filter((line) => line !== "");
+
+    // Show what was embedded. PNG only: SVG is not renderable as MCP image
+    // content, and a PDF export here is the figure itself, not a page to page
+    // through.
+    if (format === "png") {
+      const base64 = stripDataURI(exported.data);
+      if (isInlineable(base64)) {
+        return {
+          content: [
+            { type: "image", data: base64, mimeType: "image/png" },
+            { type: "text", text: summary.join("\n") },
+          ],
+        };
+      }
+    }
+
+    return { content: [{ type: "text", text: summary.join("\n") }] };
   }
 
   // --------------------------------------------------------------------------
@@ -269,7 +281,7 @@ export class FigureBridge {
 
   private async listAvailableFigures(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const datasetId = args?.dataset_id as string | undefined;
 
     try {
@@ -329,7 +341,7 @@ export class FigureBridge {
 
   private async embedFigureReference(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = args?.document_id as string;
     const label = args?.label as string;
     const position = args?.position as number;
@@ -374,7 +386,7 @@ export class FigureBridge {
 
   private async syncFigure(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = args?.document_id as string;
     const figureId = args?.figure_id as string;
     const format = (args?.format as "png" | "svg" | "pdf") || "svg";
@@ -427,8 +439,7 @@ export class FigureBridge {
             `**Filename:** ${filename}`,
             `**Size:** ${exported.width}x${exported.height}`,
             "",
-            "The figure has been re-exported. Save the data to update the file.",
-            `Data URL length: ${exported.data.length} characters`,
+            `NOT DONE YET: the figure was re-exported (${exported.data.length} chars) but nothing was written to ${filename}. The document still shows the old image until that file is replaced.`,
           ].join("\n"),
         },
       ],

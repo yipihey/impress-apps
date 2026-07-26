@@ -2,6 +2,9 @@
  * MCP tool definitions for imprint
  */
 
+import type { ToolResult, ToolContent } from "../content.js";
+import { imageWithCaption, isInlineable } from "../content.js";
+import { rasterizePDFPage } from "../raster.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { ImprintClient } from "./client.js";
 
@@ -63,13 +66,21 @@ export const IMPRINT_TOOLS: Tool[] = [
   {
     name: "imprint_get_pdf",
     description:
-      "Check if a compiled PDF is available for the document. Returns PDF metadata. Use imprint_compile first if needed.",
+      "Show a page of the document's compiled PDF. Renders the page to PNG and returns it INLINE as an image — the user sees it in the conversation, no file access needed. Caption carries the document id, page number, page count and size. If no PDF is cached, the Typst source is compiled on demand, so this works without the document being open in imprint's editor.",
     inputSchema: {
       type: "object",
       properties: {
         documentId: {
           type: "string",
           description: "The UUID of the document",
+        },
+        page: {
+          type: "number",
+          description: "1-based page to render (default 1). Clamped to the document's page count.",
+        },
+        maxWidth: {
+          type: "number",
+          description: "Longest edge of the rendered image in pixels (default 1100). Raise for dense figures, lower to save context.",
         },
       },
       required: ["documentId"],
@@ -858,6 +869,66 @@ export const IMPRINT_TOOLS: Tool[] = [
       required: ["documentId"],
     },
   },
+  {
+    name: "imprint_list_templates",
+    description:
+      "List the available journal/conference manuscript templates, optionally filtered by category or search term. Use before creating a manuscript from a template to find the right template id. 25 templates ship built in, including: generic, mnras, apj, apjs, jcap, aa, araa, prd, prl, jhep, neurips, icml, jcp, nature, science, pnas, plos, elife, cell, nejm, lancet, bmj, jama, bioinformatics, naturemed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          description: "Filter by category: journal, conference, thesis, report, or custom.",
+        },
+        query: {
+          type: "string",
+          description: "Free-text search over template name, description and tags (e.g. 'astronomy', 'machine learning', 'Nature').",
+        },
+      },
+    },
+  },
+  {
+    name: "imprint_create_from_template",
+    description:
+      "Start a new manuscript in a journal's required format (e.g. ApJ, MNRAS, Nature, NeurIPS). Use this instead of creating a blank manuscript (imprint_create_document) whenever the user names a journal or conference. Pre-fills the template's page style, title block, authors/affiliations, abstract, keywords and — unless include_sections is false — the standard section skeleton. Find the template id with imprint_list_templates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        template_id: {
+          type: "string",
+          description: "Template id from imprint_list_templates (e.g. 'apj', 'mnras', 'neurips', 'generic').",
+        },
+        title: {
+          type: "string",
+          description: "Manuscript title.",
+        },
+        authors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Author names, in order.",
+        },
+        affiliations: {
+          type: "array",
+          items: { type: "string" },
+          description: "Affiliations, in the order referenced by the authors.",
+        },
+        abstract: {
+          type: "string",
+          description: "Abstract text.",
+        },
+        keywords: {
+          type: "array",
+          items: { type: "string" },
+          description: "Keywords / subject terms.",
+        },
+        include_sections: {
+          type: "boolean",
+          description: "Include the template's standard section skeleton (Introduction, Methods, ...). Default true.",
+        },
+      },
+      required: ["template_id", "title"],
+    },
+  },
 ];
 
 export class ImprintTools {
@@ -866,7 +937,7 @@ export class ImprintTools {
   async handleTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     switch (name) {
       case "imprint_list_documents":
         return this.listDocuments();
@@ -974,6 +1045,10 @@ export class ImprintTools {
         return this.runTask(args);
       case "imprint_suggest_citations":
         return this.suggestCitations(args);
+      case "imprint_list_templates":
+        return this.listTemplates(args);
+      case "imprint_create_from_template":
+        return this.createFromTemplate(args);
       default:
         return {
           content: [{ type: "text", text: `Unknown imprint tool: ${name}` }],
@@ -1031,6 +1106,75 @@ export class ImprintTools {
       return textContent(`# Citation suggestions (${suggestions.length})\n\n${blocks.join("\n\n")}`);
     } catch (e) {
       return errText(`Suggest citations failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // MARK: - Manuscript templates
+
+  private async listTemplates(args: Record<string, unknown> | undefined) {
+    const category = args?.category ? String(args.category) : undefined;
+    const query = args?.query ? String(args.query) : undefined;
+    try {
+      const templates = await this.client.listTemplates({ category, query });
+      if (templates.length === 0) {
+        const filter = [
+          category ? `category '${category}'` : "",
+          query ? `query '${query}'` : "",
+        ]
+          .filter(Boolean)
+          .join(" and ");
+        return textContent(
+          filter ? `No manuscript templates match ${filter}.` : "No manuscript templates available."
+        );
+      }
+      // Group by category so the agent can scan for the right family fast.
+      const byCategory = new Map<string, typeof templates>();
+      for (const t of templates) {
+        const key = t.category || "other";
+        const bucket = byCategory.get(key);
+        if (bucket) bucket.push(t);
+        else byCategory.set(key, [t]);
+      }
+      const blocks = [...byCategory.entries()].map(([cat, group]) => {
+        const lines = group.map((t) => {
+          const desc = t.description ? ` — ${t.description}` : "";
+          const publisher = t.journal?.publisher ? ` (${t.journal.publisher})` : "";
+          return `- \`${t.id}\` · ${t.name}${publisher}${desc}`;
+        });
+        return `## ${cat}\n${lines.join("\n")}`;
+      });
+      return textContent(
+        `# Manuscript templates (${templates.length})\n\n${blocks.join("\n\n")}\n\n` +
+          `Create one with imprint_create_from_template (template_id + title).`
+      );
+    } catch (e) {
+      return errText(`List templates failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private async createFromTemplate(args: Record<string, unknown> | undefined) {
+    const templateId = String(args?.template_id || "");
+    const title = String(args?.title || "");
+    if (!templateId) return errText("template_id is required (see imprint_list_templates)");
+    if (!title) return errText("title is required");
+    try {
+      const r = await this.client.createDocumentFromTemplate({
+        templateId,
+        title,
+        authors: args?.authors as string[] | undefined,
+        affiliations: args?.affiliations as string[] | undefined,
+        abstract: args?.abstract as string | undefined,
+        keywords: args?.keywords as string[] | undefined,
+        includeSections: args?.include_sections as boolean | undefined,
+      });
+      return textContent(
+        `Created **${r.title}** from template \`${r.template_id}\`\n` +
+          `document id: ${r.id}\n` +
+          (r.body_length !== undefined ? `body: ${r.body_length} characters\n` : "") +
+          `\nNext: imprint_get_outline_v2 for the section keys, or imprint_compile then imprint_get_pdf to see it.`
+      );
+    } catch (e) {
+      return errText(`Create from template failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -1199,7 +1343,7 @@ export class ImprintTools {
   }
 
   private async listDocuments(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const result = await this.client.listDocuments();
 
@@ -1238,7 +1382,7 @@ export class ImprintTools {
 
   private async getDocument(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1277,7 +1421,7 @@ export class ImprintTools {
 
   private async getContent(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1310,7 +1454,7 @@ export class ImprintTools {
 
   private async createDocument(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const title = args?.title as string | undefined;
     const source = args?.source as string | undefined;
 
@@ -1328,7 +1472,7 @@ export class ImprintTools {
 
   private async insertCitation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     const citeKey = String(args?.citeKey || "");
 
@@ -1360,23 +1504,40 @@ export class ImprintTools {
 
   private async renderPlot(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
-    const result = await this.client.renderPlotBody({
+  ): Promise<ToolResult> {
+    const result = (await this.client.renderPlotBody({
       spec: args?.spec,
       gridSpec: args?.gridSpec,
       specId: args?.specId,
-    });
-    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    })) as { svg?: string; error?: string; rasterized?: boolean; status?: string };
+
+    if (result?.error) {
+      return errText(`plot render failed: ${result.error}`);
+    }
+    if (!result?.svg) {
+      return errText(`plot render returned no SVG (response: ${JSON.stringify(result)})`);
+    }
+
+    // SVG is returned as text, not as an image block: MCP image content is
+    // raster and most clients will not render image/svg+xml. To put a plot in
+    // front of a user on a phone, save it into a manuscript with
+    // imprint_save_plot_figure and show the compiled page via imprint_get_pdf.
+    const note = result.rasterized
+      ? "Rendered with a raster fallback (dense data), embedded inside the SVG."
+      : "Rendered as vector paths.";
+    return textContent(
+      `${note} ${result.svg.length} chars of SVG follow — this is source, not a viewable image.\n\n${result.svg}`
+    );
   }
 
-  private async listPlotSpecs(): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async listPlotSpecs(): Promise<ToolResult> {
     const result = await this.client.listPlotSpecs();
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   private async savePlotSpec(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     if (!args?.name) {
       return { content: [{ type: "text", text: "Error: name is required" }] };
     }
@@ -1386,7 +1547,7 @@ export class ImprintTools {
 
   private async savePlotFigure(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const manuscriptId = String(args?.manuscriptId || "");
     const spec = args?.spec;
     if (!manuscriptId || !spec || typeof spec !== "object") {
@@ -1406,7 +1567,7 @@ export class ImprintTools {
 
   private async compile(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1428,7 +1589,7 @@ export class ImprintTools {
 
   private async updateDocument(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1460,7 +1621,7 @@ export class ImprintTools {
   }
 
   private async getStatus(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const status = await this.client.checkStatus();
 
@@ -1495,7 +1656,7 @@ export class ImprintTools {
 
   private async getOutline(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1537,7 +1698,7 @@ export class ImprintTools {
 
   private async getPDF(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1545,31 +1706,106 @@ export class ImprintTools {
       };
     }
 
-    const pdfData = await this.client.getPDF(documentId);
+    // The editor cache first; a headless compile if it is empty. Without the
+    // fallback this tool only works for whichever document the GUI happens to
+    // have open, which is exactly the wrong constraint when the user is on a
+    // phone and nobody is at the Mac.
+    let pdfData = await this.client.getPDF(documentId);
+    let via = "editor cache";
     if (!pdfData) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `PDF not available for document ${documentId}. Use imprint_compile first to generate it.`,
-          },
-        ],
-      };
+      const fallback = await this.compileHeadless(documentId);
+      if (typeof fallback === "string") {
+        return textContent(`PDF not available for document ${documentId}. ${fallback}`);
+      }
+      pdfData = fallback;
+      via = "compiled on demand";
     }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `PDF available for document ${documentId}. Size: ${Math.round(pdfData.byteLength / 1024)} KB`,
-        },
-      ],
-    };
+    const kb = Math.round(pdfData.byteLength / 1024);
+    const page = Number(args?.page ?? 1) || 1;
+    const maxDim = Number(args?.maxWidth ?? 0) || undefined;
+
+    // A PDF is not an MCP image type, so render the requested page to PNG.
+    const raster = await rasterizePDFPage(pdfData, {
+      page,
+      maxDim,
+      basename: `imprint-${documentId}`,
+    });
+
+    if (!raster.ok) {
+      return textContent(
+        `PDF for document ${documentId}: ${kb} KB, saved at ${raster.pdfPath ?? "(not staged)"}.\n` +
+          `Could not render it inline — ${raster.error}.`
+      );
+    }
+
+    const pageLabel = `page ${raster.page} of ${raster.pageCount}`;
+    const caption =
+      `imprint document ${documentId} — ${pageLabel}, rendered ${raster.width}x${raster.height}px ` +
+      `(PDF ${kb} KB via ${via}, PNG ${Math.round(raster.byteLength / 1024)} KB).\n` +
+      `PDF on disk: ${raster.pdfPath}` +
+      (raster.pageCount > 1
+        ? `\nOther pages: call imprint_get_pdf again with page: 1..${raster.pageCount}.`
+        : "");
+
+    if (!isInlineable(raster.base64)) {
+      return textContent(
+        `${caption}\nRendered page is too large to inline (${Math.round(raster.byteLength / 1024)} KB). ` +
+          `Re-run with a smaller maxWidth, or open the PDF at the path above.`
+      );
+    }
+
+    return imageWithCaption(raster.base64, "image/png", caption);
+  }
+
+  /**
+   * Compile a document's source to PDF without the editor.
+   *
+   * Returns the PDF bytes, or a human-readable reason it could not be done —
+   * the reason is shown to the user, so it has to say what they can do next.
+   */
+  private async compileHeadless(documentId: string): Promise<ArrayBuffer | string> {
+    const content = await this.client.getDocumentContent(documentId);
+    if (!content?.source) {
+      return "The document has no readable source, so it cannot be compiled here.";
+    }
+
+    // The stateless route is Typst-only; LaTeX still needs the editor.
+    const meta = (await this.client.getDocument(documentId).catch(() => null)) as
+      | ({ format?: string } | null)
+      | undefined;
+    if (meta?.format && meta.format.toLowerCase() !== "typst") {
+      return `It is a ${meta.format} document, which only imprint's editor can compile. Open it in imprint and compile there.`;
+    }
+
+    const bibliography = Object.values(content.bibliography ?? {}).join("\n\n") || undefined;
+
+    let result: Awaited<ReturnType<ImprintClient["compileTypstStateless"]>>;
+    try {
+      result = await this.client.compileTypstStateless({ source: content.source, bibliography });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return `Compiling it here failed: ${message}.`;
+    }
+
+    if (result === null) {
+      return (
+        "This imprint build has no headless compile route (POST /api/compile/typst), so a PDF only exists while the document is open in imprint's editor. " +
+        "Ask the user to open it in imprint, then call imprint_compile and try again."
+      );
+    }
+    if (!result.ok) {
+      return `The source does not compile, so there is no PDF to show: ${result.error}`;
+    }
+    if (result.pdf.byteLength === 0) {
+      return "The compile produced an empty PDF.";
+    }
+    return result.pdf;
   }
 
   private async search(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     const query = String(args?.query || "");
 
@@ -1622,7 +1858,7 @@ export class ImprintTools {
 
   private async replace(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     const search = String(args?.search || "");
     const replacement = String(args?.replacement || "");
@@ -1654,7 +1890,7 @@ export class ImprintTools {
 
   private async insertText(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     const position = args?.position as number | undefined;
     const text = String(args?.text || "");
@@ -1684,7 +1920,7 @@ export class ImprintTools {
 
   private async deleteText(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     const start = args?.start as number | undefined;
     const end = args?.end as number | undefined;
@@ -1714,7 +1950,7 @@ export class ImprintTools {
 
   private async getBibliography(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1753,7 +1989,7 @@ export class ImprintTools {
 
   private async addCitation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     const citeKey = String(args?.citeKey || "");
     const bibtex = String(args?.bibtex || "");
@@ -1783,7 +2019,7 @@ export class ImprintTools {
 
   private async removeCitation(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     const citeKey = String(args?.citeKey || "");
 
@@ -1812,7 +2048,7 @@ export class ImprintTools {
 
   private async getCitationUsages(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1860,7 +2096,7 @@ export class ImprintTools {
 
   private async updateMetadata(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1900,7 +2136,7 @@ export class ImprintTools {
 
   private async exportLatex(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1923,7 +2159,7 @@ export class ImprintTools {
 
   private async exportText(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1945,7 +2181,7 @@ export class ImprintTools {
 
   private async exportTypst(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const documentId = String(args?.documentId || "");
     if (!documentId) {
       return {
@@ -1976,7 +2212,7 @@ export class ImprintTools {
 
   private async getLogs(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const result = await this.client.getLogs({
       limit: args?.limit as number | undefined,
       offset: args?.offset as number | undefined,
@@ -2012,7 +2248,7 @@ export class ImprintTools {
   // MARK: - Store-backed manuscript/section handlers
 
   private async listManuscripts(): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: ToolContent[];
   }> {
     const result = await this.client.listManuscripts();
     if (result.manuscripts.length === 0) {
@@ -2038,7 +2274,7 @@ export class ImprintTools {
 
   private async getManuscriptSections(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const manuscriptId = String(args?.manuscriptId || "");
     if (!manuscriptId) {
       return {
@@ -2077,7 +2313,7 @@ export class ImprintTools {
 
   private async getSection(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const sectionId = String(args?.sectionId || "");
     if (!sectionId) {
       return {
@@ -2128,7 +2364,31 @@ export class ImprintTools {
     if (!plotId) return errText("plotId is required");
     const format = args?.format as string | undefined;
     const r = await this.client.renderVeuszPlot(plotId, format);
-    return textContent(`Plot ${plotId}: ${r.ok ? "re-rendered" : "render failed"}`);
+    if (!r.ok) return textContent(`Plot ${plotId}: render failed.`);
+
+    // Report what was actually produced. imprint does not serve the rendered
+    // artifact's bytes over HTTP, so it cannot be shown inline here — to put
+    // the figure in front of the user, insert it into a manuscript and show
+    // the compiled page (imprint_insert_veusz_plot → imprint_compile →
+    // imprint_get_pdf).
+    let detail = "";
+    try {
+      const { plots } = await this.client.listVeuszPlots();
+      const p = plots.find((candidate) => candidate.id === plotId);
+      if (p) {
+        detail =
+          `\n- title: ${p.title}\n- format: ${p.renderedFormat}\n` +
+          `- rendered file: ${p.renderedRelativePath} (relative to the manuscript folder)\n` +
+          `- last rendered: ${p.lastRenderedAt ?? "unknown"}\n- document: ${p.documentID}`;
+      }
+    } catch {
+      // metadata is a nicety; the render itself already succeeded
+    }
+
+    return textContent(
+      `Plot ${plotId}: re-rendered${format ? ` as ${format}` : ""}.${detail}\n\n` +
+        `To view it: imprint_insert_veusz_plot into a document, imprint_compile, then imprint_get_pdf (returns the page inline as an image).`
+    );
   }
 
   private async insertVeuszPlot(args: Record<string, unknown> | undefined) {
@@ -2149,7 +2409,7 @@ export class ImprintTools {
 
   private async crossDocumentSearch(
     args: Record<string, unknown> | undefined
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<ToolResult> {
     const query = String(args?.query || "").trim();
     if (!query) {
       return {
@@ -2182,10 +2442,10 @@ export class ImprintTools {
 
 // MARK: - Small helpers for the v2 tool handlers.
 
-function textContent(text: string): { content: Array<{ type: string; text: string }> } {
+function textContent(text: string): ToolResult {
   return { content: [{ type: "text", text }] };
 }
 
-function errText(msg: string): { content: Array<{ type: string; text: string }> } {
+function errText(msg: string): ToolResult {
   return { content: [{ type: "text", text: `Error: ${msg}` }] };
 }
