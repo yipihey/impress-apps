@@ -303,7 +303,7 @@ mod tests {
     /// services are fixed — it may only go down.
     #[test]
     fn generic_descriptions_do_not_grow() {
-        const BUDGET: usize = 113;
+        const BUDGET: usize = 54;
 
         let tools = list_tools();
         let generic: Vec<&str> = tools

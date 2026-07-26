@@ -44,6 +44,8 @@ pub fn run_server(ctx: ToolContext) -> Result<(), Box<dyn std::error::Error>> {
             "notifications/initialized" | "notifications/cancelled" => continue,
             "tools/list" => handle_tools_list(&id),
             "tools/call" => handle_tool_call(&ctx, &id, &request),
+            "resources/list" => handle_resources_list(&id),
+            "resources/read" => handle_resources_read(&id, &request),
             _ => json!({
                 "jsonrpc": "2.0",
                 "id": id,
@@ -64,13 +66,104 @@ fn handle_initialize(id: &Value) -> Value {
         "id": id,
         "result": {
             "protocolVersion": "2024-11-05",
-            "capabilities": { "tools": {} },
+            "capabilities": { "tools": {}, "resources": {} },
             "serverInfo": {
                 "name": "impress-mcp",
                 "version": env!("CARGO_PKG_VERSION")
             }
         }
     })
+}
+
+// ---------------------------------------------------------------------------
+// Resources
+// ---------------------------------------------------------------------------
+
+/// The orientation document a fresh agent should read first.
+///
+/// Without it, an agent connecting to this server sees ~130 tool names and no
+/// map: nothing says what impress is, that the apps share one store, which of
+/// the overlapping search tools to reach for, or that mutations are
+/// asynchronous. Ported from the TypeScript server during its retirement; tool
+/// names inside were repointed at their generated Rust equivalents.
+const GUIDE_URI: &str = "impress://guide";
+const GUIDE_MARKDOWN: &str = include_str!("guide.md");
+
+fn handle_resources_list(id: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "resources": [{
+                "uri": GUIDE_URI,
+                "name": "impress: agent guide",
+                "mimeType": "text/markdown",
+                "description": "Read this first. What impress is, what each app does, \
+                                which search tool to use when, and how asynchronous \
+                                operations and review checkpoints work.",
+            }]
+        }
+    })
+}
+
+fn handle_resources_read(id: &Value, request: &Value) -> Value {
+    let uri = request["params"]["uri"].as_str().unwrap_or("");
+    if uri != GUIDE_URI {
+        return json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": -32602,
+                "message": format!("Unknown resource: {uri}"),
+            }
+        });
+    }
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "contents": [{
+                "uri": GUIDE_URI,
+                "mimeType": "text/markdown",
+                "text": GUIDE_MARKDOWN,
+            }]
+        }
+    })
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+
+    #[test]
+    fn guide_is_listed_and_readable() {
+        let listed = handle_resources_list(&json!(1));
+        let uris: Vec<&str> = listed["result"]["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["uri"].as_str().unwrap())
+            .collect();
+        assert_eq!(uris, vec![GUIDE_URI]);
+
+        let read = handle_resources_read(&json!(2), &json!({"params": {"uri": GUIDE_URI}}));
+        let text = read["result"]["contents"][0]["text"].as_str().unwrap();
+        assert!(
+            text.starts_with("# impress"),
+            "guide should open with its title"
+        );
+        assert!(
+            text.len() > 4000,
+            "guide looks truncated: {} chars",
+            text.len()
+        );
+    }
+
+    #[test]
+    fn unknown_resource_is_an_error_not_an_empty_success() {
+        let read = handle_resources_read(&json!(3), &json!({"params": {"uri": "impress://nope"}}));
+        assert!(read["error"].is_object(), "expected an error, got {read}");
+    }
 }
 
 fn handle_tools_list(id: &Value) -> Value {
