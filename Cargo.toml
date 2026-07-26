@@ -33,6 +33,7 @@ members = [
     "crates/implore-service-http",
     "crates/impart-service",
     "crates/impart-service-http",
+    "crates/impress-bridges-service",
     "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",
@@ -222,3 +223,4 @@ implore-service = { path = "crates/implore-service" }
 implore-service-http = { path = "crates/implore-service-http" }
 impart-service = { path = "crates/impart-service" }
 impart-service-http = { path = "crates/impart-service-http" }
+impress-bridges-service = { path = "crates/impress-bridges-service" }

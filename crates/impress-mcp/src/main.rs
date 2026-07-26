@@ -20,6 +20,8 @@ use impart_service as _force_link_impart_service;
 #[allow(unused_imports)]
 use implore_service as _force_link_implore_service;
 #[allow(unused_imports)]
+use impress_bridges_service as _force_link_bridges;
+#[allow(unused_imports)]
 use imprint_selftest as _force_link_imprint_selftest;
 #[allow(unused_imports)]
 use imprint_service as _force_link_imprint_service;

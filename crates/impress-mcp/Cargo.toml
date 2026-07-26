@@ -29,5 +29,7 @@ implore-service = { workspace = true }
 implore-service-http = { workspace = true }
 impart-service = { workspace = true }
 impart-service-http = { workspace = true }
+# Cross-app orchestration (the imbib/imprint/implore/impart seams).
+impress-bridges-service = { workspace = true }
 # Pulls the ImprintSelftestService inventory (run-selftest MCP tool).
 imprint-selftest = { workspace = true }

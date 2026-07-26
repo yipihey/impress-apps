@@ -1,0 +1,26 @@
+[package]
+name = "impress-bridges-service"
+description = "Cross-app orchestration tools: the imbib/imprint/implore/impart seams, composed from the app service traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+# The app services this composes. Depending on them is the point: a bridge
+# calls generated methods rather than re-implementing their HTTP calls.
+imbib-service = { workspace = true }
+imprint-service = { workspace = true }
+implore-service = { workspace = true }
+impart-service = { workspace = true }
+# Identifier extraction (DOI / arXiv / bibcode) out of free text.
+impress-identifiers = { workspace = true }
+# Shared-store reads for the impress_* item tools.
+impress-core = { workspace = true, features = ["sqlite"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+dirs = { workspace = true }
