@@ -1,0 +1,92 @@
+name: No new TypeScript
+
+# The Apple apps are a pure Rust core with a Swift GUI. Agent-facing capability
+# belongs in an `#[impress_service]` trait, where one definition generates the
+# MCP tool, the CLI subcommand and impel's agent tool together — not in a
+# hand-written server that has to be kept in step by hand.
+#
+# This job exists because the note alone did not hold. While the TypeScript MCP
+# server was being retired, a6ace854 added 21 imbib tools to it by hand and
+# eleven of them already existed in the Rust inventory, generated the whole
+# time. A rule nothing checks is a rule that drifts.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  no-new-typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the merge base can be resolved.
+          fetch-depth: 0
+
+      - name: Find added TypeScript
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            # On a push, compare against the commit before it. A first push
+            # with no parent has nothing to diff, so pass.
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+            if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              echo "No parent commit to compare against; skipping."
+              exit 0
+            fi
+          fi
+
+          # Only files ADDED (--diff-filter=A). Editing the existing debt is
+          # allowed; growing it is not.
+          ADDED="$(git diff --name-only --diff-filter=A "$BASE" "$HEAD" -- '*.ts' '*.tsx' || true)"
+
+          # Vendored checkouts and dependencies are not ours to police.
+          # apps/imbib/imbib-web is DEBT, not an exemption: a dormant Next.js
+          # app pending an audit for replacement in Swift/Rust. It may shrink,
+          # never grow, so new files under it fail like anywhere else.
+          FILTERED="$(printf '%s\n' "$ADDED" \
+            | grep -v '^$' \
+            | grep -v '/\.build/' \
+            | grep -v '/node_modules/' \
+            || true)"
+
+          if [ -n "$FILTERED" ]; then
+            echo "::error::New TypeScript files were added. The Apple apps are a pure Rust core with a Swift GUI."
+            echo
+            echo "Added:"
+            printf '  %s\n' $FILTERED
+            echo
+            echo "Agent-facing capability belongs in an #[impress_service] trait:"
+            echo "  crates/imbib-service, crates/imprint-service, ..."
+            echo "One #[impress_method] generates the MCP tool, the CLI subcommand"
+            echo "and impel's agent tool together. See docs/mcp-migration-ledger.md."
+            exit 1
+          fi
+
+          echo "No new TypeScript. "
+
+      - name: Report remaining TypeScript debt
+        shell: bash
+        run: |
+          set -euo pipefail
+          COUNT="$(git ls-files '*.ts' '*.tsx' \
+            | grep -v '/\.build/' \
+            | grep -v '/node_modules/' \
+            | wc -l | tr -d ' ')"
+          echo "TypeScript files still tracked: $COUNT"
+          echo "This number may only go down. See the Phase 9 audit in the"
+          echo "retirement plan: replace with Swift/Rust, or delete."
+          git ls-files '*.ts' '*.tsx' \
+            | grep -v '/\.build/' \
+            | grep -v '/node_modules/' \
+            | sed 's|/[^/]*$||' | sort | uniq -c | sort -rn

@@ -94,6 +94,21 @@ When facing a design or implementation choice, ask in order:
 
 **Why Swift/AppKit:** Native macOS experience, system integration, accessibility. SwiftUI where appropriate, AppKit where control is needed.
 
+**No TypeScript.** The Apple apps are a pure Rust core with a Swift GUI, and
+that is the whole stack. Agent-facing capability goes in an `#[impress_service]`
+trait, where one `#[impress_method]` generates the MCP tool, the CLI subcommand
+and impel's agent tool together — never in a hand-written server kept in step by
+hand.
+
+This is enforced by CI (`.github/workflows/no-typescript.yml`), because the rule
+alone did not hold: while the TypeScript MCP server was being retired, one
+commit added 21 imbib tools to it by hand and **eleven already existed in the
+Rust inventory**, generated the whole time. Two definitions of the same
+capability drift; the only question is when you notice.
+
+The remaining `.ts`/`.tsx` in the tree is debt with a retirement plan, not
+precedent — see `docs/mcp-migration-ledger.md`.
+
 ### Local-First, Sync-Capable
 - All data lives locally by default
 - User owns their data completely
@@ -135,9 +150,11 @@ impress-apps/
 │   ├── ImpressAutomation/ # HTTPServer, HTTPRouter, AutomationSettingsSection
 │   ├── ImpressTheme/   # AppearanceMode, AppearanceSettingsSection, font scale
 │   ├── ImpressCommandPalette/ # Command registry and palette view
-│   └── impress-mcp/    # MCP server for agent integration
+│   └── impress-mcp/    # TypeScript MCP server — BEING RETIRED, do not extend
 └── crates/
-    └── imbib-core/     # Rust core for imbib
+    ├── imbib-core/     # Rust core for imbib
+    ├── impress-mcp/    # MCP server (generated from #[impress_service]) — add tools HERE
+    └── *-service/      # #[impress_service] traits: one method → MCP + CLI + impel tool
 ```
 
 ## Shared UI Patterns
