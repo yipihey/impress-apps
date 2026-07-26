@@ -4,6 +4,7 @@
 //! Model Context Protocol (JSON-RPC 2.0 over stdio).
 
 mod inventory_bridge;
+mod raster;
 mod reachability;
 mod server;
 mod store;

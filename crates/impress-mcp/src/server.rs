@@ -214,6 +214,30 @@ fn legacy_tool_definitions() -> Value {
             }
         },
         {
+            "name": "render_pdf_page",
+            "description": "Render one page of a PDF on disk to a PNG and return it as an image, so it can actually be SEEN in the conversation. MCP carries raster images, not PDFs, which is why a compiled manuscript otherwise arrives as a path and a byte count. Feed it the path from imprint-app-service_get-pdf or imbib-manuscripts-service_compile-manuscript. Pages are 1-based and clamped to the document.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "pdf_path": {
+                        "type": "string",
+                        "description": "Absolute path to the PDF, as returned by a compile tool"
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "1-based page number (default: 1)",
+                        "default": 1
+                    },
+                    "max_dim": {
+                        "type": "integer",
+                        "description": "Longest edge in pixels (default: 1100, readable for body text)",
+                        "default": 1100
+                    }
+                },
+                "required": ["pdf_path"]
+            }
+        },
+        {
             "name": "get_paper_chunks",
             "description": "Get all text chunks for a specific publication. Use this for full-context RAG after finding a paper via search_papers. Chunks are ordered by position in the document.",
             "inputSchema": {
@@ -248,8 +272,14 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
     let tool_name = request["params"]["name"].as_str().unwrap_or("");
     let args = &request["params"]["arguments"];
 
+    if tool_name == "render_pdf_page" {
+        return handle_render_pdf_page(id, request);
+    }
+
     // Try legacy hand-written tools first.
     let legacy_result: Option<Result<String, String>> = match tool_name {
+        // Rasterisation answers with image content, so it returns early
+        // rather than going through the text wrapper below.
         "search_papers" => Some(tool_search_papers(ctx, args)),
         "get_paper_chunks" => Some(tool_get_paper_chunks(ctx, args)),
         "list_indexed_papers" => Some(tool_list_indexed_papers(ctx, args)),
@@ -298,6 +328,64 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
     }
 
     wrap_text_result(id, Err(format!("Unknown tool: {tool_name}")))
+}
+
+/// Wrap a rendered page as MCP image content.
+///
+/// Tool results were text-only for this server's whole life, which dead-ended
+/// every visual capability in the suite: a compiled manuscript could report its
+/// filesize and nothing more. MCP carries raster images, so a PDF page has to
+/// be rendered before it can be seen — see `crate::raster`.
+///
+/// The caption travels as a second, text block: an image alone gives the model
+/// no page number, no path to open, and no way to ask for page 2.
+fn wrap_image_result(id: &Value, png: &[u8], caption: String) -> Value {
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD.encode(png);
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [
+                { "type": "image", "data": data, "mimeType": "image/png" },
+                { "type": "text", "text": caption },
+            ]
+        }
+    })
+}
+
+/// `render_pdf_page` — the one tool that is a property of this transport rather
+/// than of any app, which is why it is hand-written here beside the
+/// semantic-search trio instead of living in a `*-service` trait. Nothing in
+/// the suite needs it; only a client that must *display* a page does.
+fn handle_render_pdf_page(id: &Value, request: &Value) -> Value {
+    let args = &request["params"]["arguments"];
+    let Some(path) = args.get("pdf_path").and_then(|p| p.as_str()) else {
+        return wrap_text_result(id, Err("render_pdf_page needs a pdf_path".into()));
+    };
+    let page = args.get("page").and_then(|p| p.as_u64()).unwrap_or(1) as u32;
+    let max_dim = args
+        .get("max_dim")
+        .and_then(|d| d.as_u64())
+        .unwrap_or(crate::raster::DEFAULT_PAGE_MAX_DIM as u64) as u32;
+
+    match crate::raster::rasterize_pdf_page(std::path::Path::new(path), page, max_dim) {
+        Ok(r) => {
+            let caption = format!(
+                "Page {} of {} from {} ({}x{}px). Ask for another page by number.",
+                r.page, r.page_count, path, r.width, r.height
+            );
+            wrap_image_result(id, &r.png, caption)
+        }
+        // Degrade to text rather than losing the call: the path is still
+        // useful to an agent sitting at the user's Mac.
+        Err(e) => wrap_text_result(
+            id,
+            Err(format!(
+                "Could not render {path}: {e}. The PDF is still on disk at that path."
+            )),
+        ),
+    }
 }
 
 fn wrap_text_result(id: &Value, result: Result<String, String>) -> Value {
