@@ -18,6 +18,7 @@ mod manuscripts;
 mod scix;
 mod search;
 mod tags;
+mod tail;
 mod undo;
 
 const DEFAULT_BASE_URL: &str = "http://localhost:23120";

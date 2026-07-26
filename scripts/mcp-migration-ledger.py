@@ -132,6 +132,8 @@ MANUAL_COVERED = {
     "imprint_insert_citation": "impress-bridges-service_cite-paper",
     "imprint_add_citation": "impress-bridges-service_cite-paper",
     "imprint_insert_citation_in_section": "impress-bridges-service_cite-in-section",
+    "imbib_delete_smart_searches": "imbib-app-service_delete-smart-searches",
+    "imbib_add_to_library": "imbib-app-service_add-to-library",
     "imprint_remove_citation": "imprint-manuscript-service_replace-in-section",
     # Exact signature matches the tokens miss.
     "imbib_recent_papers": "imbib-library-service_query-recent",
@@ -149,13 +151,12 @@ MANUAL_COVERED = {
 }
 
 # Heuristic matches that are wrong and must NOT be recorded as covered.
-MANUAL_NOT_COVERED = {
-    "imbib_delete_smart_searches",   # only get/create/list exist
-    "imprint_insert_citation_in_section",
-    # Adds a paper to a *library*; the heuristic reaches for the SciX-library
-    # tools, which are a different thing entirely.
-    "imbib_add_to_library",
-}
+# Emptied as the port closed. Every entry here named a capability that had no
+# Rust equivalent AT THE TIME. A stale negative pin is worse than none: it hides
+# a tool that now exists, and it silently overrides MANUAL_COVERED — which is
+# how imprint_insert_citation_in_section stayed "port" after being pinned to the
+# bridges tool. Re-check this list whenever the port column stops moving.
+MANUAL_NOT_COVERED: set[str] = set()
 
 # --------------------------------------------------------------------------
 # Extraction

@@ -59,6 +59,65 @@ impl ImprintClient {
         })
     }
 
+    /// `POST /api/documents`
+    pub async fn create_document(
+        &self,
+        title: String,
+        format: Option<String>,
+    ) -> Result<Option<String>> {
+        let url = self.base_url.join("/api/documents")?;
+        #[derive(Deserialize)]
+        struct R {
+            #[serde(default)]
+            id: Option<String>,
+            #[serde(default, alias = "documentId", alias = "documentID")]
+            document_id: Option<String>,
+        }
+        let body: R = decode_envelope(
+            self.http
+                .post(url)
+                .json(&json!({ "title": title, "format": format }))
+                .send()
+                .await?,
+        )
+        .await?;
+        Ok(body.id.or(body.document_id))
+    }
+
+    /// `POST /api/documents/{id}/update`
+    pub async fn update_document(&self, document_id: &str, title: Option<String>) -> Result<bool> {
+        let url = self.base_url.join(&format!(
+            "/api/documents/{}/update",
+            urlencoding::encode(document_id)
+        ))?;
+        Ok(self
+            .http
+            .post(url)
+            .json(&json!({ "title": title }))
+            .send()
+            .await?
+            .status()
+            .is_success())
+    }
+
+    /// `POST /api/documents/{id}/metadata`
+    pub async fn update_metadata(&self, document_id: &str, metadata_json: String) -> Result<bool> {
+        let body: serde_json::Value =
+            serde_json::from_str(&metadata_json).unwrap_or(serde_json::json!({}));
+        let url = self.base_url.join(&format!(
+            "/api/documents/{}/metadata",
+            urlencoding::encode(document_id)
+        ))?;
+        Ok(self
+            .http
+            .post(url)
+            .json(&body)
+            .send()
+            .await?
+            .status()
+            .is_success())
+    }
+
     /// `GET /api/documents/{id}/content`
     pub async fn get_content(&self, document_id: &str) -> Result<Option<String>> {
         let url = self.base_url.join(&format!(

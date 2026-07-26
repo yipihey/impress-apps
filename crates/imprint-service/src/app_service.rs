@@ -105,6 +105,21 @@ pub trait ImprintAppService: Send + Sync + 'static {
         category: Option<String>,
     ) -> Vec<LogEntry>;
 
+    /// Create a new imprint document and return its id. For a manuscript
+    /// scaffolded from a journal template, use imbib's template tools instead —
+    /// manuscripts are shared-store rows and imbib owns their creation.
+    #[impress_method]
+    async fn create_document(&self, title: String, format: Option<String>) -> Option<String>;
+
+    /// Rename a document.
+    #[impress_method]
+    async fn update_document(&self, document_id: String, title: Option<String>) -> bool;
+
+    /// Replace a document's metadata from a JSON object — authors, keywords,
+    /// journal target. Whole-object write, so read before you edit.
+    #[impress_method]
+    async fn update_metadata(&self, document_id: String, metadata_json: String) -> bool;
+
     /// The full source text of a manuscript. Use this to read before editing;
     /// section-level reads are cheaper when you know which section you want.
     #[impress_method]
@@ -210,6 +225,18 @@ impl ImprintAppService for DefaultImprintAppService {
         vec![]
     }
 
+    async fn create_document(&self, _title: String, _format: Option<String>) -> Option<String> {
+        refuse("create_document");
+        None
+    }
+    async fn update_document(&self, _document_id: String, _title: Option<String>) -> bool {
+        refuse("update_document");
+        false
+    }
+    async fn update_metadata(&self, _document_id: String, _metadata_json: String) -> bool {
+        refuse("update_metadata");
+        false
+    }
     async fn get_content(&self, _document_id: String) -> Option<String> {
         refuse("get_content");
         None
@@ -284,6 +311,9 @@ impress_service_impl! {
     methods = [
         status() -> AppStatus,
         get_logs(limit: u32, level: Option<String>, category: Option<String>) -> Vec<LogEntry>,
+        create_document(title: String, format: Option<String>) -> Option<String>,
+        update_document(document_id: String, title: Option<String>) -> bool,
+        update_metadata(document_id: String, metadata_json: String) -> bool,
         get_content(document_id: String) -> Option<String>,
         insert_text(document_id: String, offset: u32, text: String) -> bool,
         delete_text(document_id: String, offset: u32, length: u32) -> bool,

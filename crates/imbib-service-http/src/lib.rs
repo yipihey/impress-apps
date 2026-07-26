@@ -1288,6 +1288,91 @@ impl ImbibAppService for HttpImbibAppService {
                 vec![]
             })
     }
+
+    async fn get_notes(&self, cite_key: String) -> Option<String> {
+        self.client.get_notes(&cite_key).await.unwrap_or_else(|e| {
+            log_err("get_notes", e);
+            None
+        })
+    }
+    async fn update_notes(&self, cite_key: String, notes: String) -> bool {
+        self.client
+            .update_notes(&cite_key, notes)
+            .await
+            .map(|r| r.ok)
+            .unwrap_or_else(|e| {
+                log_err("update_notes", e);
+                false
+            })
+    }
+    async fn delete_annotation(&self, annotation_id: String) -> bool {
+        self.client
+            .delete_annotation(&annotation_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("delete_annotation", e);
+                false
+            })
+    }
+    async fn delete_comment(&self, comment_id: String) -> bool {
+        self.client
+            .delete_comment(&comment_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("delete_comment", e);
+                false
+            })
+    }
+    async fn delete_collection(&self, collection_id: String) -> bool {
+        self.client
+            .delete_collection(&collection_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("delete_collection", e);
+                false
+            })
+    }
+    async fn delete_smart_searches(&self, ids: Vec<String>) -> u32 {
+        self.client
+            .delete_smart_searches(ids)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("delete_smart_searches", e);
+                0
+            })
+    }
+    async fn tag_artifact(&self, artifact_id: String, tags: Vec<String>) -> bool {
+        self.client
+            .tag_artifact(&artifact_id, tags)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("tag_artifact", e);
+                false
+            })
+    }
+    async fn resolve_identifier(&self, identifier: String, download_pdfs: bool) -> Option<String> {
+        // The resolved paper's cite key is the useful handle: every other tool
+        // takes one, and returning the whole record here would duplicate
+        // get-publication-detail.
+        self.client
+            .resolve_identifier(identifier, download_pdfs)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("resolve_identifier", e);
+                None
+            })
+            .map(|p| p.cite_key)
+    }
+    async fn add_to_library(&self, publication_ids: Vec<String>, library_id: String) -> u32 {
+        self.client
+            .add_to_library(publication_ids, library_id)
+            .await
+            .map(|r| r.affected_count)
+            .unwrap_or_else(|e| {
+                log_err("add_to_library", e);
+                0
+            })
+    }
 }
 
 // ---------------------------------------------------------------------------

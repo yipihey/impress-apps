@@ -302,6 +302,36 @@ impl ImprintAppService for HttpImprintAppService {
             })
     }
 
+    async fn create_document(&self, title: String, format: Option<String>) -> Option<String> {
+        self.client
+            .create_document(title, format)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("create_document", e);
+                None
+            })
+    }
+
+    async fn update_document(&self, document_id: String, title: Option<String>) -> bool {
+        self.client
+            .update_document(&document_id, title)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("update_document", e);
+                false
+            })
+    }
+
+    async fn update_metadata(&self, document_id: String, metadata_json: String) -> bool {
+        self.client
+            .update_metadata(&document_id, metadata_json)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("update_metadata", e);
+                false
+            })
+    }
+
     async fn get_content(&self, document_id: String) -> Option<String> {
         self.client
             .get_content(&document_id)

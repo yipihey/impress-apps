@@ -19,6 +19,17 @@
 //! same shape `backup_service`'s restore uses. The HTTP backend in
 //! `imbib-service-http` does the real work. Refusing loudly beats returning an
 //! empty list that reads like "you have no papers".
+//!
+//! # The mutation tail
+//!
+//! This service also carries a handful of writes — notes, the deletes the
+//! domain services never grew, artifact tagging, cross-library moves — for one
+//! reason: the running app has to observe them. A direct store write leaves
+//! imbib's in-memory caches describing rows that changed underneath it, the
+//! same hazard that keeps backup's restore out of the store path. They would
+//! sit more naturally on the library/annotations/search/artifacts services;
+//! moving them there means giving each a store-backed default that ALSO
+//! notifies the app, which is a larger change than this migration needs.
 
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
@@ -168,6 +179,50 @@ pub trait ImbibAppService: Send + Sync + 'static {
         category: Option<String>,
         search: Option<String>,
     ) -> Vec<LogEntry>;
+
+    // ---- Mutations the running app must observe ---------------------------
+
+    /// A paper's notes — the user's own prose about it, not the abstract.
+    #[impress_method]
+    async fn get_notes(&self, cite_key: String) -> Option<String>;
+
+    /// Replace a paper's notes. Whole-field write: read them first if you mean
+    /// to append rather than overwrite.
+    #[impress_method]
+    async fn update_notes(&self, cite_key: String, notes: String) -> bool;
+
+    /// Delete one annotation from a PDF.
+    #[impress_method]
+    async fn delete_annotation(&self, annotation_id: String) -> bool;
+
+    /// Delete one comment.
+    #[impress_method]
+    async fn delete_comment(&self, comment_id: String) -> bool;
+
+    /// Delete a collection. The papers survive — a collection is a grouping,
+    /// not a container, so removing it never removes what it held.
+    #[impress_method]
+    async fn delete_collection(&self, collection_id: String) -> bool;
+
+    /// Delete saved searches by id. Returns how many went.
+    #[impress_method]
+    async fn delete_smart_searches(&self, ids: Vec<String>) -> u32;
+
+    /// Replace an artifact's tags. Whole-set write, like notes.
+    #[impress_method]
+    async fn tag_artifact(&self, artifact_id: String, tags: Vec<String>) -> bool;
+
+    /// Resolve an identifier — DOI, arXiv id, bibcode — to a paper, fetching
+    /// its metadata from the outside world if the library does not have it
+    /// yet. Unlike the find-by-* searches, which only look locally, this one
+    /// can go and get it.
+    #[impress_method]
+    async fn resolve_identifier(&self, identifier: String, download_pdfs: bool) -> Option<String>;
+
+    /// Add existing papers to another library. Papers can sit in several
+    /// libraries at once; this adds rather than moves.
+    #[impress_method]
+    async fn add_to_library(&self, publication_ids: Vec<String>, library_id: String) -> u32;
 }
 
 /// The store-backed default: refuses everything, because none of it exists
@@ -247,6 +302,47 @@ impl ImbibAppService for DefaultImbibAppService {
         refuse("get_logs");
         vec![]
     }
+
+    async fn get_notes(&self, _cite_key: String) -> Option<String> {
+        refuse("get_notes");
+        None
+    }
+    async fn update_notes(&self, _cite_key: String, _notes: String) -> bool {
+        refuse("update_notes");
+        false
+    }
+    async fn delete_annotation(&self, _annotation_id: String) -> bool {
+        refuse("delete_annotation");
+        false
+    }
+    async fn delete_comment(&self, _comment_id: String) -> bool {
+        refuse("delete_comment");
+        false
+    }
+    async fn delete_collection(&self, _collection_id: String) -> bool {
+        refuse("delete_collection");
+        false
+    }
+    async fn delete_smart_searches(&self, _ids: Vec<String>) -> u32 {
+        refuse("delete_smart_searches");
+        0
+    }
+    async fn tag_artifact(&self, _artifact_id: String, _tags: Vec<String>) -> bool {
+        refuse("tag_artifact");
+        false
+    }
+    async fn resolve_identifier(
+        &self,
+        _identifier: String,
+        _download_pdfs: bool,
+    ) -> Option<String> {
+        refuse("resolve_identifier");
+        None
+    }
+    async fn add_to_library(&self, _publication_ids: Vec<String>, _library_id: String) -> u32 {
+        refuse("add_to_library");
+        0
+    }
 }
 
 impress_service_impl! {
@@ -266,5 +362,14 @@ impress_service_impl! {
             category: Option<String>,
             search: Option<String>
         ) -> Vec<LogEntry>,
+        get_notes(cite_key: String) -> Option<String>,
+        update_notes(cite_key: String, notes: String) -> bool,
+        delete_annotation(annotation_id: String) -> bool,
+        delete_comment(comment_id: String) -> bool,
+        delete_collection(collection_id: String) -> bool,
+        delete_smart_searches(ids: Vec<String>) -> u32,
+        tag_artifact(artifact_id: String, tags: Vec<String>) -> bool,
+        resolve_identifier(identifier: String, download_pdfs: bool) -> Option<String>,
+        add_to_library(publication_ids: Vec<String>, library_id: String) -> u32,
     ],
 }
