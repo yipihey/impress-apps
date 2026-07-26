@@ -112,6 +112,10 @@ MANUAL_COVERED = {
     # "sources" and "external" are the same idea.
     "imbib_search_sources": "imbib-app-service_search-sources",
     "imbib_get_library_activity": "imbib-app-service_recent-activity",
+    # /api/search is already global across open documents, so the existing
+    # search tool IS cross-document search. Building a second one nearly
+    # recreated the duplication this migration exists to remove.
+    "imprint_cross_document_search": "imprint-manuscript-service_search",
     "imprint_compile": "imprint-manuscript-service_compile-typst",
     "imprint_get_manuscript_sections": "imprint-manuscript-service_list-sections",
     "imprint_get_section_body": "imprint-manuscript-service_get-section",

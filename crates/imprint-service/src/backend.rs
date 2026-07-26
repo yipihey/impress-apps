@@ -21,6 +21,12 @@ use crate::throughline_service::{DefaultImprintThroughlineService, ImprintThroug
 /// generated dispatch.
 pub trait ImprintBackend: Send + Sync + 'static {
     fn manuscript(&self) -> Arc<dyn ImprintManuscriptService>;
+    /// App-level capabilities (comments, content edits, PDF, logs).
+    /// Defaulted to the refusing implementation so existing backends keep
+    /// compiling; the HTTP backend overrides it.
+    fn app(&self) -> Arc<dyn crate::app_service::ImprintAppService> {
+        Arc::new(crate::app_service::DefaultImprintAppService::new())
+    }
     fn text(&self) -> Arc<dyn ImprintTextService>;
     /// Throughline service (ADR-0016). Default body falls back to the
     /// store-backed implementation so existing backends (HTTP) keep
@@ -90,6 +96,13 @@ pub fn throughline_service_instance() -> Arc<dyn ImprintThroughlineService> {
     match BACKEND.get() {
         Some(b) => b.throughline(),
         None => default_throughline_service(),
+    }
+}
+
+pub fn app_service_instance() -> Arc<dyn crate::app_service::ImprintAppService> {
+    match BACKEND.get() {
+        Some(b) => b.app(),
+        None => Arc::new(crate::app_service::DefaultImprintAppService::new()),
     }
 }
 

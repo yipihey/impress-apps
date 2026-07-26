@@ -17,6 +17,8 @@ use imprint_service::handlers::{
 use imprint_service::manuscript_service::SearchHitDto;
 use imprint_service::sections::{SectionMetadata, SectionRecord};
 
+mod app;
+
 const DEFAULT_BASE_URL: &str = "http://localhost:23121";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -30,8 +32,8 @@ pub struct ImprintServerInfo {
 
 /// Typed client for imprint's `localhost:23121` HTTP API.
 pub struct ImprintClient {
-    base_url: Url,
-    http: Client,
+    pub(crate) base_url: Url,
+    pub(crate) http: Client,
 }
 
 impl ImprintClient {

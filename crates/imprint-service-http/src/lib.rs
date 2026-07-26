@@ -9,6 +9,9 @@ use std::sync::Arc;
 
 use impress_app_client::ImprintClient;
 
+use imprint_service::app_service::{
+    AppStatus, CommentRecord, CompiledPdf, ImprintAppService, LogEntry,
+};
 use imprint_service::handlers::LatexCompileResultDto;
 use imprint_service::handlers::{
     CitationUsage, CompileOptions, CompileResult, DocumentSummary, Outline, ReplaceResult,
@@ -257,6 +260,163 @@ impl ImprintTextService for HttpImprintTextService {
 // Backend bundle + installer
 // =====================================================================
 
+// ---------------------------------------------------------------------------
+// ImprintAppService — capabilities that only exist while imprint is running
+// ---------------------------------------------------------------------------
+
+pub struct HttpImprintAppService {
+    client: Arc<ImprintClient>,
+}
+
+impl HttpImprintAppService {
+    pub fn new(client: Arc<ImprintClient>) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait::async_trait]
+impl ImprintAppService for HttpImprintAppService {
+    async fn status(&self) -> AppStatus {
+        self.client.app_status_raw().await.unwrap_or_else(|e| {
+            let detail = format!("imprint did not answer: {e}");
+            log_err("status", e);
+            AppStatus {
+                running: false,
+                detail,
+            }
+        })
+    }
+
+    async fn get_logs(
+        &self,
+        limit: u32,
+        level: Option<String>,
+        category: Option<String>,
+    ) -> Vec<LogEntry> {
+        self.client
+            .get_logs(limit, level, category)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("get_logs", e);
+                vec![]
+            })
+    }
+
+    async fn get_content(&self, document_id: String) -> Option<String> {
+        self.client
+            .get_content(&document_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("get_content", e);
+                None
+            })
+    }
+
+    async fn insert_text(&self, document_id: String, offset: u32, text: String) -> bool {
+        self.client
+            .insert_text(&document_id, offset, text)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("insert_text", e);
+                false
+            })
+    }
+
+    async fn delete_text(&self, document_id: String, offset: u32, length: u32) -> bool {
+        self.client
+            .delete_text(&document_id, offset, length)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("delete_text", e);
+                false
+            })
+    }
+
+    async fn replace(&self, document_id: String, find: String, replace: String) -> u32 {
+        self.client
+            .replace_all(&document_id, find, replace)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("replace", e);
+                0
+            })
+    }
+
+    async fn get_pdf(&self, document_id: String) -> CompiledPdf {
+        self.client.get_pdf(&document_id).await.unwrap_or_else(|e| {
+            let msg = format!("could not compile or locate the PDF: {e}");
+            log_err("get_pdf", e);
+            CompiledPdf {
+                ok: false,
+                path: None,
+                page_count: None,
+                byte_size: None,
+                messages: vec![msg],
+            }
+        })
+    }
+
+    async fn get_bibliography(&self, document_id: String) -> Option<String> {
+        self.client
+            .get_bibliography(&document_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("get_bibliography", e);
+                None
+            })
+    }
+
+    async fn list_comments(&self, document_id: String) -> Vec<CommentRecord> {
+        self.client
+            .list_comments(&document_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("list_comments", e);
+                vec![]
+            })
+    }
+
+    async fn create_comment(
+        &self,
+        document_id: String,
+        body: String,
+        anchor: Option<String>,
+    ) -> Option<CommentRecord> {
+        self.client
+            .create_comment(&document_id, body, anchor)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("create_comment", e);
+                None
+            })
+    }
+
+    async fn update_comment(
+        &self,
+        comment_id: String,
+        body: Option<String>,
+        status: Option<String>,
+    ) -> bool {
+        self.client
+            .update_comment(&comment_id, body, status)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("update_comment", e);
+                false
+            })
+    }
+
+    async fn delete_comment(&self, comment_id: String) -> bool {
+        self.client
+            .delete_comment(&comment_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("delete_comment", e);
+                false
+            })
+    }
+}
+
 pub struct HttpBackend {
     client: Arc<ImprintClient>,
 }
@@ -267,6 +427,10 @@ impl HttpBackend {
 }
 
 impl ImprintBackend for HttpBackend {
+    fn app(&self) -> Arc<dyn ImprintAppService> {
+        Arc::new(HttpImprintAppService::new(self.client.clone()))
+    }
+
     fn manuscript(&self) -> Arc<dyn ImprintManuscriptService> {
         Arc::new(HttpImprintManuscriptService::new(self.client.clone()))
     }

@@ -21,6 +21,7 @@
 //!
 //! UniFFI bindings ship in Phase 3 — this crate is intentionally pure Rust.
 
+pub mod app_service;
 pub mod backend;
 pub mod blob_store;
 pub mod error;
