@@ -298,7 +298,7 @@ impl ImbibBackupService for DefaultImbibBackupService {
 impress_service_impl! {
     service = ImbibBackupService,
     impl = DefaultImbibBackupService,
-    instance = || crate::backend::backup_service_instance(),
+    instance = crate::backend::backup_service_instance,
     // NOTE: these `///` comments are the tool descriptions the model sees.
     // Doc comments on the trait above are NOT picked up by the codegen — only
     // the ones inside `methods = [...]` reach `McpToolDescriptor.description`.

@@ -187,7 +187,15 @@ def rust_tools():
     proc = subprocess.run(
         [str(binary), "--store-path", "/nonexistent/ledger.sqlite"],
         input=req, capture_output=True, text=True, timeout=120,
-        env={"IMBIB_BACKEND": "sqlite", "PATH": "/usr/bin:/bin"},
+        # LIST_ALL bypasses the reachability gate: the ledger describes the
+        # whole inventory, not whichever apps happened to be open.
+        env={
+            "IMBIB_BACKEND": "sqlite",
+            "IMPLORE_BACKEND": "off",
+            "IMPART_BACKEND": "off",
+            "IMPRESS_MCP_LIST_ALL": "1",
+            "PATH": "/usr/bin:/bin",
+        },
     )
     last = [l for l in proc.stdout.strip().split("\n") if l.strip()][-1]
     return [t["name"] for t in json.loads(last)["result"]["tools"]]

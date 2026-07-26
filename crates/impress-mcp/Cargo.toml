@@ -24,5 +24,10 @@ imbib-service = { workspace = true }
 imbib-service-http = { workspace = true }
 imprint-service = { workspace = true }
 imprint-service-http = { workspace = true }
+# implore + impart services (TypeScript MCP retirement, phase 3).
+implore-service = { workspace = true }
+implore-service-http = { workspace = true }
+impart-service = { workspace = true }
+impart-service-http = { workspace = true }
 # Pulls the ImprintSelftestService inventory (run-selftest MCP tool).
 imprint-selftest = { workspace = true }

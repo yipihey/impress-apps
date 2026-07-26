@@ -28,6 +28,11 @@ members = [
     "crates/impel-taskd",
     # impel-tools - projects the #[impress_service] inventory into impel's agent loop
     "crates/impel-tools",
+    # implore/impart service traits (TypeScript MCP retirement)
+    "crates/implore-service",
+    "crates/implore-service-http",
+    "crates/impart-service",
+    "crates/impart-service-http",
     "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",
@@ -213,3 +218,7 @@ imprint-cli = { path = "crates/imprint-cli" }
 impress-app-client = { path = "crates/impress-app-client" }
 imbib-service-http = { path = "crates/imbib-service-http" }
 imprint-service-http = { path = "crates/imprint-service-http" }
+implore-service = { path = "crates/implore-service" }
+implore-service-http = { path = "crates/implore-service-http" }
+impart-service = { path = "crates/impart-service" }
+impart-service-http = { path = "crates/impart-service-http" }

@@ -1,0 +1,15 @@
+[package]
+name = "impart-service"
+description = "#[impress_service] trait for impart (research conversations), exposed to MCP/CLI/impel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }

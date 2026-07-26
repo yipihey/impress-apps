@@ -182,7 +182,13 @@ fn tool_definitions() -> Value {
         Value::Array(items) => items,
         other => vec![other],
     };
-    tools.extend(inventory_tool_definitions());
+    // Withhold tools whose app is closed — see `reachability`.
+    tools.extend(inventory_tool_definitions().into_iter().filter(|t| {
+        t.get("name")
+            .and_then(|n| n.as_str())
+            .map(crate::reachability::is_available)
+            .unwrap_or(true)
+    }));
     Value::Array(tools)
 }
 
@@ -252,6 +258,12 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
 
     if let Some(result) = legacy_result {
         return wrap_text_result(id, result);
+    }
+
+    // A gated tool called anyway (a stale client list, or a guess) gets a
+    // clear error rather than an empty success.
+    if let Some(reason) = crate::reachability::unavailable_reason(tool_name) {
+        return wrap_text_result(id, Err(reason));
     }
 
     // Fall through to the inventory of `#[impress_service]`-generated tools.

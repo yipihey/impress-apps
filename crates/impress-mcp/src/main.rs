@@ -4,6 +4,7 @@
 //! Model Context Protocol (JSON-RPC 2.0 over stdio).
 
 mod inventory_bridge;
+mod reachability;
 mod server;
 mod store;
 mod tools;
@@ -14,6 +15,10 @@ mod tools;
 // the entire crate (and its `ctor`-style submissions with it).
 #[allow(unused_imports)]
 use imbib_service as _force_link_imbib_service;
+#[allow(unused_imports)]
+use impart_service as _force_link_impart_service;
+#[allow(unused_imports)]
+use implore_service as _force_link_implore_service;
 #[allow(unused_imports)]
 use imprint_selftest as _force_link_imprint_selftest;
 #[allow(unused_imports)]
@@ -38,9 +43,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Phase A/B/C: try the HTTP backend first (lets us drive the live store
     // through the running imbib macOS app, bypassing macOS TCC restrictions
     // on the sandboxed group container). Falls back silently to SQLite.
-    let _ = imbib_service_http::maybe_install_http_backend();
+    // The probes double as a reachability record: tools that only work while
+    // their app is running are withheld from tools/list when it is not, rather
+    // than advertised and answering with an empty list.
+    let imbib = imbib_service_http::maybe_install_http_backend();
     // Phase E: same dance for imprint (port 23121).
-    let _ = imprint_service_http::maybe_install_http_backend();
+    let imprint = imprint_service_http::maybe_install_http_backend();
+    let implore = implore_service_http::maybe_install_http_backend();
+    let impart = impart_service_http::maybe_install_http_backend();
+    reachability::record(reachability::Reachable {
+        imbib,
+        imprint,
+        implore,
+        impart,
+    });
 
     let args: Vec<String> = std::env::args().collect();
 
