@@ -531,6 +531,11 @@ struct IOSUnifiedPublicationListWrapper: View {
                 lhs.citationCount > rhs.citationCount
             case .starred:
                 lhs.isStarred && !rhs.isStarred  // Starred papers first
+            case .recentActivity:
+                // nil stamp = never touched = distant past, matching the
+                // shared comparator in PublicationListView so this local
+                // re-sort never fights the server-side ORDER BY.
+                (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
             case .recommended:
                 true  // Handled above, this won't be reached
             }
