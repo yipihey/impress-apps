@@ -17,3 +17,5 @@ async-trait = { workspace = true }
 # The proc macro emits `derive(schemars::JsonSchema)` which needs schemars
 # resolvable as a top-level crate at the call site, not just via re-export.
 schemars = { workspace = true }
+# Resolving the default backups directory (~/Library/Application Support/imbib).
+dirs = { workspace = true }

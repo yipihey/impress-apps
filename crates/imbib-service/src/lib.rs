@@ -101,6 +101,7 @@ impress_service_impl! {
 
 pub mod annotations_service;
 pub mod artifacts_service;
+pub mod backup_service;
 pub mod library_service;
 pub mod scix_service;
 pub mod search_service;

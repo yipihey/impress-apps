@@ -15,6 +15,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::annotations_service::{DefaultImbibAnnotationsService, ImbibAnnotationsService};
 use crate::artifacts_service::{DefaultImbibArtifactsService, ImbibArtifactsService};
+use crate::backup_service::{DefaultImbibBackupService, ImbibBackupService};
 use crate::library_service::{DefaultImbibLibraryService, ImbibLibraryService};
 use crate::scix_service::{DefaultImbibScixService, ImbibScixService};
 use crate::search_service::{DefaultImbibSearchService, ImbibSearchService};
@@ -33,6 +34,13 @@ pub trait ImbibBackend: Send + Sync + 'static {
     fn annotations(&self) -> Arc<dyn ImbibAnnotationsService>;
     fn artifacts(&self) -> Arc<dyn ImbibArtifactsService>;
     fn scix(&self) -> Arc<dyn ImbibScixService>;
+
+    /// Backups. Defaulted so a backend can opt out: the store-backed
+    /// implementation is correct for create/list/inspect/delete, and refuses
+    /// restore (which needs the running app — see `backup_service`).
+    fn backup(&self) -> Arc<dyn ImbibBackupService> {
+        Arc::new(DefaultImbibBackupService::new(store_instance()))
+    }
 }
 
 static BACKEND: OnceLock<Box<dyn ImbibBackend>> = OnceLock::new();
@@ -76,6 +84,13 @@ pub fn search_service_instance() -> Arc<dyn ImbibSearchService> {
     match BACKEND.get() {
         Some(b) => b.search(),
         None => Arc::new(DefaultImbibSearchService::new(store_instance())),
+    }
+}
+
+pub fn backup_service_instance() -> Arc<dyn ImbibBackupService> {
+    match BACKEND.get() {
+        Some(b) => b.backup(),
+        None => Arc::new(DefaultImbibBackupService::new(store_instance())),
     }
 }
 
