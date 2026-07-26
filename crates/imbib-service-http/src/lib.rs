@@ -1529,7 +1529,13 @@ pub fn maybe_install_http_backend() -> bool {
         return false;
     }
 
+    // IMBIB_BASE_URL is the name the retired TypeScript server used, and it is
+    // what existing MCP client configs already set — including the Tailnet
+    // setup that points a Mac at the imbib running on the user's phone. Accept
+    // both rather than silently ignoring a variable the user has already
+    // configured and falling back to localhost.
     let base_url = std::env::var("IMBIB_HTTP_URL")
+        .or_else(|_| std::env::var("IMBIB_BASE_URL"))
         .ok()
         .and_then(|s| url::Url::parse(&s).ok());
     let client = match base_url {

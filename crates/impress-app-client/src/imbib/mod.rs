@@ -46,10 +46,29 @@ impl ImbibClient {
 
     /// Build with an explicit base URL (no trailing path).
     pub fn with_base_url(base_url: Url) -> Self {
-        let http = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("reqwest client builds");
+        Self::with_base_url_and_token(base_url, std::env::var("IMBIB_TOKEN").ok())
+    }
+
+    /// Client with a bearer token attached to every request.
+    ///
+    /// imbib's automation server accepts unauthenticated calls from loopback
+    /// only. Reaching it across a Tailnet — a Mac driving the imbib on the
+    /// user's phone — requires the token from Settings > Automation. Without
+    /// this, every remote call returns 401 and the tools look broken rather
+    /// than unauthorised.
+    pub fn with_base_url_and_token(base_url: Url, token: Option<String>) -> Self {
+        let mut builder = Client::builder().timeout(Duration::from_secs(30));
+        if let Some(token) = token.filter(|t| !t.is_empty()) {
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Ok(mut value) =
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+            {
+                value.set_sensitive(true);
+                headers.insert(reqwest::header::AUTHORIZATION, value);
+                builder = builder.default_headers(headers);
+            }
+        }
+        let http = builder.build().expect("reqwest client builds");
         Self {
             base_url,
             http,
