@@ -13,6 +13,9 @@ use impress_app_client::ImbibClient;
 use imbib_service::annotations_service::{
     AnnotationRecord, CommentRecord, ImbibAnnotationsService,
 };
+use imbib_service::app_service::{
+    ActivityEntry, AppStatus, ExternalPaper, ImbibAppService, LogEntry, SyncNudgeResult,
+};
 use imbib_service::artifacts_service::{
     ArtifactRecord, ArtifactRelationRecord, ImbibArtifactsService,
 };
@@ -1181,6 +1184,109 @@ impl ImbibScixService for HttpImbibScixService {
 // Backend bundle + installer
 // =====================================================================
 
+// ---------------------------------------------------------------------------
+// ImbibAppService — capabilities that only exist while imbib is running
+// ---------------------------------------------------------------------------
+
+pub struct HttpImbibAppService {
+    client: Arc<ImbibClient>,
+}
+
+impl HttpImbibAppService {
+    pub fn new(client: Arc<ImbibClient>) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait::async_trait]
+impl ImbibAppService for HttpImbibAppService {
+    async fn search_sources(
+        &self,
+        query: String,
+        sources: Option<String>,
+        limit: u32,
+    ) -> Vec<ExternalPaper> {
+        self.client
+            .search_sources(query, sources, limit)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("search_sources", e);
+                vec![]
+            })
+    }
+
+    async fn recent_activity(&self, limit: u32, parent_id: Option<String>) -> Vec<ActivityEntry> {
+        self.client
+            .recent_activity(limit, parent_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("recent_activity", e);
+                vec![]
+            })
+    }
+
+    async fn download_pdfs(&self, publication_ids: Vec<String>) -> u32 {
+        self.client
+            .download_pdfs(publication_ids)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("download_pdfs", e);
+                0
+            })
+    }
+
+    async fn sync_nudge(&self) -> SyncNudgeResult {
+        self.client.sync_nudge().await.unwrap_or_else(|e| {
+            // A transport failure is not the same as the engine declining, so
+            // say which one happened rather than reporting a bare `false`.
+            let reason = format!("could not reach imbib's sync endpoint: {e}");
+            log_err("sync_nudge", e);
+            SyncNudgeResult {
+                accepted: false,
+                reason: Some(reason),
+            }
+        })
+    }
+
+    async fn sync_status(&self) -> AppStatus {
+        self.client.sync_status_raw().await.unwrap_or_else(|e| {
+            let detail = format!("could not read sync status: {e}");
+            log_err("sync_status", e);
+            AppStatus {
+                running: false,
+                detail,
+            }
+        })
+    }
+
+    async fn status(&self) -> AppStatus {
+        self.client.app_status_raw().await.unwrap_or_else(|e| {
+            let detail = format!("imbib did not answer: {e}");
+            log_err("status", e);
+            AppStatus {
+                running: false,
+                detail,
+            }
+        })
+    }
+
+    async fn get_logs(
+        &self,
+        limit: u32,
+        level: Option<String>,
+        category: Option<String>,
+        search: Option<String>,
+    ) -> Vec<LogEntry> {
+        self.client
+            .get_logs(limit, level, category, search)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("get_logs", e);
+                vec![]
+            })
+    }
+}
+
 pub struct HttpBackend {
     client: Arc<ImbibClient>,
 }
@@ -1209,6 +1315,9 @@ impl ImbibBackend for HttpBackend {
     }
     fn artifacts(&self) -> Arc<dyn ImbibArtifactsService> {
         Arc::new(HttpImbibArtifactsService::new(self.client.clone()))
+    }
+    fn app(&self) -> Arc<dyn ImbibAppService> {
+        Arc::new(HttpImbibAppService::new(self.client.clone()))
     }
     fn scix(&self) -> Arc<dyn ImbibScixService> {
         Arc::new(HttpImbibScixService::new(self.client.clone()))

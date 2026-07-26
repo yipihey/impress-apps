@@ -11,6 +11,7 @@ use crate::error::{AppClientError, Result};
 use crate::transport::{decode_envelope, ServerInfo};
 
 mod annotations;
+mod app;
 mod artifacts;
 mod libraries;
 mod scix;

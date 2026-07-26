@@ -14,6 +14,7 @@
 use std::sync::{Arc, OnceLock};
 
 use crate::annotations_service::{DefaultImbibAnnotationsService, ImbibAnnotationsService};
+use crate::app_service::{DefaultImbibAppService, ImbibAppService};
 use crate::artifacts_service::{DefaultImbibArtifactsService, ImbibArtifactsService};
 use crate::backup_service::{DefaultImbibBackupService, ImbibBackupService};
 use crate::library_service::{DefaultImbibLibraryService, ImbibLibraryService};
@@ -34,6 +35,14 @@ pub trait ImbibBackend: Send + Sync + 'static {
     fn annotations(&self) -> Arc<dyn ImbibAnnotationsService>;
     fn artifacts(&self) -> Arc<dyn ImbibArtifactsService>;
     fn scix(&self) -> Arc<dyn ImbibScixService>;
+
+    /// App-level capabilities (source search, sync, logs, activity).
+    /// Defaulted to the refusing implementation: with imbib closed none of
+    /// this exists, and saying so beats an empty list that reads like
+    /// "you have no papers".
+    fn app(&self) -> Arc<dyn ImbibAppService> {
+        Arc::new(DefaultImbibAppService::new())
+    }
 
     /// Backups. Defaulted so a backend can opt out: the store-backed
     /// implementation is correct for create/list/inspect/delete, and refuses
@@ -84,6 +93,13 @@ pub fn search_service_instance() -> Arc<dyn ImbibSearchService> {
     match BACKEND.get() {
         Some(b) => b.search(),
         None => Arc::new(DefaultImbibSearchService::new(store_instance())),
+    }
+}
+
+pub fn app_service_instance() -> Arc<dyn ImbibAppService> {
+    match BACKEND.get() {
+        Some(b) => b.app(),
+        None => Arc::new(DefaultImbibAppService::new()),
     }
 }
 

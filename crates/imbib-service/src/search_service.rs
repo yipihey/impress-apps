@@ -98,7 +98,7 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     /// Save a query as a smart search (an Exploration sidebar row) in a
     /// library — the 'keep an eye on this topic' tool. To run a search ONCE
     /// without saving anything, use `imbib-search-service_full-text-search` (the local
-    /// library) or imbib_search_sources (external databases) instead.
+    /// library) or `imbib-app-service_search-sources` (external databases) instead.
     /// feedsToInbox routes new hits into the user's Inbox and
     /// autoRefreshEnabled makes imbib re-run the query on a timer; both
     /// default OFF, so turn them on only when the user explicitly asks for

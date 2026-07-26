@@ -108,6 +108,10 @@ MANUAL_COVERED = {
     # add→create synonym picks the wrong half of that pair, in both directions.
     "imbib_add_tag": "imbib-tags-service_add-tag",
     "imbib_create_tag": "imbib-tags-service_create-tag",
+    # Ported in the app-service phase; the token heuristic cannot see that
+    # "sources" and "external" are the same idea.
+    "imbib_search_sources": "imbib-app-service_search-sources",
+    "imbib_get_library_activity": "imbib-app-service_recent-activity",
     "imprint_compile": "imprint-manuscript-service_compile-typst",
     "imprint_get_manuscript_sections": "imprint-manuscript-service_list-sections",
     "imprint_get_section_body": "imprint-manuscript-service_get-section",
@@ -115,9 +119,7 @@ MANUAL_COVERED = {
 
 # Heuristic matches that are wrong and must NOT be recorded as covered.
 MANUAL_NOT_COVERED = {
-    "imbib_search_sources",          # external source search: no Rust equivalent
     "imbib_delete_smart_searches",   # only get/create/list exist
-    "imbib_get_library_activity",
     "imprint_insert_citation_in_section",
     # Adds a paper to a *library*; the heuristic reaches for the SciX-library
     # tools, which are a different thing entirely.

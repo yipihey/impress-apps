@@ -100,6 +100,7 @@ impress_service_impl! {
 // ---- Stateful services (Phase 3.5+) --------------------------------------
 
 pub mod annotations_service;
+pub mod app_service;
 pub mod artifacts_service;
 pub mod backup_service;
 pub mod library_service;
