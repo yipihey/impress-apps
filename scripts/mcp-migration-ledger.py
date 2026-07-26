@@ -105,8 +105,9 @@ MANUAL_COVERED = {
     "imbib_collection_papers": "imbib-library-service_list-collection-members",
     "imbib_get_paper": "imbib-library-service_get-publication-detail",
     # `add-tag` applies a tag to a paper; `create-tag` defines one. The
-    # add→create synonym picks the wrong half of that pair.
+    # add→create synonym picks the wrong half of that pair, in both directions.
     "imbib_add_tag": "imbib-tags-service_add-tag",
+    "imbib_create_tag": "imbib-tags-service_create-tag",
     "imprint_compile": "imprint-manuscript-service_compile-typst",
     "imprint_get_manuscript_sections": "imprint-manuscript-service_list-sections",
     "imprint_get_section_body": "imprint-manuscript-service_get-section",
