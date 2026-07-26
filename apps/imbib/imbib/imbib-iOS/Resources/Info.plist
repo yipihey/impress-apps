@@ -38,6 +38,8 @@
 		<string>impel</string>
 		<string>impart</string>
 	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>imbib uses speech recognition for voice search and dictation features.</string>
 	<key>NSUserActivityTypes</key>
@@ -49,6 +51,8 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

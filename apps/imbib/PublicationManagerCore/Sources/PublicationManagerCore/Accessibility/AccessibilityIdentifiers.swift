@@ -143,6 +143,7 @@ public enum AccessibilityID {
             public static let importExport = "settings.tabs.importExport"
             public static let recommendations = "settings.tabs.recommendations"
             public static let sync = "settings.tabs.sync"
+            public static let backup = "settings.tabs.backup"
             public static let shortcuts = "settings.tabs.shortcuts"
             public static let advanced = "settings.tabs.advanced"
         }

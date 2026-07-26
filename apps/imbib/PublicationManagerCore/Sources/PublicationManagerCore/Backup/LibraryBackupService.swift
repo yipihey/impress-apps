@@ -154,13 +154,31 @@ public actor LibraryBackupService {
     /// *outside* the app group: a backup that lives next to the database it
     /// protects is not much of a backup, and users need to reach these in
     /// Finder to copy them elsewhere.
+    ///
+    /// On iOS the same reasoning points at `Documents/Backups` instead of
+    /// Application Support. Application Support is invisible to the user, and
+    /// a backup nobody can reach is not a backup: with `UIFileSharingEnabled`
+    /// the Documents folder shows up as *Files › On My iPhone › imbib*, so a
+    /// snapshot can be dragged to iCloud Drive, AirDropped to the Mac, or
+    /// handed to another app without imbib having to ship an exporter.
+    ///
+    /// Both platforms resolve one directory for every surface — pane, HTTP
+    /// routes, MCP tools — so `imbib_list_backups` can never disagree with
+    /// what the user is looking at.
     public nonisolated static var backupsDirectory: URL {
+        #if os(iOS)
+        let documents = FileManager.default.urls(
+            for: .documentDirectory, in: .userDomainMask
+        ).first!
+        return documents.appendingPathComponent("Backups", isDirectory: true)
+        #else
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!
         return appSupport
             .appendingPathComponent("imbib", isDirectory: true)
             .appendingPathComponent("Backups", isDirectory: true)
+        #endif
     }
 
     /// Pre-restore safety snapshots, kept apart from user-made backups so a

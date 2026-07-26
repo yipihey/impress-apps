@@ -37,15 +37,23 @@ the file.
 
 ## Creating a Backup
 
-**Settings › Sync › Backup › Back Up Now.**
+**Mac:** Settings › Sync › Backup › **Back Up Now**.
+**iPhone and iPad:** Settings › Library Backup › **Back Up Now**.
 
 The snapshot is taken while you keep working — imbib, imprint and impel can
 all be running and writing. You get a consistent picture of the instant the
 backup began, never a half-written mixture.
 
 Backups are listed in the same pane with their date, record count and size.
-The folder button opens them in Finder, so you can copy them to an external
-drive or cloud folder.
+
+On the Mac the folder button opens them in Finder, so you can copy them to an
+external drive or cloud folder. They live in
+`~/Library/Application Support/imbib/Backups`.
+
+On iPhone and iPad they live in **Files › On My iPhone › imbib › Backups**, and
+each row has a share button — use it to put a copy in iCloud Drive, AirDrop it
+to your Mac, or hand it to any other app. A backup that never leaves the device
+does not survive losing the device.
 
 Take one **before anything large or irreversible**: a big import, a
 deduplication pass, mass re-tagging.
@@ -54,8 +62,11 @@ deduplication pass, mass re-tagging.
 
 ## Restoring from a Backup
 
-**Settings › Sync › Backup**, then **Restore** next to a backup — or the
-undo-arrow button to pick a backup file from elsewhere on disk.
+Open the pane above, then **Restore** next to a backup — or, to use a file kept
+somewhere else, the undo-arrow button on the Mac and **Restore from a File…**
+on iPhone and iPad. On iOS the file picker reaches iCloud Drive and any other
+Files provider; a backup stored in iCloud Drive must be downloaded to the
+device first (open it once in Files) before it can be read.
 
 Before anything changes, imbib:
 
@@ -73,7 +84,8 @@ Then the whole store is replaced.
 
 **Quit and reopen imbib afterwards** — and any running imprint or impel. They
 hold their data in memory and would otherwise keep showing records from the
-library you just replaced.
+library you just replaced. On iPhone and iPad that means force-quitting from
+the App Switcher; an app that is merely backgrounded has not restarted.
 
 ---
 
@@ -89,7 +101,8 @@ would watch the old library come back.
 
 The safe order is:
 
-1. Turn sync off in **Settings › Sync**, on **every** device.
+1. Turn sync off on **every** device — **Settings › Sync** on the Mac,
+   **Settings › iCloud Sync** on iPhone and iPad.
 2. Restore.
 3. Relaunch imbib.
 4. Turn sync back on, on this device first, and let it settle before enabling

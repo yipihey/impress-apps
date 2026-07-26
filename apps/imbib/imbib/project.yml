@@ -306,6 +306,11 @@ targets:
         # Phase D activation: iOS cannot read its own entitlements at
         # runtime, so CloudSyncAvailability consults this marker.
         ImpressSyncContainerIdentifier: iCloud.com.impress.suite
+        # Library Backup writes snapshots to Documents/Backups. These two keys
+        # are what make that folder reachable — without them the backups exist
+        # but nobody can copy one off the device, which defeats the point.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen:
           UIColorName: AccentColor
         UIRequiresFullScreen: true

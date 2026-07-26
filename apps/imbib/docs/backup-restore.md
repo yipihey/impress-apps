@@ -5,330 +5,165 @@ title: Backup & Restore
 
 # Backup & Restore
 
-Create comprehensive backups of your entire library and restore them when needed.
+Take a complete, point-in-time snapshot of your library, and put it back when
+something goes wrong.
 
 ---
 
 ## Overview
 
-imbib's backup system creates a complete snapshot of your library including:
+A backup is a single file: an exact copy of the whole impress store at the
+moment you took it. That is everything the suite keeps —
 
-- **All publications** - Full BibTeX with metadata
-- **Attachments** - PDFs, images, supplementary files
-- **Notes** - Your personal annotations
-- **Settings** - App preferences and configuration
-- **Manifest** - Checksums for integrity verification
+- **Papers** — full metadata, cite keys, identifiers
+- **Tags, flags, read state, collections and smart searches**
+- **Manuscripts and their sections** (imprint's data lives in the same store)
+- **Annotations, notes, comments and captured artifacts**
+- **Links to your PDFs** — the paths, not the PDF files themselves
+
+Because it is a snapshot rather than an export, nothing is lost in
+translation: restoring returns the library to exactly the state it was in.
+
+The file is an ordinary SQLite database. You can open it years from now with
+any SQLite tool, on any computer, with no impress software installed:
+
+```
+sqlite3 imbib-backup-20260725-110555.impressbackup "SELECT COUNT(*) FROM items"
+```
+
+A small `.json` file is written next to it recording when the backup was
+taken, what version made it, how many records it holds and a SHA-256 digest of
+the file.
+
+> **PDFs are not inside the backup.** The store keeps links to your PDF files;
+> back up the folder holding them separately.
 
 ---
 
 ## Creating a Backup
 
-### Quick Backup
+**Mac:** Settings › Sync › Backup › **Back Up Now**.
+**iPhone and iPad:** Settings › Library Backup › **Back Up Now**.
 
-1. Go to **File > Export > Full Library Backup...**
-2. Choose a destination folder
-3. Wait for the backup to complete
-4. A timestamped folder is created with all your data
+The snapshot is taken while you keep working — imbib, imprint and impel can
+all be running and writing. You get a consistent picture of the instant the
+backup began, never a half-written mixture.
 
-### What's Included
+Backups are listed in the same pane with their date, record count and size.
 
-The backup folder contains:
+On the Mac the folder button opens them in Finder, so you can copy them to an
+external drive or cloud folder. They live in
+`~/Library/Application Support/imbib/Backups`.
 
-```
-imbib-backup-2026-01-29T10-30-00/
-├── library.bib          # All publications as BibTeX
-├── Attachments/         # All linked files
-│   ├── Einstein_1905_Relativity.pdf
-│   ├── Hawking_1974_BlackHoles.pdf
-│   └── ...
-├── notes.json           # Your personal notes
-├── settings.json        # App settings
-└── manifest.json        # Checksums and metadata
-```
+On iPhone and iPad they live in **Files › On My iPhone › imbib › Backups**, and
+each row has a share button — use it to put a copy in iCloud Drive, AirDrop it
+to your Mac, or hand it to any other app. A backup that never leaves the device
+does not survive losing the device.
 
-### Compressed Backup
-
-For easier storage and transfer:
-
-1. Go to **File > Export > Compressed Library Backup...**
-2. Creates a `.zip` file instead of a folder
-3. Same contents, smaller file size
-
-### Progress Tracking
-
-During backup, you'll see:
-- Current phase (Exporting BibTeX, Copying attachments, etc.)
-- Progress bar with item count
-- Current file being processed
+Take one **before anything large or irreversible**: a big import, a
+deduplication pass, mass re-tagging.
 
 ---
 
-## Backup Contents
+## Restoring from a Backup
 
-### library.bib
+Open the pane above, then **Restore** next to a backup — or, to use a file kept
+somewhere else, the undo-arrow button on the Mac and **Restore from a File…**
+on iPhone and iPad. On iOS the file picker reaches iCloud Drive and any other
+Files provider; a backup stored in iCloud Drive must be downloaded to the
+device first (open it once in Files) before it can be read.
 
-Contains all publications in BibTeX format:
-- Full metadata for every paper
-- All BibTeX fields preserved
-- Comments indicating backup date and count
+Before anything changes, imbib:
 
-### Attachments/
+1. **Checks the backup.** Integrity check, required tables, and a digest match
+   against its manifest. A truncated, corrupt or altered file is refused
+   outright — never half-applied.
+2. **Snapshots your current library** into a `Safety` folder beside your
+   backups, so the restore itself is reversible.
 
-All linked files with their relative paths preserved:
-- PDFs
-- Images
-- Supplementary materials
-- Code files
-- Any other attachments
+Then the whole store is replaced.
 
-Original folder structure within Attachments is maintained.
+> **Restore replaces everything**, including imprint manuscripts and impel
+> tasks. Anything added since the backup was taken is gone (recoverable from
+> the automatic safety snapshot).
 
-### notes.json
-
-Your personal annotations:
-```json
-[
-  {
-    "citeKey": "Einstein1905",
-    "note": "Foundational paper on special relativity..."
-  }
-]
-```
-
-### settings.json
-
-All synced settings including:
-- Display preferences
-- Source priorities
-- Inbox settings
-- Recommendation weights
-
-### manifest.json
-
-Backup metadata and integrity information:
-```json
-{
-  "version": 1,
-  "createdAt": "2026-01-29T10:30:00Z",
-  "appVersion": "2.1.0",
-  "schemaVersion": 15,
-  "publicationCount": 1234,
-  "attachmentCount": 890,
-  "fileChecksums": {
-    "library.bib": "a1b2c3...",
-    "Attachments/Einstein_1905.pdf": "d4e5f6..."
-  }
-}
-```
+**Quit and reopen imbib afterwards** — and any running imprint or impel. They
+hold their data in memory and would otherwise keep showing records from the
+library you just replaced. On iPhone and iPad that means force-quitting from
+the App Switcher; an app that is merely backgrounded has not restarted.
 
 ---
 
-## Restoring from Backup
+## Restoring and iCloud Sync
 
-### Starting a Restore
+**Turn iCloud sync off before restoring.** The Restore buttons are disabled
+while sync is on, and the pane says why.
 
-1. Go to **File > Import > Restore from Backup...**
-2. Select your backup folder (or `.zip` file)
-3. Review the backup preview
-4. Choose restore options
-5. Click **Restore**
+Sync resolves conflicts by keeping the most recently changed copy of each
+record. A restored record carries its *old* timestamp, so your other devices
+would consider their copies newer and quietly overwrite the restore — you
+would watch the old library come back.
 
-### Restore Preview
+The safe order is:
 
-Before restoring, you'll see:
-- Backup date and app version
-- Number of publications and attachments
-- Number of notes
-- Whether settings are included
-- Any validation warnings
+1. Turn sync off on **every** device — **Settings › Sync** on the Mac,
+   **Settings › iCloud Sync** on iPhone and iPad.
+2. Restore.
+3. Relaunch imbib.
+4. Turn sync back on, on this device first, and let it settle before enabling
+   the others.
 
-### Restore Options
-
-#### Mode
-
-| Mode | Behavior |
-|------|----------|
-| **Merge** | Add backup contents to existing library, skip duplicates |
-| **Replace** | Clear existing library first, then restore backup |
-
-#### Content Selection
-
-Choose what to restore:
-- **Publications** - BibTeX entries and metadata
-- **Attachments** - PDFs and other files
-- **Notes** - Personal annotations
-- **Settings** - App preferences (optional, off by default)
-
-### Duplicate Handling (Merge Mode)
-
-When merging:
-- Papers are matched by cite key
-- Existing papers are **not** overwritten
-- New papers are added
-- Use Replace mode to overwrite existing data
-
----
-
-## Backup Verification
-
-### Automatic Verification
-
-After creating a backup, imbib automatically:
-1. Reads the manifest
-2. Verifies all file checksums
-3. Reports any issues
-
-### Manual Verification
-
-To verify an existing backup:
-
-1. Go to **File > Verify Backup...**
-2. Select the backup folder
-3. imbib checks all files against the manifest
-4. Reports missing or corrupted files
-
-### Verification Results
-
-| Status | Meaning |
-|--------|---------|
-| **Valid** | All files present and intact |
-| **Missing Files** | Some files listed in manifest are missing |
-| **Corrupted Files** | Checksums don't match (file changed) |
+When a restore happens, imbib clears its pending sync bookkeeping so the
+rewound library is never pushed at your other devices on its own.
 
 ---
 
 ## Backup Strategies
 
-### Regular Backups
-
-Recommended schedule:
-- **Weekly** for active researchers
-- **Monthly** for casual users
-- **Before major changes** (imports, migrations)
-
-### Multiple Backup Locations
-
-Store backups in multiple places:
-- Local drive
-- External drive
-- Cloud storage (Dropbox, iCloud Drive, Google Drive)
-- Network drive (NAS)
-
-### Backup Rotation
-
-Keep multiple backup generations:
-- Last 4 weekly backups
-- Last 12 monthly backups
-- Delete older backups to save space
-
-### Pre-Import Backup
-
-Before large imports:
-1. Create a backup
-2. Perform the import
-3. If something goes wrong, restore from backup
-
----
-
-## Data Recovery
-
-### Recovering Specific Papers
-
-If you accidentally deleted papers:
-
-1. Open the backup's `library.bib` in a text editor
-2. Find the entries you need
-3. Copy the BibTeX
-4. Import into imbib via **File > Import > BibTeX Text...**
-
-### Recovering Notes
-
-If you lost notes:
-
-1. Open `notes.json` in the backup
-2. Find the notes by cite key
-3. Manually copy to the paper's Notes tab
-
-### Recovering Attachments
-
-PDFs and files are plain files in `Attachments/`:
-1. Navigate to the backup folder
-2. Find the files you need
-3. Drag back into imbib or copy manually
-
----
-
-## Troubleshooting
-
-### Backup Fails
-
-**Disk full:**
-- Clear space on destination drive
-- Use compressed backup for smaller size
-
-**Permission denied:**
-- Choose a different destination
-- Check folder permissions
-
-**PDF not found:**
-- The paper has a broken file link
-- Backup continues, missing files are logged
-
-### Restore Fails
-
-**Invalid backup format:**
-- Ensure you selected the correct folder
-- Check that `manifest.json` exists
-
-**Schema version mismatch:**
-- Backup is from a newer imbib version
-- Update imbib before restoring
-
-**Corrupt files:**
-- Run verification first
-- Some files may have been modified after backup
-
-### Large Libraries
-
-For libraries with thousands of papers:
-- Backup may take several minutes
-- Progress is shown throughout
-- Don't quit imbib during backup
+- **Weekly** for active researchers, **monthly** for casual use
+- **Always before** a large import or a bulk edit
+- Keep copies in more than one place — local disk, external drive, cloud
+  folder. A backup stored only on the machine it protects is not a backup.
+- Old backups can be deleted from the Settings pane; each one is a full copy,
+  so they are roughly the size of your library.
 
 ---
 
 ## iCloud Sync vs Backup
 
-| Feature | iCloud Sync | Backup |
-|---------|-------------|--------|
-| Automatic | Yes | No (manual) |
+| | iCloud Sync | Backup |
+|---|---|---|
+| Automatic | Yes | No — you take it |
 | Cross-device | Yes | No |
-| Point-in-time | No (always current) | Yes |
-| Offline recovery | Limited | Full |
-| External storage | No | Yes |
+| Point-in-time recovery | No | Yes |
+| Survives a mistaken deletion | No — the deletion syncs too | Yes |
+| Stored outside the app | No | Yes |
 
-**Recommendation:** Use both:
-- iCloud for day-to-day sync
-- Backups for disaster recovery and archival
+**Use both.** Sync keeps your devices in step; backups are what you reach for
+when something was deleted, mangled or imported wrong.
 
 ---
 
-## Settings Reference
+## For Agents & Scripts
 
-### Backup Settings
+The whole surface is available over the automation API (port 23120) and as MCP
+tools — `imbib_create_backup`, `imbib_list_backups`, `imbib_inspect_backup`,
+`imbib_restore_backup`, `imbib_delete_backup`.
 
-Configure backup behavior in **Settings > Advanced**:
+```bash
+curl -X POST http://localhost:23120/api/backups \
+  -H 'Content-Type: application/json' \
+  -d '{"label":"before bulk import"}'
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Include attachments | Include PDFs and files in backup | On |
-| Include notes | Include personal annotations | On |
-| Compression level | ZIP compression for compressed backups | Normal |
+curl 'http://localhost:23120/api/backups'
+```
+
+`POST /api/backups/restore` is destructive and refuses with `409
+sync_enabled` while sync is on.
 
 ---
 
 ## See Also
 
-- [Data Recovery Guide](data-recovery-guide) - Recovering from data loss
-- [Settings Reference](reference/settings-reference) - All settings
-- [iCloud Sync](platform/ios-guide#icloud-sync) - Cross-device synchronization
+- [Data Recovery Guide](data-recovery-guide) — recovering from data loss
+- [iCloud Sync](platform/ios-guide#icloud-sync) — cross-device synchronization
