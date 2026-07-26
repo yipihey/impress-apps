@@ -48,15 +48,21 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, parse_quote, Ident, ItemTrait, TraitItem, Type};
+use syn::{parse_macro_input, Ident, ItemTrait, TraitItem, Type};
 
 /// `#[impress_service]` attribute on a trait.
 ///
-/// In Phase 0 this attribute is a "marker + light validation" — it confirms the
-/// trait has at least one `#[impress_method]`, strips the per-method marker
-/// attribute (because Rust does not allow unknown attributes on trait items
-/// to flow downstream untouched), and emits the trait back out unchanged. The
-/// heavy lifting (per-method invokers, inventory submissions, FFI shims) is
+/// Confirms the trait has at least one `#[impress_method]`, strips the
+/// per-method marker attribute (Rust does not let unknown attributes on trait
+/// items flow downstream untouched), and emits the trait plus a hidden
+/// `__IMPRESS_SERVICE_DOCS_<Trait>` table of each method's doc comment.
+///
+/// That table is why a description written on the trait — where a Rust
+/// developer naturally puts it — reaches the model. Before it existed, only
+/// `///` comments inside `impress_service_impl! { methods = [...] }` were read,
+/// and 119 of 133 tools silently shipped `"Invoke Service.method"`.
+///
+/// The heavy lifting (per-method invokers, inventory submissions, FFI shims) is
 /// performed by [`impress_service_impl!`] against a concrete impl block,
 /// because that is where we know the concrete `Self` type to dispatch into.
 #[proc_macro_attribute]
@@ -64,6 +70,11 @@ pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let mut trait_item = parse_macro_input!(input as ItemTrait);
 
     let mut found_any_method = false;
+    // (method_name, doc) for every #[impress_method], so `impress_service_impl!`
+    // can use the trait's own doc comments as tool descriptions. Without this
+    // the docs a developer writes on the trait are silently dropped and the
+    // model gets "Invoke Service.method".
+    let mut docs: Vec<(String, String)> = Vec::new();
 
     for item in &mut trait_item.items {
         if let TraitItem::Fn(method) = item {
@@ -73,6 +84,7 @@ pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
                 .retain(|attr| !attr.path().is_ident("impress_method"));
             if method.attrs.len() != before {
                 found_any_method = true;
+                docs.push((method.sig.ident.to_string(), collect_doc(&method.attrs)));
             }
         }
     }
@@ -95,9 +107,22 @@ pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
     // applied (until native async-in-traits are universally available with
     // dyn-compatible vtables on Rust stable). We add it here so users don't
     // have to write the attribute themselves.
+    // Emitted beside the trait so `impress_service_impl!` can resolve each
+    // method's description. A free const rather than an associated const:
+    // associated consts make a trait non-dyn-compatible, and every service is
+    // used as `Arc<dyn Trait>`.
+    let docs_const = format_ident!("__IMPRESS_SERVICE_DOCS_{}", trait_item.ident);
+    let doc_entries = docs.iter().map(|(name, doc)| quote! { (#name, #doc) });
+    let doc_count = docs.len();
+
     quote! {
         #[::impress_service_core::async_trait::async_trait]
         #trait_item
+
+        #[doc(hidden)]
+        #[allow(non_upper_case_globals)]
+        pub const #docs_const: [(&'static str, &'static str); #doc_count] =
+            [#(#doc_entries),*];
     }
     .into()
 }
@@ -238,24 +263,47 @@ fn parse_method_decl(input: syn::parse::ParseStream) -> syn::Result<MethodDecl> 
     })
 }
 
+/// Join `///` lines into a description.
+///
+/// Rust doc comments are hard-wrapped at the source margin, so joining every
+/// line with `\n` puts a break in the middle of each sentence. Consecutive
+/// lines are one paragraph and join with a space; a blank `///` line is a
+/// deliberate paragraph break and becomes `\n\n`.
 fn collect_doc(attrs: &[syn::Attribute]) -> String {
-    let mut out = String::new();
+    let mut paragraphs: Vec<String> = Vec::new();
+    let mut current = String::new();
+
     for attr in attrs {
         if !attr.path().is_ident("doc") {
             continue;
         }
-        if let syn::Meta::NameValue(nv) = &attr.meta {
-            if let syn::Expr::Lit(lit) = &nv.value {
-                if let syn::Lit::Str(s) = &lit.lit {
-                    if !out.is_empty() {
-                        out.push('\n');
-                    }
-                    out.push_str(s.value().trim());
-                }
+        let syn::Meta::NameValue(nv) = &attr.meta else {
+            continue;
+        };
+        let syn::Expr::Lit(lit) = &nv.value else {
+            continue;
+        };
+        let syn::Lit::Str(s) = &lit.lit else {
+            continue;
+        };
+
+        let line = s.value();
+        let line = line.trim();
+        if line.is_empty() {
+            if !current.is_empty() {
+                paragraphs.push(std::mem::take(&mut current));
             }
+            continue;
         }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(line);
     }
-    out
+    if !current.is_empty() {
+        paragraphs.push(current);
+    }
+    paragraphs.join("\n\n")
 }
 
 fn kebab(s: &str) -> String {
@@ -308,10 +356,23 @@ fn expand_method(
     let kebab_name = kebab(&name.to_string());
     let service_kebab = kebab(&service.to_string());
 
-    let doc = if method.doc.is_empty() {
-        format!("Invoke {service}.{name}")
-    } else {
-        method.doc.clone()
+    // Descriptions resolve in three steps, at compile time: a `///` here in
+    // `methods = [...]`, then the trait method's own doc comment (captured by
+    // `#[impress_service]` into the table below), then a bare fallback. Before
+    // the table existed only the first was read, so services that documented
+    // their trait — nearly all of them — shipped "Invoke Service.method" to
+    // the model.
+    let inline_doc = method.doc.clone();
+    let fallback = format!("Invoke {service}.{name}");
+    let docs_const = format_ident!("__IMPRESS_SERVICE_DOCS_{}", service);
+    let method_name_str = name.to_string();
+    let doc = quote! {
+        ::impress_service_core::resolve_description(
+            #inline_doc,
+            &#docs_const,
+            #method_name_str,
+            #fallback,
+        )
     };
 
     let args_struct = format_ident!("__Impress_{}_{}_Args", service, name);

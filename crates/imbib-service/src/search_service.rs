@@ -74,6 +74,8 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     ) -> Vec<PublicationSummary>;
 
     // ---- Full-text search ----
+    /// Search the imbib library for papers by title, author, abstract, or
+    /// keywords. Returns matching papers with metadata and BibTeX.
     #[impress_method]
     async fn full_text_search(
         &self,
@@ -83,10 +85,25 @@ pub trait ImbibSearchService: Send + Sync + 'static {
     ) -> Vec<PublicationSummary>;
 
     // ---- Smart search CRUD ----
+    /// List saved smart searches. Pass the Exploration library's ID to
+    /// enumerate the rows of imbib's Exploration sidebar section.
     #[impress_method]
     async fn list_smart_searches(&self, library_id: Option<String>) -> Vec<SmartSearchRecord>;
+    /// Fetch one smart search by UUID: its query string, owning library,
+    /// result cap, and its feeds-to-inbox / auto-refresh settings. Use to
+    /// inspect or confirm a search before changing or deleting it; find the
+    /// UUID with `imbib-search-service_list-smart-searches`.
     #[impress_method]
     async fn get_smart_search(&self, id: String) -> Option<SmartSearchRecord>;
+    /// Save a query as a smart search (an Exploration sidebar row) in a
+    /// library — the 'keep an eye on this topic' tool. To run a search ONCE
+    /// without saving anything, use `imbib-search-service_full-text-search` (the local
+    /// library) or imbib_search_sources (external databases) instead.
+    /// feedsToInbox routes new hits into the user's Inbox and
+    /// autoRefreshEnabled makes imbib re-run the query on a timer; both
+    /// default OFF, so turn them on only when the user explicitly asks for
+    /// an ongoing feed rather than a saved query. List with
+    /// `imbib-search-service_list-smart-searches`, remove with imbib_delete_smart_searches.
     #[impress_method]
     async fn create_smart_search(
         &self,

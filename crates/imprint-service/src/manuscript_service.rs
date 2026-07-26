@@ -47,8 +47,16 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     async fn export_document(&self, id: String, format: String) -> Vec<u8>;
 
     // ---- Section CRUD ----
+    /// List every stored section of a manuscript, sorted by order_index.
+    /// Returns section id, title, body (inline), sectionType, orderIndex,
+    /// wordCount, and createdAt. Large content-addressed bodies are not
+    /// rehydrated here — call `imprint-manuscript-service_get-section` for those.
     #[impress_method]
     async fn list_sections(&self, doc_id: String) -> Vec<SectionRecord>;
+    /// Fetch a single manuscript section by its UUID. Body is rehydrated
+    /// from content-addressed storage when needed. Use this after
+    /// `imprint-manuscript-service_list-sections` to load the full body of a specific
+    /// section.
     #[impress_method]
     async fn get_section(&self, doc_id: String, section_key: String) -> Option<SectionRecord>;
     #[impress_method]
@@ -59,6 +67,8 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
         body: String,
         metadata: SectionMetadata,
     ) -> Option<SectionRecord>;
+    /// Remove a section (heading + body) from the document. Queues an
+    /// operation; returns operationId.
     #[impress_method]
     async fn delete_section(&self, doc_id: String, section_key: String) -> bool;
 
@@ -76,6 +86,8 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     ) -> Vec<TextMatch>;
 
     // ---- Typst compile ----
+    /// Compile an imprint document to PDF. Triggers the Typst compiler and
+    /// generates output.
     #[impress_method]
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult;
 
@@ -88,6 +100,8 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
         -> LatexCompileResultDto;
 
     // ---- Cross-document search ----
+    /// Search for text in an imprint document. Returns positions of all
+    /// matches.
     #[impress_method]
     async fn search(&self, query: String, limit: u32) -> Vec<SearchHitDto>;
 

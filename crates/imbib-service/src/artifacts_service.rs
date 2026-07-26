@@ -94,6 +94,8 @@ impl From<&imbib_core::unified::shaped_queries::ArtifactRelation> for ArtifactRe
 
 #[impress_service]
 pub trait ImbibArtifactsService: Send + Sync + 'static {
+    /// List available artifacts across all impress apps. Returns a summary
+    /// of papers, documents, and conversations.
     #[impress_method]
     async fn list_artifacts(
         &self,
@@ -103,16 +105,22 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
         limit: u32,
         offset: u32,
     ) -> Vec<ArtifactRecord>;
+    /// Search research artifacts by title, notes, or other metadata.
+    /// Returns matching artifacts.
     #[impress_method]
     async fn search_artifacts(
         &self,
         query: String,
         schema_filter: Option<String>,
     ) -> Vec<ArtifactRecord>;
+    /// Get detailed information about a specific research artifact by ID.
     #[impress_method]
     async fn get_artifact(&self, id: String) -> Option<ArtifactRecord>;
     #[impress_method]
     async fn count_artifacts(&self, schema_filter: Option<String>) -> u32;
+    /// Create a research artifact in imbib. Artifacts are non-paper items:
+    /// notes, webpages, datasets, presentations, posters, media, code, or
+    /// general files.
     #[impress_method]
     async fn create_artifact(
         &self,
@@ -144,8 +152,11 @@ pub trait ImbibArtifactsService: Send + Sync + 'static {
         event_name: Option<String>,
         event_date: Option<String>,
     ) -> MutationResult;
+    /// Delete a research artifact. This permanently removes it.
     #[impress_method]
     async fn delete_artifact(&self, id: String) -> MutationResult;
+    /// Link a research artifact to a paper in the bibliography. Creates a
+    /// bidirectional relationship.
     #[impress_method]
     async fn link_artifact_to_publication(
         &self,

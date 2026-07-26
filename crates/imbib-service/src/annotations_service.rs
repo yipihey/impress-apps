@@ -94,6 +94,8 @@ impl From<&imbib_core::unified::shaped_queries::CommentRow> for CommentRecord {
 #[impress_service]
 pub trait ImbibAnnotationsService: Send + Sync + 'static {
     // ---- Annotations (PDF) ----
+    /// List PDF annotations on a paper. Includes highlights, underlines,
+    /// notes, and text comments made on the PDF.
     #[impress_method]
     async fn list_annotations(
         &self,
@@ -102,6 +104,8 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     ) -> Vec<AnnotationRecord>;
     #[impress_method]
     async fn count_annotations(&self, linked_file_id: String) -> u32;
+    /// Add a PDF annotation to a paper. Supports highlights, underlines,
+    /// strikethroughs, notes, and free text.
     #[impress_method]
     async fn create_annotation(
         &self,
@@ -115,12 +119,18 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
     ) -> Option<AnnotationRecord>;
 
     // ---- Comments (threaded, on any item) ----
+    /// List comments on any item by UUID (publication, artifact, or other
+    /// item type).
     #[impress_method]
     async fn list_comments_for_item(&self, item_id: String) -> Vec<CommentRecord>;
+    /// List all comments on a paper. Comments support threaded replies for
+    /// discussions.
     #[impress_method]
     async fn list_comments(&self, publication_id: String) -> Vec<CommentRecord>;
     #[impress_method]
     async fn list_comments_since(&self, item_id: String, since_clock: u64) -> Vec<CommentRecord>;
+    /// Add a comment to a paper. Can be a top-level comment or a reply to
+    /// an existing comment.
     #[impress_method]
     async fn create_comment(
         &self,
@@ -130,6 +140,8 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
         author_display_name: Option<String>,
         parent_comment_id: Option<String>,
     ) -> Option<CommentRecord>;
+    /// Add a comment to any item by UUID (publication, artifact, or other
+    /// item type).
     #[impress_method]
     async fn create_comment_on_item(
         &self,
@@ -139,6 +151,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
         author_display_name: Option<String>,
         parent_comment_id: Option<String>,
     ) -> Option<CommentRecord>;
+    /// Edit the text of an existing comment.
     #[impress_method]
     async fn update_comment(&self, id: String, text: String) -> MutationResult;
 }

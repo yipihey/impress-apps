@@ -64,10 +64,24 @@ impl From<&imbib_core::unified::shaped_queries::TagWithCountRow> for TagWithCoun
 
 #[impress_service]
 pub trait ImbibTagsService: Send + Sync + 'static {
+    /// List tags in the library with their usage counts. Useful for finding
+    /// existing tags before tagging papers. EXPENSIVE on a large library:
+    /// imbib recomputes a count for every tag in the vocabulary (the prefix
+    /// filter is applied after that), which on a few thousand tags takes
+    /// minutes and blocks the app's UI while it runs. When you only need
+    /// one number use `imbib-library-service_count-publications` (kind:'by-tag'); when you only
+    /// need to attach a tag, just call `imbib-tags-service_add-tag`, which creates missing
+    /// tags on the fly.
     #[impress_method]
     async fn list_tags(&self) -> Vec<TagRecord>;
     #[impress_method]
     async fn list_tags_with_counts(&self) -> Vec<TagWithCount>;
+    /// Create a tag in the library's tag vocabulary, optionally with
+    /// light/dark display colors. Paths are hierarchical with '/' (e.g.
+    /// 'method/mcmc'). This does NOT put the tag on any paper —
+    /// `imbib-tags-service_add-tag` does that, and it creates missing tags implicitly, so
+    /// reach for this tool only when the user wants a category to exist up
+    /// front or wants to give a brand-new tag a color.
     #[impress_method]
     async fn create_tag(
         &self,
@@ -75,6 +89,13 @@ pub trait ImbibTagsService: Send + Sync + 'static {
         color_light: Option<String>,
         color_dark: Option<String>,
     ) -> MutationResult;
+    /// Delete a tag from the library vocabulary; it is detached from EVERY
+    /// paper that carried it, including papers the user never mentioned.
+    /// When they only want it off certain papers, use `imbib-tags-service_remove-tag`
+    /// instead — that IS undoable, this is not: tag CRUD bypasses the
+    /// operation log, so `imbib-undo-service_undo-batch` cannot restore the tag or its
+    /// memberships (verified live 2026-07-25). Check the blast radius first
+    /// with `imbib-library-service_count-publications` (kind:'by-tag').
     #[impress_method]
     async fn delete_tag_undoable(&self, path: String) -> MutationResult;
     #[impress_method]
@@ -84,10 +105,27 @@ pub trait ImbibTagsService: Send + Sync + 'static {
         color_light: Option<String>,
         color_dark: Option<String>,
     ) -> MutationResult;
+    /// Rename or re-parent a tag path across the whole library; every paper
+    /// carrying it keeps it under the new path. This is the tool for
+    /// reorganising a tag hierarchy (e.g. 'cosmology' → 'topic/cosmology').
+    /// Distinct from `imbib-tags-service_remove-tag`, which detaches a tag from named
+    /// papers without touching the vocabulary. Not undoable by `imbib-undo-service_undo-batch`
+    /// (tag CRUD bypasses the operation log) — but it is trivially
+    /// reversible by renaming back, as long as you remember the old path.
     #[impress_method]
     async fn rename_tag(&self, old_path: String, new_path: String) -> MutationResult;
+    /// Attach a tag to specific papers. Tags use hierarchical paths like
+    /// 'methods/sims' or 'topic/cosmology'; missing tags (and their
+    /// parents) are created automatically, so you do NOT need
+    /// `imbib-tags-service_create-tag` first. This changes tag MEMBERSHIP; to manage the
+    /// tag vocabulary itself use `imbib-tags-service_create-tag` / `imbib-tags-service_rename-tag` /
+    /// `imbib-tags-service_delete-tag-undoable`.
     #[impress_method]
     async fn add_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult;
+    /// Detach a tag from the papers you name. The tag itself survives and
+    /// stays on every other paper — to remove it from the library entirely
+    /// use `imbib-tags-service_delete-tag-undoable`. This one IS recorded in the operation log, so
+    /// it can be reversed with `imbib-undo-service_recent-undo-groups` + `imbib-undo-service_undo-batch`.
     #[impress_method]
     async fn remove_tag(&self, ids: Vec<String>, tag_path: String) -> MutationResult;
     #[impress_method]

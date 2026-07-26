@@ -104,6 +104,57 @@ impl ServiceError for BasicServiceError {
     }
 }
 
+/// Resolve a tool description at compile time.
+///
+/// The description a model sees can come from two places, and for most of the
+/// inventory's life it came from neither:
+///
+/// 1. a `///` comment inside `impress_service_impl! { methods = [...] }`, or
+/// 2. the `///` comment on the trait method, captured by `#[impress_service]`
+///    into a `__IMPRESS_SERVICE_DOCS_*` table.
+///
+/// Only (1) used to be read, so any service that documented its trait — which
+/// is where a Rust developer naturally writes it, and where every service but
+/// the `*-text-service` ones did — silently shipped `"Invoke Service.method"`.
+/// 119 of 133 tools were in that state. This resolves (1), then (2), then the
+/// fallback, so the docs can live where they belong and still reach the model.
+///
+/// `const fn` because `inventory::submit!` builds a `static`.
+pub const fn resolve_description(
+    inline_doc: &'static str,
+    trait_docs: &'static [(&'static str, &'static str)],
+    method: &'static str,
+    fallback: &'static str,
+) -> &'static str {
+    if !inline_doc.is_empty() {
+        return inline_doc;
+    }
+    let mut i = 0;
+    while i < trait_docs.len() {
+        if const_str_eq(trait_docs[i].0, method) && !trait_docs[i].1.is_empty() {
+            return trait_docs[i].1;
+        }
+        i += 1;
+    }
+    fallback
+}
+
+/// `&str` equality usable in a const context.
+const fn const_str_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
 /// Descriptor for a single MCP tool exposed by a service method.
 ///
 /// Generated `inventory::submit!` blocks register one of these per method,
