@@ -583,7 +583,7 @@ fn unified_payload(
         // Figure folders keep the envelope as their tree edge; the migration
         // MIRRORS it into payload `parent_id` and leaves the envelope alone,
         // so envelope-filed figure membership survives untouched.
-        ParentField::Envelope => row.envelope_parent.as_deref().and_then(|s| normalize_id(s)),
+        ParentField::Envelope => row.envelope_parent.as_deref().and_then(normalize_id),
     };
 
     let mut payload: BTreeMap<String, Value> = BTreeMap::new();

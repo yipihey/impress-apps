@@ -520,6 +520,12 @@ mod typst_impl {
         figures_root: Arc<RwLock<Option<PathBuf>>>,
     }
 
+    /// What `render_svg` hands back: one SVG string per page, the compile
+    /// warnings, the page count, and the real-layout source map. Named because
+    /// a bare 4-tuple trips `clippy::type_complexity`, and imprint's CI gate
+    /// runs clippy with `-D warnings`.
+    pub type SvgRender = (Vec<String>, Vec<String>, u32, Vec<LayoutSourceMapEntry>);
+
     impl PersistentTypstRenderer {
         pub fn new() -> Self {
             Self::default()
@@ -735,8 +741,7 @@ mod typst_impl {
             &mut self,
             source: &str,
             options: &RenderOptions,
-        ) -> Result<(Vec<String>, Vec<String>, u32, Vec<LayoutSourceMapEntry>), RenderError>
-        {
+        ) -> Result<SvgRender, RenderError> {
             let (document, warnings) = self.compile_document(source, options)?;
 
             // Build the source map while the document + compiled source are live.

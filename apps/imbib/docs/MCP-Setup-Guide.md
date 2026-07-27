@@ -231,8 +231,8 @@ CONNECTION CHECK
   implore  not running
   impart   not running
 
-  tools exposed now:  190
-  tools total:        220
+  tools exposed now:  231
+  tools total:        241
   (tools for an app that is not running are withheld from
    tools/list; set IMPRESS_MCP_LIST_ALL=1 to see all of them)
 
@@ -243,6 +243,10 @@ CONNECTION CHECK
 you open them, so an agent is never offered a tool that can only answer with an
 empty list. The store line is the fallback used when an app is closed; if it
 reads `MISSING`, run `verify-access.sh` (above).
+
+The tool counts are whatever the inventory holds when you run it — every
+`#[impress_method]` added to a `*-service` trait raises them, so treat the
+numbers above as a shape, not a target.
 
 ### Manual Testing
 

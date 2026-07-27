@@ -244,7 +244,9 @@ mod tests {
             Value::Null,
             Value::Bool(true),
             Value::Int(42),
-            Value::Float(3.14),
+            // Not 3.14: clippy's `approx_constant` is deny-by-default on the
+            // 1.97 toolchain, and this test only needs *a* float to round-trip.
+            Value::Float(2.75),
             Value::String("hello".into()),
             Value::Array(vec![Value::Int(1), Value::String("two".into())]),
             Value::Object({
