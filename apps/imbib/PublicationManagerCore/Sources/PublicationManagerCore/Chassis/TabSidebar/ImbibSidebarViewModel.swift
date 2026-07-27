@@ -387,22 +387,20 @@ final class ImbibSidebarViewModel {
             // so users can discover the "New Manuscript" command + the
             // Submissions inbox even before any manuscript exists.
             return true
-        case .figures:
-            // Pragmatic gate (Stage 2-B, noted in the capability matrix):
-            // only the implore shell shows Figures. imprint's visibleSections
-            // already excludes it; imbib's visibleSections is nil (shows
-            // everything), so a content gate alone would surface it there —
-            // the appID check keeps imbib/imprint unchanged.
-            return shellConfiguration.appID == "implore"
-        case .mail:
-            // Same pragmatic gate as Figures (Stage 2-A, noted in the
-            // capability matrix): only the impart shell shows Mail, so
-            // imbib's nil visibleSections never surfaces it.
-            return shellConfiguration.appID == "impart"
-        case .agents:
-            // Same pragmatic gate again (Stage 2-C): only the impel shell
-            // shows Agents, so imbib's nil visibleSections never surfaces it.
-            return shellConfiguration.appID == "impel"
+        case .figures, .mail, .agents:
+            // Pragmatic gate (Stage 2-A/B/C, noted in the capability matrix):
+            // these facet sections show only in the app that owns them. Every
+            // shipping preset now excludes them via visibleSections too
+            // (imbib's set became explicit with the publications-only
+            // purification), so this is belt-and-braces for any shell that
+            // leaves visibleSections nil.
+            //
+            // ADR-0022 D9: the owner set — NOT an `appID ==` test — because
+            // `impress` legitimately hosts all three. With an equality gate the
+            // impress preset could permit these sections and the sidebar would
+            // still drop them on the floor. See
+            // AppShellConfiguration.facetOwnerAppIDs.
+            return shellConfiguration.passesFacetGate(section)
         }
     }
 
@@ -1261,16 +1259,13 @@ final class ImbibSidebarViewModel {
 
     /// The in-process drag record backing a kind's list rows.
     ///
-    /// G2-strangler TODO: `ManuscriptDragSession` / `FigureDragSession` are
-    /// identical per-kind singletons; a single generic `RecordDragSession`
-    /// registry would delete this switch, but it is app-surface plumbing
-    /// (list rows call `begin(ids:)`) and belongs with the G3 row work.
+    /// G2 remainder #5 (done): the two identical per-kind singletons merged
+    /// into `RecordDragSession`, one instance per collection binding, so this
+    /// is a registry lookup rather than a switch. Bindings whose rows never
+    /// call `begin(ids:)` simply hand back an empty payload.
+    @MainActor
     private static func dragSession(for bindingID: String) -> RecordDragSessionProviding? {
-        switch bindingID {
-        case CollectionBindingID.manuscript: return ManuscriptDragSession.shared
-        case CollectionBindingID.figure: return FigureDragSession.shared
-        default: return nil
-        }
+        RecordDragSession.shared(for: bindingID)
     }
 
     /// Where a record drop of `capability`'s kind may land.

@@ -142,12 +142,32 @@ impl ImprintManuscriptService for HttpImprintManuscriptService {
     }
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult {
         match self.client.compile_typst(&source, options).await {
-            Ok(r) => r,
+            // imprint streams the PDF as bytes. Handing those to an MCP client
+            // as a JSON array of integers is worse than useless — it is a
+            // multi-megabyte non-answer. Park them and report the path, so the
+            // app-backed result has the same shape as the headless one.
+            Ok(mut r) => {
+                if r.pdf_path.is_none() {
+                    if let Some(bytes) = r.pdf_data.take() {
+                        match imprint_service::handlers::park_pdf_bytes(&bytes) {
+                            Ok(path) => {
+                                r.pdf_path = Some(path.to_string_lossy().into_owned());
+                            }
+                            Err(e) => {
+                                log_err("compile_typst", format!("could not park PDF: {e}"));
+                                r.pdf_data = Some(bytes);
+                            }
+                        }
+                    }
+                }
+                r
+            }
             Err(e) => {
                 let msg = format!("{e}");
                 log_err("compile_typst", &msg);
                 CompileResult {
                     pdf_data: None,
+                    pdf_path: None,
                     error: Some(msg),
                     warnings: vec![],
                     page_count: 0,

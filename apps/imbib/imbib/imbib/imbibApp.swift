@@ -1077,7 +1077,12 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("0", modifiers: .command)
 
-            Button("Toggle Manuscript List") {
+            // NOT manuscript-specific despite its old label: listPaneVisible
+            // drives the middle column of EVERY imbib route (publication
+            // SectionContentView included) and is the shortcut advertised by
+            // TabContentView's list toolbar button ("Show/Hide the list ⌥⌘0").
+            // Renamed, not removed, with the publications-only purification.
+            Button("Toggle List") {
                 PaneLayoutStore.shared.current.listPaneVisible.toggle()
             }
             .keyboardShortcut("0", modifiers: [.command, .option])

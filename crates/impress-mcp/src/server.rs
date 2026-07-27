@@ -89,62 +89,141 @@ fn handle_initialize(id: &Value) -> Value {
 const GUIDE_URI: &str = "impress://guide";
 const GUIDE_MARKDOWN: &str = include_str!("guide.md");
 
+/// Store-browse resources (ADR-0022 WP G6).
+///
+/// A tool answers a question the agent already knew to ask. These answer the
+/// question it cannot ask yet: *what is in this store?* Both are live reads
+/// over the same `impress.sqlite` the tools mutate — `--store-path` included,
+/// because `main.rs` hands that path to `impress-store-service` before the
+/// first dispatch, and these go through the same lazily-opened handle.
+const STORE_SCHEMAS_URI: &str = "impress://store/schemas";
+const STORE_COLLECTIONS_URI: &str = "impress://store/collections";
+
+/// Every resource URI a client can read, in listing order. Public so the
+/// end-to-end smoke test can assert the shipped binary lists exactly these.
+pub const RESOURCE_URIS: [&str; 3] = [GUIDE_URI, STORE_SCHEMAS_URI, STORE_COLLECTIONS_URI];
+
 fn handle_resources_list(id: &Value) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": id,
         "result": {
-            "resources": [{
-                "uri": GUIDE_URI,
-                "name": "impress: agent guide",
-                "mimeType": "text/markdown",
-                "description": "Read this first. What impress is, what each app does, \
-                                which search tool to use when, and how asynchronous \
-                                operations and review checkpoints work.",
-            }]
+            "resources": [
+                {
+                    "uri": GUIDE_URI,
+                    "name": "impress: agent guide",
+                    "mimeType": "text/markdown",
+                    "description": "Read this first. What impress is, what each app does, \
+                                    which search tool to use when, and how asynchronous \
+                                    operations and review checkpoints work.",
+                },
+                {
+                    "uri": STORE_SCHEMAS_URI,
+                    "name": "impress store: record kinds",
+                    "mimeType": "application/json",
+                    "description": "Every record kind in the shared store with a live item \
+                                    count and its payload field names. Read this before \
+                                    browsing: it names the exact `schema_ref` values \
+                                    store-query-service_list-items takes.",
+                },
+                {
+                    "uri": STORE_COLLECTIONS_URI,
+                    "name": "impress store: collections",
+                    "mimeType": "application/json",
+                    "description": "All four collection hierarchies (imbib publications, \
+                                    imprint manuscripts, implore figures, and the generic \
+                                    mixed-kind kernel) with nesting and live member counts — \
+                                    the ids every collection-service_* tool takes.",
+                },
+            ]
         }
     })
 }
 
+/// Serialize a store overview as JSON resource contents.
+fn json_resource(id: &Value, uri: &str, body: Result<Value, String>) -> Value {
+    match body {
+        Ok(value) => {
+            let text = serde_json::to_string_pretty(&value).unwrap_or_else(|e| e.to_string());
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "contents": [{ "uri": uri, "mimeType": "application/json", "text": text }]
+                }
+            })
+        }
+        // A store that will not open is a real failure, and a resource that
+        // answered `{}` would look like an empty store instead.
+        Err(e) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32603, "message": format!("Could not read {uri}: {e}") }
+        }),
+    }
+}
+
+fn store_schemas_body() -> Result<Value, String> {
+    let store = impress_store_service::store_instance();
+    let path = impress_store_service::store_path();
+    let overview = impress_store_service::schema_overview(&store, &path.to_string_lossy())
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(overview).map_err(|e| e.to_string())
+}
+
+fn store_collections_body() -> Result<Value, String> {
+    let store = impress_store_service::store_instance();
+    let path = impress_store_service::store_path();
+    let overview = impress_store_service::collection_overview(&store, &path.to_string_lossy());
+    serde_json::to_value(overview).map_err(|e| e.to_string())
+}
+
 fn handle_resources_read(id: &Value, request: &Value) -> Value {
     let uri = request["params"]["uri"].as_str().unwrap_or("");
-    if uri != GUIDE_URI {
-        return json!({
+    match uri {
+        GUIDE_URI => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "contents": [{
+                    "uri": GUIDE_URI,
+                    "mimeType": "text/markdown",
+                    "text": GUIDE_MARKDOWN,
+                }]
+            }
+        }),
+        STORE_SCHEMAS_URI => json_resource(id, STORE_SCHEMAS_URI, store_schemas_body()),
+        STORE_COLLECTIONS_URI => json_resource(id, STORE_COLLECTIONS_URI, store_collections_body()),
+        _ => json!({
             "jsonrpc": "2.0",
             "id": id,
             "error": {
                 "code": -32602,
-                "message": format!("Unknown resource: {uri}"),
+                "message": format!(
+                    "Unknown resource: {uri}. Available: {}",
+                    RESOURCE_URIS.join(", ")
+                ),
             }
-        });
+        }),
     }
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": {
-            "contents": [{
-                "uri": GUIDE_URI,
-                "mimeType": "text/markdown",
-                "text": GUIDE_MARKDOWN,
-            }]
-        }
-    })
 }
 
 #[cfg(test)]
 mod resource_tests {
     use super::*;
 
-    #[test]
-    fn guide_is_listed_and_readable() {
-        let listed = handle_resources_list(&json!(1));
-        let uris: Vec<&str> = listed["result"]["resources"]
+    fn listed_uris() -> Vec<String> {
+        handle_resources_list(&json!(1))["result"]["resources"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|r| r["uri"].as_str().unwrap())
-            .collect();
-        assert_eq!(uris, vec![GUIDE_URI]);
+            .map(|r| r["uri"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn guide_is_listed_and_readable() {
+        assert_eq!(listed_uris()[0], GUIDE_URI, "the guide leads the listing");
 
         let read = handle_resources_read(&json!(2), &json!({"params": {"uri": GUIDE_URI}}));
         let text = read["result"]["contents"][0]["text"].as_str().unwrap();
@@ -159,10 +238,74 @@ mod resource_tests {
         );
     }
 
+    /// A resource a client cannot discover is a resource nobody reads.
+    #[test]
+    fn every_resource_is_listed_and_described() {
+        let uris = listed_uris();
+        assert_eq!(uris, RESOURCE_URIS, "listing must match the declared set");
+
+        for r in handle_resources_list(&json!(1))["result"]["resources"]
+            .as_array()
+            .unwrap()
+        {
+            for field in ["uri", "name", "mimeType", "description"] {
+                let value = r[field].as_str().unwrap_or("");
+                assert!(!value.is_empty(), "{field} missing from {r}");
+            }
+        }
+    }
+
+    /// The store resources read the real (possibly absent) store, so this
+    /// asserts the SHAPE and that they never fail open: `store_instance`
+    /// degrades to an empty in-memory store rather than erroring, which is
+    /// what makes the server usable before the apps have ever run.
+    #[test]
+    fn store_resources_answer_with_json_of_the_documented_shape() {
+        let schemas =
+            handle_resources_read(&json!(4), &json!({"params": {"uri": STORE_SCHEMAS_URI}}));
+        let contents = &schemas["result"]["contents"][0];
+        assert_eq!(contents["mimeType"], "application/json");
+        let body: Value = serde_json::from_str(contents["text"].as_str().unwrap())
+            .expect("the schemas resource must be parseable JSON");
+        assert!(body["store_path"].is_string(), "{body}");
+        assert!(body["total_items"].is_number());
+        let schema_rows = body["schemas"].as_array().expect("schemas array");
+        assert!(
+            schema_rows.len() > 10,
+            "the registered kinds are listed even against an empty store"
+        );
+        assert!(schema_rows
+            .iter()
+            .any(|s| s["schema_ref"] == "manuscript" && s["registered"] == true));
+
+        let collections = handle_resources_read(
+            &json!(5),
+            &json!({"params": {"uri": STORE_COLLECTIONS_URI}}),
+        );
+        let contents = &collections["result"]["contents"][0];
+        assert_eq!(contents["mimeType"], "application/json");
+        let body: Value = serde_json::from_str(contents["text"].as_str().unwrap())
+            .expect("the collections resource must be parseable JSON");
+        let bindings: Vec<&str> = body["bindings"]
+            .as_array()
+            .expect("bindings array")
+            .iter()
+            .map(|b| b["binding"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            bindings,
+            vec!["imbib", "manuscript", "figure", "generic"],
+            "every binding the collection tools accept must appear"
+        );
+    }
+
     #[test]
     fn unknown_resource_is_an_error_not_an_empty_success() {
         let read = handle_resources_read(&json!(3), &json!({"params": {"uri": "impress://nope"}}));
         assert!(read["error"].is_object(), "expected an error, got {read}");
+        // The error names the alternatives, so a wrong guess is self-correcting.
+        let message = read["error"]["message"].as_str().unwrap();
+        assert!(message.contains(STORE_SCHEMAS_URI), "{message}");
     }
 }
 
@@ -260,7 +403,7 @@ fn legacy_tool_definitions() -> Value {
         },
         {
             "name": "render_pdf_page",
-            "description": "Render one page of a PDF on disk to a PNG and return it as an image, so it can actually be SEEN in the conversation. MCP carries raster images, not PDFs, which is why a compiled manuscript otherwise arrives as a path and a byte count. Feed it the path from imprint-app-service_get-pdf or imbib-manuscripts-service_compile-manuscript. Pages are 1-based and clamped to the document.",
+            "description": "Render one page of a PDF on disk to a PNG and return it as an image, so it can actually be SEEN in the conversation. MCP carries raster images, not PDFs, which is why a compiled manuscript otherwise arrives as a path and a byte count. Feed it the path from imprint-manuscript-service_compile-typst (works with every app closed), imbib-manuscripts-service_compile-manuscript, or imprint-app-service_get-pdf. Pages are 1-based and clamped to the document.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

@@ -16,6 +16,20 @@ Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compat
 > also lives in `PublicationManagerCore` (`Chassis/`, `Manuscript/`) and is
 > shared with imprint; manuscripts are first-class store rows.
 
+> **imbib surfaces PUBLICATIONS ONLY (2026-07-27).** The Manuscripts section
+> left imbib's sidebar — manuscript organization lives in imprint (and
+> eventually impress). `AppShellConfiguration.imbib.visibleSections` is now an
+> EXPLICIT set (inbox, libraries, sharedWithMe, scixLibraries, search,
+> exploration, flagged, citedInManuscripts, artifacts, reviewQueue,
+> dismissed); it was `nil`, which opted imbib into every section the chassis
+> grew. A new section must opt IN there. This is GUI SURFACING only: the
+> chassis manuscript/figure code (`Chassis/Manuscripts/`, `Chassis/Figures/`,
+> `CollectionStoreAdapter`, `ManuscriptSectionView`) is untouched and is what
+> imprint and implore run on, and manuscripts remain first-class store rows.
+> Regression sweeps of the manuscript sidebar/section belong to **imprint**,
+> not imbib. See docs/chassis-capability-matrix.md ("Frozen shell-preset
+> truth table" + Known gaps) and ADR-0022 D9.
+
 ## Architecture
 
 ```
@@ -268,7 +282,7 @@ Without `.id()`, NavigationSplitView caches the `detail:` closure and `let` prop
 
 **Manuscript UUID strings crossing the FFI must be lowercased.** The Rust store's canonical id form is lowercase and payload refs (`parent_collection_ref`) are matched by string equality; Swift's `UUID().uuidString` is uppercase. Normalize at the adapter boundary (see `RustStoreAdapter.createManuscriptCollection`).
 
-**The manuscript editor session is owned by the HOST view, never by `ManuscriptDetailPane`.** `ManuscriptSectionView` (and imprint's standalone `ManuscriptEditorView`) resolve the session and pass it in. Holding it as `@State` inside the pane made Source/Preview show the *previously selected* manuscript while the Info tab — which reads `manuscriptID` directly — updated correctly: the pane is reused across selection changes, so its local state outlived the input it was derived from. The pane additionally ignores a session whose `manuscriptID` doesn't match (`liveSession`). Resolution is debounced ~90 ms in the section view so holding ↓ flies through the list instead of loading an editor per row. Do NOT "fix" staleness here by adding `.id(manuscriptID)` to the pane — that rebuilds the whole NSTextView per selection and is what made the list feel sluggish.
+**The manuscript editor session is owned by the HOST view, never by `ManuscriptDetailPane`.** (Chassis invariant — the surface it protects is **imprint's** Manuscripts section since imbib went publications-only; it lives here because the code lives in PMC.) `ManuscriptSectionView` (and imprint's standalone `ManuscriptEditorView`) resolve the session and pass it in. Holding it as `@State` inside the pane made Source/Preview show the *previously selected* manuscript while the Info tab — which reads `manuscriptID` directly — updated correctly: the pane is reused across selection changes, so its local state outlived the input it was derived from. The pane additionally ignores a session whose `manuscriptID` doesn't match (`liveSession`). Resolution is debounced ~90 ms in the section view so holding ↓ flies through the list instead of loading an editor per row. Do NOT "fix" staleness here by adding `.id(manuscriptID)` to the pane — that rebuilds the whole NSTextView per selection and is what made the list feel sluggish.
 
 **Deleting a manuscript must discard its live editor session first** (`ManuscriptSessionRegistry.discard(id:)`, no flush) — otherwise the debounced CAS save fires after the delete and resurrects the body.
 

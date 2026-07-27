@@ -8,10 +8,27 @@
 //  scene-focused "focus my filter" action; the shared Commands block binds
 //  ⌘F to whichever list is frontmost. ⌘⇧F (store-wide search) stays per-app
 //  (imbib: global search; imprint: cross-document search window) behind
-//  `GlobalSearchProviding` until the grouped-by-kind browser lands (Stage 2).
+//  `GlobalSearchProviding`.
+//
+//  WP G4 (ADR-0022 D6) closed the gap for shells that never had a ⌘⇧F:
+//  `ImpressStoreSearchCommands` binds it to the chassis's builtin
+//  `store-search` surface. Apps that ALREADY own ⌘⇧F (imbib: focus filter;
+//  imprint: cross-document search; impart: Forward Message) must NOT insert
+//  it — their existing binding is the documented one and stays untouched. See
+//  docs/keyboard-grammar.md.
 //
 
 import SwiftUI
+
+public extension NSNotification.Name {
+    /// Select the chassis's builtin store-search surface in the frontmost
+    /// chassis window (⌘⇧F where the shell has nothing else bound).
+    /// `TabContentView` observes it.
+    static let openStoreSearch = NSNotification.Name("impress.openStoreSearch")
+    /// Put the caret in the store-search field — posted right after
+    /// `openStoreSearch` so a second ⌘⇧F re-focuses an already-open surface.
+    static let focusStoreSearch = NSNotification.Name("impress.focusStoreSearch")
+}
 
 public struct ListFilterFocusActionKey: FocusedValueKey {
     public typealias Value = () -> Void
@@ -46,6 +63,48 @@ public struct ImpressFindCommands: Commands {
             }
             .keyboardShortcut("f", modifiers: .command)
             .disabled(focusFilter == nil)
+        }
+    }
+}
+
+/// ⌘⇧F → the chassis's builtin "Search Everything" surface.
+///
+/// Insert this into the menu tree of any app whose shell does NOT already
+/// bind ⌘⇧F (implore, impel). Apps that do (imbib, imprint, impart) keep
+/// theirs; the surface is still reachable from the sidebar node, which every
+/// app has.
+public struct ImpressStoreSearchCommands: Commands {
+
+    /// Set false to contribute the menu item WITHOUT the chord — for an app
+    /// whose ⌘⇧F is already spoken for but that still wants the menu entry.
+    private let bindsShortcut: Bool
+
+    public init(bindsShortcut: Bool = true) {
+        self.bindsShortcut = bindsShortcut
+    }
+
+    public var body: some Commands {
+        CommandGroup(after: .textEditing) {
+            Button(StoreSearchSurface.surfaceTitle) {
+                NotificationCenter.default.post(name: .openStoreSearch, object: nil)
+                NotificationCenter.default.post(name: .focusStoreSearch, object: nil)
+            }
+            .modifier(StoreSearchShortcut(enabled: bindsShortcut))
+        }
+    }
+}
+
+/// Applies ⌘⇧F only when the host app asked for it (`buttonStyle`-shaped so
+/// the Button stays one expression inside the CommandGroup builder).
+private struct StoreSearchShortcut: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.keyboardShortcut("f", modifiers: [.command, .shift])
+        } else {
+            content
         }
     }
 }

@@ -133,6 +133,11 @@ public struct FigureDetailPane: View {
                         }
                     }
 
+                    // ADR-0022 D8 (G5): edges this figure sits on — the
+                    // manuscripts that embed it, the run that produced it.
+                    // Renders nothing when it has none.
+                    RelatedItemsSection(itemID: figureID)
+
                     if row.flag != nil || !row.tagDisplays.isEmpty {
                         Divider()
                     }

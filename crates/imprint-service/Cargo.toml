@@ -15,6 +15,12 @@ default = []
 # actually compiles (off by default — heavy C deps; the method returns a
 # "not enabled" DTO otherwise).
 tectonic-render = ["imprint-core/tectonic-render"]
+# Propagate imprint-core's embedded Typst engine so `compile_typst` actually
+# compiles headlessly (off by default — Typst linkage is heavy, see ADR-0018;
+# `impress-mcp` turns it on explicitly because the MCP server is exactly where
+# a headless compile is wanted). Without it the method returns a structured
+# "not enabled" DTO, same shape as `compile_latex`.
+typst-render = ["imprint-core/typst-render"]
 
 [dependencies]
 # Shared impress workspace crates
@@ -34,6 +40,9 @@ tokio = { workspace = true }
 # Hashing for content-addressed storage
 sha2 = "0.10"
 hex = "0.4"
+
+# Compile-artifact cache location (~/Library/Caches/impress/imprint/compile).
+dirs = { workspace = true }
 
 # Full-text search
 tantivy = "0.22"

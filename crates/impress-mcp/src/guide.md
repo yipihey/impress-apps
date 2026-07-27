@@ -48,9 +48,14 @@ Five tools have "search" in the name. They are not interchangeable:
   Use when the answer is "what do I have on X".
 - **`imbib_search_sources`** — external only (ADS, arXiv, Crossref). Use when
   you know the library does not have it, or you want breadth. Costs network.
-- **`impress_search_all`** — cross-app search over the shared store (papers +
-  manuscripts + figures + conversations). Use for "where did I write about X",
-  when you do not know which app holds the answer.
+- **`store-query-service_search-all`** — cross-app search over the shared store
+  (papers + manuscripts + figures + conversations + tasks + runs). Use for
+  "where did I write about X", when you do not know which app holds the
+  answer. Every hit carries `schema_ref`, and the per-kind cap means one noisy
+  mailbox cannot crowd out the manuscripts. Follow a hit with
+  `store-query-service_get-item` to read it, or
+  `store-query-service_related-items` to see what it is connected to — neither
+  needs to know which app owns the record.
 - **`imprint-manuscript-service_search`** — within a single open document. Use to locate a
   phrase before patching it.
 - **`imprint_cross_document_search`** — across all open manuscripts. Use for
@@ -141,11 +146,28 @@ with imbib open.
 
 ## Other resources
 
-- `impress://imbib/library`, `impress://imbib/collections` — library summary.
-- `impress://imbib/papers/{citeKey}` — full JSON for one paper (readable by
-  URI even though it is not enumerated in the resource list).
-- `impress://imprint/documents`, `impress://imprint/documents/{id}` — open
-  manuscripts and their Typst source.
+Two, and both are live reads of the shared store — they work with every app
+closed, and they honour this server's `--store-path`:
+
+- `impress://store/schemas` — every record kind in the store with a live item
+  count and its payload field names. **Read this before browsing:** it names
+  the exact `schema_ref` strings `store-query-service_list-items` takes, and
+  tells you which kinds actually have rows.
+- `impress://store/collections` — all four collection hierarchies (imbib
+  publications, imprint manuscripts, implore figures, and the generic
+  mixed-kind kernel) with nesting and member counts. These are the ids every
+  `collection-service_*` tool takes; rebuild the tree from `parent_id`
+  (null = root).
+
+Then: `store-query-service_list-items` pages through one kind (or every kind,
+with an empty `schema_ref`), newest first, envelopes only;
+`store-query-service_get-item` opens one row of any kind — envelope plus
+payload, with the payload capped at 32 KiB and a `truncated` flag when a long
+`body_content` hits the cap.
+
+The TypeScript server's `impress://imbib/*` and `impress://imprint/*`
+resources were **not** carried over and will error; the equivalent data is in
+the `imbib-library-service_*` and `imprint-manuscript-service_*` tools.
 
 <!-- Ported from packages/impress-mcp/src/resources/guide.ts during the
      TypeScript retirement. Tool names were repointed at their generated

@@ -194,6 +194,11 @@ public struct AgentRecordDetailPane: View {
                     }
                 }
 
+                // ADR-0022 D8 (G5): the runs, messages and artifacts this
+                // task is edge-linked to (`ProducedBy` & co.). Renders
+                // nothing when there are none.
+                RelatedItemsSection(itemID: recordID)
+
                 triageFooter(flag: row.flag, tags: row.tagDisplays)
                 Spacer(minLength: 0)
             }
@@ -224,6 +229,10 @@ public struct AgentRecordDetailPane: View {
                     }
                     infoRow("Recorded", row.dateCreated.formatted(date: .abbreviated, time: .shortened))
                 }
+
+                // ADR-0022 D8 (G5): the task this run answered, the artifacts
+                // it produced. Renders nothing when there are none.
+                RelatedItemsSection(itemID: recordID)
 
                 triageFooter(flag: row.flag, tags: row.tagDisplays)
                 Spacer(minLength: 0)

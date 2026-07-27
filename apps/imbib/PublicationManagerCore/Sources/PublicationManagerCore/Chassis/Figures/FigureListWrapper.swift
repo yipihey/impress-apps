@@ -9,7 +9,7 @@
 //  logic: shared row chrome (ImpressMailStyle), selection binding, the shared
 //  triage builders (TriageSwipe/TriageMenu/TriageKeyGrammar — the
 //  capability-matrix rule for new kinds), and folder drag via
-//  UTType.figureID + FigureDragSession.
+//  UTType.figureID + RecordDragSession.figure.
 //
 
 import SwiftUI
@@ -182,8 +182,8 @@ public struct FigureListWrapper: View {
                             .itemProvider {
                                 let dragged = Array(targetIDs(for: row))
                                 // Record for the sidebar's synchronous drop
-                                // read (see FigureDragSession).
-                                FigureDragSession.shared.begin(ids: dragged)
+                                // read (see RecordDragSession).
+                                RecordDragSession.figure.begin(ids: dragged)
                                 let ids = dragged.map(\.uuidString)
                                 logger.info("drag started: \(ids.count) figure(s)")
                                 let provider = NSItemProvider()

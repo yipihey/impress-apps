@@ -35,23 +35,6 @@
 			</array>
 		</dict>
 		<dict>
-			<key>CFBundleTypeExtensions</key>
-			<array>
-				<string>md</string>
-				<string>markdown</string>
-			</array>
-			<key>CFBundleTypeName</key>
-			<string>Markdown Document</string>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>net.daringfireball.markdown</string>
-			</array>
-		</dict>
-		<dict>
 			<key>CFBundleTypeName</key>
 			<string>Plain Text</string>
 			<key>CFBundleTypeRole</key>
@@ -129,6 +112,30 @@
 			<string>Impress Document Reference</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.impress.document-reference</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>imbib Manuscript ID</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.imbib.manuscript-id</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Impress Figure ID</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.impress.figure-id</string>
 			<key>UTTypeTagSpecification</key>
 			<dict/>
 		</dict>

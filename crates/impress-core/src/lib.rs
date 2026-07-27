@@ -12,9 +12,15 @@ pub mod task;
 #[cfg(feature = "sqlite")]
 pub mod backup;
 #[cfg(feature = "sqlite")]
+pub mod collection_migration;
+#[cfg(feature = "sqlite")]
 pub mod collection_ops;
 #[cfg(feature = "sqlite")]
 pub mod manuscript_ops;
+#[cfg(feature = "sqlite")]
+pub mod related_ops;
+#[cfg(feature = "sqlite")]
+pub mod search_ops;
 #[cfg(feature = "sqlite")]
 pub mod sql_query;
 #[cfg(feature = "sqlite")]

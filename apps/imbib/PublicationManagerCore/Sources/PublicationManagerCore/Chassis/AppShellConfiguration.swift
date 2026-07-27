@@ -30,7 +30,11 @@ public struct AppShellConfiguration: Sendable {
 
     /// Sections the sidebar is allowed to show. A section still applies its own
     /// content gate (`shouldShowSection`) on top of this — visibility is the
-    /// intersection. `nil` means "no restriction" (imbib's default: everything).
+    /// intersection. `nil` means "no restriction"; NO preset uses it any more
+    /// — imbib became explicit with the publications-only purification and
+    /// even `impress`, which wants every section, lists them (ADR-0022 D9) —
+    /// so a new section is invisible everywhere until a preset opts in. It
+    /// stays supported for test shells only.
     public let visibleSections: Set<SidebarSectionType>?
 
     /// Which section is selected on first launch.
@@ -105,10 +109,47 @@ public struct AppShellConfiguration: Sendable {
 
     // MARK: Presets
 
-    /// imbib: the full research environment — every section, land in Inbox.
+    /// imbib: PUBLICATIONS ONLY — every publication-centric section, land in
+    /// Inbox.
+    ///
+    /// Purity is the policy (ADR-0022 D9): imbib is the bibliography facet,
+    /// other record kinds get their own shells (manuscripts → imprint,
+    /// figures → implore, mail → impart, tasks/runs → impel), and `impress`
+    /// is the preset that will unify them. imbib's `visibleSections` used to
+    /// be `nil` ("no restriction"), which made every new chassis section
+    /// surface here by default — the Manuscripts section rode in that way.
+    /// It is now an EXPLICIT set: a future section must opt IN to imbib,
+    /// consciously, in this list.
+    ///
+    /// Excluded on purpose: `.manuscripts` (imprint's facet; the chassis code
+    /// stays — imprint and implore run on it), `.figures` (implore), `.mail`
+    /// (impart), `.agents` (impel). Kept on purpose: `.citedInManuscripts` —
+    /// its children are "All Cited Papers", i.e. PUBLICATIONS, and it is
+    /// imbib's half of the imprint bridge; `.dismissed` — in imbib it is
+    /// bound to `.publication` (see `sectionBindings` below) and is the
+    /// destination of the publication dismiss gesture, so removing it would
+    /// strand dismissed papers.
+    ///
+    /// Note: `.submissionsInbox` stays in `auxiliaryRoutes` but is currently
+    /// UNREACHABLE in imbib — it hung off the Manuscripts section. The route
+    /// and its feature are retained deliberately, pending a new home in
+    /// imprint or impress (tracked in docs/chassis-capability-matrix.md
+    /// "Known gaps").
     public static let imbib = AppShellConfiguration(
         appID: "imbib",
-        visibleSections: nil,
+        visibleSections: [
+            .inbox,
+            .libraries,
+            .sharedWithMe,
+            .scixLibraries,
+            .search,
+            .exploration,
+            .flagged,
+            .citedInManuscripts,
+            .artifacts,
+            .reviewQueue,
+            .dismissed,
+        ],
         defaultSection: .inbox,
         defaultDetailTab: .info,
         sectionBindings: [
@@ -202,6 +243,135 @@ public struct AppShellConfiguration: Sendable {
         auxiliaryRoutes: [],
         openOverrides: [:]   // task/agent-run descriptor default is .detailPane
     )
+
+    /// impress: the shell that shows EVERYTHING (ADR-0022 D9).
+    ///
+    /// **No app target ships this preset.** There is no `impress` executable,
+    /// no `ImpressChassisRoot`, no Info.plist. It exists so the seams the
+    /// future app will stand on are exercised by parity tests TODAY —
+    /// `AppShellConfigurationParityTests` freezes the truth table below, so a
+    /// chassis change that would have quietly made impress impossible fails a
+    /// test instead of being discovered in a year. The app itself waits for
+    /// the sibling apps and their renderers to mature (D7); when it comes it
+    /// should be a ~120-line shell over seams that have been green for months.
+    ///
+    /// `visibleSections` is the EXPLICIT union of every section the chassis
+    /// has — `nil` ("no restriction") is retired suite-wide, including here.
+    /// A shell that opted in by omission would be exactly the mechanism that
+    /// rode the Manuscripts section into imbib. `impress` wants every section,
+    /// so it says every section, and `testImpressPermitsEverySection` fails
+    /// when the enum grows until someone decides.
+    ///
+    /// `sectionBindings` names the kind each section serves. Three deliberate
+    /// notes:
+    /// - `.flagged` / `.dismissed` bind to `.publication` for now. They are
+    ///   the two cross-kind sections, and in the real impress they should list
+    ///   flagged/dismissed records of EVERY kind through `AnyRecordListWrapper`
+    ///   — a single `RecordKindID` cannot express that. `.publication`
+    ///   reproduces imbib's behaviour exactly and keeps imprint's
+    ///   manuscript-only routing (`== .manuscript`) off; the mixed-kind
+    ///   version is a follow-up, not a preset edit.
+    /// - `.reviewQueue` is deliberately UNBOUND: its rows are
+    ///   `review-request@1.0.0` items, which have no `RecordKindDescriptor`.
+    ///   Binding it to a kind it does not list would be a lie a future reader
+    ///   trusts. When a review-request descriptor lands, this is its home.
+    /// - `.agents` binds to `.task`; `agent-run` has no section of its own by
+    ///   design (runs are a tree child of Agents and share `AgentSectionView`
+    ///   — the scope decides which schema it lists). It is the one registry
+    ///   kind that is not a `sectionBindings` value.
+    ///
+    /// `auxiliaryRoutes` gives the homeless Submissions inbox its designated
+    /// future home. It hung off imbib's Manuscripts section and became
+    /// unreachable with the publications-only purification; the route and
+    /// `SubmissionsInboxView` were retained for exactly this
+    /// (docs/chassis-capability-matrix.md, Known gaps: "Submissions inbox is
+    /// unreachable in imbib after publications-only purification").
+    ///
+    /// `openOverrides` is EMPTY on purpose: impress embeds every viewer, so
+    /// every kind should use its descriptor default. Note the one behaviour
+    /// this leaves temporarily wrong — the manuscript descriptor's default is
+    /// `.appHandoff` (hand off to imprint), which is right *today* because
+    /// impress does not exist to open anything; when impress ships it becomes
+    /// `.detailPane`. That is a descriptor/override decision to make at ship
+    /// time, not a line of code to write now, and it is asserted as-is by the
+    /// parity test so the change is deliberate.
+    ///
+    /// Keychain caveat: this preset permits `.search`, which means the
+    /// ADS/SciX credential read in `TabContentView` WOULD run in impress. Those
+    /// keychain items are ACL'd to imbib's code signature (see the invariant in
+    /// apps/imbib/CLAUDE.md), so impress must either ship with imbib's keychain
+    /// access group or the read must move behind a reachability check — a
+    /// signing decision that has to be made before the target exists.
+    public static let impress = AppShellConfiguration(
+        appID: "impress",
+        visibleSections: [
+            .inbox,
+            .libraries,
+            .sharedWithMe,
+            .scixLibraries,
+            .search,
+            .exploration,
+            .flagged,
+            .citedInManuscripts,
+            .artifacts,
+            .manuscripts,
+            .figures,
+            .mail,
+            .agents,
+            .reviewQueue,
+            .dismissed,
+        ],
+        defaultSection: .inbox,
+        defaultDetailTab: .info,
+        recordKinds: BuiltinRecordKinds.registry,
+        sectionBindings: [
+            .inbox: .publication,
+            .libraries: .publication,
+            .sharedWithMe: .publication,
+            .scixLibraries: .publication,
+            .search: .publication,
+            .exploration: .publication,
+            .flagged: .publication,
+            .citedInManuscripts: .publication,
+            .artifacts: .artifact,
+            .manuscripts: .manuscript,
+            .figures: .figure,
+            .mail: .message,
+            .agents: .task,
+            .dismissed: .publication,
+        ],
+        auxiliaryRoutes: [.submissionsInbox],
+        openOverrides: [:]
+    )
+
+    // MARK: Facet gates
+
+    /// App IDs allowed to SURFACE a facet-owned section, on top of
+    /// `visibleSections` (ADR-0022 D9).
+    ///
+    /// `.figures` / `.mail` / `.agents` carry a pragmatic app-ID gate in
+    /// `ImbibSidebarViewModel.shouldShowSection` from Stage 2 — belt-and-braces
+    /// against a shell that leaves `visibleSections` nil. Each is a SET, not an
+    /// equality test, because the owning app is no longer the only legitimate
+    /// host: `impress` unifies every kind, and an `==` gate would let it permit
+    /// these sections in its preset and still never show them.
+    ///
+    /// nil = no app-ID gate for that section.
+    public static func facetOwnerAppIDs(for section: SidebarSectionType) -> Set<String>? {
+        switch section {
+        case .figures: return ["implore", "impress"]
+        case .mail: return ["impart", "impress"]
+        case .agents: return ["impel", "impress"]
+        default: return nil
+        }
+    }
+
+    /// Does this shell pass the sidebar's pragmatic app-ID gate for `section`?
+    /// Orthogonal to `permits(_:)`: visibility is the intersection of both.
+    public func passesFacetGate(_ section: SidebarSectionType) -> Bool {
+        guard let owners = Self.facetOwnerAppIDs(for: section) else { return true }
+        return owners.contains(appID)
+    }
 
     /// Copy of this configuration with the given custom surfaces registered.
     /// Surfaces hold app-target views, so shells register them at the app

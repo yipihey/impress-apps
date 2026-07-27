@@ -24,7 +24,16 @@ base64 = "0.22"
 impress-service-core = { workspace = true }
 imbib-service = { workspace = true }
 imbib-service-http = { workspace = true }
-imprint-service = { workspace = true }
+# `typst-render` is OFF by default in imprint-service (Typst linkage is heavy —
+# ADR-0018) and turned on HERE, because this binary is exactly where a headless
+# compile is wanted: `imprint-manuscript-service_compile-typst` is not
+# app-gated, so with imprint closed this is the only thing in the suite that can
+# turn a manuscript into a PDF. It is NOT free: the release binary goes
+# 46,990,144 → 98,709,072 bytes (45 → 94 MiB, +110%). That cost is exactly why
+# the feature is not in imprint-service's `default` — every other consumer
+# (imprint-service-http, imprint-selftest, the app FFI, which already links
+# Typst its own way) would pay it for a capability only this binary uses.
+imprint-service = { workspace = true, features = ["typst-render"] }
 imprint-service-http = { workspace = true }
 # implore + impart services (TypeScript MCP retirement, phase 3).
 implore-service = { workspace = true }

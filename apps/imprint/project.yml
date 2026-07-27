@@ -186,6 +186,21 @@ targets:
             UTTypeDescription: Impress Document Reference
             UTTypeIdentifier: com.impress.document-reference
             UTTypeTagSpecification: {}
+          # Chassis drag types (PublicationManagerCore, MailStylePublicationRow).
+          # EXPORTED in every host app that links the chassis, not imported:
+          # the chassis builds them with UTType(exportedAs:), and an imported
+          # declaration still faults ("was expected to be exported in the
+          # Info.plist of <app>, but it was imported instead").
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Manuscript ID
+            UTTypeIdentifier: com.imbib.manuscript-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Figure ID
+            UTTypeIdentifier: com.impress.figure-id
+            UTTypeTagSpecification: {}
         UTImportedTypeDeclarations:
           - UTTypeConformsTo:
               - public.data

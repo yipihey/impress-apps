@@ -34,4 +34,17 @@ public enum ManuscriptFiguresDirectory {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
+
+    /// Where a headless compile parks its PDF:
+    /// `<manuscriptRoot>/compile/manuscript.pdf`, created on demand.
+    ///
+    /// One stable path per manuscript, overwritten by each compile — a
+    /// per-compile filename would grow without bound in the shared container.
+    /// It exists so a compile can answer with a `pdfPath` an agent can open
+    /// (`render_pdf_page`), instead of only a byte count.
+    public static func compiledPDFURL(for id: UUID) throws -> URL {
+        let dir = manuscriptRoot(for: id).appendingPathComponent("compile", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("manuscript.pdf", isDirectory: false)
+    }
 }

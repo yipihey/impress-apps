@@ -43,18 +43,143 @@ mkdir -p "$FRAMEWORK_DIR"
 MACOS_UNIVERSAL_DIR="$FRAMEWORK_DIR/macos-universal"
 mkdir -p "$MACOS_UNIVERSAL_DIR"
 
-echo "Creating universal macOS binary..."
-lipo -create \
-    "$BUILD_DIR/$MACOS_TARGET/release/libimpel_tools.a" \
-    "$BUILD_DIR/$MACOS_X86_TARGET/release/libimpel_tools.a" \
-    -output "$MACOS_UNIVERSAL_DIR/libimpel_tools.a"
-
 echo ""
 echo "Generating Swift bindings..."
 cargo run -p impel-tools --bin uniffi-bindgen generate \
     --library "$BUILD_DIR/$MACOS_TARGET/release/libimpel_tools.dylib" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"
+
+# ---------------------------------------------------------------------------
+# Symbol filtering
+# ---------------------------------------------------------------------------
+#
+# This crate links imbib-service, which links imbib-core with its `native`
+# feature — and `native` is what turns on imbib-core's UniFFI scaffolding. So
+# `libimpel_tools.a` contains a *second* copy of every `_uniffi_imbib_core_*`
+# and `_UNIFFI_META_IMBIB_CORE_*` symbol. impel links both this XCFramework and
+# ImbibCore.xcframework (via the PublicationManagerCore chassis), and the app
+# link then dies with ~1300 duplicate symbols.
+#
+# Cargo features are additive, so impel-tools cannot ask for imbib-core without
+# `native`: imbib-service requires it, and unification would re-enable it
+# anyway. The fix therefore belongs here, at packaging time. For each arch we
+# `ld -r` the whole archive into one relocatable object with an
+# `-exported_symbols_list` naming only impel-tools' own FFI surface. Everything
+# else — the imbib-core scaffolding, the Rust runtime, the vendored C — is
+# demoted to private-extern: still linked, still callable from inside this
+# object, but no longer visible to (or collidable with) the app link.
+#
+# Note what is deliberately NOT exported: `_rust_eh_personality`, `___rust_alloc`
+# and friends. Those are already duplicated across the suite's XCFrameworks and
+# already tolerated; localising ours removes one copy from the pile rather than
+# adding to it.
+#
+# The keep-list is derived by prefix, not hand-maintained, and then checked
+# against the freshly generated header — if UniFFI ever emits an entry point
+# under a prefix this pattern misses, the build fails here instead of at the
+# app's link.
+KEEP_SYMBOLS_RE='^_(uniffi|ffi)_impel_tools_|^_UNIFFI_META_IMPEL_TOOLS_|^_UNIFFI_META_NAMESPACE_IMPEL$'
+
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+GENERATED_HEADER="$FRAMEWORK_DIR/generated/impel_toolsFFI.h"
+FILTER_DIR="$FRAMEWORK_DIR/filtered"
+rm -rf "$FILTER_DIR"
+mkdir -p "$FILTER_DIR"
+
+# Every C entry point the generated header declares is, by definition, what the
+# Swift bindings will ask the linker for. Anything here that the prefix pattern
+# would drop is a packaging bug.
+grep -oE '\b(uniffi|ffi)_[A-Za-z0-9_]+' "$GENERATED_HEADER" \
+    | sed 's/^/_/' | sort -u > "$FILTER_DIR/header-symbols.txt"
+if grep -vE "$KEEP_SYMBOLS_RE" "$FILTER_DIR/header-symbols.txt" > "$FILTER_DIR/header-unmatched.txt"; then
+    echo "ERROR: the generated header declares entry points the keep-list pattern misses:" >&2
+    sed 's/^/  /' "$FILTER_DIR/header-unmatched.txt" >&2
+    echo "Widen KEEP_SYMBOLS_RE in $(basename "${BASH_SOURCE[0]}")." >&2
+    exit 1
+fi
+
+# nm cannot read a Mach-O that still carries the __LLVM,__bitcode section
+# rustc's prebuilt std objects bring along, and `ld -r` concatenates those
+# sections into the merged object. Dropping the section makes the result
+# inspectable (and ~10% smaller); bitcode has been dead on Apple platforms for
+# years, so nothing needs it.
+RUST_TOOL_BIN="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin"
+OBJCOPY=""
+if [ -x "$RUST_TOOL_BIN/rust-objcopy" ]; then
+    OBJCOPY="$RUST_TOOL_BIN/rust-objcopy"
+elif command -v llvm-objcopy > /dev/null 2>&1; then
+    OBJCOPY="$(command -v llvm-objcopy)"
+fi
+
+# filter_archive <arch> <input .a> <output .a>
+filter_archive() {
+    local arch="$1"
+    local in_lib="$2"
+    local out_lib="$3"
+    local work="$FILTER_DIR/$arch"
+
+    mkdir -p "$work"
+    nm -gjU "$in_lib" 2>/dev/null | grep -E "$KEEP_SYMBOLS_RE" | sort -u > "$work/exported.txt"
+
+    local missing
+    missing="$(comm -23 "$FILTER_DIR/header-symbols.txt" "$work/exported.txt")"
+    if [ -n "$missing" ]; then
+        echo "ERROR: $arch archive is missing entry points the header declares:" >&2
+        echo "$missing" | sed 's/^/  /' >&2
+        exit 1
+    fi
+    echo "  $arch: keeping $(wc -l < "$work/exported.txt" | tr -d ' ') exported symbols"
+
+    ld -r -arch "$arch" \
+        -platform_version macos "$MACOSX_DEPLOYMENT_TARGET" "$SDK_VERSION" \
+        -exported_symbols_list "$work/exported.txt" \
+        -all_load "$in_lib" \
+        -o "$work/impel_tools.o"
+
+    if [ -n "$OBJCOPY" ]; then
+        "$OBJCOPY" --remove-section=__LLVM,__bitcode \
+            "$work/impel_tools.o" "$work/impel_tools.stripped.o"
+        mv "$work/impel_tools.stripped.o" "$work/impel_tools.o"
+    else
+        echo "  WARNING: no llvm-objcopy found; leaving __LLVM,__bitcode in place" >&2
+    fi
+
+    rm -f "$out_lib"
+    ar crs "$out_lib" "$work/impel_tools.o"
+}
+
+echo ""
+echo "Localizing non-impel_tools symbols (imbib-core's UniFFI scaffolding rides along)..."
+filter_archive arm64 \
+    "$BUILD_DIR/$MACOS_TARGET/release/libimpel_tools.a" \
+    "$FILTER_DIR/libimpel_tools-arm64.a"
+filter_archive x86_64 \
+    "$BUILD_DIR/$MACOS_X86_TARGET/release/libimpel_tools.a" \
+    "$FILTER_DIR/libimpel_tools-x86_64.a"
+
+echo ""
+echo "Creating universal macOS binary..."
+lipo -create \
+    "$FILTER_DIR/libimpel_tools-arm64.a" \
+    "$FILTER_DIR/libimpel_tools-x86_64.a" \
+    -output "$MACOS_UNIVERSAL_DIR/libimpel_tools.a"
+
+# The check that matters: a sibling crate's UniFFI symbols must not be visible
+# here, or impel's link fails on duplicates again.
+for arch in arm64 x86_64; do
+    if ! nm -gjU --arch "$arch" "$MACOS_UNIVERSAL_DIR/libimpel_tools.a" > "$FILTER_DIR/after-$arch.txt" 2>/dev/null; then
+        echo "  WARNING: could not read $arch exports back; skipping the leak check" >&2
+        continue
+    fi
+    leaked="$(grep -cE '^_(uniffi|ffi)_imbib_core_|^_UNIFFI_META_IMBIB' "$FILTER_DIR/after-$arch.txt" || true)"
+    kept="$(grep -cE "$KEEP_SYMBOLS_RE" "$FILTER_DIR/after-$arch.txt" || true)"
+    echo "  $arch: $kept impel_tools symbols exported, $leaked imbib-core symbols leaked"
+    if [ "$leaked" -ne 0 ] || [ "$kept" -eq 0 ]; then
+        echo "ERROR: $arch export surface is wrong (see $FILTER_DIR/after-$arch.txt)" >&2
+        exit 1
+    fi
+done
 
 # Headers go in a uniquely-named subdirectory: several XCFrameworks are linked
 # into the same Xcode workspace and a bare header name collides.

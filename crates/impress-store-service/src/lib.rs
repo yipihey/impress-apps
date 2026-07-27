@@ -1,6 +1,6 @@
 //! Store-generic `#[impress_service]` traits (ADR-0022 WP G1).
 //!
-//! Two services live here, and they have one thing in common that decides
+//! Three services live here, and they have one thing in common that decides
 //! where they belong: **they know nothing about any app**. They open the
 //! shared `impress.sqlite` directly, so they answer with every app closed, and
 //! they are therefore never withheld by `impress-mcp`'s reachability gate the
@@ -12,23 +12,44 @@
 //!   the CLI and an agent share one vocabulary.
 //! * [`TriageService`] — star / flag / tag / status over any item, over
 //!   `impress_core::triage_ops`.
+//! * [`StoreQueryService`] — the mixed-kind reads: grouped global search
+//!   (D6, `impress_core::search_ops`), cross-kind relations (D8,
+//!   `impress_core::related_ops`), and the generic get/browse pair (G6) that
+//!   lets an agent open and page through records of any kind.
+//!
+//! [`browse`] is the odd one out: plain functions, not a service. It assembles
+//! the store overviews that `impress-mcp` serves as MCP *resources*
+//! (`impress://store/schemas`, `impress://store/collections`) — reads over the
+//! same store the tools use, in a shape a client fetches rather than calls.
 //!
 //! ADR-0022 D5's rule is that every GUI verb gets a Rust service twin and
 //! *only* service-backed ops are exposed. These are the collection and triage
 //! halves of that; `docs/chassis-capability-matrix.md` § "MCP surface" records
 //! which matrix cells they automate.
 
+pub mod browse;
 pub mod collection_service;
+pub mod query_service;
 pub mod store;
 pub mod triage_service;
 
 #[cfg(test)]
 mod test_support;
 
+pub use browse::{
+    collection_overview, schema_overview, BindingTree, CollectionNode, CollectionsOverview,
+    SchemaOverview, SchemaRow,
+};
 pub use collection_service::{
-    binding_for, CollectionListResult, CollectionMutationResult, CollectionResult,
-    CollectionRowDto, CollectionService, DefaultCollectionService, MemberCountsResult,
-    BINDING_NAMES,
+    binding_for, BindingMigrationDto, CollectionListResult, CollectionMutationResult,
+    CollectionResult, CollectionRowDto, CollectionService, DefaultCollectionService,
+    KindScopeCountDto, LegacyCountDto, MemberCountsResult, MigrationReportResult,
+    MigrationStatusResult, RollbackCountDto, RollbackReportResult, BINDING_NAMES,
+};
+pub use query_service::{
+    DefaultStoreQueryService, ItemEnvelopeDto, ItemListResult, ItemResult, RelatedItemDto,
+    RelatedResult, SearchHitDto, SearchResult, StoreQueryService, DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT, MAX_PAYLOAD_BYTES,
 };
 pub use store::{default_store_path, install_store, set_store_path, store_instance, store_path};
 pub use triage_service::{DefaultTriageService, TriageResult, TriageService};
@@ -37,8 +58,8 @@ pub use triage_service::{DefaultTriageService, TriageResult, TriageService};
 mod inventory_tests {
     use impress_service_core::McpToolDescriptor;
 
-    /// Every method of both traits must reach the MCP inventory — that is the
-    /// entire point of the crate, and a missing `#[impress_method]` is
+    /// Every method of every trait here must reach the MCP inventory — that is
+    /// the entire point of the crate, and a missing `#[impress_method]` is
     /// otherwise invisible until an agent cannot find the tool.
     #[test]
     fn both_services_register_every_tool() {
@@ -53,11 +74,19 @@ mod inventory_tests {
             "collection-service_add-members",
             "collection-service_remove-members",
             "collection-service_member-counts",
+            // ADR-0022 WP G7: the deliberate, human-invoked convergence trio.
+            "collection-service_migration-status",
+            "collection-service_migrate",
+            "collection-service_rollback",
             "triage-service_set-starred",
             "triage-service_set-flag",
             "triage-service_add-tag",
             "triage-service_remove-tag",
             "triage-service_set-status",
+            "store-query-service_search-all",
+            "store-query-service_related-items",
+            "store-query-service_get-item",
+            "store-query-service_list-items",
         ] {
             assert!(
                 names.contains(&expected),
@@ -65,6 +94,15 @@ mod inventory_tests {
             );
         }
     }
+
+    /// Tools that legitimately take NO arguments, so their generated schema is
+    /// a bare `{"type": "object"}` with no `properties` key. Kept as an
+    /// explicit list rather than a relaxed assertion: a tool losing its
+    /// arguments to a refactor should still fail this test loudly.
+    const NO_ARGUMENT_TOOLS: [&str; 2] = [
+        "collection-service_migration-status",
+        "collection-service_rollback",
+    ];
 
     /// Descriptions come from the trait's doc comments. A tool that ships
     /// "Invoke Service.method" is a tool the model will misuse.
@@ -76,8 +114,15 @@ mod inventory_tests {
                 "{} has a placeholder description",
                 d.name
             );
+            let schema = (d.input_schema)();
+            assert_eq!(
+                schema.get("type").and_then(|t| t.as_str()),
+                Some("object"),
+                "{} has no object input schema",
+                d.name
+            );
             assert!(
-                (d.input_schema)().get("properties").is_some(),
+                schema.get("properties").is_some() || NO_ARGUMENT_TOOLS.contains(&d.name),
                 "{} has no input schema properties",
                 d.name
             );

@@ -86,8 +86,12 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
     ) -> Vec<TextMatch>;
 
     // ---- Typst compile ----
-    /// Compile an imprint document to PDF. Triggers the Typst compiler and
-    /// generates output.
+    /// Compile Typst source to a PDF and return `pdf_path` (plus page count
+    /// and any warnings) — NOT the bytes, which no tool result can carry. Feed
+    /// `pdf_path` to `render_pdf_page` to actually look at a page. Works with
+    /// imprint closed: the compiler is embedded. With imprint running the
+    /// compile happens in its live engine instead; either way you get a path.
+    /// A broken document comes back as `error`, not as a failed call.
     #[impress_method]
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult;
 
@@ -323,6 +327,7 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
                 log_err("compile_typst", &msg);
                 CompileResult {
                     pdf_data: None,
+                    pdf_path: None,
                     error: Some(msg),
                     warnings: vec![],
                     page_count: 0,

@@ -230,16 +230,15 @@ final class MessageRecordKindTests: XCTestCase {
         XCTAssertTrue(c.permits(.mail))
     }
 
-    /// The Mail section stays hidden outside impart: imprint/implore exclude
-    /// it via visibleSections; imbib permits everything (nil) but the
-    /// content gate (`shouldShowSection` appID == "impart") keeps it out —
-    /// the preset half of that contract is assertable here.
+    /// The Mail section stays hidden outside impart: EVERY other preset now
+    /// excludes it via visibleSections — imbib included, since the
+    /// publications-only purification made its set explicit. The appID
+    /// content gate (`shouldShowSection` appID == "impart", not testable here
+    /// — private) remains as belt-and-braces for nil-visibleSections shells.
     func testMailSectionGatingAcrossPresets() {
         XCTAssertFalse(AppShellConfiguration.imprint.permits(.mail))
         XCTAssertFalse(AppShellConfiguration.implore.permits(.mail))
-        // imbib's visibleSections is nil → permits everything; the appID
-        // content gate (not testable here — private) is the actual guard.
-        XCTAssertTrue(AppShellConfiguration.imbib.permits(.mail))
+        XCTAssertFalse(AppShellConfiguration.imbib.permits(.mail))
         XCTAssertEqual(AppShellConfiguration.imbib.appID, "imbib")
     }
 

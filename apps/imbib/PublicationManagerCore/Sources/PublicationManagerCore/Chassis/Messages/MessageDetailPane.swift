@@ -156,6 +156,12 @@ public struct MessageDetailPane: View {
                         threadSection
                     }
 
+                    // ADR-0022 D8 (G5): typed edges — the task a message
+                    // produced, the paper it references. Distinct from the
+                    // thread list above, which is `thread_id` equality, not
+                    // an edge. Renders nothing when there are none.
+                    RelatedItemsSection(itemID: displayedID ?? messageID)
+
                     if row.flag != nil || !row.tagDisplays.isEmpty {
                         Divider()
                     }

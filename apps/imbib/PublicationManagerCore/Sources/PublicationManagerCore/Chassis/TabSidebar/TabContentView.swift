@@ -196,6 +196,13 @@ public struct TabContentView: View {
                     viewModel.bumpDataVersion()
                 }
             }),
+            (.openStoreSearch, { _ in
+                // WP G4 (ADR-0022 D6): ⌘⇧F in shells with nothing else bound
+                // (implore, impel) selects the chassis's builtin search
+                // surface. The surface is always registered
+                // (`CustomSurfaceRegistry.builtin`), so this never dead-ends.
+                viewModel.navigateToTab(.customSurface(StoreSearchSurface.surfaceID))
+            }),
         ])
         .alert("Delete Library", isPresented: $viewModel.showDeleteConfirmation, presenting: viewModel.libraryToDelete) { library in
             Button("Delete", role: .destructive) {

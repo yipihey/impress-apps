@@ -73,6 +73,12 @@ struct ManuscriptDetailView: View {
                         reviewsSection(manuscript)
                         revisionNotesSection(manuscript)
                         notesSection(manuscript)
+                        // ADR-0022 D8 (G5): typed edges off this manuscript —
+                        // papers it cites, figures it embeds. Additive, and
+                        // renders nothing when there are none.
+                        if let mUUID = UUID(uuidString: manuscriptID) {
+                            RelatedItemsSection(itemID: mUUID)
+                        }
                     }
                     .padding()
                     .padding(.top, 40)   // scroll clearance for the toolbar overlap

@@ -447,6 +447,22 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -559,20 +575,34 @@ public protocol SharedStoreProtocol : AnyObject {
     func addTag(id: String, tag: String) throws 
     
     /**
-     * Add items to a collection. Idempotent; returns the number applied.
+     * Add items to a collection. Idempotent per item.
+     *
+     * Returns the ids that ACTUALLY became members — an id that was already
+     * filed reports nothing. **Undo:**
+     * `collection_remove_members(collection_id, changed)`.
      */
-    func collectionAddMembers(binding: SharedCollectionBinding, collectionId: String, itemIds: [String]) throws  -> UInt32
+    func collectionAddMembers(binding: SharedCollectionBinding, collectionId: String, itemIds: [String]) throws  -> [String]
     
     /**
      * Create a collection under `parent_id` (`nil` = root). `kind_scope` is
      * honoured only by the `Generic` binding, which defaults it to `"any"`.
+     *
+     * `sort_order` positions the row among its siblings: `nil` writes `0`
+     * (the historical behaviour), `Some(n)` writes `n` — pass the current
+     * sibling count to append to the end, which is what implore's figure
+     * folders want and used to emulate with a second `collection_reorder`.
+     *
+     * **Undo:** `collection_delete(row.id)`.
      */
-    func collectionCreate(binding: SharedCollectionBinding, name: String, parentId: String?, kindScope: String?) throws  -> SharedCollectionRow
+    func collectionCreate(binding: SharedCollectionBinding, name: String, parentId: String?, kindScope: String?, sortOrder: Int64?) throws  -> SharedCollectionRow
     
     /**
      * Delete a collection. Members are never deleted — only the membership.
+     *
+     * Returns the snapshot needed to put it back. **Undo:**
+     * `collection_restore(snapshot)`.
      */
-    func collectionDelete(binding: SharedCollectionBinding, id: String) throws 
+    func collectionDelete(binding: SharedCollectionBinding, id: String) throws  -> SharedDeletedCollection
     
     /**
      * Member counts, aligned index-for-index with `collection_ids`.
@@ -580,26 +610,52 @@ public protocol SharedStoreProtocol : AnyObject {
     func collectionMemberCounts(binding: SharedCollectionBinding, collectionIds: [String]) throws  -> [UInt32]
     
     /**
-     * Remove items from a collection. Returns the number actually removed.
+     * Remove items from a collection without touching the items.
+     *
+     * Returns the ids that were ACTUALLY removed — non-members and items
+     * filed in a different collection report nothing. **Undo:**
+     * `collection_add_members(collection_id, changed)`.
      */
-    func collectionRemoveMembers(binding: SharedCollectionBinding, collectionId: String, itemIds: [String]) throws  -> UInt32
+    func collectionRemoveMembers(binding: SharedCollectionBinding, collectionId: String, itemIds: [String]) throws  -> [String]
     
     /**
      * Rename a collection.
+     *
+     * **Undo:** `collection_rename(id, prior)` with the `.name` the returned
+     * mutation carries.
      */
-    func collectionRename(binding: SharedCollectionBinding, id: String, name: String) throws  -> SharedCollectionRow
+    func collectionRename(binding: SharedCollectionBinding, id: String, name: String) throws  -> SharedCollectionMutation
     
     /**
      * Set a collection's position among its siblings.
+     *
+     * **Undo:** `collection_reorder(id, prior)` with the `.sortOrder` the
+     * returned mutation carries.
      */
-    func collectionReorder(binding: SharedCollectionBinding, id: String, sortOrder: Int64) throws  -> SharedCollectionRow
+    func collectionReorder(binding: SharedCollectionBinding, id: String, sortOrder: Int64) throws  -> SharedCollectionMutation
     
     /**
      * Move a collection under `new_parent_id` (`nil` = make it a root).
      * Returns `InvalidArgument` for self-parenting or a move under one of
      * the collection's own descendants.
+     *
+     * **Undo:** `collection_reparent(id, prior)` with the `.parent` the
+     * returned mutation carries (whose `parent_id` is `nil` when the
+     * collection was a root).
      */
-    func collectionReparent(binding: SharedCollectionBinding, id: String, newParentId: String?) throws  -> SharedCollectionRow
+    func collectionReparent(binding: SharedCollectionBinding, id: String, newParentId: String?) throws  -> SharedCollectionMutation
+    
+    /**
+     * Put a deleted collection back under its ORIGINAL id, with its members
+     * re-filed and its child collections re-attached — the inverse of
+     * `collection_delete`.
+     *
+     * Members and children that have since been deleted are skipped rather
+     * than failing the restore; restoring over a live id is `InvalidArgument`.
+     *
+     * **Undo:** `collection_delete(row.id)`.
+     */
+    func collectionRestore(binding: SharedCollectionBinding, snapshot: SharedDeletedCollection) throws  -> SharedCollectionRow
     
     /**
      * All collections of the bound schema, flat and ordered by `sort_order`.
@@ -677,6 +733,17 @@ public protocol SharedStoreProtocol : AnyObject {
     func queryItems(query: SharedItemQuery) throws  -> [SharedItemRow]
     
     /**
+     * Every item related to `id` by a typed edge, in BOTH directions and
+     * across ALL edge types (ADR-0022 D8).
+     *
+     * Ordered by edge type, then title — so a Related section can render one
+     * heading per edge type by walking the list once. Edges whose other end
+     * no longer exists are skipped rather than shown as blank rows. Pass `0`
+     * for the default limit (50); the cap is clamped at 500.
+     */
+    func relatedItems(id: String, limit: UInt32) throws  -> [SharedRelatedItem]
+    
+    /**
      * Remove a typed reference previously added with `add_reference`.
      */
     func removeReference(sourceId: String, targetId: String, edgeType: String) throws 
@@ -705,6 +772,23 @@ public protocol SharedStoreProtocol : AnyObject {
      * Matches items where any of those fields contains `query`.
      */
     func search(query: String, schemaFilter: String?, limit: UInt32) throws  -> [SharedItemRow]
+    
+    /**
+     * Full-text search across every record kind at once (ADR-0022 D6).
+     *
+     * Results are ordered by `schema_ref`, then relevance, then id, so the
+     * per-kind buckets are contiguous and stable. `limit_per_schema` caps each
+     * kind separately — one noisy mailbox cannot crowd manuscripts off the
+     * surface. Pass `0` for the default (20); the cap is clamped at 200.
+     *
+     * The query string is treated as words, never as FTS5 syntax: a
+     * half-typed `foo AND (` searches for two literal words instead of
+     * failing. Terms are prefix-matched, so "scal" finds "Scaling".
+     *
+     * Items with `status: "dismissed"` are withheld — they are reachable
+     * through their own section, by design.
+     */
+    func searchAll(query: String, limitPerSchema: UInt32) throws  -> [SharedSearchHit]
     
     /**
      * Set or clear a flag on an item.
@@ -984,10 +1068,14 @@ open func addTag(id: String, tag: String)throws  {try rustCallWithError(FfiConve
 }
     
     /**
-     * Add items to a collection. Idempotent; returns the number applied.
+     * Add items to a collection. Idempotent per item.
+     *
+     * Returns the ids that ACTUALLY became members — an id that was already
+     * filed reports nothing. **Undo:**
+     * `collection_remove_members(collection_id, changed)`.
      */
-open func collectionAddMembers(binding: SharedCollectionBinding, collectionId: String, itemIds: [String])throws  -> UInt32 {
-    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+open func collectionAddMembers(binding: SharedCollectionBinding, collectionId: String, itemIds: [String])throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_collection_add_members(self.uniffiClonePointer(),
         FfiConverterTypeSharedCollectionBinding.lower(binding),
         FfiConverterString.lower(collectionId),
@@ -999,27 +1087,39 @@ open func collectionAddMembers(binding: SharedCollectionBinding, collectionId: S
     /**
      * Create a collection under `parent_id` (`nil` = root). `kind_scope` is
      * honoured only by the `Generic` binding, which defaults it to `"any"`.
+     *
+     * `sort_order` positions the row among its siblings: `nil` writes `0`
+     * (the historical behaviour), `Some(n)` writes `n` — pass the current
+     * sibling count to append to the end, which is what implore's figure
+     * folders want and used to emulate with a second `collection_reorder`.
+     *
+     * **Undo:** `collection_delete(row.id)`.
      */
-open func collectionCreate(binding: SharedCollectionBinding, name: String, parentId: String?, kindScope: String?)throws  -> SharedCollectionRow {
+open func collectionCreate(binding: SharedCollectionBinding, name: String, parentId: String?, kindScope: String?, sortOrder: Int64?)throws  -> SharedCollectionRow {
     return try  FfiConverterTypeSharedCollectionRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_collection_create(self.uniffiClonePointer(),
         FfiConverterTypeSharedCollectionBinding.lower(binding),
         FfiConverterString.lower(name),
         FfiConverterOptionString.lower(parentId),
-        FfiConverterOptionString.lower(kindScope),$0
+        FfiConverterOptionString.lower(kindScope),
+        FfiConverterOptionInt64.lower(sortOrder),$0
     )
 })
 }
     
     /**
      * Delete a collection. Members are never deleted — only the membership.
+     *
+     * Returns the snapshot needed to put it back. **Undo:**
+     * `collection_restore(snapshot)`.
      */
-open func collectionDelete(binding: SharedCollectionBinding, id: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+open func collectionDelete(binding: SharedCollectionBinding, id: String)throws  -> SharedDeletedCollection {
+    return try  FfiConverterTypeSharedDeletedCollection.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_collection_delete(self.uniffiClonePointer(),
         FfiConverterTypeSharedCollectionBinding.lower(binding),
         FfiConverterString.lower(id),$0
     )
-}
+})
 }
     
     /**
@@ -1035,10 +1135,14 @@ open func collectionMemberCounts(binding: SharedCollectionBinding, collectionIds
 }
     
     /**
-     * Remove items from a collection. Returns the number actually removed.
+     * Remove items from a collection without touching the items.
+     *
+     * Returns the ids that were ACTUALLY removed — non-members and items
+     * filed in a different collection report nothing. **Undo:**
+     * `collection_add_members(collection_id, changed)`.
      */
-open func collectionRemoveMembers(binding: SharedCollectionBinding, collectionId: String, itemIds: [String])throws  -> UInt32 {
-    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+open func collectionRemoveMembers(binding: SharedCollectionBinding, collectionId: String, itemIds: [String])throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_collection_remove_members(self.uniffiClonePointer(),
         FfiConverterTypeSharedCollectionBinding.lower(binding),
         FfiConverterString.lower(collectionId),
@@ -1049,9 +1153,12 @@ open func collectionRemoveMembers(binding: SharedCollectionBinding, collectionId
     
     /**
      * Rename a collection.
+     *
+     * **Undo:** `collection_rename(id, prior)` with the `.name` the returned
+     * mutation carries.
      */
-open func collectionRename(binding: SharedCollectionBinding, id: String, name: String)throws  -> SharedCollectionRow {
-    return try  FfiConverterTypeSharedCollectionRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+open func collectionRename(binding: SharedCollectionBinding, id: String, name: String)throws  -> SharedCollectionMutation {
+    return try  FfiConverterTypeSharedCollectionMutation.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_collection_rename(self.uniffiClonePointer(),
         FfiConverterTypeSharedCollectionBinding.lower(binding),
         FfiConverterString.lower(id),
@@ -1062,9 +1169,12 @@ open func collectionRename(binding: SharedCollectionBinding, id: String, name: S
     
     /**
      * Set a collection's position among its siblings.
+     *
+     * **Undo:** `collection_reorder(id, prior)` with the `.sortOrder` the
+     * returned mutation carries.
      */
-open func collectionReorder(binding: SharedCollectionBinding, id: String, sortOrder: Int64)throws  -> SharedCollectionRow {
-    return try  FfiConverterTypeSharedCollectionRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+open func collectionReorder(binding: SharedCollectionBinding, id: String, sortOrder: Int64)throws  -> SharedCollectionMutation {
+    return try  FfiConverterTypeSharedCollectionMutation.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_collection_reorder(self.uniffiClonePointer(),
         FfiConverterTypeSharedCollectionBinding.lower(binding),
         FfiConverterString.lower(id),
@@ -1077,13 +1187,36 @@ open func collectionReorder(binding: SharedCollectionBinding, id: String, sortOr
      * Move a collection under `new_parent_id` (`nil` = make it a root).
      * Returns `InvalidArgument` for self-parenting or a move under one of
      * the collection's own descendants.
+     *
+     * **Undo:** `collection_reparent(id, prior)` with the `.parent` the
+     * returned mutation carries (whose `parent_id` is `nil` when the
+     * collection was a root).
      */
-open func collectionReparent(binding: SharedCollectionBinding, id: String, newParentId: String?)throws  -> SharedCollectionRow {
-    return try  FfiConverterTypeSharedCollectionRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+open func collectionReparent(binding: SharedCollectionBinding, id: String, newParentId: String?)throws  -> SharedCollectionMutation {
+    return try  FfiConverterTypeSharedCollectionMutation.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_collection_reparent(self.uniffiClonePointer(),
         FfiConverterTypeSharedCollectionBinding.lower(binding),
         FfiConverterString.lower(id),
         FfiConverterOptionString.lower(newParentId),$0
+    )
+})
+}
+    
+    /**
+     * Put a deleted collection back under its ORIGINAL id, with its members
+     * re-filed and its child collections re-attached — the inverse of
+     * `collection_delete`.
+     *
+     * Members and children that have since been deleted are skipped rather
+     * than failing the restore; restoring over a live id is `InvalidArgument`.
+     *
+     * **Undo:** `collection_delete(row.id)`.
+     */
+open func collectionRestore(binding: SharedCollectionBinding, snapshot: SharedDeletedCollection)throws  -> SharedCollectionRow {
+    return try  FfiConverterTypeSharedCollectionRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_collection_restore(self.uniffiClonePointer(),
+        FfiConverterTypeSharedCollectionBinding.lower(binding),
+        FfiConverterTypeSharedDeletedCollection.lower(snapshot),$0
     )
 })
 }
@@ -1242,6 +1375,24 @@ open func queryItems(query: SharedItemQuery)throws  -> [SharedItemRow] {
 }
     
     /**
+     * Every item related to `id` by a typed edge, in BOTH directions and
+     * across ALL edge types (ADR-0022 D8).
+     *
+     * Ordered by edge type, then title — so a Related section can render one
+     * heading per edge type by walking the list once. Edges whose other end
+     * no longer exists are skipped rather than shown as blank rows. Pass `0`
+     * for the default limit (50); the cap is clamped at 500.
+     */
+open func relatedItems(id: String, limit: UInt32)throws  -> [SharedRelatedItem] {
+    return try  FfiConverterSequenceTypeSharedRelatedItem.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_related_items(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
      * Remove a typed reference previously added with `add_reference`.
      */
 open func removeReference(sourceId: String, targetId: String, edgeType: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
@@ -1295,6 +1446,30 @@ open func search(query: String, schemaFilter: String?, limit: UInt32)throws  -> 
         FfiConverterString.lower(query),
         FfiConverterOptionString.lower(schemaFilter),
         FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
+     * Full-text search across every record kind at once (ADR-0022 D6).
+     *
+     * Results are ordered by `schema_ref`, then relevance, then id, so the
+     * per-kind buckets are contiguous and stable. `limit_per_schema` caps each
+     * kind separately — one noisy mailbox cannot crowd manuscripts off the
+     * surface. Pass `0` for the default (20); the cap is clamped at 200.
+     *
+     * The query string is treated as words, never as FTS5 syntax: a
+     * half-typed `foo AND (` searches for two literal words instead of
+     * failing. Terms are prefix-matched, so "scal" finds "Scaling".
+     *
+     * Items with `status: "dismissed"` are withheld — they are reachable
+     * through their own section, by design.
+     */
+open func searchAll(query: String, limitPerSchema: UInt32)throws  -> [SharedSearchHit] {
+    return try  FfiConverterSequenceTypeSharedSearchHit.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_search_all(self.uniffiClonePointer(),
+        FfiConverterString.lower(query),
+        FfiConverterUInt32.lower(limitPerSchema),$0
     )
 })
 }
@@ -1799,6 +1974,88 @@ public func FfiConverterTypeSharedBatchResult_lower(_ value: SharedBatchResult) 
 
 
 /**
+ * The result of `collection_rename` / `collection_reorder` /
+ * `collection_reparent`: the row as it now stands, plus the prior value.
+ */
+public struct SharedCollectionMutation {
+    /**
+     * The collection AFTER the change.
+     */
+    public var row: SharedCollectionRow
+    /**
+     * The value the changed field held BEFORE.
+     */
+    public var prior: SharedCollectionPrior
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The collection AFTER the change.
+         */row: SharedCollectionRow, 
+        /**
+         * The value the changed field held BEFORE.
+         */prior: SharedCollectionPrior) {
+        self.row = row
+        self.prior = prior
+    }
+}
+
+
+
+extension SharedCollectionMutation: Equatable, Hashable {
+    public static func ==(lhs: SharedCollectionMutation, rhs: SharedCollectionMutation) -> Bool {
+        if lhs.row != rhs.row {
+            return false
+        }
+        if lhs.prior != rhs.prior {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(row)
+        hasher.combine(prior)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedCollectionMutation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedCollectionMutation {
+        return
+            try SharedCollectionMutation(
+                row: FfiConverterTypeSharedCollectionRow.read(from: &buf), 
+                prior: FfiConverterTypeSharedCollectionPrior.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedCollectionMutation, into buf: inout [UInt8]) {
+        FfiConverterTypeSharedCollectionRow.write(value.row, into: &buf)
+        FfiConverterTypeSharedCollectionPrior.write(value.prior, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedCollectionMutation_lift(_ buf: RustBuffer) throws -> SharedCollectionMutation {
+    return try FfiConverterTypeSharedCollectionMutation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedCollectionMutation_lower(_ value: SharedCollectionMutation) -> RustBuffer {
+    return FfiConverterTypeSharedCollectionMutation.lower(value)
+}
+
+
+/**
  * One flat collection row. Build the tree from `parent_id` (`nil` = root);
  * `parent_id` is the schema's payload tree ref (or, for figure folders, the
  * envelope parent) — never the owning library.
@@ -1910,6 +2167,124 @@ public func FfiConverterTypeSharedCollectionRow_lift(_ buf: RustBuffer) throws -
 #endif
 public func FfiConverterTypeSharedCollectionRow_lower(_ value: SharedCollectionRow) -> RustBuffer {
     return FfiConverterTypeSharedCollectionRow.lower(value)
+}
+
+
+/**
+ * Everything needed to put a deleted collection back exactly as it was.
+ * Returned by `collection_delete`, consumed by `collection_restore`.
+ */
+public struct SharedDeletedCollection {
+    /**
+     * The collection as it was, including its original id.
+     */
+    public var row: SharedCollectionRow
+    /**
+     * The envelope `parent` the row carried — the OWNING LIBRARY for
+     * payload-tree bindings, the same as `row.parent_id` for figure folders.
+     */
+    public var envelopeParentId: String?
+    /**
+     * Members whose membership the delete dropped (`Contains` edges gone by
+     * FK CASCADE, envelope-filed items unfiled by FK SET NULL). Never
+     * sub-collections — those are tree nodes.
+     */
+    public var memberIds: [String]
+    /**
+     * Direct child collections whose parent pointer the delete invalidated.
+     * `collection_restore` re-attaches all of them.
+     */
+    public var childCollectionIds: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The collection as it was, including its original id.
+         */row: SharedCollectionRow, 
+        /**
+         * The envelope `parent` the row carried — the OWNING LIBRARY for
+         * payload-tree bindings, the same as `row.parent_id` for figure folders.
+         */envelopeParentId: String?, 
+        /**
+         * Members whose membership the delete dropped (`Contains` edges gone by
+         * FK CASCADE, envelope-filed items unfiled by FK SET NULL). Never
+         * sub-collections — those are tree nodes.
+         */memberIds: [String], 
+        /**
+         * Direct child collections whose parent pointer the delete invalidated.
+         * `collection_restore` re-attaches all of them.
+         */childCollectionIds: [String]) {
+        self.row = row
+        self.envelopeParentId = envelopeParentId
+        self.memberIds = memberIds
+        self.childCollectionIds = childCollectionIds
+    }
+}
+
+
+
+extension SharedDeletedCollection: Equatable, Hashable {
+    public static func ==(lhs: SharedDeletedCollection, rhs: SharedDeletedCollection) -> Bool {
+        if lhs.row != rhs.row {
+            return false
+        }
+        if lhs.envelopeParentId != rhs.envelopeParentId {
+            return false
+        }
+        if lhs.memberIds != rhs.memberIds {
+            return false
+        }
+        if lhs.childCollectionIds != rhs.childCollectionIds {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(row)
+        hasher.combine(envelopeParentId)
+        hasher.combine(memberIds)
+        hasher.combine(childCollectionIds)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedDeletedCollection: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedDeletedCollection {
+        return
+            try SharedDeletedCollection(
+                row: FfiConverterTypeSharedCollectionRow.read(from: &buf), 
+                envelopeParentId: FfiConverterOptionString.read(from: &buf), 
+                memberIds: FfiConverterSequenceString.read(from: &buf), 
+                childCollectionIds: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedDeletedCollection, into buf: inout [UInt8]) {
+        FfiConverterTypeSharedCollectionRow.write(value.row, into: &buf)
+        FfiConverterOptionString.write(value.envelopeParentId, into: &buf)
+        FfiConverterSequenceString.write(value.memberIds, into: &buf)
+        FfiConverterSequenceString.write(value.childCollectionIds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedDeletedCollection_lift(_ buf: RustBuffer) throws -> SharedDeletedCollection {
+    return try FfiConverterTypeSharedDeletedCollection.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedDeletedCollection_lower(_ value: SharedDeletedCollection) -> RustBuffer {
+    return FfiConverterTypeSharedDeletedCollection.lower(value)
 }
 
 
@@ -2725,6 +3100,259 @@ public func FfiConverterTypeSharedReferenceRow_lower(_ value: SharedReferenceRow
 
 
 /**
+ * One item related to a subject item by a typed edge.
+ */
+public struct SharedRelatedItem {
+    /**
+     * Lowercase UUID of the OTHER item — never the subject.
+     */
+    public var id: String
+    /**
+     * The other item's schema, so a mixed-kind list can pick a row renderer.
+     */
+    public var schemaRef: String
+    /**
+     * Display title (title / subject / name, in that order).
+     */
+    public var title: String
+    /**
+     * Edge type name ("Cites", "Contains", "ProducedBy", …); a custom edge
+     * reports its bare custom name.
+     */
+    public var edgeType: String
+    /**
+     * `"outgoing"` when the subject is the edge source (this manuscript
+     * *contains* that figure), `"incoming"` when it is the target.
+     */
+    public var direction: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Lowercase UUID of the OTHER item — never the subject.
+         */id: String, 
+        /**
+         * The other item's schema, so a mixed-kind list can pick a row renderer.
+         */schemaRef: String, 
+        /**
+         * Display title (title / subject / name, in that order).
+         */title: String, 
+        /**
+         * Edge type name ("Cites", "Contains", "ProducedBy", …); a custom edge
+         * reports its bare custom name.
+         */edgeType: String, 
+        /**
+         * `"outgoing"` when the subject is the edge source (this manuscript
+         * *contains* that figure), `"incoming"` when it is the target.
+         */direction: String) {
+        self.id = id
+        self.schemaRef = schemaRef
+        self.title = title
+        self.edgeType = edgeType
+        self.direction = direction
+    }
+}
+
+
+
+extension SharedRelatedItem: Equatable, Hashable {
+    public static func ==(lhs: SharedRelatedItem, rhs: SharedRelatedItem) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.schemaRef != rhs.schemaRef {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.edgeType != rhs.edgeType {
+            return false
+        }
+        if lhs.direction != rhs.direction {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(schemaRef)
+        hasher.combine(title)
+        hasher.combine(edgeType)
+        hasher.combine(direction)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedRelatedItem: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedRelatedItem {
+        return
+            try SharedRelatedItem(
+                id: FfiConverterString.read(from: &buf), 
+                schemaRef: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                edgeType: FfiConverterString.read(from: &buf), 
+                direction: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedRelatedItem, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.schemaRef, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.edgeType, into: &buf)
+        FfiConverterString.write(value.direction, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedRelatedItem_lift(_ buf: RustBuffer) throws -> SharedRelatedItem {
+    return try FfiConverterTypeSharedRelatedItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedRelatedItem_lower(_ value: SharedRelatedItem) -> RustBuffer {
+    return FfiConverterTypeSharedRelatedItem.lower(value)
+}
+
+
+/**
+ * One grouped-search hit. `schema_ref` is the bucket key — group by it to
+ * render one section per record kind.
+ */
+public struct SharedSearchHit {
+    /**
+     * Lowercase UUID string.
+     */
+    public var id: String
+    /**
+     * The item's schema ("manuscript", "figure", "email-message", …).
+     */
+    public var schemaRef: String
+    /**
+     * Display title (title / subject / name, in that order).
+     */
+    public var title: String
+    /**
+     * Snippet of the best-matching indexed column, unmarked; falls back to
+     * the title when the match has nothing quotable.
+     */
+    public var snippet: String
+    /**
+     * BM25 relevance. **Lower is better** — hits arrive already sorted.
+     */
+    public var rank: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Lowercase UUID string.
+         */id: String, 
+        /**
+         * The item's schema ("manuscript", "figure", "email-message", …).
+         */schemaRef: String, 
+        /**
+         * Display title (title / subject / name, in that order).
+         */title: String, 
+        /**
+         * Snippet of the best-matching indexed column, unmarked; falls back to
+         * the title when the match has nothing quotable.
+         */snippet: String, 
+        /**
+         * BM25 relevance. **Lower is better** — hits arrive already sorted.
+         */rank: Double) {
+        self.id = id
+        self.schemaRef = schemaRef
+        self.title = title
+        self.snippet = snippet
+        self.rank = rank
+    }
+}
+
+
+
+extension SharedSearchHit: Equatable, Hashable {
+    public static func ==(lhs: SharedSearchHit, rhs: SharedSearchHit) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.schemaRef != rhs.schemaRef {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.snippet != rhs.snippet {
+            return false
+        }
+        if lhs.rank != rhs.rank {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(schemaRef)
+        hasher.combine(title)
+        hasher.combine(snippet)
+        hasher.combine(rank)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSearchHit: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSearchHit {
+        return
+            try SharedSearchHit(
+                id: FfiConverterString.read(from: &buf), 
+                schemaRef: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                snippet: FfiConverterString.read(from: &buf), 
+                rank: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedSearchHit, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.schemaRef, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.snippet, into: &buf)
+        FfiConverterDouble.write(value.rank, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSearchHit_lift(_ buf: RustBuffer) throws -> SharedSearchHit {
+    return try FfiConverterTypeSharedSearchHit.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSearchHit_lower(_ value: SharedSearchHit) -> RustBuffer {
+    return FfiConverterTypeSharedSearchHit.lower(value)
+}
+
+
+/**
  * Outcome counters for one remote-apply call.
  */
 public struct SyncApplyReport {
@@ -3454,6 +4082,104 @@ extension SharedCollectionBinding: Equatable, Hashable {}
 
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The value the mutated field held BEFORE a single-field structural verb ran
+ * — everything an undo stack needs to invert it.
+ *
+ * An enum rather than three optional fields because `reparent`'s prior value
+ * is legitimately "was a root", which `nil` could not distinguish from "no
+ * prior value recorded".
+ */
+
+public enum SharedCollectionPrior {
+    
+    /**
+     * Prior `name`, from `collection_rename`. Undo: rename back to it.
+     */
+    case name(name: String
+    )
+    /**
+     * Prior `sort_order`, from `collection_reorder`. Undo: reorder back.
+     */
+    case sortOrder(sortOrder: Int64
+    )
+    /**
+     * Prior tree parent, from `collection_reparent`; `nil` = it was a root.
+     * Undo: reparent back to it.
+     */
+    case parent(parentId: String?
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedCollectionPrior: FfiConverterRustBuffer {
+    typealias SwiftType = SharedCollectionPrior
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedCollectionPrior {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .name(name: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 2: return .sortOrder(sortOrder: try FfiConverterInt64.read(from: &buf)
+        )
+        
+        case 3: return .parent(parentId: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SharedCollectionPrior, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .name(name):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(name, into: &buf)
+            
+        
+        case let .sortOrder(sortOrder):
+            writeInt(&buf, Int32(2))
+            FfiConverterInt64.write(sortOrder, into: &buf)
+            
+        
+        case let .parent(parentId):
+            writeInt(&buf, Int32(3))
+            FfiConverterOptionString.write(parentId, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedCollectionPrior_lift(_ buf: RustBuffer) throws -> SharedCollectionPrior {
+    return try FfiConverterTypeSharedCollectionPrior.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedCollectionPrior_lower(_ value: SharedCollectionPrior) -> RustBuffer {
+    return FfiConverterTypeSharedCollectionPrior.lower(value)
+}
+
+
+
+extension SharedCollectionPrior: Equatable, Hashable {}
+
+
+
 
 /**
  * Errors returned by the shared store FFI.
@@ -3914,6 +4640,56 @@ fileprivate struct FfiConverterSequenceTypeSharedReferenceRow: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedRelatedItem: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedRelatedItem]
+
+    public static func write(_ value: [SharedRelatedItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedRelatedItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedRelatedItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedRelatedItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedRelatedItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedSearchHit: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedSearchHit]
+
+    public static func write(_ value: [SharedSearchHit], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedSearchHit.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedSearchHit] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedSearchHit]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedSearchHit.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSyncItemRecord: FfiConverterRustBuffer {
     typealias SwiftType = [SyncItemRecord]
 
@@ -4049,28 +4825,31 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_add_tag() != 31254) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_add_members() != 58417) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_add_members() != 30249) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_create() != 6571) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_create() != 54293) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_delete() != 56091) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_delete() != 62668) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_member_counts() != 16572) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_remove_members() != 11934) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_remove_members() != 14009) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_rename() != 9786) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_rename() != 44359) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_reorder() != 22043) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_reorder() != 51282) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_reparent() != 31827) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_reparent() != 28938) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_restore() != 35230) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_tree() != 31736) {
@@ -4109,6 +4888,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_items() != 63649) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_related_items() != 22360) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_remove_reference() != 31901) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4119,6 +4901,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_search() != 42949) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_search_all() != 49100) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_flag() != 6264) {

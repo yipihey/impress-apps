@@ -288,17 +288,16 @@ final class AgentRecordKindTests: XCTestCase {
         XCTAssertTrue(c.permits(.agents))
     }
 
-    /// The Agents section stays hidden outside impel: imprint/implore/impart
-    /// exclude it via visibleSections; imbib permits everything (nil) but
-    /// the content gate (`shouldShowSection` appID == "impel") keeps it out
-    /// — the preset half of that contract is assertable here.
+    /// The Agents section stays hidden outside impel: EVERY other preset now
+    /// excludes it via visibleSections — imbib included, since the
+    /// publications-only purification made its set explicit. The appID
+    /// content gate (`shouldShowSection` appID == "impel", not testable here
+    /// — private) remains as belt-and-braces for nil-visibleSections shells.
     func testAgentsSectionGatingAcrossPresets() {
         XCTAssertFalse(AppShellConfiguration.imprint.permits(.agents))
         XCTAssertFalse(AppShellConfiguration.implore.permits(.agents))
         XCTAssertFalse(AppShellConfiguration.impart.permits(.agents))
-        // imbib's visibleSections is nil → permits everything; the appID
-        // content gate (not testable here — private) is the actual guard.
-        XCTAssertTrue(AppShellConfiguration.imbib.permits(.agents))
+        XCTAssertFalse(AppShellConfiguration.imbib.permits(.agents))
         XCTAssertNotEqual(AppShellConfiguration.imbib.appID, "impel")
     }
 

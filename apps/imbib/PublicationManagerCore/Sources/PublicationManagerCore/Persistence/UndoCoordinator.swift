@@ -43,9 +43,13 @@ public final class UndoCoordinator: UndoRegistering {
         let operationIds = info.operationIds
         let description = info.description
 
-        um.registerUndo(withTarget: self) { [weak self] coordinator in
-            guard let self = coordinator as? UndoCoordinator else { return }
-            Task { @MainActor in
+        um.registerUndo(withTarget: self) { coordinator in
+            // NSUndoManager routes registrations made DURING an undo to the
+            // REDO stack (`isUndoing`). Deferring this body into a Task ran
+            // it after `undo()` returned, so the redo registration landed on
+            // the UNDO stack and ⌘Z toggled instead of ⌘⇧Z advancing. Undo
+            // always fires on the main run loop, so run synchronously.
+            MainActor.assumeIsolated {
                 let adapter = RustStoreAdapter.shared
                 let redoInfo: UndoInfo?
 
@@ -59,9 +63,9 @@ public final class UndoCoordinator: UndoRegistering {
 
                 UndoHistoryStore.shared.didUndo()
 
-                // Register redo (the inverse of the undo)
+                // Registered while isUndoing/isRedoing → opposite stack.
                 if let redoInfo {
-                    self.registerUndo(info: redoInfo)
+                    coordinator.registerUndo(info: redoInfo)
                 }
             }
         }
@@ -90,13 +94,16 @@ public final class UndoCoordinator: UndoRegistering {
     ) {
         guard let um = undoManager else { return }
 
-        um.registerUndo(withTarget: self) { [weak self] _ in
-            Task { @MainActor in
+        um.registerUndo(withTarget: self) { coordinator in
+            // Synchronous for the same reason as `registerUndo(info:)`: the
+            // re-registration below must happen while the manager reports
+            // `isUndoing`, or redo lands on the undo stack and ⌘Z toggles.
+            MainActor.assumeIsolated {
                 undoClosure()
                 UndoHistoryStore.shared.didUndo()
-                // Register redo if provided
-                if let redo = redoClosure, let self {
-                    self.registerUndoClosure(actionName: actionName, undo: redo, redo: undoClosure)
+                if let redo = redoClosure {
+                    coordinator.registerUndoClosure(
+                        actionName: actionName, undo: redo, redo: undoClosure)
                 }
             }
         }

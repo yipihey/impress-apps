@@ -16,18 +16,15 @@
 //! - Citation-usage extraction (regex over `@key` patterns) from source.
 //! - Text search and replace within a source string.
 //! - Manuscript-cross-document search (over the tantivy index).
-//! - Typst compile dispatch (re-exports the existing
-//!   `imprint_core::compile_typst_to_pdf` API surface via a stable DTO that
-//!   does not depend on the `uniffi` feature being enabled).
+//! - Typst compile: a real headless compile through
+//!   `imprint_core::render_project::compile_typst_project_to_pdf`, behind this
+//!   crate's `typst-render` feature (which forwards to imprint-core's). It
+//!   answers with a `pdf_path` rather than bytes; with the feature off the
+//!   same DTO carries a structured "not enabled" error, so callers never see
+//!   a different shape. Does NOT depend on the `uniffi` feature.
 //!
 //! What is NOT here (and the rationale, in case the next agent wonders):
 //!
-//! - `handleCompile` / `handleStatelessCompile` actual rendering: gated on
-//!   the `typst-render` feature in `imprint-core`; we expose a thin
-//!   `compile_typst` shim that produces a `CompileResult` regardless of
-//!   whether typst is wired in (returns a structured "render disabled" error
-//!   in the latter case). The macOS app already calls `imprint_core` directly
-//!   for the actual rendering — moving that here would just add a layer.
 //! - `handleBundleCompile` / SyncTeX / LaTeX diagnostics: depend on Phase 2B/C
 //!   modules (`imprint_core::synctex`, `imprint_core::latex::{diagnostics,
 //!   formatter}`) which have not landed in this worktree yet.
@@ -142,7 +139,17 @@ pub enum PageSize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileResult {
     /// PDF bytes if compilation succeeded; absent on error.
+    ///
+    /// The HEADLESS path never fills this in: a PDF as a JSON byte array is
+    /// unusable in an MCP tool result. It writes the file and reports
+    /// `pdf_path` instead. Only the app-backed HTTP path (imprint running,
+    /// `impress-app-client`) still returns bytes.
+    #[serde(default)]
     pub pdf_data: Option<Vec<u8>>,
+    /// Absolute path to the PDF written by the headless compiler. Feed this
+    /// to `render_pdf_page` to actually look at the result.
+    #[serde(default)]
+    pub pdf_path: Option<String>,
     /// Error message if compilation failed.
     pub error: Option<String>,
     /// Warning messages emitted by the renderer.
@@ -652,23 +659,158 @@ fn count_substr(hay: &str, needle: &str) -> usize {
     count
 }
 
-/// Compile Typst source using `imprint-core`. When `imprint-core` is built
-/// without the `uniffi` feature (and therefore without `typst-render`), this
-/// returns a `CompileResult` with a structured "renderer not available"
-/// error — the call doesn't fail, so MCP/CLI surfaces can decide whether to
-/// fall back to a subprocess or report the error.
+/// Where headless compiles put their working directory and their PDF.
+///
+/// `~/Library/Caches/impress/imprint/compile` on macOS (`dirs::cache_dir`),
+/// overridable with `IMPRINT_COMPILE_CACHE_DIR` — which is what the tests use
+/// so they never touch the user's cache. Falls back to the system temp dir
+/// when there is no cache dir at all.
+///
+/// Artifacts live under a per-source subdirectory rather than a fresh temp dir
+/// per call: recompiling the same source reuses one directory, so the cache
+/// grows with the number of DISTINCT sources compiled instead of with the
+/// number of compiles, and the `.typ` that produced a PDF stays next to it.
+pub fn compile_artifact_dir() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("IMPRINT_COMPILE_CACHE_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("impress")
+        .join("imprint")
+        .join("compile")
+}
+
+/// Write compiled PDF bytes into the artifact cache and return the path.
+///
+/// Used by the app-backed path too (`imprint-service-http`): imprint streams
+/// PDF *bytes* over HTTP, and a multi-megabyte JSON byte array is not a usable
+/// tool result. Parking the bytes turns them back into something
+/// `render_pdf_page` can open. Named by content hash, so recompiling the same
+/// document reuses one file.
+pub fn park_pdf_bytes(bytes: &[u8]) -> std::io::Result<std::path::PathBuf> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hex::encode(hasher.finalize());
+    let dir = compile_artifact_dir().join(&digest[..16]);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("main.pdf");
+    std::fs::write(&path, bytes)?;
+    Ok(path)
+}
+
+/// Compile Typst source headlessly through `imprint-core`'s project compiler
+/// (`render_project::compile_typst_project_to_pdf`), which is the same engine
+/// imprint's editor uses.
+///
+/// The source is written to `<cache>/<source-hash>/main.typ` — prefixed with
+/// the page/margin/font preamble derived from `options`, exactly as the
+/// single-source path does (`render.rs`), so a document that sets its own
+/// `#set page(...)` still wins — and the PDF lands beside it as `main.pdf`.
+/// Because the working directory is real, `image("figures/x.png")` and
+/// `include`s resolve relative to it.
+///
+/// PDF BYTES ARE NOT RETURNED. `pdf_path` is, because that is what
+/// `render_pdf_page` consumes and what an MCP result can carry.
+#[cfg(feature = "typst-render")]
+pub fn compile_typst_dispatch(source: &str, options: CompileOptions) -> CompileResult {
+    use imprint_core::render::RenderOptions;
+    use sha2::{Digest, Sha256};
+
+    let render_options = RenderOptions {
+        page_size: match options.page_size {
+            PageSize::Letter => imprint_core::render::PageSize::Letter,
+            PageSize::A4 => imprint_core::render::PageSize::A4,
+            PageSize::A5 => imprint_core::render::PageSize::A5,
+        },
+        font_size: options.font_size,
+        margins: (
+            options.margin_top,
+            options.margin_right,
+            options.margin_bottom,
+            options.margin_left,
+        ),
+        ..Default::default()
+    };
+    let full_source = format!("{}\n{}", render_options.to_typst_preamble(), source);
+
+    let mut hasher = Sha256::new();
+    hasher.update(full_source.as_bytes());
+    let digest = hex::encode(hasher.finalize());
+    let project_dir = compile_artifact_dir().join(&digest[..16]);
+
+    let fail = |msg: String| CompileResult {
+        pdf_data: None,
+        pdf_path: None,
+        error: Some(msg),
+        warnings: Vec::new(),
+        page_count: 0,
+    };
+
+    if let Err(e) = std::fs::create_dir_all(&project_dir) {
+        return fail(format!(
+            "could not create compile directory {}: {e}",
+            project_dir.display()
+        ));
+    }
+    if let Err(e) = std::fs::write(project_dir.join("main.typ"), &full_source) {
+        return fail(format!("could not write main.typ: {e}"));
+    }
+
+    // A malformed document must come back as diagnostics, not as a process
+    // exit: typst panics on some inputs and this is a server.
+    let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        imprint_core::render_project::compile_typst_project_to_pdf(
+            &project_dir,
+            "main.typ",
+            &render_options,
+        )
+    }));
+
+    match compiled {
+        Ok(Ok(output)) => {
+            let pdf_path = project_dir.join("main.pdf");
+            if let Err(e) = std::fs::write(&pdf_path, &output.pdf_bytes) {
+                return fail(format!(
+                    "compiled, but could not write {}: {e}",
+                    pdf_path.display()
+                ));
+            }
+            CompileResult {
+                pdf_data: None,
+                pdf_path: Some(pdf_path.to_string_lossy().into_owned()),
+                error: None,
+                warnings: output.warnings,
+                page_count: output.page_count,
+            }
+        }
+        Ok(Err(e)) => fail(e.to_string()),
+        Err(panic) => {
+            let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = panic.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "unknown panic".to_string()
+            };
+            fail(format!("Typst compiler panicked: {msg}"))
+        }
+    }
+}
+
+/// Structured "renderer not available" when the crate is built without
+/// `typst-render`. The call doesn't fail, so MCP/CLI surfaces can report the
+/// reason rather than a transport error — same shape as `compile_latex`.
+#[cfg(not(feature = "typst-render"))]
 pub fn compile_typst_dispatch(_source: &str, _options: CompileOptions) -> CompileResult {
-    // The actual `compile_typst_to_pdf` symbol in `imprint-core` is gated on
-    // the `uniffi` feature. When invoking this crate from the macOS app the
-    // FFI build does enable that feature, and Phase 3 will wire the call
-    // through. For pure-Rust integration tests and CLI builds we report a
-    // structured "renderer unavailable" so callers can react accordingly.
     CompileResult {
         pdf_data: None,
+        pdf_path: None,
         error: Some(
-            "Typst rendering is gated on imprint-core's `uniffi` feature; \
-             enable it (or call imprint_core::compile_typst_to_pdf directly) \
-             when wiring through UniFFI in Phase 3."
+            "Typst rendering requires imprint-core's `typst-render` feature; \
+             build imprint-service with `--features typst-render` (impress-mcp \
+             enables it by default in its dependency)."
                 .into(),
         ),
         warnings: Vec::new(),
@@ -845,6 +987,8 @@ mod tests {
         assert!(matches!(r, Err(ServiceError::Internal(_))));
     }
 
+    /// Without `typst-render` the method still answers — with a reason.
+    #[cfg(not(feature = "typst-render"))]
     #[tokio::test]
     async fn compile_typst_returns_structured_unavailable() {
         let (h, _dir) = handlers();
@@ -853,6 +997,107 @@ mod tests {
             .await
             .unwrap();
         assert!(r.pdf_data.is_none());
-        assert!(r.error.is_some());
+        assert!(r.pdf_path.is_none());
+        assert!(r.error.unwrap().contains("typst-render"));
+    }
+
+    /// End-to-end headless compile: no app, no UniFFI, no HTTP.
+    ///
+    /// These are the slow tests in this crate (font scan + a real Typst
+    /// compile, a few seconds on a cold engine). They run under
+    /// `--features typst-render` only, which is the crate's slow-test gate —
+    /// a default `cargo test -p imprint-service` never pays for them.
+    #[cfg(feature = "typst-render")]
+    mod typst_render {
+        use super::*;
+
+        /// Every test in this module points the artifact cache at the same
+        /// per-process temp dir. Same value from every thread, so the shared
+        /// env var races harmlessly, and the user's real cache is untouched.
+        fn redirect_artifact_dir() -> std::path::PathBuf {
+            let dir = std::env::temp_dir().join(format!(
+                "imprint-service-compile-tests-{}",
+                std::process::id()
+            ));
+            std::env::set_var("IMPRINT_COMPILE_CACHE_DIR", &dir);
+            dir
+        }
+
+        #[tokio::test]
+        async fn compile_typst_writes_a_well_formed_pdf_at_pdf_path() {
+            let root = redirect_artifact_dir();
+            let (h, _dir) = handlers();
+
+            let r = h
+                .compile_typst(
+                    "= Headless\n\nCompiled with no app running.\n",
+                    CompileOptions::default(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(r.error, None, "compile should succeed: {r:?}");
+            assert!(r.page_count >= 1, "{r:?}");
+            // Bytes never travel in the result — the path does.
+            assert!(r.pdf_data.is_none());
+
+            let path = std::path::PathBuf::from(r.pdf_path.expect("pdf_path"));
+            assert!(
+                path.starts_with(&root),
+                "artifact must land in the cache dir"
+            );
+            let bytes = std::fs::read(&path).expect("pdf on disk");
+            assert!(bytes.starts_with(b"%PDF"), "not a PDF: {:?}", &bytes[..8]);
+            assert!(bytes.ends_with(b"%%EOF\n") || bytes.ends_with(b"%%EOF"));
+
+            // The source that produced it is kept beside the PDF.
+            assert!(path.with_file_name("main.typ").exists());
+        }
+
+        /// A broken document is a diagnostic, not a crash and not an empty
+        /// success.
+        #[tokio::test]
+        async fn compile_typst_broken_source_returns_diagnostics_not_a_panic() {
+            redirect_artifact_dir();
+            let (h, _dir) = handlers();
+
+            let r = h
+                .compile_typst("#let x = \n#unclosed(", CompileOptions::default())
+                .await
+                .unwrap();
+
+            assert!(r.pdf_path.is_none(), "no PDF for a broken source: {r:?}");
+            assert!(r.pdf_data.is_none());
+            assert_eq!(r.page_count, 0);
+            assert!(r.error.is_some(), "a broken source must report why");
+        }
+
+        /// `CompileOptions` are not decorative: the page setup they describe
+        /// reaches the compiler as a preamble, so two page sizes produce two
+        /// different artifacts.
+        #[tokio::test]
+        async fn compile_options_change_the_artifact() {
+            redirect_artifact_dir();
+            let (h, _dir) = handlers();
+            let src = "= Sized\n";
+
+            let a4 = h
+                .compile_typst(src, CompileOptions::default())
+                .await
+                .unwrap();
+            let a5 = h
+                .compile_typst(
+                    src,
+                    CompileOptions {
+                        page_size: PageSize::A5,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+
+            assert!(a4.error.is_none() && a5.error.is_none());
+            assert_ne!(a4.pdf_path, a5.pdf_path);
+        }
     }
 }

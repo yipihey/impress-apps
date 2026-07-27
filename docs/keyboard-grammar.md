@@ -18,7 +18,7 @@ them.
 | ⌃⌘D | All dark / all light | App + PDF together | App+editor+PDF together |
 | ⌃⌘1…9 | Apply saved layout N | Layouts menu | Layouts menu |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
-| ⌘⇧F | Global search | Focus search | Search across manuscripts |
+| ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
 
 ## Guarded single-key layer (vim grammar)
 

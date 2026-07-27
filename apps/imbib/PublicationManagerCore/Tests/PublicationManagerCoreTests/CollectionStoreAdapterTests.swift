@@ -9,12 +9,18 @@
 //  workspace path (`ImpressRuntime.isUnitTestProcess` diverts
 //  `SharedWorkspace` away from the App Group container).
 //
-//  NOT covered here: `rename`, `reorder` and `delete`, which still delegate
-//  to `RustStoreAdapter`'s undoable ops — and `RustStoreAdapter` is an
-//  IN-MEMORY `ImbibStore` in a test process, i.e. a different database than
-//  this adapter's file-backed handle. See the G2-strangler TODOs in
-//  CollectionStoreAdapter; the same split predates this WP on the figure
-//  path (FigureStoreReader wrote envelopes, RustStoreAdapter wrote payloads).
+//  NEWLY TESTABLE (#41): `rename`, `reorder`, `delete` and Contains-edge
+//  `addMembers` used to delegate to `RustStoreAdapter`'s undoable ops, and
+//  `RustStoreAdapter` is an IN-MEMORY `ImbibStore` in a test process — a
+//  different database than this adapter's file-backed handle, so those verbs
+//  could not be asserted here at all. With the delegation dropped every verb
+//  runs on the file-backed kernel handle and round-trips in-process.
+//
+//  UNDO: `UndoCoordinator` registers nothing unless it has an `UndoManager`
+//  (the window supplies one at runtime), so `withUndoManager` installs a real
+//  one for the duration of a test. That makes the ⌘Z path itself testable —
+//  action name included — not just the inverse verbs. The undo closure runs
+//  in a `Task { @MainActor }` inside the coordinator, hence `settle()`.
 //
 
 import ImpressKit
@@ -198,17 +204,218 @@ final class CollectionStoreAdapterTests: XCTestCase {
         )
     }
 
+    // MARK: - Rename (kernel + undo)
+
+    func testRenameRoundTripsThroughTheKernel() throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.manuscript
+        let folder = try XCTUnwrap(adapter.create(binding, name: uniqueName("rename")))
+        let newName = uniqueName("renamed")
+
+        adapter.rename(binding, id: folder.id, to: newName)
+        XCTAssertEqual(row(binding, id: folder.id)?.name, newName)
+
+        // An UPPERCASE id must still resolve (the lowercase-at-the-boundary
+        // rule) — the delegated path took a `UUID`, this one takes a string.
+        let secondName = uniqueName("renamed-again")
+        adapter.rename(binding, id: folder.id.uppercased(), to: secondName)
+        XCTAssertEqual(row(binding, id: folder.id)?.name, secondName)
+    }
+
+    /// The whole point of #41: the kernel path keeps ⌘Z, with the same Edit
+    /// menu wording the delegated `updateField` produced ("Edit name" is the
+    /// Rust `undo_description` of `SetPayload("name")`).
+    func testRenameUndoRestoresThePriorNameUnderTheLegacyActionName() async throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.manuscript
+        let original = uniqueName("undo-rename")
+        let folder = try XCTUnwrap(adapter.create(binding, name: original))
+
+        let manager = withUndoManager()
+        defer { clearUndoManager() }
+
+        adapter.rename(binding, id: folder.id, to: uniqueName("renamed"))
+        XCTAssertNotEqual(row(binding, id: folder.id)?.name, original)
+        XCTAssertEqual(manager.undoActionName, CollectionStoreAdapter.UndoActionName.rename)
+
+        manager.undo()
+        await settle()
+        XCTAssertEqual(row(binding, id: folder.id)?.name, original, "⌘Z must restore the name")
+
+        // `UndoCoordinator` re-registers the other half synchronously inside
+        // the undo invocation (while `isUndoing`), so it lands on the REDO
+        // stack: ⌘⇧Z reapplies, ⌘Z does not toggle.
+        XCTAssertTrue(manager.canRedo, "undoing must arm redo, not a second undo")
+        manager.redo()
+        await settle()
+        XCTAssertNotEqual(row(binding, id: folder.id)?.name, original, "⌘⇧Z reapplies the rename")
+        XCTAssertTrue(manager.canUndo, "redoing must re-arm undo")
+    }
+
+    // MARK: - Reorder (kernel + undo)
+
+    func testReorderAssignsSiblingPositionsAndUndoRestoresThem() async throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.figure   // append-ordered, so priors differ
+        let a = try XCTUnwrap(adapter.create(binding, name: uniqueName("ord-a")))
+        let b = try XCTUnwrap(adapter.create(binding, name: uniqueName("ord-b")))
+        let priorA = try XCTUnwrap(row(binding, id: a.id)?.sortOrder)
+        let priorB = try XCTUnwrap(row(binding, id: b.id)?.sortOrder)
+
+        let manager = withUndoManager()
+        defer { clearUndoManager() }
+
+        adapter.reorder(binding, ids: [b.id, a.id])
+        XCTAssertEqual(row(binding, id: b.id)?.sortOrder, 0)
+        XCTAssertEqual(row(binding, id: a.id)?.sortOrder, 1)
+        XCTAssertEqual(manager.undoActionName, CollectionStoreAdapter.UndoActionName.reorder)
+
+        // One Undo entry per moved sibling — exactly what the delegated
+        // `updateIntField` loop registered — coalesced by `UndoManager`'s
+        // per-event grouping into ONE ⌘Z, so a drag of N siblings is one
+        // undo, not N.
+        manager.undo()
+        await settle()
+        XCTAssertEqual(row(binding, id: a.id)?.sortOrder, priorA)
+        XCTAssertEqual(row(binding, id: b.id)?.sortOrder, priorB)
+    }
+
+    // MARK: - Delete / restore
+
+    /// `collection_delete` hands back a snapshot that `collection_restore`
+    /// replays under the ORIGINAL id, re-filing members and re-attaching
+    /// child collections — strictly more than the delegated item-snapshot
+    /// delete restored.
+    ///
+    /// Run on the FIGURE binding, whose tree and membership are both the
+    /// envelope parent: the delete really does orphan the child folder and
+    /// unfile the member (FK `SET NULL`), so the restore has something to
+    /// put back. Payload-tree bindings keep a dangling `parent_collection_ref`
+    /// instead, which the same restore path re-validates.
+    func testDeleteUndoRestoresTheFolderItsMembersAndItsChildren() async throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.figure
+        let folder = try XCTUnwrap(adapter.create(binding, name: uniqueName("del")))
+        let child = try XCTUnwrap(
+            adapter.create(binding, name: uniqueName("del-child"), parentID: folder.id))
+        let member = try XCTUnwrap(makeItem(schemaRef: "figure"))
+        XCTAssertTrue(adapter.addMembers(binding, collectionID: folder.id, itemIDs: [member]))
+        XCTAssertEqual(adapter.memberCounts(binding, collectionIDs: [folder.id]), [1])
+
+        let manager = withUndoManager()
+        defer { clearUndoManager() }
+
+        adapter.delete(binding, id: folder.id)
+        XCTAssertNil(row(binding, id: folder.id), "the folder row is gone")
+        XCTAssertNil(row(binding, id: child.id)?.parentID, "its child is orphaned by the delete")
+        XCTAssertEqual(manager.undoActionName, CollectionStoreAdapter.UndoActionName.delete)
+
+        manager.undo()
+        await settle()
+        let restored = try XCTUnwrap(row(binding, id: folder.id))
+        XCTAssertEqual(restored.id, folder.id, "restored under its ORIGINAL id")
+        XCTAssertEqual(restored.name, folder.name)
+        XCTAssertEqual(row(binding, id: child.id)?.parentID, folder.id, "child re-attached")
+        XCTAssertEqual(
+            adapter.memberCounts(binding, collectionIDs: [folder.id]), [1], "member re-filed")
+    }
+
+    // MARK: - Contains-edge membership (newly reachable)
+
+    /// Manuscript/publication folders record membership as a `Contains` edge.
+    /// This path used to run through `RustStoreAdapter` (in-memory in tests,
+    /// so unassertable); it is the kernel's now.
+    func testContainsMembershipFilesAndUnfiles() throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.manuscript
+        let folder = try XCTUnwrap(adapter.create(binding, name: uniqueName("members")))
+        let member = try XCTUnwrap(makeItem(schemaRef: "manuscript"))
+
+        XCTAssertTrue(adapter.addMembers(binding, collectionID: folder.id, itemIDs: [member]))
+        XCTAssertEqual(adapter.memberCounts(binding, collectionIDs: [folder.id]), [1])
+
+        XCTAssertTrue(adapter.removeMembers(binding, collectionID: folder.id, itemIDs: [member]))
+        XCTAssertEqual(adapter.memberCounts(binding, collectionIDs: [folder.id]), [0])
+    }
+
+    /// The kernel reports the ids it ACTUALLY changed, and the undo closure
+    /// only reverses those — so undoing a drop that re-filed nothing must not
+    /// unfile an item that was already a member.
+    func testMembershipUndoOnlyReversesWhatActuallyChanged() async throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.manuscript
+        let folder = try XCTUnwrap(adapter.create(binding, name: uniqueName("members-undo")))
+        let member = try XCTUnwrap(makeItem(schemaRef: "manuscript"))
+        XCTAssertTrue(adapter.addMembers(binding, collectionID: folder.id, itemIDs: [member]))
+
+        let manager = withUndoManager()
+        defer { clearUndoManager() }
+
+        // Second add changes nothing → nothing to register, nothing to undo.
+        XCTAssertTrue(adapter.addMembers(binding, collectionID: folder.id, itemIDs: [member]))
+        XCTAssertFalse(manager.canUndo, "a no-op add must not push an Undo entry")
+        XCTAssertEqual(adapter.memberCounts(binding, collectionIDs: [folder.id]), [1])
+
+        // A real removal registers, and its undo re-files exactly it.
+        XCTAssertTrue(adapter.removeMembers(binding, collectionID: folder.id, itemIDs: [member]))
+        XCTAssertEqual(
+            manager.undoActionName, CollectionStoreAdapter.UndoActionName.removeMembers)
+        XCTAssertEqual(adapter.memberCounts(binding, collectionIDs: [folder.id]), [0])
+
+        manager.undo()
+        await settle()
+        XCTAssertEqual(adapter.memberCounts(binding, collectionIDs: [folder.id]), [1])
+    }
+
+    /// Reparent's undo has existed since G2; it now reads its prior parent
+    /// from the kernel's mutation instead of a pre-read tree walk.
+    func testReparentUndoMovesTheFolderBack() async throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.manuscript
+        let a = try XCTUnwrap(adapter.create(binding, name: uniqueName("rp-a")))
+        let b = try XCTUnwrap(adapter.create(binding, name: uniqueName("rp-b")))
+        let c = try XCTUnwrap(adapter.create(binding, name: uniqueName("rp-c"), parentID: a.id))
+
+        let manager = withUndoManager()
+        defer { clearUndoManager() }
+
+        XCTAssertTrue(adapter.reparent(binding, id: c.id, newParentID: b.id))
+        XCTAssertEqual(row(binding, id: c.id)?.parentID, b.id)
+        XCTAssertEqual(manager.undoActionName, CollectionStoreAdapter.UndoActionName.reparent)
+
+        manager.undo()
+        await settle()
+        XCTAssertEqual(row(binding, id: c.id)?.parentID, a.id, "⌘Z moves it back under a")
+    }
+
+    /// Undo action names are the ones the delegated path registered — the
+    /// Edit menu must read identically now that the delegation is gone.
+    func testUndoActionNamesMatchTheDelegatedPath() {
+        XCTAssertEqual(CollectionStoreAdapter.UndoActionName.rename, "Edit name")
+        XCTAssertEqual(CollectionStoreAdapter.UndoActionName.reorder, "Edit sort_order")
+        XCTAssertEqual(CollectionStoreAdapter.UndoActionName.delete, "Delete")
+        XCTAssertEqual(CollectionStoreAdapter.UndoActionName.addMembers, "Add to Collection")
+        XCTAssertEqual(CollectionStoreAdapter.UndoActionName.reparent, "Move Folder")
+    }
+
     // MARK: - Helpers
 
     /// A bare `figure` item to file into a folder. Written through the same
     /// SharedStore handle the adapter uses.
     private func makeFigure() -> String? {
+        makeItem(schemaRef: "figure")
+    }
+
+    /// A bare item of `schemaRef`, written through the same SharedStore
+    /// handle the adapter uses. Membership verbs never validate the member's
+    /// schema (the kernel files whatever id it is handed).
+    private func makeItem(schemaRef: String) -> String? {
         let id = UUID().uuidString.lowercased()
         guard let store = try? ImpressRustCore.SharedStore.open(
             path: SharedWorkspace.databasePath) else { return nil }
         do {
             try store.upsertItemV2(row: SharedItemUpsert(
-                id: id, schemaRef: "figure",
+                id: id, schemaRef: schemaRef,
                 payloadJson: #"{"format":"png","title":"G2 fixture"}"#,
                 parentId: nil, tags: [],
                 createdMs: nil, isRead: nil, isStarred: nil))
@@ -216,6 +423,26 @@ final class CollectionStoreAdapterTests: XCTestCase {
         } catch {
             return nil
         }
+    }
+
+    /// Install a real `UndoManager` on the shared coordinator — without one
+    /// `registerUndoClosure` is a no-op, which is why the undo half of these
+    /// verbs was invisible to tests before.
+    private func withUndoManager() -> UndoManager {
+        let manager = UndoManager()
+        manager.levelsOfUndo = 0
+        UndoCoordinator.shared.undoManager = manager
+        return manager
+    }
+
+    private func clearUndoManager() {
+        UndoCoordinator.shared.undoManager = nil
+    }
+
+    /// `UndoCoordinator` runs the registered closure inside a
+    /// `Task { @MainActor }`; give that task a turn before asserting.
+    private func settle() async {
+        for _ in 0..<10 { await Task.yield() }
     }
 }
 #endif

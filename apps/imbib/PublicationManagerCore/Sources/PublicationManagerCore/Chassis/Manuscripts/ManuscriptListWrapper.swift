@@ -186,8 +186,8 @@ public struct ManuscriptListWrapper: View {
                             .itemProvider {
                                 let dragged = Array(targetIDs(for: row))
                                 // Record for the sidebar's synchronous drop
-                                // read (see ManuscriptDragSession).
-                                ManuscriptDragSession.shared.begin(ids: dragged)
+                                // read (see RecordDragSession).
+                                RecordDragSession.manuscript.begin(ids: dragged)
                                 let ids = dragged.map(\.uuidString)
                                 logger.info("drag started: \(ids.count) manuscript(s)")
                                 let provider = NSItemProvider()

@@ -243,6 +243,54 @@ pub struct SharedCollectionRow {
     pub kind_scope: Option<String>,
 }
 
+/// The value the mutated field held BEFORE a single-field structural verb ran
+/// — everything an undo stack needs to invert it.
+///
+/// An enum rather than three optional fields because `reparent`'s prior value
+/// is legitimately "was a root", which `nil` could not distinguish from "no
+/// prior value recorded".
+#[cfg_attr(feature = "native", derive(uniffi::Enum))]
+#[derive(Debug, Clone, PartialEq)]
+pub enum SharedCollectionPrior {
+    /// Prior `name`, from `collection_rename`. Undo: rename back to it.
+    Name { name: String },
+    /// Prior `sort_order`, from `collection_reorder`. Undo: reorder back.
+    SortOrder { sort_order: i64 },
+    /// Prior tree parent, from `collection_reparent`; `nil` = it was a root.
+    /// Undo: reparent back to it.
+    Parent { parent_id: Option<String> },
+}
+
+/// The result of `collection_rename` / `collection_reorder` /
+/// `collection_reparent`: the row as it now stands, plus the prior value.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedCollectionMutation {
+    /// The collection AFTER the change.
+    pub row: SharedCollectionRow,
+    /// The value the changed field held BEFORE.
+    pub prior: SharedCollectionPrior,
+}
+
+/// Everything needed to put a deleted collection back exactly as it was.
+/// Returned by `collection_delete`, consumed by `collection_restore`.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedDeletedCollection {
+    /// The collection as it was, including its original id.
+    pub row: SharedCollectionRow,
+    /// The envelope `parent` the row carried — the OWNING LIBRARY for
+    /// payload-tree bindings, the same as `row.parent_id` for figure folders.
+    pub envelope_parent_id: Option<String>,
+    /// Members whose membership the delete dropped (`Contains` edges gone by
+    /// FK CASCADE, envelope-filed items unfiled by FK SET NULL). Never
+    /// sub-collections — those are tree nodes.
+    pub member_ids: Vec<String>,
+    /// Direct child collections whose parent pointer the delete invalidated.
+    /// `collection_restore` re-attaches all of them.
+    pub child_collection_ids: Vec<String>,
+}
+
 // ─── Sync engine DTOs (ADR-0007 Phase 3, Phase C) ────────────────────────────
 //
 // FFI mirrors of `impress_core::sync::*`. Field names are kept byte-identical
@@ -958,6 +1006,22 @@ impl SharedStore {
     // Thin delegation to `impress_core::collection_ops`, which owns the whole
     // verb set — including the reparent cycle check that used to live in the
     // Swift sidebar view model. All ids in and out are lowercase UUID strings.
+    //
+    // UNDO CONTRACT (ADR-0022 G2). Every mutating verb hands back what an undo
+    // stack needs to invert it, so the caller never has to re-read the store
+    // (which races) to build the inverse:
+    //
+    //   create        → row               undo: collection_delete(row.id)
+    //   rename        → mutation          undo: collection_rename(id, prior .name)
+    //   reorder       → mutation          undo: collection_reorder(id, prior .sortOrder)
+    //   reparent      → mutation          undo: collection_reparent(id, prior .parent)
+    //   delete        → snapshot          undo: collection_restore(snapshot)
+    //   restore       → row               undo: collection_delete(row.id)
+    //   add_members   → changed ids       undo: collection_remove_members(id, changed)
+    //   remove_members→ changed ids       undo: collection_add_members(id, changed)
+    //
+    // The membership verbs return only the ids they ACTUALLY changed, so an
+    // inverse cannot unfile an item that was already a member.
 
     /// All collections of the bound schema, flat and ordered by `sort_order`.
     /// The caller assembles the tree from `parent_id`.
@@ -971,12 +1035,20 @@ impl SharedStore {
 
     /// Create a collection under `parent_id` (`nil` = root). `kind_scope` is
     /// honoured only by the `Generic` binding, which defaults it to `"any"`.
+    ///
+    /// `sort_order` positions the row among its siblings: `nil` writes `0`
+    /// (the historical behaviour), `Some(n)` writes `n` — pass the current
+    /// sibling count to append to the end, which is what implore's figure
+    /// folders want and used to emulate with a second `collection_reorder`.
+    ///
+    /// **Undo:** `collection_delete(row.id)`.
     pub fn collection_create(
         &self,
         binding: SharedCollectionBinding,
         name: String,
         parent_id: Option<String>,
         kind_scope: Option<String>,
+        sort_order: Option<i64>,
     ) -> Result<SharedCollectionRow, SharedStoreError> {
         let row = collection_ops::create(
             &self.inner,
@@ -984,67 +1056,113 @@ impl SharedStore {
             &name,
             parent_id.as_deref(),
             kind_scope.as_deref(),
+            sort_order,
         )?;
         Ok(collection_row_to_ffi(row))
     }
 
     /// Rename a collection.
+    ///
+    /// **Undo:** `collection_rename(id, prior)` with the `.name` the returned
+    /// mutation carries.
     pub fn collection_rename(
         &self,
         binding: SharedCollectionBinding,
         id: String,
         name: String,
-    ) -> Result<SharedCollectionRow, SharedStoreError> {
-        let row = collection_ops::rename(&self.inner, &binding.binding(), &id, &name)?;
-        Ok(collection_row_to_ffi(row))
+    ) -> Result<SharedCollectionMutation, SharedStoreError> {
+        let mutation = collection_ops::rename(&self.inner, &binding.binding(), &id, &name)?;
+        Ok(collection_mutation_to_ffi(mutation))
     }
 
     /// Move a collection under `new_parent_id` (`nil` = make it a root).
     /// Returns `InvalidArgument` for self-parenting or a move under one of
     /// the collection's own descendants.
+    ///
+    /// **Undo:** `collection_reparent(id, prior)` with the `.parent` the
+    /// returned mutation carries (whose `parent_id` is `nil` when the
+    /// collection was a root).
     pub fn collection_reparent(
         &self,
         binding: SharedCollectionBinding,
         id: String,
         new_parent_id: Option<String>,
-    ) -> Result<SharedCollectionRow, SharedStoreError> {
-        let row = collection_ops::reparent(
+    ) -> Result<SharedCollectionMutation, SharedStoreError> {
+        let mutation = collection_ops::reparent(
             &self.inner,
             &binding.binding(),
             &id,
             new_parent_id.as_deref(),
         )?;
-        Ok(collection_row_to_ffi(row))
+        Ok(collection_mutation_to_ffi(mutation))
     }
 
     /// Set a collection's position among its siblings.
+    ///
+    /// **Undo:** `collection_reorder(id, prior)` with the `.sortOrder` the
+    /// returned mutation carries.
     pub fn collection_reorder(
         &self,
         binding: SharedCollectionBinding,
         id: String,
         sort_order: i64,
-    ) -> Result<SharedCollectionRow, SharedStoreError> {
-        let row = collection_ops::reorder(&self.inner, &binding.binding(), &id, sort_order)?;
-        Ok(collection_row_to_ffi(row))
+    ) -> Result<SharedCollectionMutation, SharedStoreError> {
+        let mutation = collection_ops::reorder(&self.inner, &binding.binding(), &id, sort_order)?;
+        Ok(collection_mutation_to_ffi(mutation))
     }
 
     /// Delete a collection. Members are never deleted — only the membership.
+    ///
+    /// Returns the snapshot needed to put it back. **Undo:**
+    /// `collection_restore(snapshot)`.
     pub fn collection_delete(
         &self,
         binding: SharedCollectionBinding,
         id: String,
-    ) -> Result<(), SharedStoreError> {
-        collection_ops::delete(&self.inner, &binding.binding(), &id)?;
-        Ok(())
+    ) -> Result<SharedDeletedCollection, SharedStoreError> {
+        let snapshot = collection_ops::delete(&self.inner, &binding.binding(), &id)?;
+        Ok(SharedDeletedCollection {
+            row: collection_row_to_ffi(snapshot.row),
+            envelope_parent_id: snapshot.envelope_parent_id,
+            member_ids: snapshot.member_ids,
+            child_collection_ids: snapshot.child_collection_ids,
+        })
     }
 
-    /// Add items to a collection. Idempotent; returns the number applied.
+    /// Put a deleted collection back under its ORIGINAL id, with its members
+    /// re-filed and its child collections re-attached — the inverse of
+    /// `collection_delete`.
+    ///
+    /// Members and children that have since been deleted are skipped rather
+    /// than failing the restore; restoring over a live id is `InvalidArgument`.
+    ///
+    /// **Undo:** `collection_delete(row.id)`.
+    pub fn collection_restore(
+        &self,
+        binding: SharedCollectionBinding,
+        snapshot: SharedDeletedCollection,
+    ) -> Result<SharedCollectionRow, SharedStoreError> {
+        let snapshot = collection_ops::DeletedCollection {
+            row: collection_row_from_ffi(snapshot.row),
+            envelope_parent_id: snapshot.envelope_parent_id,
+            member_ids: snapshot.member_ids,
+            child_collection_ids: snapshot.child_collection_ids,
+        };
+        let row = collection_ops::restore(&self.inner, &binding.binding(), &snapshot)?;
+        Ok(collection_row_to_ffi(row))
+    }
+
+    /// Add items to a collection. Idempotent per item.
+    ///
+    /// Returns the ids that ACTUALLY became members — an id that was already
+    /// filed reports nothing. **Undo:**
+    /// `collection_remove_members(collection_id, changed)`.
     pub fn collection_add_members(
         &self,
         binding: SharedCollectionBinding,
         collection_id: String,
         item_ids: Vec<String>,
-    ) -> Result<u32, SharedStoreError> {
+    ) -> Result<Vec<String>, SharedStoreError> {
         Ok(collection_ops::add_members(
             &self.inner,
             &binding.binding(),
@@ -1053,13 +1171,17 @@ impl SharedStore {
         )?)
     }
 
-    /// Remove items from a collection. Returns the number actually removed.
+    /// Remove items from a collection without touching the items.
+    ///
+    /// Returns the ids that were ACTUALLY removed — non-members and items
+    /// filed in a different collection report nothing. **Undo:**
+    /// `collection_add_members(collection_id, changed)`.
     pub fn collection_remove_members(
         &self,
         binding: SharedCollectionBinding,
         collection_id: String,
         item_ids: Vec<String>,
-    ) -> Result<u32, SharedStoreError> {
+    ) -> Result<Vec<String>, SharedStoreError> {
         Ok(collection_ops::remove_members(
             &self.inner,
             &binding.binding(),
@@ -1264,6 +1386,34 @@ fn collection_row_to_ffi(row: collection_ops::CollectionRow) -> SharedCollection
         parent_id: row.parent_id,
         sort_order: row.sort_order,
         kind_scope: row.kind_scope,
+    }
+}
+
+/// The inverse, for the one call that takes a row back in: `collection_restore`.
+fn collection_row_from_ffi(row: SharedCollectionRow) -> collection_ops::CollectionRow {
+    collection_ops::CollectionRow {
+        id: row.id,
+        name: row.name,
+        parent_id: row.parent_id,
+        sort_order: row.sort_order,
+        kind_scope: row.kind_scope,
+    }
+}
+
+fn collection_mutation_to_ffi(
+    mutation: collection_ops::CollectionMutation,
+) -> SharedCollectionMutation {
+    SharedCollectionMutation {
+        row: collection_row_to_ffi(mutation.row),
+        prior: match mutation.prior {
+            collection_ops::CollectionPrior::Name(name) => SharedCollectionPrior::Name { name },
+            collection_ops::CollectionPrior::SortOrder(sort_order) => {
+                SharedCollectionPrior::SortOrder { sort_order }
+            }
+            collection_ops::CollectionPrior::Parent(parent_id) => {
+                SharedCollectionPrior::Parent { parent_id }
+            }
+        },
     }
 }
 
@@ -2449,6 +2599,7 @@ mod tests {
                 "Grant renewal".into(),
                 None,
                 Some("any".into()),
+                None,
             )
             .expect("create root");
         let child = store
@@ -2457,15 +2608,18 @@ mod tests {
                 "Figures".into(),
                 Some(root.id.clone()),
                 None,
+                Some(1),
             )
             .expect("create child");
 
         assert_eq!(root.kind_scope.as_deref(), Some("any"));
+        assert_eq!(root.sort_order, 0, "nil sort_order keeps writing 0");
         assert_eq!(
             child.kind_scope.as_deref(),
             Some("any"),
             "kind_scope defaults to any"
         );
+        assert_eq!(child.sort_order, 1, "an explicit sort_order is honoured");
         assert_eq!(child.parent_id.as_deref(), Some(root.id.as_str()));
 
         let renamed = store
@@ -2475,17 +2629,49 @@ mod tests {
                 "Panels".into(),
             )
             .expect("rename");
-        assert_eq!(renamed.name, "Panels");
+        assert_eq!(renamed.row.name, "Panels");
+        assert_eq!(
+            renamed.prior,
+            SharedCollectionPrior::Name {
+                name: "Figures".into()
+            },
+            "undo renames back to this"
+        );
 
         let reordered = store
             .collection_reorder(SharedCollectionBinding::Generic, child.id.clone(), 4)
             .expect("reorder");
-        assert_eq!(reordered.sort_order, 4);
+        assert_eq!(reordered.row.sort_order, 4);
+        assert_eq!(
+            reordered.prior,
+            SharedCollectionPrior::SortOrder { sort_order: 1 }
+        );
 
         let unparented = store
             .collection_reparent(SharedCollectionBinding::Generic, child.id.clone(), None)
             .expect("reparent to root");
-        assert!(unparented.parent_id.is_none());
+        assert!(unparented.row.parent_id.is_none());
+        assert_eq!(
+            unparented.prior,
+            SharedCollectionPrior::Parent {
+                parent_id: Some(root.id.clone())
+            }
+        );
+        let reparented = store
+            .collection_reparent(
+                SharedCollectionBinding::Generic,
+                child.id.clone(),
+                Some(root.id.clone()),
+            )
+            .expect("reparent back");
+        assert_eq!(
+            reparented.prior,
+            SharedCollectionPrior::Parent { parent_id: None },
+            "'was a root' is not the same as 'no prior value'"
+        );
+        store
+            .collection_reparent(SharedCollectionBinding::Generic, child.id.clone(), None)
+            .expect("reparent to root again");
 
         let tree = store
             .collection_tree(SharedCollectionBinding::Generic)
@@ -2497,9 +2683,11 @@ mod tests {
             "tree is flat and sorted by sort_order"
         );
 
-        store
+        let snapshot = store
             .collection_delete(SharedCollectionBinding::Generic, child.id.clone())
             .expect("delete");
+        assert_eq!(snapshot.row.id, child.id);
+        assert_eq!(snapshot.row.sort_order, 4, "the snapshot is undo-complete");
         assert_eq!(
             store
                 .collection_tree(SharedCollectionBinding::Generic)
@@ -2517,13 +2705,20 @@ mod tests {
     fn collection_reparent_rejects_cycles() {
         let store = SharedStore::open_in_memory().expect("open");
         let a = store
-            .collection_create(SharedCollectionBinding::Generic, "A".into(), None, None)
+            .collection_create(
+                SharedCollectionBinding::Generic,
+                "A".into(),
+                None,
+                None,
+                None,
+            )
             .expect("A");
         let b = store
             .collection_create(
                 SharedCollectionBinding::Generic,
                 "B".into(),
                 Some(a.id.clone()),
+                None,
                 None,
             )
             .expect("B");
@@ -2532,6 +2727,7 @@ mod tests {
                 SharedCollectionBinding::Generic,
                 "C".into(),
                 Some(b.id.clone()),
+                None,
                 None,
             )
             .expect("C");
@@ -2576,10 +2772,17 @@ mod tests {
                 "Everything".into(),
                 None,
                 Some("any".into()),
+                None,
             )
             .expect("create");
         let empty = store
-            .collection_create(SharedCollectionBinding::Generic, "Empty".into(), None, None)
+            .collection_create(
+                SharedCollectionBinding::Generic,
+                "Empty".into(),
+                None,
+                None,
+                None,
+            )
             .expect("create");
 
         let manuscript = make_record(&store, "manuscript", "Draft II");
@@ -2593,7 +2796,19 @@ mod tests {
                     vec![manuscript.clone(), figure.clone()],
                 )
                 .expect("add members"),
-            2
+            vec![manuscript.clone(), figure.clone()],
+            "the ids that actually changed, for an exact inverse"
+        );
+        assert!(
+            store
+                .collection_add_members(
+                    SharedCollectionBinding::Generic,
+                    mixed.id.clone(),
+                    vec![figure.clone()],
+                )
+                .expect("re-add")
+                .is_empty(),
+            "re-adding an existing member changes nothing"
         );
         assert_eq!(
             store
@@ -2620,7 +2835,7 @@ mod tests {
                     vec![figure.clone()],
                 )
                 .expect("remove"),
-            1
+            vec![figure.clone()]
         );
         assert_eq!(
             store
@@ -2638,12 +2853,19 @@ mod tests {
     fn collection_bindings_are_isolated() {
         let store = SharedStore::open_in_memory().expect("open");
         store
-            .collection_create(SharedCollectionBinding::Generic, "Mixed".into(), None, None)
+            .collection_create(
+                SharedCollectionBinding::Generic,
+                "Mixed".into(),
+                None,
+                None,
+                None,
+            )
             .expect("generic");
         let workspace = store
             .collection_create(
                 SharedCollectionBinding::Manuscript,
                 "Workspace".into(),
+                None,
                 None,
                 None,
             )
@@ -2653,6 +2875,7 @@ mod tests {
                 SharedCollectionBinding::Manuscript,
                 "Drafts".into(),
                 Some(workspace.id.clone()),
+                None,
                 None,
             )
             .expect("manuscript child");
@@ -2691,6 +2914,7 @@ mod tests {
                 "Paper figures".into(),
                 None,
                 None,
+                None,
             )
             .expect("folder");
         let nested = store
@@ -2698,6 +2922,7 @@ mod tests {
                 SharedCollectionBinding::Figure,
                 "Supplement".into(),
                 Some(folder.id.clone()),
+                None,
                 None,
             )
             .expect("nested folder");
@@ -2725,5 +2950,346 @@ mod tests {
             vec![1],
             "the nested folder is a tree node, not a member"
         );
+    }
+
+    #[test]
+    fn collection_delete_snapshot_restores_the_whole_folder() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let folder = store
+            .collection_create(
+                SharedCollectionBinding::Figure,
+                "Paper figures".into(),
+                None,
+                None,
+                Some(2),
+            )
+            .expect("folder");
+        let nested = store
+            .collection_create(
+                SharedCollectionBinding::Figure,
+                "Supplement".into(),
+                Some(folder.id.clone()),
+                None,
+                None,
+            )
+            .expect("nested");
+        let panel = make_record(&store, "figure", "Panel A");
+        store
+            .collection_add_members(
+                SharedCollectionBinding::Figure,
+                folder.id.clone(),
+                vec![panel.clone()],
+            )
+            .expect("file figure");
+
+        let snapshot = store
+            .collection_delete(SharedCollectionBinding::Figure, folder.id.clone())
+            .expect("delete");
+        assert_eq!(snapshot.row.sort_order, 2);
+        assert_eq!(snapshot.member_ids, vec![panel.clone()]);
+        assert_eq!(snapshot.child_collection_ids, vec![nested.id.clone()]);
+
+        let restored = store
+            .collection_restore(SharedCollectionBinding::Figure, snapshot.clone())
+            .expect("restore");
+        assert_eq!(restored.id, folder.id, "restored under its ORIGINAL id");
+        assert_eq!(restored.sort_order, 2);
+
+        let tree = store
+            .collection_tree(SharedCollectionBinding::Figure)
+            .expect("tree");
+        assert_eq!(tree.len(), 2);
+        assert_eq!(
+            tree.iter()
+                .find(|r| r.id == nested.id)
+                .expect("nested listed")
+                .parent_id
+                .as_deref(),
+            Some(folder.id.as_str()),
+            "the child folder is re-attached"
+        );
+        assert_eq!(
+            store
+                .collection_member_counts(SharedCollectionBinding::Figure, vec![folder.id.clone()])
+                .expect("counts"),
+            vec![1],
+            "the figure is re-filed"
+        );
+
+        // A second restore is a double-undo, not a repair.
+        assert!(matches!(
+            store.collection_restore(SharedCollectionBinding::Figure, snapshot),
+            Err(SharedStoreError::InvalidArgument { .. })
+        ));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Search & Related (ADR-0022 D6/D8)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Two mixed-kind reads over the shared store: grouped global search and the
+// generic Related section. Both return `schema_ref` on every row, because
+// their whole point is that the caller does NOT know in advance which record
+// kinds are in the answer — Swift picks a row renderer per entry.
+//
+// Appended as a separate exported `impl SharedStore` block rather than folded
+// into the main one: these are a distinct capability with a distinct ADR
+// section, and UniFFI is happy to scaffold several impl blocks for one object.
+
+/// One grouped-search hit. `schema_ref` is the bucket key — group by it to
+/// render one section per record kind.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedSearchHit {
+    /// Lowercase UUID string.
+    pub id: String,
+    /// The item's schema ("manuscript", "figure", "email-message", …).
+    pub schema_ref: String,
+    /// Display title (title / subject / name, in that order).
+    pub title: String,
+    /// Snippet of the best-matching indexed column, unmarked; falls back to
+    /// the title when the match has nothing quotable.
+    pub snippet: String,
+    /// BM25 relevance. **Lower is better** — hits arrive already sorted.
+    pub rank: f64,
+}
+
+/// One item related to a subject item by a typed edge.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedRelatedItem {
+    /// Lowercase UUID of the OTHER item — never the subject.
+    pub id: String,
+    /// The other item's schema, so a mixed-kind list can pick a row renderer.
+    pub schema_ref: String,
+    /// Display title (title / subject / name, in that order).
+    pub title: String,
+    /// Edge type name ("Cites", "Contains", "ProducedBy", …); a custom edge
+    /// reports its bare custom name.
+    pub edge_type: String,
+    /// `"outgoing"` when the subject is the edge source (this manuscript
+    /// *contains* that figure), `"incoming"` when it is the target.
+    pub direction: String,
+}
+
+#[cfg_attr(feature = "native", uniffi::export)]
+impl SharedStore {
+    /// Full-text search across every record kind at once (ADR-0022 D6).
+    ///
+    /// Results are ordered by `schema_ref`, then relevance, then id, so the
+    /// per-kind buckets are contiguous and stable. `limit_per_schema` caps each
+    /// kind separately — one noisy mailbox cannot crowd manuscripts off the
+    /// surface. Pass `0` for the default (20); the cap is clamped at 200.
+    ///
+    /// The query string is treated as words, never as FTS5 syntax: a
+    /// half-typed `foo AND (` searches for two literal words instead of
+    /// failing. Terms are prefix-matched, so "scal" finds "Scaling".
+    ///
+    /// Items with `status: "dismissed"` are withheld — they are reachable
+    /// through their own section, by design.
+    pub fn search_all(
+        &self,
+        query: String,
+        limit_per_schema: u32,
+    ) -> Result<Vec<SharedSearchHit>, SharedStoreError> {
+        let hits = impress_core::search_ops::search_all(&self.inner, &query, limit_per_schema)?;
+        Ok(hits
+            .into_iter()
+            .map(|h| SharedSearchHit {
+                id: h.id,
+                schema_ref: h.schema_ref,
+                title: h.title,
+                snippet: h.snippet,
+                rank: h.rank,
+            })
+            .collect())
+    }
+
+    /// Every item related to `id` by a typed edge, in BOTH directions and
+    /// across ALL edge types (ADR-0022 D8).
+    ///
+    /// Ordered by edge type, then title — so a Related section can render one
+    /// heading per edge type by walking the list once. Edges whose other end
+    /// no longer exists are skipped rather than shown as blank rows. Pass `0`
+    /// for the default limit (50); the cap is clamped at 500.
+    pub fn related_items(
+        &self,
+        id: String,
+        limit: u32,
+    ) -> Result<Vec<SharedRelatedItem>, SharedStoreError> {
+        let rows = impress_core::related_ops::related_items(&self.inner, &id, limit)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SharedRelatedItem {
+                id: r.id,
+                schema_ref: r.schema_ref,
+                title: r.title,
+                edge_type: r.edge_type,
+                direction: r.direction,
+            })
+            .collect())
+    }
+}
+
+// ─── Search & Related tests ──────────────────────────────────────────────────
+
+#[cfg(test)]
+mod search_related_tests {
+    use super::*;
+
+    fn store() -> Arc<SharedStore> {
+        SharedStore::open_in_memory().expect("open")
+    }
+
+    /// Insert an item with a raw payload JSON object, returning its id.
+    fn record(store: &SharedStore, schema: &str, payload_json: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(id.clone(), schema.into(), payload_json.into())
+            .expect("upsert");
+        id
+    }
+
+    fn titled(store: &SharedStore, schema: &str, title: &str) -> String {
+        record(
+            store,
+            schema,
+            &format!(r#"{{"title": {}}}"#, json_str(title)),
+        )
+    }
+
+    fn json_str(s: &str) -> String {
+        serde_json::to_string(s).expect("encode")
+    }
+
+    #[test]
+    fn search_all_spans_kinds_and_caps_each_one() {
+        let store = store();
+        for n in 0..8 {
+            record(
+                &store,
+                "email-message",
+                &format!(r#"{{"subject": "budget thread {n}", "from": "pi@example.edu"}}"#),
+            );
+        }
+        let manuscript = titled(&store, "manuscript", "Budget narrative");
+        let figure = titled(&store, "figure", "Budget breakdown");
+
+        let hits = store.search_all("budget".into(), 2).expect("search");
+        let mail = hits
+            .iter()
+            .filter(|h| h.schema_ref == "email-message")
+            .count();
+        assert_eq!(mail, 2, "the per-kind cap must bind: {hits:?}");
+        let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
+        assert!(ids.contains(&manuscript.as_str()), "{hits:?}");
+        assert!(ids.contains(&figure.as_str()), "{hits:?}");
+        assert!(hits.iter().all(|h| !h.snippet.is_empty()));
+    }
+
+    /// A search field is typed by a human mid-thought; every one of these is
+    /// an FTS5 syntax error if the string reaches MATCH unsanitized.
+    #[test]
+    fn search_all_survives_hostile_queries() {
+        let store = store();
+        titled(&store, "manuscript", "Dark matter halos");
+        for hostile in ["foo AND (", "\"unbalanced", "NEAR(", "*", ")))", ""] {
+            store
+                .search_all(hostile.into(), 5)
+                .unwrap_or_else(|e| panic!("{hostile:?} must not error: {e}"));
+        }
+        assert_eq!(
+            store.search_all("dark".into(), 5).expect("search").len(),
+            1,
+            "a real query still works afterwards"
+        );
+    }
+
+    #[test]
+    fn search_all_withholds_dismissed_items() {
+        let store = store();
+        let live = titled(&store, "task", "Recalibrate the detector");
+        let gone = record(
+            &store,
+            "task",
+            r#"{"title": "Recalibrate someday", "status": "dismissed"}"#,
+        );
+        let hits = store.search_all("recalibrate".into(), 10).expect("search");
+        let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
+        assert_eq!(ids, vec![live.as_str()], "dismissed leaked: {hits:?}");
+        assert!(!ids.contains(&gone.as_str()));
+    }
+
+    #[test]
+    fn related_items_walks_both_directions() {
+        let store = store();
+        let manuscript = titled(&store, "manuscript", "Draft II");
+        let figure = titled(&store, "figure", "Rotation curve");
+        let paper = titled(&store, "imbib/bibliography-entry", "Zwicky 1933");
+        let task = titled(&store, "task", "Redo the fit");
+
+        store
+            .add_reference(manuscript.clone(), figure.clone(), "Contains".into())
+            .expect("contains edge");
+        store
+            .add_reference(manuscript.clone(), paper.clone(), "Cites".into())
+            .expect("cites edge");
+        store
+            .add_reference(task.clone(), manuscript.clone(), "ProducedBy".into())
+            .expect("produced-by edge");
+
+        let rows = store
+            .related_items(manuscript.clone(), 10)
+            .expect("related");
+        assert_eq!(rows.len(), 3, "{rows:?}");
+
+        let contains = rows.iter().find(|r| r.edge_type == "Contains").unwrap();
+        assert_eq!(contains.id, figure);
+        assert_eq!(contains.schema_ref, "figure");
+        assert_eq!(contains.direction, "outgoing");
+
+        let produced = rows.iter().find(|r| r.edge_type == "ProducedBy").unwrap();
+        assert_eq!(produced.id, task);
+        assert_eq!(produced.direction, "incoming");
+
+        // Seen from the figure, the manuscript is the incoming half.
+        let back = store.related_items(figure, 10).expect("related");
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].id, manuscript);
+        assert_eq!(back[0].direction, "incoming");
+        assert_eq!(back[0].title, "Draft II");
+    }
+
+    #[test]
+    fn related_items_skips_deleted_ends_and_rejects_bad_ids() {
+        let store = store();
+        let manuscript = titled(&store, "manuscript", "Draft II");
+        let kept = titled(&store, "figure", "Panel A");
+        let doomed = titled(&store, "figure", "Panel B");
+        store
+            .add_reference(manuscript.clone(), kept.clone(), "Contains".into())
+            .expect("edge");
+        store
+            .add_reference(manuscript.clone(), doomed.clone(), "Contains".into())
+            .expect("edge");
+        assert_eq!(
+            store.related_items(manuscript.clone(), 10).unwrap().len(),
+            2
+        );
+
+        store.delete_item(doomed).expect("delete");
+        let rows = store.related_items(manuscript, 10).expect("related");
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].id, kept);
+
+        assert!(matches!(
+            store.related_items("not-a-uuid".into(), 10),
+            Err(SharedStoreError::InvalidArgument { .. })
+        ));
+        assert!(matches!(
+            store.related_items(uuid::Uuid::new_v4().to_string(), 10),
+            Err(SharedStoreError::NotFound { .. })
+        ));
     }
 }

@@ -65,9 +65,22 @@ pub struct TemplateRecord {
 }
 
 /// The result of a headless compile.
+///
+/// # Wire tolerance
+///
+/// imbib's route answers `{"status": "ok"|"error", ...}`; this DTO is keyed on
+/// `ok`. Requiring `ok` made a SUCCESSFUL compile decode as a failure (the
+/// field was missing, so the whole struct failed to parse and the caller
+/// reported `ok: false`). Both sides are now fixed and either one alone is
+/// sufficient: the route emits `ok` *and* keeps `status`, and `ok` here
+/// defaults from `status` when absent. Do not tighten this back up — the app
+/// and the crate ship on different clocks.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(from = "CompileResultWire")]
 pub struct CompileResult {
     pub ok: bool,
+    /// Absolute path to the compiled PDF, for `render_pdf_page`. imbib writes
+    /// it into the manuscript's app-group working directory.
     #[serde(default)]
     pub pdf_path: Option<String>,
     #[serde(default)]
@@ -75,6 +88,49 @@ pub struct CompileResult {
     /// Errors and warnings from the compiler, in source order.
     #[serde(default)]
     pub messages: Vec<String>,
+}
+
+/// What the route may actually send. Every field optional, camelCase accepted,
+/// and the older `warnings`/`errors` arrays folded into `messages` so
+/// diagnostics arrive even from a build that predates `messages`.
+#[derive(Debug, Deserialize)]
+struct CompileResultWire {
+    #[serde(default)]
+    ok: Option<bool>,
+    /// `"ok"` / `"error"` — the pre-`ok` success signal.
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default, alias = "pdfPath")]
+    pdf_path: Option<String>,
+    #[serde(default, alias = "pageCount")]
+    page_count: Option<u32>,
+    #[serde(default)]
+    messages: Vec<String>,
+    #[serde(default)]
+    errors: Vec<String>,
+    #[serde(default)]
+    warnings: Vec<String>,
+}
+
+impl From<CompileResultWire> for CompileResult {
+    fn from(w: CompileResultWire) -> Self {
+        let ok = w.ok.unwrap_or_else(|| {
+            w.status
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case("ok"))
+        });
+        let mut messages = w.messages;
+        if messages.is_empty() {
+            messages.extend(w.errors);
+            messages.extend(w.warnings);
+        }
+        Self {
+            ok,
+            pdf_path: w.pdf_path,
+            page_count: w.page_count,
+            messages,
+        }
+    }
 }
 
 /// The outcome of a compare-and-set body write.
@@ -123,9 +179,13 @@ pub trait ImbibManuscriptsService: Send + Sync + 'static {
         expected_hash: String,
     ) -> WriteResult;
 
-    /// Compile a manuscript headlessly, with the store-backed virtual
+    /// Compile a manuscript through imbib, with the store-backed virtual
     /// bibliography — `@citeKey` references resolve against the imbib library,
-    /// so there is no .bib file to maintain. Works with imprint closed.
+    /// so there is no .bib file to maintain. Returns `pdf_path` (imbib parks
+    /// the PDF in the manuscript's directory) for `render_pdf_page`, plus page
+    /// count and compiler messages. Needs imbib RUNNING; with it closed, use
+    /// `imprint-manuscript-service_compile-typst`, which compiles headlessly
+    /// but without the citation resolution.
     #[impress_method]
     async fn compile_manuscript(&self, manuscript_id: String) -> CompileResult;
 
@@ -239,4 +299,62 @@ impress_service_impl! {
             title: String
         ) -> Option<ManuscriptRecord>,
     ],
+}
+
+#[cfg(test)]
+mod compile_result_wire_tests {
+    use super::CompileResult;
+
+    fn decode(json: &str) -> CompileResult {
+        serde_json::from_str(json).expect("CompileResult must decode")
+    }
+
+    /// The defect this DTO shipped with: imbib answered `{"status":"ok",…}`,
+    /// the struct required `ok`, decode failed, and a SUCCESSFUL compile was
+    /// reported as a failure. `status` alone must be enough.
+    #[test]
+    fn status_ok_alone_decodes_as_success() {
+        let r = decode(r#"{"status":"ok","pdfBytes":40213,"warnings":[],"citedKeys":[]}"#);
+        assert!(r.ok, "status:ok must mean ok:true");
+        assert!(r.pdf_path.is_none());
+    }
+
+    /// And the fixed route's own shape, `ok` + `status` together.
+    #[test]
+    fn ok_field_decodes_with_path_and_page_count() {
+        let r = decode(
+            r#"{"ok":true,"status":"ok","pdfPath":"/tmp/m.pdf","pageCount":3,"pdfBytes":12}"#,
+        );
+        assert!(r.ok);
+        assert_eq!(r.pdf_path.as_deref(), Some("/tmp/m.pdf"));
+        assert_eq!(r.page_count, Some(3));
+    }
+
+    /// `ok` wins when the two disagree — it is the explicit signal.
+    #[test]
+    fn ok_false_overrides_status_ok() {
+        let r = decode(r#"{"ok":false,"status":"ok"}"#);
+        assert!(!r.ok);
+    }
+
+    /// A compile failure carries its diagnostics, whichever key they arrive
+    /// under.
+    #[test]
+    fn failure_folds_errors_and_warnings_into_messages() {
+        let r = decode(
+            r#"{"ok":false,"status":"error","errors":["unclosed delimiter"],"warnings":["unused import"]}"#,
+        );
+        assert!(!r.ok);
+        assert_eq!(r.messages, vec!["unclosed delimiter", "unused import"]);
+
+        // An explicit `messages` array is authoritative; nothing is duplicated.
+        let r = decode(r#"{"ok":false,"messages":["m"],"errors":["e"]}"#);
+        assert_eq!(r.messages, vec!["m"]);
+    }
+
+    /// Nothing claimed success, so nothing succeeded.
+    #[test]
+    fn absent_signals_decode_as_failure() {
+        assert!(!decode(r#"{"pdfBytes":0}"#).ok);
+    }
 }

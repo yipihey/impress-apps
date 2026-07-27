@@ -120,12 +120,20 @@ task, figures embedded in a draft.
 
 ### D9 — impress is proven, not shipped
 
-Define the `impress` `AppShellConfiguration` preset (all kinds,
-`visibleSections: nil`, all surfaces) with parity tests, plus a store-level
+Define the `impress` `AppShellConfiguration` preset (all kinds, every
+section, all surfaces) with parity tests, plus a store-level
 integration test doing a mixed-kind collection round-trip through
 `CollectionOps` with `kind_scope: "any"`. No app target until the sibling
 apps and their renderers mature. When ready, the app is a ~120-line
 `ImpressChassisRoot` against seams tested for months.
+
+*Implemented (G8, 2026-07-27) with one change: `visibleSections` is the
+EXPLICIT set of every section, not `nil`. `nil` ("no restriction") was retired
+suite-wide when imbib went publications-only — opting in by omission is the
+mechanism that rode the Manuscripts section into imbib, and the shell that
+wants everything is exactly the shell that must still say so, section by
+section. The parity test then fails when the section enum grows, until someone
+decides.*
 
 ## Work packages
 
@@ -156,3 +164,93 @@ deliberately last.
   surface deliberate.
 - **Smart collections** — `is_smart` is schema'd but inert; the predicate
   language is a separate future ADR.
+
+## Status (2026-07-27)
+
+**All nine work packages landed.** G0–G6 shipped in wave 1 (2026-07-27,
+`25a7f714`); G7 (collection data migration, flagged) and G8 (`impress` preset,
+mixed-kind gate test, litmus re-run) landed the same day.
+
+| WP | Landed | Where it lives |
+|----|--------|----------------|
+| G0 | 2026-07-27 | `impress-core/src/collection_ops.rs` (+ `schemas/collection.rs`), FFI in `impress-store-ffi` / `imbib-core` |
+| G1 | 2026-07-27 | `impress-store-service` (collection + triage services) → MCP/CLI/impel tools; matrix "MCP surface" section |
+| G2 | 2026-07-27 | capability-driven folder block in `ImbibSidebarViewModel` over `CollectionStoreAdapter`; `CollectionCapability`; `RecordDragSession` |
+| G3 | 2026-07-27 | `RecordViewerRegistry`, `KindTaggedRow`, `AnyRecordListWrapper` |
+| G4 | 2026-07-27 | `search_all` + `StoreSearchSurface` (chassis-BUILTIN surface, every preset) |
+| G5 | 2026-07-27 | `related_ops.rs` + `RelatedItemsSection` |
+| G6 | 2026-07-27 | `store-query-service` get/list + `impress://store/{schemas,collections}` resources |
+| G7 | 2026-07-27 | collection migration to `collection@1.0.0` — **feature-flagged, default OFF** |
+| G8 | 2026-07-27 | `AppShellConfiguration.impress` + `testImpress*` parity tests; `impress_gate_mixed_kind_collection_round_trip`; litmus re-run in ADR-0021 |
+
+### Two deliberate scope changes
+
+1. **imbib was purified to publications only** (user direction, 2026-07-27),
+   which **supersedes the imbib-facing parts of D3**. D3 assumed one sidebar
+   folder pattern serving every kind *in imbib*; imbib now surfaces an
+   EXPLICIT publications-only `visibleSections` (manuscripts → imprint,
+   figures → implore, mail → impart, tasks/runs → impel), so the generic
+   folder block is exercised by the sibling apps rather than by imbib. The
+   pattern itself landed as designed and none of the chassis code was deleted —
+   only imbib's surfacing of it. `nil` visibleSections is retired suite-wide as
+   a consequence: opting in by omission is what rode the Manuscripts section
+   into imbib in the first place. One casualty: the Submissions inbox lost its
+   home (see the register below).
+
+2. **The migration flag ships OFF.** G7's shadow-write and rollback drill are
+   green, but the Swift legacy-caller audit G7 surfaced is not finished —
+   `ImbibSidebarViewModel.migratedFolderBindings` still names which kinds route
+   through the kernel adapter, and publication collections stay on the legacy
+   path. Flipping the flag before every Swift caller reads through
+   `CollectionOps` would give two writers to one tree. Turning it on is its
+   own change, with its own gate: count parity per kind plus the imbib tree
+   regression named in the G7 row.
+
+### Follow-up register
+
+Work this ADR deliberately did not do, recorded so it stops being
+rediscovered:
+
+- **Render/export wiring (a WP of its own).** D5 lists render/export tools;
+  they are enumerated but not usable headlessly. `imprint-core` has a real
+  headless Typst compiler behind `#[cfg(feature = "typst-render")]`; what is
+  missing is a passthrough feature in `imprint-service`, replacing the canned
+  error in `handlers.rs`, writing bytes to disk so `render_pdf_page` has a
+  path, and adding the app-dependent services to `reachability::APP_GATED` so
+  `_list-documents` stops answering `[]` while imprint is closed. Evidence
+  table: docs/chassis-capability-matrix.md, "Render / export — ❌ blocked".
+- **A home for the Submissions inbox.** Unreachable in imbib since the
+  purification; `AppShellConfiguration.impress` declares it as the designated
+  future home, but impress ships no target. Adopting it in imprint is the
+  interim option.
+- **UTType Info.plist declarations.** `UTType(exportedAs:)` is used for
+  `com.imbib.manuscript-id` and `com.impress.figure-id`
+  (`MailStylePublicationRow.swift`), but no app declares them in
+  `UTExportedTypeDeclarations`. Drag works because the pasteboard round-trips
+  the raw identifier; the declaration is still owed, and a third kind's drag
+  type should not be added without it.
+  **RESOLVED 2026-07-27:** both types are now declared `UTExportedTypeDeclarations`
+  (conforming to `public.data`) in the macOS `info.properties` of all five
+  `project.yml` specs — exported, not imported, in every host, because the
+  chassis constructs them with `UTType(exportedAs:)` and an imported
+  declaration still faults ("expected to be exported … but it was imported
+  instead"); the two `com.apple.runtime-issues` launch faults are gone.
+- **impart compose + mark-read from the chassis.** Stage-2-A2: composing and
+  read-state sync are IMAP-owned and stay in impart's classic window; the
+  chassis mail list is read-only in that respect.
+- **tree-sitter-markdown grammar.** Not vendored, so `ImpressSyntaxHighlight`
+  renders md/txt unhighlighted.
+- **Navigation enums are not additive.** The ADR-0021 litmus re-run (WP G8)
+  found that adding a kind still costs cases in `SidebarSectionType`,
+  `ImbibSidebarNodeType`, `ImbibContentRoute` and `ImbibTab`. Behaviour —
+  tabs, triage, menus, folders, drag, search, related, MCP — is additive;
+  navigation is not. A registry-driven route type would close it.
+- **Mixed-kind Flagged/Dismissed.** `sectionBindings` maps a section to ONE
+  `RecordKindID`, so the impress preset binds both to `.publication`. The real
+  behaviour wants `AnyRecordListWrapper` over a cross-kind query — a chassis
+  change, not a preset edit.
+- **impress keychain access.** The impress preset permits `.search`, so
+  `TabContentView`'s ADS/SciX credential read would run in it; those keychain
+  items are ACL'd to imbib's code signature. Before an impress target exists,
+  either it ships with imbib's keychain access group or the read moves behind
+  a reachability check.

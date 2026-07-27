@@ -374,6 +374,9 @@ impl ImprintClient {
             let bytes = resp.bytes().await?;
             return Result::Ok(CompileResult {
                 pdf_data: Some(bytes.to_vec()),
+                // The app streams bytes, not a path. Only the headless
+                // compiler writes a file it can point at.
+                pdf_path: None,
                 error: None,
                 warnings,
                 page_count,

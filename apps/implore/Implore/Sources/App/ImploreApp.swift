@@ -4,6 +4,7 @@ import ImpressKit
 import ImpressKeyboard
 import ImpressLogging
 import ImpressSpotlight
+import PublicationManagerCore
 import SwiftUI
 
 /// implore - Scientific Data Visualization
@@ -217,6 +218,11 @@ struct ImploreApp: App {
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
             }
+
+            // ⌘⇧F → the chassis's builtin store-wide "Search Everything"
+            // surface (ADR-0022 D6). implore had NO ⌘⇧F binding, so the
+            // universal chord in docs/keyboard-grammar.md was unclaimed here.
+            ImpressStoreSearchCommands()
         }
 
         // The Metal canvas as a figure-addressed window: the chassis'

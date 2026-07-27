@@ -5,6 +5,7 @@ import CounselEngine
 import ImpressAI
 import ImpressKit
 import ImpressKeyboard
+import PublicationManagerCore
 import Foundation
 import OSLog
 
@@ -224,6 +225,13 @@ struct ImpelApp: App {
                     Text("Gateway stopped")
                 }
             }
+
+            // ⌘⇧F → the chassis's builtin store-wide "Search Everything"
+            // surface (ADR-0022 D6). impel had NO ⌘⇧F binding, so the
+            // universal chord in docs/keyboard-grammar.md was unclaimed here.
+            // Reaches the chassis window; harmless in the classic dashboard,
+            // which simply has no observer.
+            ImpressStoreSearchCommands()
         }
 
         // Secondary window (Stage 2-C): whichever surface is NOT the

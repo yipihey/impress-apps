@@ -4645,12 +4645,15 @@ extension HTTPAutomationRouter {
                 bibSource: bib
             )
         }) else {
-            return .json(["status": "error", "reason": "manuscript not found"], status: 404)
+            return .json(["status": "error", "ok": false, "reason": "manuscript not found"], status: 404)
         }
 
         guard snap.format != "latex" else {
             return .json(
-                ["status": "error", "reason": "LaTeX compile is not supported on this endpoint"],
+                [
+                    "status": "error", "ok": false,
+                    "reason": "LaTeX compile is not supported on this endpoint",
+                ],
                 status: 422)
         }
 
@@ -4668,23 +4671,43 @@ extension HTTPAutomationRouter {
         do {
             let output = try await renderer.render(snap.source, options: options)
             var payload: [String: Any] = [
+                // `status` is the router's envelope convention and stays for
+                // back-compat; `ok` is the field the Rust DTO
+                // (imbib-service CompileResult) is keyed on. Sending only
+                // `status` made every SUCCESSFUL compile decode as a failure.
                 "status": output.isSuccess ? "ok" : "error",
+                "ok": output.isSuccess,
                 "pdfBytes": output.pdfData.count,
+                "pageCount": output.pageCount,
                 "citedKeys": snap.citedKeys,
                 "resolvedKeys": snap.resolvedKeys,
                 "bibliographyBytes": snap.bibSource?.utf8.count ?? 0,
                 "warnings": output.warnings,
+                "messages": output.errors + output.warnings,
             ]
             if !output.isSuccess {
                 payload["errors"] = output.errors
             }
-            if includePDF && output.isSuccess {
-                payload["pdfBase64"] = output.pdfData.base64EncodedString()
+            if output.isSuccess {
+                // Park the PDF where an agent can open it. MCP cannot carry a
+                // PDF, so a path is the only way `render_pdf_page` (and the
+                // human) ever sees the page — a byte count is not a result.
+                do {
+                    let url = try ManuscriptFiguresDirectory.compiledPDFURL(for: id)
+                    try output.pdfData.write(to: url, options: .atomic)
+                    payload["pdfPath"] = url.path
+                } catch {
+                    // The compile succeeded; only the parking spot failed.
+                    payload["pdfPathError"] = error.localizedDescription
+                }
+                if includePDF {
+                    payload["pdfBase64"] = output.pdfData.base64EncodedString()
+                }
             }
             return .json(payload, status: output.isSuccess ? 200 : 422)
         } catch {
             return .json(
-                ["status": "error", "reason": error.localizedDescription],
+                ["status": "error", "ok": false, "reason": error.localizedDescription],
                 status: 500)
         }
     }

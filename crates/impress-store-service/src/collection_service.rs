@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use impress_core::collection_migration;
 use impress_core::collection_ops::{
     self, CollectionRow, CollectionSchemaBinding, FIGURE_COLLECTION, GENERIC_COLLECTION,
     IMBIB_COLLECTION, MANUSCRIPT_COLLECTION,
@@ -119,6 +120,92 @@ pub struct MemberCountsResult {
     pub message: String,
 }
 
+// --- Schema convergence (ADR-0022 WP G7) -----------------------------------
+
+/// Rows still stored under one legacy collection schema.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LegacyCountDto {
+    /// The legacy `schema_ref` (`imbib/collection`, `manuscript-collection`,
+    /// `figure-collection`).
+    pub schema_ref: String,
+    /// The `kind_scope` these rows take on once migrated.
+    pub kind_scope: String,
+    pub rows: u64,
+}
+
+/// Generic `collection@1.0.0` rows sharing a `kind_scope`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct KindScopeCountDto {
+    /// `"publication"`, `"manuscript"`, `"figure"`, `"any"`, …
+    pub kind_scope: String,
+    pub rows: u64,
+    /// How many of them were produced by a migration. `rows - migrated` were
+    /// created natively as `collection@1.0.0` and no rollback will touch them.
+    pub migrated: u64,
+}
+
+/// Where a store sits on the convergence: the flag, and the actual row counts
+/// on both sides of it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MigrationStatusResult {
+    pub ok: bool,
+    /// The `collections.unified` flag. False on every store that has not been
+    /// deliberately migrated — which is all of them by default.
+    pub migrated: bool,
+    pub legacy: Vec<LegacyCountDto>,
+    pub generic: Vec<KindScopeCountDto>,
+    pub message: String,
+}
+
+/// One legacy binding's share of a migration run.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct BindingMigrationDto {
+    pub schema_ref: String,
+    pub kind_scope: String,
+    /// Legacy rows found.
+    pub found: u64,
+    /// Rows rewritten — equal to `found`, or equal to what the real run WOULD
+    /// rewrite when this was a dry run.
+    pub rewritten: u64,
+    /// Rows an earlier run already converged. Makes a re-run's zero legible.
+    pub skipped_already_generic: u64,
+}
+
+/// What `migrate` did, or (dry run) would do.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MigrationReportResult {
+    pub ok: bool,
+    /// True when nothing was written.
+    pub dry_run: bool,
+    /// The flag's state BEFORE this run.
+    pub was_migrated: bool,
+    pub bindings: Vec<BindingMigrationDto>,
+    /// Always true: the migration rewrites `schema_ref` and `payload` only.
+    /// `Contains` edges and envelope parents are not part of it.
+    pub membership_edges_untouched: bool,
+    pub message: String,
+}
+
+/// Rows restored to one legacy `schema_ref`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RollbackCountDto {
+    pub schema_ref: String,
+    pub restored: u64,
+}
+
+/// What `rollback` restored.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RollbackReportResult {
+    pub ok: bool,
+    /// Rows restored, per originating legacy `schema_ref`.
+    pub restored: Vec<RollbackCountDto>,
+    /// Generic rows with no migration provenance: created natively as
+    /// `collection@1.0.0`, counted and left alone.
+    pub native_generic_untouched: u64,
+    pub membership_edges_untouched: bool,
+    pub message: String,
+}
+
 // ---------------------------------------------------------------------------
 // Trait
 // ---------------------------------------------------------------------------
@@ -213,6 +300,41 @@ pub trait CollectionService: Send + Sync + 'static {
         binding: String,
         collection_ids: Vec<String>,
     ) -> MemberCountsResult;
+
+    /// Where this store sits on the `collection@1.0.0` convergence
+    /// (ADR-0022 WP G7): the `collections.unified` flag, how many rows are
+    /// still under each legacy schema, and how many generic rows exist per
+    /// `kind_scope`. Read-only and always safe. Start here before `migrate`.
+    #[impress_method]
+    async fn migration_status(&self) -> MigrationStatusResult;
+
+    /// Converge the three legacy collection schemas onto `collection@1.0.0`.
+    ///
+    /// **Run with `dry_run: true` first.** A dry run writes NOTHING — not the
+    /// rows, not the flag — and reports exactly the counts the real run will
+    /// report, so the numbers you see are the numbers you will get.
+    ///
+    /// The real run rewrites every legacy collection row IN PLACE, keeping its
+    /// id, its `Contains` edges and its envelope parent, and sets the flag in
+    /// the same transaction. Membership is not rewritten. Every rewritten row
+    /// carries its original schema and payload verbatim, so `rollback` is
+    /// byte-faithful. Re-running is safe: the second run rewrites zero rows.
+    ///
+    /// This is a deliberate, human-invoked operation on data users live in.
+    #[impress_method]
+    async fn migrate(&self, dry_run: bool) -> MigrationReportResult;
+
+    /// Undo `migrate`: restore every migrated collection's original schema and
+    /// payload byte-for-byte and clear the flag.
+    ///
+    /// A REWIND, not a merge. The payload restored is the one the migration
+    /// froze, so renames/reorders/moves performed on a migrated collection
+    /// AFTER the migration are discarded along with it. Collections created
+    /// after the migration carry no provenance, are left strictly alone, and
+    /// are reported separately — nothing is deleted, but post-migration edits
+    /// to pre-migration rows do not survive. Check `migration_status` first.
+    #[impress_method]
+    async fn rollback(&self) -> RollbackReportResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,12 +385,24 @@ fn row_result(result: Result<CollectionRow, StoreError>, verb: &str) -> Collecti
     }
 }
 
-fn member_result(result: Result<u32, StoreError>, verb: &str) -> CollectionMutationResult {
+/// The structural verbs return the row plus the prior value an undo stack
+/// needs (ADR-0022 G2). The agent surface has no undo stack — it reports the
+/// row and drops the prior value on the floor, deliberately.
+fn mutation_result(
+    result: Result<collection_ops::CollectionMutation, StoreError>,
+    verb: &str,
+) -> CollectionResult {
+    row_result(result.map(|m| m.row), verb)
+}
+
+/// The membership verbs return the ids they ACTUALLY changed; the tool surface
+/// reports how many that was.
+fn member_result(result: Result<Vec<String>, StoreError>, verb: &str) -> CollectionMutationResult {
     match result {
-        Ok(applied) => CollectionMutationResult {
+        Ok(changed) => CollectionMutationResult {
             ok: true,
-            applied,
-            message: format!("{verb} {applied} item(s)."),
+            applied: changed.len() as u32,
+            message: format!("{verb} {} item(s).", changed.len()),
         },
         Err(e) => CollectionMutationResult {
             ok: false,
@@ -329,6 +463,9 @@ impl CollectionService for DefaultCollectionService {
                 &name,
                 parent_id.as_deref(),
                 kind_scope.as_deref(),
+                // The agent surface always appends with the schema default;
+                // explicit positioning is `reorder`'s job here.
+                None,
             ),
             "Created",
         )
@@ -345,7 +482,7 @@ impl CollectionService for DefaultCollectionService {
                 }
             }
         };
-        row_result(
+        mutation_result(
             collection_ops::rename(&self.store(), &binding, &id, &name),
             "Renamed to",
         )
@@ -367,7 +504,7 @@ impl CollectionService for DefaultCollectionService {
                 }
             }
         };
-        row_result(
+        mutation_result(
             collection_ops::reparent(&self.store(), &binding, &id, new_parent_id.as_deref()),
             "Moved",
         )
@@ -384,7 +521,7 @@ impl CollectionService for DefaultCollectionService {
                 }
             }
         };
-        row_result(
+        mutation_result(
             collection_ops::reorder(&self.store(), &binding, &id, sort_order),
             "Reordered",
         )
@@ -402,7 +539,7 @@ impl CollectionService for DefaultCollectionService {
             }
         };
         match collection_ops::delete(&self.store(), &binding, &id) {
-            Ok(()) => CollectionMutationResult {
+            Ok(_snapshot) => CollectionMutationResult {
                 ok: true,
                 applied: 0,
                 message: format!("Deleted collection {id}. Its members were not deleted."),
@@ -487,6 +624,122 @@ impl CollectionService for DefaultCollectionService {
             },
         }
     }
+
+    async fn migration_status(&self) -> MigrationStatusResult {
+        match collection_migration::migration_status(&self.store()) {
+            Ok(status) => MigrationStatusResult {
+                ok: true,
+                message: format!(
+                    "collections.unified = {}. {} legacy row(s), {} collection@1.0.0 row(s).",
+                    status.migrated,
+                    status.legacy_total(),
+                    status.generic_total()
+                ),
+                migrated: status.migrated,
+                legacy: status
+                    .legacy
+                    .into_iter()
+                    .map(|c| LegacyCountDto {
+                        schema_ref: c.schema_ref.to_string(),
+                        kind_scope: c.kind_scope.to_string(),
+                        rows: c.rows,
+                    })
+                    .collect(),
+                generic: status
+                    .generic
+                    .into_iter()
+                    .map(|c| KindScopeCountDto {
+                        kind_scope: c.kind_scope,
+                        rows: c.rows,
+                        migrated: c.migrated,
+                    })
+                    .collect(),
+            },
+            Err(e) => MigrationStatusResult {
+                ok: false,
+                migrated: false,
+                legacy: vec![],
+                generic: vec![],
+                message: describe(e),
+            },
+        }
+    }
+
+    async fn migrate(&self, dry_run: bool) -> MigrationReportResult {
+        match collection_migration::migrate_collections(&self.store(), dry_run) {
+            Ok(report) => MigrationReportResult {
+                ok: true,
+                message: if report.dry_run {
+                    format!(
+                        "DRY RUN — nothing written. {} legacy row(s) would be rewritten \
+                         onto collection@1.0.0. Re-run with dry_run: false to apply.",
+                        report.rewritten()
+                    )
+                } else {
+                    format!(
+                        "Rewrote {} legacy row(s) onto collection@1.0.0 and set \
+                         collections.unified. Membership was not touched; `rollback` \
+                         restores the originals byte-for-byte.",
+                        report.rewritten()
+                    )
+                },
+                dry_run: report.dry_run,
+                was_migrated: report.was_migrated,
+                membership_edges_untouched: report.membership_edges_untouched,
+                bindings: report
+                    .bindings
+                    .into_iter()
+                    .map(|b| BindingMigrationDto {
+                        schema_ref: b.schema_ref.to_string(),
+                        kind_scope: b.kind_scope.to_string(),
+                        found: b.found,
+                        rewritten: b.rewritten,
+                        skipped_already_generic: b.skipped_already_generic,
+                    })
+                    .collect(),
+            },
+            Err(e) => MigrationReportResult {
+                ok: false,
+                dry_run,
+                was_migrated: false,
+                bindings: vec![],
+                membership_edges_untouched: true,
+                message: describe(e),
+            },
+        }
+    }
+
+    async fn rollback(&self) -> RollbackReportResult {
+        match collection_migration::rollback_collections(&self.store()) {
+            Ok(report) => RollbackReportResult {
+                ok: true,
+                message: format!(
+                    "Restored {} row(s) to their original schema and payload; \
+                     cleared collections.unified. {} native collection@1.0.0 \
+                     row(s) were left alone.",
+                    report.restored(),
+                    report.native_generic_untouched
+                ),
+                restored: report
+                    .bindings
+                    .into_iter()
+                    .map(|b| RollbackCountDto {
+                        schema_ref: b.schema_ref,
+                        restored: b.restored,
+                    })
+                    .collect(),
+                native_generic_untouched: report.native_generic_untouched,
+                membership_edges_untouched: report.membership_edges_untouched,
+            },
+            Err(e) => RollbackReportResult {
+                ok: false,
+                restored: vec![],
+                native_generic_untouched: 0,
+                membership_edges_untouched: true,
+                message: describe(e),
+            },
+        }
+    }
 }
 
 impress_service_impl! {
@@ -520,6 +773,9 @@ impress_service_impl! {
             item_ids: Vec<String>
         ) -> CollectionMutationResult,
         member_counts(binding: String, collection_ids: Vec<String>) -> MemberCountsResult,
+        migration_status() -> MigrationStatusResult,
+        migrate(dry_run: bool) -> MigrationReportResult,
+        rollback() -> RollbackReportResult,
     ],
 }
 
@@ -711,6 +967,175 @@ mod tests {
                 "{binding} member count"
             );
         }
+    }
+
+    // --- Schema convergence (ADR-0022 WP G7) -------------------------------
+
+    #[tokio::test]
+    async fn migration_status_reports_an_unmigrated_store() {
+        let s = svc();
+        s.create("imbib".into(), "Reading".into(), None, None).await;
+        s.create("manuscript".into(), "Drafts".into(), None, None)
+            .await;
+
+        let status = s.migration_status().await;
+        assert!(status.ok, "{}", status.message);
+        assert!(!status.migrated, "the flag ships OFF");
+        assert_eq!(status.legacy.len(), 3, "every legacy binding is enumerated");
+        let imbib = status
+            .legacy
+            .iter()
+            .find(|c| c.schema_ref == "imbib/collection")
+            .expect("imbib line");
+        assert_eq!(imbib.rows, 1);
+        assert_eq!(imbib.kind_scope, "publication");
+        assert!(status.generic.is_empty());
+        assert!(status.message.contains("collections.unified"));
+    }
+
+    #[tokio::test]
+    async fn migrate_dry_run_then_apply_then_rollback() {
+        let store = test_store();
+        let s = DefaultCollectionService::with_store(store.clone());
+
+        let root = s
+            .create("imbib".into(), "Reading".into(), None, None)
+            .await
+            .collection
+            .unwrap()
+            .id;
+        s.create("imbib".into(), "Queue".into(), Some(root.clone()), None)
+            .await;
+        s.create("figure".into(), "Panels".into(), None, None).await;
+        let paper = make_item(&store, "imbib/bibliography-entry");
+        assert_eq!(
+            s.add_members("imbib".into(), root.clone(), vec![paper.clone()])
+                .await
+                .applied,
+            1
+        );
+
+        let before = s.tree("imbib".into()).await;
+
+        // Dry run: reports, writes nothing.
+        let dry = s.migrate(true).await;
+        assert!(dry.ok, "{}", dry.message);
+        assert!(dry.dry_run);
+        assert!(!dry.was_migrated);
+        assert!(dry.membership_edges_untouched);
+        assert_eq!(dry.bindings.len(), 3);
+        let dry_imbib = dry
+            .bindings
+            .iter()
+            .find(|b| b.schema_ref == "imbib/collection")
+            .unwrap();
+        assert_eq!(dry_imbib.found, 2);
+        assert_eq!(dry_imbib.rewritten, dry_imbib.found);
+        assert!(dry.message.contains("DRY RUN"));
+        assert!(
+            !s.migration_status().await.migrated,
+            "a dry run must not set the flag"
+        );
+
+        // Apply.
+        let real = s.migrate(false).await;
+        assert!(real.ok, "{}", real.message);
+        assert!(!real.dry_run);
+        let counts = |report: &MigrationReportResult| -> Vec<(String, u64, u64, u64)> {
+            report
+                .bindings
+                .iter()
+                .map(|b| {
+                    (
+                        b.schema_ref.clone(),
+                        b.found,
+                        b.rewritten,
+                        b.skipped_already_generic,
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(
+            counts(&real),
+            counts(&dry),
+            "the dry run predicted the real one, per binding"
+        );
+        let status = s.migration_status().await;
+        assert!(status.migrated);
+        assert_eq!(status.legacy.iter().map(|c| c.rows).sum::<u64>(), 0);
+        assert_eq!(
+            status
+                .generic
+                .iter()
+                .find(|c| c.kind_scope == "publication")
+                .unwrap()
+                .migrated,
+            2
+        );
+
+        // The service reads identically through the same binding name.
+        let after = s.tree("imbib".into()).await;
+        assert_eq!(after.collections.len(), before.collections.len());
+        assert_eq!(
+            s.member_counts("imbib".into(), vec![root.clone()])
+                .await
+                .counts,
+            vec![1],
+            "membership was not rewritten"
+        );
+
+        // Re-running is safe.
+        let again = s.migrate(false).await;
+        assert!(again.was_migrated);
+        assert_eq!(again.bindings.iter().map(|b| b.rewritten).sum::<u64>(), 0);
+        assert_eq!(
+            again
+                .bindings
+                .iter()
+                .find(|b| b.schema_ref == "imbib/collection")
+                .unwrap()
+                .skipped_already_generic,
+            2
+        );
+
+        // Rollback.
+        let back = s.rollback().await;
+        assert!(back.ok, "{}", back.message);
+        assert_eq!(back.restored.iter().map(|r| r.restored).sum::<u64>(), 3);
+        assert_eq!(back.native_generic_untouched, 0);
+        assert!(!s.migration_status().await.migrated);
+        assert_eq!(
+            s.tree("imbib".into()).await.collections.len(),
+            before.collections.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn rollback_leaves_native_generic_collections_alone() {
+        let s = svc();
+        s.create("imbib".into(), "Reading".into(), None, None).await;
+        let native = s
+            .create(
+                "generic".into(),
+                "Grant renewal".into(),
+                None,
+                Some("any".into()),
+            )
+            .await
+            .collection
+            .unwrap()
+            .id;
+
+        s.migrate(false).await;
+        let back = s.rollback().await;
+        assert_eq!(back.restored.iter().map(|r| r.restored).sum::<u64>(), 1);
+        assert_eq!(
+            back.native_generic_untouched, 1,
+            "a natively-created collection@1.0.0 row has no legacy schema to go back to"
+        );
+        let generic = s.tree("generic".into()).await;
+        assert_eq!(generic.collections.len(), 1);
+        assert_eq!(generic.collections[0].id, native);
     }
 
     #[tokio::test]
