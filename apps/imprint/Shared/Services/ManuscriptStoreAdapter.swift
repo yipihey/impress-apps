@@ -67,6 +67,8 @@ public struct ManuscriptModel: Sendable, Identifiable, Equatable {
 public enum ManuscriptFormat: String, Sendable, Codable, Equatable {
     case typst
     case latex
+    case markdown
+    case plaintext
 
     /// File extension used when materializing the body to disk for a
     /// toolchain invocation.
@@ -74,14 +76,17 @@ public enum ManuscriptFormat: String, Sendable, Codable, Equatable {
         switch self {
         case .typst: return "main.typ"
         case .latex: return "main.tex"
+        case .markdown: return "main.md"
+        case .plaintext: return "main.txt"
         }
     }
 
     /// Default plot export format paired with this manuscript format: SVG
     /// for Typst (native), PDF for LaTeX (pdfLaTeX has no native SVG path).
+    /// Markdown/plaintext have no toolchain — SVG embeds/links fine.
     public var defaultPlotFormat: String {
         switch self {
-        case .typst: return "svg"
+        case .typst, .markdown, .plaintext: return "svg"
         case .latex: return "pdf"
         }
     }
@@ -94,6 +99,8 @@ public struct ImportSource: Sendable, Codable, Equatable {
     public enum Kind: String, Sendable, Codable, Equatable {
         case tex
         case imprint
+        case markdown
+        case plaintext
     }
     public let kind: Kind
     public let originalPath: String?
@@ -454,9 +461,14 @@ public final class ManuscriptStoreAdapter {
         let title = payload["title"] as? String ?? "Untitled"
         let status = payload["status"] as? String ?? "draft"
         let authors = payload["authors"] as? [String] ?? []
-        let formatRaw = payload["format"] as? String ?? "typst"
-        let format = ManuscriptFormat(rawValue: formatRaw) ?? .typst
+        let formatRaw = payload["format"] as? String ?? ""
         let body = payload["body_content"] as? String ?? ""
+        // Missing/unrecognized format: infer from content + title rather than
+        // reporting "typst" for a Markdown document (which is what made the
+        // list badge and /api/documents disagree with the actual body).
+        let format = ManuscriptFormat(rawValue: formatRaw)
+            ?? ManuscriptFormat(rawValue: DocumentFormat.detect(from: body, title: title).rawValue)
+            ?? .typst
         let bodyHash = payload["body_content_hash"] as? String
         let bodyModifiedAt = (payload["body_modified_at"] as? String)
             .flatMap { ISO8601DateFormatter().date(from: $0) }

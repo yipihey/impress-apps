@@ -43,6 +43,25 @@ pub fn dataset_schema() -> Schema {
     }
 }
 
+/// Schema for user folders organizing figures (Stage 0 of the GUI
+/// unification). Mirrors `manuscript-collection`: figures reference their
+/// folder via the item envelope `parent` (single membership, matching
+/// implore's JSON `folder_id`), and folders nest via their own `parent`.
+pub fn figure_collection_schema() -> Schema {
+    Schema {
+        id: "figure-collection".into(),
+        name: "Figure Collection".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            field("name", FieldType::String, true),
+            field("sort_order", FieldType::Int, false),
+            field("is_collapsed", FieldType::Bool, false),
+        ],
+        expected_edges: vec![EdgeType::Contains],
+        inherits: None,
+    }
+}
+
 /// Register figure and dataset schemas for implore.
 pub fn register_implore_schemas(registry: &mut SchemaRegistry) {
     registry
@@ -51,6 +70,9 @@ pub fn register_implore_schemas(registry: &mut SchemaRegistry) {
     registry
         .register(dataset_schema())
         .expect("implore/dataset schema registration");
+    registry
+        .register(figure_collection_schema())
+        .expect("implore/figure-collection schema registration");
 }
 
 fn field(name: &str, field_type: FieldType, required: bool) -> FieldDef {

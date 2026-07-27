@@ -10,6 +10,7 @@ import ImpressKit
 import ImpressSpotlight
 import ImpressSyntaxHighlight
 import ImpressToolbox
+import PublicationManagerCore
 import SwiftUI
 
 extension NSNotification.Name {
@@ -264,7 +265,8 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
                 // file:// URLs: import into the unified store.
                 guard url.isFileURL else { continue }
                 let ext = url.pathExtension.lowercased()
-                guard ["tex", "ltx", "imprint"].contains(ext) else {
+                guard ["tex", "ltx", "imprint", "md", "markdown", "mdown", "txt", "text"]
+                    .contains(ext) else {
                     logInfo(
                         "Ignoring open for unsupported file extension: \(url.lastPathComponent)",
                         category: "documents"
@@ -371,8 +373,15 @@ struct ImprintApp: App {
     /// path that was DocumentGroup-bound.
     private func createNewManuscript(format: ManuscriptFormat) {
         do {
+            let title: String
+            switch format {
+            case .typst: title = "Untitled"
+            case .latex: title = "Untitled.tex"
+            case .markdown: title = "Untitled.md"
+            case .plaintext: title = "Untitled.txt"
+            }
             let id = try ManuscriptStoreAdapter.shared.createManuscript(
-                title: format == .latex ? "Untitled.tex" : "Untitled",
+                title: title,
                 format: format
             )
             openWindow(id: "manuscript-editor", value: id)
@@ -398,6 +407,9 @@ struct ImprintApp: App {
         panel.allowedContentTypes = [
             UTType(filenameExtension: "tex") ?? .plainText,
             UTType(filenameExtension: "ltx") ?? .plainText,
+            UTType(filenameExtension: "typ") ?? .plainText,
+            UTType(filenameExtension: "md") ?? .plainText,
+            .plainText,
             UTType(filenameExtension: "imprint") ?? .package,
         ]
         panel.allowsMultipleSelection = true
@@ -736,6 +748,14 @@ struct ImprintApp: App {
             }
             .keyboardShortcut("N", modifiers: [.command, .option])
 
+            Button("New Markdown Document") {
+                createNewManuscript(format: .markdown)
+            }
+
+            Button("New Text File") {
+                createNewManuscript(format: .plaintext)
+            }
+
             // Starts a manuscript already in a journal's format (ApJ, MNRAS,
             // Nature, NeurIPS, …). The template's Typst source is scaffolded
             // into a complete starter document by the Rust template engine.
@@ -812,15 +832,22 @@ struct ImprintApp: App {
 
             Divider()
 
-            Button(appState.showingOutline ? "Hide Outline" : "Show Outline") {
-                withAnimation { appState.showingOutline.toggle() }
+            // Declarative chassis layout (PaneLayoutStore is what the main
+            // window actually reads; the old bindings drove retired AppState).
+            Button("Toggle Sidebar") {
+                PaneLayoutStore.shared.current.sidebarVisible.toggle()
             }
-            .keyboardShortcut("S", modifiers: [.command, .control])
+            .keyboardShortcut("s", modifiers: [.control, .command])
 
-            Button(appState.editMode == .textOnly ? "Show Preview Pane" : "Hide Preview Pane") {
-                appState.editMode = appState.editMode == .textOnly ? .splitView : .textOnly
+            Button("Toggle Detail Pane") {
+                PaneLayoutStore.shared.current.detailPaneVisible.toggle()
             }
             .keyboardShortcut("0", modifiers: [.command])
+
+            Button("Toggle Manuscript List") {
+                PaneLayoutStore.shared.current.listPaneVisible.toggle()
+            }
+            .keyboardShortcut("0", modifiers: [.command, .option])
 
             Button(appState.isEditorSplit ? "Close Split Editor" : "Split Editor") {
                 withAnimation { appState.isEditorSplit.toggle() }
@@ -966,34 +993,45 @@ struct ImprintApp: App {
             }
         }
 
-        // Document menu
+        // Document menu — acts on the frontmost window's manuscript via
+        // `focusedManuscriptID`. (The old notification-post items were dead:
+        // their observers retired with the legacy ContentView.)
+        ManuscriptDocumentCommands()
+
+        // ⌘F focuses the frontmost list's filter (shared chassis command);
+        // ⌘⇧F (Search Across Manuscripts) is bound in the Edit additions above.
+        ImpressFindCommands()
+    }
+}
+
+/// File ▸ Document commands driven by the scene-focused manuscript, so the
+/// chassis window's selection and the standalone editor window both work.
+struct ManuscriptDocumentCommands: Commands {
+    @FocusedValue(\.focusedManuscriptID) private var focusedManuscriptID
+
+    var body: some Commands {
         CommandMenu("Document") {
-            Button("Export PDF...") {
-                NotificationCenter.default.post(name: .exportPDF, object: nil)
+            Button("Export PDF…") {
+                if let id = focusedManuscriptID {
+                    ManuscriptExportActions.exportPDF(manuscriptID: id)
+                }
             }
             .keyboardShortcut("E", modifiers: [.command, .shift])
+            .disabled(focusedManuscriptID == nil)
 
-            Button("Export to LaTeX...") {
-                NotificationCenter.default.post(name: .exportLatex, object: nil)
+            Button("Export as .imprint Bundle…") {
+                if let id = focusedManuscriptID {
+                    ManuscriptExportActions.exportAsBundle(manuscriptID: id)
+                }
             }
+            .disabled(focusedManuscriptID == nil)
 
-            Button("Export Bibliography...") {
-                NotificationCenter.default.post(name: .exportBibliography, object: nil)
+            Button("Export as Standalone Project…") {
+                if let id = focusedManuscriptID {
+                    ManuscriptExportActions.exportAsProject(manuscriptID: id)
+                }
             }
-
-            Divider()
-
-            Button("Version History...") {
-                NotificationCenter.default.post(name: .showVersionHistory, object: nil)
-            }
-            .keyboardShortcut("H", modifiers: [.command, .option])
-
-            Divider()
-
-            Button("Share...") {
-                NotificationCenter.default.post(name: .shareDocument, object: nil)
-            }
-            .keyboardShortcut("S", modifiers: [.command, .shift])
+            .disabled(focusedManuscriptID == nil)
         }
     }
 }

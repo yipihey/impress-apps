@@ -283,7 +283,8 @@ enum CiteKeyAtLocation {
     static func find(in source: String, at location: Int, format: DocumentFormat) -> (key: String, range: NSRange)? {
         switch format {
         case .latex: return findLatex(in: source, at: location)
-        case .typst: return findTypst(in: source, at: location)
+        case .typst, .markdown: return findTypst(in: source, at: location)
+        case .plaintext: return nil
         }
     }
 

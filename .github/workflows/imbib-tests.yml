@@ -292,3 +292,9 @@ jobs:
         working-directory: apps/imbib
         run: |
           swiftlint lint --reporter github-actions-logging || true
+
+      - name: Chassis dependency allowlist
+        # Blast-radius gate (ADR-0021 / WP-X1): a new PublicationManagerCore
+        # dependency ships to every impress app — adding one requires editing
+        # scripts/check-chassis-deps.sh in the same PR.
+        run: ./scripts/check-chassis-deps.sh

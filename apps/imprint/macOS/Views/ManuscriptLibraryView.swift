@@ -229,6 +229,8 @@ private struct ManuscriptRow: View {
         switch manuscript.format {
         case .typst: return .blue
         case .latex: return .orange
+        case .markdown: return .green
+        case .plaintext: return .gray
         }
     }
 }

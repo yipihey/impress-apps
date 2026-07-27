@@ -92,7 +92,7 @@ public struct SourceEditorView: View {
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.impressPaperReference.identifier) { data, _ in
                     guard let data, let ref = try? JSONDecoder().decode(ImpressPaperRef.self, from: data) else { return }
                     Task { @MainActor in
-                        let cite = mode.citationInsert
+                        guard let cite = mode.citationInsert else { return }
                         let citation = "\(cite.prefix)\(ref.citeKey)\(cite.suffix)"
                         insertAtCursor(citation)
                         Logger.editor.infoCapture("Inserted citation \(citation) from imbib drop", category: "editor")
@@ -111,6 +111,10 @@ public struct SourceEditorView: View {
                             snippet = "#figure(image(\"figures/\(ref.id.uuidString).\(ref.format ?? "png")\"), caption: [\(title)])"
                         case .latex:
                             snippet = "\\begin{figure}\n  \\includegraphics{figures/\(ref.id.uuidString).\(ref.format ?? "png")}\n  \\caption{\(title)}\n\\end{figure}"
+                        case .markdown:
+                            snippet = "![\(title)](figures/\(ref.id.uuidString).\(ref.format ?? "png"))"
+                        case .plaintext:
+                            snippet = "[figure: figures/\(ref.id.uuidString).\(ref.format ?? "png") — \(title)]"
                         }
                         insertAtCursor(snippet)
                         Logger.editor.infoCapture("Inserted figure reference from implore drop", category: "editor")
@@ -376,9 +380,22 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
     // MARK: - Syntax Highlighting (tree-sitter via ImpressSyntaxHighlight)
 
+    /// Tree-sitter language for the current syntax mode; nil = no grammar
+    /// (markdown/plaintext render unhighlighted until a grammar is vendored).
+    private var highlightLanguage: ImpressLanguage? {
+        switch syntaxMode {
+        case .latex: return .latex
+        case .typst: return .typst
+        case .markdown, .plaintext: return nil
+        }
+    }
+
     /// Get or create a SyntaxHighlighter for the current syntax mode from the coordinator.
-    private func syntaxHighlighter(for coordinator: Coordinator) -> SyntaxHighlighter {
-        let wantedLanguage: ImpressLanguage = (syntaxMode == .latex) ? .latex : .typst
+    private func syntaxHighlighter(for coordinator: Coordinator) -> SyntaxHighlighter? {
+        guard let wantedLanguage = highlightLanguage else {
+            coordinator.syntaxHighlighter = nil
+            return nil
+        }
         if let existing = coordinator.syntaxHighlighter, existing.language == wantedLanguage {
             return existing
         }
@@ -391,7 +408,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         guard let textStorage = textView.textStorage else { return }
         guard let coordinator = textView.delegate as? Coordinator else { return }
 
-        let highlighter = syntaxHighlighter(for: coordinator)
+        guard let highlighter = syntaxHighlighter(for: coordinator) else { return }
         // Preserve cursor/selection across the attribute replacement
         let selectedRange = textView.selectedRange()
         highlighter.highlight(textStorage: textStorage, source: textStorage.string)
@@ -448,6 +465,12 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     private func rebuildBrackets(_ textView: TypstTextView, context: Context, force: Bool = false) {
         guard let ruler = textView.bracketRuler else { return }
         let src = textView.string
+        // Markdown/plaintext have no Typst/LaTeX heading grammar — show a
+        // flat (empty) structure instead of misparsing with the Typst rules.
+        guard syntaxMode == .typst || syntaxMode == .latex else {
+            ruler.update(nodes: [])
+            return
+        }
         let fmt: SectionFormat = (syntaxMode == .latex) ? .latex : .typst
         // Rebuild when the source OR the detected format changes. Format matters
         // because it's often still the default (.typst) at first build and only
@@ -599,9 +622,11 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             case .latex:
                 scaffold = "\\cite{}"
                 keyOffset = 6      // between the braces
-            case .typst:
-                scaffold = "@"
+            case .typst, .markdown:
+                scaffold = "@"     // markdown: pandoc-style @key
                 keyOffset = 1      // right after @
+            case .plaintext:
+                return             // no citation syntax in plain text
             }
 
             let insertRange = NSRange(location: caret, length: 0)

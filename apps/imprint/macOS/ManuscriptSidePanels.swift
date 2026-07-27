@@ -13,6 +13,7 @@
 import SwiftUI
 import PublicationManagerCore
 import ImpressPublicationUI
+import ImpressKit
 
 // MARK: - Throughline (hard — needs an ImprintDocument bridge)
 
@@ -157,7 +158,12 @@ private struct PaperPreviewPanelHost: View {
                 PaperDetailPanel(
                     publicationID: publicationID,
                     dataSource: ImprintPublicationService.shared,
-                    onClose: { self.publicationID = nil }
+                    onClose: { self.publicationID = nil },
+                    onOpenInImbib: { citeKey in
+                        if let url = ImpressURL.openPaper(citeKey: citeKey).url {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
                 )
             } else {
                 VStack(spacing: 8) {

@@ -64,9 +64,33 @@ public final class LibraryManager {
 
         do {
             library = try loadLibraryJson(path: libraryURL.path)
+            backfillStoreIfNeeded()
         } catch {
             lastError = error
             logError("Failed to load library: \(error)", category: "library")
+        }
+    }
+
+    /// Stage 0 (GUI unification): one-time backfill of the JSON library into
+    /// the shared item store — folders become figure-collection items,
+    /// figures carry their folder as envelope parent. JSON stays
+    /// authoritative for this GUI until the store-read flag flips; the
+    /// watermark in sync_metadata makes this a no-op on every later launch.
+    private func backfillStoreIfNeeded() {
+        let folders = library.folders.map {
+            ImploreStoreAdapter.FolderBackfillRow(
+                id: $0.id, name: $0.name,
+                sortOrder: Int($0.sortOrder), isCollapsed: $0.collapsed)
+        }
+        let figures = library.figures.map {
+            ImploreStoreAdapter.FigureBackfillRow(
+                id: $0.id, title: $0.title, folderID: $0.folderId, format: "png")
+        }
+        if ImploreStoreAdapter.shared.migrateLibraryIfNeeded(
+            folders: folders, figures: figures) {
+            logInfo(
+                "Backfilled \(figures.count) figures / \(folders.count) folders into the shared store",
+                category: "library")
         }
     }
 
@@ -190,6 +214,8 @@ public final class LibraryManager {
             newLibrary.modifiedAt = ISO8601DateFormatter().string(from: Date())
             library = newLibrary
             saveLibrary()
+            // Keep the store mirror's parent chain consistent for other apps.
+            ImploreStoreAdapter.shared.setFigureFolder(figureID: id, folderID: folderId)
         }
     }
 

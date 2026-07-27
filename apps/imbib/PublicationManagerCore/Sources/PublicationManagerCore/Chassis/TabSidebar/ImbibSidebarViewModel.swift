@@ -11,6 +11,7 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import ImpressRustCore
 import ImpressSidebar
 import ImpressFTUI
 import UniformTypeIdentifiers
@@ -138,6 +139,18 @@ final class ImbibSidebarViewModel {
         // render (manuscripts → "All Manuscripts").
         if shellConfiguration.defaultSection == .manuscripts {
             selectedNodeID = ImbibSidebarNodeID.journalAll
+        } else if shellConfiguration.defaultSection == .figures {
+            // Same rule as manuscripts: the section header is a group row,
+            // so land on the canonical selectable leaf ("All Figures").
+            selectedNodeID = ImbibSidebarNodeID.figuresAll
+        } else if shellConfiguration.defaultSection == .mail {
+            // Same rule again: land on the canonical selectable leaf
+            // ("All Inboxes").
+            selectedNodeID = ImbibSidebarNodeID.mailAllInboxes
+        } else if shellConfiguration.defaultSection == .agents {
+            // Same rule again: land on the canonical selectable leaf
+            // ("Tasks").
+            selectedNodeID = ImbibSidebarNodeID.agentTasks
         } else {
             selectedNodeID = ImbibSidebarNodeID.section(shellConfiguration.defaultSection)
         }
@@ -210,7 +223,11 @@ final class ImbibSidebarViewModel {
                 self?.capabilities(of: node) ?? .readOnly
             },
             pasteboardType: .init(rawValue: UTType.sidebarSectionID.identifier),
-            additionalDragTypes: [.init(rawValue: UTType.publicationID.identifier)],
+            additionalDragTypes: [
+                .init(rawValue: UTType.publicationID.identifier),
+                .init(rawValue: UTType.manuscriptID.identifier),
+                .init(rawValue: UTType.figureID.identifier),
+            ],
             onReorder: { [weak self] siblings, parent in
                 self?.handleReorder(siblings, parent: parent)
             },
@@ -316,6 +333,17 @@ final class ImbibSidebarViewModel {
             guard shouldShowSection(section) else { continue }
             nodes.append(makeSectionNode(section))
         }
+        // App-owned whole-pane surfaces (WP-X0): one selectable top-level
+        // node per registered surface, after the record sections. Deliberate
+        // ➖ row in the capability matrix: no children, counts, or drag.
+        for surface in shellConfiguration.customSurfaces.surfaces {
+            nodes.append(ImbibSidebarNode(
+                id: ImbibSidebarNodeID.customSurface(surface.id),
+                nodeType: .customSurface(surface.id),
+                displayName: surface.title,
+                iconName: surface.systemImage
+            ))
+        }
         return nodes
     }
 
@@ -337,6 +365,11 @@ final class ImbibSidebarViewModel {
         case .artifacts:
             return true
         case .dismissed:
+            if shellConfiguration.recordKind(for: .dismissed) == .manuscript {
+                // Always available in imprint: it is the destination for the
+                // dismiss gesture, so it must exist before anything is in it.
+                return true
+            }
             guard let lib = libraryManager?.dismissedLibrary else { return false }
             return lib.publicationCount > 0
         case .reviewQueue:
@@ -354,6 +387,22 @@ final class ImbibSidebarViewModel {
             // so users can discover the "New Manuscript" command + the
             // Submissions inbox even before any manuscript exists.
             return true
+        case .figures:
+            // Pragmatic gate (Stage 2-B, noted in the capability matrix):
+            // only the implore shell shows Figures. imprint's visibleSections
+            // already excludes it; imbib's visibleSections is nil (shows
+            // everything), so a content gate alone would surface it there —
+            // the appID check keeps imbib/imprint unchanged.
+            return shellConfiguration.appID == "implore"
+        case .mail:
+            // Same pragmatic gate as Figures (Stage 2-A, noted in the
+            // capability matrix): only the impart shell shows Mail, so
+            // imbib's nil visibleSections never surfaces it.
+            return shellConfiguration.appID == "impart"
+        case .agents:
+            // Same pragmatic gate again (Stage 2-C): only the impel shell
+            // shows Agents, so imbib's nil visibleSections never surfaces it.
+            return shellConfiguration.appID == "impel"
         }
     }
 
@@ -412,7 +461,230 @@ final class ImbibSidebarViewModel {
             return reviewQueueChildren()
         case .manuscripts:
             return journalChildren()
+        case .figures:
+            return figuresChildren()
+        case .mail:
+            return mailChildren()
+        case .agents:
+            return agentsChildren()
         }
+    }
+
+    // MARK: Agents (Stage 2-C)
+
+    /// Top-level children of the Agents sidebar section: Tasks (with one
+    /// smart child per kernel lifecycle state, `countItems` counts) and
+    /// Runs — flat pre-order list with `treeDepth`, same shape as
+    /// mailChildren. Read-only by design — the KERNEL owns task lifecycle
+    /// (TaskStoreApi.transition is the sole legal state mutation).
+    private func agentsChildren() -> [ImbibSidebarNode] {
+        let reader = AgentStoreReader.shared
+        let totalTasks = reader.taskCount()
+        var tasksNode = ImbibSidebarNode(
+            id: ImbibSidebarNodeID.agentTasks,
+            nodeType: .agentTasksAll,
+            displayName: "Tasks",
+            iconName: "checklist",
+            displayCount: totalTasks > 0 ? totalTasks : nil
+        )
+        tasksNode.treeDepth = 0
+        var nodes: [ImbibSidebarNode] = []
+        var stateNodes: [ImbibSidebarNode] = []
+        for state in AgentStoreReader.taskStates {
+            let count = reader.taskCount(state: state)
+            guard count > 0 else { continue }
+            var stateNode = ImbibSidebarNode(
+                id: ImbibSidebarNodeID.agentTaskState(state),
+                nodeType: .agentTaskState(state),
+                displayName: AgentStoreReader.stateDisplayName(state),
+                iconName: AgentStoreReader.stateIcon(state),
+                displayCount: count
+            )
+            stateNode.treeDepth = 1
+            stateNodes.append(stateNode)
+        }
+        tasksNode.hasTreeChildren = !stateNodes.isEmpty
+        nodes.append(tasksNode)
+        nodes.append(contentsOf: stateNodes)
+        let runCount = reader.runCount()
+        nodes.append(ImbibSidebarNode(
+            id: ImbibSidebarNodeID.agentRuns,
+            nodeType: .agentRunsAll,
+            displayName: "Runs",
+            iconName: "bolt",
+            displayCount: runCount > 0 ? runCount : nil
+        ))
+        return nodes
+    }
+
+    // MARK: Mail (Stage 2-A)
+
+    /// Top-level children of the Mail sidebar section: All Inboxes, then one
+    /// node per mail-account with its folders as tree children (flat
+    /// pre-order list with `treeDepth`, same shape as figureFolderNodes).
+    /// Read-only by design — IMAP owns account/folder lifecycle.
+    private func mailChildren() -> [ImbibSidebarNode] {
+        let reader = MailStoreReader.shared
+        let inboxFolders = reader.fetchInboxFolders()
+        let allInboxCount = inboxFolders.reduce(0) { $0 + reader.messageCount(inFolder: $1.id) }
+        var nodes: [ImbibSidebarNode] = [
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.mailAllInboxes,
+                nodeType: .mailAllInboxes,
+                displayName: "All Inboxes",
+                iconName: "tray.2",
+                displayCount: allInboxCount > 0 ? allInboxCount : nil
+            ),
+        ]
+        for account in reader.fetchAccounts() {
+            let payload = MailStoreReader.accountPayload(from: account)
+            let folders = Self.roleSortedMailFolders(
+                reader.fetchFolders(accountID: account.id))
+            var accountNode = ImbibSidebarNode(
+                id: ImbibSidebarNodeID.mailAccount(account.id),
+                nodeType: .mailAccount(account.id),
+                displayName: payload?.name ?? payload?.address ?? "Account",
+                iconName: "person.crop.circle"
+            )
+            accountNode.treeDepth = 0
+            accountNode.hasTreeChildren = !folders.isEmpty
+            nodes.append(accountNode)
+            for folder in folders {
+                let folderPayload = MailStoreReader.folderPayload(from: folder)
+                var folderNode = ImbibSidebarNode(
+                    id: ImbibSidebarNodeID.mailFolder(folder.id),
+                    nodeType: .mailFolder(folder.id),
+                    displayName: folderPayload?.name ?? "Folder",
+                    iconName: Self.mailFolderIcon(role: folderPayload?.role)
+                )
+                let count = reader.messageCount(inFolder: folder.id)
+                folderNode.displayCount = count > 0 ? count : nil
+                folderNode.treeDepth = 1
+                nodes.append(folderNode)
+            }
+        }
+        return nodes
+    }
+
+    /// Role-ordered folder sort: inbox/drafts/sent/archive/trash/spam first,
+    /// then custom folders by payload sort_order, then name.
+    private static func roleSortedMailFolders(_ folders: [SharedItemRow]) -> [SharedItemRow] {
+        let roleOrder: [String: Int] = [
+            "inbox": 0, "drafts": 1, "sent": 2, "archive": 3, "trash": 4, "spam": 5,
+        ]
+        struct Sortable {
+            let row: SharedItemRow
+            let roleRank: Int
+            let sortOrder: Int
+            let name: String
+        }
+        return folders.map { row -> Sortable in
+            let payload = MailStoreReader.folderPayload(from: row)
+            return Sortable(
+                row: row,
+                roleRank: payload?.role.flatMap { roleOrder[$0] } ?? 100,
+                sortOrder: payload?.sortOrder ?? 0,
+                name: payload?.name ?? "")
+        }
+        .sorted { ($0.roleRank, $0.sortOrder, $0.name) < ($1.roleRank, $1.sortOrder, $1.name) }
+        .map(\.row)
+    }
+
+    private static func mailFolderIcon(role: String?) -> String {
+        switch role {
+        case "inbox": return "tray"
+        case "sent": return "paperplane"
+        case "drafts": return "doc"
+        case "trash": return "trash"
+        case "archive": return "archivebox"
+        case "spam": return "xmark.bin"
+        default: return "folder"
+        }
+    }
+
+    // MARK: Figures (Stage 2-B)
+
+    /// Top-level children of the Figures sidebar section: All Figures,
+    /// Unfiled, then the user's figure-collection folder tree.
+    private func figuresChildren() -> [ImbibSidebarNode] {
+        let figures = FigureStoreReader.shared.fetchFigures()
+        let unfiledCount = figures.filter { $0.parentId == nil }.count
+        var nodes: [ImbibSidebarNode] = [
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.figuresAll,
+                nodeType: .figuresAll,
+                displayName: "All Figures",
+                iconName: "photo.on.rectangle",
+                displayCount: figures.isEmpty ? nil : figures.count
+            ),
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.figuresUnfiled,
+                nodeType: .figuresUnfiled,
+                displayName: "Unfiled",
+                iconName: "tray",
+                displayCount: unfiledCount > 0 ? unfiledCount : nil
+            ),
+        ]
+        nodes.append(contentsOf: figureFolderNodes(figures: figures))
+        return nodes
+    }
+
+    /// User folders (figure-collection items) as sidebar children of the
+    /// Figures section, nested via envelope `parent` (unlike manuscript
+    /// folders, which nest via payload parent_collection_ref). Emits a FLAT,
+    /// pre-order list carrying `treeDepth`/`hasTreeChildren` — the same
+    /// shape manuscriptFolderNodes uses for the tree flattener.
+    private func figureFolderNodes(figures: [SharedItemRow]) -> [ImbibSidebarNode] {
+        let folders = FigureStoreReader.shared.fetchFolders()
+        guard !folders.isEmpty else { return [] }
+
+        var figureCounts: [String: Int] = [:]
+        for figure in figures {
+            if let parent = figure.parentId {
+                figureCounts[parent, default: 0] += 1
+            }
+        }
+
+        struct FolderEntry {
+            let id: String
+            let name: String
+            let sortOrder: Int
+            let parentID: String?
+        }
+        let entries = folders.map { row -> FolderEntry in
+            let payload = FigureStoreReader.folderPayload(from: row)
+            return FolderEntry(
+                id: row.id,
+                name: payload?.name ?? "Untitled Folder",
+                sortOrder: payload?.sortOrder ?? 0,
+                parentID: row.parentId)
+        }
+
+        func makeNode(_ folder: FolderEntry, depth: Int) -> [ImbibSidebarNode] {
+            let childFolders = entries
+                .filter { $0.parentID == folder.id }
+                .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+            var node = ImbibSidebarNode(
+                id: ImbibSidebarNodeID.figureFolder(folder.id),
+                nodeType: .figureFolder(folder.id),
+                displayName: folder.name,
+                iconName: "folder"
+            )
+            let count = figureCounts[folder.id] ?? 0
+            node.displayCount = count > 0 ? count : nil
+            node.treeDepth = depth
+            node.hasTreeChildren = !childFolders.isEmpty
+            var result = [node]
+            for child in childFolders {
+                result.append(contentsOf: makeNode(child, depth: depth + 1))
+            }
+            return result
+        }
+
+        return entries
+            .filter { $0.parentID == nil }
+            .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+            .flatMap { makeNode($0, depth: 0) }
     }
 
     // MARK: Journal (per ADR-0011 D8)
@@ -426,7 +698,7 @@ final class ImbibSidebarViewModel {
     /// (mirroring `CitedInManuscriptsSnapshot`) can layer counts on later
     /// without changing this structure.
     private func journalChildren() -> [ImbibSidebarNode] {
-        [
+        var nodes: [ImbibSidebarNode] = [
             ImbibSidebarNode(
                 id: ImbibSidebarNodeID.journalAll,
                 nodeType: .journalAll,
@@ -457,13 +729,17 @@ final class ImbibSidebarViewModel {
                 displayName: "Archive",
                 iconName: "archivebox"
             ),
-            ImbibSidebarNode(
+        ]
+        // Reviewer-facing inbox — hidden in the authoring-only imprint shell.
+        if shellConfiguration.auxiliaryRoutes.contains(.submissionsInbox) {
+            nodes.append(ImbibSidebarNode(
                 id: ImbibSidebarNodeID.journalSubmissions,
                 nodeType: .journalSubmissions,
                 displayName: "Submissions",
                 iconName: "tray.and.arrow.down"
-            ),
-        ] + manuscriptFolderNodes()
+            ))
+        }
+        return nodes + manuscriptFolderNodes()
     }
 
     /// User folders (manuscript-collection items) as sidebar children of the
@@ -876,6 +1152,17 @@ final class ImbibSidebarViewModel {
     // MARK: Dismissed
 
     private func dismissedChildren() -> [ImbibSidebarNode] {
+        if shellConfiguration.recordKind(for: .dismissed) == .manuscript {
+            let count = RustStoreAdapter.shared.countManuscripts(
+                status: JournalManuscriptStatus.dismissed.rawValue)
+            return [ImbibSidebarNode(
+                id: ImbibSidebarNodeID.dismissed,
+                nodeType: .dismissed,
+                displayName: "Dismissed",
+                iconName: "xmark.circle",
+                displayCount: count > 0 ? count : nil
+            )]
+        }
         guard let lib = libraryManager?.dismissedLibrary else { return [] }
         let count = lib.publicationCount
         guard count > 0 else { return [] }
@@ -920,6 +1207,21 @@ final class ImbibSidebarViewModel {
             return [.draggable, .deletable]
         case .allArtifacts, .artifactType:
             return .droppable
+        case .manuscriptFolder:
+            return [.draggable, .droppable, .renamable, .deletable]
+        case .figureFolder:
+            return [.draggable, .droppable, .renamable, .deletable]
+        case .figuresUnfiled:
+            // Drop target only: dropping figures here clears their folder.
+            return .droppable
+        case .mailAllInboxes, .mailAccount, .mailFolder:
+            // Stage 2-A: IMAP owns account/folder lifecycle — mail nodes are
+            // read-only (no rename/delete/drag/drop; matrix ➖ with note).
+            return .readOnly
+        case .agentTasksAll, .agentRunsAll, .agentTaskState:
+            // Stage 2-C: the kernel owns task lifecycle — agent nodes are
+            // read-only fixed rows (no rename/delete/drag/drop; matrix ➖).
+            return .readOnly
         default:
             return .readOnly
         }
@@ -957,6 +1259,18 @@ final class ImbibSidebarViewModel {
         case (.explorationSearch, .section(.inbox)):
             return true
         case (.explorationSearch, .inboxCollection):
+            return true
+        // Manuscript folders: nest under another folder (no self / no cycle)
+        // or drop on the section header to move back to root.
+        case (.manuscriptFolder(let dragID), .manuscriptFolder(let targetID)):
+            return dragID != targetID && !isAncestorManuscriptFolder(dragID, of: targetID)
+        case (.manuscriptFolder, .section(.manuscripts)):
+            return true
+        // Figure folders: nest under another folder (no self / no cycle)
+        // or drop on the section header to move back to root.
+        case (.figureFolder(let dragID), .figureFolder(let targetID)):
+            return dragID != targetID && !isAncestorFigureFolder(dragID, of: targetID)
+        case (.figureFolder, .section(.figures)):
             return true
         default:
             return false
@@ -1037,6 +1351,29 @@ final class ImbibSidebarViewModel {
         case .section(.exploration):
             reorderExplorationChildren(siblings)
 
+        case .section(.manuscripts), .manuscriptFolder:
+            // Manuscript folders reorder among the section's fixed rows or
+            // within a parent folder; only the folder rows carry sort_order.
+            let folderIDs = siblings.compactMap { node -> UUID? in
+                if case .manuscriptFolder(let idString) = node.nodeType {
+                    return UUID(uuidString: idString)
+                }
+                return nil
+            }
+            reorderCollections(folderIDs)
+
+        case .section(.figures), .figureFolder:
+            // Figure folders reorder among the section's fixed rows or within
+            // a parent folder; only the folder rows carry payload sort_order
+            // (updateIntField works on any item by UUID).
+            let folderIDs = siblings.compactMap { node -> UUID? in
+                if case .figureFolder(let idString) = node.nodeType {
+                    return UUID(uuidString: idString)
+                }
+                return nil
+            }
+            reorderCollections(folderIDs)
+
         default:
             break
         }
@@ -1078,6 +1415,43 @@ final class ImbibSidebarViewModel {
                 convertExplorationToFeed(searchID: searchID)
                 return
             }
+        }
+
+        // Manuscript folders: parent lives in payload `parent_collection_ref`
+        // (lowercase Rust-canonical id strings, matched by string equality).
+        if case .manuscriptFolder(let idString) = node.nodeType {
+            guard let folderID = UUID(uuidString: idString), let newParent else { return }
+            switch newParent.nodeType {
+            case .manuscriptFolder(let targetString):
+                guard targetString != idString,
+                      !isAncestorManuscriptFolder(idString, of: targetString) else { return }
+                store.updateField(
+                    id: folderID, field: "parent_collection_ref", value: targetString)
+            case .section(.manuscripts):
+                store.updateField(id: folderID, field: "parent_collection_ref", value: nil)
+            default:
+                return
+            }
+            bumpDataVersion()
+            return
+        }
+
+        // Figure folders: nest via envelope `parent`, NOT payload fields —
+        // reparent through the SharedStore handle (FigureStoreReader).
+        if case .figureFolder(let idString) = node.nodeType {
+            guard let newParent else { return }
+            switch newParent.nodeType {
+            case .figureFolder(let targetString):
+                guard targetString != idString,
+                      !isAncestorFigureFolder(idString, of: targetString) else { return }
+                FigureStoreReader.shared.setParent(itemID: idString, parentID: targetString)
+            case .section(.figures):
+                FigureStoreReader.shared.setParent(itemID: idString, parentID: nil)
+            default:
+                return
+            }
+            bumpDataVersion()
+            return
         }
 
         guard case .libraryCollection(let collectionID, let sourceLibraryID) = node.nodeType else { return }
@@ -1134,6 +1508,36 @@ final class ImbibSidebarViewModel {
         bumpDataVersion()
     }
 
+    /// Check if `ancestorID` is an ancestor of `descendantID` in the
+    /// manuscript-folder tree (ids are the Rust store's lowercase strings).
+    private func isAncestorManuscriptFolder(_ ancestorID: String, of descendantID: String) -> Bool {
+        let folders = RustStoreAdapter.shared.listManuscriptCollections()
+        var currentID: String? = descendantID
+        while let cid = currentID {
+            guard let parentID = folders.first(where: { $0.id == cid })?.parentId else {
+                return false
+            }
+            if parentID == ancestorID { return true }
+            currentID = parentID
+        }
+        return false
+    }
+
+    /// Check if `ancestorID` is an ancestor of `descendantID` in the
+    /// figure-folder tree (envelope `parent`, lowercase store id strings).
+    private func isAncestorFigureFolder(_ ancestorID: String, of descendantID: String) -> Bool {
+        let folders = FigureStoreReader.shared.fetchFolders()
+        var currentID: String? = descendantID
+        while let cid = currentID {
+            guard let parentID = folders.first(where: { $0.id == cid })?.parentId else {
+                return false
+            }
+            if parentID == ancestorID { return true }
+            currentID = parentID
+        }
+        return false
+    }
+
     /// Check if `ancestorID` is an ancestor of `descendantID` in the collection tree.
     private func isAncestor(_ ancestorID: UUID, of descendantID: UUID, in collections: [CollectionModel]) -> Bool {
         var currentID: UUID? = descendantID
@@ -1147,6 +1551,92 @@ final class ImbibSidebarViewModel {
     }
 
     private func handleExternalDrop(_ pasteboard: NSPasteboard, target: ImbibSidebarNode?) -> Bool {
+        // Manuscript rows dropped onto a manuscript folder — membership is the
+        // schema-agnostic Contains edge (same call onNewManuscript uses).
+        let manuscriptType = NSPasteboard.PasteboardType(UTType.manuscriptID.identifier)
+        if pasteboard.types?.contains(manuscriptType) == true {
+            // The pasteboard payload is registered lazily by the SwiftUI list
+            // row, so a synchronous read here can return nil — fall back to
+            // the in-process drag record before giving up.
+            var uuids = pasteboard.data(forType: manuscriptType)
+                .map { decodePublicationUUIDs(from: $0) } ?? []
+            let viaPasteboard = !uuids.isEmpty
+            if uuids.isEmpty {
+                uuids = ManuscriptDragSession.shared.take()
+            }
+            guard case .manuscriptFolder(let folderIDString) = target?.nodeType,
+                  let folderID = UUID(uuidString: folderIDString) else {
+                Self.logger.infoCapture(
+                    "manuscript drop ignored: target is "
+                        + "\(target.map { String(describing: $0.nodeType) } ?? "nil")",
+                    category: "sidebar")
+                return false
+            }
+            guard !uuids.isEmpty else {
+                Self.logger.warningCapture(
+                    "manuscript drop on folder \(folderIDString) carried no IDs "
+                        + "(pasteboard and drag session both empty)",
+                    category: "sidebar")
+                return false
+            }
+            RustStoreAdapter.shared.addToCollection(
+                publicationIds: uuids, collectionId: folderID)
+            _ = ManuscriptDragSession.shared.take()
+            bumpDataVersion()
+            Self.logger.infoCapture(
+                "dropped \(uuids.count) manuscript(s) into folder \(folderIDString) "
+                    + "(payload via \(viaPasteboard ? "pasteboard" : "drag session"))",
+                category: "sidebar")
+            return true
+        }
+
+        // Figure rows dropped onto a figure folder (or Unfiled) — membership
+        // is the envelope parent chain, moved via SharedStore.setParent.
+        let figureType = NSPasteboard.PasteboardType(UTType.figureID.identifier)
+        if pasteboard.types?.contains(figureType) == true {
+            // The pasteboard payload is registered lazily by the SwiftUI list
+            // row, so a synchronous read here can return nil — fall back to
+            // the in-process drag record before giving up (FigureDragSession,
+            // the ManuscriptDragSession twin).
+            var uuids = pasteboard.data(forType: figureType)
+                .map { decodePublicationUUIDs(from: $0) } ?? []
+            let viaPasteboard = !uuids.isEmpty
+            if uuids.isEmpty {
+                uuids = FigureDragSession.shared.take()
+            }
+            let targetFolderID: String?
+            switch target?.nodeType {
+            case .figureFolder(let folderIDString):
+                targetFolderID = folderIDString
+            case .figuresUnfiled:
+                targetFolderID = nil
+            default:
+                Self.logger.infoCapture(
+                    "figure drop ignored: target is "
+                        + "\(target.map { String(describing: $0.nodeType) } ?? "nil")",
+                    category: "sidebar")
+                return false
+            }
+            guard !uuids.isEmpty else {
+                Self.logger.warningCapture(
+                    "figure drop on \(targetFolderID ?? "Unfiled") carried no IDs "
+                        + "(pasteboard and drag session both empty)",
+                    category: "sidebar")
+                return false
+            }
+            for uuid in uuids {
+                FigureStoreReader.shared.setParent(
+                    itemID: uuid.uuidString, parentID: targetFolderID)
+            }
+            _ = FigureDragSession.shared.take()
+            bumpDataVersion()
+            Self.logger.infoCapture(
+                "dropped \(uuids.count) figure(s) into \(targetFolderID ?? "Unfiled") "
+                    + "(payload via \(viaPasteboard ? "pasteboard" : "drag session"))",
+                category: "sidebar")
+            return true
+        }
+
         // Handle publication ID drops
         if let data = pasteboard.data(forType: .init(rawValue: UTType.publicationID.identifier)),
            let target = target {
@@ -1403,6 +1893,20 @@ final class ImbibSidebarViewModel {
             store.updateField(id: feedID, field: "name", value: trimmed)
             bumpDataVersion()
 
+        case .manuscriptFolder(let idString):
+            if let uuid = UUID(uuidString: idString) {
+                store.updateField(id: uuid, field: "name", value: trimmed)
+                bumpDataVersion()
+            }
+
+        case .figureFolder(let idString):
+            // Payload `name` rename via the generic store op (works on any
+            // item by UUID); nesting stays on the envelope parent.
+            if let uuid = UUID(uuidString: idString) {
+                store.updateField(id: uuid, field: "name", value: trimmed)
+                bumpDataVersion()
+            }
+
         default:
             break
         }
@@ -1453,6 +1957,12 @@ final class ImbibSidebarViewModel {
 
         case .scixLibrary(let libraryID):
             buildSciXLibraryContextMenu(menu, libraryID: libraryID)
+
+        case .manuscriptFolder(let folderID):
+            buildManuscriptFolderContextMenu(menu, folderID: folderID, nodeID: node.id)
+
+        case .figureFolder(let folderID):
+            buildFigureFolderContextMenu(menu, folderID: folderID, nodeID: node.id)
 
         default:
             Self.logger.infoCapture(
@@ -1633,6 +2143,16 @@ final class ImbibSidebarViewModel {
             newLibItem.target = ContextMenuActions.shared
             menu.addItem(newLibItem)
 
+        case .manuscripts:
+            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(ContextMenuActions.createManuscriptFolder(_:)), keyEquivalent: "")
+            newFolderItem.target = ContextMenuActions.shared
+            menu.addItem(newFolderItem)
+
+        case .figures:
+            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(ContextMenuActions.createFigureFolder(_:)), keyEquivalent: "")
+            newFolderItem.target = ContextMenuActions.shared
+            menu.addItem(newFolderItem)
+
         case .search:
             if !hiddenSearchForms.isEmpty {
                 let showHiddenMenu = NSMenu()
@@ -1750,6 +2270,48 @@ final class ImbibSidebarViewModel {
         menu.addItem(deleteItem)
     }
 
+    private func buildManuscriptFolderContextMenu(_ menu: NSMenu, folderID: String, nodeID: UUID) {
+        let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
+        renameItem.target = ContextMenuActions.shared
+        // Rename edits by SIDEBAR NODE id (derived for manuscript folders,
+        // unlike collections where node id == item id).
+        renameItem.representedObject = nodeID
+        menu.addItem(renameItem)
+
+        let newSubItem = NSMenuItem(title: "New Subfolder", action: #selector(ContextMenuActions.createManuscriptFolder(_:)), keyEquivalent: "")
+        newSubItem.target = ContextMenuActions.shared
+        newSubItem.representedObject = folderID
+        menu.addItem(newSubItem)
+
+        menu.addItem(.separator())
+
+        let deleteItem = NSMenuItem(title: "Delete Folder", action: #selector(ContextMenuActions.deleteManuscriptFolder(_:)), keyEquivalent: "")
+        deleteItem.target = ContextMenuActions.shared
+        deleteItem.representedObject = folderID
+        menu.addItem(deleteItem)
+    }
+
+    private func buildFigureFolderContextMenu(_ menu: NSMenu, folderID: String, nodeID: UUID) {
+        let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
+        renameItem.target = ContextMenuActions.shared
+        // Rename edits by SIDEBAR NODE id (derived for figure folders, like
+        // manuscript folders — node id != item id).
+        renameItem.representedObject = nodeID
+        menu.addItem(renameItem)
+
+        let newSubItem = NSMenuItem(title: "New Subfolder", action: #selector(ContextMenuActions.createFigureFolder(_:)), keyEquivalent: "")
+        newSubItem.target = ContextMenuActions.shared
+        newSubItem.representedObject = folderID
+        menu.addItem(newSubItem)
+
+        menu.addItem(.separator())
+
+        let deleteItem = NSMenuItem(title: "Delete Folder", action: #selector(ContextMenuActions.deleteFigureFolder(_:)), keyEquivalent: "")
+        deleteItem.target = ContextMenuActions.shared
+        deleteItem.representedObject = folderID
+        menu.addItem(deleteItem)
+    }
+
     private func buildInboxFeedContextMenu(_ menu: NSMenu, feedID: UUID) {
         let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
         renameItem.target = ContextMenuActions.shared
@@ -1854,14 +2416,25 @@ final class ImbibSidebarViewModel {
     // MARK: - Flag Counts
 
     func refreshFlagCounts() {
-        // Use getFlaggedPublications — returns only flagged rows, avoiding full table scan
-        let flaggedPubs = store.getFlaggedPublications()
         var total = 0
         var byColor: [String: Int] = [:]
-        for pubRow in flaggedPubs {
-            if let color = pubRow.flag?.color {
-                total += 1
-                byColor[color.rawValue, default: 0] += 1
+        if shellConfiguration.recordKind(for: .flagged) == .manuscript {
+            // Manuscript-flag shells (imprint): the Flagged section counts
+            // flagged manuscripts, matching what its rows list.
+            for row in RustStoreAdapter.shared.getFlaggedManuscripts() {
+                if let color = row.flagColor {
+                    total += 1
+                    byColor[color, default: 0] += 1
+                }
+            }
+        } else {
+            // Use getFlaggedPublications — returns only flagged rows, avoiding
+            // a full table scan.
+            for pubRow in store.getFlaggedPublications() {
+                if let color = pubRow.flag?.color {
+                    total += 1
+                    byColor[color.rawValue, default: 0] += 1
+                }
             }
         }
         flagCounts = FlagCounts(total: total, byColor: byColor)
@@ -2120,6 +2693,78 @@ final class ImbibSidebarViewModel {
         }
     }
 
+    /// Create a manuscript folder, expand its parent, and begin inline rename.
+    /// Mirrors `createInboxCollection` (folder ids are the Rust store's
+    /// lowercase strings; sidebar node ids are derived via ImbibSidebarNodeID).
+    func createManuscriptFolder(parentID: String? = nil) {
+        guard let row = RustStoreAdapter.shared.createManuscriptCollection(
+            name: parentID != nil ? "New Subfolder" : "New Folder",
+            parentID: parentID.flatMap { UUID(uuidString: $0) }
+        ) else { return }
+        if let parentID {
+            expansionState.expand(ImbibSidebarNodeID.manuscriptFolder(parentID))
+        }
+        bumpDataVersion()
+        Self.logger.infoCapture(
+            "created manuscript folder '\(row.name)' (\(row.id)) parent=\(parentID ?? "root")",
+            category: "sidebar")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.editingNodeID = ImbibSidebarNodeID.manuscriptFolder(row.id)
+        }
+    }
+
+    /// Delete a manuscript folder. Contained manuscripts are NOT deleted —
+    /// only the folder item (its Contains edges cascade away).
+    func deleteManuscriptFolder(_ folderID: String) {
+        if case .manuscriptFolder(let selected) = selectedTab, selected == folderID {
+            selectedNodeID = nil
+        }
+        guard let uuid = UUID(uuidString: folderID) else { return }
+        store.deleteItem(id: uuid)
+        bumpDataVersion()
+        Self.logger.infoCapture("deleted manuscript folder \(folderID)", category: "sidebar")
+    }
+
+    /// Create a figure folder, expand its parent, and begin inline rename.
+    /// Mirrors `createManuscriptFolder` — but creation goes through the
+    /// SharedStore handle (no createFigureCollection FFI on RustStoreAdapter).
+    func createFigureFolder(parentID: String? = nil) {
+        guard let newID = FigureStoreReader.shared.createFolder(
+            name: parentID != nil ? "New Subfolder" : "New Folder",
+            parentID: parentID
+        ) else { return }
+        if let parentID {
+            expansionState.expand(ImbibSidebarNodeID.figureFolder(parentID))
+        }
+        bumpDataVersion()
+        Self.logger.infoCapture(
+            "created figure folder (\(newID)) parent=\(parentID ?? "root")",
+            category: "sidebar")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.editingNodeID = ImbibSidebarNodeID.figureFolder(newID)
+        }
+    }
+
+    /// Delete a figure folder. Contained figures and subfolders are NOT
+    /// deleted — they are reparented to root first (envelope-parent nesting;
+    /// hard-deleting the folder item must not orphan or cascade its children).
+    func deleteFigureFolder(_ folderID: String) {
+        if case .figureFolder(let selected) = selectedTab, selected == folderID {
+            selectedNodeID = nil
+        }
+        let reader = FigureStoreReader.shared
+        for figure in reader.fetchFigures(inFolder: folderID) {
+            reader.setParent(itemID: figure.id, parentID: nil)
+        }
+        for folder in reader.fetchFolders() where folder.parentId == folderID.lowercased() {
+            reader.setParent(itemID: folder.id, parentID: nil)
+        }
+        guard let uuid = UUID(uuidString: folderID) else { return }
+        store.deleteItem(id: uuid)
+        bumpDataVersion()
+        Self.logger.infoCapture("deleted figure folder \(folderID)", category: "sidebar")
+    }
+
     func deleteCollection(_ collectionID: UUID) {
         // Clear selection if this collection is selected (didSet resolves selectedTab)
         switch selectedTab {
@@ -2170,6 +2815,10 @@ final class ImbibSidebarViewModel {
                 deleteExplorationCollection(id)
             case .explorationSearch(let id):
                 deleteExplorationSearches([id])
+            case .manuscriptFolder(let id):
+                deleteManuscriptFolder(id)
+            case .figureFolder(let id):
+                deleteFigureFolder(id)
             default:
                 break  // Unsupported node kind — no Delete action in v1.
             }
@@ -2210,6 +2859,23 @@ final class ImbibSidebarViewModel {
         if !explorationSearchIDs.isEmpty,
            explorationSearchIDs.count + explorationIDs.count == nodes.count {
             deleteExplorationItems(searchIDs: explorationSearchIDs, collectionIDs: explorationIDs)
+            return
+        }
+        let manuscriptFolderIDs = nodes.compactMap { node -> String? in
+            if case .manuscriptFolder(let id) = node.nodeType { return id }
+            return nil
+        }
+        if manuscriptFolderIDs.count == nodes.count {
+            for id in manuscriptFolderIDs { deleteManuscriptFolder(id) }
+            return
+        }
+        let figureFolderIDs = nodes.compactMap { node -> String? in
+            if case .figureFolder(let id) = node.nodeType { return id }
+            return nil
+        }
+        if figureFolderIDs.count == nodes.count {
+            for id in figureFolderIDs { deleteFigureFolder(id) }
+            return
         }
         // Mixed kinds → no-op (consistent with right-click behavior).
     }
@@ -2390,6 +3056,26 @@ final class ContextMenuActions: NSObject {
     @objc func deleteCollection(_ sender: NSMenuItem) {
         guard let collectionID = sender.representedObject as? UUID else { return }
         viewModel?.deleteCollection(collectionID)
+    }
+
+    @objc func createManuscriptFolder(_ sender: NSMenuItem) {
+        // representedObject: parent folder id String, or nil for a root folder.
+        viewModel?.createManuscriptFolder(parentID: sender.representedObject as? String)
+    }
+
+    @objc func deleteManuscriptFolder(_ sender: NSMenuItem) {
+        guard let folderID = sender.representedObject as? String else { return }
+        viewModel?.deleteManuscriptFolder(folderID)
+    }
+
+    @objc func createFigureFolder(_ sender: NSMenuItem) {
+        // representedObject: parent folder id String, or nil for a root folder.
+        viewModel?.createFigureFolder(parentID: sender.representedObject as? String)
+    }
+
+    @objc func deleteFigureFolder(_ sender: NSMenuItem) {
+        guard let folderID = sender.representedObject as? String else { return }
+        viewModel?.deleteFigureFolder(folderID)
     }
 
     @objc func deleteExplorationCollection(_ sender: NSMenuItem) {

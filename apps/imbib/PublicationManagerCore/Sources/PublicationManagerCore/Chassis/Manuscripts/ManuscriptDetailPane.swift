@@ -24,16 +24,45 @@ public struct ManuscriptDetailPane: View {
     /// The standalone editor window (which sits below its own header) passes 0.
     let topInset: CGFloat
 
-    /// The live editor session (registry-owned). Resolved on id change.
-    @State private var session: ManuscriptEditorSession?
+    /// The live editor session (registry-owned), resolved by the HOST — the
+    /// section view or the standalone editor window — and passed down.
+    ///
+    /// It is deliberately NOT `@State` here: local state survived the pane's
+    /// reuse across selection changes, so Source/Preview kept showing the
+    /// previously selected manuscript while Info (which reads `manuscriptID`
+    /// directly) updated. With the session as a plain input, the panes cannot
+    /// disagree with the selection.
+    let session: ManuscriptEditorSession?
 
-    public init(manuscriptID: UUID, selectedTab: Binding<DetailTab>, topInset: CGFloat = 0) {
+    public init(
+        manuscriptID: UUID,
+        session: ManuscriptEditorSession?,
+        selectedTab: Binding<DetailTab>,
+        topInset: CGFloat = 0
+    ) {
         self.manuscriptID = manuscriptID
+        self.session = session
         self._selectedTab = selectedTab
         self.topInset = topInset
     }
 
-    private var availableTabs: [DetailTab] { DetailTab.available(for: .manuscript) }
+    /// The session only counts when it belongs to the manuscript on screen.
+    private var liveSession: ManuscriptEditorSession? {
+        session?.manuscriptID == manuscriptID ? session : nil
+    }
+
+    /// Preview kind of the loaded manuscript's format (PDF for Typst/LaTeX,
+    /// rendered Markdown, or none for plain text). Defaults to compiledPDF
+    /// while the session is still resolving.
+    private var previewKind: DocumentFormat.PreviewKind {
+        liveSession?.format.previewKind ?? .compiledPDF
+    }
+
+    private var tabContext: RecordTabContext { RecordTabContext(previewKind: previewKind) }
+
+    private var availableTabs: [DetailTab] {
+        ManuscriptRecordKind.descriptor.availableTabs(for: tabContext)
+    }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -42,18 +71,18 @@ public struct ManuscriptDetailPane: View {
             Divider()
             content
         }
-        .onChange(of: manuscriptID, initial: true) { _, id in
-            // Resolve (or load) the session for this manuscript. No `.id()` on
-            // the pane — the registry preserves editor state across switches.
-            session = ManuscriptSessionRegistry.shared.session(for: id)
-            selectedTab = selectedTab.coerced(for: .manuscript)
+        .onChange(of: previewKind, initial: true) { _, _ in
+            // Plain text drops the Preview tab; markdown relabels it. Keep a
+            // persisted tab valid for whatever format just loaded.
+            let coerced = ManuscriptRecordKind.descriptor.coercedTab(selectedTab, for: tabContext)
+            if coerced != selectedTab { selectedTab = coerced }
         }
         .task(id: manuscriptID) {
             // Cross-process wake-up: refresh the session when this manuscript
             // mutates in another view/app.
             for await event in ImbibImpressStore.shared.events.subscribe() {
                 if case .itemsMutated(_, let ids) = event, ids.contains(manuscriptID) {
-                    session?.absorbExternalChange()
+                    liveSession?.absorbExternalChange()
                 }
             }
         }
@@ -62,7 +91,9 @@ public struct ManuscriptDetailPane: View {
     private var tabPicker: some View {
         Picker("", selection: $selectedTab) {
             ForEach(availableTabs) { tab in
-                Label(tab.label, systemImage: tab.icon).tag(tab)
+                // The manuscript "PDF" tab is really a preview surface —
+                // label it as such (it renders Markdown live for .md).
+                Label(tab == .pdf ? "Preview" : tab.label, systemImage: tab.icon).tag(tab)
             }
         }
         .pickerStyle(.segmented)
@@ -77,27 +108,29 @@ public struct ManuscriptDetailPane: View {
         case .info:
             ManuscriptDetailView(manuscriptID: manuscriptID.uuidString)
         case .source:
-            if let session {
+            if let session = liveSession {
                 ManuscriptSourceTab(session: session)
             } else {
                 unavailable
             }
         case .pdf:
-            // The Preview tab shows the last compiled artifact from the live
-            // session (durable-artifact switcher lands with revision PDFs).
-            if let session, session.latexPreviewUnavailable {
+            // The Preview tab: compiled artifact for Typst/LaTeX, live
+            // MarkdownUI render for Markdown (no compile step).
+            if previewKind == .renderedMarkdown, let session = liveSession {
+                MarkdownPreviewTab(session: session)
+            } else if let session = liveSession, session.latexPreviewUnavailable {
                 ManuscriptLaTeXImprintPrompt(session: session)
-            } else if let data = session?.vm.pdfData {
+            } else if let data = liveSession?.vm.pdfData {
                 // Preview tab: a click both jumps the caret AND switches to the
                 // Source tab so the jump is visible.
                 ManuscriptPDFPreview(
                     data: data,
                     // Entering the Preview tab lands on the region matching the
                     // caret instead of page 1.
-                    cursorOffset: session?.cursorPosition,
-                    sourceMapEntries: session?.vm.sourceMapEntries ?? [],
+                    cursorOffset: liveSession?.cursorPosition,
+                    sourceMapEntries: liveSession?.vm.sourceMapEntries ?? [],
                     onInverseSync: { page, x, y in
-                        guard let session = self.session else { return }
+                        guard let session = self.liveSession else { return }
                         Task {
                             if let offset = await ManuscriptInverseSync.resolveOffset(
                                 session: session, page: page, x: x, y: y) {

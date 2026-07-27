@@ -539,6 +539,21 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 public protocol SharedStoreProtocol : AnyObject {
     
     /**
+     * Add a typed reference (graph edge) from `source_id` to `target_id`.
+     * `edge_type` uses the `SharedReferenceRow` convention (`Cites`,
+     * `Contains`, …); unknown strings become custom edges.
+     */
+    func addReference(sourceId: String, targetId: String, edgeType: String) throws 
+    
+    /**
+     * Declare record schemas whose items never enter the CloudKit sync
+     * outbox because they have their own sync protocol (mail = IMAP).
+     * Additive; also drains already-queued rows for those schemas. Items
+     * remain fully durable — this is NOT retention `ephemeral`.
+     */
+    func addSyncExcludedSchemas(schemas: [String]) throws 
+    
+    /**
      * Add a hierarchical tag to an item (e.g. `"methods/sims/hydro"`).
      */
     func addTag(id: String, tag: String) throws 
@@ -547,6 +562,11 @@ public protocol SharedStoreProtocol : AnyObject {
      * Count items with the given schema (e.g. for sidebar badges).
      */
     func countBySchema(schemaRef: String) throws  -> UInt32
+    
+    /**
+     * Count of items matching `query` (limit/offset/sort ignored).
+     */
+    func countItems(query: SharedItemQuery) throws  -> UInt32
     
     /**
      * Create an immutable `manuscript-revision` snapshot of a manuscript's
@@ -602,6 +622,17 @@ public protocol SharedStoreProtocol : AnyObject {
     func queryBySchema(schemaRef: String, limit: UInt32, offset: UInt32) throws  -> [SharedItemRow]
     
     /**
+     * Flat predicate query (Stage 0): schema/parent/payload-equality/
+     * modified-watermark filters, ANDed, with created/modified/payload sort.
+     */
+    func queryItems(query: SharedItemQuery) throws  -> [SharedItemRow]
+    
+    /**
+     * Remove a typed reference previously added with `add_reference`.
+     */
+    func removeReference(sourceId: String, targetId: String, edgeType: String) throws 
+    
+    /**
      * Remove a tag from an item.
      */
     func removeTag(id: String, tag: String) throws 
@@ -633,6 +664,13 @@ public protocol SharedStoreProtocol : AnyObject {
      * `style` and `length` are optional refinements (e.g. "dashed", "half").
      */
     func setFlag(id: String, color: String?, style: String?, length: String?) throws 
+    
+    /**
+     * Set (or clear, with `nil`) an item's envelope parent — folder moves,
+     * unfiling. `upsert_item*`'s update path never touches the parent, so
+     * moves must be explicit.
+     */
+    func setParent(id: String, parentId: String?) throws 
     
     /**
      * Mark an item as read or unread.
@@ -759,6 +797,22 @@ public protocol SharedStoreProtocol : AnyObject {
      */
     func upsertItemGuarded(id: String, schemaRef: String, payloadJson: String, guardField: String, expected: String?) throws  -> GuardedUpsertOutcome
     
+    /**
+     * Full-envelope upsert (Stage 0): like `upsert_item` but with real
+     * timestamps, parent chain, tags, and read/starred state. Insert sets
+     * everything; update applies payload additively plus any envelope field
+     * that is `Some`.
+     */
+    func upsertItemV2(row: SharedItemUpsert) throws 
+    
+    /**
+     * Batch upsert in as few transactions as possible: new rows insert in a
+     * SINGLE transaction (`insert_batch`); pre-existing rows update
+     * individually. Designed for migration backfills (idempotent re-runs:
+     * deterministic ids make every row an update the second time).
+     */
+    func upsertItems(rows: [SharedItemUpsert]) throws  -> SharedBatchResult
+    
 }
 
 /**
@@ -843,6 +897,33 @@ public static func openInMemory()throws  -> SharedStore {
 
     
     /**
+     * Add a typed reference (graph edge) from `source_id` to `target_id`.
+     * `edge_type` uses the `SharedReferenceRow` convention (`Cites`,
+     * `Contains`, …); unknown strings become custom edges.
+     */
+open func addReference(sourceId: String, targetId: String, edgeType: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_add_reference(self.uniffiClonePointer(),
+        FfiConverterString.lower(sourceId),
+        FfiConverterString.lower(targetId),
+        FfiConverterString.lower(edgeType),$0
+    )
+}
+}
+    
+    /**
+     * Declare record schemas whose items never enter the CloudKit sync
+     * outbox because they have their own sync protocol (mail = IMAP).
+     * Additive; also drains already-queued rows for those schemas. Items
+     * remain fully durable — this is NOT retention `ephemeral`.
+     */
+open func addSyncExcludedSchemas(schemas: [String])throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_add_sync_excluded_schemas(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(schemas),$0
+    )
+}
+}
+    
+    /**
      * Add a hierarchical tag to an item (e.g. `"methods/sims/hydro"`).
      */
 open func addTag(id: String, tag: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
@@ -860,6 +941,17 @@ open func countBySchema(schemaRef: String)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_count_by_schema(self.uniffiClonePointer(),
         FfiConverterString.lower(schemaRef),$0
+    )
+})
+}
+    
+    /**
+     * Count of items matching `query` (limit/offset/sort ignored).
+     */
+open func countItems(query: SharedItemQuery)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_count_items(self.uniffiClonePointer(),
+        FfiConverterTypeSharedItemQuery.lower(query),$0
     )
 })
 }
@@ -972,6 +1064,30 @@ open func queryBySchema(schemaRef: String, limit: UInt32, offset: UInt32)throws 
 }
     
     /**
+     * Flat predicate query (Stage 0): schema/parent/payload-equality/
+     * modified-watermark filters, ANDed, with created/modified/payload sort.
+     */
+open func queryItems(query: SharedItemQuery)throws  -> [SharedItemRow] {
+    return try  FfiConverterSequenceTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_query_items(self.uniffiClonePointer(),
+        FfiConverterTypeSharedItemQuery.lower(query),$0
+    )
+})
+}
+    
+    /**
+     * Remove a typed reference previously added with `add_reference`.
+     */
+open func removeReference(sourceId: String, targetId: String, edgeType: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_remove_reference(self.uniffiClonePointer(),
+        FfiConverterString.lower(sourceId),
+        FfiConverterString.lower(targetId),
+        FfiConverterString.lower(edgeType),$0
+    )
+}
+}
+    
+    /**
      * Remove a tag from an item.
      */
 open func removeTag(id: String, tag: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
@@ -1029,6 +1145,19 @@ open func setFlag(id: String, color: String?, style: String?, length: String?)th
         FfiConverterOptionString.lower(color),
         FfiConverterOptionString.lower(style),
         FfiConverterOptionString.lower(length),$0
+    )
+}
+}
+    
+    /**
+     * Set (or clear, with `nil`) an item's envelope parent — folder moves,
+     * unfiling. `upsert_item*`'s update path never touches the parent, so
+     * moves must be explicit.
+     */
+open func setParent(id: String, parentId: String?)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_set_parent(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterOptionString.lower(parentId),$0
     )
 }
 }
@@ -1279,6 +1408,33 @@ open func upsertItemGuarded(id: String, schemaRef: String, payloadJson: String, 
 })
 }
     
+    /**
+     * Full-envelope upsert (Stage 0): like `upsert_item` but with real
+     * timestamps, parent chain, tags, and read/starred state. Insert sets
+     * everything; update applies payload additively plus any envelope field
+     * that is `Some`.
+     */
+open func upsertItemV2(row: SharedItemUpsert)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_upsert_item_v2(self.uniffiClonePointer(),
+        FfiConverterTypeSharedItemUpsert.lower(row),$0
+    )
+}
+}
+    
+    /**
+     * Batch upsert in as few transactions as possible: new rows insert in a
+     * SINGLE transaction (`insert_batch`); pre-existing rows update
+     * individually. Designed for migration backfills (idempotent re-runs:
+     * deterministic ids make every row an update the second time).
+     */
+open func upsertItems(rows: [SharedItemUpsert])throws  -> SharedBatchResult {
+    return try  FfiConverterTypeSharedBatchResult.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_upsert_items(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeSharedItemUpsert.lower(rows),$0
+    )
+})
+}
+    
 
 }
 
@@ -1408,6 +1564,75 @@ public func FfiConverterTypeGuardedUpsertOutcome_lower(_ value: GuardedUpsertOut
 
 
 /**
+ * Outcome of a batch upsert.
+ */
+public struct SharedBatchResult {
+    public var inserted: UInt32
+    public var updated: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(inserted: UInt32, updated: UInt32) {
+        self.inserted = inserted
+        self.updated = updated
+    }
+}
+
+
+
+extension SharedBatchResult: Equatable, Hashable {
+    public static func ==(lhs: SharedBatchResult, rhs: SharedBatchResult) -> Bool {
+        if lhs.inserted != rhs.inserted {
+            return false
+        }
+        if lhs.updated != rhs.updated {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(inserted)
+        hasher.combine(updated)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedBatchResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedBatchResult {
+        return
+            try SharedBatchResult(
+                inserted: FfiConverterUInt32.read(from: &buf), 
+                updated: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedBatchResult, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.inserted, into: &buf)
+        FfiConverterUInt32.write(value.updated, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedBatchResult_lift(_ buf: RustBuffer) throws -> SharedBatchResult {
+    return try FfiConverterTypeSharedBatchResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedBatchResult_lower(_ value: SharedBatchResult) -> RustBuffer {
+    return FfiConverterTypeSharedBatchResult.lower(value)
+}
+
+
+/**
  * An item's payload replayed to a point in time (`effective_state_at`).
  */
 public struct SharedEffectiveState {
@@ -1491,6 +1716,218 @@ public func FfiConverterTypeSharedEffectiveState_lower(_ value: SharedEffectiveS
 
 
 /**
+ * One payload-field equality filter. `value_json` is a JSON scalar
+ * (`"draft"`, `42`, `true`) so the type survives the FFI boundary.
+ */
+public struct SharedFieldEq {
+    public var field: String
+    public var valueJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(field: String, valueJson: String) {
+        self.field = field
+        self.valueJson = valueJson
+    }
+}
+
+
+
+extension SharedFieldEq: Equatable, Hashable {
+    public static func ==(lhs: SharedFieldEq, rhs: SharedFieldEq) -> Bool {
+        if lhs.field != rhs.field {
+            return false
+        }
+        if lhs.valueJson != rhs.valueJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(field)
+        hasher.combine(valueJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedFieldEq: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedFieldEq {
+        return
+            try SharedFieldEq(
+                field: FfiConverterString.read(from: &buf), 
+                valueJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedFieldEq, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.field, into: &buf)
+        FfiConverterString.write(value.valueJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedFieldEq_lift(_ buf: RustBuffer) throws -> SharedFieldEq {
+    return try FfiConverterTypeSharedFieldEq.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedFieldEq_lower(_ value: SharedFieldEq) -> RustBuffer {
+    return FfiConverterTypeSharedFieldEq.lower(value)
+}
+
+
+/**
+ * Flat, UniFFI-friendly query over items — compiles to `ItemQuery`
+ * predicates. All filters are ANDed.
+ */
+public struct SharedItemQuery {
+    public var schemaRef: String?
+    /**
+     * Envelope parent filter (children of a folder/account/collection).
+     */
+    public var parentId: String?
+    public var payloadEq: [SharedFieldEq]
+    /**
+     * Only items modified strictly after this watermark (ms since epoch).
+     */
+    public var modifiedAfterMs: Int64?
+    /**
+     * Sort field: "created" | "modified" | "payload.<field>". Empty = modified.
+     */
+    public var sortField: String
+    public var ascending: Bool
+    /**
+     * 0 = default of 100.
+     */
+    public var limit: UInt32
+    public var offset: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(schemaRef: String?, 
+        /**
+         * Envelope parent filter (children of a folder/account/collection).
+         */parentId: String?, payloadEq: [SharedFieldEq], 
+        /**
+         * Only items modified strictly after this watermark (ms since epoch).
+         */modifiedAfterMs: Int64?, 
+        /**
+         * Sort field: "created" | "modified" | "payload.<field>". Empty = modified.
+         */sortField: String, ascending: Bool, 
+        /**
+         * 0 = default of 100.
+         */limit: UInt32, offset: UInt32) {
+        self.schemaRef = schemaRef
+        self.parentId = parentId
+        self.payloadEq = payloadEq
+        self.modifiedAfterMs = modifiedAfterMs
+        self.sortField = sortField
+        self.ascending = ascending
+        self.limit = limit
+        self.offset = offset
+    }
+}
+
+
+
+extension SharedItemQuery: Equatable, Hashable {
+    public static func ==(lhs: SharedItemQuery, rhs: SharedItemQuery) -> Bool {
+        if lhs.schemaRef != rhs.schemaRef {
+            return false
+        }
+        if lhs.parentId != rhs.parentId {
+            return false
+        }
+        if lhs.payloadEq != rhs.payloadEq {
+            return false
+        }
+        if lhs.modifiedAfterMs != rhs.modifiedAfterMs {
+            return false
+        }
+        if lhs.sortField != rhs.sortField {
+            return false
+        }
+        if lhs.ascending != rhs.ascending {
+            return false
+        }
+        if lhs.limit != rhs.limit {
+            return false
+        }
+        if lhs.offset != rhs.offset {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(schemaRef)
+        hasher.combine(parentId)
+        hasher.combine(payloadEq)
+        hasher.combine(modifiedAfterMs)
+        hasher.combine(sortField)
+        hasher.combine(ascending)
+        hasher.combine(limit)
+        hasher.combine(offset)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedItemQuery: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedItemQuery {
+        return
+            try SharedItemQuery(
+                schemaRef: FfiConverterOptionString.read(from: &buf), 
+                parentId: FfiConverterOptionString.read(from: &buf), 
+                payloadEq: FfiConverterSequenceTypeSharedFieldEq.read(from: &buf), 
+                modifiedAfterMs: FfiConverterOptionInt64.read(from: &buf), 
+                sortField: FfiConverterString.read(from: &buf), 
+                ascending: FfiConverterBool.read(from: &buf), 
+                limit: FfiConverterUInt32.read(from: &buf), 
+                offset: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedItemQuery, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.schemaRef, into: &buf)
+        FfiConverterOptionString.write(value.parentId, into: &buf)
+        FfiConverterSequenceTypeSharedFieldEq.write(value.payloadEq, into: &buf)
+        FfiConverterOptionInt64.write(value.modifiedAfterMs, into: &buf)
+        FfiConverterString.write(value.sortField, into: &buf)
+        FfiConverterBool.write(value.ascending, into: &buf)
+        FfiConverterUInt32.write(value.limit, into: &buf)
+        FfiConverterUInt32.write(value.offset, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedItemQuery_lift(_ buf: RustBuffer) throws -> SharedItemQuery {
+    return try FfiConverterTypeSharedItemQuery.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedItemQuery_lower(_ value: SharedItemQuery) -> RustBuffer {
+    return FfiConverterTypeSharedItemQuery.lower(value)
+}
+
+
+/**
  * A flat representation of a single item, suitable for Swift consumption.
  *
  * `payload_json` is a JSON object string containing domain-specific fields.
@@ -1504,6 +1941,15 @@ public struct SharedItemRow {
      * Item creation timestamp in milliseconds since Unix epoch.
      */
     public var createdMs: Int64
+    /**
+     * Last-modified timestamp in milliseconds since Unix epoch (watermark
+     * polling: pass back as `modified_after_ms` in `SharedItemQuery`).
+     */
+    public var modifiedMs: Int64
+    /**
+     * Envelope parent item id (folder/account/collection chains), if any.
+     */
+    public var parentId: String?
     public var isRead: Bool
     public var isStarred: Bool
     public var tags: [String]
@@ -1517,7 +1963,14 @@ public struct SharedItemRow {
     public init(id: String, schemaRef: String, payloadJson: String, 
         /**
          * Item creation timestamp in milliseconds since Unix epoch.
-         */createdMs: Int64, isRead: Bool, isStarred: Bool, tags: [String], 
+         */createdMs: Int64, 
+        /**
+         * Last-modified timestamp in milliseconds since Unix epoch (watermark
+         * polling: pass back as `modified_after_ms` in `SharedItemQuery`).
+         */modifiedMs: Int64, 
+        /**
+         * Envelope parent item id (folder/account/collection chains), if any.
+         */parentId: String?, isRead: Bool, isStarred: Bool, tags: [String], 
         /**
          * Flag color if the item is flagged (e.g. "red", "amber", "blue", "gray").
          */flagColor: String?) {
@@ -1525,6 +1978,8 @@ public struct SharedItemRow {
         self.schemaRef = schemaRef
         self.payloadJson = payloadJson
         self.createdMs = createdMs
+        self.modifiedMs = modifiedMs
+        self.parentId = parentId
         self.isRead = isRead
         self.isStarred = isStarred
         self.tags = tags
@@ -1548,6 +2003,12 @@ extension SharedItemRow: Equatable, Hashable {
         if lhs.createdMs != rhs.createdMs {
             return false
         }
+        if lhs.modifiedMs != rhs.modifiedMs {
+            return false
+        }
+        if lhs.parentId != rhs.parentId {
+            return false
+        }
         if lhs.isRead != rhs.isRead {
             return false
         }
@@ -1568,6 +2029,8 @@ extension SharedItemRow: Equatable, Hashable {
         hasher.combine(schemaRef)
         hasher.combine(payloadJson)
         hasher.combine(createdMs)
+        hasher.combine(modifiedMs)
+        hasher.combine(parentId)
         hasher.combine(isRead)
         hasher.combine(isStarred)
         hasher.combine(tags)
@@ -1587,6 +2050,8 @@ public struct FfiConverterTypeSharedItemRow: FfiConverterRustBuffer {
                 schemaRef: FfiConverterString.read(from: &buf), 
                 payloadJson: FfiConverterString.read(from: &buf), 
                 createdMs: FfiConverterInt64.read(from: &buf), 
+                modifiedMs: FfiConverterInt64.read(from: &buf), 
+                parentId: FfiConverterOptionString.read(from: &buf), 
                 isRead: FfiConverterBool.read(from: &buf), 
                 isStarred: FfiConverterBool.read(from: &buf), 
                 tags: FfiConverterSequenceString.read(from: &buf), 
@@ -1599,6 +2064,8 @@ public struct FfiConverterTypeSharedItemRow: FfiConverterRustBuffer {
         FfiConverterString.write(value.schemaRef, into: &buf)
         FfiConverterString.write(value.payloadJson, into: &buf)
         FfiConverterInt64.write(value.createdMs, into: &buf)
+        FfiConverterInt64.write(value.modifiedMs, into: &buf)
+        FfiConverterOptionString.write(value.parentId, into: &buf)
         FfiConverterBool.write(value.isRead, into: &buf)
         FfiConverterBool.write(value.isStarred, into: &buf)
         FfiConverterSequenceString.write(value.tags, into: &buf)
@@ -1619,6 +2086,127 @@ public func FfiConverterTypeSharedItemRow_lift(_ buf: RustBuffer) throws -> Shar
 #endif
 public func FfiConverterTypeSharedItemRow_lower(_ value: SharedItemRow) -> RustBuffer {
     return FfiConverterTypeSharedItemRow.lower(value)
+}
+
+
+/**
+ * Full-envelope upsert row (Stage 0 of the GUI unification). Unlike
+ * `upsert_item`, this carries the envelope fields migrations need: a real
+ * creation timestamp (mail must sort by message date, not import time), the
+ * parent chain (message→folder→account, figure→folder), tags, read/starred.
+ * `None` fields keep defaults on insert and are left untouched on update.
+ */
+public struct SharedItemUpsert {
+    public var id: String
+    public var schemaRef: String
+    public var payloadJson: String
+    public var parentId: String?
+    public var tags: [String]
+    public var createdMs: Int64?
+    public var isRead: Bool?
+    public var isStarred: Bool?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, schemaRef: String, payloadJson: String, parentId: String?, tags: [String], createdMs: Int64?, isRead: Bool?, isStarred: Bool?) {
+        self.id = id
+        self.schemaRef = schemaRef
+        self.payloadJson = payloadJson
+        self.parentId = parentId
+        self.tags = tags
+        self.createdMs = createdMs
+        self.isRead = isRead
+        self.isStarred = isStarred
+    }
+}
+
+
+
+extension SharedItemUpsert: Equatable, Hashable {
+    public static func ==(lhs: SharedItemUpsert, rhs: SharedItemUpsert) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.schemaRef != rhs.schemaRef {
+            return false
+        }
+        if lhs.payloadJson != rhs.payloadJson {
+            return false
+        }
+        if lhs.parentId != rhs.parentId {
+            return false
+        }
+        if lhs.tags != rhs.tags {
+            return false
+        }
+        if lhs.createdMs != rhs.createdMs {
+            return false
+        }
+        if lhs.isRead != rhs.isRead {
+            return false
+        }
+        if lhs.isStarred != rhs.isStarred {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(schemaRef)
+        hasher.combine(payloadJson)
+        hasher.combine(parentId)
+        hasher.combine(tags)
+        hasher.combine(createdMs)
+        hasher.combine(isRead)
+        hasher.combine(isStarred)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedItemUpsert: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedItemUpsert {
+        return
+            try SharedItemUpsert(
+                id: FfiConverterString.read(from: &buf), 
+                schemaRef: FfiConverterString.read(from: &buf), 
+                payloadJson: FfiConverterString.read(from: &buf), 
+                parentId: FfiConverterOptionString.read(from: &buf), 
+                tags: FfiConverterSequenceString.read(from: &buf), 
+                createdMs: FfiConverterOptionInt64.read(from: &buf), 
+                isRead: FfiConverterOptionBool.read(from: &buf), 
+                isStarred: FfiConverterOptionBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedItemUpsert, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.schemaRef, into: &buf)
+        FfiConverterString.write(value.payloadJson, into: &buf)
+        FfiConverterOptionString.write(value.parentId, into: &buf)
+        FfiConverterSequenceString.write(value.tags, into: &buf)
+        FfiConverterOptionInt64.write(value.createdMs, into: &buf)
+        FfiConverterOptionBool.write(value.isRead, into: &buf)
+        FfiConverterOptionBool.write(value.isStarred, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedItemUpsert_lift(_ buf: RustBuffer) throws -> SharedItemUpsert {
+    return try FfiConverterTypeSharedItemUpsert.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedItemUpsert_lower(_ value: SharedItemUpsert) -> RustBuffer {
+    return FfiConverterTypeSharedItemUpsert.lower(value)
 }
 
 
@@ -2579,6 +3167,54 @@ extension SharedStoreError: Foundation.LocalizedError {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
+    typealias SwiftType = Int64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
+    typealias SwiftType = Bool?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterBool.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterBool.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -2725,6 +3361,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedFieldEq: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedFieldEq]
+
+    public static func write(_ value: [SharedFieldEq], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedFieldEq.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedFieldEq] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedFieldEq]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedFieldEq.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSharedItemRow: FfiConverterRustBuffer {
     typealias SwiftType = [SharedItemRow]
 
@@ -2742,6 +3403,31 @@ fileprivate struct FfiConverterSequenceTypeSharedItemRow: FfiConverterRustBuffer
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSharedItemRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedItemUpsert: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedItemUpsert]
+
+    public static func write(_ value: [SharedItemUpsert], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedItemUpsert.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedItemUpsert] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedItemUpsert]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedItemUpsert.read(from: &buf))
         }
         return seq
     }
@@ -2896,6 +3582,17 @@ fileprivate struct FfiConverterSequenceTypeSyncTombstoneRecord: FfiConverterRust
         return seq
     }
 }
+/**
+ * The allowed `manuscript.format` payload values (single source of truth:
+ * `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
+ * app-side format enums can assert parity without duplicating the list.
+ */
+public func supportedManuscriptFormats() -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_supported_manuscript_formats($0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -2912,10 +3609,22 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_func_supported_manuscript_formats() != 37034) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_add_reference() != 26356) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_add_sync_excluded_schemas() != 55474) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_add_tag() != 31254) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_by_schema() != 21485) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_items() != 51428) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_create_manuscript_revision() != 16555) {
@@ -2942,6 +3651,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_by_schema() != 32264) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_query_items() != 63649) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_remove_reference() != 31901) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_remove_tag() != 18835) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2952,6 +3667,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_flag() != 6264) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_parent() != 22423) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_read() != 9862) {
@@ -3012,6 +3730,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_upsert_item_guarded() != 21076) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_upsert_item_v2() != 12868) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_upsert_items() != 54137) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open() != 6376) {

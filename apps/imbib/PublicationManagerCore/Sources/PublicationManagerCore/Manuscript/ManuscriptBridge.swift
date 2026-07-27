@@ -146,6 +146,11 @@ public actor ManuscriptBridge {
             "title": title,
             "status": JournalManuscriptStatus.draft.rawValue,
             "current_revision_ref": JournalRevisionPlaceholderID,
+            // Always stamp a format: records written without one used to be
+            // read back as Typst, which compiles a Markdown body into an
+            // "expected expression" error. Callers wanting another format
+            // set it via `updateMetadata` (or create through the adapter).
+            "format": DocumentFormat.typst.rawValue,
         ]
         if !topicTags.isEmpty { payload["topic_tags"] = topicTags }
 

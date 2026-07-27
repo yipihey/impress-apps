@@ -3490,6 +3490,21 @@ extension RustStoreAdapter {
         }
     }
 
+    /// Flagged manuscripts, optionally one color. Read-only — the manuscript
+    /// counterpart of `getFlaggedPublications` (flags live on the generic item
+    /// envelope; only the schema filter differs).
+    public func getFlaggedManuscripts(color: FlagColor? = nil) -> [ManuscriptRow] {
+        StoreTimings.shared.measure("getFlaggedManuscripts") {
+            do {
+                return try store.listFlaggedManuscripts(color: color?.rawValue)
+            } catch {
+                Logger.library.errorCapture(
+                    "getFlaggedManuscripts failed: \(error)", category: "manuscripts")
+                return []
+            }
+        }
+    }
+
     /// Count manuscripts matching the same filters as `queryManuscripts`.
     public func countManuscripts(collectionID: UUID? = nil, status: String? = nil) -> Int {
         do {
@@ -3688,6 +3703,8 @@ extension RustStoreAdapter {
     }
 
     /// Create a manuscript folder (nested under `parentID` when given).
+    /// Parent refs are lowercased: the Rust store's canonical item-id form is
+    /// lowercase and `parent_collection_ref` is matched by string equality.
     @discardableResult
     public func createManuscriptCollection(
         name: String,
@@ -3695,7 +3712,7 @@ extension RustStoreAdapter {
     ) -> ManuscriptCollectionRow? {
         do {
             let row = try store.createManuscriptCollection(
-                name: name, parentId: parentID?.uuidString)
+                name: name, parentId: parentID?.uuidString.lowercased())
             didMutate(structural: true)
             return row
         } catch {

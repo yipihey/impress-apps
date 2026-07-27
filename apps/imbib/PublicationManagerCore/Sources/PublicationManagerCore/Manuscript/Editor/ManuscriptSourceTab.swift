@@ -62,7 +62,9 @@ public struct ManuscriptSourceTab: View {
                 ManuscriptCommentsColumn(session: session)
                     .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
             }
-            if showPreview {
+            // Plain text has no rendered state — the preview column would be
+            // permanently empty, so it is not offered at all.
+            if showPreview, session.format.previewKind != .none {
                 previewPane
                     .frame(minWidth: 280)
             }
@@ -160,7 +162,11 @@ public struct ManuscriptSourceTab: View {
 
     @ViewBuilder
     private var previewPane: some View {
-        if session.latexPreviewUnavailable {
+        if session.format.previewKind == .renderedMarkdown {
+            // Markdown renders live from the buffer — there is no compiled
+            // artifact, so the pdfData path below would sit at "No preview yet".
+            MarkdownPreviewTab(session: session)
+        } else if session.latexPreviewUnavailable {
             ManuscriptLaTeXImprintPrompt(session: session)
         } else if let data = session.vm.pdfData {
             // Inline split: editor is already on-screen, so a preview click just
@@ -477,13 +483,9 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
         context.coordinator.clickRecognizer = click
         context.coordinator.entries = sourceMapEntries
         // First appearance (e.g. switching Source → Preview): land on the
-        // caret's region rather than page 1. Deferred one turn because the
-        // document has only just been assigned and has no layout yet.
+        // caret's region rather than page 1.
         if let offset = cursorOffset {
-            DispatchQueue.main.async { [weak view] in
-                guard let view else { return }
-                context.coordinator.scrollToSource(offset: offset, in: view)
-            }
+            context.coordinator.requestScroll(offset: offset, in: view)
         }
         return view
     }
@@ -502,15 +504,7 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
         context.coordinator.entries = sourceMapEntries
 
         if let offset = cursorOffset {
-            if rebuilt {
-                // Wait for the fresh document before scrolling.
-                DispatchQueue.main.async { [weak view] in
-                    guard let view else { return }
-                    context.coordinator.scrollToSource(offset: offset, in: view)
-                }
-            } else {
-                context.coordinator.scrollToSource(offset: offset, in: view)
-            }
+            context.coordinator.requestScroll(offset: offset, in: view, force: rebuilt)
         }
     }
 
@@ -531,11 +525,41 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
             self.onInverseSync = onInverseSync
         }
 
-        /// Forward sync: scroll the preview to the region rendered from
-        /// `offset` in the source. No-op when the offset is unchanged, the map
-        /// is empty, or the offset doesn't map into the layout.
-        func scrollToSource(offset: Int, in view: PDFView) {
-            guard offset != lastSyncedOffset else { return }
+        /// Ask the preview to show the region rendered from `offset`.
+        ///
+        /// Deduplicated on the offset, then retried until the view is actually
+        /// scrollable. The retry is the load-bearing part: on a tab switch,
+        /// `makeNSView` and the first `updateNSView` both run before PDFKit has
+        /// laid the document out, and a `go(to:on:)` issued against a
+        /// zero-height view is silently dropped — which looked exactly like
+        /// "forward sync resolved the right page but the preview stayed at the
+        /// beginning".
+        func requestScroll(offset: Int, in view: PDFView, force: Bool = false) {
+            guard force || offset != lastSyncedOffset else { return }
+            lastSyncedOffset = offset
+            attemptScroll(offset: offset, in: view, attemptsLeft: 8)
+        }
+
+        private func attemptScroll(offset: Int, in view: PDFView, attemptsLeft: Int) {
+            // Not laid out yet (or no document): come back after the next pass.
+            guard view.document != nil, view.bounds.height > 1 else {
+                guard attemptsLeft > 0 else {
+                    logInfo("forward-sync gave up: view never became scrollable",
+                            category: "manuscript-sync")
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak view] in
+                    guard let self, let view else { return }
+                    self.attemptScroll(offset: offset, in: view, attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
+            scrollToSource(offset: offset, in: view)
+        }
+
+        /// Scroll the preview to the region rendered from `offset` in the
+        /// source. No-op when the map is empty or the offset doesn't map.
+        private func scrollToSource(offset: Int, in view: PDFView) {
             guard !entries.isEmpty, let document = view.document else {
                 logInfo("forward-sync skipped: map=\(entries.count) doc=\(view.document != nil)",
                         category: "manuscript-sync")
@@ -548,8 +572,13 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
             }
             guard region.page >= 0, region.page < document.pageCount,
                   let page = document.page(at: region.page) else { return }
-            logInfo("forward-sync: offset \(offset) → page \(region.page + 1)",
-                    category: "manuscript-sync")
+            let pages = Set(entries.map(\.page)).sorted()
+            let spans = entries.map { $0.sourceEnd }.max() ?? 0
+            logInfo("""
+                forward-sync: offset \(offset) → page \(region.page + 1)/\(document.pageCount) \
+                region(x:\(Int(region.x)) y:\(Int(region.y)) w:\(Int(region.width)) h:\(Int(region.height))) \
+                map[n=\(entries.count) pages=\(pages) maxSrcEnd=\(spans)]
+                """, category: "manuscript-sync")
 
             // Source-map coordinates are top-left origin; PDF pages are
             // bottom-left. Mirror the conversion the click path uses.
@@ -559,7 +588,6 @@ struct ManuscriptPDFPreview: NSViewRepresentable {
                 y: (pageBounds.height - region.center.y) - 50,
                 width: 100, height: 100)
             view.go(to: target, on: page)
-            lastSyncedOffset = offset
         }
 
         /// Convert a click to (1-indexed page, top-left-origin PDF point) and

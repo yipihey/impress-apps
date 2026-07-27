@@ -21,6 +21,10 @@ tectonic-render = ["imprint-service/tectonic-render"]
 [dependencies]
 # Tier A: exercise the service traits directly.
 imprint-service = { workspace = true }
+# Tier A store capabilities: manuscript format set + round-trip against the
+# shared item store (same crates imprint-service itself persists through).
+impress-core = { workspace = true, features = ["sqlite"] }
+impress-store-ffi = { workspace = true }
 # Tier B: drive the running app over HTTP.
 impress-app-client = { workspace = true }
 

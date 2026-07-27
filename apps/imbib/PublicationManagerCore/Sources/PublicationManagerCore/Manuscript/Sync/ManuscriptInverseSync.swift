@@ -41,6 +41,9 @@ enum ManuscriptInverseSync {
             guard result.found else { return nil }
             return clamp(result.sourceOffset, to: session.source)
 
+        case .markdown, .plaintext:
+            return nil   // no compiled layout — nothing to inverse-sync
+
         case .latex:
             guard let resolver = ManuscriptEditorEnvironment.shared.inverseSyncResolver
             else { return nil }  // imbib / no LaTeX compiler → no-op

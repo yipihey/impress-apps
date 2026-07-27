@@ -1077,6 +1077,11 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("0", modifiers: .command)
 
+            Button("Toggle Manuscript List") {
+                PaneLayoutStore.shared.current.listPaneVisible.toggle()
+            }
+            .keyboardShortcut("0", modifiers: [.command, .option])
+
             Button("Toggle Sidebar") {
                 PaneLayoutStore.shared.current.sidebarVisible.toggle()
             }

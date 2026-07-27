@@ -300,8 +300,9 @@ struct IOSSidebarView: View {
             }
         case .manuscripts:
             manuscriptsSection
-        case .sharedWithMe, .artifacts, .reviewQueue, .dismissed:
+        case .sharedWithMe, .artifacts, .figures, .reviewQueue, .dismissed:
             // Not representable in the iOS SidebarSection routing table yet.
+            // (.figures is implore-only on macOS anyway — Stage 2-B.)
             EmptyView()
         }
     }

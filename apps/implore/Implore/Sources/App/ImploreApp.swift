@@ -69,8 +69,13 @@ struct ImploreApp: App {
     }
 
     var body: some Scene {
+        // Stage 2-B: the app launches into the shared chassis (implore =
+        // imbib filtered to Figures; Generate/Analyze ride along as custom
+        // surfaces). The pre-chassis ContentView file is kept but no longer
+        // reachable from here — its mode functionality lives in the surfaces
+        // (ImploreChassisRoot) and the canvas window below.
         WindowGroup {
-            ContentView()
+            ImploreChassisRoot()
                 .environment(appState)
                 .task {
                     // Start heartbeat for SiblingDiscovery
@@ -212,6 +217,14 @@ struct ImploreApp: App {
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
             }
+        }
+
+        // The Metal canvas as a figure-addressed window: the chassis'
+        // FigureSectionView opens it via `openWindow(id: "canvas", value:
+        // figureID)` (FigureRecordKind's `.window(id: "canvas")` behavior).
+        WindowGroup(id: "canvas", for: String.self) { $figureID in
+            CanvasWindowView(figureID: figureID)
+                .environment(appState)
         }
 
         Settings {

@@ -13,11 +13,13 @@
 //  citeKey assumptions can't leak in.
 
 import SwiftUI
+import AppKit
 import ImpressFTUI
 import ImpressKeyboard
 import ImpressMailStyle
 import ImpressStoreKit
 import OSLog
+import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "manuscripts")
 
@@ -26,6 +28,7 @@ public enum ManuscriptListScope: Hashable, Sendable {
     case all
     case status(JournalManuscriptStatus)
     case folder(UUID)
+    case flagged(FlagColor?)
 
     var statusString: String? {
         if case .status(let s) = self { return s.rawValue }
@@ -40,39 +43,38 @@ public enum ManuscriptListScope: Hashable, Sendable {
         case .all: return "All Manuscripts"
         case .status(let s): return s.displayName
         case .folder: return "Folder"
+        case .flagged(let color):
+            return color.map { "\($0.displayName) Flag" } ?? "Flagged"
         }
     }
 }
 
-/// Actions the list surfaces to the toolbar / context menu / keyboard.
-/// Mirrors the shape of `PublicationListActions` but only what manuscripts
-/// support (no enrichment, no dismissed-library triage).
-public struct ManuscriptListActions {
-    public var onNewManuscript: () -> Void = {}
-    public var onDelete: (Set<UUID>) -> Void = { _ in }
-    public var onDuplicate: (UUID) -> Void = { _ in }
-    public var onSetFlag: (Set<UUID>, FlagColor?) -> Void = { _, _ in }
-    public var onOpenInImprint: (UUID) -> Void = { _ in }
-    public init() {}
-}
+// Actions: the shared RecordTriageActions (ADR-0021). Manuscript-specific
+// verbs (create-with-format, duplicate, open, remove-from-folder) ride the
+// same bag via onCreate/onDuplicate/onOpen/onRemoveFromScope.
 
 public struct ManuscriptListWrapper: View {
 
     let scope: ManuscriptListScope
     @Binding var selectedID: UUID?
-    var actions: ManuscriptListActions
+    var actions: RecordTriageActions
 
     @State private var rows: [ManuscriptRowData] = []
     @State private var filterText: String = ""
     @State private var isLoading = false
     @State private var dataVersion = 0
+    /// Full multi-selection; `selectedID` (the binding the detail pane
+    /// follows) tracks its primary member.
+    @State private var selectedIDs = Set<UUID>()
 
     @FocusState private var listFocused: Bool
+    @FocusState private var filterFocused: Bool
+    @Environment(\.appShellConfiguration) private var shellConfiguration
 
     public init(
         scope: ManuscriptListScope,
         selectedID: Binding<UUID?>,
-        actions: ManuscriptListActions = ManuscriptListActions()
+        actions: RecordTriageActions = RecordTriageActions()
     ) {
         self.scope = scope
         self._selectedID = selectedID
@@ -91,16 +93,34 @@ public struct ManuscriptListWrapper: View {
         VStack(spacing: 0) {
             filterBar
             Divider()
+            // `.focusable()` lives on the LIST ONLY, not the whole VStack: a
+            // focusable wrapper around the filter TextField steals its key
+            // events (CLAUDE.md "Do NOT put .focusable() on views that
+            // contain text editors").
             listBody
+                .focusable()
+                .focused($listFocused)
+                .keyboardGuarded { press in handleKey(press) }
         }
-        .focusable()
-        .focused($listFocused)
-        .keyboardGuarded { press in handleKey(press) }
+        // ⌘F target: whichever list is frontmost gets the Find in List command.
+        .focusedSceneValue(\.listFilterFocusAction, { filterFocused = true })
         .task(id: scopeKey) { await reload() }
         .task {
-            // Row-level refresh: reload when manuscript items mutate.
+            // Row-level refresh. Deletes/creates emit `.structural`; in-place
+            // edits emit `.itemsMutated` — reload for the ones touching our
+            // rows (or any structural change, which can add/remove rows).
             for await event in ImbibImpressStore.shared.events.subscribe() {
-                if case .itemsMutated = event { await reload() }
+                switch event {
+                case .structural:
+                    await reload()
+                case .itemsMutated(_, let ids):
+                    let visible = Set(rows.map(\.id))
+                    if ids.isEmpty || !visible.isDisjoint(with: ids) || rows.isEmpty {
+                        await reload()
+                    }
+                case .collectionMembershipChanged(let collectionID):
+                    if scope.folderID == collectionID { await reload() }
+                }
             }
         }
     }
@@ -113,6 +133,7 @@ public struct ManuscriptListWrapper: View {
                 .foregroundStyle(.secondary)
             TextField("Filter manuscripts", text: $filterText)
                 .textFieldStyle(.plain)
+                .focused($filterFocused)
             if !filterText.isEmpty {
                 Button {
                     filterText = ""
@@ -136,17 +157,69 @@ public struct ManuscriptListWrapper: View {
             emptyState
         } else {
             ScrollViewReader { proxy in
-                List(selection: $selectedID) {
+                List(selection: $selectedIDs) {
                     ForEach(visibleRows) { row in
                         MailStyleRow(item: row)
                             .tag(row.id)
                             .id(row.id)
                             .contextMenu { rowMenu(row) }
+                            // Swipe LEFT = archive (non-destructive) then
+                            // delete; swipe RIGHT = star. Mirrors the
+                            // publication row's gesture grammar.
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                TriageSwipe.trailing(
+                                    triage: ManuscriptRecordKind.descriptor.triage,
+                                    row: triageState(row),
+                                    targets: targetIDs(for: row),
+                                    actions: actions)
+                            }
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                TriageSwipe.leading(
+                                    triage: ManuscriptRecordKind.descriptor.triage,
+                                    row: triageState(row),
+                                    targets: targetIDs(for: row),
+                                    actions: actions)
+                            }
+                            // Drag manuscript(s) onto a sidebar folder. JSON
+                            // [uuid-string] payload, mirroring publication rows;
+                            // dragging a selected row carries the whole selection.
+                            .itemProvider {
+                                let dragged = Array(targetIDs(for: row))
+                                // Record for the sidebar's synchronous drop
+                                // read (see ManuscriptDragSession).
+                                ManuscriptDragSession.shared.begin(ids: dragged)
+                                let ids = dragged.map(\.uuidString)
+                                logger.info("drag started: \(ids.count) manuscript(s)")
+                                let provider = NSItemProvider()
+                                provider.registerDataRepresentation(
+                                    forTypeIdentifier: UTType.manuscriptID.identifier,
+                                    visibility: .all
+                                ) { completion in
+                                    let jsonData = try? JSONEncoder().encode(ids)
+                                    completion(jsonData, nil)
+                                    return nil
+                                }
+                                return provider
+                            }
                     }
                 }
                 .listStyle(.inset)
+                // Two-way sync between the multi-selection and the primary
+                // `selectedID` the detail pane follows. Both handlers are
+                // guarded so the pair reaches a fixed point without looping.
+                .onChange(of: selectedIDs) { _, newIDs in
+                    if let current = selectedID, newIDs.contains(current) { return }
+                    selectedID = newIDs.first
+                }
                 .onChange(of: selectedID) { _, newID in
-                    if let newID { withAnimation { proxy.scrollTo(newID) } }
+                    if let newID {
+                        if !selectedIDs.contains(newID) { selectedIDs = [newID] }
+                        // No animation: an animated scroll per row makes
+                        // holding ↓ feel like wading rather than flying.
+                        proxy.scrollTo(newID)
+                    } else if !selectedIDs.isEmpty {
+                        selectedIDs = []
+                    }
                 }
             }
         }
@@ -160,7 +233,12 @@ public struct ManuscriptListWrapper: View {
             Text(filterText.isEmpty ? "No manuscripts" : "No matches")
                 .foregroundStyle(.secondary)
             if filterText.isEmpty {
-                Button("New Manuscript", action: actions.onNewManuscript)
+                Menu("New Manuscript") {
+                    ForEach(ManuscriptRecordKind.descriptor.creation) { affordance in
+                        Button(affordance.label) { actions.onCreate(affordance) }
+                    }
+                }
+                .fixedSize()
                     .buttonStyle(.borderless)
             }
         }
@@ -169,17 +247,41 @@ public struct ManuscriptListWrapper: View {
 
     @ViewBuilder
     private func rowMenu(_ row: ManuscriptRowData) -> some View {
-        Button("Open in imprint") { actions.onOpenInImprint(row.id) }
+        let targets = targetIDs(for: row)
+        Button(shellConfiguration.openBehavior(for: .manuscript) != .appHandoff
+            ? "Open in New Window" : "Open in imprint") {
+            actions.onOpen(row.id)
+        }
         Button("Duplicate") { actions.onDuplicate(row.id) }
         Divider()
-        Menu("Flag") {
-            ForEach(FlagColor.allCases) { color in
-                Button(color.displayName) { actions.onSetFlag([row.id], color) }
+        // The shared triage segment: star/dismiss-or-restore/archive, Flag
+        // and Tags submenus, Delete… last (ADR-0021 grammar).
+        TriageMenu.items(
+            triage: ManuscriptRecordKind.descriptor.triage,
+            row: triageState(row),
+            rowTagPaths: Set(row.tagDisplays.map(\.path)),
+            targets: targets,
+            actions: actions)
+        if scope.folderID != nil {
+            Divider()
+            Button(targets.count > 1
+                ? "Remove \(targets.count) from Folder" : "Remove from Folder") {
+                actions.onRemoveFromScope(targets)
             }
-            Button("Clear Flag") { actions.onSetFlag([row.id], nil) }
         }
-        Divider()
-        Button("Delete", role: .destructive) { actions.onDelete([row.id]) }
+    }
+
+    private func triageState(_ row: ManuscriptRowData) -> TriageRowState {
+        TriageRowState(
+            isStarred: row.isStarredState,
+            isDismissed: row.status == .dismissed,
+            isArchived: row.status == .archived)
+    }
+
+    /// The IDs a row-level action applies to: the whole selection when the
+    /// clicked row is part of it, else just the clicked row (Mail semantics).
+    private func targetIDs(for row: ManuscriptRowData) -> Set<UUID> {
+        selectedIDs.contains(row.id) && selectedIDs.count > 1 ? selectedIDs : [row.id]
     }
 
     // MARK: Keyboard (vim j/k + selection actions)
@@ -187,22 +289,50 @@ public struct ManuscriptListWrapper: View {
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
         let ordered = visibleRows
         guard !ordered.isEmpty else { return .ignored }
+        guard let command = TriageKeyGrammar.command(forCharacters: press.characters) else {
+            return .ignored
+        }
         let currentIndex = selectedID.flatMap { id in ordered.firstIndex(where: { $0.id == id }) }
+        let currentRow = selectedID.flatMap { id in ordered.first(where: { $0.id == id }) }
+        let targets: Set<UUID> = {
+            guard let id = selectedID else { return [] }
+            return selectedIDs.contains(id) && selectedIDs.count > 1 ? selectedIDs : [id]
+        }()
 
-        switch press.characters {
-        case "j":
+        switch command {
+        case .navigateDown:
             let next = currentIndex.map { min($0 + 1, ordered.count - 1) } ?? 0
             selectedID = ordered[next].id
             return .handled
-        case "k":
+        case .navigateUp:
             let prev = currentIndex.map { max($0 - 1, 0) } ?? 0
             selectedID = ordered[prev].id
             return .handled
-        case "n":
-            actions.onNewManuscript()
+        case .create:
+            guard let affordance = ManuscriptRecordKind.descriptor.creation.first else {
+                return .ignored
+            }
+            actions.onCreate(affordance)
             return .handled
-        default:
-            return .ignored
+        case .toggleStar:
+            guard let row = currentRow else { return .ignored }
+            actions.onToggleStar(targets, !row.isStarredState)
+            return .handled
+        case .dismissOrRestore:
+            guard let row = currentRow else { return .ignored }
+            if row.status == .dismissed {
+                actions.onRestore(targets)
+            } else {
+                actions.onDismiss(targets)
+            }
+            return .handled
+        case .open:
+            guard let id = selectedID else { return .ignored }
+            actions.onOpen(id)
+            return .handled
+        case .focusFilter:
+            filterFocused = true
+            return .handled
         }
     }
 
@@ -213,19 +343,30 @@ public struct ManuscriptListWrapper: View {
         case .all: return "all"
         case .status(let s): return "status-\(s.rawValue)"
         case .folder(let id): return "folder-\(id.uuidString)"
+        case .flagged(let color): return "flagged-\(color?.rawValue ?? "any")"
         }
     }
 
     private func reload() async {
         isLoading = true
         defer { isLoading = false }
-        let fetched = RustStoreAdapter.shared.queryManuscripts(
-            collectionID: scope.folderID,
-            status: scope.statusString,
-            sort: "modified",
-            ascending: false
-        )
-        let mapped = fetched.compactMap { ManuscriptRowData(from: $0) }
+        let fetched: [ManuscriptRow]
+        if case .flagged(let color) = scope {
+            fetched = RustStoreAdapter.shared.getFlaggedManuscripts(color: color)
+        } else {
+            fetched = RustStoreAdapter.shared.queryManuscripts(
+                collectionID: scope.folderID,
+                status: scope.statusString,
+                sort: "modified",
+                ascending: false
+            )
+        }
+        var mapped = fetched.compactMap { ManuscriptRowData(from: $0) }
+        // Dismissed manuscripts live only under Dismissed — they must not
+        // clutter All Manuscripts, folders, or flag views (imbib's convention).
+        if scope.statusString != JournalManuscriptStatus.dismissed.rawValue {
+            mapped = mapped.filter { $0.status != .dismissed }
+        }
         rows = mapped
         // Keep the current selection valid; otherwise select the first row so
         // the detail pane always has something to show.

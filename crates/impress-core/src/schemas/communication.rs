@@ -38,6 +38,44 @@ pub fn email_message_schema() -> Schema {
     }
 }
 
+/// Schema for a mail account (Stage 0 of the GUI unification — impart's
+/// account/folder/message hierarchy moves into the item store as a parent
+/// chain: message.parent = folder, folder.parent = account).
+pub fn mail_account_schema() -> Schema {
+    Schema {
+        id: "mail-account".into(),
+        name: "Mail Account".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            required_string("name"),
+            optional_string("address"),
+            optional_string("provider"),
+            field("sort_order", FieldType::Int, false),
+        ],
+        expected_edges: vec![EdgeType::Contains],
+        inherits: None,
+    }
+}
+
+/// Schema for a mail folder. Hierarchy lives on the item envelope (`parent` =
+/// owning account, or another folder for nesting); `role` marks the
+/// well-known folders (inbox | sent | drafts | trash | archive | spam).
+pub fn mail_folder_schema() -> Schema {
+    Schema {
+        id: "mail-folder".into(),
+        name: "Mail Folder".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            required_string("name"),
+            optional_string("role"),
+            optional_string("remote_path"),
+            field("sort_order", FieldType::Int, false),
+        ],
+        expected_edges: vec![EdgeType::Contains],
+        inherits: None,
+    }
+}
+
 /// Register all communication schemas into the registry.
 ///
 /// `chat-message` must be registered before `email-message` because the latter
@@ -50,6 +88,12 @@ pub fn register_communication_schemas(registry: &mut SchemaRegistry) {
     registry
         .register(email_message_schema())
         .expect("email-message schema registration");
+    registry
+        .register(mail_account_schema())
+        .expect("mail-account schema registration");
+    registry
+        .register(mail_folder_schema())
+        .expect("mail-folder schema registration");
 }
 
 fn required_string(name: &str) -> FieldDef {

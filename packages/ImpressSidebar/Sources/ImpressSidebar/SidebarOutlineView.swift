@@ -827,12 +827,39 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
         // MARK: - Inline Editing
 
         /// Begin inline editing for the node with the given ID.
-        public func beginEditingNode(_ id: UUID) {
+        public func beginEditingNode(_ id: UUID, retrying: Bool = false) {
             guard let outlineView = outlineView,
                   let wrapper = wrapperCache[id] else { return }
-            let row = outlineView.row(forItem: wrapper)
-            guard row >= 0,
-                  let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarOutlineCellView else { return }
+
+            // The row only exists once its ancestors are expanded — renaming a
+            // freshly created (or collapsed) subfolder would otherwise silently
+            // do nothing.
+            var row = outlineView.row(forItem: wrapper)
+            if row < 0 {
+                for ancestorID in nodeLookup[id]?.ancestorIDs ?? [] {
+                    if let ancestorWrapper = wrapperCache[ancestorID] {
+                        outlineView.expandItem(ancestorWrapper)
+                    }
+                }
+                row = outlineView.row(forItem: wrapper)
+            }
+            guard row >= 0 else { return }
+            outlineView.scrollRowToVisible(row)
+
+            // `makeIfNecessary: true`: after a reload the cell for a row that
+            // is scrolled just out of view is not materialized, and asking for
+            // it without this flag returns nil — the rename never started.
+            guard let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true)
+                as? SidebarOutlineCellView else {
+                // One retry on the next runloop turn covers the window where a
+                // concurrent reloadData() has torn the cell down.
+                if !retrying {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.beginEditingNode(id, retrying: true)
+                    }
+                }
+                return
+            }
             cell.beginEditing(delegate: self)
         }
 

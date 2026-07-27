@@ -68,6 +68,12 @@ extension UTType {
 
     /// UTType for dragging flag color items (for reordering)
     public static let flagColorID = UTType(exportedAs: "com.imbib.flag-color-id")
+
+    /// UTType for dragging manuscript UUIDs (list row → sidebar folder)
+    public static let manuscriptID = UTType(exportedAs: "com.imbib.manuscript-id")
+
+    /// UTType for dragging figure UUIDs (list row → sidebar folder, Stage 2-B)
+    public static let figureID = UTType(exportedAs: "com.impress.figure-id")
 }
 
 extension UUID: Transferable {

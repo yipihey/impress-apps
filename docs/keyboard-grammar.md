@@ -25,12 +25,20 @@ them.
 Only ever behind `.keyboardGuarded` (never fires while typing). Text-first
 apps (imprint) rely on the ⌘-layer; list-first apps (imbib) use these heavily.
 
-| Key | Semantic |
-|-----|----------|
-| j / k | Navigate down / up |
-| h / l | Cycle pane focus left / right (`PaneFocusCycler`) |
-| o | Open selected item |
-| / | Filter |
+The triage subset is DATA: `TriageKeyGrammar` in ImpressKeyboard (ADR-0021) —
+list surfaces consume the table via their executor instead of hand-rolling
+`handleKey`, so the grammar is identical across every record kind. Commands
+whose capability is absent for the focused kind are `.ignored`.
+
+| Key | Semantic | Catalog |
+|-----|----------|---------|
+| j / k | Navigate down / up | `TriageKeyGrammar` |
+| h / l | Cycle pane focus left / right (`PaneFocusCycler`) | — |
+| n | Create record of the surface's kind | `TriageKeyGrammar` |
+| s | Toggle star on selection (imbib parity 2026-07: was save; save moved to `*`) | `TriageKeyGrammar` |
+| d | Dismiss selection (restore when in Dismissed) | `TriageKeyGrammar` |
+| o | Open selected item's working surface | `TriageKeyGrammar` |
+| / | Focus filter | `TriageKeyGrammar` |
 
 ## Per-surface appearance
 

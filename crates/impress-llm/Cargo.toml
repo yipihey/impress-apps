@@ -17,7 +17,8 @@ native = ["uniffi"]
 
 [dependencies]
 # LLM library for multi-provider support
-llm = { git = "https://github.com/graniet/llm", features = [
+llm = { git = "https://github.com/graniet/llm", default-features = false, features = [
+    "default-tls",
     "groq",
     "phind",
     "mistral",
