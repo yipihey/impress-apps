@@ -117,6 +117,22 @@ jobs:
       - name: Build ImpressHelix.xcframework
         run: bash crates/impress-helix/build-xcframework.sh
 
+      # The app also links the PublicationManagerCore chassis, which brings the
+      # SciX client and imbib cores with it. Gitignored artifacts, so a clean
+      # checkout must build them or xcodebuild fails at package resolution.
+      - name: Build sibling xcframeworks (scix, imbib)
+        run: |
+          bash crates/scix-client-ffi/build-xcframework.sh
+          bash crates/imbib-core/build-xcframework.sh
+
+      # PMC -> ImprintCore -> imprint_coreFFI. implore is a macOS-only project,
+      # so skip the three iOS slices — imprint-core links Typst and is by far
+      # the most expensive crate in this graph.
+      - name: Build ImprintCore.xcframework (macOS slices only)
+        env:
+          IMPRINT_SKIP_IOS: "1"
+        run: bash crates/imprint-core/build-xcframework.sh
+
       # implore ships .metal shaders (Sources/Metal/Shaders/). Xcode 26
       # no longer bundles the Metal compiler — without this the build dies
       # with "cannot execute tool 'metal' due to missing Metal Toolchain".

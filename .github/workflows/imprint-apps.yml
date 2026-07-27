@@ -72,6 +72,11 @@ jobs:
       - name: Build ImbibCore.xcframework
         run: bash crates/imbib-core/build-xcframework.sh
 
+      # ImpressScixCore's binary target arrived with the chassis unification and
+      # reaches imprint through PublicationManagerCore.
+      - name: Build ScixClientCore.xcframework
+        run: bash crates/scix-client-ffi/build-xcframework.sh
+
       - name: Generate Xcode project
         working-directory: apps/imprint
         run: xcodegen generate

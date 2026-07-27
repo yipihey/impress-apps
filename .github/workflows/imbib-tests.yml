@@ -71,9 +71,20 @@ jobs:
           bash crates/scix-client-ffi/build-xcframework.sh
           bash crates/impress-helix/build-xcframework.sh
 
+      # PMC took over the Typst compile/edit stack, so it now depends on the
+      # ImprintCore package -> ImprintRustCore -> imprint_coreFFI, whose
+      # xcframework the imprint build script drops in apps/imprint/Frameworks.
+      # This lane only builds/tests for macOS, so skip the three iOS slices —
+      # imprint-core links Typst and is the most expensive crate in the graph.
+      - name: Build ImprintCore.xcframework (macOS slices only)
+        env:
+          IMPRINT_SKIP_IOS: "1"
+        run: bash crates/imprint-core/build-xcframework.sh
+
       - name: Build and Test PublicationManagerCore
         working-directory: apps/imbib/PublicationManagerCore
         run: |
+          set -o pipefail
           swift build
           swift test 2>&1 | tee test-output.txt
           # Check for test failures
@@ -136,6 +147,12 @@ jobs:
           bash crates/scix-client-ffi/build-xcframework.sh
           bash crates/impress-helix/build-xcframework.sh
 
+      # PMC -> ImprintCore -> imprint_coreFFI. Full slice set here: the
+      # generated project carries an iOS target alongside the macOS one, so
+      # resolution sees the whole graph even though only macOS is built.
+      - name: Build ImprintCore.xcframework
+        run: bash crates/imprint-core/build-xcframework.sh
+
       - name: Generate Xcode project
         working-directory: apps/imbib/imbib
         run: xcodegen generate
@@ -143,6 +160,10 @@ jobs:
       - name: Build and Test macOS (Unit Tests)
         working-directory: apps/imbib/imbib
         run: |
+          # pipefail: without it the step exits with tee's status and a
+          # resolution/build failure reports green (masked exactly this way
+          # until 2026-07-27, when the missing ImprintCore artifact "passed").
+          set -o pipefail
           xcodebuild test \
             -scheme imbib \
             -testPlan imbib \
@@ -212,6 +233,11 @@ jobs:
           bash crates/impress-store-ffi/build-xcframework.sh
           bash crates/scix-client-ffi/build-xcframework.sh
           bash crates/impress-helix/build-xcframework.sh
+
+      # PMC -> ImprintCore -> imprint_coreFFI. iOS slices are required here,
+      # so this one runs with the script's default (multi-platform) slice set.
+      - name: Build ImprintCore.xcframework (multi-platform)
+        run: bash crates/imprint-core/build-xcframework.sh
 
       - name: Generate Xcode project
         working-directory: apps/imbib/imbib
