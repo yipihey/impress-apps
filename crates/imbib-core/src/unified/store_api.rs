@@ -4875,6 +4875,55 @@ mod tests {
         assert_eq!(colls.len(), 1);
     }
 
+    /// `count_publications(None)` must count publications that belong to no
+    /// library — the total is a row count, never a sum over libraries.
+    ///
+    /// This is the invariant `/api/status` and the `count-publications` MCP tool
+    /// both rest on. Before the route reported a total, the tool summed each
+    /// library's paperCount and under-reported by exactly the unfiled
+    /// publications (152 of 6531 on the author's store). Every other assertion
+    /// in this file passes `Some(library)`, so the scoped count was covered and
+    /// the total never was.
+    #[test]
+    fn count_publications_includes_ones_no_library_owns() {
+        let store = make_store();
+        let keep = store.create_library("Keep".into()).unwrap();
+        let doomed = store.create_library("Doomed".into()).unwrap();
+        store
+            .import_bibtex(
+                "@article{A, title={Filed}, year={2021}}".into(),
+                keep.id.clone(),
+            )
+            .unwrap();
+        store
+            .import_bibtex(
+                "@article{B, title={Soon orphaned}, year={2022}}".into(),
+                doomed.id.clone(),
+            )
+            .unwrap();
+        assert_eq!(store.count_publications(None).unwrap(), 2);
+
+        // ON DELETE SET NULL: the publication survives, its owning library does not.
+        store.delete_library(doomed.id.clone()).unwrap();
+
+        let via_libraries: u32 = store
+            .list_libraries()
+            .unwrap()
+            .iter()
+            .map(|l| store.count_publications(Some(l.id.clone())).unwrap())
+            .sum();
+        assert_eq!(
+            via_libraries, 1,
+            "the orphan is invisible to a library walk"
+        );
+
+        assert_eq!(
+            store.count_publications(None).unwrap(),
+            2,
+            "the total must still see the publication no library owns"
+        );
+    }
+
     /// `count_collections` must count collections that belong to no library.
     ///
     /// `items.parent_id` is `REFERENCES items(id) ON DELETE SET NULL`, so

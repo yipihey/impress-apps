@@ -95,6 +95,25 @@ jobs:
             --language swift \
             --out-dir generated
 
+      # The bindings committed under apps/imbib/ImbibRustCore/Sources are what
+      # the app actually compiles against. If they drift from the Rust, the app
+      # still BUILDS and then crashes at launch with a UniFFI checksum
+      # mismatch — so a stale commit here is invisible until runtime. Nothing
+      # guarded that before; this does.
+      - name: Committed Swift bindings match the Rust
+        run: |
+          # -b -B tolerate pure reformatting: uniffi-bindgen post-processes with
+          # swiftformat when it is on PATH and warns-and-skips when it is not, so
+          # byte equality depends on the runner's tooling. A method present in the
+          # Rust but missing from the committed bindings is not whitespace, so the
+          # check that matters still fires.
+          if ! diff -u -b -B ../../apps/imbib/ImbibRustCore/Sources/ImbibRustCore/imbib_core.swift \
+                             generated/imbib_core.swift; then
+            echo "::error::Committed imbib_core.swift is stale."
+            echo "Run crates/imbib-core/build-xcframework.sh and commit the result."
+            exit 1
+          fi
+
       - name: Upload Swift bindings
         uses: actions/upload-artifact@v4
         with:
