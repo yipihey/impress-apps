@@ -541,6 +541,7 @@ impl SqliteItemStore {
     /// 2. Per-connection creation means every process that opens the store
     ///    through `SqliteItemStore::open` gets capture automatically, and
     ///    read-only pool connections (query_only) never need them.
+    ///
     /// Consequence: ad-hoc `sqlite3` CLI writes bypass capture — all writes
     /// must go through the store (already the repo rule).
     ///

@@ -78,7 +78,7 @@ impl ImbibTextService for DefaultImbibTextService {
 impress_service_impl! {
     service = ImbibTextService,
     impl = DefaultImbibTextService,
-    instance = || DefaultImbibTextService::default(),
+    instance = || DefaultImbibTextService,
     methods = [
         /// Decode LaTeX-encoded text into Unicode.
         decode_latex(input: String) -> String,

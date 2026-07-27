@@ -75,6 +75,8 @@ impl ImbibClient {
         Ok(body.count)
     }
 
+    // Arity mirrors imbib's annotation payload, which mirrors the tool schema.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_annotation(
         &self,
         linked_file_id: String,

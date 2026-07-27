@@ -124,7 +124,7 @@ impl SemanticSearch {
 
         Ok(publications
             .into_iter()
-            .zip(embeddings.into_iter())
+            .zip(embeddings)
             .map(|((id, _, _, _), vector)| PublicationEmbedding {
                 publication_id: id,
                 vector,

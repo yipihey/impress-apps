@@ -116,6 +116,11 @@ pub fn impress_service(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let doc_count = docs.len();
 
     quote! {
+        // `too_many_arguments`: a service method's parameter list *is* the
+        // tool's input schema. Bundling arguments into a struct to please the
+        // lint would change the schema agents see, so a 10-parameter method is
+        // correct here in a way it would not be in ordinary code.
+        #[allow(clippy::too_many_arguments)]
         #[::impress_service_core::async_trait::async_trait]
         #trait_item
 
@@ -446,8 +451,12 @@ fn expand_method(
         }
 
         // -- Async invoker ---------------------------------------------------
+        // `redundant_closure`: `instance = || foo()` is this macro's contract —
+        // the closure defers construction to call time. Clippy attributes the
+        // lint to the call site, so every service was being told to "fix" a
+        // shape the macro requires. Silence it once, here.
         #[doc(hidden)]
-        #[allow(non_snake_case)]
+        #[allow(non_snake_case, clippy::redundant_closure)]
         pub fn #invoker_fn(
             __json: ::impress_service_core::serde_json::Value,
         ) -> ::impress_service_core::ServiceFuture {

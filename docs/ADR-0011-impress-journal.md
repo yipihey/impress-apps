@@ -260,7 +260,7 @@ manuscript-submission@1.0.0  (inherits: task@1.0.0):
 **The submission interface has three entry points, all converging on the same handler:**
 
 1. **HTTP route** on impel: `POST /api/journal/submissions` (JSON body matching the schema). Returns `{ task_id, status: "queued" }`. Consistent with the existing TaskOrchestrator routes on port 23124 (`apps/impel/Shared/Services/ImpelHTTPRouter.swift`).
-2. **MCP tool** exposed by `packages/impress-mcp/`: `journal.submit_manuscript(kind, title, source_payload, ...)`. Agents call this directly.
+2. **MCP tool**, generated from an `#[impress_method]` on an impel-side service trait: `journal-service_submit-manuscript(kind, title, source_payload, ...)`. Agents call this directly. Do not hand-write it — see `docs/mcp-migration-ledger.md`.
 3. **CLI command**: `impress journal submit --kind new-manuscript --title "..." --source-file path/to/draft.tex --metadata path/to/metadata.json`. For scripts and one-off backfill (see below).
 
 All three paths construct a `manuscript-submission@1.0.0` item, store it in the impress-core item graph as a pending task, and return the task ID to the submitter. Scout receives the task per D7.
@@ -538,7 +538,7 @@ Acceptance criteria for the journal MVP (functional):
 - `apps/impel/Packages/CounselEngine/Sources/CounselEngine/TaskOrchestrator.swift` — `TaskRequest`, `TaskResult`, agent loop
 - `apps/impel/Shared/Services/ImpelHTTPRouter.swift` — HTTP router (extended with `/api/journal/submissions`)
 - `packages/ImpressKit/Sources/ImpressKit/ImpressNotification.swift` — Darwin notification bus (extended with five journal events per D9)
-- `packages/impress-mcp/` — MCP server (extended with `journal.submit_manuscript` tool)
+- `crates/impress-mcp/` — MCP server; the tool comes from the service trait, not from a hand-written definition
 
 ### ADRs (cited)
 

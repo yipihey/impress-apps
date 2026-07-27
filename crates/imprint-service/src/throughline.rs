@@ -190,7 +190,8 @@ fn find_tl_label(text: &str) -> Option<String> {
     let mut rest = text;
     while let Some(open) = rest.find("<tl-") {
         let after = &rest[open + 1..];
-        if let Some(close) = after.find('>') {
+        {
+            let close = after.find('>')?;
             let candidate = &after[..close];
             if !candidate.is_empty()
                 && candidate
@@ -200,8 +201,6 @@ fn find_tl_label(text: &str) -> Option<String> {
                 return Some(candidate.to_string());
             }
             rest = &after[close + 1..];
-        } else {
-            return None;
         }
     }
     None

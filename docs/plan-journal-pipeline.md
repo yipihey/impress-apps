@@ -28,7 +28,7 @@ Each D-point in ADR-0011 maps to a specific code location. New files are marked 
 | **D46** | `imprint:source` Contains-edge bridge | `apps/imprint/Shared/Models/ImprintDocument.swift` (already has `linkedImbibManuscriptID`); `apps/imprint/Shared/Services/URLSchemeHandler.swift` (existing); `apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Manuscript/ManuscriptBridge.swift` `[NEW]` |
 | **D47** | PDF blob tier (content-addressed) | `apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Files/BlobStore.swift` `[NEW]`; integrates with existing `PDFManager.computeSHA256` |
 | **D48** | Snapshot policy + idempotency | `apps/impel/Packages/CounselEngine/Sources/CounselEngine/Pipelines/JournalSnapshotJob.swift` `[NEW]` |
-| **D49** | `manuscript-submission@1.0.0` + HTTP/MCP/CLI submission API | `crates/impress-core/src/schemas/manuscript_submission.rs` `[NEW]`; `apps/impel/Shared/Services/ImpelHTTPRouter.swift` (extend with `/api/journal/submissions`); `packages/impress-mcp/src/tools/journal.rs` `[NEW]`; `apps/impel/CLI/journal-submit.swift` `[NEW]` |
+| **D49** | `manuscript-submission@1.0.0` + HTTP/MCP/CLI submission API | `crates/impress-core/src/schemas/manuscript_submission.rs` `[NEW]`; `apps/impel/Shared/Services/ImpelHTTPRouter.swift` (extend with `/api/journal/submissions`); `crates/impel-service/src/journal_service.rs` `[NEW]`; `apps/impel/CLI/journal-submit.swift` `[NEW]` |
 | **D50** | Pipeline stages + persona contracts | `apps/impel/Packages/CounselEngine/Sources/CounselEngine/Pipelines/JournalPipeline.swift` `[NEW]`; `apps/impel/Packages/ImpelCore/Sources/ImpelCore/Persona.swift` (Artificer added; existing `mockPersonas()` extended) |
 | **D51** | Journal Library type + collections | `apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Domain/Library.swift` (extend `LibraryType` enum); `apps/imbib/imbib/imbib/Views/TabSidebar/ImbibSidebarViewModel.swift` (Submissions inbox section); `apps/imbib/imbib/imbib/Views/Detail/ManuscriptDetailView.swift` `[NEW]` |
 | **D52** | Cross-app events | `packages/ImpressKit/Sources/ImpressKit/ImpressNotification.swift` (add 5 event names); subscription wired in `JournalPipeline.swift` and `ImbibSidebarViewModel.swift` |
@@ -241,7 +241,7 @@ Uses `RustStoreAdapter.shared` to write/read the `Contains` edge with metadata.
 | Entry | File | Contents |
 |---|---|---|
 | HTTP | `apps/impel/Shared/Services/ImpelHTTPRouter.swift` (extend) | `POST /api/journal/submissions` route handler; thin wrapper over `submitManuscript()` |
-| MCP | `packages/impress-mcp/src/tools/journal.rs` `[NEW]` | `journal.submit_manuscript` tool definition; calls impel HTTP route internally |
+| MCP | `crates/impel-service/src/journal_service.rs` `[NEW]` | `submit_manuscript` `#[impress_method]`; the tool definition generates from it, dispatching through the impel HTTP backend |
 | CLI | `apps/impel/CLI/journal-submit.swift` `[NEW]` | Command-line tool; same wrapper |
 | **Core** | `apps/impel/Packages/CounselEngine/Sources/CounselEngine/JournalSubmission.swift` `[NEW]` | `func submitManuscript(_ payload: ManuscriptSubmission) async throws -> TaskID` — the function all three entries call |
 

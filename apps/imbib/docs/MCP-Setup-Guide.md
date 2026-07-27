@@ -212,27 +212,37 @@ Run the diagnostic command to verify everything is set up correctly:
 target/release/impress-mcp --help
 ```
 
-**Successful output:**
+It prints usage plus a live connection check — the same probes the server runs
+at startup, and tool counts from the same enumeration `tools/list` uses:
+
 ```
-impress-mcp connection check
+impress-mcp — the MCP server for the impress suite
 
-✓ imbib HTTP API responding on port 23120
-  → Library: 1,234 papers
-  → Collections: 12
+USAGE
+  impress-mcp [--store-path PATH] [--embeddings-path PATH]
+  impress-mcp --help | --version
 
-✓ imprint HTTP API responding on port 23121
-  → Open documents: 2
+Speaks MCP over stdio; it is launched by a client, not run by hand.
+Setup: apps/imbib/docs/MCP-Setup-Guide.md
 
-Ready! Add this to your AI tool:
+CONNECTION CHECK
+  imbib    reachable
+  imprint  reachable
+  implore  not running
+  impart   not running
 
-{
-  "mcpServers": {
-    "impress": {
-      "command": "/absolute/path/to/impress-apps/target/release/impress-mcp"
-    }
-  }
-}
+  tools exposed now:  190
+  tools total:        220
+  (tools for an app that is not running are withheld from
+   tools/list; set IMPRESS_MCP_LIST_ALL=1 to see all of them)
+
+  store: /Users/you/Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite
 ```
+
+"not running" is not a failure — those apps' tools are simply withheld until
+you open them, so an agent is never offered a tool that can only answer with an
+empty list. The store line is the fallback used when an app is closed; if it
+reads `MISSING`, run `verify-access.sh` (above).
 
 ### Manual Testing
 

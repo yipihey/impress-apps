@@ -492,13 +492,13 @@ fn swift_section_value_to_record(
         .get("id")
         .and_then(|s| s.as_str())
         .and_then(|s| Uuid::parse_str(s).ok())
-        .unwrap_or_else(|| Uuid::nil());
+        .unwrap_or_else(Uuid::nil);
     let document_id = v
         .get("documentId")
         .and_then(|s| s.as_str())
         .or(Some(fallback_doc_id))
         .and_then(|s| Uuid::parse_str(s).ok())
-        .unwrap_or_else(|| Uuid::nil());
+        .unwrap_or_else(Uuid::nil);
     let section_key = v
         .get("sectionKey")
         .and_then(|s| s.as_str())

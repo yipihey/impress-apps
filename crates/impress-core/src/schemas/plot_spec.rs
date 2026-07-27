@@ -65,5 +65,7 @@ pub fn plot_spec_schema() -> Schema {
 
 /// Register the plot-spec schema.
 pub fn register_plot_spec_schema(registry: &mut SchemaRegistry) {
-    registry.register(plot_spec_schema());
+    registry
+        .register(plot_spec_schema())
+        .expect("plot-spec schema registration");
 }

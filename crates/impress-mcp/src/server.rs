@@ -192,6 +192,23 @@ fn tool_definitions() -> Value {
     Value::Array(tools)
 }
 
+/// How many tools a client would see right now — after withholding.
+pub fn exposed_tool_count() -> usize {
+    match tool_definitions() {
+        Value::Array(items) => items.len(),
+        _ => 0,
+    }
+}
+
+/// How many tools exist in total, ignoring reachability.
+pub fn total_tool_count() -> usize {
+    let legacy = match legacy_tool_definitions() {
+        Value::Array(items) => items.len(),
+        _ => 0,
+    };
+    legacy + inventory_tool_definitions().len()
+}
+
 fn legacy_tool_definitions() -> Value {
     json!([
         {

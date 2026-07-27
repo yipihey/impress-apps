@@ -66,7 +66,7 @@ impl BlobStore {
 
     /// Decide whether a body should be stored content-addressed.
     pub fn should_offload(body: &str) -> bool {
-        body.as_bytes().len() > LARGE_BODY_THRESHOLD
+        body.len() > LARGE_BODY_THRESHOLD
     }
 
     /// Ensure the root directory exists. Idempotent.

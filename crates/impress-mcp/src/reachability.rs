@@ -77,6 +77,11 @@ fn reachable() -> Reachable {
     REACHABLE.get().copied().unwrap_or_default()
 }
 
+/// What the startup probes found, for reporting (`--help`).
+pub fn current() -> Reachable {
+    reachable()
+}
+
 /// The app a tool needs, if it needs one at all.
 pub fn required_app(tool_name: &str) -> Option<App> {
     let namespace = tool_name.split_once('_')?.0;

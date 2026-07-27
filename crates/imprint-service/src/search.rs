@@ -167,8 +167,8 @@ impl ManuscriptSearchIndex {
         writer.delete_term(id_term);
 
         let mut doc = TantivyDocument::new();
-        doc.add_text(self.fields.item_id, &section.item_id.to_string());
-        doc.add_text(self.fields.document_id, &section.document_id.to_string());
+        doc.add_text(self.fields.item_id, section.item_id.to_string());
+        doc.add_text(self.fields.document_id, section.document_id.to_string());
         doc.add_text(self.fields.section_key, &section.section_key);
         doc.add_text(self.fields.title, &section.title);
         doc.add_text(self.fields.body, &section.body);

@@ -9,7 +9,6 @@ use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Serialize};
 
 use crate::library_service::MutationResult;
-use crate::store_singleton::store_instance;
 
 #[allow(unused_imports)]
 use impress_service_macros::impress_method;

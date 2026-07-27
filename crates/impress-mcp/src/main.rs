@@ -42,6 +42,43 @@ fn default_main_store_path() -> PathBuf {
         .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
 }
 
+/// Usage plus a live connection check. Tool counts come from the same
+/// enumeration `tools/list` uses, so what this prints is what a client sees —
+/// including the withholding of namespaces whose app is closed.
+fn print_help(store_path: &std::path::Path) {
+    let r = reachability::current();
+    let say = |name: &str, up: bool| {
+        println!(
+            "  {name:<8} {}",
+            if up { "reachable" } else { "not running" }
+        );
+    };
+    println!("impress-mcp — the MCP server for the impress suite");
+    println!();
+    println!("USAGE");
+    println!("  impress-mcp [--store-path PATH] [--embeddings-path PATH]");
+    println!("  impress-mcp --help | --version");
+    println!();
+    println!("Speaks MCP over stdio; it is launched by a client, not run by hand.");
+    println!("Setup: apps/imbib/docs/MCP-Setup-Guide.md");
+    println!();
+    println!("CONNECTION CHECK");
+    say("imbib", r.imbib);
+    say("imprint", r.imprint);
+    say("implore", r.implore);
+    say("impart", r.impart);
+    println!();
+    println!("  tools exposed now:  {}", server::exposed_tool_count());
+    println!("  tools total:        {}", server::total_tool_count());
+    println!("  (tools for an app that is not running are withheld from");
+    println!("   tools/list; set IMPRESS_MCP_LIST_ALL=1 to see all of them)");
+    println!();
+    println!("  store: {}", store_path.display());
+    if !store_path.exists() {
+        println!("         MISSING — falling back to the HTTP backend only");
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Phase A/B/C: try the HTTP backend first (lets us drive the live store
     // through the running imbib macOS app, bypassing macOS TCC restrictions
@@ -70,6 +107,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            // `sign.sh` and `apps/imbib/docs/MCP-Setup-Guide.md` both tell the
+            // reader to run this, so it has to exist. It doubles as the
+            // connection check the guide describes: the probes above have
+            // already run, so we can report what is reachable.
+            "--help" | "-h" => {
+                print_help(&store_path);
+                return Ok(());
+            }
+            "--version" | "-V" => {
+                println!("impress-mcp {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
             "--embeddings-path" => {
                 i += 1;
                 embeddings_path =

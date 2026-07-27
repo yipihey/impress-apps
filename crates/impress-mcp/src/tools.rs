@@ -2,7 +2,7 @@
 
 use std::cell::OnceCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use imbib_core::search::{ChunkIndex, ChunkSimilarityResult, EmbeddingStore, SemanticSearch};
 use rusqlite::Connection;
@@ -46,17 +46,6 @@ impl ToolContext {
         }
     }
 
-    /// Build a context with the embedding stack already in hand (tests).
-    pub fn with_semantic(semantic: SemanticContext, main_store: Option<Connection>) -> Self {
-        let cell = OnceCell::new();
-        let _ = cell.set(Some(semantic));
-        Self {
-            embeddings_path: PathBuf::new(),
-            semantic: cell,
-            main_store,
-        }
-    }
-
     /// The embedding stack, built on first call. `None` when it could not be
     /// built — a missing embeddings database or a model that failed to load.
     /// Callers surface that as a tool error rather than failing the process.
@@ -71,16 +60,10 @@ impl ToolContext {
             })
             .as_ref()
     }
-
-    /// Whether the embedding stack has already been built. Lets `tools/list`
-    /// answer without triggering the build.
-    pub fn semantic_is_built(&self) -> bool {
-        self.semantic.get().is_some()
-    }
 }
 
 /// Open the embedding store, rebuild the chunk index, load the model.
-fn build_semantic(embeddings_path: &PathBuf) -> Result<SemanticContext, String> {
+fn build_semantic(embeddings_path: &Path) -> Result<SemanticContext, String> {
     let embedding_store = EmbeddingStore::open(embeddings_path.to_str().unwrap_or_default())
         .map_err(|e| format!("failed to open embedding store: {e}"))?;
 

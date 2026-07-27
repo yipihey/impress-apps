@@ -504,7 +504,7 @@ pub fn list_backups(dir: &Path) -> Result<Vec<BackupRecord>, StoreError> {
             manifest,
         });
     }
-    out.sort_by(|a, b| b.manifest.created_at_ms.cmp(&a.manifest.created_at_ms));
+    out.sort_by_key(|b| std::cmp::Reverse(b.manifest.created_at_ms));
     Ok(out)
 }
 

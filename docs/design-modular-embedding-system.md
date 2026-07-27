@@ -87,7 +87,7 @@ search/
 | `apps/imbib/.../EmbeddingService.swift` | Delegate to `ImpressEmbeddings` providers instead of inline NL/hash code |
 | `crates/imbib-core/Cargo.toml` | Add `rusqlite` dependency for embedding store |
 | `crates/imbib-core/src/search/semantic.rs` | Expose `SemanticSearch` to Swift via UniFFI handle API |
-| `packages/impress-mcp/src/imbib/tools.ts` | Add `imbib_ask_papers` and `imbib_embed_status` tools |
+| `crates/imbib-service/src/search_service.rs` | Add `ask_papers` and `embed_status` `#[impress_method]`s — the MCP tool, CLI subcommand and impel tool generate from them |
 
 ---
 
@@ -508,7 +508,7 @@ POST /api/embeddings/process         → { publicationId } → trigger processin
 - `crates/imbib-core/src/search/mod.rs` — export new modules
 - `crates/imbib-core/src/search/semantic.rs` — expose via UniFFI handle API
 - `crates/imbib-core/Cargo.toml` — add `rusqlite`
-- `packages/impress-mcp/src/imbib/tools.ts` — add RAG tools
+- `crates/imbib-service/src/search_service.rs` — add the RAG methods (tools generate from the trait)
 
 ### Existing Code to Reuse
 - `EmbeddingProvider` protocol (`packages/ImpressAI/.../SemanticEmbeddingProvider.swift`)

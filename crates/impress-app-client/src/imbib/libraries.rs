@@ -461,8 +461,14 @@ impl ImbibClient {
     }
 
     pub async fn count_publications(&self) -> Result<u32> {
-        // imbib's `/api/search?limit=1` with empty q returns `count: 0` (not
-        // total). Real total = sum of paperCount across libraries.
+        // imbib's HTTP surface has no total-count route: `/api/search`'s `count`
+        // is the size of the returned page, and `/api/papers/count/{unread,
+        // starred}` are the only counters. Summing library paperCounts is the
+        // closest available, and it UNDER-COUNTS: publications with no library
+        // (`parent_id IS NULL`) are in no library's total. On the author's store
+        // that is 152 of 6530. The store backend counts rows and is exact; this
+        // path is only taken when imbib is running and answering over HTTP.
+        // The real fix is a total on imbib's `/api/status` — see the follow-up.
         let libs = self.list_libraries().await?;
         Ok(libs.iter().map(|l| l.publication_count.max(0) as u32).sum())
     }

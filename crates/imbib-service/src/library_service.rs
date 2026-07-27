@@ -25,9 +25,9 @@ where
         serde_json::Value::Array(arr) => {
             let parts: Vec<String> = arr
                 .into_iter()
-                .filter_map(|x| match x {
-                    serde_json::Value::String(s) => Some(s),
-                    other => Some(other.to_string()),
+                .map(|x| match x {
+                    serde_json::Value::String(s) => s,
+                    other => other.to_string(),
                 })
                 .collect();
             Ok(parts.join("; "))
@@ -39,8 +39,6 @@ where
         ))),
     }
 }
-
-use crate::store_singleton::store_instance;
 
 #[allow(unused_imports)]
 use impress_service_macros::impress_method;
