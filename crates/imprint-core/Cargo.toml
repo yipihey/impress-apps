@@ -98,7 +98,12 @@ tectonic_status_base = { version = "0.2", optional = true }
 tectonic_errors = { version = "0.2", optional = true }
 # The `Bundle` trait — implemented by a thread-local shared wrapper so the
 # expensive bundle-index load (~2s) is paid once and reused across compiles.
-tectonic_bundles = { version = "0.4", optional = true }
+# Pinned below 0.4.2: that release calls chrono's 0.4.40+ API
+# (DateTime::from_timestamp_secs) under a loose `0.4` requirement, while
+# parquet 53 (via implore-io) caps the workspace at chrono <0.4.40 — and
+# Cargo.lock is gitignored, so CI resolves fresh and hits the break. Lift
+# the pin when implore-io moves off parquet 53.
+tectonic_bundles = { version = ">=0.4, <0.4.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
