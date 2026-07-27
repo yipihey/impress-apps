@@ -309,7 +309,7 @@ mod tests {
             Some(&Value::String("= Introduction\nHello world".into()))
         );
         assert_eq!(rev.payload.get("word_count"), Some(&Value::Int(4)));
-        assert!(rev.payload.get("predecessor_revision_ref").is_none());
+        assert!(!rev.payload.contains_key("predecessor_revision_ref"));
 
         // Head advanced
         let ms_item = store.get(ms).unwrap().unwrap();
@@ -444,7 +444,7 @@ mod tests {
             Some(&Value::String("v1".into()))
         );
         assert!(
-            origin.payload.get("journal_target").is_none(),
+            !origin.payload.contains_key("journal_target"),
             "field created after cutoff must not exist in past state"
         );
 
@@ -475,7 +475,7 @@ mod tests {
             .unwrap();
 
         let rev = create_revision(&store, id, "v1", "manual", "u", ActorKind::Human).unwrap();
-        assert!(rev.payload.get("source_inline").is_none());
+        assert!(!rev.payload.contains_key("source_inline"));
         assert_eq!(
             rev.payload.get("content_hash"),
             Some(&Value::String("abc123".into()))

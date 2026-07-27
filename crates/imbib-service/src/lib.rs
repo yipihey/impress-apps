@@ -146,7 +146,7 @@ mod tests {
             "imbib-text-service_normalize-tag-segment",
             "imbib-text-service_normalize-tag-path",
         ] {
-            assert!(names.iter().any(|n| *n == expected), "missing {expected}");
+            assert!(names.contains(&expected), "missing {expected}");
         }
     }
 
@@ -160,7 +160,7 @@ mod tests {
             "normalize-tag-segment",
             "normalize-tag-path",
         ] {
-            assert!(names.iter().any(|n| *n == expected), "missing {expected}");
+            assert!(names.contains(&expected), "missing {expected}");
         }
     }
 

@@ -131,6 +131,7 @@ mod tests {
 
         // Active to Review
         state = ThreadState::Active;
+        assert!(state.can_transition_to(&ThreadState::Review));
         state = ThreadState::Review;
         assert!(state.can_transition_to(&ThreadState::Complete));
         assert!(state.can_transition_to(&ThreadState::Killed));

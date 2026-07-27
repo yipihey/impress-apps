@@ -136,7 +136,7 @@ fn arb_interleavings() -> impl Strategy<Value = (Vec<Vec<Value>>, Vec<usize>, Ve
         let labels: Vec<usize> = seqs
             .iter()
             .enumerate()
-            .flat_map(|(i, s)| std::iter::repeat(i).take(s.len()))
+            .flat_map(|(i, s)| std::iter::repeat_n(i, s.len()))
             .collect();
         let labels2 = labels.clone();
         (
@@ -441,7 +441,7 @@ fn verify_graph(
                 .filter(|nid| *nid != *id) // self not reported
                 .collect();
             let got: BTreeSet<ItemId> = store
-                .neighbors(*id, &[kind.clone()], 1)
+                .neighbors(*id, std::slice::from_ref(kind), 1)
                 .map_err(|e| TestCaseError::fail(e.to_string()))?
                 .into_iter()
                 .map(|it| it.id)

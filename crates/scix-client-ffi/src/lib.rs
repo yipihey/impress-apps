@@ -26,12 +26,6 @@ pub use types::*;
 #[cfg(feature = "native")]
 use scix_client::SciXClient;
 
-#[cfg(feature = "native")]
-use reqwest;
-
-#[cfg(feature = "native")]
-use serde_json;
-
 // Setup UniFFI proc-macro scaffolding (native builds only).
 #[cfg(feature = "native")]
 uniffi::setup_scaffolding!();

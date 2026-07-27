@@ -355,8 +355,8 @@ u UU N... 100644 100644 100644 100644 abc def ghi main.tex
     #[test]
     fn parse_log_entries() {
         let output = "\
-abc123def456abc123def456abc123def456abc123\0abc123d\0Add introduction section\0Alice\0alice@example.com\02025-01-15T10:30:00+00:00
-def789abc123def789abc123def789abc123def789\0def789a\0Fix bibliography\0Bob\0bob@example.com\02025-01-14T08:00:00+00:00
+abc123def456abc123def456abc123def456abc123\x00abc123d\x00Add introduction section\0Alice\0alice@example.com\x002025-01-15T10:30:00+00:00
+def789abc123def789abc123def789abc123def789\x00def789a\x00Fix bibliography\0Bob\0bob@example.com\x002025-01-14T08:00:00+00:00
 ";
         let entries = parse_log(output).unwrap();
         assert_eq!(entries.len(), 2);

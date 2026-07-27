@@ -217,7 +217,7 @@ proptest! {
     fn leaf_is_last_segment(p in safe_path()) {
         let leaf = tag_leaf(&p);
         prop_assert!(!leaf.contains('/'));
-        prop_assert_eq!(Some(leaf.as_str()), p.split('/').last());
+        prop_assert_eq!(Some(leaf.as_str()), p.split('/').next_back());
     }
 }
 
@@ -468,7 +468,7 @@ proptest! {
         let q = TagQuery::Has(p.clone());
         let descendant = vec![format!("{}/{}", p, seg)];
         let prefix_sibling = vec![format!("{}{}", p, seg)];
-        prop_assert!(q.matches(&[p.clone()]));
+        prop_assert!(q.matches(std::slice::from_ref(&p)));
         prop_assert!(q.matches(&descendant));
         prop_assert!(!q.matches(&prefix_sibling));
     }

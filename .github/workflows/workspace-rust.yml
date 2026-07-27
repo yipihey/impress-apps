@@ -1,0 +1,95 @@
+name: workspace - Rust CI
+
+# The floor under every other Rust workflow.
+#
+# Each app's workflow scopes clippy to that app's core crate — imbib-rust.yml
+# runs from `crates/imbib-core`, imprint-rust.yml from `crates/imprint-core`.
+# That leaves real gaps between them, and things lived in those gaps for months:
+#
+#   * `impart-core` did not compile at all with `--features native`. A crate-root
+#     `pub use types::Address` shadowed the `pub use ffi_types::*` glob, so the
+#     UDL scaffolding resolved the wrong `Address`. No gate ever built it.
+#   * `impress-tags` carried a `uniffi::export` on a function returning a type
+#     recursive through `Box<T>`, which UniFFI cannot lower. Never compiled.
+#   * Lints in a *dependency's* test target are invisible to an app-scoped gate,
+#     because dependencies are built as libs only.
+#
+# So: one job that selects the whole workspace and enables `native`, which is
+# what the apps actually link. The per-app workflows keep their app-specific
+# steps (xcframework builds, binding sync, iOS install smoke) — this one only
+# guarantees the Rust floor is level everywhere.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/workspace-rust.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/workspace-rust.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Workspace lint
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-workspace-${{ hashFiles('**/Cargo.lock') }}
+
+      # `--all` because the per-app gates only check their own subtree, and fmt
+      # drift between them is the single most common cause of a red main.
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      # `--all-targets` reaches tests and benches; `--features native` matches
+      # what the apps link. Both are needed — see the header.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --features native -- -D warnings
+
+  test:
+    name: Workspace tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-workspace-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: cargo test --workspace --features native

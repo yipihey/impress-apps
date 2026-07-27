@@ -20,7 +20,8 @@
 //!
 //! ```
 
-use crate::{Address, ImpartError, Result};
+use crate::types::Address;
+use crate::{ImpartError, Result};
 use chrono::{DateTime, Utc};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -213,11 +214,11 @@ impl MboxFile {
 
     /// Write mbox to a file.
     pub fn write_to_file(&self, path: &Path) -> Result<()> {
-        let mut file = std::fs::File::create(path).map_err(|e| ImpartError::Io(e))?;
+        let mut file = std::fs::File::create(path).map_err(ImpartError::Io)?;
 
         for message in &self.messages {
             file.write_all(message.to_mbox_string().as_bytes())
-                .map_err(|e| ImpartError::Io(e))?;
+                .map_err(ImpartError::Io)?;
         }
 
         Ok(())
@@ -225,14 +226,14 @@ impl MboxFile {
 
     /// Read mbox from a file.
     pub fn read_from_file(path: &Path) -> Result<Self> {
-        let file = std::fs::File::open(path).map_err(|e| ImpartError::Io(e))?;
+        let file = std::fs::File::open(path).map_err(ImpartError::Io)?;
         let reader = BufReader::new(file);
 
         let mut mbox = MboxFile::new();
         let mut current_message: Option<String> = None;
 
         for line in reader.lines() {
-            let line = line.map_err(|e| ImpartError::Io(e))?;
+            let line = line.map_err(ImpartError::Io)?;
 
             if line.starts_with("From ") && !line.starts_with("From:") {
                 // Start of new message
@@ -266,10 +267,10 @@ impl MboxFile {
             .create(true)
             .append(true)
             .open(path)
-            .map_err(|e| ImpartError::Io(e))?;
+            .map_err(ImpartError::Io)?;
 
         file.write_all(message.to_mbox_string().as_bytes())
-            .map_err(|e| ImpartError::Io(e))?;
+            .map_err(ImpartError::Io)?;
 
         Ok(())
     }

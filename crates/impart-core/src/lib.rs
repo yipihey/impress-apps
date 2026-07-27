@@ -33,6 +33,12 @@
 //! println!("Subject: {}", message.subject.unwrap_or_default());
 //! ```
 
+//! `empty_line_after_doc_comments` is allowed crate-wide because UniFFI's UDL
+//! generator emits a blank line after a doc comment in the scaffolding it pastes
+//! in below. That code lives in OUT_DIR, so it cannot be fixed at the source, and
+//! an allow on the `include_scaffolding!` invocation does not reach the expansion.
+#![allow(clippy::empty_line_after_doc_comments)]
+
 use thiserror::Error;
 
 // Modules - types contains internal types, not re-exported to avoid collision with FFI types
@@ -48,8 +54,11 @@ pub mod provenance;
 pub mod schemas;
 pub use schemas::register_impart_schemas;
 
-// Re-export core types for convenience
-pub use types::Address;
+// Deliberately NOT `pub use types::Address;`. Under `--features native` that
+// shadowed the `pub use ffi_types::*` glob below, so the crate-root `Address`
+// the UDL scaffolding resolves was the domain type rather than the FFI record,
+// and impart-core did not compile with the feature on at all. Nothing outside
+// this crate imported it and `types` is public, so use `types::Address`.
 
 #[cfg(feature = "native")]
 mod imap;
@@ -72,6 +81,8 @@ pub use ffi_types::*;
 pub use ffi::{parse_message, thread_messages, FfiImapClient, FfiSmtpClient};
 
 // UniFFI scaffolding
+// Must stay at the crate root: the scaffolding defines `UniFfiTag` there, and
+// every `derive(uniffi::*)` in this crate resolves it as `crate::UniFfiTag`.
 #[cfg(feature = "native")]
 uniffi::include_scaffolding!("uniffi");
 

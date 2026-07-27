@@ -112,6 +112,23 @@ went and why the 28 deferred and 40 dropped ones were not carried over. The
 remaining `.ts`/`.tsx` (a dormant Next.js app under `apps/imbib/imbib-web`) is
 debt pending an audit, not precedent.
 
+### Verifying a Rust change
+
+Run the workspace gate, not a per-crate one:
+
+```
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --features native -- -D warnings
+```
+
+Each app's workflow scopes clippy to that app's core crate (imbib-rust.yml runs
+from `crates/imbib-core`), so a clean per-crate run says nothing about the crates
+between them. `impart-core` did not compile with `--features native` for months,
+and `impress-tags` shipped a `uniffi::export` that never compiled — neither was
+inside any gate. A lint in a *dependency's* test target is invisible to an
+app-scoped gate too, since dependencies build as libs only.
+`.github/workflows/workspace-rust.yml` is the floor.
+
 ### Local-First, Sync-Capable
 - All data lives locally by default
 - User owns their data completely

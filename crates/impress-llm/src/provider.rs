@@ -397,7 +397,7 @@ async fn complete_async(request: &LLMRequest) -> Result<LLMResponse, LLMError> {
     let content = response.text().unwrap_or_default().to_string();
 
     // Extract usage info if available
-    let tokens_used = response.usage().map(|u| u.total_tokens as u32);
+    let tokens_used = response.usage().map(|u| u.total_tokens);
 
     Ok(LLMResponse {
         content,

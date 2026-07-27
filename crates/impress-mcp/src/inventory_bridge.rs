@@ -81,7 +81,7 @@ mod tests {
             "imbib-text-service_normalize-tag-path",
         ] {
             assert!(
-                names.iter().any(|n| *n == expected),
+                names.contains(&expected),
                 "expected {expected} in inventory; have: {names:?}",
             );
         }

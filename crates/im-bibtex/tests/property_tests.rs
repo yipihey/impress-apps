@@ -219,7 +219,7 @@ proptest! {
         entries in prop::collection::vec(arb_entry(), 0..3),
         preamble in "[A-Za-z0-9 ]{0,20}",
     ) {
-        let text = format_complete(&[], &[preamble.clone()], &entries);
+        let text = format_complete(&[], std::slice::from_ref(&preamble), &entries);
         let result = parse(text.clone()).expect("parse must not error");
         prop_assert_eq!(result.errors.len(), 0, "errors parsing:\n{}", text);
         prop_assert_eq!(result.preambles.len(), 1);

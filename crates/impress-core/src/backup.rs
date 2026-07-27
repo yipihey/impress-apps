@@ -868,7 +868,7 @@ mod tests {
             .snapshot_into_dir(&dir.join("backups"), "imbib", "3.0", None, "b")
             .unwrap();
         populate(&store, 3);
-        assert!(store.sync_outbox_entries(100).unwrap().len() > 0);
+        assert!(!store.sync_outbox_entries(100).unwrap().is_empty());
 
         let opts = RestoreOptions {
             safety_snapshot_dir: None,

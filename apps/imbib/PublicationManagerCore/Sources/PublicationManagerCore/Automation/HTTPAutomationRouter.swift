@@ -1307,24 +1307,33 @@ public actor HTTPAutomationRouter: HTTPRouter {
     /// GET /api/status
     /// Returns server health and library statistics.
     private func handleStatus() async -> HTTPResponse {
-        do {
-            // Get library count
-            let papers = try await automationService.searchLibrary(query: "", filters: nil)
-            let collections = try await automationService.listCollections(libraryID: nil)
-
-            let response: [String: Any] = [
-                "status": "ok",
-                "version": "1.0.0",
-                "libraryCount": papers.count,
-                "collectionCount": collections.count,
-                "serverPort": await AutomationSettingsStore.shared.settings.httpServerPort
-            ]
-
-            return .json(response)
-
-        } catch {
-            return .serverError(error.localizedDescription)
+        // Counts come from the store's own COUNT(*), not from the length of a
+        // search result. `searchLibrary(query: "")` returns zero rows for an
+        // empty query, so the old implementation reported `libraryCount: 0` on a
+        // 7-library store — and it was counting papers under a "library" name
+        // anyway. `listCollections(libraryID: nil)` was likewise always empty.
+        //
+        // `publicationCount` is new and is the reason this route matters to
+        // agents: imbib's HTTP surface had no total, so the MCP tool
+        // `count-publications` had to sum each library's paperCount over HTTP
+        // and silently missed publications filed in no library.
+        let (libraryCount, collectionCount, publicationCount) = await MainActor.run { () -> (Int, Int, Int) in
+            let adapter = RustStoreAdapter.shared
+            let libraries = adapter.listLibraries()
+            let collections = libraries.reduce(0) { $0 + adapter.listCollections(libraryId: $1.id).count }
+            return (libraries.count, collections, adapter.countPublications())
         }
+
+        let response: [String: Any] = [
+            "status": "ok",
+            "version": "1.0.0",
+            "libraryCount": libraryCount,
+            "collectionCount": collectionCount,
+            "publicationCount": publicationCount,
+            "serverPort": await AutomationSettingsStore.shared.settings.httpServerPort
+        ]
+
+        return .json(response)
     }
 
     /// GET /api/search?q=...&limit=...&offset=...&tag=...&flag=...&read=...&collection=...&library=...

@@ -87,7 +87,7 @@ impl ImapClient {
         let mut envelopes = Vec::new();
         for msg in messages.iter() {
             if let Some(env) = msg.envelope() {
-                envelopes.push(convert_envelope(msg.uid.unwrap_or(0), env, &msg.flags()));
+                envelopes.push(convert_envelope(msg.uid.unwrap_or(0), env, msg.flags()));
             }
         }
 

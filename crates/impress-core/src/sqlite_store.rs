@@ -4397,7 +4397,7 @@ mod tests {
     use crate::operation::{
         OperationIntent, OperationSpec, OperationType, RetentionTier, StateAsOf,
     };
-    use crate::query::{ItemQuery, Predicate, SortDescriptor};
+    use crate::query::{ItemQuery, Predicate};
     use crate::reference::{EdgeType, TypedReference};
     use chrono::Utc;
     use std::collections::BTreeMap;
@@ -5031,7 +5031,7 @@ mod tests {
             .update(id, vec![FieldMutation::RemovePayload("doi".into())])
             .unwrap();
         let got2 = store.get(id).unwrap().unwrap();
-        assert!(got2.payload.get("doi").is_none());
+        assert!(!got2.payload.contains_key("doi"));
     }
 
     #[test]

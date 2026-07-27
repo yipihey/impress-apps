@@ -172,7 +172,7 @@ mod tests {
             "imprint-text-service_extract-cite-key-usages",
         ] {
             assert!(
-                names.iter().any(|n| *n == expected),
+                names.contains(&expected),
                 "MCP inventory missing {expected}; have: {names:?}"
             );
         }
@@ -187,7 +187,7 @@ mod tests {
             "extract-cite-key-usages",
         ] {
             assert!(
-                names.iter().any(|n| *n == expected),
+                names.contains(&expected),
                 "CLI inventory missing {expected}; have: {names:?}"
             );
         }

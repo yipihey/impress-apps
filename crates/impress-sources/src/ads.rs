@@ -111,13 +111,8 @@ impl AdsDoc {
 
         // arXiv id may live in identifier list; ADS uses entries like "arXiv:2301.12345"
         let arxiv_id = self.identifier.as_ref().and_then(|ids| {
-            ids.iter().find_map(|i| {
-                if let Some(rest) = i.strip_prefix("arXiv:") {
-                    Some(rest.to_string())
-                } else {
-                    None
-                }
-            })
+            ids.iter()
+                .find_map(|i| i.strip_prefix("arXiv:").map(|rest| rest.to_string()))
         });
 
         let authors = self

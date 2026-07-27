@@ -366,6 +366,9 @@ impl ThroughlineSyncExecutor {
     }
 
     /// Open the review checkpoint for one stale anchor.
+    // Arity is the checkpoint's own shape: task, item, anchor and the review
+    // fields all have to arrive together.
+    #[allow(clippy::too_many_arguments)]
     async fn open_proposal_review(
         &self,
         task: &Item,

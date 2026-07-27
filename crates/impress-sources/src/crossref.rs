@@ -153,7 +153,7 @@ impl CrossrefSource {
         let total = message
             .get("total-results")
             .and_then(|v| v.as_u64())
-            .or_else(|| Some(parsed.len() as u64));
+            .or(Some(parsed.len() as u64));
         Ok(SearchResult {
             source: "crossref".to_string(),
             items: parsed,

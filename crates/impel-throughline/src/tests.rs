@@ -79,7 +79,7 @@ fn put_section(store: &SqliteItemStore, doc: Uuid, key: &str, body: &str) {
 fn seed_throughline(store: &SqliteItemStore, doc: Uuid, section_key: &str, section_body: &str) {
     put_section(store, doc, section_key, section_body);
 
-    let source = format!("The story so far. <tl-overview>\n");
+    let source = "The story so far. <tl-overview>\n".to_string();
     let paragraph_hash = extract_paragraphs(&source)[0].content_hash.clone();
     let mut map = AnchorMap::new(doc);
     map.anchors.insert(

@@ -2,7 +2,6 @@
 //! loop — spawn → DAG gating → acquire → execute → provenance → retry /
 //! escalation / suspension — against a real (in-memory) SQLite item store.
 
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 

@@ -38,7 +38,7 @@ impl EchoService for DemoEcho {
 
     async fn repeat(&self, message: String, count: i64) -> Vec<String> {
         let n = count.max(0) as usize;
-        std::iter::repeat(message).take(n).collect()
+        std::iter::repeat_n(message, n).collect()
     }
 }
 

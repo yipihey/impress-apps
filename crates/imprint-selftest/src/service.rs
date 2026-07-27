@@ -75,7 +75,7 @@ mod tests {
     fn run_selftest_registered_in_cli_inventory() {
         let names: Vec<&str> = CliSubcommand::iter().map(|c| c.name).collect();
         assert!(
-            names.iter().any(|n| *n == "run-selftest"),
+            names.contains(&"run-selftest"),
             "CLI inventory missing run-selftest; have: {names:?}"
         );
     }

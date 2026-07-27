@@ -10,7 +10,7 @@ use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::parser::parse_message_type;
 
-use implore_io::reader::{open_file, DataReader};
+use implore_io::reader::open_file;
 use implore_io::schema::DataColumn;
 
 fn write_sample(path: &std::path::Path, n: usize) {

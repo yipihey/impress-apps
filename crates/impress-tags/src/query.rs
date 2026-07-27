@@ -22,7 +22,17 @@ pub enum TagQuery {
 /// - `-tags:methods/hydro` — does not have tag
 /// - `tags:a+b` — has both tags (AND)
 /// - `tags:a|b` — has either tag (OR)
-#[cfg_attr(feature = "native", uniffi::export)]
+///
+/// Deliberately NOT `uniffi::export`ed. `TagQuery` is recursive through
+/// `Box<TagQuery>`, and UniFFI has no lowering for `Box<T>`, so the attribute
+/// that used to sit here never compiled. It went unnoticed because no CI gate
+/// builds this crate with `--features native` — each Rust workflow scopes
+/// clippy to one app's core crate.
+///
+/// Swift loses nothing: it has never called this, and parses tag filters itself
+/// in `PublicationManagerCore/Search/LocalFilterService.swift`. To hand Swift
+/// the Rust parser, the FFI-facing type has to stop being recursive (e.g. a flat
+/// postfix `Vec<TagQueryOp>`); re-adding the attribute alone will not build.
 pub fn parse_tag_query(input: &str) -> Option<TagQuery> {
     let input = input.trim();
 

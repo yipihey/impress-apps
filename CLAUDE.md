@@ -233,6 +233,17 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
 - **Regression prevention**: When optimizing or adding new code paths, check the "Critical Invariants" section in the relevant app's CLAUDE.md for constraints the old code enforced implicitly. When fixing bugs, document the violated invariant there.
 - **Definition of done — UI surface work**: any change that adds or touches a sidebar node kind, list-row kind, or detail tab must update its row in [docs/chassis-capability-matrix.md](docs/chassis-capability-matrix.md) (context menu / rename / delete / drag / drop / counts / select→detail cells). New node kinds with no `capabilities(of:)` case are silently read-only — the matrix is the checklist that catches this class of micro-bug.
 - **Definition of done — features**: a feature isn't done until a Tier A or Tier B selftest capability (or a unit/integration test) covers it, and the three-point trace (mutation/save/display) is in place for anything persistence-touching.
+- **Definition of done — Rust changes**: run the workspace gate before pushing, not a per-crate one:
+  ```
+  cargo fmt --all --check
+  cargo clippy --workspace --all-targets --features native -- -D warnings
+  ```
+  Each app's workflow scopes clippy to that app's core crate (imbib-rust.yml runs
+  from `crates/imbib-core`), so a clean per-crate run proves nothing about the
+  crates between them — `impart-core` did not compile with `--features native`
+  for months, and a lint in a *dependency's* test target is invisible to an
+  app-scoped gate. `.github/workflows/workspace-rust.yml` is the floor that
+  catches this; the per-app workflows keep their app-specific steps.
 - **Rust-first logic**: non-UI logic added in Swift needs a justification or a `*-service` Rust trait — `#[impress_service]` derives the MCP tool, CLI subcommand, and Tier-A testability for free. (The Rust-generated MCP server, `crates/impress-mcp`, is the only one; the hand-written TypeScript server was deleted on 2026-07-26 — see `docs/mcp-migration-ledger.md`.)
 
 ## Swift Concurrency & SwiftUI Pitfalls

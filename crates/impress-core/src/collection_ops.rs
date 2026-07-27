@@ -1276,11 +1276,22 @@ mod tests {
 
         let ms = make_item(&store, "manuscript", "A Paper");
         assert_eq!(
-            add_members(&store, &MANUSCRIPT_COLLECTION, &folder.id, &[ms.clone()]).unwrap(),
+            add_members(
+                &store,
+                &MANUSCRIPT_COLLECTION,
+                &folder.id,
+                std::slice::from_ref(&ms)
+            )
+            .unwrap(),
             vec![ms.clone()]
         );
         assert_eq!(
-            member_counts(&store, &MANUSCRIPT_COLLECTION, &[folder.id.clone()]).unwrap(),
+            member_counts(
+                &store,
+                &MANUSCRIPT_COLLECTION,
+                std::slice::from_ref(&folder.id)
+            )
+            .unwrap(),
             vec![1]
         );
 
@@ -1378,13 +1389,18 @@ mod tests {
 
         // Idempotent add, then partial removal.
         assert!(
-            add_members(&store, &GENERIC_COLLECTION, &mixed.id, &[figure.clone()])
-                .unwrap()
-                .is_empty(),
+            add_members(
+                &store,
+                &GENERIC_COLLECTION,
+                &mixed.id,
+                std::slice::from_ref(&figure)
+            )
+            .unwrap()
+            .is_empty(),
             "an already-filed member reports no change, so undo removes nothing"
         );
         assert_eq!(
-            member_counts(&store, &GENERIC_COLLECTION, &[mixed.id.clone()]).unwrap(),
+            member_counts(&store, &GENERIC_COLLECTION, std::slice::from_ref(&mixed.id)).unwrap(),
             vec![2],
             "re-adding an existing member must not duplicate it"
         );
@@ -1399,7 +1415,13 @@ mod tests {
         );
 
         assert_eq!(
-            remove_members(&store, &GENERIC_COLLECTION, &mixed.id, &[figure.clone()]).unwrap(),
+            remove_members(
+                &store,
+                &GENERIC_COLLECTION,
+                &mixed.id,
+                std::slice::from_ref(&figure)
+            )
+            .unwrap(),
             vec![figure]
         );
         let members = list_members(&store, &GENERIC_COLLECTION, &mixed.id).unwrap();
@@ -1430,24 +1452,39 @@ mod tests {
         .unwrap();
         let figure = make_item(&store, "figure", "Panel A");
 
-        add_members(&store, &FIGURE_COLLECTION, &folder.id, &[figure.clone()]).unwrap();
+        add_members(
+            &store,
+            &FIGURE_COLLECTION,
+            &folder.id,
+            std::slice::from_ref(&figure),
+        )
+        .unwrap();
         let filed = store.get(parse_id(&figure).unwrap()).unwrap().unwrap();
         assert_eq!(filed.parent, Some(parse_id(&folder.id).unwrap()));
         assert_eq!(
-            member_counts(&store, &FIGURE_COLLECTION, &[folder.id.clone()]).unwrap(),
+            member_counts(&store, &FIGURE_COLLECTION, std::slice::from_ref(&folder.id)).unwrap(),
             vec![1],
             "the nested folder is a tree node, not a member"
         );
         assert!(nested.parent_id.is_some());
 
         // Removing a figure filed elsewhere is a no-op, not an unfile.
-        assert!(
-            remove_members(&store, &FIGURE_COLLECTION, &nested.id, &[figure.clone()])
-                .unwrap()
-                .is_empty()
-        );
+        assert!(remove_members(
+            &store,
+            &FIGURE_COLLECTION,
+            &nested.id,
+            std::slice::from_ref(&figure)
+        )
+        .unwrap()
+        .is_empty());
         assert_eq!(
-            remove_members(&store, &FIGURE_COLLECTION, &folder.id, &[figure.clone()]).unwrap(),
+            remove_members(
+                &store,
+                &FIGURE_COLLECTION,
+                &folder.id,
+                std::slice::from_ref(&figure)
+            )
+            .unwrap(),
             vec![figure.clone()]
         );
         let unfiled = store.get(parse_id(&figure).unwrap()).unwrap().unwrap();
@@ -1683,7 +1720,12 @@ mod tests {
         let item = store.get(parse_id(&folder.id).unwrap()).unwrap().unwrap();
         assert_eq!(item.parent, Some(library_id));
         assert_eq!(
-            member_counts(&store, &MANUSCRIPT_COLLECTION, &[folder.id.clone()]).unwrap(),
+            member_counts(
+                &store,
+                &MANUSCRIPT_COLLECTION,
+                std::slice::from_ref(&folder.id)
+            )
+            .unwrap(),
             vec![2]
         );
 
@@ -1764,7 +1806,7 @@ mod tests {
             "the figures are re-filed, and the sub-folder is still not a member"
         );
         assert_eq!(
-            member_counts(&store, &FIGURE_COLLECTION, &[folder.id.clone()]).unwrap(),
+            member_counts(&store, &FIGURE_COLLECTION, std::slice::from_ref(&folder.id)).unwrap(),
             vec![2]
         );
     }
@@ -1955,7 +1997,7 @@ mod tests {
             "the restored collection is still mixed, not merely non-empty"
         );
         assert_eq!(
-            member_counts(&store, &GENERIC_COLLECTION, &[shelf.id.clone()]).unwrap(),
+            member_counts(&store, &GENERIC_COLLECTION, std::slice::from_ref(&shelf.id)).unwrap(),
             vec![3]
         );
     }

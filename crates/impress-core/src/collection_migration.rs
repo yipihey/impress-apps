@@ -1422,7 +1422,12 @@ mod tests {
             "2 native + 9 converged: one schema, one hierarchy"
         );
         assert_eq!(
-            collection_ops::member_counts(&store, &GENERIC_COLLECTION, &[mixed.clone()]).unwrap(),
+            collection_ops::member_counts(
+                &store,
+                &GENERIC_COLLECTION,
+                std::slice::from_ref(&mixed)
+            )
+            .unwrap(),
             vec![2],
             "the native mixed-kind collection still holds both kinds"
         );
@@ -1564,8 +1569,13 @@ mod tests {
 
         // And a member add/remove pair still inverts itself.
         let extra = make_item(&store, "manuscript", "Late addition");
-        let added = collection_ops::add_members(&store, &binding, &fixture.child, &[extra.clone()])
-            .unwrap();
+        let added = collection_ops::add_members(
+            &store,
+            &binding,
+            &fixture.child,
+            std::slice::from_ref(&extra),
+        )
+        .unwrap();
         assert_eq!(added, vec![extra.clone()]);
         let removed =
             collection_ops::remove_members(&store, &binding, &fixture.child, &added).unwrap();
