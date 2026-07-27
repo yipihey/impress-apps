@@ -20,6 +20,15 @@ struct ImpartApp: App {
     @State private var appState = AppState()
     @Environment(\.openWindow) private var openWindow
 
+    /// Stage 2-A flag-gated cutover: when set, the unified chassis
+    /// (ImpartChassisRoot) becomes the DEFAULT window and the classic
+    /// ContentView moves to a secondary "Mail (Classic)" window. Default
+    /// off — mail is a daily driver and compose/reply aren't wired into the
+    /// chassis yet, so the classic window stays primary (deliberate
+    /// deviation from implore's replace-outright).
+    private static let useChassisWindow =
+        UserDefaults.standard.bool(forKey: "impart.useChassisWindow")
+
     init() {
         // Register default settings (HTTP automation enabled by default for MCP)
         UserDefaults.standard.register(defaults: [
@@ -33,10 +42,21 @@ struct ImpartApp: App {
         }
 
         // Prepare shared impress-core workspace (creates directory if needed).
+        // Setup opens the store handle and declares the mail schemas
+        // sync-excluded (IMAP is mail's own sync protocol).
         // ImpartStoreAdapter.shared.storeEmailMessage / storeChatMessage are safe
         // to call after this point.
         Task { @MainActor in
             ImpartStoreAdapter.shared.setup()
+
+            // Stage 0 WP3: resumable Core Data → unified store backfill.
+            // Sleeps ≥90 s internally before its first store mutation
+            // (CLAUDE.md startup invariant), then pages CDMessages
+            // oldest-first and checkpoints a watermark per batch.
+            let persistence = PersistenceController.shared
+            Task.detached(priority: .background) {
+                await ImpartStoreBackfill.shared.startIfNeeded(persistence: persistence)
+            }
         }
 
         // Spotlight indexing — deferred 90s per startup grace period
@@ -53,33 +73,52 @@ struct ImpartApp: App {
         }
     }
 
+    /// The classic three-column mail window content, with its long-standing
+    /// lifecycle modifiers (heartbeat, Spotlight continuation, URL handling).
+    private var classicRoot: some View {
+        ContentView()
+            .environment(appState)
+            .withAppearance()
+            .task {
+                // Start heartbeat for SiblingDiscovery
+                Task.detached {
+                    while !Task.isCancelled {
+                        ImpressNotification.postHeartbeat(from: .impart)
+                        try? await Task.sleep(for: .seconds(25))
+                    }
+                }
+            }
+            .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .impart) { uuid, _ in
+                    NotificationCenter.default.post(
+                        name: .showMessage,
+                        object: nil,
+                        userInfo: ["conversationID": uuid.uuidString]
+                    )
+                }
+            }
+            .onOpenURL { url in
+                handleURL(url)
+            }
+    }
+
+    /// The unified chassis (Stage 2-A): PMC's TabContentView on the Mail
+    /// facet, with chat/research/development as custom surfaces.
+    private var chassisRoot: some View {
+        ImpartChassisRoot()
+            .environment(appState)
+            .withAppearance()
+    }
+
     var body: some Scene {
-        // Main window
+        // Main window: classic mail by default; the unified chassis when the
+        // "impart.useChassisWindow" flag is set (Stage 2-A gated cutover).
         WindowGroup {
-            ContentView()
-                .environment(appState)
-                .withAppearance()
-                .task {
-                    // Start heartbeat for SiblingDiscovery
-                    Task.detached {
-                        while !Task.isCancelled {
-                            ImpressNotification.postHeartbeat(from: .impart)
-                            try? await Task.sleep(for: .seconds(25))
-                        }
-                    }
-                }
-                .onContinueUserActivity(CSSearchableItemActionType) { activity in
-                    _ = SpotlightDeepLinkHandler.handle(activity, currentApp: .impart) { uuid, _ in
-                        NotificationCenter.default.post(
-                            name: .showMessage,
-                            object: nil,
-                            userInfo: ["conversationID": uuid.uuidString]
-                        )
-                    }
-                }
-                .onOpenURL { url in
-                    handleURL(url)
-                }
+            if Self.useChassisWindow {
+                chassisRoot
+            } else {
+                classicRoot
+            }
         }
         .commands {
             // File menu
@@ -200,6 +239,23 @@ struct ImpartApp: App {
                 .keyboardShortcut("c", modifiers: [.command, .control])
             }
         }
+
+        // Secondary window (Stage 2-A): whichever surface is NOT the default
+        // gets a Window-menu entry — "Mail (Unified)" opens the chassis while
+        // classic stays primary; with the flag flipped, "Mail (Classic)"
+        // keeps the old window reachable (compose/reply live there).
+        // One scene with conditional CONTENT — SceneBuilder rejects `if`.
+        Window(
+            Self.useChassisWindow ? "Mail (Classic)" : "Mail (Unified)",
+            id: Self.useChassisWindow ? "mail-classic" : "mail-unified"
+        ) {
+            if Self.useChassisWindow {
+                classicRoot
+            } else {
+                chassisRoot
+            }
+        }
+        .defaultSize(width: 1100, height: 700)
 
         // Settings window
         #if os(macOS)

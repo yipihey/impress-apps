@@ -39,6 +39,11 @@ packages:
     path: ../../packages/ImpressRustCore
   ImpressSpotlight:
     path: ../../packages/ImpressSpotlight
+  # Stage 2-B (GUI unification): the shared chassis lives in
+  # PublicationManagerCore. implore consumes it (one compile implementation,
+  # thin-twin shells — same pattern as imprint).
+  PublicationManagerCore:
+    path: ../imbib/PublicationManagerCore
 
 targets:
   implore:
@@ -69,6 +74,7 @@ targets:
       - package: ImpressKit
       - package: ImpressKeyboard
       - package: ImpressSpotlight
+      - package: PublicationManagerCore
     info:
       path: Implore/Info.plist
       properties:

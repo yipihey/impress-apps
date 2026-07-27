@@ -212,6 +212,9 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
 - Domain errors conform to `LocalizedError`
 - **Naming**: Protocols `*ing`/`*able`, implementations no suffix, view models `*ViewModel`
 - **Regression prevention**: When optimizing or adding new code paths, check the "Critical Invariants" section in the relevant app's CLAUDE.md for constraints the old code enforced implicitly. When fixing bugs, document the violated invariant there.
+- **Definition of done — UI surface work**: any change that adds or touches a sidebar node kind, list-row kind, or detail tab must update its row in [docs/chassis-capability-matrix.md](docs/chassis-capability-matrix.md) (context menu / rename / delete / drag / drop / counts / select→detail cells). New node kinds with no `capabilities(of:)` case are silently read-only — the matrix is the checklist that catches this class of micro-bug.
+- **Definition of done — features**: a feature isn't done until a Tier A or Tier B selftest capability (or a unit/integration test) covers it, and the three-point trace (mutation/save/display) is in place for anything persistence-touching.
+- **Rust-first logic**: non-UI logic added in Swift needs a justification or a `*-service` Rust trait — `#[impress_service]` derives the MCP tool, CLI subcommand, and Tier-A testability for free. (The Rust-generated MCP server is the invested path; the TypeScript `packages/impress-mcp` server is being retired.)
 
 ## Swift Concurrency & SwiftUI Pitfalls
 

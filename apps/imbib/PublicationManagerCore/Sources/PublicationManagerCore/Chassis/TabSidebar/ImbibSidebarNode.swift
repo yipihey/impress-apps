@@ -45,6 +45,24 @@ enum ImbibSidebarNodeType: Hashable {
     case journalSubmissions
     case manuscript(String)   // detail node — child of one of the journal sections
     case manuscriptFolder(String)  // user folder (manuscript-collection item UUID)
+
+    // Figures section (Stage 2-B — implore's Library facet)
+    case figuresAll
+    case figuresUnfiled
+    case figureFolder(String)  // user folder (figure-collection item UUID)
+
+    // Mail section (Stage 2-A — impart's mail-browsing facet)
+    case mailAllInboxes
+    case mailAccount(String)   // mail-account item UUID (lowercase store id)
+    case mailFolder(String)    // mail-folder item UUID (lowercase store id)
+
+    // Agents section (Stage 2-C — impel's task/run-browsing facet)
+    case agentTasksAll
+    case agentRunsAll
+    case agentTaskState(String)  // kernel task state raw value
+
+    // App-owned whole-pane surface (Stage 2 WP-X0, ADR-0021)
+    case customSurface(String)  // CustomSurfaceDescriptor.id
 }
 
 // MARK: - Sidebar Node
@@ -130,6 +148,26 @@ extension ImbibSidebarNode {
             return .manuscript(id)
         case .manuscriptFolder(let id):
             return .manuscriptFolder(id)
+        case .figuresAll:
+            return .figuresAll
+        case .figuresUnfiled:
+            return .figuresUnfiled
+        case .figureFolder(let id):
+            return .figureFolder(id)
+        case .mailAllInboxes:
+            return .mailAllInboxes
+        case .mailAccount(let id):
+            return .mailAccount(id)
+        case .mailFolder(let id):
+            return .mailFolder(id)
+        case .agentTasksAll:
+            return .agentTasks
+        case .agentRunsAll:
+            return .agentRuns
+        case .agentTaskState(let state):
+            return .agentTasksByState(state)
+        case .customSurface(let id):
+            return .customSurface(id)
         }
     }
 }
@@ -206,6 +244,37 @@ enum ImbibSidebarNodeID {
 
     static func manuscriptFolder(_ collectionID: String) -> UUID {
         stable("journal.folder.\(collectionID)")
+    }
+
+    // Figures section IDs (Stage 2-B)
+    static let figuresAll = stable("figures.all")
+    static let figuresUnfiled = stable("figures.unfiled")
+
+    static func figureFolder(_ collectionID: String) -> UUID {
+        stable("figures.folder.\(collectionID)")
+    }
+
+    // Mail section IDs (Stage 2-A)
+    static let mailAllInboxes = stable("mail.allInboxes")
+
+    static func mailAccount(_ accountID: String) -> UUID {
+        stable("mail.account.\(accountID)")
+    }
+
+    static func mailFolder(_ folderID: String) -> UUID {
+        stable("mail.folder.\(folderID)")
+    }
+
+    // Agents section IDs (Stage 2-C)
+    static let agentTasks = stable("agents.tasks")
+    static let agentRuns = stable("agents.runs")
+
+    static func agentTaskState(_ state: String) -> UUID {
+        stable("agents.tasks.state.\(state)")
+    }
+
+    static func customSurface(_ surfaceID: String) -> UUID {
+        stable("custom.surface.\(surfaceID)")
     }
 }
 #endif

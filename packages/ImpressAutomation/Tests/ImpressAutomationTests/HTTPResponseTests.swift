@@ -53,7 +53,7 @@ final class HTTPResponseTests: XCTestCase {
         let string = String(data: data, encoding: .utf8) ?? ""
 
         XCTAssertTrue(string.contains("Access-Control-Allow-Origin: *"))
-        XCTAssertTrue(string.contains("Access-Control-Allow-Methods: GET, POST, OPTIONS"))
+        XCTAssertTrue(string.contains("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS"))
     }
 
     func testJsonCodableWithDateStrategy() {

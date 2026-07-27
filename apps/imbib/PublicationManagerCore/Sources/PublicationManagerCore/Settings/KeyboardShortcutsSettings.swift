@@ -722,11 +722,16 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
         ),
 
         // MARK: Inbox Triage (Single Keys)
+        // Suite keyboard parity (ADR-0021 / Stage 3): `s` = star and `d` =
+        // dismiss in EVERY impress list. imbib's historical s=save moved to
+        // `*` (the old star key) — a one-swap change; both actions stay
+        // single keys, and user-remapped bindings are preserved by the
+        // settings merge.
         KeyboardShortcutBinding(
             id: "inboxSave",
             displayName: "Save",
             category: .inboxTriage,
-            key: .character("s"),
+            key: .character("*"),
             modifiers: .none,
             notificationName: "inboxSave"
         ),
@@ -742,7 +747,7 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             id: "inboxToggleStar",
             displayName: "Toggle Star",
             category: .inboxTriage,
-            key: .character("*"),
+            key: .character("s"),
             modifiers: .none,
             notificationName: "inboxToggleStar"
         ),

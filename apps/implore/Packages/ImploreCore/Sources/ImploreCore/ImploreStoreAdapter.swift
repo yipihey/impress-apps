@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import ImpressKit
+import OSLog
 #if canImport(ImpressRustCore)
 import ImpressRustCore
 #endif
@@ -164,6 +165,123 @@ public final class ImploreStoreAdapter {
 
         didMutate()
     }
+
+    // MARK: - Stage 0: library backfill + store reads
+
+    /// Watermark key marking the one-time JSON-library → store backfill.
+    public static let backfillKey = "implore.libraryImported"
+
+    /// Transfer rows so this package stays decoupled from ImploreRustCore's
+    /// FigureLibrary types (the app maps its models into these).
+    public struct FolderBackfillRow: Sendable {
+        public let id: String
+        public let name: String
+        public let sortOrder: Int
+        public let isCollapsed: Bool
+        public init(id: String, name: String, sortOrder: Int, isCollapsed: Bool) {
+            self.id = id
+            self.name = name
+            self.sortOrder = sortOrder
+            self.isCollapsed = isCollapsed
+        }
+    }
+
+    public struct FigureBackfillRow: Sendable {
+        public let id: String
+        public let title: String
+        public let folderID: String?
+        public let format: String
+        public init(id: String, title: String, folderID: String?, format: String) {
+            self.id = id
+            self.title = title
+            self.folderID = folderID
+            self.format = format
+        }
+    }
+
+    /// One-time backfill of the JSON library into the store: folders become
+    /// `figure-collection` items, figures carry their folder as envelope
+    /// `parent`. Idempotent (deterministic ids; watermark in sync_metadata).
+    /// The JSON file remains the shadow export until the read flag flips.
+    @discardableResult
+    public func migrateLibraryIfNeeded(
+        folders: [FolderBackfillRow],
+        figures: [FigureBackfillRow]
+    ) -> Bool {
+        #if canImport(ImpressRustCore)
+        guard isReady, let store else { return false }
+        if (try? store.syncMetadataGet(key: Self.backfillKey)) ?? nil != nil {
+            return false
+        }
+        var rows: [SharedItemUpsert] = []
+        for f in folders {
+            let payload: [String: Any] = [
+                "name": f.name, "sort_order": f.sortOrder, "is_collapsed": f.isCollapsed,
+            ]
+            guard let json = try? JSONSerialization.data(withJSONObject: payload),
+                  let jsonString = String(data: json, encoding: .utf8) else { continue }
+            rows.append(SharedItemUpsert(
+                id: f.id.lowercased(), schemaRef: "figure-collection",
+                payloadJson: jsonString, parentId: nil, tags: [],
+                createdMs: nil, isRead: nil, isStarred: nil))
+        }
+        for f in figures {
+            let payload: [String: Any] = ["title": f.title, "format": f.format]
+            guard let json = try? JSONSerialization.data(withJSONObject: payload),
+                  let jsonString = String(data: json, encoding: .utf8) else { continue }
+            rows.append(SharedItemUpsert(
+                id: f.id.lowercased(), schemaRef: "figure",
+                payloadJson: jsonString,
+                parentId: f.folderID?.lowercased(), tags: [],
+                createdMs: nil, isRead: nil, isStarred: nil))
+        }
+        do {
+            let result = try store.upsertItems(rows: rows)
+            try store.syncMetadataSet(
+                key: Self.backfillKey,
+                value: ISO8601DateFormatter().string(from: Date()))
+            didMutate()
+            Logger(subsystem: "com.impress.implore", category: "library").info(
+                "backfill: \(result.inserted) inserted, \(result.updated) updated (\(folders.count) folders, \(figures.count) figures)")
+            return true
+        } catch {
+            Logger(subsystem: "com.impress.implore", category: "library")
+                .error("backfill failed: \(error)")
+            return false
+        }
+        #else
+        return false
+        #endif
+    }
+
+    #if canImport(ImpressRustCore)
+    /// All figure folders (store-native read path).
+    public func fetchFolders() -> [SharedItemRow] {
+        guard isReady, let store else { return [] }
+        return (try? store.queryItems(query: SharedItemQuery(
+            schemaRef: "figure-collection", parentId: nil, payloadEq: [],
+            modifiedAfterMs: nil, sortField: "payload.sort_order",
+            ascending: true, limit: 1000, offset: 0))) ?? []
+    }
+
+    /// Figures, optionally scoped to one folder; `nil` returns ALL figures
+    /// (filter `parentId == nil` client-side for Unfiled).
+    public func fetchFigures(inFolder folderID: String? = nil) -> [SharedItemRow] {
+        guard isReady, let store else { return [] }
+        return (try? store.queryItems(query: SharedItemQuery(
+            schemaRef: "figure", parentId: folderID?.lowercased(), payloadEq: [],
+            modifiedAfterMs: nil, sortField: "modified",
+            ascending: false, limit: 5000, offset: 0))) ?? []
+    }
+
+    /// Folder moves on the store mirror (Stage 0 keeps JSON authoritative for
+    /// the GUI; this keeps the mirror consistent for other apps).
+    public func setFigureFolder(figureID: String, folderID: String?) {
+        guard isReady, let store else { return }
+        try? store.setParent(id: figureID.lowercased(), parentId: folderID?.lowercased())
+        didMutate()
+    }
+    #endif
 
     // MARK: - Content-Addressed Storage
 

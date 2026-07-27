@@ -33,7 +33,7 @@ public enum ManuscriptImportError: LocalizedError {
         case .unreadableFile(let url, let err):
             return "Couldn't read \(url.lastPathComponent): \(err.localizedDescription)"
         case .unsupportedExtension(let ext):
-            return "Unsupported file extension: .\(ext). imprint imports .tex and .imprint files."
+            return "Unsupported file extension: .\(ext). imprint imports .tex, .md, .txt, and .imprint files."
         case .invalidImprintBundle(let url):
             return "\(url.lastPathComponent) is not a valid .imprint bundle (missing main.typ or metadata.json)."
         case .adapterFailure(let message):
@@ -66,11 +66,68 @@ public enum ManuscriptImporter {
         switch ext {
         case "tex", "ltx":
             return try importLaTeX(at: url)
+        case "md", "markdown", "mdown":
+            return try importTextDocument(at: url, format: .markdown, kind: .markdown)
+        case "txt", "text":
+            return try importTextDocument(at: url, format: .plaintext, kind: .plaintext)
         case "imprint":
             return try importImprintBundle(at: url)
         default:
             throw ManuscriptImportError.unsupportedExtension(ext)
         }
+    }
+
+    // MARK: - Markdown / plain-text import
+
+    /// Import a single-file text document (Markdown ARD, plain notes) with the
+    /// same SHA-256 dedup as `.tex`. Markdown titles come from the first `# `
+    /// heading; otherwise the file name.
+    private static func importTextDocument(
+        at url: URL,
+        format: ManuscriptFormat,
+        kind: ImportSource.Kind
+    ) throws -> ManuscriptImportResult {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw ManuscriptImportError.unreadableFile(url, error)
+        }
+        let body = String(data: data, encoding: .utf8) ?? ""
+        let hash = sha256Hex(body)
+
+        if let existing = findExistingByHash(hash) {
+            Logger.sharedStore.infoCapture(
+                "Import \(url.lastPathComponent): dedup hit, manuscript \(existing.id)",
+                category: "manuscript-import"
+            )
+            return ManuscriptImportResult(manuscriptID: existing.id, wasAlreadyInStore: true)
+        }
+
+        var title = url.deletingPathExtension().lastPathComponent
+        if format == .markdown,
+           let heading = body.split(separator: "\n").first(where: { $0.hasPrefix("# ") }) {
+            title = heading.dropFirst(2).trimmingCharacters(in: .whitespaces)
+        }
+        let importSource = ImportSource(
+            kind: kind,
+            originalPath: url.path,
+            originalPathBookmarkBase64: try? bookmarkBase64(for: url)
+        )
+
+        let adapter = ManuscriptStoreAdapter.shared
+        let id: UUID
+        do {
+            id = try adapter.createManuscript(title: title, format: format, body: body)
+            try adapter.updateMetadata(id: id, importSource: importSource)
+        } catch {
+            throw ManuscriptImportError.adapterFailure(error.localizedDescription)
+        }
+        Logger.sharedStore.infoCapture(
+            "Imported \(url.lastPathComponent) as \(format.rawValue) manuscript \(id)",
+            category: "manuscript-import"
+        )
+        return ManuscriptImportResult(manuscriptID: id, wasAlreadyInStore: false)
     }
 
     // MARK: - .tex import

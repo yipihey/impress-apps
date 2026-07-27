@@ -158,6 +158,30 @@ struct EventSubscriber {
 }
 
 /// The full SELECT column list for the items table.
+/// SELECT expressions mapping payload fields into the five `items_fts`
+/// columns. Mail payloads (email-message / chat-message) use
+/// `subject`/`from`/`body`; COALESCE folds them into the canonical columns so
+/// ONE FTS schema serves every record kind. Keep in sync with
+/// `op_touches_fts_field` and `update_fts`.
+const FTS_SELECT_EXPRS: &str = "
+    COALESCE(json_extract(payload, '$.title'), json_extract(payload, '$.subject'), ''),
+    COALESCE(json_extract(payload, '$.author_text'), json_extract(payload, '$.from'), ''),
+    COALESCE(json_extract(payload, '$.abstract_text'), ''),
+    COALESCE(json_extract(payload, '$.note'), ''),
+    COALESCE(json_extract(payload, '$.body_content'), json_extract(payload, '$.body'), '')";
+
+/// Predicate selecting items that should have an FTS row. Adding a field here
+/// makes the count-based self-heal in `migrate_schema` rebuild the index on
+/// next open of any suite app (one-time; FTS data is derived).
+const FTS_ELIGIBLE_PREDICATE: &str = "(json_extract(payload, '$.title') IS NOT NULL
+     OR json_extract(payload, '$.subject') IS NOT NULL
+     OR json_extract(payload, '$.author_text') IS NOT NULL
+     OR json_extract(payload, '$.from') IS NOT NULL
+     OR json_extract(payload, '$.abstract_text') IS NOT NULL
+     OR json_extract(payload, '$.note') IS NOT NULL
+     OR json_extract(payload, '$.body_content') IS NOT NULL
+     OR json_extract(payload, '$.body') IS NOT NULL)";
+
 const ITEM_COLUMNS: &str = "id, schema_ref, payload, created, modified, author, author_kind,
      is_read, is_starred, flag_color, flag_style, flag_length, parent_id,
      logical_clock, origin, canonical_id, priority, visibility,
@@ -458,20 +482,12 @@ impl SqliteItemStore {
             .map_err(|e| StoreError::Storage(format!("migrate_fts recreate: {}", e)))?;
 
             conn.execute(
-                "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
-                 SELECT
-                     id,
-                     COALESCE(json_extract(payload, '$.title'), ''),
-                     COALESCE(json_extract(payload, '$.author_text'), ''),
-                     COALESCE(json_extract(payload, '$.abstract_text'), ''),
-                     COALESCE(json_extract(payload, '$.note'), ''),
-                     COALESCE(json_extract(payload, '$.body_content'), '')
-                 FROM items
-                 WHERE json_extract(payload, '$.title') IS NOT NULL
-                    OR json_extract(payload, '$.author_text') IS NOT NULL
-                    OR json_extract(payload, '$.abstract_text') IS NOT NULL
-                    OR json_extract(payload, '$.note') IS NOT NULL
-                    OR json_extract(payload, '$.body_content') IS NOT NULL",
+                &format!(
+                    "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
+                     SELECT id, {FTS_SELECT_EXPRS}
+                     FROM items
+                     WHERE {FTS_ELIGIBLE_PREDICATE}"
+                ),
                 [],
             )
             .map_err(|e| StoreError::Storage(format!("migrate_fts rebuild: {}", e)))?;
@@ -487,12 +503,7 @@ impl SqliteItemStore {
         // idempotent and only runs when the index has drifted.
         let eligible: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM items
-                 WHERE (json_extract(payload, '$.title') IS NOT NULL
-                        OR json_extract(payload, '$.author_text') IS NOT NULL
-                        OR json_extract(payload, '$.abstract_text') IS NOT NULL
-                        OR json_extract(payload, '$.note') IS NOT NULL
-                        OR json_extract(payload, '$.body_content') IS NOT NULL)",
+                &format!("SELECT COUNT(*) FROM items WHERE {FTS_ELIGIBLE_PREDICATE}"),
                 [],
                 |row| row.get(0),
             )
@@ -504,20 +515,12 @@ impl SqliteItemStore {
             conn.execute_batch("DELETE FROM items_fts;")
                 .map_err(|e| StoreError::Storage(format!("fts self-heal clear: {}", e)))?;
             conn.execute(
-                "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
-                 SELECT
-                     id,
-                     COALESCE(json_extract(payload, '$.title'), ''),
-                     COALESCE(json_extract(payload, '$.author_text'), ''),
-                     COALESCE(json_extract(payload, '$.abstract_text'), ''),
-                     COALESCE(json_extract(payload, '$.note'), ''),
-                     COALESCE(json_extract(payload, '$.body_content'), '')
-                 FROM items
-                 WHERE (json_extract(payload, '$.title') IS NOT NULL
-                        OR json_extract(payload, '$.author_text') IS NOT NULL
-                        OR json_extract(payload, '$.abstract_text') IS NOT NULL
-                        OR json_extract(payload, '$.note') IS NOT NULL
-                        OR json_extract(payload, '$.body_content') IS NOT NULL)",
+                &format!(
+                    "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
+                     SELECT id, {FTS_SELECT_EXPRS}
+                     FROM items
+                     WHERE {FTS_ELIGIBLE_PREDICATE}"
+                ),
                 [],
             )
             .map_err(|e| StoreError::Storage(format!("fts self-heal rebuild: {}", e)))?;
@@ -580,6 +583,20 @@ impl SqliteItemStore {
         )
         .map_err(|e| StoreError::Storage(format!("clock backfill: {}", e)))?;
 
+        // Sync-excluded schemas (durable, main DB): record kinds whose items
+        // never enter the sync outbox because they have their OWN sync
+        // protocol (mail = IMAP — re-syncing 50k messages through CloudKit
+        // would be redundant and expensive). Data-driven so impress-core
+        // stays domain-neutral: apps declare exclusions via
+        // `set_sync_excluded_schemas` (impress-store-ffi). Unlike
+        // `retention = 'ephemeral'`, excluded rows remain fully durable.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sync_excluded_schemas (
+                schema_ref TEXT PRIMARY KEY
+            );",
+        )
+        .map_err(|e| StoreError::Storage(format!("init sync_excluded_schemas: {}", e)))?;
+
         // Per-connection echo-suppression flag + capture triggers.
         conn.execute_batch(
             "
@@ -589,6 +606,7 @@ impl SqliteItemStore {
             AFTER INSERT ON items
             WHEN NEW.op_target_id IS NULL
              AND COALESCE(NEW.retention, 'durable') != 'ephemeral'
+             AND NEW.schema_ref NOT IN (SELECT schema_ref FROM sync_excluded_schemas)
              AND NOT EXISTS (SELECT 1 FROM _sync_apply)
             BEGIN
                 INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
@@ -600,6 +618,7 @@ impl SqliteItemStore {
             AFTER UPDATE ON items
             WHEN NEW.op_target_id IS NULL
              AND COALESCE(NEW.retention, 'durable') != 'ephemeral'
+             AND NEW.schema_ref NOT IN (SELECT schema_ref FROM sync_excluded_schemas)
              AND NOT EXISTS (SELECT 1 FROM _sync_apply)
             BEGIN
                 INSERT INTO sync_outbox (kind, record_name, item_id, queued_at)
@@ -676,6 +695,36 @@ impl SqliteItemStore {
     /// Read pending sync-outbox entries in queue order: `(seq, kind,
     /// record_name)`. The drain-time filter (op items, ephemeral) is applied
     /// by the Phase B snapshot stage; this is the raw queue.
+    /// Declare schemas whose items bypass the sync outbox (additive — other
+    /// apps' exclusions are preserved). Also drains any already-queued outbox
+    /// rows for those schemas, so enabling an exclusion after a backfill
+    /// still leaves the outbox clean.
+    pub fn add_sync_excluded_schemas(&self, schemas: &[String]) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| StoreError::Storage(format!("begin tx: {}", e)))?;
+        for schema in schemas {
+            tx.execute(
+                "INSERT OR IGNORE INTO sync_excluded_schemas (schema_ref) VALUES (?1)",
+                params![schema],
+            )
+            .map_err(|e| StoreError::Storage(format!("add sync exclusion: {}", e)))?;
+            tx.execute(
+                "DELETE FROM sync_outbox
+                 WHERE item_id IN (SELECT id FROM items WHERE schema_ref = ?1)",
+                params![schema],
+            )
+            .map_err(|e| StoreError::Storage(format!("drain excluded outbox: {}", e)))?;
+        }
+        tx.commit()
+            .map_err(|e| StoreError::Storage(format!("commit: {}", e)))?;
+        Ok(())
+    }
+
     pub fn sync_outbox_entries(
         &self,
         limit: u32,
@@ -1960,14 +2009,21 @@ impl SqliteItemStore {
     }
 
     /// Whether an operation mutates a payload field indexed in `items_fts`.
-    /// Keep the field list in sync with `update_fts` / `refresh_fts`.
+    /// Keep the field list in sync with `update_fts` / `refresh_fts` and the
+    /// `FTS_SELECT_EXPRS` / `FTS_ELIGIBLE_PREDICATE` SQL fragments.
     fn op_touches_fts_field(op_type: &OperationType) -> bool {
-        const FTS_FIELDS: [&str; 5] = [
+        const FTS_FIELDS: [&str; 8] = [
             "title",
             "author_text",
             "abstract_text",
             "note",
             "body_content",
+            // Mail payload fields (email-message / chat-message), folded into
+            // the canonical FTS columns via COALESCE — Stage 0 of the GUI
+            // unification: suite-wide search must hit mail too.
+            "subject",
+            "from",
+            "body",
         ];
         match op_type {
             OperationType::SetPayload(field, _) | OperationType::RemovePayload(field) => {
@@ -1986,21 +2042,12 @@ impl SqliteItemStore {
     pub(crate) fn refresh_fts(conn: &Connection, target_id_str: &str) -> Result<(), StoreError> {
         Self::delete_fts(conn, target_id_str)?;
         conn.execute(
-            "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
-             SELECT
-                 id,
-                 COALESCE(json_extract(payload, '$.title'), ''),
-                 COALESCE(json_extract(payload, '$.author_text'), ''),
-                 COALESCE(json_extract(payload, '$.abstract_text'), ''),
-                 COALESCE(json_extract(payload, '$.note'), ''),
-                 COALESCE(json_extract(payload, '$.body_content'), '')
-             FROM items
-             WHERE id = ?1
-               AND (json_extract(payload, '$.title') IS NOT NULL
-                    OR json_extract(payload, '$.author_text') IS NOT NULL
-                    OR json_extract(payload, '$.abstract_text') IS NOT NULL
-                    OR json_extract(payload, '$.note') IS NOT NULL
-                    OR json_extract(payload, '$.body_content') IS NOT NULL)",
+            &format!(
+                "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
+                 SELECT id, {FTS_SELECT_EXPRS}
+                 FROM items
+                 WHERE id = ?1 AND {FTS_ELIGIBLE_PREDICATE}"
+            ),
             params![target_id_str],
         )
         .map_err(|e| StoreError::Storage(format!("refresh_fts: {}", e)))?;
@@ -2568,15 +2615,18 @@ impl SqliteItemStore {
     /// Update the FTS index for an item.
     fn update_fts(conn: &Connection, item: &Item) -> Result<(), StoreError> {
         let id_str = item.id.to_string();
-        let title = extract_string_field(&item.payload, "title");
-        let author_text = extract_string_field(&item.payload, "author_text");
+        // Mail fallbacks mirror FTS_SELECT_EXPRS: subject→title, from→author,
+        // body→body_content — one FTS schema for every record kind.
+        let title = extract_string_field(&item.payload, "title")
+            .or_else(|| extract_string_field(&item.payload, "subject"));
+        let author_text = extract_string_field(&item.payload, "author_text")
+            .or_else(|| extract_string_field(&item.payload, "from"));
         let abstract_text = extract_string_field(&item.payload, "abstract_text");
         let note = extract_string_field(&item.payload, "note");
         // `body_content` is the manuscript body field added by the
-        // impress-wide unified-store pivot. Indexed alongside the
-        // bibliography-metadata fields above so full-text search finds
-        // manuscript prose as well.
-        let body = extract_string_field(&item.payload, "body_content");
+        // impress-wide unified-store pivot; `body` is the mail equivalent.
+        let body = extract_string_field(&item.payload, "body_content")
+            .or_else(|| extract_string_field(&item.payload, "body"));
 
         if title.is_some()
             || author_text.is_some()

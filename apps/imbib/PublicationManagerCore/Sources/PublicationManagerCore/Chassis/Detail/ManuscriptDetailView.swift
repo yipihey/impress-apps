@@ -615,13 +615,34 @@ struct ManuscriptDetailView: View {
     // MARK: - Actions
 
     private func loadManuscript() async {
+        // Store-first: read through the SAME adapter the Source/PDF tabs use,
+        // so a store-native manuscript always renders. The bridge (separate
+        // SharedStore handle) only layers on journal-pipeline extras and must
+        // not gate visibility — its nil used to render "Manuscript Not Found"
+        // for perfectly healthy manuscripts.
+        let storeManuscript: JournalManuscript? = await MainActor.run {
+            guard let uuid = UUID(uuidString: manuscriptID),
+                  let detail = RustStoreAdapter.shared.getManuscriptDetail(id: uuid)
+            else { return nil }
+            return JournalManuscript(
+                id: detail.id,
+                title: detail.title,
+                status: JournalManuscriptStatus(rawValue: detail.status) ?? .draft,
+                currentRevisionRef: detail.currentRevisionRef ?? JournalRevisionPlaceholderID,
+                authors: detail.authors,
+                journalTarget: detail.journalTarget,
+                submissionID: detail.submissionId,
+                topicTags: detail.topicTags,
+                notes: detail.notes
+            )
+        }
         let m = await bridge.getManuscript(id: manuscriptID)
         let imprintUUID = await bridge.imprintDocumentUUID(forManuscript: manuscriptID)
         let revs = await bridge.listRevisions(manuscriptID: manuscriptID)
         let revs_reviews = await bridge.listReviews(manuscriptID: manuscriptID)
         let notes = await bridge.listRevisionNotes(manuscriptID: manuscriptID)
         await MainActor.run {
-            self.manuscript = m
+            self.manuscript = storeManuscript ?? m
             self.imprintDocumentUUID = imprintUUID
             self.revisions = revs
             self.reviews = revs_reviews

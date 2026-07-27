@@ -74,6 +74,24 @@ public struct TabContentView: View {
             SectionContentView(viewModel: viewModel)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        #if os(macOS)
+        // List (middle column) show/hide. Declared on the NavigationSplitView
+        // root — the sibling of the system's sidebar toggle — because toolbar
+        // items declared inside the detail column's route views never reach
+        // the window toolbar.
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                let visible = PaneLayoutStore.shared.current.listPaneVisible
+                Button {
+                    PaneLayoutStore.shared.current.listPaneVisible.toggle()
+                } label: {
+                    Image(systemName: visible
+                        ? "list.bullet.rectangle.fill" : "list.bullet.rectangle")
+                }
+                .help(visible ? "Hide the list (⌥⌘0)" : "Show the list (⌥⌘0)")
+            }
+        }
+        #endif
         .onChange(of: PaneLayoutStore.shared.current.sidebarVisible) { _, visible in
             let target: NavigationSplitViewVisibility = visible ? .all : .detailOnly
             if columnVisibility != target { columnVisibility = target }
@@ -103,7 +121,12 @@ public struct TabContentView: View {
             // Compute initial flag counts
             viewModel.refreshFlagCounts()
 
-            // Check for ADS/SciX API key
+            // Check for ADS/SciX API key. Only shells that surface external
+            // search (imbib) may touch these credentials: the keychain items
+            // are ACL'd to imbib's code signature, so a sibling app reading
+            // them blocks its cooperative pool on a SecurityAgent password
+            // prompt (impart/impel/implore each stalled on this at launch).
+            guard shellConfiguration.permits(.search) else { return }
             let adsKey = await CredentialManager.shared.apiKey(for: "ads")
             let scixKey = await CredentialManager.shared.apiKey(for: "scix")
             if adsKey != nil || scixKey != nil {

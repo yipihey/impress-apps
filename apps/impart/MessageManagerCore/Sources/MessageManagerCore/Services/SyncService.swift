@@ -85,6 +85,23 @@ public actor SyncService {
             try context.save()
         }
 
+        // Dual-write (Stage 0 WP3): mirror the account + folder hierarchy
+        // into the unified store. Parents go before children; the mirror
+        // gates all writes on the 90 s startup clock.
+        var storeRows = [ImpartStoreAdapter.accountRow(
+            email: account.email,
+            displayName: account.displayName
+        )]
+        storeRows += mailboxes.map { mailbox in
+            ImpartStoreAdapter.folderRow(
+                accountEmail: account.email,
+                name: mailbox.name,
+                remotePath: mailbox.fullPath,
+                role: mailbox.role.rawValue
+            )
+        }
+        MailStoreMirror.shared.mirror(rows: storeRows)
+
         syncLogger.info("Synced \(mailboxes.count) mailboxes for \(account.email)")
         return mailboxes
     }
@@ -101,8 +118,9 @@ public actor SyncService {
 
         let messages = try await provider.fetchMessages(mailbox: mailbox, range: range)
 
-        // Save to Core Data
-        try await persistence.performBackgroundTask { context in
+        // Save to Core Data, collecting unified-store rows for the
+        // dual-write (Stage 0 WP3) while still on the context queue.
+        let storeRows: [MailItemUpsert] = try await persistence.performBackgroundTask { context in
             let folderRequest = CDFolder.fetchRequest()
             folderRequest.predicate = NSPredicate(
                 format: "fullPath == %@ AND account.email == %@",
@@ -114,6 +132,7 @@ public actor SyncService {
                 throw SyncError.folderNotFound
             }
 
+            var cdMessages: [CDMessage] = []
             for message in messages {
                 // Check if message already exists
                 let existingRequest = CDMessage.fetchRequest()
@@ -154,10 +173,20 @@ public actor SyncService {
                    let json = String(data: data, encoding: .utf8) {
                     cdMessage.referencesJSON = json
                 }
+
+                cdMessages.append(cdMessage)
             }
 
             try context.save()
+
+            // Map AFTER save so fallback ids use permanent objectID URIs.
+            return cdMessages.map(ImpartStoreAdapter.messageRow(from:))
         }
+
+        // Dual-write: mirror new/changed messages into the unified store,
+        // parented under their folder row. The mirror buffers writes that
+        // arrive inside the 90 s startup grace window.
+        MailStoreMirror.shared.mirror(rows: storeRows)
 
         syncLogger.info("Synced \(messages.count) messages from \(mailbox.name)")
         return messages
@@ -179,7 +208,7 @@ public actor SyncService {
         try await provider.setRead(messageIds, read: read)
 
         // Update local store
-        try await persistence.performBackgroundTask { context in
+        let storeItemIDs: [String] = try await persistence.performBackgroundTask { context in
             let request = CDMessage.fetchRequest()
             request.predicate = NSPredicate(format: "id IN %@", messageIds)
 
@@ -189,7 +218,18 @@ public actor SyncService {
             }
 
             try context.save()
+
+            return messages.map { message in
+                DeterministicID.messageItemID(
+                    messageID: message.messageId,
+                    fallbackURI: message.objectID.uriRepresentation().absoluteString
+                )
+            }
         }
+
+        // Dual-write: mirror the read-flag change onto the unified-store
+        // rows (ids not yet mirrored are skipped by the mirror).
+        MailStoreMirror.shared.setMessagesRead(itemIDs: storeItemIDs, read: read)
 
         syncLogger.info("Marked \(messageIds.count) messages as \(read ? "read" : "unread")")
     }

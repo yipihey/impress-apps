@@ -20,6 +20,8 @@ import Observation
 public struct PaneLayoutState: Codable, Equatable, Sendable {
     /// Leading sidebar (libraries/search/inbox outline) visibility (⌃⌘S).
     public var sidebarVisible = true
+    /// List pane (middle column) visibility (⌥⌘0) — manuscripts route.
+    public var listPaneVisible = true
     /// Detail pane (info/pdf/notes/bibtex) visibility (⌘0).
     public var detailPaneVisible = true
     /// Selected detail tab, `DetailTab` raw value ("info"/"pdf"/"notes"/"bibtex").
@@ -30,6 +32,19 @@ public struct PaneLayoutState: Codable, Equatable, Sendable {
     public var pdfDarkMode = false
 
     public init() {}
+
+    // Custom decode with `decodeIfPresent`: synthesized Codable would throw
+    // keyNotFound for layouts persisted before a field existed, silently
+    // resetting every saved layout on upgrade.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
+        listPaneVisible = try c.decodeIfPresent(Bool.self, forKey: .listPaneVisible) ?? true
+        detailPaneVisible = try c.decodeIfPresent(Bool.self, forKey: .detailPaneVisible) ?? true
+        detailTab = try c.decodeIfPresent(String.self, forKey: .detailTab) ?? "info"
+        appAppearance = try c.decodeIfPresent(String.self, forKey: .appAppearance) ?? "system"
+        pdfDarkMode = try c.decodeIfPresent(Bool.self, forKey: .pdfDarkMode) ?? false
+    }
 }
 
 /// A user-named saved layout.

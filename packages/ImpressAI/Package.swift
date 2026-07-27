@@ -28,8 +28,10 @@ if impressLLMAvailable {
 let package = Package(
     name: "ImpressAI",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17)
+        // Raised to match ImpressLLM (v26); every consumer already requires
+        // macOS 26 via PublicationManagerCore/ImpressFTUI.
+        .macOS(.v26),
+        .iOS(.v26)
     ],
     products: [
         .library(

@@ -21,6 +21,15 @@ struct ImpelApp: App {
     @State private var captureGateway: CaptureGateway?
     @State private var emlWatcher: EMLFolderWatcher?
 
+    /// Stage 2-C flag-gated cutover (mirrors impart's): when set, the
+    /// unified chassis (ImpelChassisRoot) becomes the DEFAULT window and the
+    /// classic ContentView moves to a secondary "impel (Classic)" window.
+    /// Default off — escalation resolution / counsel flows aren't wired
+    /// into the chassis yet, so the classic dashboard stays primary
+    /// (deliberate deviation from implore's replace-outright).
+    private static let useChassisWindow =
+        UserDefaults.standard.bool(forKey: "impel.useChassisWindow")
+
     init() {
         // Register default settings (HTTP automation enabled by default for MCP)
         UserDefaults.standard.register(defaults: [
@@ -29,14 +38,42 @@ struct ImpelApp: App {
         ])
     }
 
+    /// The classic dashboard window content (NavigationSplitView ContentView).
+    private var classicRoot: some View {
+        ContentView(navigateToTab: $navigateToTab)
+            .environmentObject(client)
+            .environmentObject(mailGatewayState)
+            .onOpenURL { url in
+                handleURL(url)
+            }
+    }
+
+    /// The unified chassis (Stage 2-C): PMC's TabContentView on the Agents
+    /// facet, with dashboard/escalations/suggestions/counsel as custom
+    /// surfaces. Shares the SAME client/gateway state objects as classic.
+    private var chassisRoot: some View {
+        ImpelChassisRoot()
+            .environmentObject(client)
+            .environmentObject(mailGatewayState)
+            .onOpenURL { url in
+                handleURL(url)
+            }
+    }
+
     var body: some Scene {
+        // Main window: classic dashboard by default; the unified chassis
+        // when the "impel.useChassisWindow" flag is set (Stage 2-C gated
+        // cutover, same mechanism as impart). The app-lifecycle task stays
+        // on the PRIMARY window content so servers/gateways start exactly
+        // once regardless of which root is default.
         WindowGroup {
-            ContentView(navigateToTab: $navigateToTab)
-                .environmentObject(client)
-                .environmentObject(mailGatewayState)
-                .onOpenURL { url in
-                    handleURL(url)
+            Group {
+                if Self.useChassisWindow {
+                    chassisRoot
+                } else {
+                    classicRoot
                 }
+            }
                 .task {
                     // Wire client reference for HTTP router
                     ImpelHTTPRouterState.shared.client = client
@@ -188,6 +225,24 @@ struct ImpelApp: App {
                 }
             }
         }
+
+        // Secondary window (Stage 2-C): whichever surface is NOT the
+        // default gets a Window-menu entry — "impel (Unified)" opens the
+        // chassis while classic stays primary; with the flag flipped,
+        // "impel (Classic)" keeps the old dashboard reachable (escalation
+        // resolution / counsel flows live there). One scene with
+        // conditional CONTENT — SceneBuilder rejects `if`.
+        Window(
+            Self.useChassisWindow ? "impel (Classic)" : "impel (Unified)",
+            id: Self.useChassisWindow ? "impel-classic" : "impel-unified"
+        ) {
+            if Self.useChassisWindow {
+                classicRoot
+            } else {
+                chassisRoot
+            }
+        }
+        .defaultSize(width: 1100, height: 700)
 
         #if os(macOS)
         Settings {

@@ -27,6 +27,10 @@ enum VeuszPlotInsertion {
                 \\caption{\(escapedCaption(plot.displayName, for: .latex))}
             \\end{figure}
             """
+        case .markdown:
+            return "![\(plot.displayName)](\(plot.renderedRelativePath))"
+        case .plaintext:
+            return "[figure: \(plot.renderedRelativePath) — \(plot.displayName)]"
         }
     }
 
@@ -66,6 +70,9 @@ enum VeuszPlotInsertion {
                 }
             }
             return out
+        case .markdown, .plaintext:
+            // No escaping language — captions are used verbatim.
+            return text
         }
     }
 }

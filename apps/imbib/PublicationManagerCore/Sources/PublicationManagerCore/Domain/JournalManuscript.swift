@@ -32,6 +32,10 @@ public enum JournalManuscriptStatus: String, Codable, CaseIterable, Sendable {
     case inRevision = "in-revision"
     case published
     case archived
+    /// Swept out of the working list (imbib's Dismissed convention). Kept in
+    /// the store and listed under Dismissed, where it can be restored or
+    /// permanently deleted — dismissing is never destructive.
+    case dismissed
 
     public var displayName: String {
         switch self {
@@ -41,6 +45,7 @@ public enum JournalManuscriptStatus: String, Codable, CaseIterable, Sendable {
         case .inRevision:     return "In Revision"
         case .published:      return "Published"
         case .archived:       return "Archived"
+        case .dismissed:      return "Dismissed"
         }
     }
 
@@ -52,13 +57,14 @@ public enum JournalManuscriptStatus: String, Codable, CaseIterable, Sendable {
         case .inRevision:     return "arrow.triangle.2.circlepath"
         case .published:      return "checkmark.seal"
         case .archived:       return "archivebox"
+        case .dismissed:      return "xmark.bin"
         }
     }
 
     public var isActive: Bool {
         switch self {
         case .draft, .internalReview, .submitted, .inRevision: return true
-        case .published, .archived:                            return false
+        case .published, .archived, .dismissed:                return false
         }
     }
 }

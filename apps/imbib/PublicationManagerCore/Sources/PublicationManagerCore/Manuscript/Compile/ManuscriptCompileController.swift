@@ -169,6 +169,10 @@ public final class ManuscriptCompileController {
                 await compileTypst(inputs)
             case .latex:
                 await compileLaTeX(inputs)
+            case .markdown, .plaintext:
+                // No compile pipeline: markdown renders live (MarkdownUI) in
+                // the Preview tab; plain text has no rendered state.
+                pdfData = nil
             }
         }
 

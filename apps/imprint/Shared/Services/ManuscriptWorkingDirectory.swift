@@ -130,7 +130,7 @@ struct ManuscriptWorkingDirectory {
         format: String
     ) throws -> URL {
         let dir = try tmpDirectory(forManuscriptID: manuscriptID)
-        let fileName = (format == "typst") ? "main.typ" : "main.tex"
+        let fileName = ManuscriptFormat(rawValue: format)?.bodyFileName ?? "main.tex"
         let destination = dir.appending(path: fileName)
         try body.data(using: .utf8)?.write(to: destination, options: .atomic)
         return destination

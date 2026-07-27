@@ -264,6 +264,16 @@ Without `.id()`, NavigationSplitView caches the `detail:` closure and `let` prop
 
 **Dismissed papers must never re-enter the inbox.** Enforced in: `batch_import_search_results` (Rust `filter_dismissed` checks both new and existing papers), `GroupFeedRefreshService` (Swift `wasDismissed`). Risk: any new import path that doesn't check dismissed status.
 
+**Collection tree parent is payload `parent_id`, never `item.parent`.** For every collection, `item.parent` is the owning LIBRARY (that's what `list_collections` filters on via `HasParent`); the sub-collection tree lives in payload `parent_id` (written by `handleReparent`/`createInboxCollection`) and manuscript folders in payload `parent_collection_ref`. c902a22f briefly returned `item.parent` from `item_to_collection_row`, which made every collection's `parentID` equal its library UUID and flattened the sidebar tree (root filter `parentID == nil` matched nothing). Guarded by `collection_parent_id_is_payload_not_owning_library` in `imbib-core/tests/manuscript_unification.rs`.
+
+**Manuscript UUID strings crossing the FFI must be lowercased.** The Rust store's canonical id form is lowercase and payload refs (`parent_collection_ref`) are matched by string equality; Swift's `UUID().uuidString` is uppercase. Normalize at the adapter boundary (see `RustStoreAdapter.createManuscriptCollection`).
+
+**The manuscript editor session is owned by the HOST view, never by `ManuscriptDetailPane`.** `ManuscriptSectionView` (and imprint's standalone `ManuscriptEditorView`) resolve the session and pass it in. Holding it as `@State` inside the pane made Source/Preview show the *previously selected* manuscript while the Info tab — which reads `manuscriptID` directly — updated correctly: the pane is reused across selection changes, so its local state outlived the input it was derived from. The pane additionally ignores a session whose `manuscriptID` doesn't match (`liveSession`). Resolution is debounced ~90 ms in the section view so holding ↓ flies through the list instead of loading an editor per row. Do NOT "fix" staleness here by adding `.id(manuscriptID)` to the pane — that rebuilds the whole NSTextView per selection and is what made the list feel sluggish.
+
+**Deleting a manuscript must discard its live editor session first** (`ManuscriptSessionRegistry.discard(id:)`, no flush) — otherwise the debounced CAS save fires after the delete and resurrects the body.
+
+**Only shells that permit `.search` may read the ADS/SciX keychain credentials.** The keychain items (`com.imbib.credentials.ads.apiKey` etc.) are ACL'd to imbib's code signature; when a sibling app (impart/impel/implore, each signed differently) reads them, macOS pops a SecurityAgent password prompt and the synchronous `SecItemCopyMatching` blocks the caller's cooperative-pool thread until the user answers — impart's `/api/logs` (@MainActor route) hung on exactly this. `TabContentView`'s boot task gates the read on `shellConfiguration.permits(.search)`; `testOnlyImbibPermitsSearchSection` keeps the presets honest. Any new chassis code that touches imbib-owned keychain items needs the same gate (or the suite needs a shared keychain access group).
+
 ### macOS SwiftUI Form Gotchas
 
 - `TextField` inside `HStack` inside `Form` `.formStyle(.grouped)` can have broken hit-testing. Use `LabeledContent` rows instead.

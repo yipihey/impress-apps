@@ -3875,6 +3875,39 @@ impl ImbibStore {
         Ok(self.store.count(&q)? as u32)
     }
 
+    /// The allowed `manuscript.format` values (single source of truth in
+    /// impress-core). Swift's `DocumentFormat` asserts parity in tests.
+    pub fn supported_manuscript_formats(&self) -> Vec<String> {
+        impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    /// List flagged manuscripts, optionally filtered to one flag color.
+    /// The manuscript counterpart of `get_flagged_publications` — flags live on
+    /// the generic item envelope, only the schema filter differs.
+    pub fn list_flagged_manuscripts(
+        &self,
+        color: Option<String>,
+    ) -> Result<Vec<ManuscriptRow>, StoreApiError> {
+        let q = ItemQuery {
+            schema: Some("manuscript".into()),
+            predicates: vec![Predicate::HasFlag(color)],
+            sort: manuscript_sort_descriptors("modified", false),
+            ..Default::default()
+        };
+        let items = self.store.query(&q)?;
+        let tag_defs = self.load_tag_definitions()?;
+        items
+            .iter()
+            .map(|item| {
+                let rev_count = self.count_revisions(item.id)?;
+                Ok(item_to_manuscript_row(item, &tag_defs, rev_count))
+            })
+            .collect()
+    }
+
     /// Get a single manuscript row (list shape) by ID.
     pub fn get_manuscript_row(&self, id: String) -> Result<Option<ManuscriptRow>, StoreApiError> {
         let uuid = parse_uuid(&id)?;
@@ -3931,9 +3964,10 @@ impl ImbibStore {
         body: String,
         authors: Vec<String>,
     ) -> Result<ManuscriptRow, StoreApiError> {
-        if format != "typst" && format != "latex" {
+        if !impress_core::manuscript_ops::is_supported_manuscript_format(&format) {
             return Err(StoreApiError::InvalidInput(format!(
-                "format must be 'typst' or 'latex', got '{}'",
+                "format must be one of {:?}, got '{}'",
+                impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS,
                 format
             )));
         }

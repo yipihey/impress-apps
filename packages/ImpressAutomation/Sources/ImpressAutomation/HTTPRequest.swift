@@ -73,10 +73,12 @@ public struct HTTPRequest: Sendable {
             }
         }
 
-        // Parse body
+        // Parse body — treat an empty body as absent (nil), matching the
+        // `body: String?` contract that downstream routers rely on.
         var body: String?
         if let startIndex = bodyStartIndex, startIndex < lines.count {
-            body = lines[startIndex...].joined(separator: "\r\n")
+            let joined = lines[startIndex...].joined(separator: "\r\n")
+            body = joined.isEmpty ? nil : joined
         }
 
         return HTTPRequest(

@@ -12,6 +12,7 @@
 
 import AppKit
 import ImbibRustCore
+import ImpressFTUI
 import PDFKit
 import SwiftUI
 
@@ -34,8 +35,9 @@ extension PublicationDetail {
     var year: String? { fields["year"] }
     /// Journal or booktitle.
     var venue: String? { fields["journal"] ?? fields["booktitle"] ?? fields["publisher"] }
-    /// Abstract text.
-    var abstractText: String? { fields["abstract"] }
+    /// Abstract text. The unified store's payload key is `abstract_text`
+    /// (imbib-core conversion.rs); `abstract` covers BibTeX-shaped rows.
+    var abstractText: String? { fields["abstract"] ?? fields["abstract_text"] }
     /// Note text (free-form notes).
     var note: String? { fields["note"] }
     /// DOI.
@@ -82,6 +84,9 @@ public struct PaperDetailPanel: View {
     public let publicationID: String
     public let dataSource: PublicationDataSource
     public var onClose: (() -> Void)?
+    /// Host-injected "open this paper in imbib" action (cite key). Kept as a
+    /// callback so this package stays free of URL-scheme/workspace deps.
+    public var onOpenInImbib: ((String) -> Void)?
 
     @State private var detail: PublicationDetail?
     @State private var currentTab: Tab = .info
@@ -89,11 +94,13 @@ public struct PaperDetailPanel: View {
     public init(
         publicationID: String,
         dataSource: PublicationDataSource,
-        onClose: (() -> Void)? = nil
+        onClose: (() -> Void)? = nil,
+        onOpenInImbib: ((String) -> Void)? = nil
     ) {
         self.publicationID = publicationID
         self.dataSource = dataSource
         self.onClose = onClose
+        self.onOpenInImbib = onOpenInImbib
     }
 
     public var body: some View {
@@ -132,6 +139,15 @@ public struct PaperDetailPanel: View {
                 }
             }
             Spacer()
+            if let onOpenInImbib, let citeKey = detail?.citeKey, !citeKey.isEmpty {
+                Button {
+                    onOpenInImbib(citeKey)
+                } label: {
+                    Image(systemName: "arrow.up.forward.app")
+                }
+                .buttonStyle(.borderless)
+                .help("Open paper in imbib")
+            }
             if let onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -243,14 +259,22 @@ struct PaperInfoView: View {
                 }
                 if !detail.tags.isEmpty {
                     section(title: "Tags") {
-                        HStack {
-                            ForEach(detail.tags.map(\.path), id: \.self) { tag in
-                                Text(tag)
-                                    .font(.system(size: 10))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.accentColor.opacity(0.15))
-                                    .clipShape(Capsule())
+                        // Shared chip + wrapping layout (ImpressFTUI) — a plain
+                        // HStack compresses each chip below its ideal width in
+                        // this narrow inspector and wraps character-per-line.
+                        FlowLayout(spacing: 4) {
+                            ForEach(detail.tags, id: \.path) { tag in
+                                TagChip(
+                                    tag: TagDisplayData(
+                                        id: UUID(),
+                                        path: tag.path,
+                                        leaf: tag.leafName,
+                                        colorLight: tag.colorLight,
+                                        colorDark: tag.colorDark
+                                    ),
+                                    pathStyle: .leafOnly
+                                )
+                                .help(tag.path)
                             }
                         }
                     }

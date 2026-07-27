@@ -997,6 +997,13 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func listDismissedPapers(limit: UInt32?, offset: UInt32?) throws  -> [DismissedPaperRow]
     
+    /**
+     * List flagged manuscripts, optionally filtered to one flag color.
+     * The manuscript counterpart of `get_flagged_publications` — flags live on
+     * the generic item envelope, only the schema filter differs.
+     */
+    func listFlaggedManuscripts(color: String?) throws  -> [ManuscriptRow]
+    
     func listLibraries() throws  -> [LibraryRow]
     
     func listLinkedFiles(publicationId: String) throws  -> [LinkedFileRow]
@@ -1239,6 +1246,12 @@ public protocol ImbibStoreProtocol : AnyObject {
     func setRead(ids: [String], read: Bool) throws  -> UndoInfo
     
     func setStarred(ids: [String], starred: Bool) throws  -> UndoInfo
+    
+    /**
+     * The allowed `manuscript.format` values (single source of truth in
+     * impress-core). Swift's `DocumentFormat` asserts parity in tests.
+     */
+    func supportedManuscriptFormats()  -> [String]
     
     /**
      * Apply CKRecord deletions: `ref_...` names delete edges, item-UUID
@@ -2544,6 +2557,19 @@ open func listDismissedPapers(limit: UInt32?, offset: UInt32?)throws  -> [Dismis
 })
 }
     
+    /**
+     * List flagged manuscripts, optionally filtered to one flag color.
+     * The manuscript counterpart of `get_flagged_publications` — flags live on
+     * the generic item envelope, only the schema filter differs.
+     */
+open func listFlaggedManuscripts(color: String?)throws  -> [ManuscriptRow] {
+    return try  FfiConverterSequenceTypeManuscriptRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_list_flagged_manuscripts(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(color),$0
+    )
+})
+}
+    
 open func listLibraries()throws  -> [LibraryRow] {
     return try  FfiConverterSequenceTypeLibraryRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_libraries(self.uniffiClonePointer(),$0
@@ -3128,6 +3154,17 @@ open func setStarred(ids: [String], starred: Bool)throws  -> UndoInfo {
     uniffi_imbib_core_fn_method_imbibstore_set_starred(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterBool.lower(starred),$0
+    )
+})
+}
+    
+    /**
+     * The allowed `manuscript.format` values (single source of truth in
+     * impress-core). Swift's `DocumentFormat` asserts parity in tests.
+     */
+open func supportedManuscriptFormats() -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_method_imbibstore_supported_manuscript_formats(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -26032,6 +26069,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_list_dismissed_papers() != 49008) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_flagged_manuscripts() != 12567) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_libraries() != 15827) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -26180,6 +26220,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_starred() != 26685) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_supported_manuscript_formats() != 32374) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_sync_apply_remote_deletions() != 19461) {

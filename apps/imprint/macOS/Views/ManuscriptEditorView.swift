@@ -47,6 +47,9 @@ struct ManuscriptEditorView: View {
 
     /// Detail tab for the hosted chassis pane; manuscripts land in the editor.
     @State private var selectedTab: DetailTab = .source
+    /// This window's editor session (registry-owned). Resolved here and passed
+    /// into the chassis pane, which holds no session state of its own.
+    @State private var session: ManuscriptEditorSession?
 
     private static let bannerDisplayDuration: Duration = .seconds(10)
 
@@ -66,9 +69,14 @@ struct ManuscriptEditorView: View {
             // Throughline/Veusz/Paper inspector). The manuscript-store↔editor
             // bridge and the 1,582-line legacy ContentView it drove are retired
             // — the chassis loads/saves the manuscript itself via its session.
-            ManuscriptDetailPane(manuscriptID: manuscriptID, selectedTab: $selectedTab)
+            ManuscriptDetailPane(
+                manuscriptID: manuscriptID, session: session, selectedTab: $selectedTab)
         }
         .frame(minWidth: 700, minHeight: 400)
+        .focusedSceneValue(\.focusedManuscriptID, manuscriptID)
+        .task(id: manuscriptID) {
+            session = ManuscriptSessionRegistry.shared.session(for: manuscriptID)
+        }
         .task(id: manuscriptID) { await loadMetadata() }
         .onChange(of: adapter.dataVersion) { _, _ in
             if let updated = adapter.manuscript(id: manuscriptID) {
@@ -92,9 +100,9 @@ struct ManuscriptEditorView: View {
                     .padding(.vertical, 1)
                     .background(
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(m.format == .typst ? Color.blue.opacity(0.18) : Color.orange.opacity(0.18))
+                            .fill(badgeColor(m.format).opacity(0.18))
                     )
-                    .foregroundStyle(m.format == .typst ? Color.blue : Color.orange)
+                    .foregroundStyle(badgeColor(m.format))
                 Text(m.status.capitalized)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -140,42 +148,23 @@ struct ManuscriptEditorView: View {
         }
     }
 
+    private func badgeColor(_ format: ManuscriptFormat) -> Color {
+        switch format {
+        case .typst: return .blue
+        case .latex: return .orange
+        case .markdown: return .green
+        case .plaintext: return .gray
+        }
+    }
+
     // MARK: - Export
 
     private func exportAsBundle() {
-        let panel = NSSavePanel()
-        panel.title = "Export as .imprint Bundle"
-        panel.nameFieldStringValue = "\(manuscript?.title ?? "manuscript").imprint"
-        panel.allowedContentTypes = [UTType(filenameExtension: "imprint") ?? .package]
-        guard panel.runModal() == .OK, let dest = panel.url else { return }
-        do {
-            try ManuscriptExporter.exportAsBundle(manuscriptID: manuscriptID, to: dest)
-            NSWorkspace.shared.activateFileViewerSelecting([dest])
-        } catch {
-            presentExportError(error)
-        }
+        ManuscriptExportActions.exportAsBundle(manuscriptID: manuscriptID)
     }
 
     private func exportAsProject() {
-        let panel = NSSavePanel()
-        panel.title = "Export Standalone Project"
-        panel.nameFieldStringValue = manuscript?.title ?? "manuscript"
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let dest = panel.url else { return }
-        do {
-            try ManuscriptExporter.exportAsProject(manuscriptID: manuscriptID, to: dest)
-            NSWorkspace.shared.activateFileViewerSelecting([dest])
-        } catch {
-            presentExportError(error)
-        }
-    }
-
-    private func presentExportError(_ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = "Export failed"
-        alert.informativeText = error.localizedDescription
-        alert.alertStyle = .warning
-        alert.runModal()
+        ManuscriptExportActions.exportAsProject(manuscriptID: manuscriptID)
     }
 }
 

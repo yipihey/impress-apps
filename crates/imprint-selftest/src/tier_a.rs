@@ -57,12 +57,148 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_section_roundtrip().await);
     out.push(cap_replace_in_section().await);
     out.push(cap_compile_latex().await);
+    out.push(cap_manuscript_formats().await);
+    out.push(cap_status_lifecycle().await);
     out.push(cap_throughline_create().await);
     out.push(cap_throughline_anchor_states().await);
     out.push(cap_throughline_coverage().await);
     out.push(cap_throughline_broken_anchor().await);
 
     out
+}
+
+// ---------------------------------------------------------------------------
+// Manuscript format capabilities (WS2: markdown / plain text first-class)
+// ---------------------------------------------------------------------------
+
+/// The suite-wide manuscript format contract: the allowed set lives in
+/// impress-core (single source of truth) and a markdown body round-trips
+/// through the shared item store unchanged.
+async fn cap_manuscript_formats() -> CapabilityResult {
+    check(
+        "store.manuscript_formats",
+        "SUPPORTED_MANUSCRIPT_FORMATS covers typst/latex/markdown/plaintext and a markdown body round-trips",
+        Tier::A,
+        || async {
+            let formats = impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS;
+            let expected = ["typst", "latex", "markdown", "plaintext"];
+            if formats != expected {
+                return Err(format!("format set drifted: {formats:?} != {expected:?}"));
+            }
+            for f in formats {
+                if !impress_core::manuscript_ops::is_supported_manuscript_format(f) {
+                    return Err(format!("is_supported_manuscript_format rejects '{f}'"));
+                }
+            }
+
+            let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+            let path = dir.path().join("impress.sqlite").to_string_lossy().to_string();
+            let store = impress_store_ffi::SharedStore::open(path).map_err(|e| e.to_string())?;
+            let id = uuid::Uuid::new_v4().to_string();
+            let body = "# Decision\n\nUse *one* store.";
+            let payload = serde_json::json!({
+                "title": "ARD",
+                "status": "draft",
+                "current_revision_ref": id,
+                "format": "markdown",
+                "body_content": body,
+            })
+            .to_string();
+            store
+                .upsert_item(id.clone(), "manuscript".into(), payload)
+                .map_err(|e| e.to_string())?;
+            let row = store
+                .get_item(id)
+                .map_err(|e| e.to_string())?
+                .ok_or("manuscript not found after upsert")?;
+            let decoded: serde_json::Value =
+                serde_json::from_str(&row.payload_json).map_err(|e| e.to_string())?;
+            if decoded["format"] != "markdown" || decoded["body_content"] != body {
+                return Err(format!("round-trip mangled payload: {decoded}"));
+            }
+            Ok("format set stable; markdown body round-trips via SharedStore".to_string())
+        },
+    )
+    .await
+}
+
+/// The status-lifecycle convention (docs/status-lifecycle.md): `dismissed`
+/// hides an item from every working scope and is reversible; `archived` is a
+/// distinct end-state. Verified through the same flat query surface the GUIs
+/// use (`query_items` payload_eq on status).
+async fn cap_status_lifecycle() -> CapabilityResult {
+    check(
+        "store.status_lifecycle",
+        "dismissed items leave working scopes, restore returns them, archived is distinct",
+        Tier::A,
+        || async {
+            let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+            let path = dir
+                .path()
+                .join("impress.sqlite")
+                .to_string_lossy()
+                .to_string();
+            let store = impress_store_ffi::SharedStore::open(path).map_err(|e| e.to_string())?;
+
+            let id = uuid::Uuid::new_v4().to_string();
+            let payload = serde_json::json!({
+                "title": "Lifecycle probe",
+                "status": "draft",
+                "current_revision_ref": id,
+                "format": "markdown",
+                "body_content": "x",
+            })
+            .to_string();
+            store
+                .upsert_item(id.clone(), "manuscript".into(), payload)
+                .map_err(|e| e.to_string())?;
+
+            let count_status = |status: &str| -> Result<u32, String> {
+                store
+                    .count_items(impress_store_ffi::SharedItemQuery {
+                        schema_ref: Some("manuscript".into()),
+                        parent_id: None,
+                        payload_eq: vec![impress_store_ffi::SharedFieldEq {
+                            field: "status".into(),
+                            value_json: format!("\"{status}\""),
+                        }],
+                        modified_after_ms: None,
+                        sort_field: String::new(),
+                        ascending: false,
+                        limit: 0,
+                        offset: 0,
+                    })
+                    .map_err(|e| e.to_string())
+            };
+            let set_status = |status: &str| -> Result<(), String> {
+                store
+                    .upsert_item(
+                        id.clone(),
+                        "manuscript".into(),
+                        format!(r#"{{"status": "{status}"}}"#),
+                    )
+                    .map_err(|e| e.to_string())
+            };
+
+            if count_status("draft")? != 1 {
+                return Err("probe not visible as draft".into());
+            }
+            set_status("dismissed")?;
+            if count_status("draft")? != 0 || count_status("dismissed")? != 1 {
+                return Err("dismiss did not move the item out of the working scope".into());
+            }
+            set_status("draft")?;
+            if count_status("draft")? != 1 || count_status("dismissed")? != 0 {
+                return Err("restore did not return the item".into());
+            }
+            set_status("archived")?;
+            if count_status("archived")? != 1 || count_status("dismissed")? != 0 {
+                return Err("archived must be distinct from dismissed".into());
+            }
+            Ok("dismiss/restore/archive transitions scope correctly".into())
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ use impress_core::{
     item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility},
     operation::{OperationIntent, OperationSpec, OperationType, RetentionTier},
     query::{ItemQuery, Predicate, SortDescriptor},
+    reference::{EdgeType, TypedReference},
     sqlite_store::SqliteItemStore,
     store::{FieldMutation, ItemStore, StoreError},
 };
@@ -80,11 +81,70 @@ pub struct SharedItemRow {
     pub payload_json: String,
     /// Item creation timestamp in milliseconds since Unix epoch.
     pub created_ms: i64,
+    /// Last-modified timestamp in milliseconds since Unix epoch (watermark
+    /// polling: pass back as `modified_after_ms` in `SharedItemQuery`).
+    pub modified_ms: i64,
+    /// Envelope parent item id (folder/account/collection chains), if any.
+    pub parent_id: Option<String>,
     pub is_read: bool,
     pub is_starred: bool,
     pub tags: Vec<String>,
     /// Flag color if the item is flagged (e.g. "red", "amber", "blue", "gray").
     pub flag_color: Option<String>,
+}
+
+/// Full-envelope upsert row (Stage 0 of the GUI unification). Unlike
+/// `upsert_item`, this carries the envelope fields migrations need: a real
+/// creation timestamp (mail must sort by message date, not import time), the
+/// parent chain (message→folder→account, figure→folder), tags, read/starred.
+/// `None` fields keep defaults on insert and are left untouched on update.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedItemUpsert {
+    pub id: String,
+    pub schema_ref: String,
+    pub payload_json: String,
+    pub parent_id: Option<String>,
+    pub tags: Vec<String>,
+    pub created_ms: Option<i64>,
+    pub is_read: Option<bool>,
+    pub is_starred: Option<bool>,
+}
+
+/// Outcome of a batch upsert.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedBatchResult {
+    pub inserted: u32,
+    pub updated: u32,
+}
+
+/// One payload-field equality filter. `value_json` is a JSON scalar
+/// (`"draft"`, `42`, `true`) so the type survives the FFI boundary.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedFieldEq {
+    pub field: String,
+    pub value_json: String,
+}
+
+/// Flat, UniFFI-friendly query over items — compiles to `ItemQuery`
+/// predicates. All filters are ANDed.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedItemQuery {
+    pub schema_ref: Option<String>,
+    /// Envelope parent filter (children of a folder/account/collection).
+    pub parent_id: Option<String>,
+    pub payload_eq: Vec<SharedFieldEq>,
+    /// Only items modified strictly after this watermark (ms since epoch).
+    pub modified_after_ms: Option<i64>,
+    /// Sort field: "created" | "modified" | "payload.<field>". Empty = modified.
+    pub sort_field: String,
+    pub ascending: bool,
+    /// 0 = default of 100.
+    pub limit: u32,
+    pub offset: u32,
 }
 
 /// A flat representation of a typed reference (graph edge) on an item.
@@ -307,6 +367,182 @@ impl SharedStore {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Full-envelope upsert (Stage 0): like `upsert_item` but with real
+    /// timestamps, parent chain, tags, and read/starred state. Insert sets
+    /// everything; update applies payload additively plus any envelope field
+    /// that is `Some`.
+    pub fn upsert_item_v2(&self, row: SharedItemUpsert) -> Result<(), SharedStoreError> {
+        let item_id: ItemId = row
+            .id
+            .parse()
+            .map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid UUID: {}", row.id),
+            })?;
+        let payload: BTreeMap<String, Value> =
+            serde_json::from_str(&row.payload_json).map_err(|e| {
+                SharedStoreError::InvalidArgument {
+                    message: format!("invalid payload JSON: {e}"),
+                }
+            })?;
+
+        let item = build_item_from_upsert(item_id, &row, payload.clone())?;
+        match self.inner.insert(item) {
+            Ok(_) => Ok(()),
+            Err(StoreError::AlreadyExists(_)) => {
+                self.inner
+                    .update(item_id, upsert_update_mutations(&row, payload)?)?;
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Batch upsert in as few transactions as possible: new rows insert in a
+    /// SINGLE transaction (`insert_batch`); pre-existing rows update
+    /// individually. Designed for migration backfills (idempotent re-runs:
+    /// deterministic ids make every row an update the second time).
+    pub fn upsert_items(
+        &self,
+        rows: Vec<SharedItemUpsert>,
+    ) -> Result<SharedBatchResult, SharedStoreError> {
+        let mut to_insert: Vec<Item> = Vec::with_capacity(rows.len());
+        let mut to_update: Vec<(ItemId, Vec<FieldMutation>)> = Vec::new();
+
+        for row in &rows {
+            let item_id: ItemId =
+                row.id
+                    .parse()
+                    .map_err(|_| SharedStoreError::InvalidArgument {
+                        message: format!("invalid UUID: {}", row.id),
+                    })?;
+            let payload: BTreeMap<String, Value> = serde_json::from_str(&row.payload_json)
+                .map_err(|e| SharedStoreError::InvalidArgument {
+                    message: format!("invalid payload JSON in {}: {e}", row.id),
+                })?;
+            if self.inner.get(item_id)?.is_some() {
+                to_update.push((item_id, upsert_update_mutations(row, payload)?));
+            } else {
+                to_insert.push(build_item_from_upsert(item_id, row, payload)?);
+            }
+        }
+
+        let inserted = to_insert.len() as u32;
+        let updated = to_update.len() as u32;
+        if !to_insert.is_empty() {
+            self.inner.insert_batch(to_insert)?;
+        }
+        for (id, mutations) in to_update {
+            if !mutations.is_empty() {
+                self.inner.update(id, mutations)?;
+            }
+        }
+        Ok(SharedBatchResult { inserted, updated })
+    }
+
+    /// Add a typed reference (graph edge) from `source_id` to `target_id`.
+    /// `edge_type` uses the `SharedReferenceRow` convention (`Cites`,
+    /// `Contains`, …); unknown strings become custom edges.
+    pub fn add_reference(
+        &self,
+        source_id: String,
+        target_id: String,
+        edge_type: String,
+    ) -> Result<(), SharedStoreError> {
+        let source: ItemId = source_id
+            .parse()
+            .map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid UUID: {source_id}"),
+            })?;
+        let target: ItemId = target_id
+            .parse()
+            .map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid UUID: {target_id}"),
+            })?;
+        let reference = TypedReference {
+            target,
+            edge_type: parse_edge_type(&edge_type),
+            metadata: None,
+        };
+        self.inner
+            .update(source, vec![FieldMutation::AddReference(reference)])?;
+        Ok(())
+    }
+
+    /// Remove a typed reference previously added with `add_reference`.
+    pub fn remove_reference(
+        &self,
+        source_id: String,
+        target_id: String,
+        edge_type: String,
+    ) -> Result<(), SharedStoreError> {
+        let source: ItemId = source_id
+            .parse()
+            .map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid UUID: {source_id}"),
+            })?;
+        let target: ItemId = target_id
+            .parse()
+            .map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid UUID: {target_id}"),
+            })?;
+        self.inner.update(
+            source,
+            vec![FieldMutation::RemoveReference(
+                target,
+                parse_edge_type(&edge_type),
+            )],
+        )?;
+        Ok(())
+    }
+
+    /// Set (or clear, with `nil`) an item's envelope parent — folder moves,
+    /// unfiling. `upsert_item*`'s update path never touches the parent, so
+    /// moves must be explicit.
+    pub fn set_parent(
+        &self,
+        id: String,
+        parent_id: Option<String>,
+    ) -> Result<(), SharedStoreError> {
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
+        let parent: Option<ItemId> = match parent_id {
+            Some(p) => Some(p.parse().map_err(|_| SharedStoreError::InvalidArgument {
+                message: format!("invalid parent UUID: {p}"),
+            })?),
+            None => None,
+        };
+        self.inner
+            .update(item_id, vec![FieldMutation::SetParent(parent)])?;
+        Ok(())
+    }
+
+    /// Flat predicate query (Stage 0): schema/parent/payload-equality/
+    /// modified-watermark filters, ANDed, with created/modified/payload sort.
+    pub fn query_items(
+        &self,
+        query: SharedItemQuery,
+    ) -> Result<Vec<SharedItemRow>, SharedStoreError> {
+        let q = compile_shared_query(&query, false)?;
+        let items = self.inner.query(&q)?;
+        Ok(items.into_iter().map(item_to_row).collect())
+    }
+
+    /// Count of items matching `query` (limit/offset/sort ignored).
+    pub fn count_items(&self, query: SharedItemQuery) -> Result<u32, SharedStoreError> {
+        let q = compile_shared_query(&query, true)?;
+        Ok(self.inner.count(&q)? as u32)
+    }
+
+    /// Declare record schemas whose items never enter the CloudKit sync
+    /// outbox because they have their own sync protocol (mail = IMAP).
+    /// Additive; also drains already-queued rows for those schemas. Items
+    /// remain fully durable — this is NOT retention `ephemeral`.
+    pub fn add_sync_excluded_schemas(&self, schemas: Vec<String>) -> Result<(), SharedStoreError> {
+        self.inner.add_sync_excluded_schemas(&schemas)?;
+        Ok(())
     }
 
     /// Retrieve a single item by ID, or `nil` if not found.
@@ -1023,6 +1259,8 @@ fn item_to_row(item: Item) -> SharedItemRow {
         schema_ref: item.schema,
         payload_json,
         created_ms: item.created.timestamp_millis(),
+        modified_ms: item.modified.timestamp_millis(),
+        parent_id: item.parent.map(|p| p.to_string()),
         is_read: item.is_read,
         is_starred: item.is_starred,
         tags: item.tags,
@@ -1030,11 +1268,421 @@ fn item_to_row(item: Item) -> SharedItemRow {
     }
 }
 
+/// Mutations for the UPDATE path of an upsert: payload fields additively,
+/// plus any envelope field the caller supplied. Parent is deliberately NOT
+/// updated here (moves are semantic — use `set_parent`); `created_ms` is
+/// immutable after insert.
+fn upsert_update_mutations(
+    row: &SharedItemUpsert,
+    payload: BTreeMap<String, Value>,
+) -> Result<Vec<FieldMutation>, SharedStoreError> {
+    let mut mutations: Vec<FieldMutation> = payload
+        .into_iter()
+        .map(|(k, v)| FieldMutation::SetPayload(k, v))
+        .collect();
+    if let Some(r) = row.is_read {
+        mutations.push(FieldMutation::SetRead(r));
+    }
+    if let Some(s) = row.is_starred {
+        mutations.push(FieldMutation::SetStarred(s));
+    }
+    for tag in &row.tags {
+        mutations.push(FieldMutation::AddTag(tag.clone()));
+    }
+    Ok(mutations)
+}
+
+/// Compile a `SharedItemQuery` into a core `ItemQuery`.
+fn compile_shared_query(
+    query: &SharedItemQuery,
+    for_count: bool,
+) -> Result<ItemQuery, SharedStoreError> {
+    let mut predicates: Vec<Predicate> = Vec::new();
+    if let Some(pid) = &query.parent_id {
+        let parent: ItemId = pid.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid parent UUID: {pid}"),
+        })?;
+        predicates.push(Predicate::HasParent(parent));
+    }
+    for eq in &query.payload_eq {
+        let value: Value = serde_json::from_str(&eq.value_json).map_err(|e| {
+            SharedStoreError::InvalidArgument {
+                message: format!("invalid value_json for {}: {e}", eq.field),
+            }
+        })?;
+        predicates.push(Predicate::Eq(eq.field.clone(), value));
+    }
+    if let Some(ms) = query.modified_after_ms {
+        // `modified` is stored as INTEGER milliseconds (see insert_item).
+        predicates.push(Predicate::Gt("modified".into(), Value::Int(ms)));
+    }
+
+    let sort_field = if query.sort_field.is_empty() {
+        "modified".to_string()
+    } else {
+        query.sort_field.clone()
+    };
+
+    Ok(ItemQuery {
+        schema: query.schema_ref.clone(),
+        predicates,
+        sort: if for_count {
+            vec![]
+        } else {
+            vec![SortDescriptor {
+                field: sort_field,
+                ascending: query.ascending,
+            }]
+        },
+        limit: if for_count {
+            None
+        } else {
+            Some(if query.limit == 0 {
+                100
+            } else {
+                query.limit as usize
+            })
+        },
+        offset: if for_count {
+            None
+        } else {
+            Some(query.offset as usize)
+        },
+        ..ItemQuery::default()
+    })
+}
+
+/// Parse an edge-type string in the `SharedReferenceRow` convention — the
+/// serde name without quotes (`Cites`, `Contains`, …); anything unknown
+/// becomes `Custom(<s>)`.
+fn parse_edge_type(s: &str) -> EdgeType {
+    serde_json::from_str::<EdgeType>(&format!("\"{s}\""))
+        .unwrap_or_else(|_| EdgeType::Custom(s.to_string()))
+}
+
+/// Build a full `Item` from a `SharedItemUpsert` (insert path).
+fn build_item_from_upsert(
+    id: ItemId,
+    row: &SharedItemUpsert,
+    payload: BTreeMap<String, Value>,
+) -> Result<Item, SharedStoreError> {
+    use chrono::{TimeZone, Utc};
+
+    let mut item = build_item(id, row.schema_ref.clone(), payload);
+    if let Some(ms) = row.created_ms {
+        let ts = Utc.timestamp_millis_opt(ms).single().ok_or_else(|| {
+            SharedStoreError::InvalidArgument {
+                message: format!("invalid created_ms: {ms}"),
+            }
+        })?;
+        item.created = ts;
+        item.modified = ts;
+    }
+    if let Some(pid) = &row.parent_id {
+        item.parent = Some(pid.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid parent UUID: {pid}"),
+        })?);
+    }
+    item.tags = row.tags.clone();
+    if let Some(r) = row.is_read {
+        item.is_read = r;
+    }
+    if let Some(s) = row.is_starred {
+        item.is_starred = s;
+    }
+    Ok(item)
+}
+
+/// The allowed `manuscript.format` payload values (single source of truth:
+/// `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
+/// app-side format enums can assert parity without duplicating the list.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn supported_manuscript_formats() -> Vec<String> {
+    impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sync_excluded_schemas_bypass_and_drain_outbox() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let a = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                a.clone(),
+                "email-message".into(),
+                r#"{"subject": "s", "body": "b", "from": "f"}"#.into(),
+            )
+            .expect("insert email");
+        let before = store.sync_outbox_entries(100).expect("outbox");
+        assert!(
+            before.iter().any(|e| e.record_name == a.to_lowercase()),
+            "pre-exclusion insert must enqueue"
+        );
+
+        store
+            .add_sync_excluded_schemas(vec!["email-message".into()])
+            .expect("exclude");
+        let drained = store.sync_outbox_entries(100).expect("outbox2");
+        assert!(
+            !drained.iter().any(|e| e.record_name == a.to_lowercase()),
+            "exclusion must drain queued rows for the schema"
+        );
+
+        let b = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                b.clone(),
+                "email-message".into(),
+                r#"{"subject": "s2", "body": "b2", "from": "f2"}"#.into(),
+            )
+            .expect("insert email 2");
+        let after = store.sync_outbox_entries(100).expect("outbox3");
+        assert!(
+            !after.iter().any(|e| e.record_name == b.to_lowercase()),
+            "post-exclusion inserts must bypass the outbox"
+        );
+        // Durability is untouched: the rows are still real items.
+        assert!(store.get_item(b).expect("get").is_some());
+    }
+
+    #[test]
+    fn upsert_item_v2_carries_envelope_fields() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let id = uuid::Uuid::new_v4().to_string();
+        let folder_id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                folder_id.clone(),
+                "mail-folder".into(),
+                r#"{"name": "Inbox", "role": "inbox"}"#.into(),
+            )
+            .expect("folder");
+
+        store
+            .upsert_item_v2(SharedItemUpsert {
+                id: id.clone(),
+                schema_ref: "email-message".into(),
+                payload_json:
+                    r#"{"subject": "Referee report", "body": "dark matter comments", "from": "ed@apj.org"}"#
+                        .into(),
+                parent_id: Some(folder_id.clone()),
+                tags: vec!["referee".into()],
+                created_ms: Some(1_600_000_000_000),
+                is_read: Some(true),
+                is_starred: None,
+            })
+            .expect("upsert v2");
+
+        let row = store.get_item(id.clone()).expect("get").expect("exists");
+        assert_eq!(
+            row.created_ms, 1_600_000_000_000,
+            "created must be the message date"
+        );
+        assert_eq!(row.parent_id.as_deref(), Some(folder_id.as_str()));
+        assert!(row.is_read);
+        assert_eq!(row.tags, vec!["referee".to_string()]);
+    }
+
+    #[test]
+    fn mail_payloads_are_full_text_searchable() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                id.clone(),
+                "email-message".into(),
+                r#"{"subject": "Reionization draft", "body": "the epoch of reionization ended", "from": "colleague@example.org"}"#
+                    .into(),
+            )
+            .expect("upsert email");
+
+        // Search matches via the COALESCE mapping (subject→title, body→body).
+        let hits = store
+            .search("reionization".into(), None, 10)
+            .expect("search");
+        assert!(
+            hits.iter().any(|r| r.id == id),
+            "email must be findable by subject/body text"
+        );
+    }
+
+    #[test]
+    fn query_items_filters_parent_payload_and_watermark() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let folder = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                folder.clone(),
+                "mail-folder".into(),
+                r#"{"name": "F"}"#.into(),
+            )
+            .expect("folder");
+
+        let in_folder = uuid::Uuid::new_v4().to_string();
+        let elsewhere = uuid::Uuid::new_v4().to_string();
+        for (id, parent, status) in [
+            (&in_folder, Some(folder.clone()), "draft"),
+            (&elsewhere, None, "dismissed"),
+        ] {
+            store
+                .upsert_item_v2(SharedItemUpsert {
+                    id: id.clone(),
+                    schema_ref: "manuscript".into(),
+                    payload_json: format!(
+                        r#"{{"title": "T", "status": "{status}", "current_revision_ref": "{id}"}}"#
+                    ),
+                    parent_id: parent,
+                    tags: vec![],
+                    created_ms: None,
+                    is_read: None,
+                    is_starred: None,
+                })
+                .expect("upsert");
+        }
+
+        let by_parent = store
+            .query_items(SharedItemQuery {
+                schema_ref: Some("manuscript".into()),
+                parent_id: Some(folder.clone()),
+                payload_eq: vec![],
+                modified_after_ms: None,
+                sort_field: String::new(),
+                ascending: false,
+                limit: 0,
+                offset: 0,
+            })
+            .expect("query parent");
+        assert_eq!(by_parent.len(), 1);
+        assert_eq!(by_parent[0].id, in_folder);
+
+        let dismissed = store
+            .query_items(SharedItemQuery {
+                schema_ref: Some("manuscript".into()),
+                parent_id: None,
+                payload_eq: vec![SharedFieldEq {
+                    field: "status".into(),
+                    value_json: "\"dismissed\"".into(),
+                }],
+                modified_after_ms: None,
+                sort_field: String::new(),
+                ascending: false,
+                limit: 0,
+                offset: 0,
+            })
+            .expect("query status");
+        assert_eq!(dismissed.len(), 1);
+        assert_eq!(dismissed[0].id, elsewhere);
+
+        // Watermark: everything is newer than 0, nothing is newer than
+        // far-future.
+        let all = store
+            .count_items(SharedItemQuery {
+                schema_ref: Some("manuscript".into()),
+                parent_id: None,
+                payload_eq: vec![],
+                modified_after_ms: Some(0),
+                sort_field: String::new(),
+                ascending: false,
+                limit: 0,
+                offset: 0,
+            })
+            .expect("count");
+        assert_eq!(all, 2);
+        let none = store
+            .count_items(SharedItemQuery {
+                schema_ref: Some("manuscript".into()),
+                parent_id: None,
+                payload_eq: vec![],
+                modified_after_ms: Some(4_102_444_800_000),
+                sort_field: String::new(),
+                ascending: false,
+                limit: 0,
+                offset: 0,
+            })
+            .expect("count none");
+        assert_eq!(none, 0);
+    }
+
+    #[test]
+    fn upsert_items_batch_is_idempotent() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let ids: Vec<String> = (0..5).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+        let rows: Vec<SharedItemUpsert> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| SharedItemUpsert {
+                id: id.clone(),
+                schema_ref: "email-message".into(),
+                payload_json: format!(r#"{{"subject": "msg {i}", "body": "b", "from": "a@b.c"}}"#),
+                parent_id: None,
+                tags: vec![],
+                created_ms: Some(1_600_000_000_000 + i as i64),
+                is_read: None,
+                is_starred: None,
+            })
+            .collect();
+
+        let first = store.upsert_items(rows.clone()).expect("first batch");
+        assert_eq!((first.inserted, first.updated), (5, 0));
+        // Deterministic ids: the re-run must update, not duplicate.
+        let second = store.upsert_items(rows).expect("second batch");
+        assert_eq!((second.inserted, second.updated), (0, 5));
+        assert_eq!(
+            store
+                .count_by_schema("email-message".into())
+                .expect("count"),
+            5
+        );
+    }
+
+    #[test]
+    fn references_and_parent_moves() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let a = uuid::Uuid::new_v4().to_string();
+        let b = uuid::Uuid::new_v4().to_string();
+        for id in [&a, &b] {
+            store
+                .upsert_item(id.clone(), "figure".into(), r#"{"format": "svg"}"#.into())
+                .expect("upsert");
+        }
+
+        store
+            .add_reference(a.clone(), b.clone(), "DerivedFrom".into())
+            .expect("add ref");
+        let refs = store.get_item_references(a.clone()).expect("refs");
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].target_id, b);
+        store
+            .remove_reference(a.clone(), b.clone(), "DerivedFrom".into())
+            .expect("remove ref");
+        assert!(store
+            .get_item_references(a.clone())
+            .expect("refs2")
+            .is_empty());
+
+        store
+            .set_parent(a.clone(), Some(b.clone()))
+            .expect("set parent");
+        assert_eq!(
+            store
+                .get_item(a.clone())
+                .expect("get")
+                .unwrap()
+                .parent_id
+                .as_deref(),
+            Some(b.as_str())
+        );
+        store.set_parent(a.clone(), None).expect("clear parent");
+        assert_eq!(store.get_item(a).expect("get").unwrap().parent_id, None);
+    }
 
     #[test]
     fn open_in_memory_and_upsert() {

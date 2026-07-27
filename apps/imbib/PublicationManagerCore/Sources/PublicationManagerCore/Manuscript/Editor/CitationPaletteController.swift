@@ -128,8 +128,9 @@ final class CitationPaletteController {
             // insertionRange is right after `{` or after the last `,`. Insert just the key.
             insertText = key
             newCursor = insertionRange.location + key.count
-        case .typst:
+        case .typst, .markdown, .plaintext:
             // insertionRange covers what's already been typed after `@`; replace it with the key.
+            // (Markdown shares the pandoc-style @key form; plaintext never triggers.)
             insertText = key
             newCursor = insertionRange.location + key.count
         }
@@ -216,8 +217,10 @@ enum CitationPaletteTriggerDetector {
         switch format {
         case .latex:
             return detectLatex(in: source, at: cursorLocation)
-        case .typst:
+        case .typst, .markdown:
             return detectTypst(in: source, at: cursorLocation)
+        case .plaintext:
+            return nil   // no citation syntax
         }
     }
 

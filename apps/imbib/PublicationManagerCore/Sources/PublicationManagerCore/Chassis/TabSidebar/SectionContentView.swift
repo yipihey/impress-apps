@@ -9,6 +9,7 @@
 
 import SwiftUI
 import OSLog
+import ImpressFTUI
 #if os(macOS)
 import AppKit
 #endif
@@ -37,6 +38,7 @@ struct SectionContentView: View {
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(SearchViewModel.self) private var searchViewModel
+    @Environment(\.appShellConfiguration) private var shellConfiguration
 
     // MARK: - State
 
@@ -68,8 +70,33 @@ struct SectionContentView: View {
     /// Reading `viewModel.selectedTab` here establishes a direct @Observable
     /// dependency, so this view re-evaluates when the tab changes.
     private var resolvedRoute: ImbibContentRoute? {
+        // In manuscript-flag shells (imprint), the Flagged sidebar nodes list
+        // flagged MANUSCRIPTS — route them into the journal path before the
+        // publication-source resolution below can claim them.
+        if case .flagged(let colorRaw) = viewModel.selectedTab,
+           shellConfiguration.recordKind(for: .flagged) == .manuscript {
+            let color = colorRaw.flatMap { FlagColor(rawValue: $0) }
+            return .journal(.flagged(color))
+        }
+        // Dismissed manuscripts (imprint) rather than imbib's dismissed papers.
+        if case .dismissed = viewModel.selectedTab,
+           shellConfiguration.recordKind(for: .dismissed) == .manuscript {
+            return .journal(.status(.dismissed))
+        }
+        if case .customSurface(let surfaceID) = viewModel.selectedTab {
+            return .customSurface(surfaceID)
+        }
         if let journalRoute = viewModel.selectedTab?.journalRoute {
             return .journal(journalRoute)
+        }
+        if let figureRoute = viewModel.selectedTab?.figureRoute {
+            return .figures(figureRoute)
+        }
+        if let mailRoute = viewModel.selectedTab?.mailRoute {
+            return .mail(mailRoute)
+        }
+        if let agentRoute = viewModel.selectedTab?.agentRoute {
+            return .agents(agentRoute)
         }
 
         switch viewModel.selectedTab {
@@ -195,10 +222,24 @@ struct SectionContentView: View {
             return .recent
         case .allArtifacts, .artifactType, .reviewQueue:
             return nil
+        case .customSurface:
+            return nil
         case .journalAll, .journalByStatus, .journalSubmissions, .manuscript, .manuscriptFolder:
             // Journal pipeline tabs are NOT publication sources. They route
             // to ManuscriptDetailView / SubmissionsInboxView via a separate
             // dispatch path (added in Track 5/6 of Phase 2).
+            return nil
+        case .figuresAll, .figuresUnfiled, .figureFolder:
+            // Figures tabs route to FigureSectionView (Stage 2-B) — not
+            // publication sources.
+            return nil
+        case .mailAllInboxes, .mailAccount, .mailFolder:
+            // Mail tabs route to MessageSectionView (Stage 2-A) — not
+            // publication sources.
+            return nil
+        case .agentTasks, .agentRuns, .agentTasksByState:
+            // Agents tabs route to AgentSectionView (Stage 2-C) — not
+            // publication sources.
             return nil
         case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
@@ -208,6 +249,8 @@ struct SectionContentView: View {
     /// Library ID corresponding to the current sidebar selection.
     private var currentLibraryID: UUID? {
         switch viewModel.selectedTab {
+        case .customSurface:
+            return nil
         case .inbox, .inboxFeed, .inboxCollection:
             return InboxManager.shared.inboxLibrary?.id
         case .libraryFeed(let feedID):
@@ -229,7 +272,15 @@ struct SectionContentView: View {
             return nil
         case .allArtifacts, .artifactType, .reviewQueue:
             return nil
+        case .customSurface:
+            return nil
         case .journalAll, .journalByStatus, .journalSubmissions, .manuscript, .manuscriptFolder:
+            return nil
+        case .figuresAll, .figuresUnfiled, .figureFolder:
+            return nil
+        case .mailAllInboxes, .mailAccount, .mailFolder:
+            return nil
+        case .agentTasks, .agentRuns, .agentTasksByState:
             return nil
         case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
@@ -303,6 +354,16 @@ struct SectionContentView: View {
             switch route {
             case .journal(let journalRoute):
                 journalView(journalRoute)
+            case .figures(let figureRoute):
+                figuresView(figureRoute)
+            case .mail(let mailRoute):
+                mailView(mailRoute)
+            case .agents(let agentRoute):
+                agentsView(agentRoute)
+            case .customSurface(let surfaceID):
+                // WP-X0: app-owned surface, FULL-PANE — no list/detail split,
+                // no detail toolbar cluster; only the sidebar toggle applies.
+                customSurfaceView(surfaceID)
             default:
                 contentBody(route)
             }
@@ -321,21 +382,106 @@ struct SectionContentView: View {
             // item list (GUI-meld plan §5).
             SubmissionsInboxView()
         case .all:
-            ManuscriptSectionView(scope: .all)
+            manuscriptSection(.all)
         case .status(let status):
-            ManuscriptSectionView(scope: .status(status))
+            manuscriptSection(.status(status))
         case .folder(let id):
             if let uuid = UUID(uuidString: id) {
-                ManuscriptSectionView(scope: .folder(uuid))
+                manuscriptSection(.folder(uuid))
             } else {
-                ManuscriptSectionView(scope: .all)
+                manuscriptSection(.all)
             }
+        case .flagged(let color):
+            manuscriptSection(.flagged(color))
         case .manuscript(let id):
             // Direct deep-link to one manuscript (e.g. from search): show it
             // in the standard detail pane without a list.
             ManuscriptDetailView(manuscriptID: id)
                 .ignoresSafeArea(.container, edges: .top)
         }
+    }
+
+    /// One construction site for the manuscript list|detail split, with the
+    /// mandated `.id(scope)` (see imbib CLAUDE.md "The `.id(source.id)` rule"):
+    /// without it, switching between two journal routes of the same shape
+    /// (Drafts → Submitted, folder → folder) reuses the cached view and its
+    /// stale `@State` selection.
+    private func manuscriptSection(_ scope: ManuscriptListScope) -> some View {
+        ManuscriptSectionView(scope: scope).id(scope)
+    }
+
+    /// Dispatch Figures-section sidebar selections (Stage 2-B) — follows the
+    /// journalView/manuscriptSection pattern exactly.
+    @ViewBuilder
+    private func figuresView(_ route: FigureRoute) -> some View {
+        switch route {
+        case .all:
+            figureSection(.all)
+        case .unfiled:
+            figureSection(.unfiled)
+        case .folder(let id):
+            if let uuid = UUID(uuidString: id) {
+                figureSection(.folder(uuid))
+            } else {
+                figureSection(.all)
+            }
+        case .flagged(let color):
+            figureSection(.flagged(color))
+        }
+    }
+
+    /// One construction site for the figure list|detail split, with the
+    /// mandated `.id(scope)` (see imbib CLAUDE.md "The `.id(source.id)` rule").
+    private func figureSection(_ scope: FigureListScope) -> some View {
+        FigureSectionView(scope: scope).id(scope)
+    }
+
+    /// Dispatch Mail-section sidebar selections (Stage 2-A) — follows the
+    /// figuresView/figureSection pattern exactly.
+    @ViewBuilder
+    private func mailView(_ route: MailRoute) -> some View {
+        switch route {
+        case .allInboxes:
+            messageSection(.allInboxes)
+        case .account(let id):
+            if let uuid = UUID(uuidString: id) {
+                messageSection(.account(uuid))
+            } else {
+                messageSection(.allInboxes)
+            }
+        case .folder(let id):
+            if let uuid = UUID(uuidString: id) {
+                messageSection(.folder(uuid))
+            } else {
+                messageSection(.allInboxes)
+            }
+        }
+    }
+
+    /// One construction site for the mail list|detail split, with the
+    /// mandated `.id(scope)` (see imbib CLAUDE.md "The `.id(source.id)` rule").
+    private func messageSection(_ scope: MessageListScope) -> some View {
+        MessageSectionView(scope: scope).id(scope)
+    }
+
+    /// Dispatch Agents-section sidebar selections (Stage 2-C) — follows the
+    /// mailView/messageSection pattern exactly.
+    @ViewBuilder
+    private func agentsView(_ route: AgentRoute) -> some View {
+        switch route {
+        case .tasks:
+            agentSection(.tasks)
+        case .runs:
+            agentSection(.runs)
+        case .tasksByState(let state):
+            agentSection(.tasksByState(state))
+        }
+    }
+
+    /// One construction site for the agents list|detail split, with the
+    /// mandated `.id(scope)` (see imbib CLAUDE.md "The `.id(source.id)` rule").
+    private func agentSection(_ scope: AgentListScope) -> some View {
+        AgentSectionView(scope: scope).id(scope)
     }
 
     @ViewBuilder
@@ -346,12 +492,17 @@ struct SectionContentView: View {
         // (see CLAUDE.md "macOS Detail Pane Layout") is untouched when the
         // pane is visible.
         Group {
-            if PaneLayoutStore.shared.current.detailPaneVisible {
+            let layout = PaneLayoutStore.shared.current
+            if layout.listPaneVisible && layout.detailPaneVisible {
                 ImpressSplitView(listMinWidth: 200, listIdealWidth: 300, detailMinWidth: 300) {
                     leftPane(route)
                 } detail: {
                     detailView
                 }
+            } else if layout.detailPaneVisible {
+                detailView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(.container, edges: .top)
             } else {
                 leftPane(route)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -533,6 +684,23 @@ struct SectionContentView: View {
 
     // MARK: - Left Pane
 
+    /// WP-X0 surface host: constructed lazily per selection from the shell's
+    /// registry; unknown ids (stale persisted selection after an app update)
+    /// degrade to a quiet placeholder.
+    @ViewBuilder
+    private func customSurfaceView(_ surfaceID: String) -> some View {
+        if let surface = shellConfiguration.customSurfaces[surfaceID] {
+            surface.makeView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ContentUnavailableView(
+                "Surface Unavailable",
+                systemImage: "questionmark.square.dashed",
+                description: Text("No registered surface named \u{201C}\(surfaceID)\u{201D}.")
+            )
+        }
+    }
+
     @ViewBuilder
     private func leftPane(_ route: ImbibContentRoute) -> some View {
         switch route {
@@ -571,7 +739,23 @@ struct SectionContentView: View {
         case .feedFormPicker:
             feedFormPickerView
 
+        case .customSurface:
+            // Unreachable: the body dispatch renders custom surfaces
+            // full-pane before the split is ever constructed.
+            EmptyView()
         case .journal:
+            EmptyView()
+        case .figures:
+            // Unreachable: the body dispatch renders the figure section
+            // before the split is ever constructed.
+            EmptyView()
+        case .mail:
+            // Unreachable: the body dispatch renders the mail section
+            // before the split is ever constructed.
+            EmptyView()
+        case .agents:
+            // Unreachable: the body dispatch renders the agents section
+            // before the split is ever constructed.
             EmptyView()
         }
     }

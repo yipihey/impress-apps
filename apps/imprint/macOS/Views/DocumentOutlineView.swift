@@ -55,6 +55,8 @@ struct DocumentOutlineView: View {
         switch fmt {
         case .typst: items = Self.parseTypstItems(source)
         case .latex: items = Self.parseLaTeXItems(source)
+        case .markdown: items = Self.parseMarkdownItems(source)
+        case .plaintext: items = []   // no heading grammar
         }
         return Self.buildFlatTree(from: items)
     }
@@ -197,6 +199,24 @@ struct DocumentOutlineView: View {
                 if !title.isEmpty {
                     items.append(OutlineItem(title: title, level: level, lineNumber: index))
                 }
+            }
+        }
+        return items
+    }
+
+    private static func parseMarkdownItems(_ source: String) -> [OutlineItem] {
+        var items: [OutlineItem] = []
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+        var inFence = false
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") { inFence.toggle(); continue }
+            guard !inFence, trimmed.hasPrefix("#") else { continue }
+            let level = trimmed.prefix(while: { $0 == "#" }).count
+            guard level <= 6 else { continue }
+            let title = String(trimmed.dropFirst(level).trimmingCharacters(in: .whitespaces))
+            if !title.isEmpty {
+                items.append(OutlineItem(title: title, level: level, lineNumber: index))
             }
         }
         return items

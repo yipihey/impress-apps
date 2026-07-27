@@ -27,6 +27,18 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
     /// Raw value stays "journal" so persisted section order/collapse state
     /// survives the rename.
     case manuscripts = "journal"
+    /// The Figures section (Stage 2-B): implore's Library facet — All
+    /// Figures, Unfiled, and figure-collection folders. Permits-gated to the
+    /// implore shell (`shouldShowSection`).
+    case figures
+    /// The Mail section (Stage 2-A): impart's mail-browsing facet — All
+    /// Inboxes, then per-account folder trees (mail-account/mail-folder
+    /// items). Gated to the impart shell (`shouldShowSection`).
+    case mail
+    /// The Agents section (Stage 2-C): impel's task/run-browsing facet —
+    /// Tasks (with per-state smart children) and Runs. Gated to the impel
+    /// shell (`shouldShowSection`).
+    case agents
     case reviewQueue
     case dismissed
 
@@ -44,6 +56,9 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .citedInManuscripts: return "Cited in Manuscripts"
         case .artifacts: return "Artifacts"
         case .manuscripts: return "Manuscripts"
+        case .figures: return "Figures"
+        case .mail: return "Mail"
+        case .agents: return "Agents"
         case .reviewQueue: return "Review Queue"
         case .dismissed: return "Dismissed"
         }
@@ -61,6 +76,9 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .citedInManuscripts: return "text.book.closed.fill"
         case .artifacts: return "archivebox"
         case .manuscripts: return "doc.text.image"
+        case .figures: return "photo.on.rectangle.angled"
+        case .mail: return "envelope"
+        case .agents: return "brain"
         case .reviewQueue: return "checklist"
         case .dismissed: return "trash"
         }
@@ -88,6 +106,9 @@ public final class SidebarSectionOrderStoreWrapper: Sendable {
         .citedInManuscripts,
         .artifacts,
         .manuscripts,
+        .figures,
+        .mail,
+        .agents,
         .reviewQueue,
         .dismissed
     ]

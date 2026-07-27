@@ -14,12 +14,16 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../../../packages/ImpressKit"),
+        // Stage 0: direct reads from the shared item store (task@1.0.0 /
+        // agent-run@1.0.0 rows written by impel-taskd).
+        .package(path: "../../../../packages/ImpressRustCore"),
     ],
     targets: [
         .target(
             name: "ImpelCore",
             dependencies: [
                 "ImpressKit",
+                .product(name: "ImpressRustCore", package: "ImpressRustCore"),
             ],
             path: "Sources/ImpelCore",
             swiftSettings: [.swiftLanguageMode(.v5)]

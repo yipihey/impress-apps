@@ -377,24 +377,29 @@ public class ImpelClient: ObservableObject {
         serverURL = nil
     }
 
-    /// Refresh state from server
+    /// Refresh state from the shared item store (Stage 0 of the GUI
+    /// unification): threads come from the REAL task@1.0.0 rows impel-taskd
+    /// writes — the mock-state path is gone. Commands still go over HTTP;
+    /// `serverURL` remains the command channel.
     public func refresh() async {
-        guard let url = serverURL else { return }
+        let adapter = ImpelStoreAdapter.shared
+        let threads = adapter.fetchThreads()
 
-        // TODO: Implement actual HTTP requests to impel-server
-        // For now, use mock data
-        _ = url
-
-        // Simulate successful connection with mock data
-        var newState = Self.mockState()
-
-        // Generate proactive suggestions based on current state
+        var newState = state
+        newState.threads = threads
+        // Agents/escalations arrive with the impel-server command channel;
+        // until then they are simply absent rather than mocked.
         let suggestions = await suggestionEngine.generateSuggestions(for: newState)
         newState.suggestions = suggestions
 
         state = newState
-        isConnected = true
-        connectionError = nil
+        if let err = adapter.lastError {
+            isConnected = false
+            connectionError = err
+        } else {
+            isConnected = true
+            connectionError = nil
+        }
     }
 
     /// Dismiss a suggestion

@@ -132,6 +132,9 @@ public final class ManuscriptEditorSession {
     }
 
     private func scheduleCompile() {
+        // Markdown renders live from the buffer; plain text has no preview.
+        // Neither has a compile pipeline to schedule.
+        guard format.previewKind == .compiledPDF else { return }
         // imbib has no LaTeX engine (UnsupportedLaTeXCompiler), so never attempt
         // a LaTeX compile there — it would only set a failed-compile banner. The
         // Source tab surfaces an "open in imprint" affordance instead. Typst
@@ -195,6 +198,14 @@ public final class ManuscriptEditorSession {
         saveTask?.cancel()
         // Best-effort synchronous-ish save: fire and let it complete.
         Task { @MainActor [weak self] in await self?.saveCAS() }
+    }
+
+    /// Cancel any pending debounced save WITHOUT persisting. Used when the
+    /// manuscript is being deleted — a flush (or the debounce firing after the
+    /// delete) would write the body back and resurrect the deleted item.
+    public func abandonPendingSave() {
+        saveTask?.cancel()
+        saveTask = nil
     }
 
     /// React to a store mutation from ANOTHER writer: fast-forward the buffer
@@ -361,10 +372,27 @@ public final class ManuscriptSessionRegistry {
                 + "blobRef=\(detail.bodyIsBlobRef) rev=\(detail.currentRevisionRef ?? "nil") "
                 + "title=\(detail.title)",
             category: "manuscripts")
-        let format = DocumentFormat(rawValue: detail.format) ?? .typst
+        let body = detail.bodyIsBlobRef ? "" : detail.bodyContent
+        let format: DocumentFormat
+        if let stored = DocumentFormat(rawValue: detail.format) {
+            format = stored
+        } else {
+            // Manuscripts ingested without a format (agent/bridge-created
+            // records write title+status only). Infer rather than assuming
+            // Typst — a Markdown body sent to the Typst compiler fails with
+            // "expected expression" on its first `# Heading`. Repair the row
+            // so the badge, compile decisions, and the HTTP DTO all agree.
+            format = DocumentFormat.detect(from: body, title: detail.title)
+            Logger.library.warningCapture(
+                "manuscript \(id): format '\(detail.format)' unrecognized — inferred "
+                    + "\(format.rawValue) from content/title; repairing stored value",
+                category: "manuscripts")
+            RustStoreAdapter.shared.updateField(
+                id: id, field: "format", value: format.rawValue)
+        }
         let session = ManuscriptEditorSession(
             manuscriptID: id,
-            source: detail.bodyIsBlobRef ? "" : detail.bodyContent,
+            source: body,
             format: format,
             title: detail.title,
             savedHash: detail.bodyContentHash,
@@ -434,6 +462,20 @@ public final class ManuscriptSessionRegistry {
     private func touch(_ id: UUID) {
         lru.removeAll { $0 == id }
         lru.append(id)
+    }
+
+    /// Drop the session for a manuscript that is about to be DELETED: cancel
+    /// its debounced save and remove it WITHOUT flushing. Flushing here (or
+    /// letting the debounce fire post-delete) would re-save the body and
+    /// resurrect the deleted item through the CAS path.
+    public func discard(id: UUID) {
+        guard let session = sessions[id] else { return }
+        session.abandonPendingSave()
+        sessions[id] = nil
+        lru.removeAll { $0 == id }
+        Logger.library.infoCapture(
+            "discarded editor session for deleted manuscript \(id)",
+            category: "manuscripts")
     }
 
     private func evictIfNeeded() {

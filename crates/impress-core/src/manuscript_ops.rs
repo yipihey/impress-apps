@@ -28,6 +28,17 @@ use crate::store::{ItemStore, StoreError};
 /// Prefix marking a payload string as a content-addressed blob reference.
 pub const BLOB_REF_PREFIX: &str = "blob:sha256:";
 
+/// The single source of truth for allowed `manuscript.format` payload values.
+/// Every create/validate path (imbib-core `create_manuscript`, adapters, GUI
+/// format enums) must agree with this set; the Swift `DocumentFormat` enum
+/// asserts parity against `supported_manuscript_formats()` in tests.
+pub const SUPPORTED_MANUSCRIPT_FORMATS: [&str; 4] = ["typst", "latex", "markdown", "plaintext"];
+
+/// Is `format` an allowed `manuscript.format` value?
+pub fn is_supported_manuscript_format(format: &str) -> bool {
+    SUPPORTED_MANUSCRIPT_FORMATS.contains(&format)
+}
+
 /// SHA-256 hex digest of a UTF-8 string.
 pub fn sha256_hex(text: &str) -> String {
     let mut hasher = Sha256::new();

@@ -441,7 +441,7 @@ struct ImprintDocument: FileDocument, Equatable {
 
     /// Insert a citation reference at position (format-aware)
     mutating func insertCitation(key: String, at position: Int) {
-        let cite = format.citationInsert
+        guard let cite = format.citationInsert else { return }
         insertText("\(cite.prefix)\(key)\(cite.suffix)", at: position)
     }
 

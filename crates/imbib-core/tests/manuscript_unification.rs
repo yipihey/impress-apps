@@ -373,3 +373,114 @@ fn plot_spec_crud_roundtrip() {
     store.delete_item(row.id.clone()).expect("delete");
     assert!(store.get_plot_spec(row.id).expect("get2").is_none());
 }
+
+/// Regression: `CollectionRow.parent_id` must be the tree parent from the
+/// payload, NOT `item.parent` (which is the owning library for every
+/// collection). c902a22f briefly returned the library, which made every
+/// collection a "subcollection" of nothing and flattened the sidebar tree.
+#[test]
+fn collection_parent_id_is_payload_not_owning_library() {
+    let (_dir, path) = temp_db();
+    let imbib = ImbibStore::open(path).expect("open");
+
+    let lib = imbib.create_library("Papers".into()).expect("library");
+    let root = imbib
+        .create_collection("Cosmology".into(), lib.id.clone(), false, None)
+        .expect("root collection");
+    let child = imbib
+        .create_collection("Reionization".into(), lib.id.clone(), false, None)
+        .expect("child collection");
+
+    // Reparenting writes payload `parent_id` — exactly what the sidebar does.
+    imbib
+        .update_field(child.id.clone(), "parent_id".into(), Some(root.id.clone()))
+        .expect("reparent");
+
+    let rows = imbib.list_collections(lib.id).expect("list");
+    let root_row = rows.iter().find(|r| r.id == root.id).unwrap();
+    let child_row = rows.iter().find(|r| r.id == child.id).unwrap();
+    assert_eq!(
+        root_row.parent_id, None,
+        "root collection must have no parent"
+    );
+    assert_eq!(
+        child_row.parent_id.as_deref(),
+        Some(root.id.as_str()),
+        "reparented collection must surface its payload parent_id"
+    );
+}
+
+/// Flags live on the generic item envelope; `list_flagged_manuscripts` is the
+/// manuscript-schema counterpart of `get_flagged_publications`.
+#[test]
+fn flagged_manuscripts_are_queryable_by_color() {
+    let (_dir, path) = temp_db();
+    let imbib = ImbibStore::open(path).expect("open");
+
+    let m1 = imbib
+        .create_manuscript("Flagged".into(), "typst".into(), "".into(), vec![])
+        .unwrap();
+    let _m2 = imbib
+        .create_manuscript("Unflagged".into(), "typst".into(), "".into(), vec![])
+        .unwrap();
+    imbib
+        .set_flag(vec![m1.id.clone()], Some("red".into()), None, None)
+        .expect("flag");
+
+    let any = imbib.list_flagged_manuscripts(None).expect("any");
+    assert_eq!(any.len(), 1);
+    assert_eq!(any[0].id, m1.id);
+
+    let red = imbib
+        .list_flagged_manuscripts(Some("red".into()))
+        .expect("red");
+    assert_eq!(red.len(), 1);
+
+    let blue = imbib
+        .list_flagged_manuscripts(Some("blue".into()))
+        .expect("blue");
+    assert!(blue.is_empty());
+}
+
+/// Markdown and plain text are first-class manuscript formats (WS2): creation
+/// must accept them, reject typos, and round-trip format + body untouched.
+#[test]
+fn markdown_and_plaintext_formats_round_trip() {
+    let (_dir, path) = temp_db();
+    let imbib = ImbibStore::open(path).expect("open");
+
+    let md = imbib
+        .create_manuscript(
+            "ARD 12".into(),
+            "markdown".into(),
+            "# Decision\n\nUse *one* store.".into(),
+            vec![],
+        )
+        .expect("create markdown");
+    let txt = imbib
+        .create_manuscript(
+            "Scratch".into(),
+            "plaintext".into(),
+            "raw notes".into(),
+            vec![],
+        )
+        .expect("create plaintext");
+    assert!(imbib
+        .create_manuscript("Nope".into(), "orgmode".into(), "".into(), vec![])
+        .is_err());
+
+    let md_detail = imbib
+        .get_manuscript_detail(md.id)
+        .expect("detail")
+        .expect("exists");
+    assert_eq!(md_detail.format, "markdown");
+    assert_eq!(md_detail.body_content, "# Decision\n\nUse *one* store.");
+    let txt_detail = imbib
+        .get_manuscript_detail(txt.id)
+        .expect("detail")
+        .expect("exists");
+    assert_eq!(txt_detail.format, "plaintext");
+
+    let formats = imbib.supported_manuscript_formats();
+    assert_eq!(formats, vec!["typst", "latex", "markdown", "plaintext"]);
+}

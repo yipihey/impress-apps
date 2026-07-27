@@ -25,6 +25,10 @@ settings:
 packages:
   MessageManagerCore:
     path: MessageManagerCore
+  # The shared GUI chassis (GUI-meld / ADR-0021). impart consumes it for the
+  # Stage 2-A unified mail window (ImpartChassisRoot); macOS target only.
+  PublicationManagerCore:
+    path: ../imbib/PublicationManagerCore
   ImpartRustCore:
     path: ImpartRustCore
   ImpressAI:
@@ -61,6 +65,7 @@ targets:
         COMBINE_HIDPI_IMAGES: YES
     dependencies:
       - package: MessageManagerCore
+      - package: PublicationManagerCore
       - package: ImpartRustCore
       - package: ImpressAI
       - package: ImpressAutomation
