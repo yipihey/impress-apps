@@ -300,9 +300,11 @@ struct IOSSidebarView: View {
             }
         case .manuscripts:
             manuscriptsSection
-        case .sharedWithMe, .artifacts, .figures, .reviewQueue, .dismissed:
+        case .sharedWithMe, .artifacts, .figures, .mail, .agents, .reviewQueue, .dismissed:
             // Not representable in the iOS SidebarSection routing table yet.
-            // (.figures is implore-only on macOS anyway — Stage 2-B.)
+            // (.figures/.mail/.agents are implore/impart/impel-only facets
+            // on macOS anyway — Stage 2; imbib itself is publications-only
+            // since the ADR-0022 purification.)
             EmptyView()
         }
     }
