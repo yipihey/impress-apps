@@ -108,9 +108,11 @@ capability drift; the only question is when you notice.
 
 The TypeScript MCP server was retired in July 2026 — 229 tools reconciled,
 24,958 lines deleted. `docs/mcp-migration-ledger.md` records where each tool
-went and why the 28 deferred and 40 dropped ones were not carried over. The
-remaining `.ts`/`.tsx` (a dormant Next.js app under `apps/imbib/imbib-web`) is
-debt pending an audit, not precedent.
+went and why the 28 deferred and 40 dropped ones were not carried over. The last
+tracked `.ts`/`.tsx` (a dormant create-next-app scaffold under
+`apps/imbib/imbib-web` — generic Prisma/Postgres CRUD predating the unified
+store, no unique logic) was audited and deleted 2026-07-28. The repo is
+TypeScript-free; `no-typescript.yml` keeps it that way.
 
 ### Verifying a Rust change
 

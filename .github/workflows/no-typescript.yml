@@ -51,9 +51,8 @@ jobs:
           ADDED="$(git diff --name-only --diff-filter=A "$BASE" "$HEAD" -- '*.ts' '*.tsx' || true)"
 
           # Vendored checkouts and dependencies are not ours to police.
-          # apps/imbib/imbib-web is DEBT, not an exemption: a dormant Next.js
-          # app pending an audit for replacement in Swift/Rust. It may shrink,
-          # never grow, so new files under it fail like anywhere else.
+          # (The last first-party TypeScript — the dormant imbib-web scaffold —
+          # was audited and deleted 2026-07-28; the repo is TypeScript-free.)
           FILTERED="$(printf '%s\n' "$ADDED" \
             | grep -v '^$' \
             | grep -v '/\.build/' \
