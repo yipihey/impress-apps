@@ -2008,6 +2008,20 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// Count every collection in the store, across all libraries.
+    ///
+    /// Not the sum of `listCollections(libraryId:)` over `listLibraries()`: a
+    /// collection whose owning library is nil belongs to no library and is
+    /// missed by that walk.
+    public func countCollections() -> Int {
+        do {
+            return Int(try store.countCollections())
+        } catch {
+            Logger.library.error("countCollections failed: \(error)")
+            return 0
+        }
+    }
+
     /// Count starred publications.
     public func countStarred(parentId: UUID? = nil) -> Int {
         do {

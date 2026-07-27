@@ -2290,6 +2290,21 @@ impl ImbibStore {
         Ok(self.store.count(&q)? as u32)
     }
 
+    /// Count every collection in the store, across all libraries.
+    ///
+    /// Deliberately not "sum `list_collections` over `list_libraries`": a
+    /// collection's owning library is its envelope `parent_id`, and that can be
+    /// NULL. Four of this store's collections are parented to nothing, so the
+    /// per-library sum reports zero — which is exactly what `/api/status` used
+    /// to publish. Counting rows by schema is the only total that is right.
+    pub fn count_collections(&self) -> Result<u32, StoreApiError> {
+        let q = ItemQuery {
+            schema: Some("imbib/collection".into()),
+            ..Default::default()
+        };
+        Ok(self.store.count(&q)? as u32)
+    }
+
     /// Count starred publications. Uses SELECT COUNT(*).
     pub fn count_starred(&self, parent_id: Option<String>) -> Result<u32, StoreApiError> {
         let mut predicates = vec![Predicate::IsStarred(true)];
@@ -4858,6 +4873,44 @@ mod tests {
 
         let colls = store.list_collections(lib.id.clone()).unwrap();
         assert_eq!(colls.len(), 1);
+    }
+
+    /// `count_collections` must count collections that belong to no library.
+    ///
+    /// `items.parent_id` is `REFERENCES items(id) ON DELETE SET NULL`, so
+    /// deleting a library orphans its collections rather than removing them —
+    /// which is how the author's store ended up with four collections that no
+    /// library owns. Summing `list_collections` over `list_libraries` reported
+    /// zero for all four, and that sum was what `/api/status` published.
+    #[test]
+    fn count_collections_includes_ones_no_library_owns() {
+        let store = make_store();
+        let lib = store.create_library("Doomed".into()).unwrap();
+        store
+            .create_collection("Orphan".into(), lib.id.clone(), false, None)
+            .unwrap();
+        assert_eq!(store.count_collections().unwrap(), 1);
+
+        store.delete_library(lib.id.clone()).unwrap();
+
+        // The per-library walk now finds nothing...
+        let via_libraries: usize = store
+            .list_libraries()
+            .unwrap()
+            .iter()
+            .map(|l| store.list_collections(l.id.clone()).unwrap().len())
+            .sum();
+        assert_eq!(
+            via_libraries, 0,
+            "the orphan is invisible to a library walk"
+        );
+
+        // ...but the collection is still there, and the total says so.
+        assert_eq!(
+            store.count_collections().unwrap(),
+            1,
+            "count_collections must count rows by schema, not walk libraries"
+        );
     }
 
     #[test]

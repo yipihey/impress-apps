@@ -638,6 +638,17 @@ public protocol ImbibStoreProtocol : AnyObject {
     func countCollectionMembersPublic(collectionId: String) throws  -> UInt32
     
     /**
+     * Count every collection in the store, across all libraries.
+     *
+     * Deliberately not "sum `list_collections` over `list_libraries`": a
+     * collection's owning library is its envelope `parent_id`, and that can be
+     * NULL. Four of this store's collections are parented to nothing, so the
+     * per-library sum reports zero — which is exactly what `/api/status` used
+     * to publish. Counting rows by schema is the only total that is right.
+     */
+    func countCollections() throws  -> UInt32
+    
+    /**
      * Count flagged publications. Uses SELECT COUNT(*).
      */
     func countFlagged(color: String?) throws  -> UInt32
@@ -1562,6 +1573,22 @@ open func countCollectionMembersPublic(collectionId: String)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_count_collection_members_public(self.uniffiClonePointer(),
         FfiConverterString.lower(collectionId),$0
+    )
+})
+}
+    
+    /**
+     * Count every collection in the store, across all libraries.
+     *
+     * Deliberately not "sum `list_collections` over `list_libraries`": a
+     * collection's owning library is its envelope `parent_id`, and that can be
+     * NULL. Four of this store's collections are parented to nothing, so the
+     * per-library sum reports zero — which is exactly what `/api/status` used
+     * to publish. Counting rows by schema is the only total that is right.
+     */
+open func countCollections()throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_collections(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -25803,6 +25830,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_collection_members_public() != 56890) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_collections() != 55205) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_flagged() != 43029) {

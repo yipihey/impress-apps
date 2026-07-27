@@ -1317,11 +1317,17 @@ public actor HTTPAutomationRouter: HTTPRouter {
         // agents: imbib's HTTP surface had no total, so the MCP tool
         // `count-publications` had to sum each library's paperCount over HTTP
         // and silently missed publications filed in no library.
+        // Every count is a store COUNT(*) by schema, never a walk over libraries:
+        // both publications and collections can have a nil owning library, and a
+        // per-library sum silently drops them. On this store that is 152 of 6531
+        // publications and 4 of 4 collections.
         let (libraryCount, collectionCount, publicationCount) = await MainActor.run { () -> (Int, Int, Int) in
             let adapter = RustStoreAdapter.shared
-            let libraries = adapter.listLibraries()
-            let collections = libraries.reduce(0) { $0 + adapter.listCollections(libraryId: $1.id).count }
-            return (libraries.count, collections, adapter.countPublications())
+            return (
+                adapter.listLibraries().count,
+                adapter.countCollections(),
+                adapter.countPublications()
+            )
         }
 
         let response: [String: Any] = [
