@@ -78,14 +78,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          COUNT="$(git ls-files '*.ts' '*.tsx' \
-            | grep -v '/\.build/' \
-            | grep -v '/node_modules/' \
-            | wc -l | tr -d ' ')"
+          # grep -v exits 1 on empty input; `|| true` keeps the step alive
+          # now that the debt has actually reached zero (2026-07-28 audit).
+          FILES="$(git ls-files '*.ts' '*.tsx' \
+            | { grep -v -e '/\.build/' -e '/node_modules/' || true; })"
+          if [ -z "$FILES" ]; then
+            echo "TypeScript files still tracked: 0 — retirement complete."
+            exit 0
+          fi
+          COUNT="$(printf '%s\n' "$FILES" | wc -l | tr -d ' ')"
           echo "TypeScript files still tracked: $COUNT"
           echo "This number may only go down. See the Phase 9 audit in the"
           echo "retirement plan: replace with Swift/Rust, or delete."
-          git ls-files '*.ts' '*.tsx' \
-            | grep -v '/\.build/' \
-            | grep -v '/node_modules/' \
-            | sed 's|/[^/]*$||' | sort | uniq -c | sort -rn
+          printf '%s\n' "$FILES" | sed 's|/[^/]*$||' | sort | uniq -c | sort -rn
