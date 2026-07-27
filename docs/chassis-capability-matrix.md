@@ -30,8 +30,8 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 | `section(.flagged)` | ➖ | ➖ | ➖ | ✅ reorder | ➖ | ✅ | counts = pubs (imbib) / manuscripts (imprint) |
 | `library` | ✅ full | ✅ | ✅ confirm | ✅ | ✅ pubs, collections | ✅ | |
 | `libraryCollection` | ✅ Rename/Subcoll/Delete | ✅ | ✅ (no confirm, single) | ✅ | ✅ pubs, reparent | ✅ | parent_id regression fixed 2026-07 |
-| `manuscriptFolder` | ✅ Rename/Subfolder/Delete | ✅ (needs `makeIfNecessary: true` + ancestor expand in `beginEditingNode`) | ✅ (⌫ + menu) | ✅ reorder+reparent | ✅ manuscripts, folders | ✅ | added 2026-07 |
-| `figureFolder` | ✅ Rename/Subfolder/Delete | ✅ | ✅ (⌫ + menu; children reparented to root first) | ✅ reorder+reparent | ✅ figures, folders | ✅ | Stage 2-B; nests via envelope `parent` (NOT payload parent_collection_ref); reparent/moves via SharedStore.setParent (FigureStoreReader), rename via generic updateField "name", reorder via updateIntField sort_order |
+| `manuscriptFolder` | ✅ Rename/Subfolder/Delete | ✅ (needs `makeIfNecessary: true` + ancestor expand in `beginEditingNode`) | ✅ (⌫ + menu) | ✅ reorder+reparent | ✅ manuscripts, folders | ✅ | G2 (ADR-0022): served by the generic capability-driven folder block over `CollectionStoreAdapter` → Rust `collection_ops` (manuscript binding: payload `parent_collection_ref` + Contains membership); cycle check now Rust-side |
+| `figureFolder` | ✅ Rename/Subfolder/Delete | ✅ | ✅ (⌫ + menu; delete unfiles children via FK `ON DELETE SET NULL`, undo re-files) | ✅ reorder+reparent | ✅ figures, folders | ✅ | G2 (ADR-0022): same generic block, figure binding (ENVELOPE parent + envelope membership); reparent gained Undo it never had |
 | `figuresAll` | ❌ none | ➖ | ➖ | ➖ | ➖ | ✅ total | fixed row |
 | `figuresUnfiled` | ❌ none | ➖ | ➖ | ➖ | ✅ figures (clears folder) | ✅ | fixed row |
 | `mailAllInboxes` | ❌ none | ➖ | ➖ | ➖ | ➖ | ✅ sum of inbox-role folder counts (`countItems` per folder) | Stage 2-A fixed row; capabilities `.readOnly` |
@@ -65,6 +65,7 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 | Message (`MessageListWrapper`) | ✅ `.id(scope)`; rows collapse to newest-per-thread with "(n)" badge (no expand/collapse chevrons in v1 — badge + thread view in the detail pane's Info tab) | ✅ Set, primary drives detail | ✅ Star/Flag/Tags only (shared TriageMenu; no dismiss/archive/delete — IMAP-owned) | ❌ no drag in v1 — moving mail = IMAP move, not store setParent (Stage-2-A2) | ✅ j/k/s/o// via TriageKeyGrammar (n ignored — compose stays in the classic window; d ignored — no dismissal capability) | ❌ none — mail deletion goes through IMAP flows, never the store (deletion `.none`; Stage-2-A2) |
 | Task (`AgentRecordListWrapper`, scope tasks/tasksByState) | ✅ `.id(scope)`; header = humanized kernel state, badge = assigned_to, envelope unread dot kept | ✅ Set, primary drives detail | ✅ Star/Flag/Tags only (shared TriageMenu; no dismiss/archive/delete — state moves ONLY through TaskStoreApi.transition, kernel-owned) | ➖ no drag — tasks have no folder tree | ✅ j/k/s/o// via TriageKeyGrammar (n ignored — the kernel schedules tasks; d ignored — no dismissal capability) | ➖ none — kernel-owned lifecycle (deletion `.none`) |
 | AgentRun (`AgentRecordListWrapper`, scope runs) | ✅ `.id(scope)`; header = agent_id, title = result_summary first line ?? model, badge = "N tok · Ss" | ✅ Set, primary drives detail | ✅ Star/Flag/Tags only (shared TriageMenu) | ➖ no drag | ✅ j/k/s/o// via TriageKeyGrammar (n, d ignored — runs are immutable provenance) | ➖ none — immutable provenance records |
+| Mixed-kind (`AnyRecordListWrapper` over `KindTaggedRow`, ADR-0022 D4) | ➖ host-owned: the wrapper hands back the primary row (first selected in DISPLAY order) and its `kind`; the host swaps the pane | ✅ Set | ➖ none in v1 | ➖ none | ➖ none in v1 | ➖ none — rows are display projections, not owners |
 
 ## Detail tabs by item kind (`DetailTab.available(for:)`)
 
@@ -110,6 +111,46 @@ Frozen shell-preset truth table (AppShellConfiguration v2 parity target):
 | custom surfaces | — | — | generate, analyze (registered app-side via `withCustomSurfaces`); canvas = figure open window | chat, research, development (registered app-side via `withCustomSurfaces` in ImpartChassisRoot) | dashboard, escalations, suggestions, counsel (registered app-side via `withCustomSurfaces` in ImpelChassisRoot; escalations keeps its 1-9/j/k keys INSIDE the surface, keyboardGuarded) |
 | default window | chassis | chassis | chassis | classic ContentView — chassis is a SECONDARY "Mail (Unified)" window; flips via UserDefaults `impart.useChassisWindow` (compose/reply not chassis-wired yet — the one sanctioned deviation from replace-outright) | classic ContentView — chassis is a SECONDARY "impel (Unified)" window; flips via UserDefaults `impel.useChassisWindow` (escalation resolution / counsel not chassis-wired yet — same sanctioned deviation as impart) |
 
+## MCP surface
+
+ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
+service-backed ops are exposed**. Added as a section rather than a column
+because the cells above are per-node/per-row and these tools are
+schema-agnostic — one tool automates the same cell across every kind.
+
+Registered by `crates/impress-store-service` (`#[impress_service]` →
+MCP tool + CLI subcommand + impel agent tool, all generated), force-linked
+into `crates/impress-mcp/src/main.rs`. Never withheld by the reachability
+gate: these open the shared sqlite store directly and answer with every app
+closed, so no new "always available" mechanism was needed — their namespaces
+simply are not in `reachability::APP_GATED`.
+
+| Tool | Automates |
+|---|---|
+| `collection-service_tree` | sidebar tree read for `libraryCollection` / `manuscriptFolder` / `figureFolder` (Counts column's companion read) |
+| `collection-service_create` | "New Collection / Subcollection / Folder" context-menu items |
+| `collection-service_rename` | Rename column, all collection node kinds |
+| `collection-service_reparent` | Drop target column: collection→collection reparent (cycle check is Rust's, not the sidebar VM's) |
+| `collection-service_reorder` | Drag column: sibling reorder |
+| `collection-service_delete` | Delete column, all collection node kinds |
+| `collection-service_add-members` | Drop target column: pubs/manuscripts/figures → collection |
+| `collection-service_remove-members` | unfile (e.g. `figuresUnfiled` drop) |
+| `collection-service_member-counts` | Counts column |
+| `triage-service_set-starred` | Star column of the record-kind descriptor contract, every kind |
+| `triage-service_set-flag` | Flag column, every kind |
+| `triage-service_add-tag` / `_remove-tag` | Tag column, every kind |
+| `triage-service_set-status` | Dismiss/Archive columns **for status-change kinds only** (manuscripts). Publications use the library-move dismissal and are NOT reachable this way; impel tasks move only through the kernel's `transition` |
+
+`binding` selects the hierarchy: `imbib` \| `manuscript` \| `figure` \|
+`generic` (the mixed-kind `collection@1.0.0` schema). Verb names and argument
+order mirror `impress_store_ffi::SharedStore::collection_*` so Swift, the CLI
+and agents share one vocabulary.
+
+Parity seed test: `crates/impress-mcp/tests/mcp_surface_parity.rs` asserts
+every name above is enumerable; `tests/inventory_smoke.rs` proves the shipped
+binary lists them. Still unautomated (WP G4–G6): grouped search, `related_items`,
+query/get resources, render/export.
+
 ## Known gaps (tracked)
 
 - **Mail (Stage 2-A) IMAP-owned gaps — Stage-2-A2 follow-ups:** no message
@@ -136,11 +177,30 @@ Frozen shell-preset truth table (AppShellConfiguration v2 parity target):
   mail. Task↔run linkage is typed edges (`ProducedBy`) resolved via
   `getItemReferences`, not parentId.
 
+- **Registry-resolved viewers (WP G3, ADR-0022 D4) — partial by design:**
+  only the `.figures` / `.mail` / `.agents` routes resolve their section view
+  through `RecordViewerRegistry`. Publications keep the legacy path (it owns
+  the fragile HSplitView + toolbar cluster) and manuscripts keep theirs (the
+  section view owns the editor session, which must stay host-owned).
+  `RecordViewerRegistryTests` asserts that absence, so registering either is
+  a conscious edit. `AnyRecordListWrapper` has no consumer yet — grouped
+  global search (G4/D6) is the first, and triage grammar (TriageKeyGrammar,
+  swipe/context builders, drag) lands with it.
+
 - `flagColor` nodes have no context menu (e.g. "Clear all red flags").
 - Journal fixed rows have no counts (needs async count snapshot).
 - Artifact rows: no multi-select, no drag.
 - Manuscript folder bulk delete has no batch mutation wrapper (N sequential
   deletes; fine at current scale).
+- **G2 strangler remainders (ADR-0022 D3):** `CollectionStoreAdapter`
+  delegates rename/reorder/delete and Contains-edge `addMembers` to the
+  legacy `RustStoreAdapter` verbs because the kernel FFI returns no
+  `UndoInfo` — routing them through the kernel would silently drop ⌘Z.
+  Follow-ups: kernel `create` needs a `sort_order` argument (figure folders
+  emulate append-to-end with a second `collectionReorder` call), and the two
+  identical drag-session singletons (`ManuscriptDragSession`/
+  `FigureDragSession`, now behind `RecordDragSessionProviding`) should merge.
+  Publication collections stay on the legacy path until G7.
 - Tree-sitter grammar for Markdown highlighting not vendored yet
   (`ImpressSyntaxHighlight` renders md/txt unhighlighted).
 - **Publication KEY parity resolved (Stage 3, 2026-07-27):** default s=star,

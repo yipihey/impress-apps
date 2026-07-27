@@ -12,6 +12,8 @@ pub mod task;
 #[cfg(feature = "sqlite")]
 pub mod backup;
 #[cfg(feature = "sqlite")]
+pub mod collection_ops;
+#[cfg(feature = "sqlite")]
 pub mod manuscript_ops;
 #[cfg(feature = "sqlite")]
 pub mod sql_query;
@@ -19,6 +21,8 @@ pub mod sql_query;
 pub mod sqlite_store;
 #[cfg(feature = "sqlite")]
 pub mod sync;
+#[cfg(feature = "sqlite")]
+pub mod triage_ops;
 
 pub use event::*;
 pub use item::*;

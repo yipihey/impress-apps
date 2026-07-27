@@ -14,7 +14,7 @@
 import Foundation
 
 @MainActor
-public final class FigureDragSession {
+public final class FigureDragSession: RecordDragSessionProviding {
     public static let shared = FigureDragSession()
 
     /// Figure IDs in the drag currently in flight, if any.

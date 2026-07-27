@@ -39,6 +39,7 @@ struct SectionContentView: View {
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(\.appShellConfiguration) private var shellConfiguration
+    @Environment(\.recordViewerRegistry) private var viewerRegistry
 
     // MARK: - State
 
@@ -406,8 +407,29 @@ struct SectionContentView: View {
     /// without it, switching between two journal routes of the same shape
     /// (Drafts → Submitted, folder → folder) reuses the cached view and its
     /// stale `@State` selection.
+    ///
+    /// Manuscripts stay on this legacy path deliberately (WP G3): the section
+    /// view owns the editor session, so it is NOT registry-resolved like the
+    /// newer kinds below (see RecordViewerRegistry's builtin comment).
     private func manuscriptSection(_ scope: ManuscriptListScope) -> some View {
         ManuscriptSectionView(scope: scope).id(scope)
+    }
+
+    /// Resolve a kind's section view through the registry (ADR-0022 D4).
+    /// The factory reproduces the former construction site verbatim,
+    /// `.id(scope)` included; an unregistered kind degrades quietly the way
+    /// an unknown custom surface does, rather than rendering nothing.
+    @ViewBuilder
+    private func registrySection(_ kind: RecordKindID, scope: some RecordScopeKey) -> some View {
+        if let factory = viewerRegistry[kind] {
+            factory.makeSectionView(RecordSectionContext(scope: scope))
+        } else {
+            ContentUnavailableView(
+                "Viewer Unavailable",
+                systemImage: "questionmark.square.dashed",
+                description: Text("No registered viewer for \u{201C}\(kind.rawValue)\u{201D}.")
+            )
+        }
     }
 
     /// Dispatch Figures-section sidebar selections (Stage 2-B) — follows the
@@ -430,10 +452,10 @@ struct SectionContentView: View {
         }
     }
 
-    /// One construction site for the figure list|detail split, with the
-    /// mandated `.id(scope)` (see imbib CLAUDE.md "The `.id(source.id)` rule").
+    /// One construction site for the figure list|detail split — resolved
+    /// through the RecordViewerRegistry (ADR-0022 D4).
     private func figureSection(_ scope: FigureListScope) -> some View {
-        FigureSectionView(scope: scope).id(scope)
+        registrySection(.figure, scope: scope)
     }
 
     /// Dispatch Mail-section sidebar selections (Stage 2-A) — follows the
@@ -458,10 +480,10 @@ struct SectionContentView: View {
         }
     }
 
-    /// One construction site for the mail list|detail split, with the
-    /// mandated `.id(scope)` (see imbib CLAUDE.md "The `.id(source.id)` rule").
+    /// One construction site for the mail list|detail split — resolved
+    /// through the RecordViewerRegistry (ADR-0022 D4).
     private func messageSection(_ scope: MessageListScope) -> some View {
-        MessageSectionView(scope: scope).id(scope)
+        registrySection(.message, scope: scope)
     }
 
     /// Dispatch Agents-section sidebar selections (Stage 2-C) — follows the
@@ -478,10 +500,12 @@ struct SectionContentView: View {
         }
     }
 
-    /// One construction site for the agents list|detail split, with the
-    /// mandated `.id(scope)` (see imbib CLAUDE.md "The `.id(source.id)` rule").
+    /// One construction site for the agents list|detail split — resolved
+    /// through the RecordViewerRegistry (ADR-0022 D4). Tasks and runs are
+    /// separate record kinds sharing one section view, so the scope picks the
+    /// registry key.
     private func agentSection(_ scope: AgentListScope) -> some View {
-        AgentSectionView(scope: scope).id(scope)
+        registrySection(scope.isRunScope ? .agentRun : .task, scope: scope)
     }
 
     @ViewBuilder

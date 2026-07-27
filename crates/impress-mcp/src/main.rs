@@ -23,6 +23,8 @@ use implore_service as _force_link_implore_service;
 #[allow(unused_imports)]
 use impress_bridges_service as _force_link_bridges;
 #[allow(unused_imports)]
+use impress_store_service as _force_link_store_service;
+#[allow(unused_imports)]
 use imprint_selftest as _force_link_imprint_selftest;
 #[allow(unused_imports)]
 use imprint_service as _force_link_imprint_service;
@@ -135,6 +137,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         i += 1;
     }
+
+    // The store-generic services (collections, triage) open the shared store
+    // themselves rather than going through an app, so point them at the same
+    // path this server was given — otherwise `--store-path` would mean one
+    // thing for search and another for every collection mutation. Recorded,
+    // not opened: the store opens lazily on the first such call, so clients
+    // that never touch it pay nothing.
+    let _ = impress_store_service::set_store_path(&store_path);
 
     // The embedding stack (store + HNSW rebuild + fastembed model) is NOT
     // built here. It is built on the first semantic-search call — see

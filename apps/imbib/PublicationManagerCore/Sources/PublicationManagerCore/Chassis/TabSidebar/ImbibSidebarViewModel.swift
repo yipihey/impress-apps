@@ -1177,6 +1177,124 @@ final class ImbibSidebarViewModel {
         )]
     }
 
+    // MARK: - Collection Folders (ADR-0022 D3)
+    //
+    // ONE folder pattern for every record kind that has one. The sidebar's
+    // node types are an enum, so a small map still turns `.manuscriptFolder`
+    // / `.figureFolder` into a record kind; from there everything —
+    // capabilities, menus, rename, reparent, reorder, delete, drops — is
+    // driven by the kind's `CollectionCapability` and executed through
+    // `CollectionStoreAdapter` (the Rust collection kernel). Adding a kind's
+    // folders means adding a descriptor capability and two lines here, not a
+    // ninth near-copy of the pattern.
+
+    /// Bindings already strangled onto the kernel path. ADR-0022 G2 runs one
+    /// kind at a time (manuscripts, verify, then figures); a binding not
+    /// listed here keeps its legacy per-kind branch below.
+    ///
+    /// G2-strangler TODO: delete this gate once every folder-capable kind is
+    /// on the kernel — `folderNode` should then be total over the capability.
+    private static let migratedFolderBindings: Set<String> = [
+        CollectionBindingID.manuscript,
+        CollectionBindingID.figure,
+    ]
+
+    /// The collection capability + folder id behind a sidebar folder node,
+    /// or nil when the node is not a (migrated) collection folder.
+    private func folderNode(
+        _ node: ImbibSidebarNode
+    ) -> (capability: CollectionCapability, folderID: String)? {
+        let kind: RecordKindID
+        let folderID: String
+        switch node.nodeType {
+        case .manuscriptFolder(let id):
+            kind = .manuscript
+            folderID = id
+        case .figureFolder(let id):
+            kind = .figure
+            folderID = id
+        default:
+            return nil
+        }
+        // Kind-intrinsic lookup: imbib's shell registry does NOT contain the
+        // figure kind, but imbib shows the Figures section.
+        guard let capability = BuiltinRecordKinds.registry[kind]?.collection,
+              Self.migratedFolderBindings.contains(capability.bindingID) else { return nil }
+        return (capability, folderID)
+    }
+
+    /// The capability whose folder tree a section header hosts. The header is
+    /// the "move to root" drop target and the "New Folder" menu host.
+    private static func folderCapability(
+        ofSection section: SidebarSectionType
+    ) -> CollectionCapability? {
+        let kind: RecordKindID
+        switch section {
+        case .manuscripts: kind = .manuscript
+        case .figures: kind = .figure
+        default: return nil
+        }
+        return BuiltinRecordKinds.registry[kind]?.collection
+    }
+
+    /// Sidebar node id for a folder of `bindingID` (node ids are DERIVED for
+    /// folders — unlike collections, node id != item id).
+    private static func folderNodeID(_ bindingID: String, _ folderID: String) -> UUID? {
+        switch bindingID {
+        case CollectionBindingID.manuscript:
+            return ImbibSidebarNodeID.manuscriptFolder(folderID)
+        case CollectionBindingID.figure:
+            return ImbibSidebarNodeID.figureFolder(folderID)
+        default:
+            return nil
+        }
+    }
+
+    /// The folder of `bindingID` the content pane currently shows, if any.
+    private func selectedFolderID(_ bindingID: String) -> String? {
+        switch (bindingID, selectedTab) {
+        case (CollectionBindingID.manuscript, .manuscriptFolder(let id)): return id
+        case (CollectionBindingID.figure, .figureFolder(let id)): return id
+        default: return nil
+        }
+    }
+
+    /// The in-process drag record backing a kind's list rows.
+    ///
+    /// G2-strangler TODO: `ManuscriptDragSession` / `FigureDragSession` are
+    /// identical per-kind singletons; a single generic `RecordDragSession`
+    /// registry would delete this switch, but it is app-surface plumbing
+    /// (list rows call `begin(ids:)`) and belongs with the G3 row work.
+    private static func dragSession(for bindingID: String) -> RecordDragSessionProviding? {
+        switch bindingID {
+        case CollectionBindingID.manuscript: return ManuscriptDragSession.shared
+        case CollectionBindingID.figure: return FigureDragSession.shared
+        default: return nil
+        }
+    }
+
+    /// Where a record drop of `capability`'s kind may land.
+    private enum FolderDropTarget {
+        case folder(String)
+        /// The kind's "Unfiled" pseudo-row: drop clears the record's folder.
+        case unfiled
+    }
+
+    private func folderDropTarget(
+        _ node: ImbibSidebarNode?, capability: CollectionCapability
+    ) -> FolderDropTarget? {
+        guard let node else { return nil }
+        if let folder = folderNode(node), folder.capability.bindingID == capability.bindingID {
+            return .folder(folder.folderID)
+        }
+        // Only envelope-filed kinds have an Unfiled row today (Figures).
+        if case .figuresUnfiled = node.nodeType,
+           capability.bindingID == CollectionBindingID.figure {
+            return .unfiled
+        }
+        return nil
+    }
+
     // MARK: - Capabilities
 
     private func capabilities(of node: ImbibSidebarNode) -> TreeNodeCapabilities {
@@ -1207,10 +1325,12 @@ final class ImbibSidebarViewModel {
             return [.draggable, .deletable]
         case .allArtifacts, .artifactType:
             return .droppable
-        case .manuscriptFolder:
-            return [.draggable, .droppable, .renamable, .deletable]
-        case .figureFolder:
-            return [.draggable, .droppable, .renamable, .deletable]
+        case .manuscriptFolder, .figureFolder:
+            // ADR-0022 D3: the folder verbs are the kind's capability, not a
+            // per-kind literal. `canOrganize == false` = read-only rows.
+            return folderNode(node)?.capability.canOrganize == true
+                ? [.draggable, .droppable, .renamable, .deletable]
+                : .readOnly
         case .figuresUnfiled:
             // Drop target only: dropping figures here clears their folder.
             return .droppable
@@ -1260,21 +1380,34 @@ final class ImbibSidebarViewModel {
             return true
         case (.explorationSearch, .inboxCollection):
             return true
-        // Manuscript folders: nest under another folder (no self / no cycle)
-        // or drop on the section header to move back to root.
-        case (.manuscriptFolder(let dragID), .manuscriptFolder(let targetID)):
-            return dragID != targetID && !isAncestorManuscriptFolder(dragID, of: targetID)
-        case (.manuscriptFolder, .section(.manuscripts)):
-            return true
-        // Figure folders: nest under another folder (no self / no cycle)
-        // or drop on the section header to move back to root.
-        case (.figureFolder(let dragID), .figureFolder(let targetID)):
-            return dragID != targetID && !isAncestorFigureFolder(dragID, of: targetID)
-        case (.figureFolder, .section(.figures)):
-            return true
         default:
-            return false
+            // Collection folders (manuscripts, figures) — ADR-0022 D3.
+            return canAcceptFolderDrop(dragged, target: target)
         }
+    }
+
+    /// Collection folders (ADR-0022 D3): nest under a folder of the SAME
+    /// binding (never itself, never one of its own descendants) or drop on
+    /// the owning section header to move back to root.
+    ///
+    /// The ancestor walk here is drag FEEDBACK only — the authoritative cycle
+    /// check is the Rust kernel's, inside `CollectionStoreAdapter.reparent`.
+    private func canAcceptFolderDrop(
+        _ dragged: ImbibSidebarNode, target: ImbibSidebarNode
+    ) -> Bool {
+        guard let drag = folderNode(dragged), drag.capability.canOrganize else { return false }
+        if let targetFolder = folderNode(target) {
+            guard targetFolder.capability.bindingID == drag.capability.bindingID,
+                  targetFolder.folderID != drag.folderID else { return false }
+            return !CollectionStoreAdapter.shared.isAncestor(
+                drag.capability.bindingID,
+                ancestorID: drag.folderID,
+                of: targetFolder.folderID)
+        }
+        if case .section(let section) = target.nodeType {
+            return Self.folderCapability(ofSection: section)?.bindingID == drag.capability.bindingID
+        }
+        return false
     }
 
     private func handleReorder(_ siblings: [ImbibSidebarNode], parent: ImbibSidebarNode?) {
@@ -1351,28 +1484,13 @@ final class ImbibSidebarViewModel {
         case .section(.exploration):
             reorderExplorationChildren(siblings)
 
-        case .section(.manuscripts), .manuscriptFolder:
-            // Manuscript folders reorder among the section's fixed rows or
-            // within a parent folder; only the folder rows carry sort_order.
-            let folderIDs = siblings.compactMap { node -> UUID? in
-                if case .manuscriptFolder(let idString) = node.nodeType {
-                    return UUID(uuidString: idString)
-                }
-                return nil
-            }
-            reorderCollections(folderIDs)
-
-        case .section(.figures), .figureFolder:
-            // Figure folders reorder among the section's fixed rows or within
-            // a parent folder; only the folder rows carry payload sort_order
-            // (updateIntField works on any item by UUID).
-            let folderIDs = siblings.compactMap { node -> UUID? in
-                if case .figureFolder(let idString) = node.nodeType {
-                    return UUID(uuidString: idString)
-                }
-                return nil
-            }
-            reorderCollections(folderIDs)
+        case .section(.manuscripts), .manuscriptFolder,
+             .section(.figures), .figureFolder:
+            // Collection folders (ADR-0022 D3) reorder among the section's
+            // fixed rows or within a parent folder; only the folder rows
+            // carry sort_order, so the fixed rows are filtered out first and
+            // positions are indexes into the filtered list (unchanged).
+            reorderFolders(siblings)
 
         default:
             break
@@ -1383,6 +1501,23 @@ final class ImbibSidebarViewModel {
         for (index, id) in collectionIDs.enumerated() {
             store.updateIntField(id: id, field: "sort_order", value: Int64(index))
         }
+        bumpDataVersion()
+    }
+
+    /// Reorder the collection-folder rows of a sibling list (ADR-0022 D3).
+    /// Grouped by binding so a mixed list can never cross-number two trees;
+    /// in practice a sibling list is homogeneous by construction.
+    private func reorderFolders(_ siblings: [ImbibSidebarNode]) {
+        var idsByBinding: [String: [String]] = [:]
+        for node in siblings {
+            guard let folder = folderNode(node), folder.capability.canOrganize else { continue }
+            idsByBinding[folder.capability.bindingID, default: []].append(folder.folderID)
+        }
+        for (bindingID, ids) in idsByBinding {
+            CollectionStoreAdapter.shared.reorder(bindingID, ids: ids)
+        }
+        // Bumped unconditionally, exactly as `reorderCollections` did — a
+        // sibling list with no folder rows still repaints.
         bumpDataVersion()
     }
 
@@ -1417,37 +1552,26 @@ final class ImbibSidebarViewModel {
             }
         }
 
-        // Manuscript folders: parent lives in payload `parent_collection_ref`
-        // (lowercase Rust-canonical id strings, matched by string equality).
-        if case .manuscriptFolder(let idString) = node.nodeType {
-            guard let folderID = UUID(uuidString: idString), let newParent else { return }
-            switch newParent.nodeType {
-            case .manuscriptFolder(let targetString):
-                guard targetString != idString,
-                      !isAncestorManuscriptFolder(idString, of: targetString) else { return }
-                store.updateField(
-                    id: folderID, field: "parent_collection_ref", value: targetString)
-            case .section(.manuscripts):
-                store.updateField(id: folderID, field: "parent_collection_ref", value: nil)
-            default:
-                return
-            }
-            bumpDataVersion()
-            return
-        }
-
-        // Figure folders: nest via envelope `parent`, NOT payload fields —
-        // reparent through the SharedStore handle (FigureStoreReader).
-        if case .figureFolder(let idString) = node.nodeType {
+        // Collection folders (ADR-0022 D3): ONE path for every binding. Where
+        // the tree parent lives — payload `parent_collection_ref` for
+        // manuscripts, the envelope parent for figures — is the kernel's
+        // business, and so is the cycle check (the Swift walk below is only
+        // the drag-feedback pre-check that already ran in `canAcceptDrop`).
+        if let folder = folderNode(node), folder.capability.canOrganize {
             guard let newParent else { return }
-            switch newParent.nodeType {
-            case .figureFolder(let targetString):
-                guard targetString != idString,
-                      !isAncestorFigureFolder(idString, of: targetString) else { return }
-                FigureStoreReader.shared.setParent(itemID: idString, parentID: targetString)
-            case .section(.figures):
-                FigureStoreReader.shared.setParent(itemID: idString, parentID: nil)
-            default:
+            let adapter = CollectionStoreAdapter.shared
+            let bindingID = folder.capability.bindingID
+            if let target = folderNode(newParent) {
+                guard target.capability.bindingID == bindingID,
+                      target.folderID != folder.folderID,
+                      !adapter.isAncestor(
+                        bindingID, ancestorID: folder.folderID, of: target.folderID)
+                else { return }
+                adapter.reparent(bindingID, id: folder.folderID, newParentID: target.folderID)
+            } else if case .section(let section) = newParent.nodeType,
+                      Self.folderCapability(ofSection: section)?.bindingID == bindingID {
+                adapter.reparent(bindingID, id: folder.folderID, newParentID: nil)
+            } else {
                 return
             }
             bumpDataVersion()
@@ -1508,35 +1632,10 @@ final class ImbibSidebarViewModel {
         bumpDataVersion()
     }
 
-    /// Check if `ancestorID` is an ancestor of `descendantID` in the
-    /// manuscript-folder tree (ids are the Rust store's lowercase strings).
-    private func isAncestorManuscriptFolder(_ ancestorID: String, of descendantID: String) -> Bool {
-        let folders = RustStoreAdapter.shared.listManuscriptCollections()
-        var currentID: String? = descendantID
-        while let cid = currentID {
-            guard let parentID = folders.first(where: { $0.id == cid })?.parentId else {
-                return false
-            }
-            if parentID == ancestorID { return true }
-            currentID = parentID
-        }
-        return false
-    }
-
-    /// Check if `ancestorID` is an ancestor of `descendantID` in the
-    /// figure-folder tree (envelope `parent`, lowercase store id strings).
-    private func isAncestorFigureFolder(_ ancestorID: String, of descendantID: String) -> Bool {
-        let folders = FigureStoreReader.shared.fetchFolders()
-        var currentID: String? = descendantID
-        while let cid = currentID {
-            guard let parentID = folders.first(where: { $0.id == cid })?.parentId else {
-                return false
-            }
-            if parentID == ancestorID { return true }
-            currentID = parentID
-        }
-        return false
-    }
+    // `isAncestorManuscriptFolder` lived here; the walk is now
+    // `CollectionStoreAdapter.isAncestor(_:ancestorID:of:)`, one
+    // implementation over the kernel's flat tree for every binding — and the
+    // authoritative cycle check moved into Rust with it (ADR-0022 D1).
 
     /// Check if `ancestorID` is an ancestor of `descendantID` in the collection tree.
     private func isAncestor(_ ancestorID: UUID, of descendantID: UUID, in collections: [CollectionModel]) -> Bool {
@@ -1551,90 +1650,23 @@ final class ImbibSidebarViewModel {
     }
 
     private func handleExternalDrop(_ pasteboard: NSPasteboard, target: ImbibSidebarNode?) -> Bool {
-        // Manuscript rows dropped onto a manuscript folder — membership is the
-        // schema-agnostic Contains edge (same call onNewManuscript uses).
-        let manuscriptType = NSPasteboard.PasteboardType(UTType.manuscriptID.identifier)
-        if pasteboard.types?.contains(manuscriptType) == true {
-            // The pasteboard payload is registered lazily by the SwiftUI list
-            // row, so a synchronous read here can return nil — fall back to
-            // the in-process drag record before giving up.
-            var uuids = pasteboard.data(forType: manuscriptType)
-                .map { decodePublicationUUIDs(from: $0) } ?? []
-            let viaPasteboard = !uuids.isEmpty
-            if uuids.isEmpty {
-                uuids = ManuscriptDragSession.shared.take()
-            }
-            guard case .manuscriptFolder(let folderIDString) = target?.nodeType,
-                  let folderID = UUID(uuidString: folderIDString) else {
-                Self.logger.infoCapture(
-                    "manuscript drop ignored: target is "
-                        + "\(target.map { String(describing: $0.nodeType) } ?? "nil")",
-                    category: "sidebar")
-                return false
-            }
-            guard !uuids.isEmpty else {
-                Self.logger.warningCapture(
-                    "manuscript drop on folder \(folderIDString) carried no IDs "
-                        + "(pasteboard and drag session both empty)",
-                    category: "sidebar")
-                return false
-            }
-            RustStoreAdapter.shared.addToCollection(
-                publicationIds: uuids, collectionId: folderID)
-            _ = ManuscriptDragSession.shared.take()
-            bumpDataVersion()
-            Self.logger.infoCapture(
-                "dropped \(uuids.count) manuscript(s) into folder \(folderIDString) "
-                    + "(payload via \(viaPasteboard ? "pasteboard" : "drag session"))",
-                category: "sidebar")
-            return true
-        }
-
-        // Figure rows dropped onto a figure folder (or Unfiled) — membership
-        // is the envelope parent chain, moved via SharedStore.setParent.
-        let figureType = NSPasteboard.PasteboardType(UTType.figureID.identifier)
-        if pasteboard.types?.contains(figureType) == true {
-            // The pasteboard payload is registered lazily by the SwiftUI list
-            // row, so a synchronous read here can return nil — fall back to
-            // the in-process drag record before giving up (FigureDragSession,
-            // the ManuscriptDragSession twin).
-            var uuids = pasteboard.data(forType: figureType)
-                .map { decodePublicationUUIDs(from: $0) } ?? []
-            let viaPasteboard = !uuids.isEmpty
-            if uuids.isEmpty {
-                uuids = FigureDragSession.shared.take()
-            }
-            let targetFolderID: String?
-            switch target?.nodeType {
-            case .figureFolder(let folderIDString):
-                targetFolderID = folderIDString
-            case .figuresUnfiled:
-                targetFolderID = nil
-            default:
-                Self.logger.infoCapture(
-                    "figure drop ignored: target is "
-                        + "\(target.map { String(describing: $0.nodeType) } ?? "nil")",
-                    category: "sidebar")
-                return false
-            }
-            guard !uuids.isEmpty else {
-                Self.logger.warningCapture(
-                    "figure drop on \(targetFolderID ?? "Unfiled") carried no IDs "
-                        + "(pasteboard and drag session both empty)",
-                    category: "sidebar")
-                return false
-            }
-            for uuid in uuids {
-                FigureStoreReader.shared.setParent(
-                    itemID: uuid.uuidString, parentID: targetFolderID)
-            }
-            _ = FigureDragSession.shared.take()
-            bumpDataVersion()
-            Self.logger.infoCapture(
-                "dropped \(uuids.count) figure(s) into \(targetFolderID ?? "Unfiled") "
-                    + "(payload via \(viaPasteboard ? "pasteboard" : "drag session"))",
-                category: "sidebar")
-            return true
+        // Record rows dropped onto one of their kind's folders (ADR-0022 D3).
+        // The pasteboard type comes from the kind's CollectionCapability and
+        // the membership mechanics (Contains edge vs. envelope parent) are
+        // the kernel's — the sidebar only picks the binding.
+        for descriptor in BuiltinRecordKinds.collectionCapable {
+            guard let capability = descriptor.collection,
+                  capability.canOrganize,
+                  Self.migratedFolderBindings.contains(capability.bindingID),
+                  let identifier = capability.dragUTTypeIdentifier else { continue }
+            let pasteboardType = NSPasteboard.PasteboardType(identifier)
+            guard pasteboard.types?.contains(pasteboardType) == true else { continue }
+            return handleRecordDrop(
+                pasteboard: pasteboard,
+                pasteboardType: pasteboardType,
+                descriptor: descriptor,
+                capability: capability,
+                target: target)
         }
 
         // Handle publication ID drops
@@ -1754,6 +1786,70 @@ final class ImbibSidebarViewModel {
         }
 
         return false
+    }
+
+    /// File dragged records of one kind into a folder of that kind (or, for
+    /// envelope-filed kinds, out of every folder via the Unfiled row).
+    ///
+    /// This is the single implementation of what used to be one near-copy per
+    /// kind. The lazy-pasteboard fallback, the log lines and the return
+    /// values are the manuscript path's, verbatim.
+    private func handleRecordDrop(
+        pasteboard: NSPasteboard,
+        pasteboardType: NSPasteboard.PasteboardType,
+        descriptor: RecordKindDescriptor,
+        capability: CollectionCapability,
+        target: ImbibSidebarNode?
+    ) -> Bool {
+        let noun = descriptor.displayName.lowercased()
+        // The pasteboard payload is registered lazily by the SwiftUI list
+        // row, so a synchronous read here can return nil — fall back to the
+        // in-process drag record before giving up.
+        var uuids = pasteboard.data(forType: pasteboardType)
+            .map { decodePublicationUUIDs(from: $0) } ?? []
+        let viaPasteboard = !uuids.isEmpty
+        let dragSession = Self.dragSession(for: capability.bindingID)
+        if uuids.isEmpty {
+            uuids = dragSession?.take() ?? []
+        }
+
+        guard let dropTarget = folderDropTarget(target, capability: capability) else {
+            Self.logger.infoCapture(
+                "\(noun) drop ignored: target is "
+                    + "\(target.map { String(describing: $0.nodeType) } ?? "nil")",
+                category: "sidebar")
+            return false
+        }
+
+        let targetDescription: String
+        switch dropTarget {
+        case .folder(let folderID): targetDescription = "folder \(folderID)"
+        case .unfiled: targetDescription = "Unfiled"
+        }
+
+        guard !uuids.isEmpty else {
+            Self.logger.warningCapture(
+                "\(noun) drop on \(targetDescription) carried no IDs "
+                    + "(pasteboard and drag session both empty)",
+                category: "sidebar")
+            return false
+        }
+
+        let itemIDs = uuids.map { $0.uuidString.lowercased() }
+        let adapter = CollectionStoreAdapter.shared
+        switch dropTarget {
+        case .folder(let folderID):
+            adapter.addMembers(capability.bindingID, collectionID: folderID, itemIDs: itemIDs)
+        case .unfiled:
+            adapter.unfile(capability.bindingID, itemIDs: itemIDs)
+        }
+        _ = dragSession?.take()
+        bumpDataVersion()
+        Self.logger.infoCapture(
+            "dropped \(uuids.count) \(noun)(s) into \(targetDescription) "
+                + "(payload via \(viaPasteboard ? "pasteboard" : "drag session"))",
+            category: "sidebar")
+        return true
     }
 
     private func dropTarget(for node: ImbibSidebarNode) -> DropTarget? {
@@ -1893,19 +1989,14 @@ final class ImbibSidebarViewModel {
             store.updateField(id: feedID, field: "name", value: trimmed)
             bumpDataVersion()
 
-        case .manuscriptFolder(let idString):
-            if let uuid = UUID(uuidString: idString) {
-                store.updateField(id: uuid, field: "name", value: trimmed)
-                bumpDataVersion()
-            }
-
-        case .figureFolder(let idString):
-            // Payload `name` rename via the generic store op (works on any
-            // item by UUID); nesting stays on the envelope parent.
-            if let uuid = UUID(uuidString: idString) {
-                store.updateField(id: uuid, field: "name", value: trimmed)
-                bumpDataVersion()
-            }
+        case .manuscriptFolder, .figureFolder:
+            // Collection folders (ADR-0022 D3): one rename for every binding.
+            // The payload field is `name` for all of them; where the folder
+            // NESTS (payload ref vs. envelope parent) is irrelevant here.
+            guard let folder = folderNode(node), folder.capability.canOrganize else { break }
+            CollectionStoreAdapter.shared.rename(
+                folder.capability.bindingID, id: folder.folderID, to: trimmed)
+            bumpDataVersion()
 
         default:
             break
@@ -1958,11 +2049,10 @@ final class ImbibSidebarViewModel {
         case .scixLibrary(let libraryID):
             buildSciXLibraryContextMenu(menu, libraryID: libraryID)
 
-        case .manuscriptFolder(let folderID):
-            buildManuscriptFolderContextMenu(menu, folderID: folderID, nodeID: node.id)
-
-        case .figureFolder(let folderID):
-            buildFigureFolderContextMenu(menu, folderID: folderID, nodeID: node.id)
+        case .manuscriptFolder, .figureFolder:
+            guard let folder = folderNode(node) else { return nil }
+            buildFolderContextMenu(
+                menu, capability: folder.capability, folderID: folder.folderID, nodeID: node.id)
 
         default:
             Self.logger.infoCapture(
@@ -2143,14 +2233,15 @@ final class ImbibSidebarViewModel {
             newLibItem.target = ContextMenuActions.shared
             menu.addItem(newLibItem)
 
-        case .manuscripts:
-            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(ContextMenuActions.createManuscriptFolder(_:)), keyEquivalent: "")
+        case .manuscripts, .figures:
+            // ADR-0022 D3: the section that hosts a binding's folder tree
+            // offers "New Folder" at root.
+            guard let capability = Self.folderCapability(ofSection: section),
+                  capability.canOrganize else { break }
+            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
             newFolderItem.target = ContextMenuActions.shared
-            menu.addItem(newFolderItem)
-
-        case .figures:
-            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(ContextMenuActions.createFigureFolder(_:)), keyEquivalent: "")
-            newFolderItem.target = ContextMenuActions.shared
+            newFolderItem.representedObject = FolderMenuTarget(
+                bindingID: capability.bindingID, folderID: nil)
             menu.addItem(newFolderItem)
 
         case .search:
@@ -2270,45 +2361,34 @@ final class ImbibSidebarViewModel {
         menu.addItem(deleteItem)
     }
 
-    private func buildManuscriptFolderContextMenu(_ menu: NSMenu, folderID: String, nodeID: UUID) {
+    /// Context menu for a collection folder of ANY binding (ADR-0022 D3).
+    /// The manuscript and figure menus were already label-for-label
+    /// identical — Rename / New Subfolder / ─── / Delete Folder — so the
+    /// merge is literal; only the represented objects carry the binding now.
+    private func buildFolderContextMenu(
+        _ menu: NSMenu, capability: CollectionCapability, folderID: String, nodeID: UUID
+    ) {
+        guard capability.canOrganize else { return }
+
         let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
         renameItem.target = ContextMenuActions.shared
-        // Rename edits by SIDEBAR NODE id (derived for manuscript folders,
-        // unlike collections where node id == item id).
+        // Rename edits by SIDEBAR NODE id (derived for folders, unlike
+        // collections where node id == item id).
         renameItem.representedObject = nodeID
         menu.addItem(renameItem)
 
-        let newSubItem = NSMenuItem(title: "New Subfolder", action: #selector(ContextMenuActions.createManuscriptFolder(_:)), keyEquivalent: "")
+        let newSubItem = NSMenuItem(title: "New Subfolder", action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
         newSubItem.target = ContextMenuActions.shared
-        newSubItem.representedObject = folderID
+        newSubItem.representedObject = FolderMenuTarget(
+            bindingID: capability.bindingID, folderID: folderID)
         menu.addItem(newSubItem)
 
         menu.addItem(.separator())
 
-        let deleteItem = NSMenuItem(title: "Delete Folder", action: #selector(ContextMenuActions.deleteManuscriptFolder(_:)), keyEquivalent: "")
+        let deleteItem = NSMenuItem(title: "Delete Folder", action: #selector(ContextMenuActions.deleteFolder(_:)), keyEquivalent: "")
         deleteItem.target = ContextMenuActions.shared
-        deleteItem.representedObject = folderID
-        menu.addItem(deleteItem)
-    }
-
-    private func buildFigureFolderContextMenu(_ menu: NSMenu, folderID: String, nodeID: UUID) {
-        let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
-        renameItem.target = ContextMenuActions.shared
-        // Rename edits by SIDEBAR NODE id (derived for figure folders, like
-        // manuscript folders — node id != item id).
-        renameItem.representedObject = nodeID
-        menu.addItem(renameItem)
-
-        let newSubItem = NSMenuItem(title: "New Subfolder", action: #selector(ContextMenuActions.createFigureFolder(_:)), keyEquivalent: "")
-        newSubItem.target = ContextMenuActions.shared
-        newSubItem.representedObject = folderID
-        menu.addItem(newSubItem)
-
-        menu.addItem(.separator())
-
-        let deleteItem = NSMenuItem(title: "Delete Folder", action: #selector(ContextMenuActions.deleteFigureFolder(_:)), keyEquivalent: "")
-        deleteItem.target = ContextMenuActions.shared
-        deleteItem.representedObject = folderID
+        deleteItem.representedObject = FolderMenuTarget(
+            bindingID: capability.bindingID, folderID: folderID)
         menu.addItem(deleteItem)
     }
 
@@ -2693,76 +2773,66 @@ final class ImbibSidebarViewModel {
         }
     }
 
-    /// Create a manuscript folder, expand its parent, and begin inline rename.
-    /// Mirrors `createInboxCollection` (folder ids are the Rust store's
-    /// lowercase strings; sidebar node ids are derived via ImbibSidebarNodeID).
-    func createManuscriptFolder(parentID: String? = nil) {
-        guard let row = RustStoreAdapter.shared.createManuscriptCollection(
+    /// Create a collection folder of ANY binding, expand its parent, and
+    /// begin inline rename (ADR-0022 D3). Mirrors `createInboxCollection` —
+    /// folder ids are the Rust store's lowercase strings; sidebar node ids
+    /// are derived via `ImbibSidebarNodeID`.
+    func createFolder(bindingID: String, parentID: String? = nil) {
+        guard let row = CollectionStoreAdapter.shared.create(
+            bindingID,
             name: parentID != nil ? "New Subfolder" : "New Folder",
-            parentID: parentID.flatMap { UUID(uuidString: $0) }
+            parentID: parentID
         ) else { return }
-        if let parentID {
-            expansionState.expand(ImbibSidebarNodeID.manuscriptFolder(parentID))
+        if let parentID, let parentNodeID = Self.folderNodeID(bindingID, parentID) {
+            expansionState.expand(parentNodeID)
         }
         bumpDataVersion()
         Self.logger.infoCapture(
-            "created manuscript folder '\(row.name)' (\(row.id)) parent=\(parentID ?? "root")",
+            "created \(bindingID) folder '\(row.name)' (\(row.id)) parent=\(parentID ?? "root")",
             category: "sidebar")
+        guard let newNodeID = Self.folderNodeID(bindingID, row.id) else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.editingNodeID = ImbibSidebarNodeID.manuscriptFolder(row.id)
+            self?.editingNodeID = newNodeID
         }
+    }
+
+    /// Delete a collection folder. Contained records are NEVER deleted — the
+    /// membership goes away with the row (`Contains` edges cascade; envelope-
+    /// filed members are unfiled by `ON DELETE SET NULL`).
+    func deleteFolder(bindingID: String, folderID: String) {
+        if selectedFolderID(bindingID) == folderID {
+            selectedNodeID = nil
+        }
+        CollectionStoreAdapter.shared.delete(bindingID, id: folderID)
+        bumpDataVersion()
+        Self.logger.infoCapture("deleted \(bindingID) folder \(folderID)", category: "sidebar")
+    }
+
+    /// Create a manuscript folder. Retained signature — the body is now the
+    /// generic capability-driven path.
+    func createManuscriptFolder(parentID: String? = nil) {
+        createFolder(bindingID: CollectionBindingID.manuscript, parentID: parentID)
     }
 
     /// Delete a manuscript folder. Contained manuscripts are NOT deleted —
     /// only the folder item (its Contains edges cascade away).
     func deleteManuscriptFolder(_ folderID: String) {
-        if case .manuscriptFolder(let selected) = selectedTab, selected == folderID {
-            selectedNodeID = nil
-        }
-        guard let uuid = UUID(uuidString: folderID) else { return }
-        store.deleteItem(id: uuid)
-        bumpDataVersion()
-        Self.logger.infoCapture("deleted manuscript folder \(folderID)", category: "sidebar")
+        deleteFolder(bindingID: CollectionBindingID.manuscript, folderID: folderID)
     }
 
-    /// Create a figure folder, expand its parent, and begin inline rename.
-    /// Mirrors `createManuscriptFolder` — but creation goes through the
-    /// SharedStore handle (no createFigureCollection FFI on RustStoreAdapter).
+    /// Create a figure folder. Retained signature — the body is now the
+    /// generic capability-driven path.
     func createFigureFolder(parentID: String? = nil) {
-        guard let newID = FigureStoreReader.shared.createFolder(
-            name: parentID != nil ? "New Subfolder" : "New Folder",
-            parentID: parentID
-        ) else { return }
-        if let parentID {
-            expansionState.expand(ImbibSidebarNodeID.figureFolder(parentID))
-        }
-        bumpDataVersion()
-        Self.logger.infoCapture(
-            "created figure folder (\(newID)) parent=\(parentID ?? "root")",
-            category: "sidebar")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.editingNodeID = ImbibSidebarNodeID.figureFolder(newID)
-        }
+        createFolder(bindingID: CollectionBindingID.figure, parentID: parentID)
     }
 
     /// Delete a figure folder. Contained figures and subfolders are NOT
-    /// deleted — they are reparented to root first (envelope-parent nesting;
-    /// hard-deleting the folder item must not orphan or cascade its children).
+    /// deleted — they are unfiled to root. That used to be an explicit Swift
+    /// loop; it is the `parent_id … ON DELETE SET NULL` foreign key now, so
+    /// the same end state costs one statement instead of N (and an undo of
+    /// the delete re-files them, which the loop could not do).
     func deleteFigureFolder(_ folderID: String) {
-        if case .figureFolder(let selected) = selectedTab, selected == folderID {
-            selectedNodeID = nil
-        }
-        let reader = FigureStoreReader.shared
-        for figure in reader.fetchFigures(inFolder: folderID) {
-            reader.setParent(itemID: figure.id, parentID: nil)
-        }
-        for folder in reader.fetchFolders() where folder.parentId == folderID.lowercased() {
-            reader.setParent(itemID: folder.id, parentID: nil)
-        }
-        guard let uuid = UUID(uuidString: folderID) else { return }
-        store.deleteItem(id: uuid)
-        bumpDataVersion()
-        Self.logger.infoCapture("deleted figure folder \(folderID)", category: "sidebar")
+        deleteFolder(bindingID: CollectionBindingID.figure, folderID: folderID)
     }
 
     func deleteCollection(_ collectionID: UUID) {
@@ -2815,10 +2885,12 @@ final class ImbibSidebarViewModel {
                 deleteExplorationCollection(id)
             case .explorationSearch(let id):
                 deleteExplorationSearches([id])
-            case .manuscriptFolder(let id):
-                deleteManuscriptFolder(id)
-            case .figureFolder(let id):
-                deleteFigureFolder(id)
+            case .manuscriptFolder, .figureFolder:
+                // ADR-0022 D3: one delete for every folder binding.
+                guard let folder = folderNode(nodes[0]), folder.capability.canOrganize else {
+                    break
+                }
+                deleteFolder(bindingID: folder.capability.bindingID, folderID: folder.folderID)
             default:
                 break  // Unsupported node kind — no Delete action in v1.
             }
@@ -2861,20 +2933,14 @@ final class ImbibSidebarViewModel {
             deleteExplorationItems(searchIDs: explorationSearchIDs, collectionIDs: explorationIDs)
             return
         }
-        let manuscriptFolderIDs = nodes.compactMap { node -> String? in
-            if case .manuscriptFolder(let id) = node.nodeType { return id }
-            return nil
-        }
-        if manuscriptFolderIDs.count == nodes.count {
-            for id in manuscriptFolderIDs { deleteManuscriptFolder(id) }
-            return
-        }
-        let figureFolderIDs = nodes.compactMap { node -> String? in
-            if case .figureFolder(let id) = node.nodeType { return id }
-            return nil
-        }
-        if figureFolderIDs.count == nodes.count {
-            for id in figureFolderIDs { deleteFigureFolder(id) }
+        // Collection folders (ADR-0022 D3): a homogeneous selection of one
+        // binding's folders deletes them all. Mixed bindings fall through to
+        // the no-op, exactly as the two per-kind blocks did.
+        let folders = nodes.compactMap { folderNode($0) }
+        if folders.count == nodes.count,
+           let bindingID = folders.first?.capability.bindingID,
+           folders.allSatisfy({ $0.capability.bindingID == bindingID && $0.capability.canOrganize }) {
+            for folder in folders { deleteFolder(bindingID: bindingID, folderID: folder.folderID) }
             return
         }
         // Mixed kinds → no-op (consistent with right-click behavior).
@@ -3002,6 +3068,16 @@ final class ImbibSidebarViewModel {
     }
 }
 
+// MARK: - Folder Menu Target
+
+/// `NSMenuItem.representedObject` payload for the generic folder actions
+/// (ADR-0022 D3): which kernel binding, and which folder (nil = the binding's
+/// root, i.e. "New Folder" on a section header).
+struct FolderMenuTarget {
+    let bindingID: String
+    let folderID: String?
+}
+
 // MARK: - Node Type Helpers
 
 private extension ImbibSidebarNodeType {
@@ -3058,24 +3134,19 @@ final class ContextMenuActions: NSObject {
         viewModel?.deleteCollection(collectionID)
     }
 
-    @objc func createManuscriptFolder(_ sender: NSMenuItem) {
-        // representedObject: parent folder id String, or nil for a root folder.
-        viewModel?.createManuscriptFolder(parentID: sender.representedObject as? String)
+    /// Create a collection folder of any binding (ADR-0022 D3).
+    /// representedObject: `FolderMenuTarget` — binding + parent folder id
+    /// (nil parent = a root folder).
+    @objc func createFolder(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? FolderMenuTarget else { return }
+        viewModel?.createFolder(bindingID: target.bindingID, parentID: target.folderID)
     }
 
-    @objc func deleteManuscriptFolder(_ sender: NSMenuItem) {
-        guard let folderID = sender.representedObject as? String else { return }
-        viewModel?.deleteManuscriptFolder(folderID)
-    }
-
-    @objc func createFigureFolder(_ sender: NSMenuItem) {
-        // representedObject: parent folder id String, or nil for a root folder.
-        viewModel?.createFigureFolder(parentID: sender.representedObject as? String)
-    }
-
-    @objc func deleteFigureFolder(_ sender: NSMenuItem) {
-        guard let folderID = sender.representedObject as? String else { return }
-        viewModel?.deleteFigureFolder(folderID)
+    /// Delete a collection folder of any binding (ADR-0022 D3).
+    @objc func deleteFolder(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? FolderMenuTarget,
+              let folderID = target.folderID else { return }
+        viewModel?.deleteFolder(bindingID: target.bindingID, folderID: folderID)
     }
 
     @objc func deleteExplorationCollection(_ sender: NSMenuItem) {

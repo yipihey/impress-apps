@@ -92,6 +92,13 @@ fn list_and_call_inventory_tool_via_stdio() {
     for inv in [
         "imbib-text-service_decode-latex",
         "imbib-text-service_normalize-tag-path",
+        // ADR-0022 WP G1: store-generic services. These are never withheld by
+        // the reachability gate, so they must be listed here even with every
+        // app closed — which is exactly the state this test runs in.
+        "collection-service_tree",
+        "collection-service_add-members",
+        "triage-service_set-starred",
+        "triage-service_set-status",
     ] {
         assert!(names.contains(&inv), "missing inventory {inv} in {names:?}");
     }

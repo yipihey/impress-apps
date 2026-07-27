@@ -113,6 +113,54 @@ public struct TriageCapabilities: Sendable, Equatable {
     }
 }
 
+/// The collection-kernel bindings (ADR-0022 D1/D2), as plain strings.
+///
+/// Descriptors must not import store types (they are `Sendable` DATA — see
+/// the file header and ADR-0021 D3), so the binding travels as an id and
+/// `CollectionStoreAdapter` is the only place that maps it onto
+/// `SharedCollectionBinding`. The raw values match the Rust enum variants.
+public enum CollectionBindingID {
+    /// imbib publication collections (`imbib/collection`).
+    public static let publication = "publication"
+    /// imprint manuscript folders (`manuscript-collection`).
+    public static let manuscript = "manuscript"
+    /// implore figure folders (`figure-collection`) — ENVELOPE nesting.
+    public static let figure = "figure"
+    /// The generic `collection@1.0.0` kernel schema.
+    public static let generic = "generic"
+
+    /// Every binding, in the Rust enum's declaration order.
+    public static let all: [String] = [publication, manuscript, figure, generic]
+}
+
+/// How a record kind's sidebar folders behave (ADR-0022 D3).
+///
+/// This is the data that collapsed the per-kind folder blocks in
+/// `ImbibSidebarViewModel` into one capability-driven implementation:
+/// which kernel binding organises the kind, whether the sidebar exposes the
+/// organise verbs at all, and which pasteboard type its list rows drag.
+/// Kinds with no folder tree leave `collection` nil.
+public struct CollectionCapability: Sendable, Equatable {
+    /// Kernel binding id — one of `CollectionBindingID`.
+    public let bindingID: String
+    /// Whether the sidebar offers create / rename / reparent / reorder /
+    /// delete for this kind's folders. `false` = read-only folder rows.
+    public let canOrganize: Bool
+    /// UTType identifier of the kind's list-row drag payload, or nil when
+    /// records of this kind cannot be dropped into a folder.
+    public let dragUTTypeIdentifier: String?
+
+    public init(
+        bindingID: String,
+        canOrganize: Bool = true,
+        dragUTTypeIdentifier: String? = nil
+    ) {
+        self.bindingID = bindingID
+        self.canOrganize = canOrganize
+        self.dragUTTypeIdentifier = dragUTTypeIdentifier
+    }
+}
+
 /// A way to create a record of this kind (drives the `n` key and the
 /// empty-state / File menus). `formatValue` is the payload `format` for kinds
 /// that have one (manuscripts).
@@ -153,6 +201,9 @@ public struct RecordKindDescriptor: Identifiable, Sendable {
     public let creation: [CreationAffordance]
     /// Default open behavior; shells override via `openOverrides`.
     public let defaultOpenBehavior: OpenBehavior
+    /// Sidebar folder behavior (ADR-0022 D3). Nil for kinds with no folder
+    /// tree — message/task/agent-run/artifact folders are later work packages.
+    public let collection: CollectionCapability?
 
     public init(
         id: RecordKindID,
@@ -162,7 +213,8 @@ public struct RecordKindDescriptor: Identifiable, Sendable {
         fallbackTab: @escaping @Sendable (DetailTab, RecordTabContext) -> DetailTab = { _, _ in .info },
         triage: TriageCapabilities,
         creation: [CreationAffordance] = [],
-        defaultOpenBehavior: OpenBehavior = .detailPane
+        defaultOpenBehavior: OpenBehavior = .detailPane,
+        collection: CollectionCapability? = nil
     ) {
         self.id = id
         self.schemaRefs = schemaRefs
@@ -172,6 +224,7 @@ public struct RecordKindDescriptor: Identifiable, Sendable {
         self.triage = triage
         self.creation = creation
         self.defaultOpenBehavior = defaultOpenBehavior
+        self.collection = collection
     }
 
     /// Tabs available for a given record context, in display order.
@@ -203,6 +256,11 @@ public struct RecordKindRegistry: Sendable {
     /// Descriptor owning a store schema ref, if any.
     public func descriptor(forSchemaRef schemaRef: String) -> RecordKindDescriptor? {
         descriptors.first { $0.schemaRefs.contains(schemaRef) }
+    }
+
+    /// Descriptor whose collection capability uses `bindingID`, if any.
+    public func descriptor(forCollectionBinding bindingID: String) -> RecordKindDescriptor? {
+        descriptors.first { $0.collection?.bindingID == bindingID }
     }
 }
 #endif

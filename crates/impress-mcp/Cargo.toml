@@ -33,5 +33,8 @@ impart-service = { workspace = true }
 impart-service-http = { workspace = true }
 # Cross-app orchestration (the imbib/imprint/implore/impart seams).
 impress-bridges-service = { workspace = true }
+# Store-generic services (ADR-0022 WP G1): the collection kernel + generic
+# triage verbs. Never app-gated — they open the shared store directly.
+impress-store-service = { workspace = true }
 # Pulls the ImprintSelftestService inventory (run-selftest MCP tool).
 imprint-selftest = { workspace = true }

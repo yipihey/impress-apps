@@ -1,0 +1,108 @@
+//! The shared `impress.sqlite` handle these services run against.
+//!
+//! Store-generic services are NOT app-gated: they open the store directly and
+//! work with every app closed, which is exactly why they belong in their own
+//! crate rather than behind one app's HTTP backend.
+//!
+//! The path resolves the same way `impress-mcp` resolves it — the app-group
+//! container — with two escape hatches for embedders and tests:
+//!
+//! * [`set_store_path`] records a path *without* opening anything, so a host
+//!   that parses `--store-path` can point the services at it with zero startup
+//!   cost (the store opens lazily on the first tool call);
+//! * [`install_store`] injects an already-open store (tests use a temp or
+//!   in-memory one, as does anything embedding this crate in-process).
+//!
+//! Service structs also accept a store directly (`with_store`), which is how
+//! the unit tests avoid the singleton entirely.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
+
+use impress_core::sqlite_store::SqliteItemStore;
+
+static STORE_PATH: OnceLock<PathBuf> = OnceLock::new();
+static STORE: OnceLock<Arc<SqliteItemStore>> = OnceLock::new();
+
+/// Where the shared store lives when nothing overrides it. The
+/// `IMPRESS_STORE_PATH` environment variable wins, then the app-group
+/// container path every other consumer in the suite uses.
+pub fn default_store_path() -> PathBuf {
+    if let Ok(p) = std::env::var("IMPRESS_STORE_PATH") {
+        return PathBuf::from(p);
+    }
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
+}
+
+/// Point the services at `path`, lazily. Call before the first service
+/// dispatch; returns `Err` if a path or store was already fixed.
+pub fn set_store_path(path: impl AsRef<Path>) -> Result<(), String> {
+    STORE_PATH
+        .set(path.as_ref().to_path_buf())
+        .map_err(|_| "impress store path already set".to_string())
+}
+
+/// The path the services will use (or are using).
+pub fn store_path() -> PathBuf {
+    STORE_PATH.get().cloned().unwrap_or_else(default_store_path)
+}
+
+/// Install an already-open store. Returns `Err` if one is already installed.
+pub fn install_store(store: Arc<SqliteItemStore>) -> Result<(), String> {
+    STORE
+        .set(store)
+        .map_err(|_| "impress store already installed".to_string())
+}
+
+/// Get (or lazily open) the shared store.
+///
+/// On open failure this falls back to a private in-memory store rather than
+/// panicking: an MCP tool that answers "no such collection" is recoverable, a
+/// server that aborts mid-session is not. The failure is logged to stderr,
+/// which is where every other service in this server logs.
+pub fn store_instance() -> Arc<SqliteItemStore> {
+    STORE
+        .get_or_init(|| {
+            let path = store_path();
+            match SqliteItemStore::open(&path) {
+                Ok(store) => Arc::new(store),
+                Err(e) => {
+                    eprintln!(
+                        "[impress-store-service] could not open the store at {}: {e} \
+                         — falling back to an empty in-memory store",
+                        path.display()
+                    );
+                    Arc::new(
+                        SqliteItemStore::open_in_memory()
+                            .expect("in-memory SqliteItemStore always opens"),
+                    )
+                }
+            }
+        })
+        .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_path_honours_the_environment_override() {
+        // `default_store_path` is pure with respect to the singletons, so this
+        // does not disturb whatever the rest of the suite resolved.
+        std::env::set_var(
+            "IMPRESS_STORE_PATH",
+            "/tmp/impress-store-service-test.sqlite",
+        );
+        assert_eq!(
+            default_store_path(),
+            PathBuf::from("/tmp/impress-store-service-test.sqlite")
+        );
+        std::env::remove_var("IMPRESS_STORE_PATH");
+        assert!(default_store_path()
+            .to_string_lossy()
+            .ends_with("workspace/impress.sqlite"));
+    }
+}

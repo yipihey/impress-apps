@@ -64,7 +64,16 @@ public enum ManuscriptRecordKind {
         creation: DocumentFormat.allCases.map {
             CreationAffordance(label: $0.displayName, formatValue: $0.rawValue)
         },
-        defaultOpenBehavior: .appHandoff
+        defaultOpenBehavior: .appHandoff,
+        // ADR-0022 D3: manuscript folders are `manuscript-collection` items —
+        // payload `parent_collection_ref` tree, Contains membership. The
+        // literal is `UTType.manuscriptID.identifier` (MailStylePublicationRow);
+        // spelled out because this folder must not depend on view types.
+        collection: CollectionCapability(
+            bindingID: CollectionBindingID.manuscript,
+            canOrganize: true,
+            dragUTTypeIdentifier: "com.imbib.manuscript-id"
+        )
     )
 }
 
@@ -95,7 +104,16 @@ public enum FigureRecordKind {
             statuses: []
         ),
         creation: [],   // figures are created by the canvas/generators, not `n`
-        defaultOpenBehavior: .window(id: "canvas")
+        defaultOpenBehavior: .window(id: "canvas"),
+        // ADR-0022 D3: figure folders are `figure-collection` items and are
+        // the odd binding — both nesting AND membership run through the
+        // ENVELOPE parent. That asymmetry lives in the Rust kernel; the
+        // sidebar only picks the binding.
+        collection: CollectionCapability(
+            bindingID: CollectionBindingID.figure,
+            canOrganize: true,
+            dragUTTypeIdentifier: "com.impress.figure-id"
+        )
     )
 }
 
@@ -216,5 +234,30 @@ public enum ArtifactRecordKind {
         ),
         defaultOpenBehavior: .detailPane
     )
+}
+
+/// Every shipped descriptor, in registration order.
+///
+/// Kind-INTRINSIC lookups (today: `CollectionCapability`) resolve here, not
+/// through `AppShellConfiguration.recordKinds`: imbib's preset shows the
+/// Figures section without registering `FigureRecordKind`, so a shell-scoped
+/// lookup would silently make imbib's figure folders read-only.
+public enum BuiltinRecordKinds {
+    public static let all: [RecordKindDescriptor] = [
+        PublicationRecordKind.descriptor,
+        ManuscriptRecordKind.descriptor,
+        ArtifactRecordKind.descriptor,
+        FigureRecordKind.descriptor,
+        MessageRecordKind.descriptor,
+        TaskRecordKind.descriptor,
+        AgentRunRecordKind.descriptor,
+    ]
+
+    public static let registry = RecordKindRegistry(all)
+
+    /// Descriptors that organise their records into sidebar folders.
+    public static var collectionCapable: [RecordKindDescriptor] {
+        all.filter { $0.collection != nil }
+    }
 }
 #endif

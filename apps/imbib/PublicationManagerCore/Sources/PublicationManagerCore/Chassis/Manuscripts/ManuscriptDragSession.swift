@@ -17,8 +17,16 @@
 
 import Foundation
 
+/// The pasteboard-fallback contract the sidebar's generic folder-drop handler
+/// needs (ADR-0022 D3), so it does not have to name a per-kind singleton.
 @MainActor
-public final class ManuscriptDragSession {
+public protocol RecordDragSessionProviding: AnyObject {
+    /// Consume the in-flight payload (a drop or a cancelled drag ends it).
+    func take() -> [UUID]
+}
+
+@MainActor
+public final class ManuscriptDragSession: RecordDragSessionProviding {
     public static let shared = ManuscriptDragSession()
 
     /// Manuscript IDs in the drag currently in flight, if any.

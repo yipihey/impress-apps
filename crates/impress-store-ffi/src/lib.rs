@@ -21,6 +21,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use impress_core::{
+    collection_ops::{self, CollectionSchemaBinding},
     item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility},
     operation::{OperationIntent, OperationSpec, OperationType, RetentionTier},
     query::{ItemQuery, Predicate, SortDescriptor},
@@ -203,6 +204,43 @@ pub struct SharedEffectiveState {
 pub struct GuardedUpsertOutcome {
     pub applied: bool,
     pub stored_guard: Option<String>,
+}
+
+// ─── Collection kernel DTOs (ADR-0022 D1/D2) ─────────────────────────────────
+
+/// Which collection schema the kernel operates on.
+///
+/// ADR-0022 D2 unifies the API before the data: `Publication`, `Manuscript`
+/// and `Figure` front the schemas that already exist, `Generic` is the new
+/// `collection@1.0.0` that can hold any record kind.
+#[cfg_attr(feature = "native", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SharedCollectionBinding {
+    /// imbib publication collections (`imbib/collection`).
+    Publication,
+    /// imprint manuscript folders (`manuscript-collection`).
+    Manuscript,
+    /// implore figure folders (`figure-collection`).
+    Figure,
+    /// The generic `collection@1.0.0` kernel schema.
+    Generic,
+}
+
+/// One flat collection row. Build the tree from `parent_id` (`nil` = root);
+/// `parent_id` is the schema's payload tree ref (or, for figure folders, the
+/// envelope parent) — never the owning library.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedCollectionRow {
+    /// Lowercase UUID string.
+    pub id: String,
+    pub name: String,
+    /// Lowercase UUID string of the parent collection, `nil` for a root.
+    pub parent_id: Option<String>,
+    pub sort_order: i64,
+    /// Record-kind scope ("publication", "manuscript", "any", …) for schemas
+    /// that carry one; `nil` for the per-kind legacy schemas.
+    pub kind_scope: Option<String>,
 }
 
 // ─── Sync engine DTOs (ADR-0007 Phase 3, Phase C) ────────────────────────────
@@ -915,6 +953,134 @@ impl SharedStore {
         Ok(items.into_iter().map(item_to_row).collect())
     }
 
+    // ─── Collection kernel (ADR-0022 D1/D2) ────────────────────────────────
+    //
+    // Thin delegation to `impress_core::collection_ops`, which owns the whole
+    // verb set — including the reparent cycle check that used to live in the
+    // Swift sidebar view model. All ids in and out are lowercase UUID strings.
+
+    /// All collections of the bound schema, flat and ordered by `sort_order`.
+    /// The caller assembles the tree from `parent_id`.
+    pub fn collection_tree(
+        &self,
+        binding: SharedCollectionBinding,
+    ) -> Result<Vec<SharedCollectionRow>, SharedStoreError> {
+        let rows = collection_ops::list_tree(&self.inner, &binding.binding())?;
+        Ok(rows.into_iter().map(collection_row_to_ffi).collect())
+    }
+
+    /// Create a collection under `parent_id` (`nil` = root). `kind_scope` is
+    /// honoured only by the `Generic` binding, which defaults it to `"any"`.
+    pub fn collection_create(
+        &self,
+        binding: SharedCollectionBinding,
+        name: String,
+        parent_id: Option<String>,
+        kind_scope: Option<String>,
+    ) -> Result<SharedCollectionRow, SharedStoreError> {
+        let row = collection_ops::create(
+            &self.inner,
+            &binding.binding(),
+            &name,
+            parent_id.as_deref(),
+            kind_scope.as_deref(),
+        )?;
+        Ok(collection_row_to_ffi(row))
+    }
+
+    /// Rename a collection.
+    pub fn collection_rename(
+        &self,
+        binding: SharedCollectionBinding,
+        id: String,
+        name: String,
+    ) -> Result<SharedCollectionRow, SharedStoreError> {
+        let row = collection_ops::rename(&self.inner, &binding.binding(), &id, &name)?;
+        Ok(collection_row_to_ffi(row))
+    }
+
+    /// Move a collection under `new_parent_id` (`nil` = make it a root).
+    /// Returns `InvalidArgument` for self-parenting or a move under one of
+    /// the collection's own descendants.
+    pub fn collection_reparent(
+        &self,
+        binding: SharedCollectionBinding,
+        id: String,
+        new_parent_id: Option<String>,
+    ) -> Result<SharedCollectionRow, SharedStoreError> {
+        let row = collection_ops::reparent(
+            &self.inner,
+            &binding.binding(),
+            &id,
+            new_parent_id.as_deref(),
+        )?;
+        Ok(collection_row_to_ffi(row))
+    }
+
+    /// Set a collection's position among its siblings.
+    pub fn collection_reorder(
+        &self,
+        binding: SharedCollectionBinding,
+        id: String,
+        sort_order: i64,
+    ) -> Result<SharedCollectionRow, SharedStoreError> {
+        let row = collection_ops::reorder(&self.inner, &binding.binding(), &id, sort_order)?;
+        Ok(collection_row_to_ffi(row))
+    }
+
+    /// Delete a collection. Members are never deleted — only the membership.
+    pub fn collection_delete(
+        &self,
+        binding: SharedCollectionBinding,
+        id: String,
+    ) -> Result<(), SharedStoreError> {
+        collection_ops::delete(&self.inner, &binding.binding(), &id)?;
+        Ok(())
+    }
+
+    /// Add items to a collection. Idempotent; returns the number applied.
+    pub fn collection_add_members(
+        &self,
+        binding: SharedCollectionBinding,
+        collection_id: String,
+        item_ids: Vec<String>,
+    ) -> Result<u32, SharedStoreError> {
+        Ok(collection_ops::add_members(
+            &self.inner,
+            &binding.binding(),
+            &collection_id,
+            &item_ids,
+        )?)
+    }
+
+    /// Remove items from a collection. Returns the number actually removed.
+    pub fn collection_remove_members(
+        &self,
+        binding: SharedCollectionBinding,
+        collection_id: String,
+        item_ids: Vec<String>,
+    ) -> Result<u32, SharedStoreError> {
+        Ok(collection_ops::remove_members(
+            &self.inner,
+            &binding.binding(),
+            &collection_id,
+            &item_ids,
+        )?)
+    }
+
+    /// Member counts, aligned index-for-index with `collection_ids`.
+    pub fn collection_member_counts(
+        &self,
+        binding: SharedCollectionBinding,
+        collection_ids: Vec<String>,
+    ) -> Result<Vec<u32>, SharedStoreError> {
+        Ok(collection_ops::member_counts(
+            &self.inner,
+            &binding.binding(),
+            &collection_ids,
+        )?)
+    }
+
     // ─── CloudKit sync engine surface (ADR-0007 Phase 3, Phase C) ──────────
     //
     // Thin delegation to the Rust apply/snapshot engine in
@@ -1078,6 +1244,28 @@ impl SharedStore {
 }
 
 // ─── Private helpers ─────────────────────────────────────────────────────────
+
+impl SharedCollectionBinding {
+    /// The kernel descriptor for this binding.
+    fn binding(self) -> CollectionSchemaBinding {
+        match self {
+            SharedCollectionBinding::Publication => collection_ops::IMBIB_COLLECTION,
+            SharedCollectionBinding::Manuscript => collection_ops::MANUSCRIPT_COLLECTION,
+            SharedCollectionBinding::Figure => collection_ops::FIGURE_COLLECTION,
+            SharedCollectionBinding::Generic => collection_ops::GENERIC_COLLECTION,
+        }
+    }
+}
+
+fn collection_row_to_ffi(row: collection_ops::CollectionRow) -> SharedCollectionRow {
+    SharedCollectionRow {
+        id: row.id,
+        name: row.name,
+        parent_id: row.parent_id,
+        sort_order: row.sort_order,
+        kind_scope: row.kind_scope,
+    }
+}
 
 fn sync_item_to_ffi(r: impress_core::sync::SyncItemRecord) -> SyncItemRecord {
     SyncItemRecord {
@@ -2235,5 +2423,307 @@ mod tests {
             .expect("query emails");
         assert_eq!(emails.len(), 1);
         assert_eq!(emails[0].id, email_id);
+    }
+
+    // ─── Collection kernel (ADR-0022 D1/D2) ────────────────────────────────
+
+    /// Insert a plain record of `schema` and return its id.
+    fn make_record(store: &SharedStore, schema: &str, title: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                id.clone(),
+                schema.into(),
+                format!(r#"{{"title": "{title}"}}"#),
+            )
+            .expect("upsert record");
+        id
+    }
+
+    #[test]
+    fn collection_kernel_round_trip() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let root = store
+            .collection_create(
+                SharedCollectionBinding::Generic,
+                "Grant renewal".into(),
+                None,
+                Some("any".into()),
+            )
+            .expect("create root");
+        let child = store
+            .collection_create(
+                SharedCollectionBinding::Generic,
+                "Figures".into(),
+                Some(root.id.clone()),
+                None,
+            )
+            .expect("create child");
+
+        assert_eq!(root.kind_scope.as_deref(), Some("any"));
+        assert_eq!(
+            child.kind_scope.as_deref(),
+            Some("any"),
+            "kind_scope defaults to any"
+        );
+        assert_eq!(child.parent_id.as_deref(), Some(root.id.as_str()));
+
+        let renamed = store
+            .collection_rename(
+                SharedCollectionBinding::Generic,
+                child.id.clone(),
+                "Panels".into(),
+            )
+            .expect("rename");
+        assert_eq!(renamed.name, "Panels");
+
+        let reordered = store
+            .collection_reorder(SharedCollectionBinding::Generic, child.id.clone(), 4)
+            .expect("reorder");
+        assert_eq!(reordered.sort_order, 4);
+
+        let unparented = store
+            .collection_reparent(SharedCollectionBinding::Generic, child.id.clone(), None)
+            .expect("reparent to root");
+        assert!(unparented.parent_id.is_none());
+
+        let tree = store
+            .collection_tree(SharedCollectionBinding::Generic)
+            .expect("tree");
+        assert_eq!(tree.len(), 2);
+        assert_eq!(
+            tree.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+            vec!["Grant renewal", "Panels"],
+            "tree is flat and sorted by sort_order"
+        );
+
+        store
+            .collection_delete(SharedCollectionBinding::Generic, child.id.clone())
+            .expect("delete");
+        assert_eq!(
+            store
+                .collection_tree(SharedCollectionBinding::Generic)
+                .expect("tree")
+                .len(),
+            1
+        );
+        assert!(matches!(
+            store.collection_delete(SharedCollectionBinding::Generic, child.id),
+            Err(SharedStoreError::NotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn collection_reparent_rejects_cycles() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let a = store
+            .collection_create(SharedCollectionBinding::Generic, "A".into(), None, None)
+            .expect("A");
+        let b = store
+            .collection_create(
+                SharedCollectionBinding::Generic,
+                "B".into(),
+                Some(a.id.clone()),
+                None,
+            )
+            .expect("B");
+        let c = store
+            .collection_create(
+                SharedCollectionBinding::Generic,
+                "C".into(),
+                Some(b.id.clone()),
+                None,
+            )
+            .expect("C");
+
+        assert!(
+            matches!(
+                store.collection_reparent(
+                    SharedCollectionBinding::Generic,
+                    a.id.clone(),
+                    Some(a.id.clone())
+                ),
+                Err(SharedStoreError::InvalidArgument { .. })
+            ),
+            "self-parenting must be rejected"
+        );
+        assert!(
+            matches!(
+                store.collection_reparent(
+                    SharedCollectionBinding::Generic,
+                    a.id.clone(),
+                    Some(c.id.clone())
+                ),
+                Err(SharedStoreError::InvalidArgument { .. })
+            ),
+            "a move under a descendant must be rejected"
+        );
+
+        // The rejected moves left the tree intact.
+        let tree = store
+            .collection_tree(SharedCollectionBinding::Generic)
+            .expect("tree");
+        let a_row = tree.iter().find(|r| r.id == a.id).expect("A listed");
+        assert!(a_row.parent_id.is_none());
+    }
+
+    #[test]
+    fn collection_members_are_mixed_kind() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let mixed = store
+            .collection_create(
+                SharedCollectionBinding::Generic,
+                "Everything".into(),
+                None,
+                Some("any".into()),
+            )
+            .expect("create");
+        let empty = store
+            .collection_create(SharedCollectionBinding::Generic, "Empty".into(), None, None)
+            .expect("create");
+
+        let manuscript = make_record(&store, "manuscript", "Draft II");
+        let figure = make_record(&store, "figure", "Rotation curve");
+
+        assert_eq!(
+            store
+                .collection_add_members(
+                    SharedCollectionBinding::Generic,
+                    mixed.id.clone(),
+                    vec![manuscript.clone(), figure.clone()],
+                )
+                .expect("add members"),
+            2
+        );
+        assert_eq!(
+            store
+                .collection_member_counts(
+                    SharedCollectionBinding::Generic,
+                    vec![mixed.id.clone(), empty.id.clone()],
+                )
+                .expect("counts"),
+            vec![2, 0],
+            "counts align with the requested ids"
+        );
+
+        let refs = store
+            .get_item_references(mixed.id.clone())
+            .expect("references");
+        assert_eq!(refs.len(), 2);
+        assert!(refs.iter().all(|r| r.edge_type == "Contains"));
+
+        assert_eq!(
+            store
+                .collection_remove_members(
+                    SharedCollectionBinding::Generic,
+                    mixed.id.clone(),
+                    vec![figure.clone()],
+                )
+                .expect("remove"),
+            1
+        );
+        assert_eq!(
+            store
+                .collection_member_counts(SharedCollectionBinding::Generic, vec![mixed.id])
+                .expect("counts"),
+            vec![1]
+        );
+        assert!(
+            store.get_item(figure).expect("get").is_some(),
+            "removing membership must not delete the item"
+        );
+    }
+
+    #[test]
+    fn collection_bindings_are_isolated() {
+        let store = SharedStore::open_in_memory().expect("open");
+        store
+            .collection_create(SharedCollectionBinding::Generic, "Mixed".into(), None, None)
+            .expect("generic");
+        let workspace = store
+            .collection_create(
+                SharedCollectionBinding::Manuscript,
+                "Workspace".into(),
+                None,
+                None,
+            )
+            .expect("manuscript");
+        let folder = store
+            .collection_create(
+                SharedCollectionBinding::Manuscript,
+                "Drafts".into(),
+                Some(workspace.id.clone()),
+                None,
+            )
+            .expect("manuscript child");
+
+        assert_eq!(
+            store
+                .collection_tree(SharedCollectionBinding::Manuscript)
+                .expect("tree")
+                .len(),
+            2,
+            "each binding sees only its own schema"
+        );
+        assert!(store
+            .collection_tree(SharedCollectionBinding::Publication)
+            .expect("tree")
+            .is_empty());
+
+        // The manuscript binding writes the payload ref imprint already uses,
+        // and leaves the envelope parent (the owning library) alone.
+        let row = store
+            .get_item(folder.id.clone())
+            .expect("get")
+            .expect("row");
+        let payload: serde_json::Value = serde_json::from_str(&row.payload_json).unwrap();
+        assert_eq!(payload["parent_collection_ref"], workspace.id);
+        assert!(row.parent_id.is_none());
+        assert!(folder.kind_scope.is_none());
+    }
+
+    #[test]
+    fn collection_figure_binding_files_via_envelope_parent() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let folder = store
+            .collection_create(
+                SharedCollectionBinding::Figure,
+                "Paper figures".into(),
+                None,
+                None,
+            )
+            .expect("folder");
+        let nested = store
+            .collection_create(
+                SharedCollectionBinding::Figure,
+                "Supplement".into(),
+                Some(folder.id.clone()),
+                None,
+            )
+            .expect("nested folder");
+        assert_eq!(nested.parent_id.as_deref(), Some(folder.id.as_str()));
+
+        let figure = make_record(&store, "figure", "Panel A");
+        store
+            .collection_add_members(
+                SharedCollectionBinding::Figure,
+                folder.id.clone(),
+                vec![figure.clone()],
+            )
+            .expect("file figure");
+
+        let row = store.get_item(figure).expect("get").expect("row");
+        assert_eq!(
+            row.parent_id.as_deref(),
+            Some(folder.id.as_str()),
+            "figures are filed through the envelope parent"
+        );
+        assert_eq!(
+            store
+                .collection_member_counts(SharedCollectionBinding::Figure, vec![folder.id])
+                .expect("counts"),
+            vec![1],
+            "the nested folder is a tree node, not a member"
+        );
     }
 }

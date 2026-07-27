@@ -34,6 +34,9 @@ members = [
     "crates/impart-service",
     "crates/impart-service-http",
     "crates/impress-bridges-service",
+    # impress-store-service - store-generic services (ADR-0022 WP G1):
+    # the collection kernel + generic triage verbs, no app dependency.
+    "crates/impress-store-service",
     "crates/impress-helix",
     "apps/impel-tui",
     "crates/impel-server",
@@ -224,3 +227,4 @@ implore-service-http = { path = "crates/implore-service-http" }
 impart-service = { path = "crates/impart-service" }
 impart-service-http = { path = "crates/impart-service-http" }
 impress-bridges-service = { path = "crates/impress-bridges-service" }
+impress-store-service = { path = "crates/impress-store-service" }

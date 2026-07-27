@@ -132,6 +132,15 @@ mod tests {
         assert!(required_app("imbib-library-service_list-libraries").is_none());
         assert!(required_app("imbib-text-service_decode-latex").is_none());
         assert!(required_app("search_papers").is_none());
+        // ADR-0022 WP G1: the collection and triage services open the shared
+        // sqlite store directly, so they answer with every app closed. No new
+        // mechanism was needed — an ungated namespace already means "always
+        // available", and these simply are not in APP_GATED.
+        assert!(required_app("collection-service_tree").is_none());
+        assert!(required_app("collection-service_add-members").is_none());
+        assert!(required_app("triage-service_set-status").is_none());
+        assert!(is_available("collection-service_create"));
+        assert!(is_available("triage-service_set-starred"));
     }
 
     #[test]

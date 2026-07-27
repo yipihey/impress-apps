@@ -1,0 +1,733 @@
+//! `CollectionService` — the agent-facing twin of the collection kernel
+//! (ADR-0022 D1/D5).
+//!
+//! One verb set over every collection hierarchy in the suite, parameterized by
+//! a `binding` string that names which schema to operate on. The method names,
+//! argument names and argument order mirror
+//! `impress_store_ffi::SharedStore::collection_*` on purpose: Swift, the CLI
+//! and an agent should say the same words for the same operation, because the
+//! moment they diverge somebody has to keep a translation table in their head.
+//!
+//! Everything here delegates to `impress_core::collection_ops`. No logic lives
+//! in this layer — it converts strings to bindings, kernel results to result
+//! DTOs, and nothing else.
+
+use std::sync::Arc;
+
+use impress_core::collection_ops::{
+    self, CollectionRow, CollectionSchemaBinding, FIGURE_COLLECTION, GENERIC_COLLECTION,
+    IMBIB_COLLECTION, MANUSCRIPT_COLLECTION,
+};
+use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::store::StoreError;
+use impress_service_core::async_trait;
+use impress_service_macros::{impress_service, impress_service_impl};
+use serde::{Deserialize, Serialize};
+
+#[allow(unused_imports)]
+use impress_service_macros::impress_method;
+
+use crate::store::store_instance;
+
+/// Every accepted `binding` value, in the order a caller should think about
+/// them. Listed in error messages so a wrong guess is self-correcting.
+pub const BINDING_NAMES: [&str; 4] = ["imbib", "manuscript", "figure", "generic"];
+
+/// Resolve a `binding` argument to a kernel binding.
+///
+/// Aliases are deliberate: an agent that knows the record kind (`publication`)
+/// or the stored schema (`imbib/collection`) should not have to learn a third
+/// vocabulary to use the tool.
+pub fn binding_for(name: &str) -> Result<CollectionSchemaBinding, String> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "imbib" | "publication" | "publications" | "imbib/collection" => Ok(IMBIB_COLLECTION),
+        "manuscript" | "manuscripts" | "imprint" | "manuscript-collection" => {
+            Ok(MANUSCRIPT_COLLECTION)
+        }
+        "figure" | "figures" | "implore" | "figure-collection" => Ok(FIGURE_COLLECTION),
+        "" | "generic" | "any" | "collection" | "impress" => Ok(GENERIC_COLLECTION),
+        other => Err(format!(
+            "unknown collection binding '{other}'. Use one of: {}.",
+            BINDING_NAMES.join(", ")
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DTOs
+// ---------------------------------------------------------------------------
+
+/// One flat collection row. Build the tree yourself from `parent_id`
+/// (`null` = root); the kernel returns a flat list so callers can group,
+/// filter and sort it their own way.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CollectionRowDto {
+    /// Lowercase UUID string.
+    pub id: String,
+    pub name: String,
+    /// Lowercase UUID of the PARENT COLLECTION, or null for a root. Never the
+    /// owning library — that is the envelope parent and a different thing.
+    pub parent_id: Option<String>,
+    pub sort_order: i64,
+    /// Record kind this collection organises ("publication", "manuscript",
+    /// "any", …) for schemas that carry one; null for the per-kind schemas.
+    pub kind_scope: Option<String>,
+}
+
+impl From<CollectionRow> for CollectionRowDto {
+    fn from(row: CollectionRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            parent_id: row.parent_id,
+            sort_order: row.sort_order,
+            kind_scope: row.kind_scope,
+        }
+    }
+}
+
+/// Result of an operation that returns a single collection.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CollectionResult {
+    pub ok: bool,
+    pub collection: Option<CollectionRowDto>,
+    pub message: String,
+}
+
+/// Result of a whole-tree read.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CollectionListResult {
+    pub ok: bool,
+    pub collections: Vec<CollectionRowDto>,
+    pub message: String,
+}
+
+/// Result of a membership or delete operation.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CollectionMutationResult {
+    pub ok: bool,
+    /// How many members were actually added or removed. Zero for `delete`.
+    pub applied: u32,
+    pub message: String,
+}
+
+/// Member counts, aligned index-for-index with the requested ids.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MemberCountsResult {
+    pub ok: bool,
+    pub counts: Vec<u32>,
+    pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// Trait
+// ---------------------------------------------------------------------------
+
+/// Collections and folders across the whole suite, through one verb set.
+///
+/// Every method takes `binding`, which selects the hierarchy:
+/// `"imbib"` (publication collections), `"manuscript"` (imprint folders),
+/// `"figure"` (implore folders) or `"generic"` (the mixed-kind
+/// `collection@1.0.0` kernel schema, which accepts records of ANY kind).
+#[impress_service]
+pub trait CollectionService: Send + Sync + 'static {
+    /// Every collection in one hierarchy, flat, ordered by `sort_order`.
+    ///
+    /// `binding` is `imbib` | `manuscript` | `figure` | `generic`. Build the
+    /// tree from each row's `parent_id` (null = root). Start here: every other
+    /// method takes ids this returns.
+    #[impress_method]
+    async fn tree(&self, binding: String) -> CollectionListResult;
+
+    /// Create a collection under `parent_id` (null = a new root).
+    ///
+    /// `kind_scope` is honoured only by the `generic` binding, where it names
+    /// the record kind the collection organises ("publication", "manuscript",
+    /// "figure", "message", "task") or "any" for a mixed-kind collection; it
+    /// defaults to "any". The other bindings ignore it — their schema has no
+    /// such field.
+    #[impress_method]
+    async fn create(
+        &self,
+        binding: String,
+        name: String,
+        parent_id: Option<String>,
+        kind_scope: Option<String>,
+    ) -> CollectionResult;
+
+    /// Rename a collection.
+    #[impress_method]
+    async fn rename(&self, binding: String, id: String, name: String) -> CollectionResult;
+
+    /// Move a collection under `new_parent_id` (null = make it a root).
+    ///
+    /// Refuses self-parenting and any move under one of the collection's own
+    /// descendants — the cycle check lives in the Rust kernel, so it holds for
+    /// every caller rather than only the ones that remembered it.
+    #[impress_method]
+    async fn reparent(
+        &self,
+        binding: String,
+        id: String,
+        new_parent_id: Option<String>,
+    ) -> CollectionResult;
+
+    /// Set a collection's position among its siblings. Lower sorts first.
+    #[impress_method]
+    async fn reorder(&self, binding: String, id: String, sort_order: i64) -> CollectionResult;
+
+    /// Delete a collection. Members are NEVER deleted — only the membership
+    /// goes away, so the papers/manuscripts/figures survive. Deleting a
+    /// collection that does not exist is an error, not a no-op.
+    #[impress_method]
+    async fn delete(&self, binding: String, id: String) -> CollectionMutationResult;
+
+    /// File items into a collection. Idempotent per item; returns how many
+    /// were applied. A `generic` collection with `kind_scope: "any"` accepts
+    /// items of every kind at once.
+    #[impress_method]
+    async fn add_members(
+        &self,
+        binding: String,
+        collection_id: String,
+        item_ids: Vec<String>,
+    ) -> CollectionMutationResult;
+
+    /// Remove items from a collection. The items themselves are untouched;
+    /// items filed in a DIFFERENT collection are left alone rather than
+    /// unfiled. Returns how many were actually removed.
+    #[impress_method]
+    async fn remove_members(
+        &self,
+        binding: String,
+        collection_id: String,
+        item_ids: Vec<String>,
+    ) -> CollectionMutationResult;
+
+    /// Member count per collection, aligned index-for-index with
+    /// `collection_ids`. Unknown ids count 0 rather than failing the batch, so
+    /// a stale id cannot break a whole sidebar refresh.
+    #[impress_method]
+    async fn member_counts(
+        &self,
+        binding: String,
+        collection_ids: Vec<String>,
+    ) -> MemberCountsResult;
+}
+
+// ---------------------------------------------------------------------------
+// Implementation
+// ---------------------------------------------------------------------------
+
+/// Store-backed `CollectionService`. `new()` uses the shared store (opened
+/// lazily); `with_store` takes an explicit one, which is how tests run against
+/// a temp or in-memory database.
+#[derive(Clone, Default)]
+pub struct DefaultCollectionService {
+    store: Option<Arc<SqliteItemStore>>,
+}
+
+impl DefaultCollectionService {
+    pub fn new() -> Self {
+        Self { store: None }
+    }
+
+    pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
+        Self { store: Some(store) }
+    }
+
+    fn store(&self) -> Arc<SqliteItemStore> {
+        self.store.clone().unwrap_or_else(store_instance)
+    }
+}
+
+/// Kernel errors carry the diagnosis (`invalid UUID`, `would create a cycle`,
+/// `has schema 'x', expected 'y'`); the tool surface just has to not swallow
+/// them.
+fn describe(err: StoreError) -> String {
+    err.to_string()
+}
+
+fn row_result(result: Result<CollectionRow, StoreError>, verb: &str) -> CollectionResult {
+    match result {
+        Ok(row) => CollectionResult {
+            ok: true,
+            message: format!("{verb} '{}' ({}).", row.name, row.id),
+            collection: Some(row.into()),
+        },
+        Err(e) => CollectionResult {
+            ok: false,
+            collection: None,
+            message: describe(e),
+        },
+    }
+}
+
+fn member_result(result: Result<u32, StoreError>, verb: &str) -> CollectionMutationResult {
+    match result {
+        Ok(applied) => CollectionMutationResult {
+            ok: true,
+            applied,
+            message: format!("{verb} {applied} item(s)."),
+        },
+        Err(e) => CollectionMutationResult {
+            ok: false,
+            applied: 0,
+            message: describe(e),
+        },
+    }
+}
+
+#[async_trait::async_trait]
+impl CollectionService for DefaultCollectionService {
+    async fn tree(&self, binding: String) -> CollectionListResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return CollectionListResult {
+                    ok: false,
+                    collections: vec![],
+                    message,
+                }
+            }
+        };
+        match collection_ops::list_tree(&self.store(), &binding) {
+            Ok(rows) => CollectionListResult {
+                ok: true,
+                message: format!("{} collection(s).", rows.len()),
+                collections: rows.into_iter().map(CollectionRowDto::from).collect(),
+            },
+            Err(e) => CollectionListResult {
+                ok: false,
+                collections: vec![],
+                message: describe(e),
+            },
+        }
+    }
+
+    async fn create(
+        &self,
+        binding: String,
+        name: String,
+        parent_id: Option<String>,
+        kind_scope: Option<String>,
+    ) -> CollectionResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return CollectionResult {
+                    ok: false,
+                    collection: None,
+                    message,
+                }
+            }
+        };
+        row_result(
+            collection_ops::create(
+                &self.store(),
+                &binding,
+                &name,
+                parent_id.as_deref(),
+                kind_scope.as_deref(),
+            ),
+            "Created",
+        )
+    }
+
+    async fn rename(&self, binding: String, id: String, name: String) -> CollectionResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return CollectionResult {
+                    ok: false,
+                    collection: None,
+                    message,
+                }
+            }
+        };
+        row_result(
+            collection_ops::rename(&self.store(), &binding, &id, &name),
+            "Renamed to",
+        )
+    }
+
+    async fn reparent(
+        &self,
+        binding: String,
+        id: String,
+        new_parent_id: Option<String>,
+    ) -> CollectionResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return CollectionResult {
+                    ok: false,
+                    collection: None,
+                    message,
+                }
+            }
+        };
+        row_result(
+            collection_ops::reparent(&self.store(), &binding, &id, new_parent_id.as_deref()),
+            "Moved",
+        )
+    }
+
+    async fn reorder(&self, binding: String, id: String, sort_order: i64) -> CollectionResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return CollectionResult {
+                    ok: false,
+                    collection: None,
+                    message,
+                }
+            }
+        };
+        row_result(
+            collection_ops::reorder(&self.store(), &binding, &id, sort_order),
+            "Reordered",
+        )
+    }
+
+    async fn delete(&self, binding: String, id: String) -> CollectionMutationResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return CollectionMutationResult {
+                    ok: false,
+                    applied: 0,
+                    message,
+                }
+            }
+        };
+        match collection_ops::delete(&self.store(), &binding, &id) {
+            Ok(()) => CollectionMutationResult {
+                ok: true,
+                applied: 0,
+                message: format!("Deleted collection {id}. Its members were not deleted."),
+            },
+            Err(e) => CollectionMutationResult {
+                ok: false,
+                applied: 0,
+                message: describe(e),
+            },
+        }
+    }
+
+    async fn add_members(
+        &self,
+        binding: String,
+        collection_id: String,
+        item_ids: Vec<String>,
+    ) -> CollectionMutationResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return CollectionMutationResult {
+                    ok: false,
+                    applied: 0,
+                    message,
+                }
+            }
+        };
+        member_result(
+            collection_ops::add_members(&self.store(), &binding, &collection_id, &item_ids),
+            "Filed",
+        )
+    }
+
+    async fn remove_members(
+        &self,
+        binding: String,
+        collection_id: String,
+        item_ids: Vec<String>,
+    ) -> CollectionMutationResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return CollectionMutationResult {
+                    ok: false,
+                    applied: 0,
+                    message,
+                }
+            }
+        };
+        member_result(
+            collection_ops::remove_members(&self.store(), &binding, &collection_id, &item_ids),
+            "Removed",
+        )
+    }
+
+    async fn member_counts(
+        &self,
+        binding: String,
+        collection_ids: Vec<String>,
+    ) -> MemberCountsResult {
+        let binding = match binding_for(&binding) {
+            Ok(b) => b,
+            Err(message) => {
+                return MemberCountsResult {
+                    ok: false,
+                    counts: vec![],
+                    message,
+                }
+            }
+        };
+        match collection_ops::member_counts(&self.store(), &binding, &collection_ids) {
+            Ok(counts) => MemberCountsResult {
+                ok: true,
+                message: format!("Counted {} collection(s).", counts.len()),
+                counts,
+            },
+            Err(e) => MemberCountsResult {
+                ok: false,
+                counts: vec![],
+                message: describe(e),
+            },
+        }
+    }
+}
+
+impress_service_impl! {
+    service = CollectionService,
+    impl = DefaultCollectionService,
+    instance = DefaultCollectionService::new,
+    methods = [
+        tree(binding: String) -> CollectionListResult,
+        create(
+            binding: String,
+            name: String,
+            parent_id: Option<String>,
+            kind_scope: Option<String>
+        ) -> CollectionResult,
+        rename(binding: String, id: String, name: String) -> CollectionResult,
+        reparent(
+            binding: String,
+            id: String,
+            new_parent_id: Option<String>
+        ) -> CollectionResult,
+        reorder(binding: String, id: String, sort_order: i64) -> CollectionResult,
+        delete(binding: String, id: String) -> CollectionMutationResult,
+        add_members(
+            binding: String,
+            collection_id: String,
+            item_ids: Vec<String>
+        ) -> CollectionMutationResult,
+        remove_members(
+            binding: String,
+            collection_id: String,
+            item_ids: Vec<String>
+        ) -> CollectionMutationResult,
+        member_counts(binding: String, collection_ids: Vec<String>) -> MemberCountsResult,
+    ],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{make_item, test_store};
+
+    fn svc() -> DefaultCollectionService {
+        DefaultCollectionService::with_store(test_store())
+    }
+
+    #[tokio::test]
+    async fn binding_names_and_aliases_resolve() {
+        for name in BINDING_NAMES {
+            assert!(binding_for(name).is_ok(), "{name} must resolve");
+        }
+        assert_eq!(
+            binding_for("publication").unwrap().schema_ref,
+            "imbib/collection"
+        );
+        assert_eq!(
+            binding_for("IMPRINT").unwrap().schema_ref,
+            "manuscript-collection"
+        );
+        assert_eq!(binding_for("any").unwrap().schema_ref, "collection");
+        let err = binding_for("mailbox").unwrap_err();
+        assert!(
+            err.contains("generic"),
+            "error must list the options: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_binding_fails_every_method_loudly() {
+        let s = svc();
+        assert!(!s.tree("mailbox".into()).await.ok);
+        assert!(!s.create("mailbox".into(), "X".into(), None, None).await.ok);
+        assert!(!s.delete("mailbox".into(), "id".into()).await.ok);
+    }
+
+    #[tokio::test]
+    async fn create_tree_rename_reorder_reparent_delete_round_trip() {
+        let s = svc();
+
+        let root = s
+            .create("generic".into(), "Root".into(), None, Some("any".into()))
+            .await;
+        assert!(root.ok, "{}", root.message);
+        let root_id = root.collection.unwrap().id;
+
+        let child = s
+            .create(
+                "generic".into(),
+                "Child".into(),
+                Some(root_id.clone()),
+                Some("publication".into()),
+            )
+            .await;
+        let child_row = child.collection.expect("child created");
+        assert_eq!(child_row.parent_id.as_deref(), Some(root_id.as_str()));
+        assert_eq!(child_row.kind_scope.as_deref(), Some("publication"));
+        let child_id = child_row.id;
+
+        // tree
+        let tree = s.tree("generic".into()).await;
+        assert!(tree.ok);
+        assert_eq!(tree.collections.len(), 2);
+
+        // rename
+        let renamed = s
+            .rename("generic".into(), child_id.clone(), "Renamed".into())
+            .await;
+        assert_eq!(renamed.collection.unwrap().name, "Renamed");
+
+        // reorder
+        let reordered = s.reorder("generic".into(), child_id.clone(), 7).await;
+        assert_eq!(reordered.collection.unwrap().sort_order, 7);
+
+        // reparent to root, then back
+        let unparented = s.reparent("generic".into(), child_id.clone(), None).await;
+        assert_eq!(unparented.collection.unwrap().parent_id, None);
+        let reparented = s
+            .reparent("generic".into(), child_id.clone(), Some(root_id.clone()))
+            .await;
+        assert_eq!(
+            reparented.collection.unwrap().parent_id.as_deref(),
+            Some(root_id.as_str())
+        );
+
+        // the cycle check reaches the tool surface
+        let cycle = s
+            .reparent("generic".into(), root_id.clone(), Some(child_id.clone()))
+            .await;
+        assert!(!cycle.ok);
+        assert!(cycle.message.contains("cycle"), "{}", cycle.message);
+
+        // delete
+        let deleted = s.delete("generic".into(), child_id.clone()).await;
+        assert!(deleted.ok, "{}", deleted.message);
+        assert_eq!(s.tree("generic".into()).await.collections.len(), 1);
+        assert!(!s.delete("generic".into(), child_id).await.ok);
+    }
+
+    #[tokio::test]
+    async fn members_are_added_counted_and_removed() {
+        let store = test_store();
+        let s = DefaultCollectionService::with_store(store.clone());
+
+        let mixed = s
+            .create(
+                "generic".into(),
+                "Grant renewal".into(),
+                None,
+                Some("any".into()),
+            )
+            .await
+            .collection
+            .unwrap()
+            .id;
+        let empty = s
+            .create("generic".into(), "Empty".into(), None, None)
+            .await
+            .collection
+            .unwrap()
+            .id;
+
+        let manuscript = make_item(&store, "manuscript");
+        let figure = make_item(&store, "figure");
+
+        let added = s
+            .add_members(
+                "generic".into(),
+                mixed.clone(),
+                vec![manuscript.clone(), figure.clone()],
+            )
+            .await;
+        assert!(added.ok);
+        assert_eq!(added.applied, 2);
+
+        let counts = s
+            .member_counts("generic".into(), vec![mixed.clone(), empty.clone()])
+            .await;
+        assert!(counts.ok);
+        assert_eq!(counts.counts, vec![2, 0], "counts align with the ids given");
+
+        let removed = s
+            .remove_members("generic".into(), mixed.clone(), vec![figure])
+            .await;
+        assert_eq!(removed.applied, 1);
+        assert_eq!(
+            s.member_counts("generic".into(), vec![mixed]).await.counts,
+            vec![1]
+        );
+    }
+
+    #[tokio::test]
+    async fn every_binding_round_trips_through_the_service() {
+        let store = test_store();
+        let s = DefaultCollectionService::with_store(store.clone());
+
+        for binding in BINDING_NAMES {
+            let created = s
+                .create(binding.into(), format!("{binding} root"), None, None)
+                .await;
+            assert!(created.ok, "{binding}: {}", created.message);
+            let id = created.collection.unwrap().id;
+
+            let child = s
+                .create(binding.into(), "child".into(), Some(id.clone()), None)
+                .await;
+            assert!(child.ok, "{binding}: {}", child.message);
+
+            let tree = s.tree(binding.into()).await;
+            assert_eq!(tree.collections.len(), 2, "{binding} tree");
+
+            // Membership works for both mechanics (Contains edge / envelope
+            // parent), which is the whole point of the binding abstraction.
+            let member = make_item(&store, "manuscript");
+            let added = s
+                .add_members(binding.into(), id.clone(), vec![member])
+                .await;
+            assert_eq!(added.applied, 1, "{binding}: {}", added.message);
+            assert_eq!(
+                s.member_counts(binding.into(), vec![id.clone()])
+                    .await
+                    .counts,
+                vec![1],
+                "{binding} member count"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_binding_refuses_another_schemas_collections() {
+        let s = svc();
+        let generic = s
+            .create("generic".into(), "Mixed".into(), None, None)
+            .await
+            .collection
+            .unwrap()
+            .id;
+        let wrong = s.rename("manuscript".into(), generic, "Nope".into()).await;
+        assert!(!wrong.ok);
+        assert!(
+            wrong.message.contains("manuscript-collection"),
+            "{}",
+            wrong.message
+        );
+    }
+}

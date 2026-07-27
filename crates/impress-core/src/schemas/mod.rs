@@ -1,6 +1,7 @@
 pub mod artifact;
 pub mod bibliography;
 pub mod citation_usage;
+pub mod collection;
 pub mod communication;
 pub mod document;
 pub mod git_project;
@@ -21,6 +22,7 @@ pub mod veusz_plot;
 pub use artifact::register_artifact_schemas;
 pub use bibliography::register_bibliography_schemas;
 pub use citation_usage::register_citation_usage_schema;
+pub use collection::register_collection_schema;
 pub use communication::register_communication_schemas;
 pub use document::register_document_schemas;
 pub use git_project::register_git_project_schemas;
@@ -59,6 +61,9 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_manuscript_revision_schema(registry);
     register_manuscript_submission_schema(registry);
     register_manuscript_collection_schema(registry);
+    // Generic collection kernel (ADR-0022 D1): one schema for every record
+    // kind, `kind_scope: "any"` for mixed collections.
+    register_collection_schema(registry);
     register_veusz_plot_schema(registry);
     register_plot_spec_schema(registry);
     register_knowledge_object_schemas(registry);

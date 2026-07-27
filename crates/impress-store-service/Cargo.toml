@@ -1,0 +1,24 @@
+[package]
+name = "impress-store-service"
+description = "Store-generic #[impress_service] traits: the collection kernel (ADR-0022 D1) and generic triage verbs (D5), exposed to MCP/CLI/agents"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+# The kernel these services front. No imbib-core dependency: these verbs are
+# schema-agnostic and run against the shared store directly.
+impress-core = { workspace = true, features = ["sqlite"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+dirs = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

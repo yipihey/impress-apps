@@ -214,6 +214,20 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         )
     }
 
+    /// Fan out a mutation that was performed through a DIFFERENT store handle
+    /// on the same database — today the ADR-0022 collection kernel
+    /// (`CollectionStoreAdapter`, a `SharedStore` handle). Bumps `dataVersion`
+    /// and posts the same `StoreEvent` an in-adapter mutation would, so
+    /// list + sidebar refresh behavior is identical, and it honours an open
+    /// batch exactly like `didMutate()`.
+    public func noteExternalMutation(
+        structural: Bool = true,
+        affectedIDs: Set<UUID>? = nil,
+        kind: MutationKind? = nil
+    ) {
+        didMutate(structural: structural, affectedIDs: affectedIDs, kind: kind)
+    }
+
     /// Begin a batch mutation. While a batch is active, individual `didMutate()` calls
     /// suppress notification posting. Call `endBatchMutation()` when done — one
     /// consolidated notification fires at the end. Supports nesting.
