@@ -93,6 +93,12 @@ jobs:
 
       - name: Generate Swift bindings
         run: |
+          # uniffi-bindgen auto-applies swiftformat when it is on PATH.
+          # GitHub's macOS images ship it; dev Macs generally don't — so CI
+          # produced formatted bindings (`if cond` vs `if (cond)`) that never
+          # matched the raw committed file and the staleness guard below
+          # cried wolf. Remove it so both sides generate raw output.
+          sudo rm -f /opt/homebrew/bin/swiftformat /usr/local/bin/swiftformat
           mkdir -p generated
           cargo run --release --features native --bin uniffi-bindgen generate \
             --library ../../target/release/libimbib_core.dylib \
