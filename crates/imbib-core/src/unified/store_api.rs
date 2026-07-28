@@ -1054,25 +1054,72 @@ impl ImbibStore {
         bibtex: String,
         library_id: String,
     ) -> Result<Vec<String>, StoreApiError> {
+        Ok(self.import_bibtex_into(bibtex, library_id, None)?.imported)
+    }
+
+    /// Import BibTeX, optionally filing every resulting paper into a collection.
+    ///
+    /// With `collection_id`, a paper that already exists is **not** skipped: it
+    /// is added to the collection. That is the behaviour a researcher expects
+    /// when dropping a `.bib` onto a collection — the point is "these papers
+    /// belong here", and whether the library already holds a copy is beside the
+    /// point. Duplicate detection widens to the whole store for the same
+    /// reason, so a paper filed in some *other* library is linked rather than
+    /// copied. `existing` and `imported` are reported separately because undo
+    /// must delete only what this import created; deleting a pre-existing paper
+    /// because it appeared in someone's `.bib` would be destructive.
+    ///
+    /// Without `collection_id` the old behaviour stands: dedup within the
+    /// target library, skip what is already there.
+    pub fn import_bibtex_into(
+        &self,
+        bibtex: String,
+        library_id: String,
+        collection_id: Option<String>,
+    ) -> Result<BibtexImportOutcome, StoreApiError> {
         let parent_uuid = parse_uuid(&library_id)?;
-        let parse_result = crate::bibtex::parse(bibtex.clone())
+        if let Some(ref cid) = collection_id {
+            parse_uuid(cid)?;
+        }
+        let parse_result = crate::bibtex::parse(bibtex)
             .map_err(|e| StoreApiError::InvalidInput(format!("BibTeX parse error: {}", e)))?;
 
-        let mut ids = Vec::new();
+        // Filing into a collection looks store-wide; a plain library import
+        // stays scoped to that library.
+        let scope = if collection_id.is_some() {
+            None
+        } else {
+            Some(parent_uuid)
+        };
+
+        let mut imported = Vec::new();
+        let mut existing = Vec::new();
         for entry in &parse_result.entries {
             let publication = crate::conversions::bibtex_entry_to_publication(entry.clone());
-
-            // Deduplication: skip if a publication with the same DOI, arXiv ID, or bibcode
-            // already exists in this library
-            if self.is_duplicate_in_library(&publication, parent_uuid)? {
+            if let Some(found) = self.find_existing_publication(&publication, scope)? {
+                if collection_id.is_some() {
+                    existing.push(found.to_string());
+                }
                 continue;
             }
-
             let item = conversion::publication_to_item(&publication, Some(parent_uuid));
-            let id = self.store.insert(item)?;
-            ids.push(id.to_string());
+            imported.push(self.store.insert(item)?.to_string());
         }
-        Ok(ids)
+
+        let mut added_to_collection = 0u32;
+        if let Some(cid) = collection_id {
+            let members: Vec<String> = imported.iter().chain(existing.iter()).cloned().collect();
+            if !members.is_empty() {
+                added_to_collection = members.len() as u32;
+                self.add_to_collection(members, cid)?;
+            }
+        }
+
+        Ok(BibtexImportOutcome {
+            imported,
+            existing,
+            added_to_collection,
+        })
     }
 
     /// Batch import search results: find existing, optionally filter dismissed, import new.
@@ -4267,6 +4314,24 @@ impl ImbibStore {
         publication: &crate::domain::Publication,
         library_id: Uuid,
     ) -> Result<bool, StoreApiError> {
+        Ok(self
+            .find_existing_publication(publication, Some(library_id))?
+            .is_some())
+    }
+
+    /// The id of a publication already in the store matching this one by DOI,
+    /// arXiv id, bibcode or cite key.
+    ///
+    /// `scope: Some(library)` restricts the search to that library — what a
+    /// plain library import wants. `scope: None` searches the whole store,
+    /// which is what importing into a collection wants: a paper already filed
+    /// in a *different* library is still the same paper, and should join the
+    /// collection rather than be skipped or duplicated.
+    fn find_existing_publication(
+        &self,
+        publication: &crate::domain::Publication,
+        scope: Option<Uuid>,
+    ) -> Result<Option<Uuid>, StoreApiError> {
         let mut or_preds = Vec::new();
         if let Some(ref doi) = publication.identifiers.doi {
             if !doi.is_empty() {
@@ -4303,23 +4368,39 @@ impl ImbibStore {
                 ));
             }
         }
-        // Also check by cite key as a fallback
+        // The cite key DECIDES, it does not merely contribute.
+        //
+        // Two entries with the same DOI but different keys are two entries as
+        // far as the user is concerned: manuscripts cite `\cite{Smith2020}` by
+        // key, and silently folding a differently-keyed entry into an existing
+        // one would break those citations and force people to consolidate keys
+        // across every .bib they own. So a key match is REQUIRED when the
+        // incoming entry has one; identifiers then disambiguate among entries
+        // sharing that key. Only a keyless entry falls back to identifiers
+        // alone.
+        let mut predicates = Vec::new();
+        if let Some(library) = scope {
+            predicates.push(Predicate::HasParent(library));
+        }
         if !publication.cite_key.is_empty() {
-            or_preds.push(Predicate::Eq(
+            predicates.push(Predicate::Eq(
                 "cite_key".into(),
                 Value::String(publication.cite_key.clone()),
             ));
+        } else if or_preds.is_empty() {
+            // No key and no identifiers: nothing to match on.
+            return Ok(None);
         }
-        if or_preds.is_empty() {
-            return Ok(false);
+        if !or_preds.is_empty() {
+            predicates.push(Predicate::Or(or_preds));
         }
         let q = ItemQuery {
             schema: Some("imbib/bibliography-entry".into()),
-            predicates: vec![Predicate::HasParent(library_id), Predicate::Or(or_preds)],
+            predicates,
             limit: Some(1),
             ..Default::default()
         };
-        Ok(self.store.count(&q)? > 0)
+        Ok(self.store.query(&q)?.first().map(|item| item.id))
     }
 
     fn count_children(&self, parent_id: Uuid, schema: &str) -> Result<usize, StoreApiError> {
@@ -4873,6 +4954,112 @@ mod tests {
 
         let colls = store.list_collections(lib.id.clone()).unwrap();
         assert_eq!(colls.len(), 1);
+    }
+
+    /// A different cite key means a different entry, even with the same DOI.
+    ///
+    /// Manuscripts cite by key. Folding `@article{Smith2020a, doi=X}` into an
+    /// existing `@article{Smith2020, doi=X}` would break `\\cite{Smith2020a}`
+    /// and force the user to consolidate keys across every .bib they own. So
+    /// the duplicate is kept deliberately.
+    #[test]
+    fn a_different_cite_key_imports_as_its_own_entry() {
+        let store = make_store();
+        let lib = store.create_library("Papers".into()).unwrap();
+
+        let first = store
+            .import_bibtex(
+                "@article{Smith2020, title={A Paper}, author={Smith, A}, year={2020}, doi={10.1/same}}".into(),
+                lib.id.clone(),
+            )
+            .unwrap();
+        assert_eq!(first.len(), 1);
+
+        // Same DOI, same everything — different key.
+        let second = store
+            .import_bibtex(
+                "@article{Smith2020a, title={A Paper}, author={Smith, A}, year={2020}, doi={10.1/same}}".into(),
+                lib.id.clone(),
+            )
+            .unwrap();
+        assert_eq!(
+            second.len(),
+            1,
+            "a differently-keyed entry is kept, not folded into the existing one"
+        );
+        assert_eq!(store.count_publications(None).unwrap(), 2);
+
+        // The same key really is still deduped.
+        let again = store
+            .import_bibtex(
+                "@article{Smith2020, title={A Paper}, author={Smith, A}, year={2020}, doi={10.1/same}}".into(),
+                lib.id.clone(),
+            )
+            .unwrap();
+        assert!(again.is_empty(), "re-importing the same key adds nothing");
+        assert_eq!(store.count_publications(None).unwrap(), 2);
+    }
+
+    /// A paper already filed in ANOTHER library must join the target collection
+    /// rather than be skipped or copied.
+    ///
+    /// Dropping a `.bib` on a collection means "these papers belong here". If
+    /// the store already has one of them — even in a different library — the
+    /// user still expects it in the collection. The old import deduped within
+    /// the target library and `continue`d, so those entries vanished silently.
+    #[test]
+    fn importing_into_a_collection_files_papers_that_already_exist_elsewhere() {
+        let store = make_store();
+        let other = store.create_library("Somewhere Else".into()).unwrap();
+        let target = store.create_library("Target".into()).unwrap();
+        let collection = store
+            .create_collection("Reading".into(), target.id.clone(), false, None)
+            .unwrap();
+
+        let bib = "@article{Known2026, title={Known Paper}, author={A, B}, year={2026}, doi={10.1/known}}";
+        let already = store.import_bibtex(bib.into(), other.id.clone()).unwrap();
+        assert_eq!(already.len(), 1, "seeded into the other library");
+
+        // The same paper plus a new one, imported onto the collection.
+        let both = format!(
+            "{bib}\n@article{{Fresh2026, title={{Fresh Paper}}, author={{C, D}}, year={{2026}}, doi={{10.1/fresh}}}}"
+        );
+        let outcome = store
+            .import_bibtex_into(both, target.id.clone(), Some(collection.id.clone()))
+            .unwrap();
+
+        assert_eq!(outcome.imported.len(), 1, "only the new paper is created");
+        assert_eq!(
+            outcome.existing, already,
+            "the paper from the other library is linked, not duplicated"
+        );
+        assert_eq!(
+            outcome.added_to_collection, 2,
+            "both end up in the collection"
+        );
+
+        // It was linked, not copied: still exactly one row for that DOI.
+        assert_eq!(
+            store.count_publications(None).unwrap(),
+            2,
+            "no duplicate row was created for the known paper"
+        );
+
+        let members = store
+            .list_collection_members(
+                collection.id.clone(),
+                "date_added".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        let member_ids: Vec<String> = members.iter().map(|p| p.id.clone()).collect();
+        assert!(
+            member_ids.contains(&already[0]),
+            "existing paper is in the collection"
+        );
+        assert_eq!(member_ids.len(), 2, "collection holds both papers");
     }
 
     /// `count_publications(None)` must count publications that belong to no
@@ -5997,10 +6184,21 @@ mod tests {
         let ids1 = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
         assert_eq!(ids1.len(), 1);
 
-        // Import again with same DOI — should be skipped
+        // Same DOI but a DIFFERENT cite key is a different entry, deliberately.
+        // Manuscripts cite by key, so folding `B` into `A` would break
+        // `\\cite{B}` and force users to consolidate keys across their .bib
+        // files. This assertion was `0` until that was reconsidered.
         let bibtex2 = r#"@article{B, title={Paper A copy}, doi={10.1234/a}}"#;
         let ids2 = store.import_bibtex(bibtex2.into(), lib.id.clone()).unwrap();
-        assert_eq!(ids2.len(), 0);
+        assert_eq!(
+            ids2.len(),
+            1,
+            "a different cite key is kept as its own entry"
+        );
+
+        // The SAME key with the same DOI is still deduped.
+        let ids2b = store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
+        assert_eq!(ids2b.len(), 0, "re-importing the same key adds nothing");
 
         // Import into a different library — should NOT be deduplicated
         let lib2 = store.create_library("Other".into()).unwrap();

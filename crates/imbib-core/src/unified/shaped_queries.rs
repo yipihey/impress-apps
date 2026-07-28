@@ -18,6 +18,24 @@ pub struct SearchResultInput {
     pub bibcode: Option<String>,
 }
 
+/// Outcome of a BibTeX import, splitting what was created from what was linked.
+///
+/// The split is load-bearing: undo must remove only `imported`. A paper in
+/// `existing` was already in the store before this import touched it, and
+/// deleting it because it happened to appear in a `.bib` file would destroy
+/// the user's data.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct BibtexImportOutcome {
+    /// Publications this import created.
+    pub imported: Vec<String>,
+    /// Publications that already existed and were filed into the collection.
+    /// Empty unless a collection was targeted.
+    pub existing: Vec<String>,
+    /// How many papers were added to the target collection (imported + existing).
+    pub added_to_collection: u32,
+}
+
 /// Result of a batch import operation.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]

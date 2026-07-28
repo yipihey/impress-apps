@@ -20,9 +20,9 @@ use imbib_service::artifacts_service::{
     ArtifactRecord, ArtifactRelationRecord, ImbibArtifactsService,
 };
 use imbib_service::library_service::{
-    CollectionRecord, DismissedPaperRecord, ImbibLibraryService, ImportSummary, LibraryRecord,
-    LinkedFileRecord, MutationResult, MutedItemRecord, PaperImport, PublicationDetailRecord,
-    PublicationSummary,
+    BibtexImportOutcome, CollectionRecord, DismissedPaperRecord, ImbibLibraryService,
+    ImportSummary, LibraryRecord, LinkedFileRecord, MutationResult, MutedItemRecord, PaperImport,
+    PublicationDetailRecord, PublicationSummary,
 };
 use imbib_service::manuscripts_service::{
     CompileResult, ImbibManuscriptsService, ManuscriptRecord, TemplateRecord, WriteResult,
@@ -263,6 +263,20 @@ impl ImbibLibraryService for HttpImbibLibraryService {
             .unwrap_or_else(|e| {
                 log_err("get_publication_detail", e);
                 None
+            })
+    }
+    async fn import_bibtex_into_collection(
+        &self,
+        bibtex: String,
+        library_id: String,
+        collection_id: String,
+    ) -> BibtexImportOutcome {
+        self.client
+            .import_bibtex_into_collection(bibtex, library_id, collection_id)
+            .await
+            .unwrap_or_else(|e| {
+                log_err("import_bibtex_into_collection", e);
+                BibtexImportOutcome::default()
             })
     }
     async fn count_publications(&self) -> u32 {

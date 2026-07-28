@@ -3994,6 +3994,24 @@ public actor HTTPAutomationRouter: HTTPRouter {
               let libID = UUID(uuidString: libRaw) else {
             return .badRequest("Missing or invalid 'library_id'")
         }
+        // Optional: file everything into a collection. Papers that already
+        // exist are linked rather than skipped — see importBibTeXIntoCollection.
+        if let collRaw = (json["collection_id"] as? String) ?? (json["collectionID"] as? String) {
+            guard let collID = UUID(uuidString: collRaw) else {
+                return .badRequest("Invalid 'collection_id'")
+            }
+            let outcome = RustStoreAdapter.shared.importBibTeXIntoCollection(
+                text, libraryId: libID, collectionId: collID)
+            RustStoreAdapter.shared.recordRecentAdd(ids: outcome.imported)
+            return .json([
+                "status": "ok",
+                "imported": outcome.imported.map { $0.uuidString },
+                "existing": outcome.existing.map { $0.uuidString },
+                "added_to_collection": outcome.imported.count + outcome.existing.count,
+                // Kept for older clients that read `ids`.
+                "ids": outcome.imported.map { $0.uuidString },
+            ])
+        }
         let ids = RustStoreAdapter.shared.importBibTeX(text, libraryId: libID)
         // An agent importing BibTeX over the automation API is a directed add,
         // exactly like the Import sheet — so it belongs in Recent. (Feeds do

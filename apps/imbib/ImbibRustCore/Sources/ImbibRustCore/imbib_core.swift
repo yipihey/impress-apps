@@ -917,6 +917,24 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func importBibtex(bibtex: String, libraryId: String) throws  -> [String]
     
+    /**
+     * Import BibTeX, optionally filing every resulting paper into a collection.
+     *
+     * With `collection_id`, a paper that already exists is **not** skipped: it
+     * is added to the collection. That is the behaviour a researcher expects
+     * when dropping a `.bib` onto a collection — the point is "these papers
+     * belong here", and whether the library already holds a copy is beside the
+     * point. Duplicate detection widens to the whole store for the same
+     * reason, so a paper filed in some *other* library is linked rather than
+     * copied. `existing` and `imported` are reported separately because undo
+     * must delete only what this import created; deleting a pre-existing paper
+     * because it appeared in someone's `.bib` would be destructive.
+     *
+     * Without `collection_id` the old behaviour stands: dedup within the
+     * target library, skip what is already there.
+     */
+    func importBibtexInto(bibtex: String, libraryId: String, collectionId: String?) throws  -> BibtexImportOutcome
+    
     func importFromBibtexFile(path: String, libraryId: String) throws  -> UInt32
     
     /**
@@ -2361,6 +2379,32 @@ open func importBibtex(bibtex: String, libraryId: String)throws  -> [String] {
     uniffi_imbib_core_fn_method_imbibstore_import_bibtex(self.uniffiClonePointer(),
         FfiConverterString.lower(bibtex),
         FfiConverterString.lower(libraryId),$0
+    )
+})
+}
+    
+    /**
+     * Import BibTeX, optionally filing every resulting paper into a collection.
+     *
+     * With `collection_id`, a paper that already exists is **not** skipped: it
+     * is added to the collection. That is the behaviour a researcher expects
+     * when dropping a `.bib` onto a collection — the point is "these papers
+     * belong here", and whether the library already holds a copy is beside the
+     * point. Duplicate detection widens to the whole store for the same
+     * reason, so a paper filed in some *other* library is linked rather than
+     * copied. `existing` and `imported` are reported separately because undo
+     * must delete only what this import created; deleting a pre-existing paper
+     * because it appeared in someone's `.bib` would be destructive.
+     *
+     * Without `collection_id` the old behaviour stands: dedup within the
+     * target library, skip what is already there.
+     */
+open func importBibtexInto(bibtex: String, libraryId: String, collectionId: String?)throws  -> BibtexImportOutcome {
+    return try  FfiConverterTypeBibtexImportOutcome.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_import_bibtex_into(self.uniffiClonePointer(),
+        FfiConverterString.lower(bibtex),
+        FfiConverterString.lower(libraryId),
+        FfiConverterOptionString.lower(collectionId),$0
     )
 })
 }
@@ -6128,6 +6172,108 @@ public func FfiConverterTypeBibliographyRow_lift(_ buf: RustBuffer) throws -> Bi
 #endif
 public func FfiConverterTypeBibliographyRow_lower(_ value: BibliographyRow) -> RustBuffer {
     return FfiConverterTypeBibliographyRow.lower(value)
+}
+
+
+/**
+ * Outcome of a BibTeX import, splitting what was created from what was linked.
+ *
+ * The split is load-bearing: undo must remove only `imported`. A paper in
+ * `existing` was already in the store before this import touched it, and
+ * deleting it because it happened to appear in a `.bib` file would destroy
+ * the user's data.
+ */
+public struct BibtexImportOutcome {
+    /**
+     * Publications this import created.
+     */
+    public var imported: [String]
+    /**
+     * Publications that already existed and were filed into the collection.
+     * Empty unless a collection was targeted.
+     */
+    public var existing: [String]
+    /**
+     * How many papers were added to the target collection (imported + existing).
+     */
+    public var addedToCollection: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Publications this import created.
+         */imported: [String], 
+        /**
+         * Publications that already existed and were filed into the collection.
+         * Empty unless a collection was targeted.
+         */existing: [String], 
+        /**
+         * How many papers were added to the target collection (imported + existing).
+         */addedToCollection: UInt32) {
+        self.imported = imported
+        self.existing = existing
+        self.addedToCollection = addedToCollection
+    }
+}
+
+
+
+extension BibtexImportOutcome: Equatable, Hashable {
+    public static func ==(lhs: BibtexImportOutcome, rhs: BibtexImportOutcome) -> Bool {
+        if lhs.imported != rhs.imported {
+            return false
+        }
+        if lhs.existing != rhs.existing {
+            return false
+        }
+        if lhs.addedToCollection != rhs.addedToCollection {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(imported)
+        hasher.combine(existing)
+        hasher.combine(addedToCollection)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBibtexImportOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BibtexImportOutcome {
+        return
+            try BibtexImportOutcome(
+                imported: FfiConverterSequenceString.read(from: &buf), 
+                existing: FfiConverterSequenceString.read(from: &buf), 
+                addedToCollection: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BibtexImportOutcome, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.imported, into: &buf)
+        FfiConverterSequenceString.write(value.existing, into: &buf)
+        FfiConverterUInt32.write(value.addedToCollection, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBibtexImportOutcome_lift(_ buf: RustBuffer) throws -> BibtexImportOutcome {
+    return try FfiConverterTypeBibtexImportOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBibtexImportOutcome_lower(_ value: BibtexImportOutcome) -> RustBuffer {
+    return FfiConverterTypeBibtexImportOutcome.lower(value)
 }
 
 
@@ -26043,6 +26189,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_import_bibtex() != 6878) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_import_bibtex_into() != 35433) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_import_from_bibtex_file() != 59232) {

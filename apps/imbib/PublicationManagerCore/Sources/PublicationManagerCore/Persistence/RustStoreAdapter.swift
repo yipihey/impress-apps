@@ -691,6 +691,61 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// Import BibTeX and file every resulting paper into a collection.
+    ///
+    /// Unlike `importBibTeX`, a paper that already exists — including one filed
+    /// in a different library — is added to the collection rather than skipped.
+    /// Undo removes only what this import created; `existing` papers were the
+    /// user's already and must survive an undo.
+    public func importBibTeXIntoCollection(
+        _ bibtex: String, libraryId: UUID, collectionId: UUID
+    ) -> (imported: [UUID], existing: [UUID]) {
+        StoreTimings.shared.measure("importBibTeXIntoCollection") {
+            do {
+                let outcome = try store.importBibtexInto(
+                    bibtex: bibtex,
+                    libraryId: libraryId.uuidString,
+                    collectionId: collectionId.uuidString)
+                let imported = outcome.imported.compactMap { UUID(uuidString: $0) }
+                let existing = outcome.existing.compactMap { UUID(uuidString: $0) }
+                if !imported.isEmpty || !existing.isEmpty {
+                    didMutate()
+                    let capturedStore = store
+                    let createdIds = outcome.imported
+                    let collection = collectionId.uuidString
+                    let linkedIds = outcome.existing
+                    UndoCoordinator.shared.registerUndoClosure(
+                        actionName: imported.count == 1 && existing.isEmpty
+                            ? "Import Paper" : "Import \(imported.count + existing.count) Papers",
+                        undo: { [weak self] in
+                            do {
+                                // Only unlink what was linked; only delete what was created.
+                                if !linkedIds.isEmpty {
+                                    _ = try capturedStore.removeFromCollection(
+                                        publicationIds: linkedIds, collectionId: collection)
+                                }
+                                if !createdIds.isEmpty {
+                                    try capturedStore.deletePublications(ids: createdIds)
+                                }
+                                self?.didMutate()
+                            } catch {
+                                Logger.library.error("Undo importBibTeXIntoCollection failed: \(error)")
+                            }
+                        }
+                    )
+                }
+                Logger.library.infoCapture(
+                    "importBibTeXIntoCollection: created \(imported.count), linked \(existing.count)",
+                    category: "import")
+                return (imported, existing)
+            } catch {
+                Logger.library.errorCapture(
+                    "importBibTeXIntoCollection failed: \(error)", category: "import")
+                return ([], [])
+            }
+        }
+    }
+
     /// Batch import search results: find existing, optionally filter dismissed, import new.
     /// Single FFI call replaces the batch-find + classify + import-loop pattern.
     /// Returns (existingIDs, importedIDs).

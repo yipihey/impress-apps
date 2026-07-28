@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+pub use imbib_core::unified::shaped_queries::BibtexImportOutcome;
 use imbib_core::unified::store_api::ImbibStore;
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
@@ -521,6 +522,19 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     async fn import_papers(&self, papers: Vec<PaperImport>, library_id: String) -> ImportSummary;
     #[impress_method]
     async fn import_bibtex(&self, bibtex: String, library_id: String) -> Vec<String>;
+    /// Import BibTeX and file every resulting paper into a collection. Papers
+    /// that already exist — including ones filed in a different library — are
+    /// added to the collection rather than skipped, so dropping a .bib on a
+    /// collection reliably means "these papers belong here". Returns the papers
+    /// created and the pre-existing ones linked, kept separate so undo can
+    /// remove only what the import created.
+    #[impress_method]
+    async fn import_bibtex_into_collection(
+        &self,
+        bibtex: String,
+        library_id: String,
+        collection_id: String,
+    ) -> BibtexImportOutcome;
     /// Export BibTeX entries for one or more papers. Useful for creating
     /// bibliography files or inserting citations.
     #[impress_method]
@@ -998,6 +1012,19 @@ impl ImbibLibraryService for DefaultImbibLibraryService {
             .unwrap_or_else(|e| {
                 log("import_bibtex", e);
                 vec![]
+            })
+    }
+    async fn import_bibtex_into_collection(
+        &self,
+        bibtex: String,
+        library_id: String,
+        collection_id: String,
+    ) -> BibtexImportOutcome {
+        self.store
+            .import_bibtex_into(bibtex, library_id, Some(collection_id))
+            .unwrap_or_else(|e| {
+                log("import_bibtex_into_collection", e);
+                BibtexImportOutcome::default()
             })
     }
     async fn export_bibtex(&self, ids: Vec<String>) -> String {

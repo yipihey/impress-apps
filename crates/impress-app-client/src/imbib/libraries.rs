@@ -8,8 +8,9 @@ use crate::imbib::ImbibClient;
 use crate::transport::{decode_envelope, decode_text};
 
 use imbib_service::library_service::{
-    CollectionRecord, DismissedPaperRecord, ImportSummary, LibraryRecord, LinkedFileRecord,
-    MutationResult, MutedItemRecord, PaperImport, PublicationDetailRecord, PublicationSummary,
+    BibtexImportOutcome, CollectionRecord, DismissedPaperRecord, ImportSummary, LibraryRecord,
+    LinkedFileRecord, MutationResult, MutedItemRecord, PaperImport, PublicationDetailRecord,
+    PublicationSummary,
 };
 
 // ---------------------------------------------------------------------------
@@ -907,6 +908,57 @@ impl ImbibClient {
             status: body.status,
         })?;
         Ok(body.ids)
+    }
+
+    /// `POST /api/papers/import-bibtex` with a `collection_id`.
+    ///
+    /// The route runs the same `import_bibtex_into` the store backend does, so
+    /// pre-existing papers are filed into the collection rather than skipped.
+    /// An older imbib ignores the extra field and reports only `ids`; that
+    /// degrades to "new papers only", which is what it did before this existed.
+    pub async fn import_bibtex_into_collection(
+        &self,
+        bibtex: String,
+        library_id: String,
+        collection_id: String,
+    ) -> Result<BibtexImportOutcome> {
+        let url = self.base_url.join("/api/papers/import-bibtex")?;
+        let body = json!({
+            "bibtex": bibtex,
+            "library_id": library_id,
+            "collection_id": collection_id,
+        });
+        let resp = self.http.post(url).json(&body).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(BibtexImportOutcome::default());
+        }
+        #[derive(Deserialize)]
+        struct R {
+            status: String,
+            #[serde(default)]
+            ids: Vec<String>,
+            #[serde(default)]
+            imported: Vec<String>,
+            #[serde(default)]
+            existing: Vec<String>,
+            #[serde(default)]
+            added_to_collection: u32,
+        }
+        let body: R = decode_envelope(resp).await?;
+        check_ok(&OkStatus {
+            status: body.status,
+        })?;
+        // `ids` is the old field name; a new imbib sends `imported`.
+        let imported = if body.imported.is_empty() {
+            body.ids
+        } else {
+            body.imported
+        };
+        Ok(BibtexImportOutcome {
+            imported,
+            existing: body.existing,
+            added_to_collection: body.added_to_collection,
+        })
     }
 
     pub async fn export_bibtex(&self, ids: Vec<String>) -> Result<String> {

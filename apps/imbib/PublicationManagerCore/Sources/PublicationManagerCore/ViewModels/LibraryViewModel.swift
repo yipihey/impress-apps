@@ -46,8 +46,36 @@ public final class LibraryViewModel {
 
     // MARK: - Library Identity
 
-    /// Unique identifier for this library
-    public let libraryID: UUID
+    /// The library this view model reads from and imports into.
+    ///
+    /// Resolved, never invented. These initializers used to default it to
+    /// `UUID()` — a *fresh random* id belonging to no library — and every real
+    /// construction site (`imbibApp`, `ContentView`, `DetailView`,
+    /// `IOSContentView`) uses the no-argument init, so the app-wide view model
+    /// always carried one. Two symptoms followed and looked unrelated:
+    /// `queryPublications(parentId:)` matched nothing ("Loaded 0 publications"),
+    /// and `importBibTeX` inserted rows whose `parent_id` named no library,
+    /// tripping the foreign key — reported as `AlreadyExists(<new paper uuid>)`,
+    /// one per entry, naming an id that exists nowhere.
+    ///
+    /// Now: the explicit id when one was given, else the store's default
+    /// library, resolved once. `nil` only when the store truly has no library,
+    /// and callers refuse rather than write to a parent that does not exist.
+    public var libraryID: UUID? {
+        if let explicit = explicitLibraryID { return explicit }
+        if let cached = resolvedDefaultLibraryID { return cached }
+        let resolved = store.getDefaultLibrary()?.id
+        resolvedDefaultLibraryID = resolved
+        if resolved == nil {
+            Logger.viewModels.errorCapture(
+                "No library available: none given and the store has no default library",
+                category: "library")
+        }
+        return resolved
+    }
+
+    private let explicitLibraryID: UUID?
+    private var resolvedDefaultLibraryID: UUID?
 
     // MARK: - Backward Compatibility
 
@@ -61,19 +89,38 @@ public final class LibraryViewModel {
 
     // MARK: - Initialization
 
-    public init(libraryID: UUID = UUID(), store: any PublicationStoreProtocol = RustStoreAdapter.shared) {
-        self.libraryID = libraryID
+    /// `libraryID: nil` means "whichever library is the default" — resolved on
+    /// first use. It must NOT default to `UUID()`: that produced a library id
+    /// that exists nowhere, which reads as an empty library and makes every
+    /// import fail the `parent_id` foreign key.
+    public init(libraryID: UUID? = nil, store: any PublicationStoreProtocol = RustStoreAdapter.shared) {
+        self.explicitLibraryID = libraryID
         self.store = store
     }
 
     /// Legacy initializer — ignores repository parameter.
-    public convenience init(repository: Any, libraryID: UUID = UUID()) {
+    public convenience init(repository: Any, libraryID: UUID? = nil) {
         self.init(libraryID: libraryID)
     }
 
-    /// Default init for environment injection
+    /// Default init for environment injection — uses the default library.
     public convenience init() {
-        self.init(libraryID: UUID())
+        self.init(libraryID: nil)
+    }
+
+    /// The library to write into, or `nil` with a logged reason.
+    ///
+    /// Every import path goes through this. Writing to a library id that does
+    /// not exist is what produced the `AlreadyExists` storm; refusing loudly is
+    /// the only honest alternative when there is genuinely nowhere to put them.
+    private func libraryForWriting(_ operation: String) -> UUID? {
+        guard let id = libraryID else {
+            Logger.viewModels.errorCapture(
+                "\(operation): no library to import into — create one, or set a default library",
+                category: "import")
+            return nil
+        }
+        return id
     }
 
     // MARK: - Loading
@@ -82,9 +129,17 @@ public final class LibraryViewModel {
         isLoading = true
         error = nil
 
+        guard let library = libraryID else {
+            publicationRows = []
+            publicationsByID = [:]
+            papers = []
+            isLoading = false
+            Logger.viewModels.infoCapture("Loaded 0 publications (no library)", category: "library")
+            return
+        }
         let sortKey = sortOrder.sortKey
         publicationRows = store.queryPublications(
-            parentId: libraryID,
+            parentId: library,
             sort: sortKey,
             ascending: sortAscending,
             limit: nil,
@@ -152,8 +207,9 @@ public final class LibraryViewModel {
     public func importBibTeX(from url: URL) async throws -> Int {
         Logger.viewModels.infoCapture("Importing BibTeX from \(url.lastPathComponent)", category: "import")
 
+        guard let library = libraryForWriting("importBibTeX") else { return 0 }
         let content = try String(contentsOf: url, encoding: .utf8)
-        let ids = store.importBibTeX(content, libraryId: libraryID)
+        let ids = store.importBibTeX(content, libraryId: library)
         // The user picked this file — these papers belong in Recent.
         store.recordRecentAdd(ids: ids)
         await loadPublications()
@@ -172,13 +228,14 @@ public final class LibraryViewModel {
         let parser = RISParserFactory.createParser()
         let entries = try parser.parse(content)
 
+        guard let library = libraryForWriting("importRIS") else { return 0 }
         var importedCount = 0
         var importedIDs: [UUID] = []
         store.beginBatchMutation()
         for risEntry in entries {
             let bibEntry = risEntry.toBibTeX()
             let bibtex = bibEntry.rawBibTeX ?? bibEntry.synthesizeBibTeX()
-            let ids = store.importBibTeX(bibtex, libraryId: libraryID)
+            let ids = store.importBibTeX(bibtex, libraryId: library)
             importedCount += ids.count
             importedIDs.append(contentsOf: ids)
         }
@@ -195,8 +252,9 @@ public final class LibraryViewModel {
     public func importEntry(_ entry: BibTeXEntry) async {
         Logger.viewModels.infoCapture("Importing entry: \(entry.citeKey)", category: "import")
 
+        guard let library = libraryForWriting("importEntry") else { return }
         let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
-        _ = store.importBibTeX(bibtex, libraryId: libraryID)
+        _ = store.importBibTeX(bibtex, libraryId: library)
         await loadPublications()
     }
 
@@ -205,8 +263,9 @@ public final class LibraryViewModel {
     public func importBibTeXEntry(_ entry: BibTeXEntry) async -> UUID? {
         Logger.viewModels.infoCapture("Importing BibTeX entry: \(entry.citeKey)", category: "import")
 
+        guard let library = libraryForWriting("importBibTeXEntry") else { return nil }
         let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
-        let ids = store.importBibTeX(bibtex, libraryId: libraryID)
+        let ids = store.importBibTeX(bibtex, libraryId: library)
         await loadPublications()
         await DefaultLibraryLookupService.shared.invalidateCache()
 
@@ -281,15 +340,17 @@ public final class LibraryViewModel {
         Logger.viewModels.infoCapture("Updating publication from BibTeX: \(entry.citeKey)", category: "update")
 
         // Re-import the entry (Rust store handles upsert by cite key)
+        guard let library = libraryForWriting("reimportEntry") else { return }
         let bibtex = entry.rawBibTeX ?? entry.synthesizeBibTeX()
-        _ = store.importBibTeX(bibtex, libraryId: libraryID)
+        _ = store.importBibTeX(bibtex, libraryId: library)
         await loadPublications()
     }
 
     // MARK: - Export
 
     public func exportAll() -> String {
-        store.exportAllBibTeX(libraryId: libraryID)
+        guard let library = libraryID else { return "" }
+        return store.exportAllBibTeX(libraryId: library)
     }
 
     public func exportSelected() -> String {
@@ -407,11 +468,12 @@ public final class LibraryViewModel {
             throw ImportError.noBibTeXEntry
         }
 
+        guard let library = libraryForWriting("importBibTeXEntries") else { return 0 }
         var totalImported = 0
         store.beginBatchMutation()
         for entry in entries {
             let bibtexStr = entry.rawBibTeX ?? entry.synthesizeBibTeX()
-            let ids = store.importBibTeX(bibtexStr, libraryId: libraryID)
+            let ids = store.importBibTeX(bibtexStr, libraryId: library)
             totalImported += ids.count
         }
         store.endBatchMutation()
