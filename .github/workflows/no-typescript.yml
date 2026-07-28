@@ -17,6 +17,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: no-typescript-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   no-new-typescript:
     runs-on: ubuntu-latest

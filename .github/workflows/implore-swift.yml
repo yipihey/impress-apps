@@ -32,6 +32,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: implore-swift-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package-tests:
     name: Test ImploreCore package
@@ -67,13 +71,18 @@ jobs:
             ${{ runner.os }}-spm-implore-
 
       # Also copies into apps/implore/Frameworks/, which is where
-      # ImploreRustCore's binary target points.
-      - name: Build ImploreCore.xcframework
-        run: bash crates/implore-core/build-xcframework.sh
+      # ImploreRustCore's binary target points — both destinations are in the
+      # composite action's cache path list.
+      - name: ImploreCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: implore-core
 
       # ImploreCore -> ImpressRustCore -> ImpressStoreFfi.xcframework.
-      - name: Build ImpressStoreFfi.xcframework
-        run: bash crates/impress-store-ffi/build-xcframework.sh
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
 
       - name: Test ImploreCore
         working-directory: apps/implore/Packages/ImploreCore
@@ -107,31 +116,44 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Build ImploreCore.xcframework
-        run: bash crates/implore-core/build-xcframework.sh
+      - name: ImploreCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: implore-core
 
-      - name: Build ImpressStoreFfi.xcframework
-        run: bash crates/impress-store-ffi/build-xcframework.sh
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
 
       # The app links ImpressHelixCore for its editor surfaces.
-      - name: Build ImpressHelix.xcframework
-        run: bash crates/impress-helix/build-xcframework.sh
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
 
       # The app also links the PublicationManagerCore chassis, which brings the
       # SciX client and imbib cores with it. Gitignored artifacts, so a clean
       # checkout must build them or xcodebuild fails at package resolution.
-      - name: Build sibling xcframeworks (scix, imbib)
-        run: |
-          bash crates/scix-client-ffi/build-xcframework.sh
-          bash crates/imbib-core/build-xcframework.sh
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PMC -> ImprintCore -> imprint_coreFFI. implore is a macOS-only project,
       # so skip the three iOS slices — imprint-core links Typst and is by far
       # the most expensive crate in this graph.
-      - name: Build ImprintCore.xcframework (macOS slices only)
-        env:
-          IMPRINT_SKIP_IOS: "1"
-        run: bash crates/imprint-core/build-xcframework.sh
+      - name: ImprintCore.xcframework (macOS slices only)
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
+          env-extra: IMPRINT_SKIP_IOS=1
 
       # implore ships .metal shaders (Sources/Metal/Shaders/). Xcode 26
       # no longer bundles the Metal compiler — without this the build dies

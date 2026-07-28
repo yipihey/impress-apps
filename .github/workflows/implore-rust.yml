@@ -15,6 +15,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: implore-rust-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test

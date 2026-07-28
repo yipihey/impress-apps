@@ -1,7 +1,11 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock is COMMITTED (2026-07-28): this workspace ships binaries, and an
+# untracked lock meant CI resolved fresh every run — no reproducibility, cache
+# keys hashing a missing file, and breakage whenever a transitive release went
+# bad (tectonic_bundles 0.4.2 vs the parquet chrono cap). Update deliberately
+# with `cargo update`.
 
 # macOS
 .DS_Store

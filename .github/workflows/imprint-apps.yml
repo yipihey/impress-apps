@@ -1,8 +1,13 @@
-name: imprint - App Builds (macOS + iOS)
+name: imprint - App Build (macOS)
 
-# Guard against platform rot: imprint-iOS went months without compiling
-# because nothing ever built it. This workflow builds BOTH app targets on
-# every change that could affect them.
+# The fast per-push app gate: build the macOS target on every change that
+# could affect it.
+#
+# The iOS half — boot a simulator, build for it, install, launch — used to run
+# here on every push and dominated the lane's wall clock. It now lives in
+# imprint-ios-smoke.yml: nightly, on demand, and on pushes that touch the iOS
+# sources themselves. Same checks, different schedule (see that file's header
+# for why platform rot is still covered).
 
 on:
   push:
@@ -31,9 +36,14 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Superseded pushes have nothing to say. Cancel them.
+concurrency:
+  group: imprint-apps-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-apps:
-    name: Build imprint (macOS + iOS Simulator)
+    name: Build imprint (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,25 +67,39 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Build multi-platform ImprintCore.xcframework
-        run: bash crates/imprint-core/build-xcframework.sh
+      # Full slice set: the generated project carries the imprint-iOS target
+      # alongside the macOS one, so package resolution needs the iOS slices
+      # even though only macOS is built here.
+      - name: ImprintCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
 
       # imprint also links these sibling Rust cores (shared store, Helix
       # editor, imbib bridge); their xcframeworks are gitignored build
       # artifacts and must be produced on the runner too.
-      - name: Build ImpressStoreFfi.xcframework
-        run: bash crates/impress-store-ffi/build-xcframework.sh
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
 
-      - name: Build ImpressHelix.xcframework
-        run: bash crates/impress-helix/build-xcframework.sh
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
 
-      - name: Build ImbibCore.xcframework
-        run: bash crates/imbib-core/build-xcframework.sh
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       # ImpressScixCore's binary target arrived with the chassis unification and
       # reaches imprint through PublicationManagerCore.
-      - name: Build ScixClientCore.xcframework
-        run: bash crates/scix-client-ffi/build-xcframework.sh
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
 
       - name: Generate Xcode project
         working-directory: apps/imprint
@@ -91,51 +115,3 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO \
             build | tail -50
-
-      # Install-smoke: boot a sim, build for it, install, launch. A plain
-      # `build` (generic destination) never installs, so it CANNOT catch
-      # Info.plist/appex install rejections — exactly the class of bug that
-      # broke imprint-iOS install (missing NSExtension/CFBundleDisplayName).
-      - name: imprint-iOS install smoke (Simulator)
-        working-directory: apps/imprint
-        run: |
-          set -eo pipefail
-          # xcodebuild-accepted destination (simctl's list can disagree with
-          # xcodebuild's destination set on CI runners; see imbib-tests.yml).
-          UDID=$(xcodebuild -scheme imprint-iOS -showdestinations 2>/dev/null \
-            | grep "platform:iOS Simulator" | grep -v placeholder \
-            | grep -oE 'id:[0-9A-F-]{36}' | head -1 | cut -c4-)
-          echo "sim: $UDID"
-          xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b
-          xcodebuild -project imprint.xcodeproj -scheme imprint-iOS -configuration Debug \
-            -destination "id=$UDID" -derivedDataPath build-ios \
-            CODE_SIGNING_ALLOWED=NO build | tail -30
-          APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imprint.app' | head -1)
-          echo "installing $APP"
-          xcrun simctl install "$UDID" "$APP"
-          xcrun simctl launch "$UDID" com.imbib.imprint
-          # Poll instead of a single 5s check: first launch on a cold CI
-          # runner can be slow, and a crash needs diagnostics, not a bare
-          # "did not launch".
-          LAUNCHED=0
-          for i in 1 2 3 4 5 6; do
-            sleep 5
-            if xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.imprint"; then
-              LAUNCHED=1; break
-            fi
-          done
-          if [ "$LAUNCHED" = "1" ]; then
-            echo "imprint-iOS launched OK"
-          else
-            echo "imprint-iOS did not launch — diagnostics follow"
-            echo "=== process log (last 3m) ==="
-            xcrun simctl spawn "$UDID" log show --last 3m \
-              --predicate 'process == "imprint"' 2>/dev/null | tail -80 || true
-            echo "=== host crash reports ==="
-            ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -5 || true
-            for f in $(ls -t ~/Library/Logs/DiagnosticReports/imprint* 2>/dev/null | head -2); do
-              echo "--- $f"; head -60 "$f"
-            done
-            exit 1
-          fi

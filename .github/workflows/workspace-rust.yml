@@ -38,6 +38,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: workspace-rust-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Workspace lint

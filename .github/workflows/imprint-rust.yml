@@ -21,6 +21,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: imprint-rust-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test
@@ -89,90 +93,10 @@ jobs:
       - name: Run Tier A capability self-test
         run: cargo run -p imprint-selftest --bin imprint-selftest -- --tier a
 
-  tectonic:
-    name: Tectonic engine (self-contained, arm64 + vcpkg)
-    runs-on: macos-latest  # arm64 Apple Silicon
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      # ICU's vcpkg port needs autotools; cargo-vcpkg drives the static build.
-      # pkg-config + libtool: common implicit deps of the harfbuzz/graphite2
-      # port toolchains that macos-latest runners don't guarantee.
-      - name: Install build tools
-        run: |
-          brew install autoconf automake autoconf-archive pkg-config libtool
-          cargo install cargo-vcpkg
-
-      # The vcpkg static C deps (freetype/graphite2/harfbuzz/icu) are slow to
-      # build; cache them keyed on the manifest that pins the vcpkg rev + list.
-      - name: Cache vcpkg static deps
-        uses: actions/cache@v4
-        with:
-          path: target/vcpkg
-          key: ${{ runner.os }}-vcpkg-tectonic-${{ hashFiles('crates/imprint-core/Cargo.toml') }}
-
-      - name: Build vcpkg dependencies
-        run: cargo vcpkg build --manifest-path crates/imprint-core/Cargo.toml
-
-      # cargo-vcpkg reports only "failed" — the actual error lives in the
-      # port buildtree logs. Surface the tails so the run is debuggable.
-      - name: Surface vcpkg logs on failure
-        if: failure()
-        run: |
-          echo "=== vcpkg buildtree logs (most recent first) ==="
-          for f in $(ls -t $(find target/vcpkg/buildtrees -name '*.log' 2>/dev/null) 2>/dev/null | head -12); do
-            echo; echo "===== $f ====="; tail -80 "$f"
-          done
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-tectonic-${{ hashFiles('**/Cargo.lock') }}
-
-      # tectonic-render pulls its C deps from the vcpkg tree (static, no Homebrew
-      # dylibs). The tests fetch the TeX bundle on first run (needs network).
-      # The TeX bundle + generated format files persist across runs; a cold
-      # or flaky first fetch otherwise fails the end-to-end compile test
-      # with "could not open format file latex".
-      - name: Cache Tectonic bundle + formats
-        uses: actions/cache@v4
-        with:
-          path: ~/tectonic-cache
-          key: ${{ runner.os }}-tectonic-bundle-v1
-
-      - name: Test tectonic-render (imprint-core)
-        env:
-          VCPKG_ROOT: ${{ github.workspace }}/target/vcpkg
-          TECTONIC_DEP_BACKEND: vcpkg
-          TECTONIC_CACHE_DIR: ~/tectonic-cache
-        run: |
-          # Warm the bundle/format cache with retries before the real tests:
-          # the first fetch is network-dependent and occasionally partial.
-          for i in 1 2 3; do
-            if cargo test -p imprint-core --features tectonic-render --test tectonic_spike -- compiles_to_pdf_with_synctex; then
-              break
-            fi
-            echo "warm-up attempt $i failed; clearing format cache and retrying"
-            rm -rf ~/tectonic-cache/formats
-            sleep 10
-          done
-          cargo test -p imprint-core --features tectonic-render
-
-      - name: Tier-A self-test with tectonic-render
-        env:
-          VCPKG_ROOT: ${{ github.workspace }}/target/vcpkg
-          TECTONIC_DEP_BACKEND: vcpkg
-          TECTONIC_CACHE_DIR: ~/tectonic-cache
-        run: cargo run -p imprint-selftest --features tectonic-render --bin imprint-selftest -- --tier a
+  # The Tectonic/vcpkg job used to live here. It moved to
+  # imprint-tectonic.yml on 2026-07-28: nightly + on-demand + on pushes that
+  # touch the vcpkg manifest or the LaTeX paths, instead of on every push that
+  # touched any crates/impress-* file. Same steps, same assertions.
 
   generate-bindings:
     name: Generate Swift Bindings

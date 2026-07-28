@@ -1,0 +1,304 @@
+name: Build Rust xcframework (cached)
+description: >-
+  Build a crate's XCFramework with its build-xcframework.sh, or restore every
+  artifact that script produces from cache when no Rust input changed. Swift-only
+  pushes — the common case — skip the 30-60 minute rebuild entirely.
+
+# Why this exists
+# ---------------
+# Every Swift lane rebuilt up to five xcframeworks from scratch on a macOS
+# runner, on every push, including pushes that touched no Rust at all. The
+# artifacts are gitignored, so "it's already there" was never true on CI.
+#
+# Cache key strategy: WORKSPACE-WIDE, not per-crate.
+#
+#   key = <ImageOS>-xcfw-<crate>-<env-variant>-hash(Cargo.toml, Cargo.lock,
+#                                                   crates/**/*.{rs,toml,udl,sh})
+#
+# Per-crate precision (hashing only crates/<crate>/**) is WRONG here: the cores
+# are path-dependent on each other — imbib-core -> impress-core/impress-store,
+# imprint-core -> impress-*, impel-tools -> imbib-service -> imbib-core — so a
+# pure-Rust edit in impress-core changes what imbib-core's xcframework contains
+# while leaving crates/imbib-core/ untouched. A per-crate hash would serve a
+# stale framework and the failure would surface as a UniFFI checksum mismatch at
+# app launch, not as a build error.
+#
+# So the hash covers every Rust source in the workspace plus the lockfile. Any
+# Rust change rebuilds every framework — the same cost as today, no worse. The
+# win is the other case: a Swift-only push (the majority) hits cache on all of
+# them and the lane drops from ~40 minutes of Rust to a few minutes of Swift.
+#
+# The generated .swift bindings are cached alongside the .xcframework. They are
+# not optional decoration: apps/imprint/ImprintRustCore/Sources/.../
+# imprint_core.swift and friends are what the packages compile against, and a
+# cache that restored only the binary would leave the tree half-built.
+
+inputs:
+  crate:
+    description: >-
+      Crate directory under crates/ whose build-xcframework.sh to run
+      (e.g. imprint-core).
+    required: true
+  env-extra:
+    description: >-
+      Extra environment for the build as KEY=VALUE pairs, separated by newlines
+      or spaces (e.g. "IMPRINT_SKIP_IOS=1"). This is part of the cache key on
+      purpose: IMPRINT_SKIP_IOS=1 produces a macOS-only xcframework, and a lane
+      that needs the iOS slices must not be handed that artifact.
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: "true when the artifacts were restored from cache and no build ran."
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve outputs for ${{ inputs.crate }}
+      id: meta
+      shell: bash
+      env:
+        CRATE: ${{ inputs.crate }}
+        ENV_EXTRA: ${{ inputs.env-extra }}
+      run: |
+        set -euo pipefail
+
+        F="crates/$CRATE/frameworks"
+
+        # CACHE: everything the script writes that anything downstream may read.
+        # REQUIRED: the subset whose absence breaks a Swift build — asserted
+        # after a restore (a partial hit falls back to building) and after a
+        # build (catches the script silently skipping a copy, which is exactly
+        # how implore's `-d` guard bug survived for months).
+        #
+        # Deliberately NOT cached: frameworks/{macos-universal,ios-sim-universal,
+        # ios-simulator-universal,macos.framework,ios.framework,ios-sim.framework,
+        # filtered}. Those are lipo/ld intermediates — 1.6 GB for imprint-core
+        # alone — that no Swift target ever reads.
+        case "$CRATE" in
+          imbib-core)
+            CACHE=(
+              "$F/ImbibCore.xcframework"
+              "$F/generated"
+              "$F/headers"
+              "$F/imbib_core.swift"
+              "apps/imbib/ImbibRustCore/Sources/ImbibRustCore/imbib_core.swift"
+            )
+            REQUIRED=(
+              "$F/ImbibCore.xcframework"
+              "apps/imbib/ImbibRustCore/Sources/ImbibRustCore/imbib_core.swift"
+            )
+            ;;
+          impart-core)
+            CACHE=(
+              "$F/ImpartCore.xcframework"
+              "$F/generated"
+              "$F/headers"
+              "$F/impart_core.swift"
+            )
+            REQUIRED=("$F/ImpartCore.xcframework")
+            ;;
+          impel-tools)
+            CACHE=(
+              "$F/ImpelTools.xcframework"
+              "$F/generated"
+              "$F/headers"
+              "$F/impel_tools.swift"
+              "apps/impel/Frameworks/ImpelTools.xcframework"
+              "apps/impel/Packages/CounselEngine/Sources/ImpelToolsFFI/impel_tools.swift"
+            )
+            REQUIRED=(
+              "$F/ImpelTools.xcframework"
+              "apps/impel/Frameworks/ImpelTools.xcframework"
+              "apps/impel/Packages/CounselEngine/Sources/ImpelToolsFFI/impel_tools.swift"
+            )
+            ;;
+          implore-core)
+            CACHE=(
+              "$F/ImploreCore.xcframework"
+              "$F/generated"
+              "$F/headers"
+              "$F/implore_core.swift"
+              "apps/implore/Frameworks/ImploreCore.xcframework"
+              "apps/implore/ImploreRustCore/Sources/ImploreRustCore/implore_core.swift"
+            )
+            REQUIRED=(
+              "$F/ImploreCore.xcframework"
+              "apps/implore/Frameworks/ImploreCore.xcframework"
+              "apps/implore/ImploreRustCore/Sources/ImploreRustCore/implore_core.swift"
+            )
+            ;;
+          impress-helix)
+            CACHE=(
+              "$F/ImpressHelix.xcframework"
+              "$F/generated"
+              "$F/headers"
+              "$F/impress_helix.swift"
+            )
+            REQUIRED=("$F/ImpressHelix.xcframework")
+            ;;
+          impress-llm)
+            CACHE=(
+              "$F/ImpressLLM.xcframework"
+              "$F/generated"
+              "$F/headers"
+              "$F/impress_llm.swift"
+            )
+            REQUIRED=("$F/ImpressLLM.xcframework")
+            ;;
+          impress-store-ffi)
+            CACHE=(
+              "$F/ImpressStoreFfi.xcframework"
+              "$F/bindings"
+              "packages/ImpressRustCore/Sources/ImpressRustCore/impress_store_ffi.swift"
+            )
+            REQUIRED=(
+              "$F/ImpressStoreFfi.xcframework"
+              "packages/ImpressRustCore/Sources/ImpressRustCore/impress_store_ffi.swift"
+            )
+            ;;
+          imprint-core)
+            CACHE=(
+              "$F/ImprintCore.xcframework"
+              "$F/generated"
+              "$F/headers"
+              "$F/imprint_core.swift"
+              "apps/imprint/Frameworks/ImprintCore.xcframework"
+              "apps/imprint/Packages/ImprintCore/Sources/ImprintCore/imprint_core.swift"
+              "apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift"
+            )
+            REQUIRED=(
+              "$F/ImprintCore.xcframework"
+              "apps/imprint/Frameworks/ImprintCore.xcframework"
+              "apps/imprint/Packages/ImprintCore/Sources/ImprintCore/imprint_core.swift"
+              "apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift"
+            )
+            ;;
+          scix-client-ffi)
+            CACHE=(
+              "$F/ScixClientCore.xcframework"
+              "$F/bindings"
+              "packages/ImpressScixCore/frameworks/ScixClientCore.xcframework"
+              "packages/ImpressScixCore/Sources/ImpressScixCore/scix_client_ffi.swift"
+            )
+            REQUIRED=(
+              "$F/ScixClientCore.xcframework"
+              "packages/ImpressScixCore/frameworks/ScixClientCore.xcframework"
+              "packages/ImpressScixCore/Sources/ImpressScixCore/scix_client_ffi.swift"
+            )
+            ;;
+          *)
+            echo "::error::Unknown crate '$CRATE' — add its outputs to .github/actions/xcframework/action.yml."
+            echo "A crate with no entry here would cache nothing and silently rebuild every run."
+            exit 1
+            ;;
+        esac
+
+        if [ ! -f "crates/$CRATE/build-xcframework.sh" ]; then
+          echo "::error::crates/$CRATE/build-xcframework.sh does not exist."
+          exit 1
+        fi
+
+        # Variant slug. Sorted so that "A=1 B=2" and "B=2 A=1" share a cache
+        # entry, lowercased and punctuation-flattened so the key stays legible.
+        if [ -z "$(printf '%s' "$ENV_EXTRA" | tr -d '[:space:]')" ]; then
+          VARIANT="default"
+        else
+          VARIANT="$(printf '%s\n' $ENV_EXTRA | sort | tr '\n' '-' \
+            | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-' | sed 's/-\{1,\}$//')"
+        fi
+
+        # ImageOS ("macos15", "macos26", ...) not just runner.os: an xcframework
+        # carries the SDK it was built against, and runners are mixed here
+        # (macos-latest and macos-15 both appear).
+        IMAGE="${ImageOS:-${RUNNER_OS:-unknown}}"
+
+        {
+          echo "variant=$VARIANT"
+          echo "image=$IMAGE"
+          echo "paths<<XCFW_PATHS_EOF"
+          printf '%s\n' "${CACHE[@]}"
+          echo "XCFW_PATHS_EOF"
+          echo "required<<XCFW_REQ_EOF"
+          printf '%s\n' "${REQUIRED[@]}"
+          echo "XCFW_REQ_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "crate=$CRATE variant=$VARIANT image=$IMAGE"
+
+    - name: Restore ${{ inputs.crate }} xcframework
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.meta.outputs.paths }}
+        # No restore-keys on purpose: a near-miss would hand this lane an
+        # xcframework built from different Rust, and the build step would then
+        # be skipped. Exact match or rebuild.
+        #
+        # One line on purpose: a folded scalar would smuggle newlines into the
+        # hashFiles() call. The globs skip build outputs (no .rs/.toml/.udl/.sh
+        # is ever written under crates/*/frameworks/), so the key is stable
+        # whether or not an earlier step in the same job already built a
+        # sibling crate.
+        key: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh') }}
+
+    - name: Check restored artifacts
+      id: check
+      shell: bash
+      env:
+        # Inputs reach bash through the environment, never through ${{ }}
+        # interpolation into the script body.
+        CRATE: ${{ inputs.crate }}
+        REQUIRED: ${{ steps.meta.outputs.required }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+      run: |
+        set -euo pipefail
+        complete=true
+        while IFS= read -r p; do
+          [ -n "$p" ] || continue
+          if [ ! -e "$p" ]; then
+            echo "not restored: $p"
+            complete=false
+          fi
+        done <<< "$REQUIRED"
+        if [ "$CACHE_HIT" = "true" ] && [ "$complete" = "true" ]; then
+          echo "::notice::$CRATE xcframework restored from cache — skipping the build."
+        fi
+        echo "complete=$complete" >> "$GITHUB_OUTPUT"
+
+    - name: Build ${{ inputs.crate }} xcframework
+      if: steps.check.outputs.complete != 'true'
+      shell: bash
+      env:
+        CRATE: ${{ inputs.crate }}
+        ENV_EXTRA: ${{ inputs.env-extra }}
+        REQUIRED: ${{ steps.meta.outputs.required }}
+      run: |
+        set -euo pipefail
+
+        for kv in $ENV_EXTRA; do
+          case "$kv" in
+            *=*) export "$kv"; echo "env: $kv" ;;
+            "")  ;;
+            *)   echo "::error::env-extra entry '$kv' is not KEY=VALUE."; exit 1 ;;
+          esac
+        done
+
+        bash "crates/$CRATE/build-xcframework.sh"
+
+        # The script must have produced everything the cache promises to
+        # restore, or the next run's cache entry is a trap.
+        missing=0
+        while IFS= read -r p; do
+          [ -n "$p" ] || continue
+          if [ ! -e "$p" ]; then
+            echo "::error::crates/$CRATE/build-xcframework.sh did not produce $p"
+            missing=1
+          fi
+        done <<< "$REQUIRED"
+        if [ "$missing" -ne 0 ]; then
+          echo "Update the output list for $CRATE in .github/actions/xcframework/action.yml."
+          exit 1
+        fi

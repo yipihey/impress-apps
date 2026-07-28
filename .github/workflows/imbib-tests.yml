@@ -16,6 +16,10 @@ on:
       - 'crates/**'
       - '.github/workflows/imbib-tests.yml'
 
+concurrency:
+  group: imbib-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-publicationmanagercore:
     name: Test PublicationManagerCore
@@ -56,30 +60,42 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build Rust xcframework
-        working-directory: crates/imbib-core
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "14.0"
-        run: ./build-xcframework.sh
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PublicationManagerCore / the imbib app also link these sibling Rust
       # cores; their xcframeworks are gitignored artifacts and must be
       # produced on the runner too.
-      - name: Build sibling xcframeworks (store-ffi, scix, helix)
-        run: |
-          bash crates/impress-store-ffi/build-xcframework.sh
-          bash crates/scix-client-ffi/build-xcframework.sh
-          bash crates/impress-helix/build-xcframework.sh
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
 
       # PMC took over the Typst compile/edit stack, so it now depends on the
       # ImprintCore package -> ImprintRustCore -> imprint_coreFFI, whose
       # xcframework the imprint build script drops in apps/imprint/Frameworks.
       # This lane only builds/tests for macOS, so skip the three iOS slices —
       # imprint-core links Typst and is the most expensive crate in the graph.
-      - name: Build ImprintCore.xcframework (macOS slices only)
-        env:
-          IMPRINT_SKIP_IOS: "1"
-        run: bash crates/imprint-core/build-xcframework.sh
+      # IMPRINT_SKIP_IOS is part of the cache key: the macOS-only artifact must
+      # never be handed to the iOS job below.
+      - name: ImprintCore.xcframework (macOS slices only)
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
+          env-extra: IMPRINT_SKIP_IOS=1
 
       - name: Build and Test PublicationManagerCore
         working-directory: apps/imbib/PublicationManagerCore
@@ -132,26 +148,37 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build Rust xcframework
-        working-directory: crates/imbib-core
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "14.0"
-        run: ./build-xcframework.sh
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PublicationManagerCore / the imbib app also link these sibling Rust
       # cores; their xcframeworks are gitignored artifacts and must be
       # produced on the runner too.
-      - name: Build sibling xcframeworks (store-ffi, scix, helix)
-        run: |
-          bash crates/impress-store-ffi/build-xcframework.sh
-          bash crates/scix-client-ffi/build-xcframework.sh
-          bash crates/impress-helix/build-xcframework.sh
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
 
       # PMC -> ImprintCore -> imprint_coreFFI. Full slice set here: the
       # generated project carries an iOS target alongside the macOS one, so
       # resolution sees the whole graph even though only macOS is built.
-      - name: Build ImprintCore.xcframework
-        run: bash crates/imprint-core/build-xcframework.sh
+      - name: ImprintCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
 
       - name: Generate Xcode project
         working-directory: apps/imbib/imbib
@@ -221,23 +248,39 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-ios-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build Rust xcframework
-        working-directory: crates/imbib-core
-        run: ./build-xcframework.sh
+      # Same MACOSX_DEPLOYMENT_TARGET as the macOS jobs — it is the script's
+      # own default, stated explicitly so all three jobs share one cache entry
+      # instead of building the identical artifact twice.
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
 
       # PublicationManagerCore / the imbib app also link these sibling Rust
       # cores; their xcframeworks are gitignored artifacts and must be
       # produced on the runner too.
-      - name: Build sibling xcframeworks (store-ffi, scix, helix)
-        run: |
-          bash crates/impress-store-ffi/build-xcframework.sh
-          bash crates/scix-client-ffi/build-xcframework.sh
-          bash crates/impress-helix/build-xcframework.sh
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
 
       # PMC -> ImprintCore -> imprint_coreFFI. iOS slices are required here,
       # so this one runs with the script's default (multi-platform) slice set.
-      - name: Build ImprintCore.xcframework (multi-platform)
-        run: bash crates/imprint-core/build-xcframework.sh
+      - name: ImprintCore.xcframework (multi-platform)
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
 
       - name: Generate Xcode project
         working-directory: apps/imbib/imbib

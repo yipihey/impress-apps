@@ -28,6 +28,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: imprint-swift-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package-tests:
     name: Test ImprintCore package
@@ -63,14 +67,21 @@ jobs:
             ${{ runner.os }}-spm-imprint-
 
       # This script produces BOTH apps/imprint/Frameworks/ImprintCore.xcframework
-      # and the generated apps/imprint/ImprintRustCore/ package. Both are
-      # gitignored, and ImprintCore's manifest cannot even resolve without them.
-      - name: Build ImprintCore.xcframework
-        run: bash crates/imprint-core/build-xcframework.sh
+      # and the imprint_core.swift bindings the ImprintCore/ImprintRustCore
+      # packages compile against. ImprintCore's manifest cannot even resolve
+      # without the framework, so the composite action caches all of them
+      # together — restoring the binary without the bindings would be worse
+      # than a cold build.
+      - name: ImprintCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
 
       # ImprintCore -> ImpressRustCore -> ImpressStoreFfi.xcframework.
-      - name: Build ImpressStoreFfi.xcframework
-        run: bash crates/impress-store-ffi/build-xcframework.sh
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
 
       - name: Test ImprintCore
         working-directory: apps/imprint/Packages/ImprintCore

@@ -1,0 +1,161 @@
+name: imprint - iOS install smoke (Simulator)
+
+# Split out of imprint-apps.yml on 2026-07-28.
+#
+# This is the lane that boots a simulator, builds imprint-iOS for it, installs
+# the bundle and launches it. It is the only check that can catch an *install*
+# rejection — a plain `build` against a generic destination never installs, so
+# it cannot see a missing NSExtension or CFBundleDisplayName, which is exactly
+# the bug that broke imprint-iOS. Nothing about the check changes here.
+#
+# What changes is when it runs. Booting a sim + a full iOS build + install +
+# launch poll was the slowest thing in CI and it ran on every push, including
+# pushes that touched no iOS source at all. Now:
+#
+#   * nightly, so platform rot still cannot survive a day unnoticed — which was
+#     the original reason imprint-apps.yml exists (imprint-iOS went months
+#     without compiling because nothing built it);
+#   * on demand, for when you are actually working on the install path;
+#   * and on any push/PR that touches the iOS target's own sources, the share
+#     extension, or project.yml — i.e. its true inputs.
+#
+# The per-push macOS app build stays in imprint-apps.yml.
+
+on:
+  schedule:
+    # 09:00 UTC — after the working day on the US west coast, so a red nightly
+    # is waiting in the morning rather than mid-session.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/imprint/imprint-iOS/**'
+      - 'apps/imprint/imprint-iOSTests/**'
+      - 'apps/imprint/imprint-ShareExtension/**'
+      - 'apps/imprint/Shared/**'
+      - 'apps/imprint/project.yml'
+      - '.github/workflows/imprint-ios-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/imprint/imprint-iOS/**'
+      - 'apps/imprint/imprint-iOSTests/**'
+      - 'apps/imprint/imprint-ShareExtension/**'
+      - 'apps/imprint/Shared/**'
+      - 'apps/imprint/project.yml'
+      - '.github/workflows/imprint-ios-smoke.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: imprint-ios-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-smoke:
+    name: imprint-iOS install smoke (Simulator)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          # Same key as imprint-apps.yml: same target set, same workspace.
+          key: ${{ runner.os }}-cargo-imprint-apps-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      # iOS slices required here, so imprint-core runs with the script's
+      # default (multi-platform) slice set.
+      - name: ImprintCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
+
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
+
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+
+      - name: Generate Xcode project
+        working-directory: apps/imprint
+        run: xcodegen generate
+
+      # Install-smoke: boot a sim, build for it, install, launch. A plain
+      # `build` (generic destination) never installs, so it CANNOT catch
+      # Info.plist/appex install rejections — exactly the class of bug that
+      # broke imprint-iOS install (missing NSExtension/CFBundleDisplayName).
+      - name: imprint-iOS install smoke (Simulator)
+        working-directory: apps/imprint
+        run: |
+          set -eo pipefail
+          # xcodebuild-accepted destination (simctl's list can disagree with
+          # xcodebuild's destination set on CI runners; see imbib-tests.yml).
+          UDID=$(xcodebuild -scheme imprint-iOS -showdestinations 2>/dev/null \
+            | grep "platform:iOS Simulator" | grep -v placeholder \
+            | grep -oE 'id:[0-9A-F-]{36}' | head -1 | cut -c4-)
+          echo "sim: $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild -project imprint.xcodeproj -scheme imprint-iOS -configuration Debug \
+            -destination "id=$UDID" -derivedDataPath build-ios \
+            CODE_SIGNING_ALLOWED=NO build | tail -30
+          APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imprint.app' | head -1)
+          echo "installing $APP"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.imbib.imprint
+          # Poll instead of a single 5s check: first launch on a cold CI
+          # runner can be slow, and a crash needs diagnostics, not a bare
+          # "did not launch".
+          LAUNCHED=0
+          for i in 1 2 3 4 5 6; do
+            sleep 5
+            if xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.imprint"; then
+              LAUNCHED=1; break
+            fi
+          done
+          if [ "$LAUNCHED" = "1" ]; then
+            echo "imprint-iOS launched OK"
+          else
+            echo "imprint-iOS did not launch — diagnostics follow"
+            echo "=== process log (last 3m) ==="
+            xcrun simctl spawn "$UDID" log show --last 3m \
+              --predicate 'process == "imprint"' 2>/dev/null | tail -80 || true
+            echo "=== host crash reports ==="
+            ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -5 || true
+            for f in $(ls -t ~/Library/Logs/DiagnosticReports/imprint* 2>/dev/null | head -2); do
+              echo "--- $f"; head -60 "$f"
+            done
+            exit 1
+          fi
