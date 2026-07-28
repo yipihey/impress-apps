@@ -115,7 +115,27 @@ jobs:
           echo "installing $APP"
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" com.imbib.imprint
-          sleep 5
-          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.imprint" \
-            && echo "imprint-iOS launched OK" \
-            || (echo "imprint-iOS did not launch" && exit 1)
+          # Poll instead of a single 5s check: first launch on a cold CI
+          # runner can be slow, and a crash needs diagnostics, not a bare
+          # "did not launch".
+          LAUNCHED=0
+          for i in 1 2 3 4 5 6; do
+            sleep 5
+            if xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.imprint"; then
+              LAUNCHED=1; break
+            fi
+          done
+          if [ "$LAUNCHED" = "1" ]; then
+            echo "imprint-iOS launched OK"
+          else
+            echo "imprint-iOS did not launch — diagnostics follow"
+            echo "=== process log (last 3m) ==="
+            xcrun simctl spawn "$UDID" log show --last 3m \
+              --predicate 'process == "imprint"' 2>/dev/null | tail -80 || true
+            echo "=== host crash reports ==="
+            ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -5 || true
+            for f in $(ls -t ~/Library/Logs/DiagnosticReports/imprint* 2>/dev/null | head -2); do
+              echo "--- $f"; head -60 "$f"
+            done
+            exit 1
+          fi
