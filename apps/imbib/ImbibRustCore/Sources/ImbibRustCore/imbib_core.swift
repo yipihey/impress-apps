@@ -813,6 +813,24 @@ public protocol ImbibStoreProtocol : AnyObject {
     func deletePublications(ids: [String]) throws 
     
     /**
+     * Permanently delete papers, keeping any that something else still holds.
+     *
+     * For emptying Dismissed, which is the Trash: "delete forever" must not
+     * take out a paper the user has deliberately filed somewhere. A paper can
+     * be dismissed and *also* be a member of a collection — importing a .bib
+     * onto a collection links a paper that already exists, wherever it lives,
+     * and Dismissed is where an awful lot of papers live. Without this guard,
+     * emptying the Trash silently removes a collection's contents.
+     *
+     * A paper is kept when it is still a member of some collection, or when
+     * another library holds a row for the same work (same cite key, DOI,
+     * arXiv id or bibcode). Returns the ids actually deleted and the ids kept,
+     * so the caller can say so rather than reporting a count that quietly
+     * disagrees with what the user selected.
+     */
+    func deletePublicationsPreservingReferenced(ids: [String]) throws  -> PurgeOutcome
+    
+    /**
      * Delete publications with snapshot for undo. Returns snapshots of deleted items.
      */
     func deletePublicationsUndoable(ids: [String]) throws  -> [ItemSnapshot]
@@ -2065,6 +2083,30 @@ open func deletePublications(ids: [String])throws  {try rustCallWithError(FfiCon
         FfiConverterSequenceString.lower(ids),$0
     )
 }
+}
+    
+    /**
+     * Permanently delete papers, keeping any that something else still holds.
+     *
+     * For emptying Dismissed, which is the Trash: "delete forever" must not
+     * take out a paper the user has deliberately filed somewhere. A paper can
+     * be dismissed and *also* be a member of a collection — importing a .bib
+     * onto a collection links a paper that already exists, wherever it lives,
+     * and Dismissed is where an awful lot of papers live. Without this guard,
+     * emptying the Trash silently removes a collection's contents.
+     *
+     * A paper is kept when it is still a member of some collection, or when
+     * another library holds a row for the same work (same cite key, DOI,
+     * arXiv id or bibcode). Returns the ids actually deleted and the ids kept,
+     * so the caller can say so rather than reporting a count that quietly
+     * disagrees with what the user selected.
+     */
+open func deletePublicationsPreservingReferenced(ids: [String])throws  -> PurgeOutcome {
+    return try  FfiConverterTypePurgeOutcome.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_delete_publications_preserving_referenced(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(ids),$0
+    )
+})
 }
     
     /**
@@ -14270,6 +14312,89 @@ public func FfiConverterTypePublicationFeatureInput_lower(_ value: PublicationFe
 
 
 /**
+ * Outcome of a guarded permanent delete.
+ */
+public struct PurgeOutcome {
+    /**
+     * Papers actually removed.
+     */
+    public var deleted: [String]
+    /**
+     * Papers kept because a collection still holds them, or another library
+     * has the same work.
+     */
+    public var kept: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Papers actually removed.
+         */deleted: [String], 
+        /**
+         * Papers kept because a collection still holds them, or another library
+         * has the same work.
+         */kept: [String]) {
+        self.deleted = deleted
+        self.kept = kept
+    }
+}
+
+
+
+extension PurgeOutcome: Equatable, Hashable {
+    public static func ==(lhs: PurgeOutcome, rhs: PurgeOutcome) -> Bool {
+        if lhs.deleted != rhs.deleted {
+            return false
+        }
+        if lhs.kept != rhs.kept {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(deleted)
+        hasher.combine(kept)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePurgeOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PurgeOutcome {
+        return
+            try PurgeOutcome(
+                deleted: FfiConverterSequenceString.read(from: &buf), 
+                kept: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PurgeOutcome, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.deleted, into: &buf)
+        FfiConverterSequenceString.write(value.kept, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePurgeOutcome_lift(_ buf: RustBuffer) throws -> PurgeOutcome {
+    return try FfiConverterTypePurgeOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePurgeOutcome_lower(_ value: PurgeOutcome) -> RustBuffer {
+    return FfiConverterTypePurgeOutcome.lower(value)
+}
+
+
+/**
  * A parsed RIS entry
  */
 public struct RisEntry {
@@ -26090,6 +26215,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_publications() != 51586) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_publications_preserving_referenced() != 48867) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_publications_undoable() != 21601) {

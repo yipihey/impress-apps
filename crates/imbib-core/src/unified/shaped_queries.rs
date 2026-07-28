@@ -18,6 +18,17 @@ pub struct SearchResultInput {
     pub bibcode: Option<String>,
 }
 
+/// Outcome of a guarded permanent delete.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct PurgeOutcome {
+    /// Papers actually removed.
+    pub deleted: Vec<String>,
+    /// Papers kept because a collection still holds them, or another library
+    /// has the same work.
+    pub kept: Vec<String>,
+}
+
 /// Outcome of a BibTeX import, splitting what was created from what was linked.
 ///
 /// The split is load-bearing: undo must remove only `imported`. A paper in

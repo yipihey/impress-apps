@@ -691,6 +691,30 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// Permanently delete papers, keeping any a collection still holds or that
+    /// another library also has. Returns (deleted, kept).
+    ///
+    /// Emptying Dismissed is "delete forever"; it must not take out a paper the
+    /// user deliberately filed into a collection. Importing a .bib onto a
+    /// collection links papers wherever they live, and Dismissed holds many.
+    public func deletePublicationsPreservingReferenced(ids: [UUID]) -> (deleted: [UUID], kept: [UUID]) {
+        do {
+            let outcome = try store.deletePublicationsPreservingReferenced(
+                ids: ids.map { $0.uuidString })
+            let deleted = outcome.deleted.compactMap { UUID(uuidString: $0) }
+            let kept = outcome.kept.compactMap { UUID(uuidString: $0) }
+            if !deleted.isEmpty { didMutate() }
+            Logger.library.infoCapture(
+                "Purge: deleted \(deleted.count), kept \(kept.count) still held elsewhere",
+                category: "library")
+            return (deleted, kept)
+        } catch {
+            Logger.library.errorCapture(
+                "deletePublicationsPreservingReferenced failed: \(error)", category: "library")
+            return ([], ids)
+        }
+    }
+
     /// Import BibTeX and file every resulting paper into a collection.
     ///
     /// Unlike `importBibTeX`, a paper that already exists — including one filed

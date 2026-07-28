@@ -1338,6 +1338,38 @@ impl ImbibStore {
         Ok(())
     }
 
+    /// Permanently delete papers, keeping any that something else still holds.
+    ///
+    /// For emptying Dismissed, which is the Trash: "delete forever" must not
+    /// take out a paper the user has deliberately filed somewhere. A paper can
+    /// be dismissed and *also* be a member of a collection — importing a .bib
+    /// onto a collection links a paper that already exists, wherever it lives,
+    /// and Dismissed is where an awful lot of papers live. Without this guard,
+    /// emptying the Trash silently removes a collection's contents.
+    ///
+    /// A paper is kept when it is still a member of some collection, or when
+    /// another library holds a row for the same work (same cite key, DOI,
+    /// arXiv id or bibcode). Returns the ids actually deleted and the ids kept,
+    /// so the caller can say so rather than reporting a count that quietly
+    /// disagrees with what the user selected.
+    pub fn delete_publications_preserving_referenced(
+        &self,
+        ids: Vec<String>,
+    ) -> Result<PurgeOutcome, StoreApiError> {
+        let mut deleted = Vec::new();
+        let mut kept = Vec::new();
+        for id_str in &ids {
+            let uuid = parse_uuid(id_str)?;
+            if self.publication_is_still_held(uuid)? {
+                kept.push(id_str.clone());
+                continue;
+            }
+            self.store.delete(uuid)?;
+            deleted.push(id_str.clone());
+        }
+        Ok(PurgeOutcome { deleted, kept })
+    }
+
     pub fn update_field(
         &self,
         id: String,
@@ -4319,6 +4351,57 @@ impl ImbibStore {
             .is_some())
     }
 
+    /// Whether anything outside this row still holds this paper: a collection
+    /// membership, or a row for the same work under a different library.
+    fn publication_is_still_held(&self, id: Uuid) -> Result<bool, StoreApiError> {
+        if !self
+            .list_collections_for_publication(id.to_string())?
+            .is_empty()
+        {
+            return Ok(true);
+        }
+
+        let Some(item) = self.store.get(id)? else {
+            return Ok(false);
+        };
+        let own_parent = item.parent;
+        let publication = conversion::item_to_publication(&item);
+
+        // Same work, searched store-wide; a hit under a DIFFERENT parent means
+        // another library holds it and this row is not the last copy.
+        let mut or_preds = Vec::new();
+        for (field, value) in [
+            ("doi", publication.identifiers.doi.clone()),
+            ("arxiv_id", publication.identifiers.arxiv_id.clone()),
+            ("bibcode", publication.identifiers.bibcode.clone()),
+        ] {
+            if let Some(v) = value {
+                if !v.is_empty() {
+                    or_preds.push(Predicate::Eq(field.into(), Value::String(v)));
+                }
+            }
+        }
+        if !publication.cite_key.is_empty() {
+            or_preds.push(Predicate::Eq(
+                "cite_key".into(),
+                Value::String(publication.cite_key.clone()),
+            ));
+        }
+        if or_preds.is_empty() {
+            return Ok(false);
+        }
+        let q = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![Predicate::Or(or_preds)],
+            ..Default::default()
+        };
+        Ok(self
+            .store
+            .query(&q)?
+            .iter()
+            .any(|other| other.id != id && other.parent != own_parent))
+    }
+
     /// The id of a publication already in the store matching this one by DOI,
     /// arXiv id, bibcode or cite key.
     ///
@@ -4954,6 +5037,75 @@ mod tests {
 
         let colls = store.list_collections(lib.id.clone()).unwrap();
         assert_eq!(colls.len(), 1);
+    }
+
+    /// Emptying Dismissed must not destroy a paper a collection holds.
+    ///
+    /// This hazard is created by collection import: dropping a .bib on a
+    /// collection links a paper that already exists *wherever it lives*, and
+    /// Dismissed is where a great many papers live. Deleting the Trash would
+    /// then quietly empty part of a collection the user curated.
+    #[test]
+    fn emptying_dismissed_keeps_papers_a_collection_still_holds() {
+        let store = make_store();
+        let dismissed = store.create_library("Dismissed".into()).unwrap();
+        let work = store.create_library("Work".into()).unwrap();
+        let collection = store
+            .create_collection("Reading".into(), work.id.clone(), false, None)
+            .unwrap();
+
+        let held = store
+            .import_bibtex(
+                "@article{Held, title={Held Paper}, year={2020}, doi={10.1/held}}".into(),
+                dismissed.id.clone(),
+            )
+            .unwrap();
+        let loose = store
+            .import_bibtex(
+                "@article{Loose, title={Loose Paper}, year={2020}, doi={10.1/loose}}".into(),
+                dismissed.id.clone(),
+            )
+            .unwrap();
+        store
+            .add_to_collection(held.clone(), collection.id.clone())
+            .unwrap();
+
+        let outcome = store
+            .delete_publications_preserving_referenced(
+                held.iter().chain(loose.iter()).cloned().collect(),
+            )
+            .unwrap();
+
+        assert_eq!(outcome.kept, held, "the collection's paper survives");
+        assert_eq!(outcome.deleted, loose, "the unheld paper is removed");
+        assert!(
+            store.get_publication(held[0].clone()).unwrap().is_some(),
+            "still readable after emptying Dismissed"
+        );
+        assert!(store.get_publication(loose[0].clone()).unwrap().is_none());
+    }
+
+    /// The same work held by another library also survives.
+    #[test]
+    fn emptying_dismissed_keeps_papers_another_library_also_has() {
+        let store = make_store();
+        let dismissed = store.create_library("Dismissed".into()).unwrap();
+        let keep = store.create_library("Keep".into()).unwrap();
+
+        let bib = "@article{Both, title={In Two Places}, year={2021}, doi={10.1/both}}";
+        let in_dismissed = store
+            .import_bibtex(bib.into(), dismissed.id.clone())
+            .unwrap();
+        let elsewhere = store.import_bibtex(bib.into(), keep.id.clone()).unwrap();
+        assert_eq!(elsewhere.len(), 1, "a second library holds its own row");
+
+        let outcome = store
+            .delete_publications_preserving_referenced(in_dismissed.clone())
+            .unwrap();
+        assert_eq!(
+            outcome.kept, in_dismissed,
+            "another library has this work, so it is not a complete delete"
+        );
     }
 
     /// A different cite key means a different entry, even with the same DOI.

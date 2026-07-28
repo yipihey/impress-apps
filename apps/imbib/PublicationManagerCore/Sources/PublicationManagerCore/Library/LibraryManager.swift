@@ -427,7 +427,15 @@ public final class LibraryManager {
 
         let pubs = store.queryPublications(parentId: id, sort: "created", ascending: false, limit: nil, offset: nil)
         if !pubs.isEmpty {
-            store.deletePublications(ids: pubs.map(\.id))
+            // Guarded: a paper a collection still holds, or one another library
+            // also has, is kept. Emptying the Trash must not empty a collection.
+            let outcome = RustStoreAdapter.shared.deletePublicationsPreservingReferenced(
+                ids: pubs.map(\.id))
+            if !outcome.kept.isEmpty {
+                Logger.library.warningCapture(
+                    "Emptied Dismissed: removed \(outcome.deleted.count), kept \(outcome.kept.count) still held elsewhere",
+                    category: "library")
+            }
         }
         loadLibraries()
     }
