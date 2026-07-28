@@ -27,43 +27,59 @@ jobs:
           # Full history so the merge base can be resolved.
           fetch-depth: 0
 
-      - name: Find added TypeScript
+      - name: No TypeScript is tracked
         shell: bash
         run: |
           set -euo pipefail
 
+          # BASE/HEAD are only used to name what a given push introduced. The
+          # check itself does not depend on them, so a missing base must NOT
+          # skip the job — it used to `exit 0`, which was right when the check
+          # was differential and is a hole now that it is absolute.
+          BASE=""
+          HEAD="${{ github.sha }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
             HEAD="${{ github.event.pull_request.head.sha }}"
-          else
-            # On a push, compare against the commit before it. A first push
-            # with no parent has nothing to diff, so pass.
+          elif [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
             BASE="${{ github.event.before }}"
-            HEAD="${{ github.sha }}"
-            if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-              echo "No parent commit to compare against; skipping."
-              exit 0
-            fi
           fi
 
-          # Only files ADDED (--diff-filter=A). Editing the existing debt is
-          # allowed; growing it is not.
-          ADDED="$(git diff --name-only --diff-filter=A "$BASE" "$HEAD" -- '*.ts' '*.tsx' || true)"
-
+          # The invariant is ABSOLUTE, not differential: zero tracked TypeScript.
+          #
+          # It used to be "may shrink, never grow" (--diff-filter=A only), which
+          # was right while apps/imbib/imbib-web was still here. That debt reached
+          # zero in the 2026-07-28 audit, so the stronger check is now available —
+          # and it closes a hole: a diff-filter=A test only sees files git calls
+          # *added* between BASE and HEAD, so a rename from a non-.ts path (status
+          # R) or an oddly-attributed merge could slip a file in. Counting what is
+          # tracked cannot be evaded that way.
+          #
           # Vendored checkouts and dependencies are not ours to police.
-          # (The last first-party TypeScript — the dormant imbib-web scaffold —
-          # was audited and deleted 2026-07-28; the repo is TypeScript-free.)
-          FILTERED="$(printf '%s\n' "$ADDED" \
-            | grep -v '^$' \
-            | grep -v '/\.build/' \
-            | grep -v '/node_modules/' \
-            || true)"
+          # `(^|/)` matters: a bare '/node_modules/' pattern does not match a
+          # root-level node_modules/, so vendored files there would be reported
+          # as ours. -E for the alternation.
+          VENDORED='(^|/)(node_modules|\.build)/'
+          TRACKED="$(git ls-files '*.ts' '*.tsx' | { grep -vE "$VENDORED" || true; })"
 
-          if [ -n "$FILTERED" ]; then
-            echo "::error::New TypeScript files were added. The Apple apps are a pure Rust core with a Swift GUI."
+          # Still computed, purely so the error names what this push introduced.
+          # Empty when there is no base (first push, workflow_dispatch).
+          ADDED=""
+          if [ -n "$BASE" ]; then
+            ADDED="$(git diff --name-only --diff-filter=A "$BASE" "$HEAD" -- '*.ts' '*.tsx' 2>/dev/null \
+              | { grep -vE "$VENDORED" || true; })"
+          fi
+
+          if [ -n "$TRACKED" ]; then
+            echo "::error::TypeScript is tracked in this repo. The Apple apps are a pure Rust core with a Swift GUI."
             echo
-            echo "Added:"
-            printf '  %s\n' $FILTERED
+            if [ -n "$ADDED" ]; then
+              echo "Added by this push:"
+              printf '  %s\n' $ADDED
+              echo
+            fi
+            echo "All tracked TypeScript:"
+            printf '  %s\n' $TRACKED
             echo
             echo "Agent-facing capability belongs in an #[impress_service] trait:"
             echo "  crates/imbib-service, crates/imprint-service, ..."
@@ -72,16 +88,16 @@ jobs:
             exit 1
           fi
 
-          echo "No new TypeScript. "
+          echo "No TypeScript tracked. "
 
-      - name: Report remaining TypeScript debt
+      - name: Confirm the retirement holds
         shell: bash
         run: |
           set -euo pipefail
           # grep -v exits 1 on empty input; `|| true` keeps the step alive
           # now that the debt has actually reached zero (2026-07-28 audit).
           FILES="$(git ls-files '*.ts' '*.tsx' \
-            | { grep -v -e '/\.build/' -e '/node_modules/' || true; })"
+            | { grep -vE '(^|/)(node_modules|\.build)/' || true; })"
           if [ -z "$FILES" ]; then
             echo "TypeScript files still tracked: 0 — retirement complete."
             exit 0
