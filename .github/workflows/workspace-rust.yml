@@ -27,14 +27,8 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/workspace-rust.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/workspace-rust.yml'
-
+# pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
+# runner and the repo is public — fork PRs must never reach that machine.
 env:
   CARGO_TERM_COLOR: always
 
@@ -45,7 +39,7 @@ concurrency:
 jobs:
   lint:
     name: Workspace lint
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 
@@ -77,7 +71,7 @@ jobs:
 
   test:
     name: Workspace tests
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 

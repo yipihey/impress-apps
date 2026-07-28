@@ -18,17 +18,8 @@ on:
       - 'crates/impress-helix/**'
       - 'crates/impress-store-ffi/**'
       - '.github/workflows/implore-swift.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/implore/**'
-      - 'packages/**'
-      - 'crates/implore-core/**'
-      - 'crates/impress-core/**'
-      - 'crates/impress-helix/**'
-      - 'crates/impress-store-ffi/**'
-      - '.github/workflows/implore-swift.yml'
-
+# pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
+# runner and the repo is public — fork PRs must never reach that machine.
 env:
   CARGO_TERM_COLOR: always
 
@@ -39,7 +30,7 @@ concurrency:
 jobs:
   package-tests:
     name: Test ImploreCore package
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
 
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +81,7 @@ jobs:
 
   build-app:
     name: Build implore (macOS)
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
 
     steps:
       - uses: actions/checkout@v4

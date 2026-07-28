@@ -9,15 +9,8 @@ on:
       - 'crates/imprint-selftest/**'
       - 'crates/impress-*/**'
       - '.github/workflows/imprint-rust.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'crates/imprint-core/**'
-      - 'crates/imprint-service/**'
-      - 'crates/imprint-selftest/**'
-      - 'crates/impress-*/**'
-      - '.github/workflows/imprint-rust.yml'
-
+# pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
+# runner and the repo is public — fork PRs must never reach that machine.
 env:
   CARGO_TERM_COLOR: always
 
@@ -28,7 +21,7 @@ concurrency:
 jobs:
   test:
     name: Test
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     defaults:
       run:
         working-directory: crates/imprint-core
@@ -62,7 +55,7 @@ jobs:
 
   selftest:
     name: Service + Self-Test (Tier A)
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 
@@ -100,7 +93,7 @@ jobs:
 
   generate-bindings:
     name: Generate Swift Bindings
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     defaults:
       run:
         working-directory: crates/imprint-core

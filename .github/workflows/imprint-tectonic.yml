@@ -35,14 +35,8 @@ on:
       - 'crates/imprint-core/tests/tectonic_spike.rs'
       - 'crates/imprint-selftest/Cargo.toml'
       - '.github/workflows/imprint-tectonic.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'crates/imprint-core/Cargo.toml'
-      - 'crates/imprint-core/src/latex/**'
-      - 'crates/imprint-core/tests/tectonic_spike.rs'
-      - 'crates/imprint-selftest/Cargo.toml'
-      - '.github/workflows/imprint-tectonic.yml'
+# pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
+# runner and the repo is public — fork PRs must never reach that machine.
 
 env:
   CARGO_TERM_COLOR: always
@@ -54,7 +48,7 @@ concurrency:
 jobs:
   tectonic:
     name: Tectonic engine (self-contained, arm64 + vcpkg)
-    runs-on: macos-latest  # arm64 Apple Silicon
+    runs-on: [self-hosted, impress-mac]  # arm64 Apple Silicon
     steps:
       - uses: actions/checkout@v4
 

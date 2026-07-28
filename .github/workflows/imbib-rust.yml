@@ -10,15 +10,8 @@ on:
       - 'crates/im-bibtex/**'
       - 'crates/im-identifiers/**'
       - '.github/workflows/imbib-rust.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'crates/imbib-core/**'
-      - 'crates/impress-*/**'
-      # Path deps compiled (and linted) as part of the imbib-core gate.
-      - 'crates/im-bibtex/**'
-      - 'crates/im-identifiers/**'
-      - '.github/workflows/imbib-rust.yml'
+# pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
+# runner and the repo is public — fork PRs must never reach that machine.
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,7 +23,7 @@ concurrency:
 jobs:
   test:
     name: Test
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     defaults:
       run:
         working-directory: crates/imbib-core
@@ -67,7 +60,7 @@ jobs:
 
   generate-bindings:
     name: Generate Swift Bindings
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     defaults:
       run:
         working-directory: crates/imbib-core

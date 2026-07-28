@@ -212,8 +212,10 @@ runs:
 
         # ImageOS ("macos15", "macos26", ...) not just runner.os: an xcframework
         # carries the SDK it was built against, and runners are mixed here
-        # (macos-latest and macos-15 both appear).
-        IMAGE="${ImageOS:-${RUNNER_OS:-unknown}}"
+        # (macos-latest and macos-15 both appear). Self-hosted runners have no
+        # ImageOS; derive the same shape from sw_vers so keys stay
+        # OS-versioned there too.
+        IMAGE="${ImageOS:-macos$(sw_vers -productVersion 2>/dev/null | cut -d. -f1 || echo 0)-selfhosted}"
 
         {
           echo "variant=$VARIANT"

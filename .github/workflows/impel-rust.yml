@@ -10,16 +10,8 @@ on:
       - 'crates/impress-*/**'
       - 'apps/impel-tui/**'
       - '.github/workflows/impel-rust.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'crates/impel-core/**'
-      - 'crates/impel-server/**'
-      - 'crates/impel-tools/**'
-      - 'crates/impress-*/**'
-      - 'apps/impel-tui/**'
-      - '.github/workflows/impel-rust.yml'
-
+# pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
+# runner and the repo is public — fork PRs must never reach that machine.
 env:
   CARGO_TERM_COLOR: always
 
@@ -30,7 +22,7 @@ concurrency:
 jobs:
   test-core:
     name: Test impel-core
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 
@@ -80,7 +72,7 @@ jobs:
 
   test-tui:
     name: Test impel-tui
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 
@@ -111,7 +103,7 @@ jobs:
 
   test-server:
     name: Test impel-server
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 
@@ -142,7 +134,7 @@ jobs:
 
   generate-bindings:
     name: Generate Swift Bindings
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 

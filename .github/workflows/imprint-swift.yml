@@ -15,16 +15,8 @@ on:
       - 'crates/impress-core/**'
       - 'crates/impress-store-ffi/**'
       - '.github/workflows/imprint-swift.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/imprint/Packages/**'
-      - 'packages/**'
-      - 'crates/imprint-core/**'
-      - 'crates/impress-core/**'
-      - 'crates/impress-store-ffi/**'
-      - '.github/workflows/imprint-swift.yml'
-
+# pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
+# runner and the repo is public — fork PRs must never reach that machine.
 env:
   CARGO_TERM_COLOR: always
 
@@ -35,7 +27,7 @@ concurrency:
 jobs:
   package-tests:
     name: Test ImprintCore package
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
 
     steps:
       - uses: actions/checkout@v4

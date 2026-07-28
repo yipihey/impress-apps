@@ -21,17 +21,8 @@ on:
       - 'crates/imbib-core/**'
       - 'packages/**'
       - '.github/workflows/imprint-apps.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/imprint/**'
-      - 'crates/imprint-core/**'
-      # Sibling cores whose xcframeworks this workflow builds and links.
-      - 'crates/impress-helix/**'
-      - 'crates/impress-store-ffi/**'
-      - 'crates/imbib-core/**'
-      - 'packages/**'
-      - '.github/workflows/imprint-apps.yml'
+# pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
+# runner and the repo is public — fork PRs must never reach that machine.
 
 env:
   CARGO_TERM_COLOR: always
@@ -44,7 +35,7 @@ concurrency:
 jobs:
   build-apps:
     name: Build imprint (macOS)
-    runs-on: macos-latest
+    runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 
