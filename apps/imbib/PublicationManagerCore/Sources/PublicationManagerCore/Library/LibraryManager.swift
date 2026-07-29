@@ -429,7 +429,9 @@ public final class LibraryManager {
         if !pubs.isEmpty {
             // Guarded: a paper a collection still holds, or one another library
             // also has, is kept. Emptying the Trash must not empty a collection.
-            let outcome = RustStoreAdapter.shared.deletePublicationsPreservingReferenced(
+            // Through the injected store, not the shared adapter — this class
+            // is built on `store` and bypassing it blinds every mock.
+            let outcome = store.deletePublicationsPreservingReferenced(
                 ids: pubs.map(\.id))
             if !outcome.kept.isEmpty {
                 Logger.library.warningCapture(

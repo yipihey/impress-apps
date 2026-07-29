@@ -81,6 +81,10 @@ public protocol PublicationStoreProtocol {
     func importBibTeX(_ bibtex: String, libraryId: UUID) -> [UUID]
 
     func deletePublications(ids: [UUID])
+    /// Delete, except papers a collection still holds or another library also
+    /// has — emptying the Dismissed trash must not empty a collection.
+    @discardableResult
+    func deletePublicationsPreservingReferenced(ids: [UUID]) -> (deleted: [UUID], kept: [UUID])
     func deleteItem(id: UUID)
     func movePublications(ids: [UUID], toLibraryId: UUID)
     func duplicatePublications(ids: [UUID], toLibraryId: UUID) -> [UUID]

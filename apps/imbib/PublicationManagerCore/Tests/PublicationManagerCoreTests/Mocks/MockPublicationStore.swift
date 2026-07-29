@@ -268,6 +268,25 @@ final class MockPublicationStore: PublicationStoreProtocol {
         didMutate()
     }
 
+    @discardableResult
+    func deletePublicationsPreservingReferenced(ids: [UUID]) -> (deleted: [UUID], kept: [UUID]) {
+        // Mirrors the Rust guard: a paper any collection still holds, or that
+        // more than one library has, survives the delete.
+        var deleted: [UUID] = []
+        var kept: [UUID] = []
+        for id in ids {
+            let inACollection = collectionMembers.values.contains { $0.contains(id) }
+            let libraryCount = libraryPublications.values.filter { $0.contains(id) }.count
+            if inACollection || libraryCount > 1 {
+                kept.append(id)
+            } else {
+                deleted.append(id)
+            }
+        }
+        if !deleted.isEmpty { deletePublications(ids: deleted) }
+        return (deleted, kept)
+    }
+
     func deleteItem(id: UUID) {
         collections.removeValue(forKey: id)
         collectionMembers.removeValue(forKey: id)
