@@ -1263,6 +1263,150 @@ public func FfiConverterTypeFFIBoundingBox_lower(_ value: FfiBoundingBox) -> Rus
 
 
 /**
+ * One cite-key occurrence, addressed in UTF-16 code units so the Apple text
+ * stack (`NSRange`, `UITextView`, `NSTextView`) can use the offsets directly.
+ */
+public struct FfiCiteKeyHit {
+    /**
+     * The cite key as written, without the `@` sigil or the `\cite{}` wrapper.
+     */
+    public var key: String
+    /**
+     * Which citation command produced this occurrence: `typst-at`, `cite`,
+     * `citep`, `citet`, `cite-author-year`, `cite-other`, `textcite`,
+     * `parencite`, `autocite`, `other-biblatex`.
+     */
+    public var command: String
+    /**
+     * UTF-16 offset of the KEY text.
+     */
+    public var keyOffset: UInt32
+    /**
+     * UTF-16 length of the KEY text.
+     */
+    public var keyLength: UInt32
+    /**
+     * UTF-16 offset of the span that counts as "on the citation" — includes
+     * the Typst `@`; equals `key_offset` for LaTeX.
+     */
+    public var hitOffset: UInt32
+    /**
+     * UTF-16 length of that span.
+     */
+    public var hitLength: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The cite key as written, without the `@` sigil or the `\cite{}` wrapper.
+         */key: String, 
+        /**
+         * Which citation command produced this occurrence: `typst-at`, `cite`,
+         * `citep`, `citet`, `cite-author-year`, `cite-other`, `textcite`,
+         * `parencite`, `autocite`, `other-biblatex`.
+         */command: String, 
+        /**
+         * UTF-16 offset of the KEY text.
+         */keyOffset: UInt32, 
+        /**
+         * UTF-16 length of the KEY text.
+         */keyLength: UInt32, 
+        /**
+         * UTF-16 offset of the span that counts as "on the citation" — includes
+         * the Typst `@`; equals `key_offset` for LaTeX.
+         */hitOffset: UInt32, 
+        /**
+         * UTF-16 length of that span.
+         */hitLength: UInt32) {
+        self.key = key
+        self.command = command
+        self.keyOffset = keyOffset
+        self.keyLength = keyLength
+        self.hitOffset = hitOffset
+        self.hitLength = hitLength
+    }
+}
+
+
+
+extension FfiCiteKeyHit: Equatable, Hashable {
+    public static func ==(lhs: FfiCiteKeyHit, rhs: FfiCiteKeyHit) -> Bool {
+        if lhs.key != rhs.key {
+            return false
+        }
+        if lhs.command != rhs.command {
+            return false
+        }
+        if lhs.keyOffset != rhs.keyOffset {
+            return false
+        }
+        if lhs.keyLength != rhs.keyLength {
+            return false
+        }
+        if lhs.hitOffset != rhs.hitOffset {
+            return false
+        }
+        if lhs.hitLength != rhs.hitLength {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(key)
+        hasher.combine(command)
+        hasher.combine(keyOffset)
+        hasher.combine(keyLength)
+        hasher.combine(hitOffset)
+        hasher.combine(hitLength)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFICiteKeyHit: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCiteKeyHit {
+        return
+            try FfiCiteKeyHit(
+                key: FfiConverterString.read(from: &buf), 
+                command: FfiConverterString.read(from: &buf), 
+                keyOffset: FfiConverterUInt32.read(from: &buf), 
+                keyLength: FfiConverterUInt32.read(from: &buf), 
+                hitOffset: FfiConverterUInt32.read(from: &buf), 
+                hitLength: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCiteKeyHit, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.command, into: &buf)
+        FfiConverterUInt32.write(value.keyOffset, into: &buf)
+        FfiConverterUInt32.write(value.keyLength, into: &buf)
+        FfiConverterUInt32.write(value.hitOffset, into: &buf)
+        FfiConverterUInt32.write(value.hitLength, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFICiteKeyHit_lift(_ buf: RustBuffer) throws -> FfiCiteKeyHit {
+    return try FfiConverterTypeFFICiteKeyHit.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFICiteKeyHit_lower(_ value: FfiCiteKeyHit) -> RustBuffer {
+    return FfiConverterTypeFFICiteKeyHit.lower(value)
+}
+
+
+/**
  * CRDT validation result for FFI
  */
 public struct FfiCrdtValidation {
@@ -6435,6 +6579,30 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFFICiteKeyHit: FfiConverterRustBuffer {
+    typealias SwiftType = FfiCiteKeyHit?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFFICiteKeyHit.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFFICiteKeyHit.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeFFIJournalInfo: FfiConverterRustBuffer {
     typealias SwiftType = FfiJournalInfo?
 
@@ -6549,6 +6717,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFFICiteKeyHit: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiCiteKeyHit]
+
+    public static func write(_ value: [FfiCiteKeyHit], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFFICiteKeyHit.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiCiteKeyHit] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiCiteKeyHit]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFFICiteKeyHit.read(from: &buf))
         }
         return seq
     }
@@ -6746,6 +6939,45 @@ public func checkDocumentVersion(rawVersion: UInt32?) -> FfiVersionCheckResult {
     return try!  FfiConverterTypeFFIVersionCheckResult.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_check_document_version(
         FfiConverterOptionUInt32.lower(rawVersion),$0
+    )
+})
+}
+/**
+ * The cite key under a caret / touch point, or `None`.
+ *
+ * `utf16_offset` is a UTF-16 code-unit index into `source` — an `NSRange`
+ * location, straight from `UITextView.offset(from:to:)`. `syntax` accepts
+ * `typst`, `latex` or `mixed` (unknown values → `mixed`).
+ *
+ * This is the ONLY thing an editor needs in order to implement a hover or
+ * long-press citation affordance; it derives from the canonical cite-key
+ * scanner (`citations::extract`), so a UI that asks this question cannot grow
+ * its own idea of what a cite key is.
+ *
+ * The hit span is half-open: the offset one past the last character of a
+ * citation is a miss. Touch callers, where the nearest caret position can land
+ * one past the glyph under the finger, should probe `offset` then `offset - 1`.
+ */
+public func citeKeyAtUtf16Offset(source: String, utf16Offset: UInt32, syntax: String) -> FfiCiteKeyHit? {
+    return try!  FfiConverterOptionTypeFFICiteKeyHit.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_cite_key_at_utf16_offset(
+        FfiConverterString.lower(source),
+        FfiConverterUInt32.lower(utf16Offset),
+        FfiConverterString.lower(syntax),$0
+    )
+})
+}
+/**
+ * Every cite-key occurrence in `source`, in source order, with UTF-16 spans.
+ *
+ * The list form of [`cite_key_at_utf16_offset`] — for highlighting every
+ * citation in a buffer, or for tests that assert the whole set at once.
+ */
+public func citeKeyHits(source: String, syntax: String) -> [FfiCiteKeyHit] {
+    return try!  FfiConverterSequenceTypeFFICiteKeyHit.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_cite_key_hits(
+        FfiConverterString.lower(source),
+        FfiConverterString.lower(syntax),$0
     )
 })
 }
@@ -7163,6 +7395,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_check_document_version() != 55361) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_cite_key_at_utf16_offset() != 51332) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_cite_key_hits() != 43538) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_compile_typst_project_to_pdf() != 8151) {

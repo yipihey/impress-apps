@@ -119,6 +119,17 @@ public struct ImpressURL: Sendable {
         ImpressURL(app: .imprint, action: "insert", resourceType: "citation", resourceID: citeKey)
     }
 
+    /// `imprint://inspect/citation/{key}` — show the paper a cite key refers to.
+    ///
+    /// The programmatic form of imprint's citation-inspection affordance
+    /// (hover on macOS, long-press on iOS). iOS has no HTTP automation server
+    /// — imprint-iOS holds no `com.apple.security.network.server` entitlement —
+    /// so a URL is how the on-device surface is driven from outside the app
+    /// (`xcrun simctl openurl booted "imprint://inspect/citation/smith2024"`).
+    public static func inspectCitation(citeKey: String) -> ImpressURL {
+        ImpressURL(app: .imprint, action: "inspect", resourceType: "citation", resourceID: citeKey)
+    }
+
     /// `impart://open/conversation/{uuid}`
     public static func openConversation(id: UUID) -> ImpressURL {
         ImpressURL(app: .impart, action: "open", resourceType: "conversation", resourceID: id.uuidString)

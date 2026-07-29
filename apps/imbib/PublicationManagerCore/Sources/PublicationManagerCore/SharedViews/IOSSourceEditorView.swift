@@ -16,6 +16,9 @@
 //  - tree-sitter syntax highlighting (ImpressSyntaxHighlight), driven by the
 //    document's `DocumentFormat` through the same mapping the AppKit editor
 //    uses — see `DocumentFormat+SyntaxHighlight.swift`
+//  - long-press on a citation to inspect the cited paper — the touch
+//    counterpart of the macOS hover preview. Detection is `ManuscriptCiteKeyLocator`
+//    (Rust-backed), never a Swift regex.
 //
 
 #if os(iOS)
@@ -59,18 +62,26 @@ public struct IOSSourceEditorView: View {
     /// no-op here). nil → ⌘S falls back to dismissing the keyboard.
     let onInsertCitation: (() -> Void)?
 
+    /// Invoked when the user long-presses a citation in the source — the touch
+    /// equivalent of the macOS hover preview. The occurrence carries the key
+    /// and its ranges; the host decides what to show (imprint-iOS raises
+    /// `CitationPaperSheet`). nil → long press behaves exactly as before.
+    let onCiteKeyLongPress: ((CiteKeyOccurrence) -> Void)?
+
     public init(
         text: Binding<String>,
         selection: Binding<NSRange?>,
         goToLine: Binding<Int?> = .constant(nil),
         format: DocumentFormat = .typst,
-        onInsertCitation: (() -> Void)? = nil
+        onInsertCitation: (() -> Void)? = nil,
+        onCiteKeyLongPress: ((CiteKeyOccurrence) -> Void)? = nil
     ) {
         self._text = text
         self._selection = selection
         self._goToLine = goToLine
         self.format = format
         self.onInsertCitation = onInsertCitation
+        self.onCiteKeyLongPress = onCiteKeyLongPress
     }
 
     // MARK: - Body
@@ -82,7 +93,8 @@ public struct IOSSourceEditorView: View {
             goToLine: $goToLine,
             isFocused: $isFocused,
             format: format,
-            onInsertCitation: onInsertCitation
+            onInsertCitation: onInsertCitation,
+            onCiteKeyLongPress: onCiteKeyLongPress
         )
         .focused($isFocused)
         .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -101,6 +113,7 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
     @FocusState.Binding var isFocused: Bool
     var format: DocumentFormat = .typst
     var onInsertCitation: (() -> Void)?
+    var onCiteKeyLongPress: ((CiteKeyOccurrence) -> Void)?
 
     /// The editor's monospaced face. Held in one place because the highlighter
     /// only writes `.foregroundColor`; every path that replaces the whole
@@ -113,6 +126,12 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
         let textView = SourceTextView()
         textView.delegate = context.coordinator
         textView.onInsertCitation = onInsertCitation
+        textView.onCiteKeyLongPress = onCiteKeyLongPress
+        textView.documentFormat = format
+        textView.installCiteKeyLongPress()
+        // Named so a UI test can drive the long press without guessing at
+        // `app.textViews.firstMatch`.
+        textView.accessibilityIdentifier = "editor.sourceTextView"
         textView.font = Self.editorFont
         textView.autocapitalizationType = .none
         textView.autocorrectionType = .no
@@ -145,7 +164,13 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
         // callbacks see the CURRENT format (and bindings) rather than the ones
         // captured when the coordinator was made.
         context.coordinator.parent = self
-        (textView as? SourceTextView)?.onInsertCitation = onInsertCitation
+        if let source = textView as? SourceTextView {
+            source.onInsertCitation = onInsertCitation
+            source.onCiteKeyLongPress = onCiteKeyLongPress
+            // The hit test asks Rust for THIS format's grammar; a stale copy
+            // would look for `@key` in a LaTeX document.
+            source.documentFormat = format
+        }
 
         // A format change (e.g. the document loads and `.typst` flips to
         // `.latex`) needs a new grammar AND a full re-highlight.
@@ -392,8 +417,92 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
 
 // MARK: - Source Text View
 
-/// Custom UITextView with keyboard command support
-final class SourceTextView: UITextView {
+/// Custom UITextView with keyboard command support and cite-key long press.
+final class SourceTextView: UITextView, UIGestureRecognizerDelegate {
+
+    // MARK: - Cite-key long press
+    //
+    // The macOS editor answers "is the pointer on a citation?" continuously,
+    // from an NSTrackingArea. iOS has no hover, so the same question is asked
+    // once, on a deliberate long press — and only then, because the answer
+    // requires scanning the buffer.
+    //
+    // Two rules keep this from regressing UITextView's own behaviour:
+    //
+    //   1. `gestureRecognizer(_:shouldReceive:)` rejects the touch outright
+    //      unless it lands ON a cite key, so anywhere else in the document this
+    //      recognizer never sees the touch and selection / the loupe / Scribble
+    //      behave exactly as before.
+    //   2. It recognizes simultaneously rather than via `require(toFail:)` —
+    //      a failure requirement would make EVERY long press wait out this
+    //      recognizer's press duration before the loupe could appear.
+
+    /// Host hook: the user long-pressed a citation.
+    var onCiteKeyLongPress: ((CiteKeyOccurrence) -> Void)?
+
+    /// Source format, so the hit test asks Rust for the right grammar.
+    var documentFormat: DocumentFormat = .typst
+
+    private weak var citeKeyRecognizer: UILongPressGestureRecognizer?
+
+    func installCiteKeyLongPress() {
+        guard citeKeyRecognizer == nil else { return }
+        let recognizer = UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(handleCiteKeyLongPress(_:))
+        )
+        // Slightly under UIKit's own ~0.5 s so a press on a citation resolves
+        // as an inspection rather than as the start of a selection drag.
+        recognizer.minimumPressDuration = 0.45
+        recognizer.delegate = self
+        addGestureRecognizer(recognizer)
+        citeKeyRecognizer = recognizer
+    }
+
+    /// The cite key under a point in this view, or nil.
+    ///
+    /// Every grammar decision — what a key may contain, that `@param` is an
+    /// annotation and `ada@example.org` an address, where a LaTeX key ends —
+    /// is made by the canonical Rust scanner. See `ManuscriptCiteKeyLocator`.
+    func citeKeyOccurrence(at point: CGPoint) -> CiteKeyOccurrence? {
+        guard onCiteKeyLongPress != nil else { return nil }
+        guard let position = closestPosition(to: point) else { return nil }
+        let offset = self.offset(from: beginningOfDocument, to: position)
+        return ManuscriptCiteKeyLocator.citeKey(
+            in: text ?? "",
+            nearUTF16Offset: offset,
+            format: documentFormat
+        )
+    }
+
+    @objc private func handleCiteKeyLongPress(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began, let onCiteKeyLongPress else { return }
+        guard let occurrence = citeKeyOccurrence(at: recognizer.location(in: self)) else { return }
+        // Select the token so the user can see WHICH citation was read — the
+        // touch equivalent of the popover anchoring itself to the cite key.
+        if occurrence.hitRange.upperBound <= (text as NSString).length {
+            selectedRange = occurrence.hitRange
+        }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onCiteKeyLongPress(occurrence)
+    }
+
+    // MARK: - UIGestureRecognizerDelegate
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        guard gestureRecognizer === citeKeyRecognizer else { return true }
+        return citeKeyOccurrence(at: touch.location(in: self)) != nil
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
 
     // MARK: - Key Commands
 

@@ -55,6 +55,20 @@ public final class ImbibCitationSearchService: ManuscriptCitationSearching {
         return nil
     }
 
+    /// Total publications in the store, across every library.
+    ///
+    /// Only used to explain a MISS: a UI that shows "not in your library" when
+    /// the library is in fact empty (the default state of a fresh iOS install —
+    /// sync ships off) is lying. Cheap: `SELECT COUNT(*)`, not a row fetch.
+    public func libraryPublicationCount() -> Int? {
+        do {
+            return Int(try store.countPublications(parentId: nil))
+        } catch {
+            Logger.library.error("citationSearch libraryPublicationCount failed: \(error)")
+            return nil
+        }
+    }
+
     /// Multi-term search: split on whitespace, intersect per-term results by
     /// id so "abel banerjee" matches a paper containing both terms anywhere
     /// in its searchable fields (same pattern as imprint's service).

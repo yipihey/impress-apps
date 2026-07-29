@@ -144,7 +144,7 @@ public struct FigureDetailPane: View {
                     if let flag = row.flag {
                         HStack(spacing: 6) {
                             Image(systemName: "flag.fill")
-                                .foregroundStyle(flag.color.defaultLightColor)
+                                .foregroundStyle(flag.color.displayColor)
                             Text(flag.color.displayName)
                                 .foregroundStyle(.secondary)
                         }

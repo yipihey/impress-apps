@@ -1109,7 +1109,9 @@ final class ImbibSidebarViewModel {
                 displayName: color.displayName,
                 iconName: "flag.fill",
                 displayCount: count > 0 ? count : nil,
-                iconColor: color.defaultLightColor
+                // The shared cross-platform mapping (ImpressFTUI) — adaptive,
+                // so a dark-mode sidebar no longer shows the light hexes.
+                iconColor: color.displayColor
             ))
         }
 

@@ -103,6 +103,28 @@ final class LibraryShellUITests: XCTestCase {
             "a dismissed manuscript is visible ONLY in the scope that names its status")
     }
 
+    /// The Flagged section must offer one row per `FlagColor`, each with the
+    /// flag's own colour.
+    ///
+    /// Only the ROWS are assertable here — XCUITest cannot read a glyph's
+    /// tint — so this pins their existence and identifiers and leaves a
+    /// screenshot behind (`imprint-shot-flag-colours.png`) for the colour
+    /// itself. The tint's own guard is the unit test:
+    /// `FlagColorPaletteTests.displayColorIsNeverTheFallback`, which runs on
+    /// BOTH platforms and is what catches the failure mode this test cannot
+    /// see (a mapping that is missing, or empty on one platform).
+    func testFlaggedSectionShowsOneColouredRowPerFlag() throws {
+        XCTAssertTrue(app.staticTexts["Flagged"].waitForExistence(timeout: 20),
+                      "the Flagged section comes from AppShellConfiguration.imprint")
+        for colour in ["red", "amber", "blue", "gray"] {
+            let row = app.staticTexts
+                .matching(identifier: "sidebar.node.manuscript.flagged.\(colour)").firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 5),
+                          "the Flagged section is missing its “\(colour)” row")
+        }
+        capture("flag-colours")
+    }
+
     /// The dismissed manuscript must NOT appear in the default list — the
     /// adapter's dismissal rule, seen from the UI.
     func testDismissedManuscriptIsHiddenFromTheDefaultScope() throws {

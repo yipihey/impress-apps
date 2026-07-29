@@ -191,6 +191,32 @@ struct IOSContentView: View {
                 previewSurface
             }
         }
+        // Swipe left from Source → Preview, right from Preview → Source.
+        //
+        // A DragGesture, not a TabView: the source pane is a UITextView whose
+        // own pan gestures (selection, scrolling) must keep working, so this
+        // only claims horizontal drags that clearly beat the vertical
+        // component. `minimumDistance` keeps a tap from ever registering.
+        .gesture(paneSwipe, isEnabled: document.format.hasPreview)
+    }
+
+    /// Horizontal swipe between the two compact panes.
+    private var paneSwipe: some Gesture {
+        DragGesture(minimumDistance: 30)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                // Must be decisively horizontal, or a diagonal scroll would
+                // flip the pane out from under the reader.
+                guard abs(dx) > 60, abs(dx) > abs(dy) * 2 else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if dx < 0 {
+                        compactPane = .preview
+                    } else {
+                        compactPane = .source
+                    }
+                }
+            }
     }
 
     /// A remembered `.preview` choice must not survive into a format that has
@@ -208,7 +234,32 @@ struct IOSContentView: View {
             selection: $selection,
             goToLine: $goToLine,
             format: document.format,
-            onInsertCitation: { showCitationPicker = true }
+            onInsertCitation: { showCitationPicker = true },
+            onCiteKeyLongPress: { occurrence in inspectCiteKey(occurrence.key) }
+        )
+    }
+
+    // MARK: - Citation inspection
+    //
+    // macOS: hover a cite key → preview popover → "Open in paper panel".
+    // iOS: long-press a cite key → a paper sheet. Same lookup, same exits, one
+    // gesture instead of hover-then-click.
+    //
+    // The gesture does NOT present the sheet itself — it posts `.inspectCiteKey`,
+    // exactly as `imprint://inspect/citation/{key}` does, and the library view
+    // (the navigation root) presents. One presenter, one code path: a citation
+    // inspected by an agent and one inspected by a finger are the same event,
+    // and the deep link works even when no editor is open.
+
+    private func inspectCiteKey(_ citeKey: String) {
+        Logger.imbibIntegration.infoCapture(
+            "long press requested inspection of cite key '\(citeKey)'",
+            category: "citation"
+        )
+        NotificationCenter.default.post(
+            name: .inspectCiteKey,
+            object: nil,
+            userInfo: ["citeKey": citeKey]
         )
     }
 

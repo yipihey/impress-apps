@@ -38,24 +38,68 @@ public enum FlagColor: String, Codable, CaseIterable, Identifiable, Sendable, Ha
         }
     }
 
-    /// Default color for light mode.
-    public var defaultLightColor: Color {
+    /// THE mapping — hexes + semantic label — for this flag colour.
+    ///
+    /// Exhaustive over `Self`, deliberately: a dictionary literal can be
+    /// empty on one platform and still compile (that is exactly how
+    /// `ImpressSyntaxTheme.impressDefault` shipped `colors: [:]` on UIKit and
+    /// rendered nothing), whereas a `switch` cannot lose a case silently.
+    /// Everything colour-shaped below — light, dark, adaptive, the
+    /// `FlagColorConfig.defaults` table — is derived from here, so there is
+    /// one place to change a flag's colour and one place to get it wrong.
+    public var defaultConfig: FlagColorConfig {
         switch self {
-        case .red: return Color(hex: "E53935")
-        case .amber: return Color(hex: "FB8C00")
-        case .blue: return Color(hex: "1E88E5")
-        case .gray: return Color(hex: "757575")
+        case .red:
+            return FlagColorConfig(lightHex: "E53935", darkHex: "EF5350", semanticLabel: "Urgent")
+        case .amber:
+            return FlagColorConfig(lightHex: "FB8C00", darkHex: "FFA726", semanticLabel: "Review")
+        case .blue:
+            return FlagColorConfig(lightHex: "1E88E5", darkHex: "42A5F5", semanticLabel: "Read")
+        case .gray:
+            return FlagColorConfig(lightHex: "757575", darkHex: "9E9E9E", semanticLabel: "Archive")
         }
     }
 
+    /// Default color for light mode.
+    public var defaultLightColor: Color { Color(hex: defaultConfig.lightHex) }
+
     /// Default color for dark mode.
-    public var defaultDarkColor: Color {
-        switch self {
-        case .red: return Color(hex: "EF5350")
-        case .amber: return Color(hex: "FFA726")
-        case .blue: return Color(hex: "42A5F5")
-        case .gray: return Color(hex: "9E9E9E")
-        }
+    public var defaultDarkColor: Color { Color(hex: defaultConfig.darkHex) }
+
+    /// The workflow meaning of the colour ("Urgent", "Review", …).
+    public var semanticLabel: String { defaultConfig.semanticLabel }
+
+    /// THE display colour for this flag, on every platform and in every
+    /// appearance — macOS sidebar rows, imbib-iOS rows, the chassis
+    /// `RecordSidebarView`, list dots, triage flashes.
+    ///
+    /// It is a *dynamic* colour (UIKit trait / AppKit appearance aware), so a
+    /// caller with no `@Environment(\.colorScheme)` — a data-shaped sidebar
+    /// node, an `NSOutlineView` cell — still gets the right colour in dark
+    /// mode. Callers that DO have the environment can use
+    /// `displayColor(for:)` instead; both resolve to the same two hexes.
+    public var displayColor: Color {
+        #if canImport(UIKit)
+        return Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? .impressHex(defaultConfig.darkHex)
+                : .impressHex(defaultConfig.lightHex)
+        })
+        #elseif canImport(AppKit)
+        let config = defaultConfig
+        return Color(NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? .impressHex(config.darkHex)
+                : .impressHex(config.lightHex)
+        })
+        #else
+        return defaultLightColor
+        #endif
+    }
+
+    /// The display colour resolved against a known appearance.
+    public func displayColor(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? defaultDarkColor : defaultLightColor
     }
 
     /// SF Symbol name for menu display.
@@ -66,6 +110,23 @@ public enum FlagColor: String, Codable, CaseIterable, Identifiable, Sendable, Ha
         case .blue: return "flag.fill"
         case .gray: return "flag.fill"
         }
+    }
+
+    /// Parse a flag colour as it is STORED (the store's `flag_color` column,
+    /// a payload string, an automation rule) rather than as a Swift case.
+    ///
+    /// Tolerates case and the British spelling, because both appear in the
+    /// wild (`SidebarSnapshotMaintainer`, `PublicationSource`) and a colour
+    /// that fails to parse is a row that silently loses its flag.
+    public init?(storedValue: String?) {
+        guard let raw = storedValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !raw.isEmpty else { return nil }
+        if raw == "grey" {
+            self = .gray
+            return
+        }
+        guard let parsed = FlagColor(rawValue: raw) else { return nil }
+        self = parsed
     }
 }
 
@@ -168,12 +229,12 @@ public struct FlagColorConfig: Codable, Equatable, Sendable {
         self.semanticLabel = semanticLabel
     }
 
-    public static let defaults: [FlagColor: FlagColorConfig] = [
-        .red: FlagColorConfig(lightHex: "E53935", darkHex: "EF5350", semanticLabel: "Urgent"),
-        .amber: FlagColorConfig(lightHex: "FB8C00", darkHex: "FFA726", semanticLabel: "Review"),
-        .blue: FlagColorConfig(lightHex: "1E88E5", darkHex: "42A5F5", semanticLabel: "Read"),
-        .gray: FlagColorConfig(lightHex: "757575", darkHex: "9E9E9E", semanticLabel: "Archive"),
-    ]
+    /// DERIVED from `FlagColor.defaultConfig`, never written out by hand:
+    /// a literal table can go missing an entry (or be `[:]` on one platform)
+    /// and still compile, and the caller only finds out at render time.
+    /// Built from `allCases`, it cannot.
+    public static let defaults: [FlagColor: FlagColorConfig] = Dictionary(
+        uniqueKeysWithValues: FlagColor.allCases.map { ($0, $0.defaultConfig) })
 }
 
 // MARK: - Flag Command Parser (Swift, replaced by Rust in Phase 3)

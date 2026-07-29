@@ -867,20 +867,21 @@ struct IOSSidebarView: View {
 
     // MARK: - Flagged Section
 
+    /// One row per flag colour, from `FlagColor.allCases` and the shared
+    /// cross-platform mapping (ImpressFTUI) — not a literal list. A local
+    /// table here is a second truth: it is how this section came to show
+    /// SwiftUI's `.red/.orange/.blue/.gray` while macOS showed the flag
+    /// palette's hexes, and how a fifth flag colour would silently never
+    /// appear on iOS.
     @ViewBuilder
     private var flaggedSectionContent: some View {
-        let colors: [(String, Color)] = [
-            ("red", .red),
-            ("amber", .orange),
-            ("blue", .blue),
-            ("gray", .gray)
-        ]
-        ForEach(colors, id: \.0) { colorName, swiftColor in
-            NavigationLink(value: SidebarSection.flagged(colorName)) {
+        ForEach(FlagColor.allCases) { flag in
+            NavigationLink(value: SidebarSection.flagged(flag.rawValue)) {
                 Label {
-                    Text(colorName.capitalized)
+                    Text(flag.displayName)
                 } icon: {
-                    Image(systemName: "flag.fill").foregroundStyle(swiftColor)
+                    Image(systemName: flag.systemImage)
+                        .foregroundStyle(flag.displayColor)
                 }
             }
         }

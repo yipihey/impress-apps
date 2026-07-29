@@ -205,6 +205,7 @@ app:
 | which sections | `visibleSections` ∩ `passesFacetGate` ∩ host content gate (`RecordSidebarDataSource.sectionIsAvailable`) |
 | which kind a section serves | `sectionBindings[section]`, falling back to the canonical table = `AppShellConfiguration.impress.sectionBindings` |
 | section behaviour | `RecordSidebarSectionRole.role(for:)` — `.flagged` → per-`FlagColor` rows, `.dismissed` → the kind's dismissal semantics, otherwise `.primary` |
+| flag row colour + label | `FlagColor.displayColor` / `.displayName` (ImpressFTUI) — the ONE cross-platform mapping. The node carries `RecordSidebarNode.flagColor` and each renderer asks it for the colour: macOS `ImbibSidebarNode.iconColor`, iOS `RecordSidebarView.nodeIcon`, imbib-iOS `IOSSidebarView.flaggedSectionContent`, imprint-iOS list dots. A per-view switch here is the bug, not the fix (2026-07-29: the iOS sidebar shipped with no mapping at all and every flag rendered in the default tint) |
 | status smart-children | `descriptor.triage.statuses`, minus the dismissed status (which owns the Dismissed section) |
 | folder tree + organise verbs | `descriptor.collection` / `CollectionCapability.canOrganize` |
 | section order + collapse | `SidebarSectionOrderStore` / `SidebarCollapsedStateStore` (the same persisted stores macOS uses) |

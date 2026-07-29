@@ -123,16 +123,11 @@ impl ImprintTextService for DefaultImprintTextService {
     }
 }
 
-/// Lenient parser for the `syntax` argument. Unknown values map to
-/// [`CitationSyntax::Mixed`] (the same stance the live HTTP router takes
-/// when it doesn't know whether the manuscript is Typst- or LaTeX-flavoured).
+/// Lenient parser for the `syntax` argument. Delegates to `imprint-core` so
+/// this trait, the UniFFI cite-key exports and the HTTP router accept exactly
+/// the same spellings; unknown values map to [`CitationSyntax::Mixed`].
 fn parse_syntax(s: &str) -> CitationSyntax {
-    match s.to_ascii_lowercase().as_str() {
-        "typst" => CitationSyntax::Typst,
-        "latex" | "tex" => CitationSyntax::Latex,
-        "mixed" | "" => CitationSyntax::Mixed,
-        _ => CitationSyntax::Mixed,
-    }
+    CitationSyntax::from_str_lenient(s)
 }
 
 // ── Inventory wiring ─────────────────────────────────────────────────────────

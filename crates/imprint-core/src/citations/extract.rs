@@ -52,6 +52,22 @@ pub enum CitationSyntax {
     Mixed,
 }
 
+impl CitationSyntax {
+    /// Parse a caller-supplied syntax name. Unknown (and empty) values map to
+    /// [`CitationSyntax::Mixed`] — the same stance the live HTTP router takes
+    /// when it doesn't know whether the manuscript is Typst- or LaTeX-flavoured.
+    ///
+    /// Lives here rather than in each caller so the FFI, the service trait and
+    /// the HTTP router all accept exactly the same spellings.
+    pub fn from_str_lenient(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "typst" => Self::Typst,
+            "latex" | "tex" => Self::Latex,
+            _ => Self::Mixed,
+        }
+    }
+}
+
 /// Which specific citation command produced a usage.
 ///
 /// The Swift code throws this away (it only collects the set of keys), but

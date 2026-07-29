@@ -17,6 +17,7 @@
 //  passing `.imbib` and a data source over `RustStoreAdapter`.
 //
 
+import ImpressFTUI
 import SwiftUI
 
 @MainActor
@@ -177,8 +178,11 @@ public struct RecordSidebarView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Label(node.title, systemImage: node.systemImage)
-                .lineLimit(1)
+            Label {
+                Text(node.title).lineLimit(1)
+            } icon: {
+                nodeIcon(node)
+            }
             Spacer(minLength: 4)
             if let count = node.count, count > 0 {
                 Text("\(count)")
@@ -198,6 +202,20 @@ public struct RecordSidebarView: View {
                     Label("Delete", systemImage: "trash")
                 }
             }
+        }
+    }
+
+    /// A row's glyph. A flag row is tinted from the SHARED cross-platform
+    /// mapping (`FlagColor.displayColor`, ImpressFTUI) — the same property
+    /// macOS's sidebar and imbib-iOS use, never a switch statement local to
+    /// this file. Every other row keeps the platform's default tint.
+    @ViewBuilder
+    private func nodeIcon(_ node: RecordSidebarNode) -> some View {
+        if let flag = node.flagColor {
+            Image(systemName: node.systemImage)
+                .foregroundStyle(flag.displayColor)
+        } else {
+            Image(systemName: node.systemImage)
         }
     }
 

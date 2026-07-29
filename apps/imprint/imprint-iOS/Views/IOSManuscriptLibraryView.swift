@@ -45,6 +45,10 @@ struct IOSManuscriptLibraryView: View {
     @State private var scope: RecordSidebarScope?
     /// The manuscript open in the detail column.
     @State private var selectedManuscriptID: UUID?
+
+    /// The citation currently being inspected — raised by a long press in the
+    /// editor or by `imprint://inspect/citation/{key}`. nil → no sheet.
+    @State private var citationInspection: CitationInspection?
     /// `.all` so iPad opens on sidebar + list + editor; iPhone collapses this
     /// to a stack automatically.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -118,6 +122,31 @@ struct IOSManuscriptLibraryView: View {
         .onChange(of: scope) { _, _ in refresh() }
         .onChange(of: searchText) { _, _ in refresh() }
         .onOpenURL { url in handleIncomingURL(url) }
+        // Citation inspection is presented HERE, at the navigation root, not in
+        // the editor: a deep link cold-launches the app (`XCUIApplication.open`
+        // and Springboard both do), so a presenter that lived inside the open
+        // editor would only ever work for the gesture. One presenter serves the
+        // long press and `imprint://inspect/citation/{key}` alike.
+        .onReceive(NotificationCenter.default.publisher(for: .inspectCiteKey)) { note in
+            guard let key = note.userInfo?["citeKey"] as? String else { return }
+            let resolution = ManuscriptCitationResolver.resolve(key)
+            Logger.sharedStore.infoCapture(
+                "inspect cite key '\(key)' → \(resolution.status)",
+                category: "citation"
+            )
+            citationInspection = CitationInspection(resolution: resolution)
+        }
+        .sheet(item: $citationInspection) { inspection in
+            CitationPaperSheet(resolution: inspection.resolution)
+                .presentationDetents([.medium, .large])
+        }
+    }
+
+    /// `.sheet(item:)` needs identity; a resolution has none of its own, and
+    /// inspecting the SAME key twice must re-present the sheet.
+    private struct CitationInspection: Identifiable {
+        let id = UUID()
+        let resolution: CitationResolution
     }
 
     // MARK: - List column
@@ -245,13 +274,12 @@ struct IOSManuscriptLibraryView: View {
             .clipShape(Capsule())
     }
 
+    /// The row dot's colour, from the ONE cross-platform `FlagColor` mapping
+    /// (ImpressFTUI) that the sidebar's flag rows and macOS's flag rows also
+    /// use — a local switch here would render a red dot beside a differently
+    /// red sidebar row.
     private func flagColor(_ raw: String) -> Color {
-        switch raw {
-        case "red": return .red
-        case "amber": return .orange
-        case "blue": return .blue
-        default: return .gray
-        }
+        (FlagColor(storedValue: raw) ?? .gray).displayColor
     }
 
     private var emptyState: some View {
@@ -471,7 +499,29 @@ struct IOSManuscriptLibraryView: View {
     // MARK: - URL handling
 
     private func handleIncomingURL(_ url: URL) {
-        guard url.scheme == "imprint", url.host == "open" else { return }
+        guard url.scheme == "imprint" else { return }
+
+        // `imprint://inspect/citation/{citeKey}` — the programmatic form of the
+        // long-press citation affordance. iOS holds no
+        // `com.apple.security.network.server` entitlement, so imprint-iOS runs
+        // no HTTP automation server; a URL is how the on-device surface is
+        // driven from outside the process (an agent, a sibling app, or
+        // `xcrun simctl openurl`). The open editor picks it up via
+        // `.inspectCiteKey` and shows exactly the sheet a finger would.
+        if url.host == "inspect" {
+            let parts = url.pathComponents.filter { $0 != "/" }
+            guard parts.first == "citation", parts.count > 1 else { return }
+            let citeKey = parts[1...].joined(separator: "/")
+                .removingPercentEncoding ?? parts[1]
+            NotificationCenter.default.post(
+                name: .inspectCiteKey,
+                object: nil,
+                userInfo: ["citeKey": citeKey]
+            )
+            return
+        }
+
+        guard url.host == "open" else { return }
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let items = components.queryItems else { return }
         if let uuidString = items.first(where: { $0.name == "documentUUID" })?.value,

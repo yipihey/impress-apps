@@ -19,3 +19,7 @@ async-trait = { workspace = true }
 schemars = { workspace = true }
 # Resolving the default backups directory (~/Library/Application Support/imbib).
 dirs = { workspace = true }
+
+[dev-dependencies]
+# The service trait is async; its tests need a runtime to drive it.
+tokio = { workspace = true }

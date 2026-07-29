@@ -1168,6 +1168,107 @@ pub fn compose_heading(title: String, level: u32, format: String) -> String {
 }
 
 // ============================================================================
+// UniFFI Exports for Cite-Key Hit Testing (see citations::hit)
+// ============================================================================
+
+/// One cite-key occurrence, addressed in UTF-16 code units so the Apple text
+/// stack (`NSRange`, `UITextView`, `NSTextView`) can use the offsets directly.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct FFICiteKeyHit {
+    /// The cite key as written, without the `@` sigil or the `\cite{}` wrapper.
+    pub key: String,
+    /// Which citation command produced this occurrence: `typst-at`, `cite`,
+    /// `citep`, `citet`, `cite-author-year`, `cite-other`, `textcite`,
+    /// `parencite`, `autocite`, `other-biblatex`.
+    pub command: String,
+    /// UTF-16 offset of the KEY text.
+    pub key_offset: u32,
+    /// UTF-16 length of the KEY text.
+    pub key_length: u32,
+    /// UTF-16 offset of the span that counts as "on the citation" — includes
+    /// the Typst `@`; equals `key_offset` for LaTeX.
+    pub hit_offset: u32,
+    /// UTF-16 length of that span.
+    pub hit_length: u32,
+}
+
+#[cfg(feature = "uniffi")]
+fn ffi_command_name(command: crate::citations::extract::CiteCommand) -> String {
+    use crate::citations::extract::CiteCommand as C;
+    match command {
+        C::Cite => "cite",
+        C::Citep => "citep",
+        C::Citet => "citet",
+        C::CiteAuthorYear => "cite-author-year",
+        C::CiteOther => "cite-other",
+        C::TextCite => "textcite",
+        C::ParenCite => "parencite",
+        C::AutoCite => "autocite",
+        C::OtherBiblatex => "other-biblatex",
+        C::TypstAt => "typst-at",
+    }
+    .to_string()
+}
+
+#[cfg(feature = "uniffi")]
+fn ffi_cite_key_hit(source: &str, hit: crate::citations::hit::CiteKeyHit) -> FFICiteKeyHit {
+    use crate::citations::hit::byte_offset_to_utf16;
+    let key_offset = byte_offset_to_utf16(source, hit.key_byte_offset);
+    let key_end = byte_offset_to_utf16(source, hit.key_byte_offset + hit.key_byte_len);
+    let hit_offset = byte_offset_to_utf16(source, hit.hit_byte_offset);
+    let hit_end = byte_offset_to_utf16(source, hit.hit_byte_offset + hit.hit_byte_len);
+    FFICiteKeyHit {
+        key: hit.key,
+        command: ffi_command_name(hit.command),
+        key_offset: key_offset as u32,
+        key_length: key_end.saturating_sub(key_offset) as u32,
+        hit_offset: hit_offset as u32,
+        hit_length: hit_end.saturating_sub(hit_offset) as u32,
+    }
+}
+
+/// The cite key under a caret / touch point, or `None`.
+///
+/// `utf16_offset` is a UTF-16 code-unit index into `source` — an `NSRange`
+/// location, straight from `UITextView.offset(from:to:)`. `syntax` accepts
+/// `typst`, `latex` or `mixed` (unknown values → `mixed`).
+///
+/// This is the ONLY thing an editor needs in order to implement a hover or
+/// long-press citation affordance; it derives from the canonical cite-key
+/// scanner (`citations::extract`), so a UI that asks this question cannot grow
+/// its own idea of what a cite key is.
+///
+/// The hit span is half-open: the offset one past the last character of a
+/// citation is a miss. Touch callers, where the nearest caret position can land
+/// one past the glyph under the finger, should probe `offset` then `offset - 1`.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn cite_key_at_utf16_offset(
+    source: String,
+    utf16_offset: u32,
+    syntax: String,
+) -> Option<FFICiteKeyHit> {
+    let syntax = crate::citations::extract::CitationSyntax::from_str_lenient(&syntax);
+    crate::citations::hit::cite_key_at_utf16_offset(&source, utf16_offset as usize, syntax)
+        .map(|hit| ffi_cite_key_hit(&source, hit))
+}
+
+/// Every cite-key occurrence in `source`, in source order, with UTF-16 spans.
+///
+/// The list form of [`cite_key_at_utf16_offset`] — for highlighting every
+/// citation in a buffer, or for tests that assert the whole set at once.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn cite_key_hits(source: String, syntax: String) -> Vec<FFICiteKeyHit> {
+    let syntax = crate::citations::extract::CitationSyntax::from_str_lenient(&syntax);
+    crate::citations::hit::cite_key_hits(&source, syntax)
+        .into_iter()
+        .map(|hit| ffi_cite_key_hit(&source, hit))
+        .collect()
+}
+
+// ============================================================================
 // UniFFI Exports for Templates
 // ============================================================================
 

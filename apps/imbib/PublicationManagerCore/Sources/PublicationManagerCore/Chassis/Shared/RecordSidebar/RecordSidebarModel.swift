@@ -25,6 +25,12 @@
 //
 
 import Foundation
+// Re-exported: `RecordSidebarNode.flagColor` is `FlagColor`, so the flag
+// vocabulary is part of the chassis's PUBLIC surface — an adopter that renders
+// a sidebar node has to be able to name it (and reach the one shared
+// `FlagColor.displayColor` mapping) from `import PublicationManagerCore`
+// alone, exactly like `ImpressSidebar` and `ImpressStoreKit` above.
+@_exported import ImpressFTUI
 
 // MARK: - Folders
 
@@ -201,6 +207,15 @@ public struct RecordSidebarNode: Identifiable, Hashable, Sendable {
     /// (rename / new subfolder / move / delete), which are additionally gated
     /// on the kind's `CollectionCapability.canOrganize`.
     public var isFolder: Bool
+    /// The flag this row stands for, when it is a flag row.
+    ///
+    /// Carried as the flag ENUM, not a `Color`: this file is the sidebar as
+    /// platform-free data, and the enum is the key into the one cross-platform
+    /// mapping (`FlagColor.displayColor`, ImpressFTUI). Renderers ask for the
+    /// colour — macOS's `ImbibSidebarNode.iconColor` and iOS's
+    /// `RecordSidebarView` icon tint both resolve through the same property,
+    /// so a flag cannot be red in one shell and grey in the other.
+    public var flagColor: FlagColor?
 
     public var id: UUID { scope.stableViewID }
 
@@ -210,7 +225,8 @@ public struct RecordSidebarNode: Identifiable, Hashable, Sendable {
         systemImage: String,
         count: Int? = nil,
         children: [RecordSidebarNode] = [],
-        isFolder: Bool = false
+        isFolder: Bool = false,
+        flagColor: FlagColor? = nil
     ) {
         self.scope = scope
         self.title = title
@@ -218,6 +234,7 @@ public struct RecordSidebarNode: Identifiable, Hashable, Sendable {
         self.count = count
         self.children = children
         self.isFolder = isFolder
+        self.flagColor = flagColor
     }
 }
 

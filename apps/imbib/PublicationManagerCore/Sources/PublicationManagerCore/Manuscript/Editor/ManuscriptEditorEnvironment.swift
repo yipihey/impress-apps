@@ -163,10 +163,23 @@ public protocol ManuscriptCitationSearching {
     /// `@citeKey` references. Keys not in the library are skipped. Returns
     /// nil when none resolve.
     func bibliography(forKeys keys: [String]) -> String?
+
+    /// How many publications the backing library holds AT ALL, or nil when the
+    /// implementation can't say.
+    ///
+    /// This is what lets a citation-inspection UI distinguish "no paper with
+    /// that cite key" from "no papers on this device yet" — two situations
+    /// `findByCiteKey` reports identically (as nil) and which mean opposite
+    /// things to a user. See `ManuscriptCitationResolver`.
+    func libraryPublicationCount() -> Int?
 }
 
 extension ManuscriptCitationSearching {
     /// Default: no bibliography (hosts that only wire search still work; the
     /// compile then behaves exactly as before this capability existed).
     public func bibliography(forKeys keys: [String]) -> String? { nil }
+
+    /// Default: unknown. A host that doesn't answer gets "unknown key" without
+    /// the count, never a wrong claim about an empty library.
+    public func libraryPublicationCount() -> Int? { nil }
 }

@@ -1767,13 +1767,10 @@ struct UnifiedPublicationListWrapper: View {
         let ids = flagTargetIDs
         guard let firstID = ids.first else { return }
 
-        // Show triage flash with the flag's color
-        let flashColor: Color = switch flag.color {
-        case .red: .red
-        case .amber: .orange
-        case .blue: .blue
-        case .gray: .gray
-        }
+        // Show triage flash with the flag's color, from the one shared
+        // FlagColor → Color mapping (ImpressFTUI) so the flash matches the
+        // stripe the row is about to get.
+        let flashColor: Color = flag.color.displayColor
 
         withAnimation(.easeIn(duration: 0.1)) {
             keyboardTriageFlash = (firstID, flashColor)

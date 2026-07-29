@@ -36,7 +36,7 @@ public struct FlagStripe: View {
 
     @ViewBuilder
     private func stripeView(for flag: PublicationFlag) -> some View {
-        let color = colorScheme == .dark ? flag.color.defaultDarkColor : flag.color.defaultLightColor
+        let color = flag.color.displayColor(for: colorScheme)
 
         switch flag.style {
         case .solid:

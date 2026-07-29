@@ -140,6 +140,38 @@ final class RecordSidebarBuilderTests: XCTestCase {
         XCTAssertEqual(flagged?.nodes.first?.scope, .flagged(.manuscript, "red"))
     }
 
+    /// Every flag row must CARRY its colour. The renderer has no other way to
+    /// tint it: imprint-iOS shipped four flag rows in the default tint
+    /// because the node was pure title+glyph, and the fix must not be a
+    /// switch statement inside the view (that is the fourth copy). Nodes that
+    /// are not flag rows must carry nothing, or every folder would be tinted.
+    func testEveryFlaggedNodeCarriesItsFlagColourForTheRenderer() {
+        for configuration in [AppShellConfiguration.imprint, .imbib] {
+            let sections = RecordSidebarBuilder.sections(
+                configuration: configuration, dataSource: dataSource())
+            guard let flagged = sections.first(where: { $0.section == .flagged }) else {
+                XCTFail("\(configuration.appID) has no flagged section to check")
+                continue
+            }
+            XCTAssertEqual(
+                flagged.nodes.compactMap(\.flagColor), FlagColor.allCases,
+                "\(configuration.appID): a flag row without a `flagColor` renders untinted")
+            for node in flagged.nodes {
+                let flag = try? XCTUnwrap(node.flagColor)
+                XCTAssertEqual(node.title, flag?.displayName)
+                // The one shared mapping is reachable from the node — this is
+                // what both renderers call.
+                XCTAssertNotNil(flag?.displayColor)
+            }
+            // Non-flag rows stay untinted.
+            let others = sections.filter { $0.section != .flagged }
+                .flatMap { $0.nodes.flattened(expanded: []) }
+            XCTAssertTrue(
+                others.allSatisfy { $0.node.flagColor == nil },
+                "\(configuration.appID): a non-flag row claims a flag colour")
+        }
+    }
+
     func testDismissedSectionUsesTheKindsDismissalSemantics() {
         // Manuscripts: status-change → the node IS the dismissed status.
         let imprint = RecordSidebarBuilder.sections(

@@ -265,7 +265,10 @@ public enum RecordSidebarBuilder {
                 scope: scope,
                 title: color.displayName,
                 systemImage: color.systemImage,
-                count: dataSource.count(scope))
+                count: dataSource.count(scope),
+                // The row's colour travels WITH the row. Without it the
+                // renderer has nothing to tint from and every flag reads grey.
+                flagColor: color)
         }
     }
 

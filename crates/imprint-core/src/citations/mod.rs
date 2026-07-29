@@ -8,6 +8,9 @@
 //! - [`extract`]: regex-based extraction of cite keys from manuscript source
 //!   (Typst `@key`, LaTeX `\cite{key}` and its variants). Ported from Swift
 //!   `BibliographyGenerator.extractCiteKeys` and `CitationUsageTracker`.
+//! - [`hit`]: "which cite key is under this caret / touch point?", derived from
+//!   [`extract`] so the editors' hover / long-press affordances cannot drift
+//!   from the canonical scanner.
 //! - [`usage`]: aggregation index that groups extracted cite-key usages by
 //!   key, exposing first-use position and duplicate counts. Ported from
 //!   `CitationUsageTracker`.
@@ -17,6 +20,7 @@
 
 pub mod compose;
 pub mod extract;
+pub mod hit;
 pub mod project;
 pub mod provider;
 pub mod usage;
@@ -26,6 +30,7 @@ pub mod usage;
 // provider types.
 pub use compose::*;
 pub use extract::*;
+pub use hit::*;
 pub use project::*;
 pub use provider::*;
 pub use usage::*;

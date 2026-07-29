@@ -28,7 +28,7 @@ use imbib_service::manuscripts_service::{
     CompileResult, ImbibManuscriptsService, ManuscriptRecord, TemplateRecord, WriteResult,
 };
 use imbib_service::scix_service::{ImbibScixService, SciXLibraryRecord};
-use imbib_service::search_service::{ImbibSearchService, SmartSearchRecord};
+use imbib_service::search_service::{CiteKeyResolution, ImbibSearchService, SmartSearchRecord};
 use imbib_service::tags_service::{ImbibTagsService, TagRecord, TagWithCount};
 use imbib_service::undo_service::{ImbibUndoService, UndoGroupRecord};
 use imbib_service::ImbibBackend;
@@ -655,6 +655,58 @@ impl ImbibSearchService for HttpImbibSearchService {
                 None
             })
     }
+    /// Proxied resolution.
+    ///
+    /// The running app's HTTP API exposes the cite-key lookup but not a
+    /// publication count, so this implementation reports `library_size: null`
+    /// and NEVER claims `empty-library` — it genuinely cannot tell an unknown
+    /// key from an empty library, and saying so is the only honest option. The
+    /// in-process implementation (`DefaultImbibSearchService`), which is what
+    /// the apps and the CLI use, can and does distinguish them.
+    async fn resolve_cite_key(
+        &self,
+        cite_key: String,
+        library_id: Option<String>,
+    ) -> CiteKeyResolution {
+        let key = cite_key.trim().trim_start_matches('@').to_string();
+        let answer = |status: &str, publication, message: String| CiteKeyResolution {
+            cite_key: key.clone(),
+            status: status.to_string(),
+            publication,
+            library_size: None,
+            library_id: library_id.clone(),
+            message,
+        };
+
+        match self
+            .client
+            .find_by_cite_key(key.clone(), library_id.clone())
+            .await
+        {
+            Ok(Some(paper)) => {
+                let title = if paper.title.is_empty() {
+                    "(untitled)".to_string()
+                } else {
+                    paper.title.clone()
+                };
+                answer("resolved", Some(paper), format!("{key} → {title}"))
+            }
+            Ok(None) => answer(
+                "unknown-key",
+                None,
+                format!(
+                    "No publication with cite key '{key}' came back from the running app. This \
+                     transport cannot report how many papers the library holds, so an empty \
+                     library is not ruled out."
+                ),
+            ),
+            Err(e) => {
+                log_err("resolve_cite_key", e);
+                answer("error", None, format!("imbib did not answer for '{key}'."))
+            }
+        }
+    }
+
     async fn find_by_doi(&self, doi: String) -> Vec<PublicationSummary> {
         self.client.find_by_doi(doi).await.unwrap_or_else(|e| {
             log_err("find_by_doi", e);
