@@ -140,6 +140,40 @@ fn handle_resources_list(id: &Value) -> Value {
     })
 }
 
+/// How long a resource read may take before we answer with an error instead.
+///
+/// A resource read reaches `impress-store-service`, which opens the shared
+/// store through `SqliteItemStore::open` — a WRITE path that runs schema init
+/// and migrations. Against the live store (~317 MB, 167 MB WAL) with the app
+/// writing concurrently, that has taken minutes. stdio dispatch is sequential,
+/// so one slow read stalls every later request in the session: the client sees
+/// a dead server, not a slow resource.
+const RESOURCE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Run a store read on a worker thread and give up after `RESOURCE_DEADLINE`.
+///
+/// The thread is left running rather than killed — SQLite is mid-operation and
+/// there is no safe way to interrupt it from outside — but the session stays
+/// responsive, which is the point.
+fn with_deadline<T: Send + 'static>(
+    what: &str,
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(work());
+    });
+    match rx.recv_timeout(RESOURCE_DEADLINE) {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "{what} did not finish within {}s. The shared store is busy or \
+             recovering a large WAL; the app may be writing to it. Other tools \
+             are unaffected — retry this read shortly.",
+            RESOURCE_DEADLINE.as_secs()
+        )),
+    }
+}
+
 /// Serialize a store overview as JSON resource contents.
 fn json_resource(id: &Value, uri: &str, body: Result<Value, String>) -> Value {
     match body {
@@ -164,18 +198,22 @@ fn json_resource(id: &Value, uri: &str, body: Result<Value, String>) -> Value {
 }
 
 fn store_schemas_body() -> Result<Value, String> {
-    let store = impress_store_service::store_instance();
-    let path = impress_store_service::store_path();
-    let overview = impress_store_service::schema_overview(&store, &path.to_string_lossy())
-        .map_err(|e| e.to_string())?;
-    serde_json::to_value(overview).map_err(|e| e.to_string())
+    with_deadline("impress://store/schemas", || {
+        let store = impress_store_service::store_instance();
+        let path = impress_store_service::store_path();
+        let overview = impress_store_service::schema_overview(&store, &path.to_string_lossy())
+            .map_err(|e| e.to_string())?;
+        serde_json::to_value(overview).map_err(|e| e.to_string())
+    })
 }
 
 fn store_collections_body() -> Result<Value, String> {
-    let store = impress_store_service::store_instance();
-    let path = impress_store_service::store_path();
-    let overview = impress_store_service::collection_overview(&store, &path.to_string_lossy());
-    serde_json::to_value(overview).map_err(|e| e.to_string())
+    with_deadline("impress://store/collections", || {
+        let store = impress_store_service::store_instance();
+        let path = impress_store_service::store_path();
+        let overview = impress_store_service::collection_overview(&store, &path.to_string_lossy());
+        serde_json::to_value(overview).map_err(|e| e.to_string())
+    })
 }
 
 fn handle_resources_read(id: &Value, request: &Value) -> Value {
