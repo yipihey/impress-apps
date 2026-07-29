@@ -193,7 +193,19 @@ struct IOSCitationPickerView: View {
         guard !citeKey.isEmpty else { return nil }
 
         let title = (payload["title"] as? String) ?? ""
-        let authors = (payload["authors"] as? [String]) ?? []
+        // imbib writes `author_text` (formatted) and `authors_json` (a JSON
+        // STRING), never an `authors` array — reading that key always gave an
+        // empty author line. Prefer the structured form, fall back to the
+        // formatted one.
+        let authors: [String]
+        if let json = payload["authors_json"] as? String,
+           let parsed = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String] {
+            authors = parsed
+        } else if let text = payload["author_text"] as? String, !text.isEmpty {
+            authors = [text]
+        } else {
+            authors = []
+        }
         // year is an Int field but may deserialize as NSNumber/String.
         let year: Int?
         if let y = payload["year"] as? Int { year = y }

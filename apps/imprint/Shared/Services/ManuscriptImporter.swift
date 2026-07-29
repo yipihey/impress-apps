@@ -308,7 +308,7 @@ public enum ManuscriptImporter {
     /// scan; acceptable until usage proves it's a hot path.
     private static func findExistingByHash(_ hash: String) -> ManuscriptModel? {
         let adapter = ManuscriptStoreAdapter.shared
-        for m in adapter.listManuscripts(limit: 10_000) where m.bodyContentHash == hash {
+        for m in adapter.allManuscripts(limit: 10_000) where m.bodyContentHash == hash {
             return m
         }
         return nil

@@ -13,12 +13,16 @@
 //  - Apple Pencil Scribble support (inherited from UITextView)
 //  - Touch-friendly text selection
 //  - One-shot go-to-line navigation (driven by a document outline)
+//  - tree-sitter syntax highlighting (ImpressSyntaxHighlight), driven by the
+//    document's `DocumentFormat` through the same mapping the AppKit editor
+//    uses — see `DocumentFormat+SyntaxHighlight.swift`
 //
 
 #if os(iOS)
 import SwiftUI
 import UIKit
 import PDFKit
+import ImpressSyntaxHighlight
 
 // MARK: - iOS Source Editor View
 
@@ -43,6 +47,12 @@ public struct IOSSourceEditorView: View {
     /// Focus state
     @FocusState private var isFocused: Bool
 
+    /// The manuscript's source format. Drives syntax highlighting (via
+    /// `DocumentFormat.highlightLanguage`) — nothing else about the editor is
+    /// format-specific yet. Defaults to `.typst`, the suite's default
+    /// substrate, so existing call sites keep their behavior.
+    let format: DocumentFormat
+
     /// Invoked on hardware-keyboard ⌘S — the manuscript editor's
     /// insert-citation shortcut (same grammar as the macOS chassis, where ⌘S
     /// opens the citation palette; manuscripts autosave, so ⌘S-as-save was a
@@ -53,11 +63,13 @@ public struct IOSSourceEditorView: View {
         text: Binding<String>,
         selection: Binding<NSRange?>,
         goToLine: Binding<Int?> = .constant(nil),
+        format: DocumentFormat = .typst,
         onInsertCitation: (() -> Void)? = nil
     ) {
         self._text = text
         self._selection = selection
         self._goToLine = goToLine
+        self.format = format
         self.onInsertCitation = onInsertCitation
     }
 
@@ -69,6 +81,7 @@ public struct IOSSourceEditorView: View {
             selection: $selection,
             goToLine: $goToLine,
             isFocused: $isFocused,
+            format: format,
             onInsertCitation: onInsertCitation
         )
         .focused($isFocused)
@@ -86,7 +99,13 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
     @Binding var selection: NSRange?
     @Binding var goToLine: Int?
     @FocusState.Binding var isFocused: Bool
+    var format: DocumentFormat = .typst
     var onInsertCitation: (() -> Void)?
+
+    /// The editor's monospaced face. Held in one place because the highlighter
+    /// only writes `.foregroundColor`; every path that replaces the whole
+    /// string has to restore this attribute.
+    static let editorFont = UIFont.monospacedSystemFont(ofSize: 16, weight: .regular)
 
     // MARK: - UIViewRepresentable
 
@@ -94,7 +113,7 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
         let textView = SourceTextView()
         textView.delegate = context.coordinator
         textView.onInsertCitation = onInsertCitation
-        textView.font = .monospacedSystemFont(ofSize: 16, weight: .regular)
+        textView.font = Self.editorFont
         textView.autocapitalizationType = .none
         textView.autocorrectionType = .no
         textView.smartQuotesType = .no
@@ -112,14 +131,40 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
         // Configure keyboard
         configureKeyCommands(for: textView)
 
+        // Seed the buffer + first full highlight before the view is on screen,
+        // so the editor never flashes unhighlighted source.
+        textView.text = text
+        applyTypingAttributes(to: textView)
+        rehighlightAll(textView, context: context)
+
         return textView
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
+        // The coordinator outlives this struct; refresh its copy so delegate
+        // callbacks see the CURRENT format (and bindings) rather than the ones
+        // captured when the coordinator was made.
+        context.coordinator.parent = self
         (textView as? SourceTextView)?.onInsertCitation = onInsertCitation
 
+        // A format change (e.g. the document loads and `.typst` flips to
+        // `.latex`) needs a new grammar AND a full re-highlight.
+        let formatChanged = context.coordinator.lastFormat != format
+        context.coordinator.lastFormat = format
+
         if textView.text != text {
+            let restore = textView.selectedRange
             textView.text = text
+            applyTypingAttributes(to: textView)
+            // Wholesale replacement: the coordinator's incremental tree is
+            // meaningless now, so re-parse from scratch.
+            rehighlightAll(textView, context: context)
+            if restore.location + restore.length <= (textView.text as NSString).length {
+                textView.selectedRange = restore
+            }
+        } else if formatChanged {
+            applyTypingAttributes(to: textView)
+            rehighlightAll(textView, context: context)
         }
 
         // Update selection if needed
@@ -175,6 +220,52 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
         Coordinator(self)
     }
 
+    // MARK: - Syntax Highlighting (tree-sitter via ImpressSyntaxHighlight)
+
+    /// Full re-parse + re-highlight. Use on first load, on external buffer
+    /// replacement, and when the format (grammar) changes — the same three
+    /// cases the AppKit editor treats as "not an incremental edit".
+    func rehighlightAll(_ textView: UITextView, context: Context) {
+        let coordinator = context.coordinator
+        guard let highlighter = format.resolveHighlighter(&coordinator.syntaxHighlighter) else {
+            // No grammar for this format: strip any colors a previous grammar
+            // left behind so the buffer reads as plain text.
+            Self.resetColors(in: textView)
+            return
+        }
+        let source = textView.text ?? ""
+        highlighter.highlight(textStorage: textView.textStorage, source: source)
+        Self.restoreFont(in: textView)
+    }
+
+    /// UITextView's `typingAttributes` are what newly typed characters inherit.
+    /// The highlighter recolors after the fact, so seed them with the editor
+    /// font + default color to avoid a one-character flash of the wrong style.
+    func applyTypingAttributes(to textView: UITextView) {
+        textView.typingAttributes = [
+            .font: Self.editorFont,
+            .foregroundColor: UIColor.label
+        ]
+    }
+
+    /// The highlighter writes only `.foregroundColor`; re-assert the monospaced
+    /// face over the whole buffer (mirrors the AppKit editor).
+    static func restoreFont(in textView: UITextView) {
+        let storage = textView.textStorage
+        storage.addAttribute(
+            .font, value: editorFont,
+            range: NSRange(location: 0, length: storage.length))
+    }
+
+    static func resetColors(in textView: UITextView) {
+        let storage = textView.textStorage
+        let full = NSRange(location: 0, length: storage.length)
+        storage.beginEditing()
+        storage.addAttribute(.foregroundColor, value: UIColor.label, range: full)
+        storage.addAttribute(.font, value: editorFont, range: full)
+        storage.endEditing()
+    }
+
     // MARK: - Keyboard Commands
 
     private func configureKeyCommands(for textView: SourceTextView) {
@@ -210,12 +301,79 @@ struct IOSSourceEditorRepresentable: UIViewRepresentable {
     class Coordinator: NSObject, UITextViewDelegate {
         var parent: IOSSourceEditorRepresentable
 
+        /// Per-document tree-sitter highlighter (holds the parser + last tree,
+        /// which is what makes `applyEdit` incremental). Same role as the
+        /// AppKit editor coordinator's property of the same name.
+        var syntaxHighlighter: SyntaxHighlighter?
+
+        /// Last format the highlighter was built for, so a format flip rebuilds
+        /// the grammar instead of silently keeping the old one.
+        var lastFormat: DocumentFormat
+
+        /// The edit reported by `shouldChangeTextIn` and not yet consumed by
+        /// `textViewDidChange` — the only place UIKit tells us WHAT changed.
+        private var pendingEdit: (range: NSRange, newLength: Int)?
+
         init(_ parent: IOSSourceEditorRepresentable) {
             self.parent = parent
+            self.lastFormat = parent.format
+        }
+
+        func textView(
+            _ textView: UITextView,
+            shouldChangeTextIn range: NSRange,
+            replacementText text: String
+        ) -> Bool {
+            pendingEdit = (range: range, newLength: (text as NSString).length)
+            return true
         }
 
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
+            applyIncrementalHighlight(to: textView)
+        }
+
+        /// Re-highlight after a keystroke using tree-sitter's incremental
+        /// re-parse: only the subtrees the edit touched are rebuilt, instead of
+        /// re-parsing the whole document per character.
+        private func applyIncrementalHighlight(to textView: UITextView) {
+            // Multi-stage input (dictation, IME, Scribble in progress): mutating
+            // attributes under marked text breaks the input session. The final
+            // commit fires another didChange, which highlights then.
+            guard textView.markedTextRange == nil else { pendingEdit = nil; return }
+            guard let highlighter = parent.format.resolveHighlighter(&syntaxHighlighter) else {
+                pendingEdit = nil
+                return
+            }
+
+            let source = textView.text ?? ""
+            let selected = textView.selectedRange
+            defer {
+                IOSSourceEditorRepresentable.restoreFont(in: textView)
+                if selected.location + selected.length <= (source as NSString).length {
+                    textView.selectedRange = selected
+                }
+            }
+
+            guard let edit = pendingEdit else {
+                // No delta available (programmatic mutation) — full re-parse.
+                highlighter.highlight(textStorage: textView.textStorage, source: source)
+                return
+            }
+            pendingEdit = nil
+
+            // SwiftTreeSitter parses UTF-16LE, so a tree-sitter "byte" offset is
+            // a UTF-16 code-unit index × 2 (see SwiftTreeSitter's String+Data).
+            let startUTF16 = edit.range.location
+            let oldEndUTF16 = edit.range.location + edit.range.length
+            let newEndUTF16 = edit.range.location + edit.newLength
+            highlighter.applyEdit(
+                newSource: source,
+                startByte: startUTF16 * 2,
+                oldEndByte: oldEndUTF16 * 2,
+                newEndByte: newEndUTF16 * 2,
+                textStorage: textView.textStorage
+            )
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {

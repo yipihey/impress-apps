@@ -4053,6 +4053,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-cli"
+version = "0.1.0"
+dependencies = [
+ "impress-service-core",
+ "impress-store-service",
+ "serde_json",
+]
+
+[[package]]
 name = "impress-collab"
 version = "0.1.0"
 dependencies = [

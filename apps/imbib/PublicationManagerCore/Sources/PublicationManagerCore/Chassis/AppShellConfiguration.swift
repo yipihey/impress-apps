@@ -1,5 +1,9 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS). The shell preset IS
+// the app's declarative identity; an iOS shell that cannot read it has to
+// re-encode the same truth table by hand, which is exactly the drift
+// ADR-0021 exists to prevent. Imports only SwiftUI; every type it names
+// (SidebarSectionType, DetailTab, RecordKindRegistry, CustomSurfaceRegistry)
+// is cross-platform.
 //
 //  AppShellConfiguration.swift
 //  PublicationManagerCore
@@ -420,4 +424,3 @@ public extension EnvironmentValues {
         set { self[AppShellConfigurationKey.self] = newValue }
     }
 }
-#endif

@@ -57,3 +57,21 @@ typealias ExtractedSection = PublicationManagerCore.ExtractedSection
 #if os(macOS)
 typealias SourceEditorView = PublicationManagerCore.SourceEditorView
 #endif
+
+// MARK: - Record-kind descriptors (ADR-0021) — the chassis contract as DATA
+//
+// De-gated to iOS in the foundation pass, which is the whole point: the
+// manuscript kind's status lifecycle ("dismissed" / "draft" / "archived"),
+// its deletion semantics and its collection binding are DECLARED once, in
+// `BuiltinRecordKinds.swift`, and `ManuscriptStoreAdapter` READS them rather
+// than re-typing the strings. A second literal is a second source of truth.
+
+typealias RecordKindID = PublicationManagerCore.RecordKindID
+typealias RecordKindDescriptor = PublicationManagerCore.RecordKindDescriptor
+typealias ManuscriptRecordKind = PublicationManagerCore.ManuscriptRecordKind
+typealias BuiltinRecordKinds = PublicationManagerCore.BuiltinRecordKinds
+typealias TriageCapabilities = PublicationManagerCore.TriageCapabilities
+typealias DismissalSemantics = PublicationManagerCore.DismissalSemantics
+typealias DeletionSemantics = PublicationManagerCore.DeletionSemantics
+typealias CollectionCapability = PublicationManagerCore.CollectionCapability
+typealias CollectionBindingID = PublicationManagerCore.CollectionBindingID

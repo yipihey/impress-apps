@@ -1,5 +1,8 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): the registry is pure
+// data over SwiftUI `AnyView` factories, and `AppShellConfiguration` holds
+// one, so it had to travel with the shell contract. The one macOS-only piece
+// is the BUILTIN surface list (`StoreSearchSurface` imports AppKit) — that
+// stays gated, and only that.
 //
 //  CustomSurface.swift
 //  PublicationManagerCore
@@ -60,8 +63,17 @@ public struct CustomSurfaceRegistry: Sendable {
     ///
     /// The one place PMC breaks the "surface views live in app targets" rule,
     /// and only because this view links nothing PMC does not already link.
+    ///
+    /// macOS-only content: `StoreSearchSurface` is an AppKit-linking view
+    /// (NSPasteboard/NSWorkspace open routes). iOS shells get an empty
+    /// builtin list until a UIKit-clean grouped-search surface exists — the
+    /// REGISTRY itself is cross-platform, so nothing downstream changes.
     public static var builtin: [CustomSurfaceDescriptor] {
+        #if os(macOS)
         [StoreSearchSurface.descriptor]
+        #else
+        []
+        #endif
     }
 
     /// Every surface this shell shows, app-registered first then builtins.
@@ -89,4 +101,3 @@ public struct CustomSurfaceRegistry: Sendable {
     /// counted — `surfaces` is never empty.
     public var isEmpty: Bool { appSurfaces.isEmpty }
 }
-#endif

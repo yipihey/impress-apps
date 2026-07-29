@@ -16,6 +16,10 @@
 //!   (D6, `impress_core::search_ops`), cross-kind relations (D8,
 //!   `impress_core::related_ops`), and the generic get/browse pair (G6) that
 //!   lets an agent open and page through records of any kind.
+//! * [`DocsImportService`] — a directory of markdown files becomes a named
+//!   manuscript collection, idempotently (deterministic UUIDv5 ids from the
+//!   source path), plus the companion verb that clears out the empty
+//!   placeholder shells such an import is meant to replace.
 //!
 //! [`browse`] is the odd one out: plain functions, not a service. It assembles
 //! the store overviews that `impress-mcp` serves as MCP *resources*
@@ -29,6 +33,7 @@
 
 pub mod browse;
 pub mod collection_service;
+pub mod docs_import_service;
 pub mod query_service;
 pub mod store;
 pub mod triage_service;
@@ -45,6 +50,11 @@ pub use collection_service::{
     CollectionResult, CollectionRowDto, CollectionService, DefaultCollectionService,
     KindScopeCountDto, LegacyCountDto, MemberCountsResult, MigrationReportResult,
     MigrationStatusResult, RollbackCountDto, RollbackReportResult, BINDING_NAMES,
+};
+pub use docs_import_service::{
+    document_id, document_key, glob_match, title_from_markdown, DefaultDocsImportService,
+    DocsImportResult, DocsImportService, EmptyManuscriptDto, ImportedDocDto, PruneResult,
+    SkippedDocDto, DOCS_IMPORT_NAMESPACE, MARKDOWN_EXTENSIONS, MARKDOWN_FORMAT,
 };
 pub use query_service::{
     DefaultStoreQueryService, ItemEnvelopeDto, ItemListResult, ItemResult, RelatedItemDto,
@@ -87,6 +97,9 @@ mod inventory_tests {
             "store-query-service_related-items",
             "store-query-service_get-item",
             "store-query-service_list-items",
+            // Markdown-directory → manuscript-collection import (repeatable).
+            "docs-import-service_import-directory",
+            "docs-import-service_prune-empty-manuscripts",
         ] {
             assert!(
                 names.contains(&expected),

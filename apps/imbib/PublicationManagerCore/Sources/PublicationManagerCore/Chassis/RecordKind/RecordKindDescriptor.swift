@@ -1,5 +1,14 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS).
+//
+// De-gated in the iOS foundation pass: this file is pure DATA (structs,
+// enums, closures) and imports only SwiftUI. Its `#if os(macOS)` was a
+// GUI-meld Phase-1 artefact, not a technical constraint — and keeping the
+// contract macOS-only forced iOS to re-declare status strings, triage rules
+// and open behaviour as literals. Declarative fixes have to be reachable
+// from every platform or they are not declarative.
+//
+// Platform-specific VIEW code that consumes these descriptors stays gated
+// (see StoreSearchSurface, the per-kind list wrappers, TriageNewTagPrompt).
 //
 //  RecordKindDescriptor.swift
 //  PublicationManagerCore
@@ -263,4 +272,3 @@ public struct RecordKindRegistry: Sendable {
         descriptors.first { $0.collection?.bindingID == bindingID }
     }
 }
-#endif

@@ -22,13 +22,13 @@ public struct ImprintSpotlightProvider: SpotlightItemProvider {
     /// same UUID, so the unified-store side carries the truth.
     @MainActor
     public func allItemIDs() async -> Set<UUID> {
-        Set(ManuscriptStoreAdapter.shared.listManuscripts(limit: 10_000).map(\.id))
+        Set(ManuscriptStoreAdapter.shared.allManuscripts(limit: 10_000).map(\.id))
     }
 
     @MainActor
     public func spotlightItems(for ids: [UUID]) async -> [any SpotlightItem] {
         let manuscriptsByUUID: [UUID: ManuscriptModel] = Dictionary(
-            ManuscriptStoreAdapter.shared.listManuscripts(limit: 10_000).map { ($0.id, $0) },
+            ManuscriptStoreAdapter.shared.allManuscripts(limit: 10_000).map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         return ids.compactMap { id -> (any SpotlightItem)? in

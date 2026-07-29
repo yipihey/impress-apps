@@ -146,6 +146,81 @@ unnoticed:
 | custom surfaces | — | — | generate, analyze (registered app-side via `withCustomSurfaces`); canvas = figure open window | chat, research, development (registered app-side via `withCustomSurfaces` in ImpartChassisRoot) | dashboard, escalations, suggestions, counsel (registered app-side via `withCustomSurfaces` in ImpelChassisRoot; escalations keeps its 1-9/j/k keys INSIDE the surface, keyboardGuarded) | — none app-registered; the chassis-builtin store-search surface arrives anyway (`StoreSearchSurfaceTests` enumerates impress too). App-owned surfaces can only be registered by an app target, and there is none |
 | default window | chassis | chassis | chassis | classic ContentView — chassis is a SECONDARY "Mail (Unified)" window; flips via UserDefaults `impart.useChassisWindow` (compose/reply not chassis-wired yet — the one sanctioned deviation from replace-outright) | classic ContentView — chassis is a SECONDARY "impel (Unified)" window; flips via UserDefaults `impel.useChassisWindow` (escalation resolution / counsel not chassis-wired yet — same sanctioned deviation as impart) | ➖ no app target ships this preset (ADR-0022 D9). When it does: a ~120-line `ImpressChassisRoot`, and a signing decision first — impress permits `.search`, so `TabContentView`'s ADS/SciX keychain read WOULD run in it, and those items are ACL'd to imbib's code signature (imbib CLAUDE.md invariant). Either impress ships with imbib's keychain access group or that read moves behind a reachability check |
 
+### Platform reach of the contract (iOS foundation pass, 2026-07-29)
+
+The declarative half of the chassis is CROSS-PLATFORM. It was gated
+`#if os(macOS)` with the comment "macOS-only in GUI-meld Phase 1 (iOS keeps
+IOSContentView)", which was historical, not technical: none of these files
+imports AppKit, and PMC already declares `.iOS(.v26)` and is linked by
+imprint-iOS. The gate's real cost was that iOS had to RE-ENCODE the contract —
+imprint's iOS adapter carried its own `"dismissed"` / `"draft"` literals
+instead of reading `ManuscriptRecordKind.descriptor.triage`.
+
+| File | Reach | Note |
+|---|---|---|
+| `Chassis/RecordKind/RecordKindDescriptor.swift` | ✅ both | pure data + closures; SwiftUI only |
+| `Chassis/RecordKind/BuiltinRecordKinds.swift` | ✅ both | the single declaration of every kind's status lifecycle |
+| `Chassis/RecordKind/RecordScopeKey.swift` | ✅ both | protocol + `UUID.deterministic` + `PublicationSource` conformance |
+| `Chassis/RecordKind/RecordScopeKey+MacScopes.swift` | macOS | SPLIT out: the four list scopes live inside gated list wrappers |
+| `Chassis/RecordKind/KindTaggedRow.swift` | ✅ both | row type + the one generic `init(kind:item:)` |
+| `Chassis/RecordKind/KindTaggedRow+RowData.swift` | macOS | SPLIT out: names the gated per-kind row structs |
+| `Chassis/AppShellConfiguration.swift` | ✅ both | presets are the app's declarative identity |
+| `Chassis/CustomSurface.swift` | ✅ both | registry is data; only `builtin` (StoreSearchSurface, AppKit) is gated inside |
+| `Chassis/Shared/SchemaRefKindLookup.swift` | ✅ both | tolerant schema-ref → kind lookup |
+| `Chassis/Shared/RecordTriage.swift` | ✅ both | action bag + swipe/menu builders (plain SwiftUI) |
+| `Chassis/Shared/RecordTriageNewTagPrompt.swift` | both, gated body | SPLIT out: the NSAlert prompt; iOS omits the affordance rather than showing a dead button |
+| `Files/SidebarSectionOrderStore.swift`, `SharedViews/DetailTab.swift` | ✅ both | never gated |
+
+Enforcement is automated, not conventional: `ChassisCrossPlatformContractTests`
+asserts (a) descriptors, presets, schema-ref lookup and `KindTaggedRow`
+resolve, (b) the manuscript kind still declares the reserved lifecycle iOS
+reads, and (c) **the contract files do not start with `#if os(macOS)`** — the
+guard against a future chassis file copying the historical header verbatim.
+The imprint-iOS build (`-scheme imprint-iOS -destination
+'generic/platform=iOS Simulator'`) is the compile-level gate.
+
+**Rule when a macOS-only symbol lands in a contract file: SPLIT the file**
+(data here, AppKit companion gated) — never re-gate the contract.
+
+### iOS shell surface (`Chassis/Shared/RecordSidebar/`, 2026-07-29)
+
+macOS renders its sidebar with `ImbibSidebarViewModel` + `SidebarOutlineView`
+(NSOutlineView). iOS cannot use either, so the SHAPE of a sidebar was lifted
+out of the renderer into data that both platforms could in principle share and
+that iOS actually does:
+
+| File | Reach | Role |
+|---|---|---|
+| `RecordSidebar/RecordSidebarModel.swift` | ✅ both | `RecordFolder`, `RecordSidebarScope` (+ `RecordScopeKey`), `RecordSidebarNode`, `RecordSidebarSectionModel`, `RecordSidebarSectionRole`, `RecordStatusPresentation` |
+| `RecordSidebar/RecordSidebarBuilder.swift` | ✅ both | `AppShellConfiguration` × `RecordKindDescriptor` × `RecordSidebarDataSource` → `[RecordSidebarSectionModel]`; `AppShellConfiguration.effectiveRecordKind(for:)` |
+| `RecordSidebar/RecordCollectionActions.swift` | ✅ both | organise verbs as an action bag + `RecordFolderMenu.moveTo` / `.organize` (SwiftUI menus, usable on macOS too) |
+| `RecordSidebar/RecordTriageListRow.swift` | ✅ both | `.recordTriageRow(...)` — one modifier attaching `TriageSwipe` + `TriageMenu` to a list row |
+| `RecordSidebar/RecordSidebarView.swift` | iOS | the renderer (List + sections + folder tree + name sheet) |
+
+Rules the builder applies, all read from declarations rather than written per
+app:
+
+| Question | Answered by |
+|---|---|
+| which sections | `visibleSections` ∩ `passesFacetGate` ∩ host content gate (`RecordSidebarDataSource.sectionIsAvailable`) |
+| which kind a section serves | `sectionBindings[section]`, falling back to the canonical table = `AppShellConfiguration.impress.sectionBindings` |
+| section behaviour | `RecordSidebarSectionRole.role(for:)` — `.flagged` → per-`FlagColor` rows, `.dismissed` → the kind's dismissal semantics, otherwise `.primary` |
+| status smart-children | `descriptor.triage.statuses`, minus the dismissed status (which owns the Dismissed section) |
+| folder tree + organise verbs | `descriptor.collection` / `CollectionCapability.canOrganize` |
+| section order + collapse | `SidebarSectionOrderStore` / `SidebarCollapsedStateStore` (the same persisted stores macOS uses) |
+
+Adopters: imprint-iOS (`IOSManuscriptSidebarBindings.swift` — data source,
+collection actions, triage actions, `RecordSidebarScope` →
+`ManuscriptStoreScope`). imbib-iOS's hand-written `IOSSidebarView` is NOT
+migrated yet; it remains the reference for iOS idiom and the obvious second
+adopter.
+
+Regression oracles: `RecordSidebarBuilderTests` (15 tests, `swift test` —
+same builder + different presets ⇒ different sidebars) and
+`imprint-iOSUITests/LibraryShellUITests` (5 tests, booted simulator — sidebar
+tree, search, long-press menu, trailing swipe says Dismiss/Archive, dismissed
+manuscript visible ONLY in the Dismissed scope).
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
@@ -159,6 +234,13 @@ into `crates/impress-mcp/src/main.rs`. Never withheld by the reachability
 gate: these open the shared sqlite store directly and answer with every app
 closed, so no new "always available" mechanism was needed — their namespaces
 simply are not in `reachability::APP_GATED`.
+
+The CLI half of that codegen is hosted by `crates/impress-cli` (binary:
+`impress`), the store-generic sibling of `imbib` and `imprint`. It takes a
+global `--store-path` (or `IMPRESS_STORE_PATH`) and, unlike the long-lived MCP
+server, **refuses to run** when that store cannot be opened rather than falling
+back to an empty in-memory one — a one-shot command that answers `total: 0`
+from a store it never reached is worse than no answer.
 
 | Tool | Automates |
 |---|---|
@@ -180,6 +262,8 @@ simply are not in `reachability::APP_GATED`.
 | `store-query-service_related-items` | the generic Related info-pane section (WP G5, D8) — edges walked both directions across all edge types |
 | `store-query-service_get-item` | select→detail read, every kind (WP G6): the universal envelope (title/status/flag/star/tags/envelope parent/ISO-8601 stamps) plus the payload as a JSON string, capped at 32 KiB with `truncated` + `note` when a `body_content` blows past it |
 | `store-query-service_list-items` | list-row population for any kind (WP G6): a page of envelopes, `modified` desc with an id tiebreak so paging is a partition, `total` alongside. Empty `schema_ref` walks EVERY kind. Withholds nothing — a browse that hid dismissed rows would make its own `total` a lie |
+| `docs-import-service_import-directory` | bulk "New Manuscript" + "file into folder", from a directory of markdown on disk. Ids are UUIDv5 over `"<collection>/<relative path>"`, so the run is **repeatable**: re-import updates bodies and titles in place, never duplicates, never double-files. Sets `format: "markdown"` explicitly; title from the first `# ` heading, filename stem otherwise. `dry_run` writes nothing and reports the counts the real run will produce |
+| `docs-import-service_prune-empty-manuscripts` | Delete column for placeholder shells — manuscripts with a title and no body. Reports by default; deletes only under `apply`, and never touches a manuscript whose body has content (the emptiness test is the interlock). `collection` scopes the scan; `max_body_chars` widens "empty" to "near-empty" |
 
 `binding` selects the hierarchy: `imbib` \| `manuscript` \| `figure` \|
 `generic` (the mixed-kind `collection@1.0.0` schema). Verb names and argument
@@ -272,6 +356,23 @@ tools and both resources. Resource listing is additionally unit-tested
 in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
 
 ## Known gaps (tracked)
+
+- **iOS shell — things that are still literals and should be declarations:**
+  (a) `TriageCapabilities.statuses` is `[String]`, so a status has no declared
+  label or icon; `RecordStatusPresentation` carries a chassis-level table for
+  the reserved lifecycle values and title-cases anything else. Widening
+  `statuses` to `[StatusSpec]` (raw + label + symbol) is the principled fix.
+  (b) `AppShellConfiguration` declares no per-section ICON beyond
+  `SidebarSectionType.icon`, and the "All <Kind>s" node borrows the section's
+  icon. (c) `ManuscriptStoreAdapter` has no `listTags()`, so imprint-iOS
+  passes `RecordTriageActions.availableTagPaths = { [] }` and the Tags submenu
+  hides itself; tag triage on iOS is unavailable until that verb exists.
+  (d) imprint-iOS suppresses the preset-permitted `.citedInManuscripts`
+  section through the host content gate because it has no publication list
+  surface — honest, but it is an app-side `!=` on a section name.
+  (e) There is no iOS drag-to-folder: moving a record is the
+  "Move to Folder ▸" menu (`RecordFolderMenu.moveTo`), and folder reparenting
+  is "Move Folder ▸"; the kind's `dragUTTypeIdentifier` is unused on iOS.
 
 - **Mail (Stage 2-A) IMAP-owned gaps — Stage-2-A2 follow-ups:** no message
   drag (move = IMAP move), no folder CRUD (IMAP owns folder lifecycle), no

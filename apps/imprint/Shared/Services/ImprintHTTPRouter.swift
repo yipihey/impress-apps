@@ -614,7 +614,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     private func handleStatus() async -> HTTPResponse {
         let manuscripts = await MainActor.run {
-            ManuscriptStoreAdapter.shared.listManuscripts(limit: 1)
+            ManuscriptStoreAdapter.shared.allManuscripts(limit: 1)
         }
 
         let response: [String: Any] = [
@@ -635,7 +635,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
     /// List all manuscripts in the unified store.
     private func handleListDocuments() async -> HTTPResponse {
         let manuscripts = await MainActor.run {
-            ManuscriptStoreAdapter.shared.listManuscripts(limit: 1000)
+            ManuscriptStoreAdapter.shared.allManuscripts(limit: 1000)
         }
 
         let docDicts: [[String: Any]] = manuscripts.map { m in
@@ -2173,25 +2173,42 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     // MARK: - Store-backed Manuscript Handlers
 
-    /// GET /api/manuscripts — list every manuscript document known to
-    /// the shared store, sorted by most-recently-modified first. Same
-    /// data the `RecentDocumentsSnapshot` drives the sidebar with.
+    /// GET /api/manuscripts — every `manuscript` item in the shared store,
+    /// which is the same read the library list, the iOS library, Spotlight
+    /// and `/api/documents` all use.
+    ///
+    /// It used to read `RecentDocumentsSnapshot`, and that is why it reported
+    /// `count: 0` while the UI listed manuscripts: the snapshot is derived
+    /// exclusively from `manuscript-section` items
+    /// (`RecentDocumentsSnapshotMaintainer.performRefresh` →
+    /// `listAllSections`), and post-pivot nothing writes sections — a
+    /// manuscript carries its `body_content` inline. The refresh ran, found
+    /// nothing, and published an empty array, so the endpoint answered
+    /// `status: "ok"` with no rows and logged no error. Two sources for one
+    /// question, and only one of them had data.
+    ///
+    /// `allManuscripts` rather than `listManuscripts`, matching
+    /// `/api/documents`: this is an index read, so dismissed and archived
+    /// rows must be included rather than silently withheld.
     private func handleListManuscripts() async -> HTTPResponse {
-        let entries = await MainActor.run { RecentDocumentsSnapshot.shared.documents }
+        let manuscripts = await MainActor.run {
+            ManuscriptStoreAdapter.shared.allManuscripts(limit: 1000)
+        }
         let iso = ISO8601DateFormatter()
-        let payload: [[String: Any]] = entries.map { entry in
+        let payload: [[String: Any]] = manuscripts.map { m in
             [
-                "id": entry.id.uuidString,
-                "title": entry.title,
-                "sectionCount": entry.sectionCount,
-                "lastModified": iso.string(from: entry.lastModified),
-                "firstSectionTitle": entry.firstSectionTitle,
-                "totalWordCount": entry.totalWordCount
+                "id": m.id.uuidString,
+                "title": m.title,
+                "format": m.format.rawValue,
+                "manuscriptStatus": m.status,
+                "lastModified": iso.string(from: m.bodyModifiedAt ?? m.createdAt),
+                "createdAt": iso.string(from: m.createdAt),
+                "totalWordCount": m.body.split(whereSeparator: \.isWhitespace).count
             ]
         }
         return .json([
             "status": "ok",
-            "count": entries.count,
+            "count": manuscripts.count,
             "manuscripts": payload
         ])
     }

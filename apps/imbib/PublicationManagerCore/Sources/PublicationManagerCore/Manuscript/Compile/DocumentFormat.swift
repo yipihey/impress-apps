@@ -34,6 +34,17 @@ public enum DocumentFormat: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// Whether this format has ANY rendered counterpart to the source — the
+    /// single source of truth for showing/hiding a preview affordance
+    /// (segmented control, split-view toggle, Preview tab). Plain text has
+    /// none, so the affordance must not appear at all.
+    public var hasPreview: Bool { previewKind != .none }
+
+    /// Whether the preview is produced by a compile pass (Typst/LaTeX → PDF).
+    /// Formats that render live from the buffer (Markdown) or have no preview
+    /// at all must never schedule a compile.
+    public var requiresCompile: Bool { previewKind == .compiledPDF }
+
     public var fileExtension: String {
         switch self {
         case .typst: "typ"

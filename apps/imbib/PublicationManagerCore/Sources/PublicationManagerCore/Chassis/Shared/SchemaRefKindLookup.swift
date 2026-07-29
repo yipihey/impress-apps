@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS). Pure Foundation
+// lookup over the (now cross-platform) descriptor registry.
 //
 //  SchemaRefKindLookup.swift
 //  PublicationManagerCore
@@ -73,4 +73,3 @@ public enum RecordKindIconography {
         symbolName(for: BuiltinRecordKinds.registry.kind(forStoreSchemaRef: schemaRef))
     }
 }
-#endif

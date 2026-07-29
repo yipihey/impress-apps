@@ -83,7 +83,7 @@ struct ManuscriptLibraryView: View {
     private var manuscriptList: some View {
         // Re-fetched whenever the adapter's dataVersion changes. Avoids
         // an explicit subscription / snapshot maintainer for phase 1.
-        let manuscripts = adapter.listManuscripts(limit: 500)
+        let manuscripts = adapter.allManuscripts(limit: 500)
         return Group {
             if manuscripts.isEmpty {
                 emptyListPlaceholder

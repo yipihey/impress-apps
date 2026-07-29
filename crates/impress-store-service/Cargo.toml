@@ -17,8 +17,10 @@ serde_json = { workspace = true }
 async-trait = { workspace = true }
 schemars = { workspace = true }
 dirs = { workspace = true }
+# `v5` (not just `v4`): the docs importer derives every manuscript id
+# deterministically from its source path, mirroring impart's DeterministicID.
+uuid = { workspace = true, features = ["v5"] }
+chrono = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }

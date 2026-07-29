@@ -1,0 +1,239 @@
+//
+//  RecordSidebarBuilderTests.swift
+//  PublicationManagerCoreTests
+//
+//  The iOS sidebar is DATA (RecordSidebarBuilder) plus a dumb renderer, so
+//  the interesting half is testable here, on macOS, in `swift test` — which
+//  is the point: an iOS-only hand-written sidebar could only ever be checked
+//  by looking at a simulator screenshot.
+//
+//  These assertions pin the CONFIG-DRIVEN-ness specifically: the same builder
+//  fed different presets must produce different sidebars, and feeding it
+//  imprint's preset must reproduce macOS's Manuscripts section (All + status
+//  smart children + folder tree) without the word "manuscript" appearing
+//  anywhere in the builder.
+//
+
+import XCTest
+@testable import PublicationManagerCore
+
+@MainActor
+final class RecordSidebarBuilderTests: XCTestCase {
+
+    // MARK: - Helpers
+
+    private func folders(_ specs: [(String, String, String?)]) -> [RecordFolder] {
+        // (key, name, parentKey) — deterministic ids so assertions can name them.
+        var byKey: [String: UUID] = [:]
+        for (key, _, _) in specs { byKey[key] = .deterministic(from: "folder.\(key)") }
+        return specs.enumerated().map { index, spec in
+            RecordFolder(
+                id: byKey[spec.0]!,
+                name: spec.1,
+                parentID: spec.2.flatMap { byKey[$0] },
+                sortOrder: Int64(index))
+        }
+    }
+
+    private func dataSource(
+        folders: [RecordFolder] = [],
+        counts: [String: Int] = [:],
+        available: @escaping (SidebarSectionType) -> Bool = { _ in true }
+    ) -> RecordSidebarDataSource {
+        RecordSidebarDataSource(
+            folders: { _ in folders },
+            folderCounts: { _, ids in ids.map { _ in 3 } },
+            count: { scope in counts[scope.scopeKey] },
+            sectionIsAvailable: available)
+    }
+
+    // MARK: - Config drives the sections
+
+    func testImprintPresetProducesItsOwnSections() {
+        let sections = RecordSidebarBuilder.sections(
+            configuration: .imprint, dataSource: dataSource())
+        let ids = sections.map(\.section)
+        XCTAssertEqual(ids, [.flagged, .citedInManuscripts, .manuscripts, .dismissed],
+                       "exactly imprint's `visibleSections`, in the suite default order")
+        // `.manuscripts` carries no explicit binding in the preset; it
+        // resolves to the manuscript kind through the canonical table.
+        XCTAssertEqual(sections.first { $0.section == .manuscripts }?.kind, .manuscript)
+        XCTAssertEqual(sections.first { $0.section == .dismissed }?.kind, .manuscript)
+    }
+
+    func testImbibPresetProducesADifferentSidebarFromTheSameBuilder() {
+        let sections = RecordSidebarBuilder.sections(
+            configuration: .imbib, dataSource: dataSource())
+        let ids = Set(sections.map(\.section))
+        XCTAssertTrue(ids.contains(.inbox))
+        XCTAssertTrue(ids.contains(.libraries))
+        XCTAssertFalse(ids.contains(.manuscripts),
+                       "imbib went publications-only; the preset must decide that, not the view")
+        XCTAssertEqual(sections.first { $0.section == .flagged }?.kind, .publication)
+    }
+
+    func testFacetGatedSectionsOnlyAppearInTheirOwnShell() {
+        let implore = RecordSidebarBuilder.sections(
+            configuration: .implore, dataSource: dataSource())
+        XCTAssertEqual(implore.map(\.section), [.figures])
+        XCTAssertEqual(implore.first?.kind, .figure)
+
+        let imprint = RecordSidebarBuilder.sections(
+            configuration: .imprint, dataSource: dataSource())
+        XCTAssertFalse(imprint.contains { $0.section == .figures })
+    }
+
+    func testHostContentGateIntersectsWithThePreset() {
+        let sections = RecordSidebarBuilder.sections(
+            configuration: .imprint,
+            dataSource: dataSource(available: { $0 != .dismissed }))
+        XCTAssertFalse(sections.contains { $0.section == .dismissed })
+        XCTAssertTrue(sections.contains { $0.section == .manuscripts })
+    }
+
+    // MARK: - Descriptor drives the nodes
+
+    func testPrimarySectionIsAllPlusDeclaredStatusesMinusDismissed() {
+        let sections = RecordSidebarBuilder.sections(
+            configuration: .imprint, dataSource: dataSource())
+        guard let manuscripts = sections.first(where: { $0.section == .manuscripts }) else {
+            return XCTFail("imprint must have a Manuscripts section")
+        }
+
+        XCTAssertEqual(manuscripts.nodes.first?.scope, .all(.manuscript))
+        XCTAssertEqual(manuscripts.nodes.first?.title, "All Manuscripts")
+
+        let statuses = manuscripts.nodes.compactMap { node -> String? in
+            if case .status(_, let status) = node.scope { return status }
+            return nil
+        }
+        let declared = ManuscriptRecordKind.descriptor.triage.statuses
+        XCTAssertEqual(Set(statuses), Set(declared.filter { $0 != "dismissed" }),
+                       "status children ARE the descriptor's lifecycle, minus the dismissed "
+                           + "status which owns the Dismissed section")
+        XCTAssertFalse(statuses.contains("dismissed"))
+        // The macOS smart children, by name.
+        XCTAssertTrue(manuscripts.nodes.contains { $0.title == "Drafts" })
+        XCTAssertTrue(manuscripts.nodes.contains { $0.title == "Submitted" })
+        XCTAssertTrue(manuscripts.nodes.contains { $0.title == "Published" })
+        XCTAssertTrue(manuscripts.nodes.contains { $0.title == "Archive" })
+    }
+
+    func testKindWithoutStatusesGetsNoSmartChildren() {
+        // Publications declare no `statuses`, so imbib's Libraries section is
+        // All + folders only — no status rows invented for it.
+        let sections = RecordSidebarBuilder.sections(
+            configuration: .imbib, dataSource: dataSource())
+        let libraries = sections.first { $0.section == .libraries }
+        let statusNodes = libraries?.nodes.filter {
+            if case .status = $0.scope { return true }
+            return false
+        }
+        XCTAssertEqual(statusNodes?.isEmpty, true)
+    }
+
+    func testFlaggedSectionOffersOneNodePerFlagColour() {
+        let sections = RecordSidebarBuilder.sections(
+            configuration: .imprint, dataSource: dataSource())
+        let flagged = sections.first { $0.section == .flagged }
+        XCTAssertEqual(flagged?.nodes.count, 4)
+        XCTAssertEqual(flagged?.nodes.first?.scope, .flagged(.manuscript, "red"))
+    }
+
+    func testDismissedSectionUsesTheKindsDismissalSemantics() {
+        // Manuscripts: status-change → the node IS the dismissed status.
+        let imprint = RecordSidebarBuilder.sections(
+            configuration: .imprint, dataSource: dataSource())
+        XCTAssertEqual(
+            imprint.first { $0.section == .dismissed }?.nodes.first?.scope,
+            .status(.manuscript, "dismissed"))
+
+        // Publications: library move → an opaque section the host resolves.
+        let imbib = RecordSidebarBuilder.sections(
+            configuration: .imbib, dataSource: dataSource())
+        XCTAssertEqual(
+            imbib.first { $0.section == .dismissed }?.nodes.first?.scope,
+            .section(.dismissed, .publication))
+    }
+
+    // MARK: - Folder tree
+
+    func testFolderTreeNestsBySortOrderAndCarriesCounts() {
+        let tree = folders([
+            ("papers", "Papers", nil),
+            ("2026", "2026", "papers"),
+            ("grants", "Grants", nil),
+        ])
+        let sections = RecordSidebarBuilder.sections(
+            configuration: .imprint, dataSource: dataSource(folders: tree))
+        let manuscripts = sections.first { $0.section == .manuscripts }
+        let folderNodes = manuscripts?.nodes.filter(\.isFolder) ?? []
+
+        XCTAssertEqual(folderNodes.map(\.title), ["Papers", "Grants"], "roots only, in sort order")
+        XCTAssertEqual(folderNodes.first?.children.map(\.title), ["2026"])
+        XCTAssertEqual(folderNodes.first?.count, 3, "counts come from the batch kernel verb")
+        XCTAssertEqual(manuscripts?.canOrganizeFolders, true,
+                       "the kind's CollectionCapability.canOrganize decides, not the view")
+    }
+
+    func testFoldersAreOmittedForKindsWithNoCollectionCapability() {
+        // Messages declare no collection capability.
+        let nodes = RecordSidebarBuilder.folderNodes(
+            kind: .message,
+            descriptor: MessageRecordKind.descriptor,
+            dataSource: dataSource(folders: folders([("a", "A", nil)])))
+        XCTAssertTrue(nodes.isEmpty)
+    }
+
+    func testFlattenedHonoursExpansion() {
+        let tree = folders([("a", "A", nil), ("b", "B", "a"), ("c", "C", "b")])
+        let nodes = RecordSidebarBuilder.folderNodes(
+            kind: .manuscript,
+            descriptor: ManuscriptRecordKind.descriptor,
+            dataSource: dataSource(folders: tree))
+        XCTAssertEqual(nodes.flattened(expanded: []).map(\.node.title), ["A"])
+        let a = nodes[0].id
+        XCTAssertEqual(nodes.flattened(expanded: [a]).map(\.node.title), ["A", "B"])
+        XCTAssertEqual(nodes.flattened(expanded: [a]).map(\.depth), [0, 1])
+    }
+
+    func testSubtreeIDsProtectAgainstReparentingIntoOwnDescendant() {
+        let tree = folders([("a", "A", nil), ("b", "B", "a"), ("c", "C", "b"), ("d", "D", nil)])
+        let a = tree[0]
+        let forbidden = tree.subtreeIDs(of: a.id)
+        XCTAssertEqual(forbidden.count, 3)
+        XCTAssertFalse(forbidden.contains(tree[3].id), "an unrelated root stays a legal target")
+    }
+
+    // MARK: - Scope identity
+
+    func testScopeKeysAreStableAndDistinct() {
+        let a = RecordSidebarScope.status(.manuscript, "draft")
+        let b = RecordSidebarScope.status(.manuscript, "submitted")
+        XCTAssertEqual(a.scopeKey, "manuscript.status.draft")
+        XCTAssertEqual(a.stableViewID, RecordSidebarScope.status(.manuscript, "draft").stableViewID)
+        XCTAssertNotEqual(a.stableViewID, b.stableViewID)
+        XCTAssertEqual(a.explicitStatus, "draft")
+        XCTAssertEqual(RecordSidebarScope.all(.manuscript).explicitStatus, nil)
+    }
+
+    func testEffectiveRecordKindFallsBackToTheCanonicalTable() {
+        // imprint binds only flagged/dismissed; `.manuscripts` resolves via
+        // the impress preset's canonical section→kind table.
+        XCTAssertEqual(AppShellConfiguration.imprint.recordKind(for: .manuscripts), nil)
+        XCTAssertEqual(
+            AppShellConfiguration.imprint.effectiveRecordKind(for: .manuscripts), .manuscript)
+        // A kind the shell does not register never leaks in through the table.
+        XCTAssertEqual(AppShellConfiguration.imprint.effectiveRecordKind(for: .mail), nil)
+    }
+
+    // MARK: - Status presentation
+
+    func testStatusPresentationCoversTheReservedLifecycleAndDegradesGracefully() {
+        XCTAssertEqual(RecordStatusPresentation.label(for: "draft"), "Drafts")
+        XCTAssertEqual(RecordStatusPresentation.label(for: "in-revision"), "In Revision")
+        XCTAssertEqual(RecordStatusPresentation.label(for: "peer-review"), "Peer Review")
+        XCTAssertEqual(RecordStatusPresentation.systemImage(for: "archived"), "archivebox")
+        XCTAssertEqual(RecordStatusPresentation.systemImage(for: "whatever"), "circle")
+    }
+}

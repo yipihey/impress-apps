@@ -1,5 +1,11 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS).
+//
+// The action bag, the row state and BOTH SwiftUI builders (swipe + menu) are
+// portable: `swipeActions`, `Menu`, `Button`, `Divider` and `Label` are all
+// plain SwiftUI, and the store-backed defaults go through `RustStoreAdapter`,
+// which was never gated. The one AppKit dependency — the modal "New Tag…"
+// prompt (NSAlert + NSTextField) — was SPLIT out into
+// `RecordTriageNewTagPrompt.swift` rather than half-gating this file.
 //
 //  RecordTriage.swift
 //  PublicationManagerCore
@@ -38,6 +44,17 @@ public struct RecordTriageActions {
     /// Remove from the current container scope (folder/collection), when the
     /// surface is scoped to one.
     public var onRemoveFromScope: (Set<UUID>) -> Void = { _ in }
+
+    /// Tag paths the Tags submenu offers. `nil` = "ask the imbib store", which
+    /// is what every macOS host wants and what this always did.
+    ///
+    /// It became injectable when imprint-iOS adopted the shared menu: that
+    /// host talks to `ManuscriptStoreAdapter`, and reaching through
+    /// `RustStoreAdapter.shared` from it would boot a SECOND store facade
+    /// (imbib's) inside imprint just to populate a submenu. A host on another
+    /// adapter supplies its own list — or an empty one, which hides the
+    /// submenu rather than showing a lying empty menu.
+    public var availableTagPaths: (() -> [String])?
 
     public init() {}
 
@@ -219,6 +236,9 @@ public enum TriageMenu {
             }
         }
         if triage.canTag {
+            // The submenu hides ITSELF when the host has neither tags to
+            // offer nor a prompt to make one — the check has to live in a
+            // `body` (main-actor) rather than in this nonisolated builder.
             TriageTagMenu(rowTagPaths: rowTagPaths, targets: targets, actions: actions)
         }
         if triage.deletion != .none {
@@ -240,42 +260,53 @@ struct TriageTagMenu: View {
     let targets: Set<UUID>
     let actions: RecordTriageActions
 
+    /// Tag paths for this host: the injected list when there is one, imbib's
+    /// store otherwise (the historical behaviour).
+    @MainActor
+    static func tagPaths(actions: RecordTriageActions) -> [String] {
+        if let provider = actions.availableTagPaths { return provider() }
+        return RustStoreAdapter.shared.listTags().map(\.path)
+    }
+
     var body: some View {
-        Menu("Tags") {
-            let allTags = RustStoreAdapter.shared.listTags()
-            ForEach(allTags, id: \.path) { tag in
+        let allTags = Self.tagPaths(actions: actions)
+        if isAvailable(tagPaths: allTags) {
+            Menu("Tags") {
+            ForEach(allTags, id: \.self) { path in
                 Button {
-                    if rowTagPaths.contains(tag.path) {
-                        actions.onRemoveTag(targets, tag.path)
+                    if rowTagPaths.contains(path) {
+                        actions.onRemoveTag(targets, path)
                     } else {
-                        actions.onAddTag(targets, tag.path)
+                        actions.onAddTag(targets, path)
                     }
                 } label: {
-                    if rowTagPaths.contains(tag.path) {
-                        Label(tag.path, systemImage: "checkmark")
+                    if rowTagPaths.contains(path) {
+                        Label(path, systemImage: "checkmark")
                     } else {
-                        Text(tag.path)
+                        Text(path)
                     }
                 }
             }
-            if !allTags.isEmpty { Divider() }
-            Button("New Tag…") { promptForNewTag() }
+            // The affordance is present only where a modal prompt exists.
+            // On macOS that is `NSAlert` (unchanged); iOS hosts create tags
+            // from their own sheet, so showing a dead button here would be
+            // worse than not showing one.
+            if RecordTriageNewTagPrompt.isAvailable {
+                if !allTags.isEmpty { Divider() }
+                Button("New Tag…") { promptForNewTag() }
+            }
+            }
         }
     }
 
+    /// A Tags submenu with neither tags nor a way to make one is a dead menu
+    /// item — hosts that can offer neither simply don't get the submenu.
+    private func isAvailable(tagPaths: [String]) -> Bool {
+        RecordTriageNewTagPrompt.isAvailable || !tagPaths.isEmpty
+    }
+
     private func promptForNewTag() {
-        let alert = NSAlert()
-        alert.messageText = "New Tag"
-        alert.informativeText = "Tag path (use / for hierarchy, e.g. projects/reionization)."
-        alert.addButton(withTitle: "Add")
-        alert.addButton(withTitle: "Cancel")
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 22))
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let path = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else { return }
+        guard let path = RecordTriageNewTagPrompt.run() else { return }
         actions.onAddTag(targets, path)
     }
 }
-#endif

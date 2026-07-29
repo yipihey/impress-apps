@@ -1,0 +1,19 @@
+[package]
+name = "impress-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "impress CLI binary, auto-generated from the store-generic #[impress_service] traits in impress-store-service"
+
+[[bin]]
+name = "impress"
+path = "src/main.rs"
+
+[dependencies]
+# Linking impress-store-service pulls its inventory submissions (the
+# collection kernel, triage, store query and docs-import subcommands) into
+# the final binary, where this CLI iterates them at startup.
+impress-store-service = { workspace = true }
+impress-service-core = { workspace = true, features = ["cli"] }
+serde_json = { workspace = true }

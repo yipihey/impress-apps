@@ -429,6 +429,23 @@ targets:
         com.apple.security.application-groups:
           - group.com.impress.suite
 
+  # iOS UI tests. Separate target + scheme (not folded into the imprint-iOS
+  # test action) so a UI run is an explicit, opt-in invocation: these drive a
+  # booted simulator and are much slower than the unit target.
+  imprint-iOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: imprint-iOSUITests
+    dependencies:
+      - target: imprint-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint.iosuitests
+        PRODUCT_NAME: imprint-iOSUITests
+        PRODUCT_MODULE_NAME: imprintiOSUITests
+        GENERATE_INFOPLIST_FILE: YES
+
   imprint-iOSTests:
     type: bundle.unit-test
     platform: iOS
@@ -459,6 +476,16 @@ schemes:
       config: Release
     archive:
       config: Release
+
+  imprint-iOSUITests:
+    build:
+      targets:
+        imprint-iOS: all
+        imprint-iOSUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - imprint-iOSUITests
 
   imprint-iOS:
     build:

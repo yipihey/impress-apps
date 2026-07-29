@@ -67,6 +67,10 @@ members = [
     # CliSubcommand inventory entries registered by the *-service crates.
     "crates/imbib-cli",
     "crates/imprint-cli",
+    # impress-cli - the same clap-from-inventory binary for the store-generic
+    # services (collections, triage, store query, docs import), which belong to
+    # no app and so had no CLI host until now.
+    "crates/impress-cli",
     # impress-mcp - stdio JSON-RPC MCP server (Phase 3B: imports *-service
     # inventory entries to surface trait methods as MCP tools).
     "crates/impress-mcp",

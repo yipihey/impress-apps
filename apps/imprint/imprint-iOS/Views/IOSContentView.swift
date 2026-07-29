@@ -6,8 +6,12 @@
 //  ImprintDocumentViewModel so iPhone/iPad get the same in-process Typst
 //  compile pipeline as the desktop app.
 //
-//  - iPhone: full-screen editor, compile status in the toolbar
-//  - iPad: editor + live PDF preview side by side
+//  - iPhone: Source / Preview segmented control over one full-width surface
+//  - iPad: editor + live preview side by side
+//
+//  Which preview surface appears (compiled PDF, live Markdown, or none at all)
+//  is derived from `DocumentFormat.PreviewKind` via the shared
+//  `IOSManuscriptPreviewView` — never from a hardcoded format test here.
 //
 
 import SwiftUI
@@ -32,8 +36,22 @@ struct IOSContentView: View {
 
     // Debounced recompile is owned by the compile controller (via `vm`).
 
-    /// Whether to show the preview panel (iPad)
-    @State private var showPreview = true
+    /// Whether to show the preview panel (regular width — side-by-side).
+    /// Persisted like the macOS Source tab's `manuscript.sourceTab.showPreview`,
+    /// so the choice survives relaunch on both platforms.
+    @AppStorage("imprint.editor.showPreview") private var showPreview = true
+
+    /// Which surface fills the screen in compact width (iPhone). The preview
+    /// pane can't sit beside the editor there, so the two share the screen the
+    /// way imbib-iOS's manuscript detail does: a segmented control.
+    @AppStorage("imprint.editor.compactPane") private var compactPane: EditorPane = .source
+
+    /// The two full-width surfaces available in compact width.
+    enum EditorPane: String, CaseIterable, Identifiable {
+        case source = "Source"
+        case preview = "Preview"
+        var id: String { rawValue }
+    }
 
     /// Current editor selection
     @State private var selection: NSRange?
@@ -77,6 +95,14 @@ struct IOSContentView: View {
         .onChange(of: document.source) { _, _ in
             scheduleRecompile()
         }
+        .onChange(of: compactPane) { _, newPane in
+            // Revealing the preview on iPhone with nothing compiled yet (e.g.
+            // the first compile failed, or the document was just opened) should
+            // not show an empty pane — kick a compile immediately.
+            if newPane == .preview, vm.pdfData == nil, !vm.isCompiling {
+                Task { await compile() }
+            }
+        }
         .sheet(isPresented: $showOutlineSheet) {
             NavigationStack {
                 IOSDocumentOutlineView(
@@ -115,22 +141,17 @@ struct IOSContentView: View {
                 Divider()
             }
 
-            IOSSourceEditorView(
-                text: $document.source,
-                selection: $selection,
-                goToLine: $goToLine,
-                onInsertCitation: { showCitationPicker = true }
-            )
-            .frame(minWidth: 300)
+            sourceEditor
+                .frame(minWidth: 300)
 
-            if showPreview {
+            // A format with no rendered counterpart (plain text) gets no
+            // preview column at all — `hasPreview` is the single gate, here
+            // and on the toolbar affordance below.
+            if showPreview && document.format.hasPreview {
                 Divider()
 
-                IOSPDFPreviewView(
-                    pdfData: vm.pdfData,
-                    isCompiling: vm.isCompiling
-                )
-                .frame(minWidth: 300)
+                previewSurface
+                    .frame(minWidth: 300)
             }
         }
     }
@@ -138,12 +159,59 @@ struct IOSContentView: View {
     // MARK: - iPhone Layout
 
     private var iPhoneLayout: some View {
+        VStack(spacing: 0) {
+            if document.format.hasPreview {
+                Picker("View", selection: $compactPane) {
+                    ForEach(EditorPane.allCases) { pane in
+                        Text(pane.rawValue).tag(pane)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .accessibilityIdentifier("editor.panePicker")
+
+                Divider()
+            }
+
+            switch effectiveCompactPane {
+            case .source:
+                sourceEditor
+            case .preview:
+                previewSurface
+            }
+        }
+    }
+
+    /// A remembered `.preview` choice must not survive into a format that has
+    /// no preview (plain text) — the picker is hidden there, so the user would
+    /// have no way back to the source.
+    private var effectiveCompactPane: EditorPane {
+        document.format.hasPreview ? compactPane : .source
+    }
+
+    // MARK: - Surfaces (shared by both layouts)
+
+    private var sourceEditor: some View {
         IOSSourceEditorView(
             text: $document.source,
             selection: $selection,
             goToLine: $goToLine,
+            format: document.format,
             onInsertCitation: { showCitationPicker = true }
         )
+    }
+
+    /// The preview. `IOSManuscriptPreviewView` picks PDF vs. live Markdown vs.
+    /// nothing from `document.format.previewKind`.
+    private var previewSurface: some View {
+        IOSManuscriptPreviewView(
+            format: document.format,
+            source: document.source,
+            pdfData: vm.pdfData,
+            isCompiling: vm.isCompiling
+        )
+        .accessibilityIdentifier("editor.preview")
     }
 
     // MARK: - Toolbar
@@ -224,15 +292,20 @@ struct IOSContentView: View {
             .keyboardShortcut(.return, modifiers: [.command])
             .accessibilityIdentifier("toolbar.compileButton")
 
-            // Toggle preview (iPad only)
-            if horizontalSizeClass == .regular {
+            // Toggle preview — present in BOTH size classes, and gated only on
+            // whether the format HAS a preview (plain text has none). Regular
+            // width toggles the side-by-side column; compact width flips the
+            // full-width surface, exactly like the outline button above
+            // (column on iPad, sheet on iPhone).
+            if document.format.hasPreview {
                 Button {
-                    withAnimation {
-                        showPreview.toggle()
-                    }
+                    withAnimation { togglePreview() }
                 } label: {
-                    Image(systemName: showPreview ? "rectangle.righthalf.inset.filled" : "rectangle.split.2x1")
+                    Image(systemName: previewToggleSymbol)
                 }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .accessibilityIdentifier("toolbar.previewButton")
+                .accessibilityLabel(isPreviewVisible ? "Hide Preview" : "Show Preview")
             }
 
             // More menu
@@ -313,10 +386,36 @@ struct IOSContentView: View {
         }
     }
 
+    // MARK: - Preview affordance
+
+    /// Whether a preview is on screen right now, in either size class.
+    private var isPreviewVisible: Bool {
+        horizontalSizeClass == .regular ? showPreview : effectiveCompactPane == .preview
+    }
+
+    private var previewToggleSymbol: String {
+        if horizontalSizeClass == .regular {
+            return showPreview ? "rectangle.righthalf.inset.filled" : "rectangle.split.2x1"
+        }
+        return effectiveCompactPane == .preview ? "doc.text" : "doc.richtext"
+    }
+
+    private func togglePreview() {
+        if horizontalSizeClass == .regular {
+            showPreview.toggle()
+        } else {
+            compactPane = effectiveCompactPane == .preview ? .source : .preview
+        }
+    }
+
     // MARK: - Compile
 
     /// Snapshot inputs and run the shared compile pipeline.
     private func compile() async {
+        // Only formats whose preview IS a compiled artifact have anything to
+        // compile — Markdown renders live from the buffer, plain text has no
+        // preview at all (same guard as ManuscriptEditorSession.scheduleCompile).
+        guard document.format.requiresCompile else { return }
         // Capture everything before the async hop (CLAUDE.md: capture
         // @State/@Binding before async work).
         let inputs = CompileInputs(
@@ -327,7 +426,12 @@ struct IOSContentView: View {
             documentTitle: document.title,
             latexEngine: "pdflatex",
             latexShellEscape: false,
-            latexShowBoxWarnings: false
+            latexShowBoxWarnings: false,
+            // Without this, ANY `image("figures/…")` fails the whole compile on
+            // iOS. Same root the macOS session passes
+            // (ManuscriptEditorSession.makeCompileInputs) and the same root the
+            // sketch inserter writes into, so relative paths resolve.
+            figuresRoot: ManuscriptFiguresDirectory.manuscriptRoot(for: document.id).path
         )
         await vm.compile(inputs)
     }
@@ -393,7 +497,12 @@ struct IOSContentView: View {
         Task {
             let service = SketchInsertionService()
             do {
-                let base = try ManuscriptWorkingDirectory().manuscriptDirectory(for: docID)
+                // Write into the SAME root that goes into the compile as
+                // `figuresRoot`, so the inserted `#image("assets/…")` resolves.
+                // (It used to land under ManuscriptWorkingDirectory, a
+                // different directory the Typst compile never sees.)
+                let base = ManuscriptFiguresDirectory.manuscriptRoot(for: docID)
+                try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
                 let relativePath = try await service.saveSketch(pngData, to: base)
                 let code = await service.generateTypstImageCode(path: relativePath, width: "80%")
                 await MainActor.run {

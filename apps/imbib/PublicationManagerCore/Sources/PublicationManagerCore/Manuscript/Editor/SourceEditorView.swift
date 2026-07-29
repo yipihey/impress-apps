@@ -382,26 +382,15 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
     /// Tree-sitter language for the current syntax mode; nil = no grammar
     /// (markdown/plaintext render unhighlighted until a grammar is vendored).
-    private var highlightLanguage: ImpressLanguage? {
-        switch syntaxMode {
-        case .latex: return .latex
-        case .typst: return .typst
-        case .markdown, .plaintext: return nil
-        }
-    }
+    ///
+    /// The mapping itself lives on `DocumentFormat` (see
+    /// `DocumentFormat+SyntaxHighlight.swift`) so the AppKit and UIKit editors
+    /// cannot drift apart.
+    private var highlightLanguage: ImpressLanguage? { syntaxMode.highlightLanguage }
 
     /// Get or create a SyntaxHighlighter for the current syntax mode from the coordinator.
     private func syntaxHighlighter(for coordinator: Coordinator) -> SyntaxHighlighter? {
-        guard let wantedLanguage = highlightLanguage else {
-            coordinator.syntaxHighlighter = nil
-            return nil
-        }
-        if let existing = coordinator.syntaxHighlighter, existing.language == wantedLanguage {
-            return existing
-        }
-        let highlighter = SyntaxHighlighter(language: wantedLanguage)
-        coordinator.syntaxHighlighter = highlighter
-        return highlighter
+        syntaxMode.resolveHighlighter(&coordinator.syntaxHighlighter)
     }
 
     private func applySyntaxHighlighting(to textView: NSTextView) {

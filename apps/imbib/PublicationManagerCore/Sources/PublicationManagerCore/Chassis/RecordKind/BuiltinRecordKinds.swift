@@ -1,5 +1,8 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS). See the de-gating
+// note in RecordKindDescriptor.swift: these descriptors are the single
+// declaration of each kind's status lifecycle, so iOS code (imprint's
+// ManuscriptStoreAdapter) reads "dismissed"/"draft"/"archived" from
+// `ManuscriptRecordKind.descriptor.triage` instead of re-typing them.
 //
 //  BuiltinRecordKinds.swift
 //  PublicationManagerCore
@@ -260,4 +263,3 @@ public enum BuiltinRecordKinds {
         all.filter { $0.collection != nil }
     }
 }
-#endif

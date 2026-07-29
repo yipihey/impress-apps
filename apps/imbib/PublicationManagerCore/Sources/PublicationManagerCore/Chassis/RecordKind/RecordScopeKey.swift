@@ -1,5 +1,4 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS).
 //
 //  RecordScopeKey.swift
 //  PublicationManagerCore
@@ -10,6 +9,14 @@
 //  this protocol just standardizes the `.id()` rule: any view receiving a
 //  scope inside a cached detail closure carries `.id(scope.stableViewID)`.
 //
+//  SPLIT, not half-gated (iOS foundation pass): the PROTOCOL and the
+//  deterministic-UUID helper are contract, so they live here and compile
+//  everywhere. The conformances of the macOS-only list scopes
+//  (ManuscriptListScope, FigureListScope, MessageListScope, AgentListScope —
+//  each declared inside its gated list wrapper) live in
+//  `RecordScopeKey+MacScopes.swift`. `PublicationSource` is itself
+//  cross-platform, so its conformance stays here.
+//
 
 import Foundation
 
@@ -19,65 +26,6 @@ public protocol RecordScopeKey {
     var stableViewID: UUID { get }
     /// Human-readable stable key (persistence, logging).
     var scopeKey: String { get }
-}
-
-extension ManuscriptListScope: RecordScopeKey {
-    public var scopeKey: String {
-        switch self {
-        case .all: return "manuscripts-all"
-        case .status(let s): return "manuscripts-status-\(s.rawValue)"
-        case .folder(let id): return "manuscripts-folder-\(id.uuidString)"
-        case .flagged(let color): return "manuscripts-flagged-\(color?.rawValue ?? "any")"
-        }
-    }
-
-    public var stableViewID: UUID {
-        UUID.deterministic(from: scopeKey)
-    }
-}
-
-extension FigureListScope: RecordScopeKey {
-    public var scopeKey: String {
-        switch self {
-        case .all: return "figures-all"
-        case .unfiled: return "figures-unfiled"
-        case .folder(let id): return "figures-folder-\(id.uuidString)"
-        case .flagged(let color): return "figures-flagged-\(color?.rawValue ?? "any")"
-        }
-    }
-
-    public var stableViewID: UUID {
-        UUID.deterministic(from: scopeKey)
-    }
-}
-
-extension MessageListScope: RecordScopeKey {
-    public var scopeKey: String {
-        switch self {
-        case .allInboxes: return "messages-all-inboxes"
-        case .account(let id): return "messages-account-\(id.uuidString)"
-        case .folder(let id): return "messages-folder-\(id.uuidString)"
-        case .flagged(let color): return "messages-flagged-\(color?.rawValue ?? "any")"
-        }
-    }
-
-    public var stableViewID: UUID {
-        UUID.deterministic(from: scopeKey)
-    }
-}
-
-extension AgentListScope: RecordScopeKey {
-    public var scopeKey: String {
-        switch self {
-        case .tasks: return "agents-tasks"
-        case .runs: return "agents-runs"
-        case .tasksByState(let state): return "agents-tasks-state-\(state)"
-        }
-    }
-
-    public var stableViewID: UUID {
-        UUID.deterministic(from: scopeKey)
-    }
 }
 
 extension PublicationSource: RecordScopeKey {
@@ -107,4 +55,3 @@ extension UUID {
         ))
     }
 }
-#endif

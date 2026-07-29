@@ -3,7 +3,8 @@
 //  ImpressSyntaxHighlight
 //
 //  Maps tree-sitter capture names (@keyword, @comment, @function.macro, etc.)
-//  to NSColors. Uses macOS semantic colors so light/dark mode works automatically.
+//  to platform colors. Uses semantic system colors so light/dark mode works
+//  automatically on BOTH platforms.
 //
 
 import Foundation
@@ -36,16 +37,71 @@ public struct ImpressSyntaxTheme: Sendable {
     }
 }
 
-public extension ImpressSyntaxTheme {
-    /// Default theme using semantic NSColors — adapts to light/dark mode automatically.
-    /// Category names follow nvim-treesitter conventions (markup.heading, function.macro, etc.)
-    static var impressDefault: ImpressSyntaxTheme {
+// MARK: - Cross-platform semantic colors
+
+/// The five semantic colors whose *names* differ between AppKit and UIKit.
+/// Everything else in the palette (`.systemPurple`, `.systemBlue`, …) is
+/// spelled identically on `NSColor` and `UIColor`, so the capture table below
+/// is written ONCE and resolves per platform through these aliases.
+///
+/// The AppKit values are exactly the ones the macOS editor shipped with — this
+/// is a de-duplication, not a re-theme.
+extension ImpressColor {
+    static var impressText: ImpressColor {
         #if canImport(AppKit)
-        return ImpressSyntaxTheme(
-            defaultColor: .textColor,
+        return .textColor
+        #else
+        return .label
+        #endif
+    }
+
+    static var impressLabel: ImpressColor {
+        #if canImport(AppKit)
+        return .labelColor
+        #else
+        return .label
+        #endif
+    }
+
+    static var impressSecondaryLabel: ImpressColor {
+        #if canImport(AppKit)
+        return .secondaryLabelColor
+        #else
+        return .secondaryLabel
+        #endif
+    }
+
+    static var impressTertiaryLabel: ImpressColor {
+        #if canImport(AppKit)
+        return .tertiaryLabelColor
+        #else
+        return .tertiaryLabel
+        #endif
+    }
+
+    static var impressLink: ImpressColor {
+        #if canImport(AppKit)
+        return .linkColor
+        #else
+        return .link
+        #endif
+    }
+}
+
+public extension ImpressSyntaxTheme {
+    /// Default theme using semantic system colors — adapts to light/dark mode
+    /// automatically, on macOS (AppKit) and iOS/iPadOS (UIKit) alike.
+    ///
+    /// Category names follow nvim-treesitter conventions (markup.heading,
+    /// function.macro, etc.). ONE table for both platforms: the iOS branch used
+    /// to be `colors: [:]`, which silently rendered every capture in the default
+    /// color — i.e. no highlighting at all on iPhone/iPad.
+    static var impressDefault: ImpressSyntaxTheme {
+        ImpressSyntaxTheme(
+            defaultColor: .impressText,
             colors: [
                 // Comments — muted gray
-                "comment": .secondaryLabelColor,
+                "comment": .impressSecondaryLabel,
 
                 // Keywords — purple
                 "keyword": .systemPurple,
@@ -75,17 +131,17 @@ public extension ImpressSyntaxTheme {
                 "markup.heading.4": .systemBlue,
                 "markup.heading.5": .systemBlue,
                 "markup.heading.6": .systemBlue,
-                "markup.italic": .labelColor,
-                "markup.strong": .labelColor,
-                "markup.bold": .labelColor,
+                "markup.italic": .impressLabel,
+                "markup.strong": .impressLabel,
+                "markup.bold": .impressLabel,
                 "markup.heading.marker": .systemPurple,
                 "markup.raw.block": .systemRed,
-                "markup.link": .linkColor,
-                "markup.link.url": .linkColor,
+                "markup.link": .impressLink,
+                "markup.link.url": .impressLink,
                 "markup.link.label": .systemOrange,
                 "markup.math": .systemTeal,
                 "markup.list": .systemBrown,
-                "markup.quote": .secondaryLabelColor,
+                "markup.quote": .impressSecondaryLabel,
                 "markup.raw": .systemRed,
 
                 // Modules / namespaces (packages, environments) — purple
@@ -107,7 +163,7 @@ public extension ImpressSyntaxTheme {
                 "string.escape": .systemRed,
                 "string.regexp": .systemRed,
                 "string.special": .systemOrange,
-                "string.special.path": .linkColor,
+                "string.special.path": .impressLink,
 
                 // Numbers, constants — indigo
                 "number": .systemIndigo,
@@ -120,16 +176,16 @@ public extension ImpressSyntaxTheme {
                 "boolean": .systemIndigo,
 
                 // Variables
-                "variable": .labelColor,
+                "variable": .impressLabel,
                 "variable.parameter": .systemOrange,
                 "variable.builtin": .systemBrown,
 
                 // Operators, punctuation — muted
-                "operator": .secondaryLabelColor,
-                "punctuation": .tertiaryLabelColor,
-                "punctuation.bracket": .tertiaryLabelColor,
-                "punctuation.delimiter": .tertiaryLabelColor,
-                "punctuation.special": .secondaryLabelColor,
+                "operator": .impressSecondaryLabel,
+                "punctuation": .impressTertiaryLabel,
+                "punctuation.bracket": .impressTertiaryLabel,
+                "punctuation.delimiter": .impressTertiaryLabel,
+                "punctuation.special": .impressSecondaryLabel,
 
                 // Tags / attributes
                 "tag": .systemBlue,
@@ -140,11 +196,5 @@ public extension ImpressSyntaxTheme {
                 "error": .systemRed,
             ]
         )
-        #else
-        return ImpressSyntaxTheme(
-            defaultColor: .label,
-            colors: [:]
-        )
-        #endif
     }
 }

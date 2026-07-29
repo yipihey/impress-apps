@@ -153,6 +153,7 @@ struct IOSManuscriptDetailView: View {
                 IOSSourceEditorView(
                     text: $body_,
                     selection: $selection,
+                    format: manuscriptFormat,
                     onInsertCitation: { showCitationPicker = true }
                 )
             }
@@ -163,10 +164,27 @@ struct IOSManuscriptDetailView: View {
 
     // MARK: - Preview
 
+    /// The manuscript's format, resolved the same way the macOS editor session
+    /// resolves it: the stored value when it's one we know, else detected from
+    /// the body/title. Drives syntax highlighting, the preview surface, and the
+    /// compile branch — all from this one property.
+    private var manuscriptFormat: DocumentFormat {
+        if let stored = detail?.format, let known = DocumentFormat(rawValue: stored) {
+            return known
+        }
+        return DocumentFormat.detect(from: body_, title: detail?.title)
+    }
+
     @ViewBuilder
     private var previewPane: some View {
         ZStack(alignment: .bottom) {
-            IOSPDFPreviewView(pdfData: compiler.pdfData, isCompiling: compiler.isCompiling)
+            // PreviewKind decides PDF vs. live Markdown vs. nothing.
+            IOSManuscriptPreviewView(
+                format: manuscriptFormat,
+                source: body_,
+                pdfData: compiler.pdfData,
+                isCompiling: compiler.isCompiling
+            )
             if let error = compiler.compilationError, !error.isEmpty {
                 Text(error)
                     .font(.caption.monospaced())
@@ -182,7 +200,9 @@ struct IOSManuscriptDetailView: View {
 
     private func compileNow() async {
         let source = body_
-        let format: DocumentFormat = (detail?.format == "latex") ? .latex : .typst
+        let format = manuscriptFormat
+        // Markdown renders live from the buffer; plain text has no preview.
+        guard format.requiresCompile else { return }
         let inputs = CompileInputs(
             source: source,
             format: format,

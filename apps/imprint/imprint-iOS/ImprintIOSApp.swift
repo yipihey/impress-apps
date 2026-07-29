@@ -27,7 +27,12 @@ struct ImprintIOSApp: App {
         // macOS imprint. URL handling + outline-snapshot upkeep live inside
         // the library view.
         WindowGroup {
+            // `WindowGroup` does not populate `\.undoManager` on iOS the way
+            // `DocumentGroup` did — see IOSUndoSupport.swift. This restores
+            // both the environment value and the responder-chain manager that
+            // shake-to-undo needs.
             IOSManuscriptLibraryView()
+                .undoEnabled()
         }
     }
 }

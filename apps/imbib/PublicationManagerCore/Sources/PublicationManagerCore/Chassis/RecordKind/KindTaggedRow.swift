@@ -1,5 +1,8 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS). The row type and the
+// ONE generic mapping are data over ImpressMailStyle/ImpressFTUI, both of
+// which ship for iOS. The per-kind convenience initializers name the
+// macOS-gated row structs (FigureRowData & co.) and were SPLIT out into
+// `KindTaggedRow+RowData.swift` rather than half-gating this file.
 //
 //  KindTaggedRow.swift
 //  PublicationManagerCore
@@ -103,20 +106,4 @@ public extension KindTaggedRow {
             flag: item.flag,
             tagDisplays: item.tagDisplays)
     }
-
-    @MainActor
-    init(figure: FigureRowData) { self.init(kind: .figure, item: figure) }
-
-    @MainActor
-    init(message: MessageRowData) { self.init(kind: .message, item: message) }
-
-    @MainActor
-    init(task: TaskRowData) { self.init(kind: .task, item: task) }
-
-    @MainActor
-    init(agentRun: AgentRunRowData) { self.init(kind: .agentRun, item: agentRun) }
-
-    @MainActor
-    init(manuscript: ManuscriptRowData) { self.init(kind: .manuscript, item: manuscript) }
 }
-#endif

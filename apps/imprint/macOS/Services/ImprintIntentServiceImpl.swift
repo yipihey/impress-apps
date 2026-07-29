@@ -27,7 +27,7 @@ final class ImprintIntentServiceImpl: ImprintIntentService {
     func listDocuments(limit: Int) async throws -> [DocumentEntity] {
         let n = max(0, limit)
         let manuscripts = await MainActor.run {
-            ManuscriptStoreAdapter.shared.listManuscripts(limit: UInt32(n == 0 ? 100 : n))
+            ManuscriptStoreAdapter.shared.allManuscripts(limit: UInt32(n == 0 ? 100 : n))
         }
         let primary = manuscripts.prefix(n == 0 ? Int.max : n).map(Self.entity(for:))
         if !primary.isEmpty { return Array(primary) }
@@ -53,7 +53,7 @@ final class ImprintIntentServiceImpl: ImprintIntentService {
     func searchDocumentsByTitle(_ query: String) async throws -> [DocumentEntity] {
         let needle = query.lowercased()
         let manuscripts = await MainActor.run {
-            ManuscriptStoreAdapter.shared.listManuscripts(limit: 10_000)
+            ManuscriptStoreAdapter.shared.allManuscripts(limit: 10_000)
         }
         let storeHits = manuscripts
             .filter { $0.title.lowercased().contains(needle) }
