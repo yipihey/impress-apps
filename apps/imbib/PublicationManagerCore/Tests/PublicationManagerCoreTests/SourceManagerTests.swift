@@ -19,6 +19,7 @@ final class SourceManagerTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        try await XCTSkipUnlessKeychainAvailable()
 
         // Use unique prefix for test isolation
         credentialManager = CredentialManager(keyPrefix: "test.\(UUID().uuidString)")

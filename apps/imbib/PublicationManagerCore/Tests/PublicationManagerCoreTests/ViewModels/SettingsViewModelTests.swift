@@ -19,6 +19,7 @@ final class SettingsViewModelTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        try await XCTSkipUnlessKeychainAvailable()
 
         mockCredentialManager = MockCredentialManager()
 
