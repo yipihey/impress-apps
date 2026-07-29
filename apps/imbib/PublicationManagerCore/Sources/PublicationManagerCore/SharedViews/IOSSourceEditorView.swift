@@ -478,16 +478,39 @@ final class SourceTextView: UITextView {
 public struct IOSPDFPreviewView: View {
     let pdfData: Data?
     let isCompiling: Bool
+    /// Diagnostic from the last compile, if it failed.
+    ///
+    /// Without this the view cannot tell "not compiled yet" from "the compile
+    /// FAILED", and showed the same prompt for both — so a document with a
+    /// Typst error looked like one nobody had compiled. The compile is
+    /// automatic (debounced on edit, and on open), so a prompt telling the
+    /// user to compile was doubly wrong.
+    let compilationError: String?
 
-    public init(pdfData: Data?, isCompiling: Bool) {
+    public init(pdfData: Data?, isCompiling: Bool, compilationError: String? = nil) {
         self.pdfData = pdfData
         self.isCompiling = isCompiling
+        self.compilationError = compilationError
     }
 
     public var body: some View {
         ZStack {
             if let data = pdfData {
                 IOSPDFKitView(data: data)
+            } else if let error = compilationError, !isCompiling {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Compile Failed", systemImage: "exclamationmark.triangle.fill")
+                            .font(.headline)
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding()
+                }
+                .accessibilityIdentifier("preview.compileError")
             } else {
                 VStack {
                     Image(systemName: "doc.text")
@@ -498,7 +521,10 @@ public struct IOSPDFPreviewView: View {
                         .font(.headline)
                         .foregroundStyle(.secondary)
 
-                    Text(isCompiling ? "Compiling…" : "Compile the document to see the preview")
+                    // Never "compile it yourself": the compile runs on open and
+                    // on edit. Before the first result there is nothing to ask
+                    // the user to do.
+                    Text(isCompiling ? "Compiling…" : "Preparing preview…")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }

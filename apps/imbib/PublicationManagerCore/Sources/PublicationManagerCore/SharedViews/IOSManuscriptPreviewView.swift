@@ -28,23 +28,32 @@ public struct IOSManuscriptPreviewView: View {
     /// Latest compiled artifact, for `.compiledPDF` formats.
     let pdfData: Data?
     let isCompiling: Bool
+    /// Diagnostic from the last compile, so a failure is shown as a failure
+    /// rather than as an empty pane.
+    let compilationError: String?
 
     public init(
         format: DocumentFormat,
         source: String,
         pdfData: Data?,
-        isCompiling: Bool
+        isCompiling: Bool,
+        compilationError: String? = nil
     ) {
         self.format = format
         self.source = source
         self.pdfData = pdfData
         self.isCompiling = isCompiling
+        self.compilationError = compilationError
     }
 
     public var body: some View {
         switch format.previewKind {
         case .compiledPDF:
-            IOSPDFPreviewView(pdfData: pdfData, isCompiling: isCompiling)
+            IOSPDFPreviewView(
+                pdfData: pdfData,
+                isCompiling: isCompiling,
+                compilationError: compilationError
+            )
         case .renderedMarkdown:
             IOSMarkdownPreviewView(source: source)
         case .none:

@@ -92,8 +92,18 @@ struct IOSContentView: View {
             // First compile on open so the preview is populated.
             await compile()
         }
-        .onChange(of: document.source) { _, _ in
-            scheduleRecompile()
+        .onChange(of: document.source) { oldSource, newSource in
+            // The host loads the body from the store ASYNCHRONOUSLY, so the
+            // `.task` above often runs against an empty buffer and compiles
+            // nothing. When the real body arrives, compile it NOW rather than
+            // waiting out the typing debounce — otherwise opening a document
+            // and switching straight to Preview shows an empty pane for the
+            // better part of a second, which reads as "it isn't compiling".
+            if oldSource.isEmpty, !newSource.isEmpty {
+                Task { await compile() }
+            } else {
+                scheduleRecompile()
+            }
         }
         .onChange(of: compactPane) { _, newPane in
             // Revealing the preview on iPhone with nothing compiled yet (e.g.
@@ -209,7 +219,8 @@ struct IOSContentView: View {
             format: document.format,
             source: document.source,
             pdfData: vm.pdfData,
-            isCompiling: vm.isCompiling
+            isCompiling: vm.isCompiling,
+            compilationError: vm.compilationError
         )
         .accessibilityIdentifier("editor.preview")
     }
