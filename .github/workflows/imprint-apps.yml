@@ -100,7 +100,7 @@ jobs:
         working-directory: apps/imprint
         run: |
           set -o pipefail
-          xcodebuild -project imprint.xcodeproj \
+          xcodebuild -derivedDataPath "$PWD/.ci-derived" -project imprint.xcodeproj \
             -scheme imprint \
             -configuration Debug \
             -destination 'platform=macOS' \

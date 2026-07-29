@@ -86,3 +86,7 @@ DerivedData/
 # apps/imbib/ImbibRustCore/Sources and IS tracked; this one is a build output
 # that nothing reads, and it silently drifted while tracked.
 crates/imbib-core/generated/
+
+# CI xcodebuild output (self-hosted runner): kept out of the developer's
+# shared ~/Library/Developer/Xcode/DerivedData.
+.ci-derived/

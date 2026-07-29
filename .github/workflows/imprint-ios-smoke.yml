@@ -115,13 +115,13 @@ jobs:
           set -eo pipefail
           # xcodebuild-accepted destination (simctl's list can disagree with
           # xcodebuild's destination set on CI runners; see imbib-tests.yml).
-          UDID=$(xcodebuild -scheme imprint-iOS -showdestinations 2>/dev/null \
+          UDID=$(xcodebuild -derivedDataPath "$PWD/.ci-derived" -scheme imprint-iOS -showdestinations 2>/dev/null \
             | grep "platform:iOS Simulator" | grep -v placeholder \
             | grep -oE 'id:[0-9A-F-]{36}' | head -1 | cut -c4-)
           echo "sim: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
-          xcodebuild -project imprint.xcodeproj -scheme imprint-iOS -configuration Debug \
+          xcodebuild -derivedDataPath "$PWD/.ci-derived" -project imprint.xcodeproj -scheme imprint-iOS -configuration Debug \
             -destination "id=$UDID" -derivedDataPath build-ios \
             CODE_SIGNING_ALLOWED=NO build | tail -30
           APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imprint.app' | head -1)

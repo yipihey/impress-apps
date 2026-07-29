@@ -167,7 +167,7 @@ jobs:
         working-directory: apps/implore
         run: |
           set -o pipefail
-          xcodebuild -project implore.xcodeproj \
+          xcodebuild -derivedDataPath "$PWD/.ci-derived" -project implore.xcodeproj \
             -scheme implore \
             -configuration Debug \
             -destination 'platform=macOS' \

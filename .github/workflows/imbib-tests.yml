@@ -35,9 +35,13 @@ jobs:
       - name: Cache Swift Package Manager
         uses: actions/cache@v4
         with:
+          # NOT ~/Library/Developer/Xcode/DerivedData: on the self-hosted
+          # runner that is the DEVELOPER's DerivedData. Caching it let CI
+          # restore over the copy the human is using, and CI's
+          # CODE_SIGNING_ALLOWED=NO builds (no entitlements, ad-hoc signed)
+          # then re-prompt TCC for app-group access every launch.
           path: |
             ~/Library/Caches/org.swift.swiftpm
-            ~/Library/Developer/Xcode/DerivedData
           key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
@@ -190,7 +194,7 @@ jobs:
           # resolution/build failure reports green (masked exactly this way
           # until 2026-07-27, when the missing ImprintCore artifact "passed").
           set -o pipefail
-          xcodebuild test \
+          xcodebuild -derivedDataPath "$PWD/.ci-derived" test \
             -scheme imbib \
             -only-testing:imbibTests \
             -destination 'platform=macOS' \
@@ -287,7 +291,7 @@ jobs:
       - name: Build imbib iOS (Simulator)
         working-directory: apps/imbib/imbib
         run: |
-          xcodebuild build \
+          xcodebuild -derivedDataPath "$PWD/.ci-derived" build \
             -scheme imbib-iOS \
             -destination 'generic/platform=iOS Simulator' \
             -resultBundlePath ${{ runner.temp }}/BuildResults-iOS.xcresult \
@@ -306,13 +310,13 @@ jobs:
           # device list and xcodebuild's destination set can disagree on CI
           # runners (multiple runtimes/device sets), so a simctl-picked UDID
           # may be rejected with 'Unable to find a destination'.
-          UDID=$(xcodebuild -scheme imbib-iOS -showdestinations 2>/dev/null \
+          UDID=$(xcodebuild -derivedDataPath "$PWD/.ci-derived" -scheme imbib-iOS -showdestinations 2>/dev/null \
             | grep "platform:iOS Simulator" | grep -v placeholder \
             | grep -oE 'id:[0-9A-F-]{36}' | head -1 | cut -c4-)
           echo "sim: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
-          xcodebuild -scheme imbib-iOS -configuration Debug \
+          xcodebuild -derivedDataPath "$PWD/.ci-derived" -scheme imbib-iOS -configuration Debug \
             -destination "id=$UDID" -derivedDataPath build-ios \
             CODE_SIGNING_ALLOWED=NO build | tail -30
           APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imbib.app' | head -1)
