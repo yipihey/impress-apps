@@ -3778,6 +3778,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "impart-service",
+ "impress-app-client",
  "reqwest",
  "serde",
  "serde_json",
@@ -3985,6 +3986,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "implore-service",
+ "impress-app-client",
  "reqwest",
  "serde",
  "serde_json",

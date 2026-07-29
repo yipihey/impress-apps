@@ -7,6 +7,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 
 /// Minimal publication metadata extracted from the shared store.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -18,16 +19,44 @@ pub struct PublicationMeta {
     pub cite_key: String,
 }
 
-/// Open the main impress store read-only.
+/// How long to wait for a lock before giving up. The app writes constantly;
+/// waiting forever turns a busy database into a hung MCP session.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Open the main impress store for reading.
+///
+/// **Not** `SQLITE_OPEN_READ_ONLY`, despite only ever reading. The store runs in
+/// WAL mode, and a read-only connection may not create or write the `-shm`
+/// index that WAL readers use; SQLite then falls back to scanning the whole WAL
+/// to build a private snapshot. Against the live store — ~317 MB with a 167 MB
+/// WAL — that took minutes, which is why `impress://store/schemas` appeared to
+/// hang and why opening the store at startup stalled `initialize`.
+///
+/// So: open read-write so WAL indexing works normally, then forbid writes with
+/// `PRAGMA query_only`, which is enforced by SQLite itself rather than by
+/// convention. Falls back to read-only if the file is genuinely not writable
+/// (someone else's store, a locked volume), where slow-but-working beats
+/// failing.
 pub fn open_main_store(path: &Path) -> Result<Connection, String> {
     if !path.exists() {
         return Err(format!("Main store not found: {}", path.display()));
     }
-    let conn = Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|e| format!("Failed to open main store: {}", e))?;
+    let read_write = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+        | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+        | rusqlite::OpenFlags::SQLITE_OPEN_URI;
+    let conn = match Connection::open_with_flags(path, read_write) {
+        Ok(conn) => conn,
+        Err(_) => Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| format!("Failed to open main store: {}", e))?,
+    };
+    conn.busy_timeout(BUSY_TIMEOUT)
+        .map_err(|e| format!("busy_timeout: {e}"))?;
+    // Enforced by SQLite: any write on this connection now errors.
+    conn.pragma_update(None, "query_only", "ON")
+        .map_err(|e| format!("query_only: {e}"))?;
     Ok(conn)
 }
 

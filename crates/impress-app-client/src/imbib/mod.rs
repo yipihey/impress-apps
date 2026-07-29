@@ -68,7 +68,7 @@ impl ImbibClient {
                 builder = builder.default_headers(headers);
             }
         }
-        let http = builder.build().expect("reqwest client builds");
+        let http = crate::loopback_http_client(builder);
         Self {
             base_url,
             http,

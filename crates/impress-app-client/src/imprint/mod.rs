@@ -42,10 +42,8 @@ impl ImprintClient {
     }
 
     pub fn with_base_url(base_url: Url) -> Self {
-        let http = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("reqwest client builds");
+        // no_proxy + no panic: see impress_app_client::loopback_http_client.
+        let http = crate::loopback_http_client(Client::builder().timeout(Duration::from_secs(30)));
         Self { base_url, http }
     }
 

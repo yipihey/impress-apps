@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+impress-app-client = { workspace = true }
 implore-service = { workspace = true }
 async-trait = { workspace = true }
 reqwest = { workspace = true }

@@ -153,29 +153,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // binary unusable as a sidecar spawned at app launch (impel). Clients
     // that only use the `#[impress_service]` inventory tools never pay it.
 
-    // Open main store (optional — metadata enrichment degrades gracefully)
-    let main_store = if store_path.exists() {
-        match store::open_main_store(&store_path) {
-            Ok(conn) => {
-                eprintln!("impress-mcp: main store opened at {}", store_path.display());
-                Some(conn)
-            }
-            Err(e) => {
-                eprintln!("impress-mcp: warning: could not open main store: {}", e);
-                None
-            }
-        }
-    } else {
-        eprintln!(
-            "impress-mcp: main store not found at {}, metadata enrichment disabled",
-            store_path.display()
-        );
-        None
-    };
+    // The store is NOT opened here. It is opened on first use — see
+    // `ToolContext::main_store`. Opening it eagerly meant that a store which
+    // was large, locked, or mid-WAL-recovery delayed startup past the client's
+    // patience, and because this happens before `run_server` the client got no
+    // `initialize` response at all. Protocol setup, `tools/list` and every
+    // store-independent call must work regardless of the store's state.
 
-    eprintln!("impress-mcp: ready (semantic search deferred until first use)");
-
-    let ctx = ToolContext::deferred(embeddings_path, main_store);
+    let ctx = ToolContext::deferred(embeddings_path, store_path);
 
     server::run_server(ctx)
 }

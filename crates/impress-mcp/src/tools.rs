@@ -33,17 +33,41 @@ pub struct SemanticContext {
 pub struct ToolContext {
     embeddings_path: PathBuf,
     semantic: OnceCell<Option<SemanticContext>>,
-    pub main_store: Option<Connection>,
+    /// Opened on first use, never at startup. Opening it eagerly meant a slow
+    /// or locked store delayed `initialize` — the client then saw no response
+    /// at all, rather than a server that simply could not enrich metadata.
+    /// Only the two hand-written semantic tools consult it.
+    main_store_path: PathBuf,
+    main_store: OnceCell<Option<Connection>>,
 }
 
 impl ToolContext {
-    /// Build a context that defers the embedding stack until it is asked for.
-    pub fn deferred(embeddings_path: PathBuf, main_store: Option<Connection>) -> Self {
+    /// Build a context that defers BOTH the embedding stack and the main store
+    /// until something actually needs them.
+    pub fn deferred(embeddings_path: PathBuf, main_store_path: PathBuf) -> Self {
         Self {
             embeddings_path,
             semantic: OnceCell::new(),
-            main_store,
+            main_store_path,
+            main_store: OnceCell::new(),
         }
+    }
+
+    /// The shared store, opened on first use. `None` when it is missing or
+    /// cannot be opened — metadata enrichment then degrades, which is what the
+    /// callers already handle.
+    pub fn main_store(&self) -> Option<&Connection> {
+        self.main_store
+            .get_or_init(
+                || match crate::store::open_main_store(&self.main_store_path) {
+                    Ok(conn) => Some(conn),
+                    Err(e) => {
+                        eprintln!("impress-mcp: main store unavailable: {e}");
+                        None
+                    }
+                },
+            )
+            .as_ref()
     }
 
     /// The embedding stack, built on first call. `None` when it could not be
@@ -174,7 +198,7 @@ pub fn tool_search_papers(ctx: &ToolContext, args: &Value) -> Result<String, Str
 
     // 5. Enrich with metadata from main store
     let pub_ids: Vec<String> = enriched_passages.keys().cloned().collect();
-    let metadata = if let Some(conn) = &ctx.main_store {
+    let metadata = if let Some(conn) = ctx.main_store() {
         list_publications_by_ids(conn, &pub_ids).unwrap_or_default()
     } else {
         HashMap::new()
@@ -285,7 +309,7 @@ pub fn tool_list_indexed_papers(ctx: &ToolContext, args: &Value) -> Result<Strin
     }
 
     // Enrich with metadata
-    let metadata: HashMap<String, PublicationMeta> = if let Some(conn) = &ctx.main_store {
+    let metadata: HashMap<String, PublicationMeta> = if let Some(conn) = ctx.main_store() {
         list_publications_by_ids(conn, &pub_ids).unwrap_or_default()
     } else {
         HashMap::new()
