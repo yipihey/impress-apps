@@ -20,6 +20,19 @@ final class CredentialManagerTests: XCTestCase {
         try await super.setUp()
         // Use unique prefix for test isolation
         credentialManager = CredentialManager(keyPrefix: "test.credentials.\(UUID().uuidString)")
+
+        // These tests exercise the REAL login keychain. Under a launchd-run
+        // CI runner (the self-hosted service) the unsigned test binary's
+        // keychain writes are denied non-interactively and every test would
+        // fail with storageFailed — skip the suite there rather than fake a
+        // keychain. Locally (interactive session) the probe succeeds and the
+        // suite runs as always.
+        do {
+            try await credentialManager.store("probe", for: "keychain-probe", type: .apiKey)
+            await credentialManager.delete(for: "keychain-probe", type: .apiKey)
+        } catch {
+            throw XCTSkip("login keychain unavailable in this environment (\(error))")
+        }
     }
 
     override func tearDown() async throws {
