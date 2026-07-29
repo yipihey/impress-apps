@@ -4,7 +4,7 @@
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::error::Result;
+use crate::error::{AppClientError, Result};
 use crate::imprint::ImprintClient;
 use crate::transport::decode_envelope;
 
@@ -243,12 +243,46 @@ impl ImprintClient {
     }
 
     /// `POST /api/documents/{id}/comments`
+    ///
+    /// Three things were wrong here and each one produced the same silent
+    /// `null`, which is why this looked like "comments do not work":
+    ///
+    /// * The field is `content`. This sent `body`, so imprint answered
+    ///   `400 Missing 'content'`.
+    /// * imprint anchors comments by character offsets, not by quoted text —
+    ///   there is no `anchor` field. The quoted anchor is resolved to offsets
+    ///   here by locating it in the document's own source.
+    /// * The response struct had a single `#[serde(default)]` field, so an
+    ///   error envelope parsed cleanly into `comment: None` and the failure
+    ///   was indistinguishable from "no comment was created".
+    ///
+    /// A comment also requires the document to be OPEN in imprint; the app
+    /// answers "No comment service registered … is it open?", which now
+    /// reaches the caller instead of being swallowed.
     pub async fn create_comment(
         &self,
         document_id: &str,
         body_text: String,
         anchor: Option<String>,
     ) -> Result<Option<CommentRecord>> {
+        // Resolve the quoted anchor to offsets against the live source.
+        let (start, end) = match anchor.as_deref().filter(|a| !a.is_empty()) {
+            Some(needle) => {
+                let source = self.get_content(document_id).await?.unwrap_or_default();
+                match source.find(needle) {
+                    Some(at) => (at, at + needle.len()),
+                    None => {
+                        return Err(AppClientError::Api(format!(
+                            "anchor text not found in document {document_id}: {needle:?}. \
+                             The comment was not created. Anchor must be an exact substring \
+                             of the document source (see imprint-app-service_get-content)."
+                        )))
+                    }
+                }
+            }
+            None => (0, 0),
+        };
+
         let url = self.base_url.join(&format!(
             "/api/documents/{}/comments",
             urlencoding::encode(document_id)
@@ -256,16 +290,32 @@ impl ImprintClient {
         #[derive(Deserialize)]
         struct R {
             #[serde(default)]
+            status: Option<String>,
+            #[serde(default)]
+            error: Option<String>,
+            #[serde(default)]
             comment: Option<CommentRecord>,
         }
         let body: R = decode_envelope(
             self.http
                 .post(url)
-                .json(&json!({ "body": body_text, "anchor": anchor }))
+                .json(&json!({
+                    "content": body_text,
+                    "start": start,
+                    "end": end,
+                }))
                 .send()
                 .await?,
         )
         .await?;
+        if let Some(message) = body.error {
+            return Err(AppClientError::Api(message));
+        }
+        if body.status.as_deref() == Some("error") {
+            return Err(AppClientError::Api(format!(
+                "imprint refused the comment on {document_id}"
+            )));
+        }
         Ok(body.comment)
     }
 
