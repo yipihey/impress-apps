@@ -255,12 +255,35 @@ mod resource_tests {
         }
     }
 
-    /// The store resources read the real (possibly absent) store, so this
-    /// asserts the SHAPE and that they never fail open: `store_instance`
-    /// degrades to an empty in-memory store rather than erroring, which is
-    /// what makes the server usable before the apps have ever run.
+    /// Point the services at a scratch database for the rest of this test
+    /// binary.
+    ///
+    /// The store resources must NOT read the developer's real store: it lives
+    /// in a TCC-protected app-group container, and a sandboxed or launchd-run
+    /// process (the self-hosted CI runner) blocks indefinitely opening it —
+    /// `cargo test --workspace` hung for three hours on exactly that. A
+    /// scratch path also makes the assertions deterministic instead of
+    /// dependent on whatever the user happens to have imported.
+    fn use_scratch_store() {
+        use std::sync::Once;
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            let path = std::env::temp_dir().join(format!(
+                "impress-mcp-resource-tests-{}.sqlite",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&path);
+            let _ = impress_store_service::set_store_path(&path);
+        });
+    }
+
+    /// Asserts the SHAPE of the store resources and that they never fail
+    /// open: `store_instance` degrades to an empty in-memory store rather
+    /// than erroring, which is what makes the server usable before the apps
+    /// have ever run.
     #[test]
     fn store_resources_answer_with_json_of_the_documented_shape() {
+        use_scratch_store();
         let schemas =
             handle_resources_read(&json!(4), &json!({"params": {"uri": STORE_SCHEMAS_URI}}));
         let contents = &schemas["result"]["contents"][0];
