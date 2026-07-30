@@ -316,8 +316,10 @@ mod tests {
         assert_eq!(unregistered.item_count, 1);
         assert!(unregistered.fields.is_empty());
 
-        // Registered-but-empty kinds are still discoverable.
-        let empty = row("task");
+        // Registered-but-empty kinds are still discoverable. (`task@1.0.0` is
+        // the canonical spelling since ADR-0022 C4 unified the three task-ref
+        // spellings; the bare `task` registration was deleted with them.)
+        let empty = row("task@1.0.0");
         assert!(empty.registered);
         assert_eq!(empty.item_count, 0);
 

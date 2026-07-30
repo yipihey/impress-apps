@@ -27,9 +27,11 @@
 //
 //  1. **Lowercase at the boundary.** `UUID().uuidString` is uppercase; the
 //     Rust store's canonical id form is lowercase and payload parent refs are
-//     matched by string equality (see the imbib CLAUDE.md invariant, and
-//     `RustStoreAdapter.createManuscriptCollection`, which has always done
-//     this). Every id crossing this file is `.lowercased()` on the way in.
+//     matched by string equality (see the imbib CLAUDE.md invariant, which
+//     `RustStoreAdapter.createManuscriptCollection` used to exemplify before
+//     ADR-0022 F3 deleted it as the last legacy manuscript-folder writer —
+//     this file is now the only place that does it). Every id crossing this
+//     file is `.lowercased()` on the way in.
 //  2. **Identical notifications.** Callers used to post specific
 //     `StoreEvent`s / `dataVersion` bumps per kind; each method below
 //     reproduces the event the path it replaced posted, via

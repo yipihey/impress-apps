@@ -532,27 +532,34 @@ impl ImbibStore {
     // canonical fields the migration preserves verbatim. Only the QUERY was
     // ever blind.
 
+    /// The collections of one library, ordered by `sort_order`.
+    ///
+    /// **The read is the kernel's** (ADR-0022 F3). This export's own query
+    /// matched `schema_ref = "imbib/collection"` by equality, so it returned
+    /// EMPTY the moment the `collections.unified` marker went on — and F1's fix
+    /// was a Swift-side reroute, which protected `RustStoreAdapter`'s callers
+    /// and nothing else. Everything that reaches this function *directly* was
+    /// still blind: `imbib-service::library_service::list_collections` (the
+    /// whole MCP / CLI / impel agent surface), and F1's own legacy FALLBACK,
+    /// which reactivates the blind path exactly when the kernel handle fails to
+    /// open. Fixing the EXPORT fixes every consumer at once, including the ones
+    /// nobody has written yet.
+    ///
+    /// `list_tree_in` is an exact drop-in: same `HasParent(library)` filter on
+    /// the ENVELOPE (which the migration never touches), same
+    /// `payload.sort_order` ordering, and `CollectionRow::member_count` is the
+    /// outgoing `Contains`-edge count `count_collection_members` computed here
+    /// — the equality F1 established and `CollectionKernelReadParityTests`
+    /// pins on imbib's real write path.
     pub fn list_collections(
         &self,
         library_id: String,
     ) -> Result<Vec<CollectionRow>, StoreApiError> {
-        let parent_uuid = parse_uuid(&library_id)?;
-        let q = ItemQuery {
-            schema: Some("imbib/collection".into()),
-            predicates: vec![Predicate::HasParent(parent_uuid)],
-            sort: vec![SortDescriptor {
-                field: "payload.sort_order".into(),
-                ascending: true,
-            }],
-            ..Default::default()
-        };
-        let items = self.store.query(&q)?;
-        let mut rows = Vec::new();
-        for item in &items {
-            let pub_count = self.count_collection_members(item.id)?;
-            rows.push(item_to_collection_row(item, pub_count as i32));
-        }
-        Ok(rows)
+        // Parsed here, not only in the kernel, so a malformed library id keeps
+        // returning `InvalidInput` from the same place it always has.
+        parse_uuid(&library_id)?;
+        let rows = collection_ops::list_tree_in(&self.store, &IMBIB_COLLECTION, Some(&library_id))?;
+        Ok(rows.iter().map(kernel_collection_row).collect())
     }
 
     /// Create a root collection in `library_id`.
@@ -1649,6 +1656,23 @@ impl ImbibStore {
     }
 
     /// Delete a library with snapshot for undo.
+    ///
+    /// The child-collection half of the snapshot is the KERNEL's read
+    /// (ADR-0022 F3). It used to be a `schema_ref = "imbib/collection"` query,
+    /// which is the failure mode this whole work package is about — except
+    /// here it did not fail loudly or even visibly. Post-flip the walk found
+    /// nothing, the delete orphaned every collection anyway (`ON DELETE SET
+    /// NULL` on the envelope parent), and `restore_library` put the library and
+    /// its publications back while silently leaving the collections detached
+    /// from any library, invisible to every per-library read in the suite.
+    /// Silent data loss behind a working Undo entry.
+    ///
+    /// "The collections of a library" is `list_tree_in(IMBIB_COLLECTION,
+    /// library)` — the same envelope filter, resolved against the marker. It
+    /// returns nested sub-collections too, exactly as the legacy query did:
+    /// every publication collection carries its owning library on the envelope
+    /// whatever its depth in the tree (`EnvelopeParent::OwningLibrary`), and
+    /// `restore_library`'s `SetParent` re-attaches all of them.
     pub fn delete_library_undoable(
         &self,
         id: String,
@@ -1676,18 +1700,15 @@ impl ImbibStore {
             .map(|p| p.id.to_string())
             .collect();
 
-        // Record child collection IDs
-        let coll_q = ItemQuery {
-            schema: Some("imbib/collection".into()),
-            predicates: vec![Predicate::HasParent(uuid)],
-            ..Default::default()
-        };
-        let child_collection_ids: Vec<String> = self
-            .store
-            .query(&coll_q)?
-            .iter()
-            .map(|c| c.id.to_string())
-            .collect();
+        // Record child collection IDs (same fate as the publications, and the
+        // same `SetParent` restore — but read through the kernel, so the
+        // snapshot is complete on both sides of the `collections.unified`
+        // marker).
+        let child_collection_ids: Vec<String> =
+            collection_ops::list_tree_in(&self.store, &IMBIB_COLLECTION, Some(&id))?
+                .into_iter()
+                .map(|c| c.id)
+                .collect();
 
         // Delete the library (children get parent_id = NULL via ON DELETE SET NULL)
         self.store.delete(uuid)?;
@@ -2465,9 +2486,19 @@ impl ImbibStore {
     /// NULL. Four of this store's collections are parented to nothing, so the
     /// per-library sum reports zero — which is exactly what `/api/status` used
     /// to publish. Counting rows by schema is the only total that is right.
+    ///
+    /// Which is why it needs the marker (ADR-0022 F3): the schema this counts
+    /// by is exactly the spelling `collection_migration` rewrites away, so the
+    /// literal reported 0 post-flip. Resolved through
+    /// [`collection_ops::resolve`] and its `scope_predicates`, which exist for
+    /// precisely this caller — one that owns its own `ItemQuery` and must not
+    /// fork the resolution table. Still a `COUNT(*)`, not a tree read: this
+    /// answers `/api/status` and has no use for per-row member counts.
     pub fn count_collections(&self) -> Result<u32, StoreApiError> {
+        let binding = collection_ops::resolve(&self.store, &IMBIB_COLLECTION)?;
         let q = ItemQuery {
-            schema: Some("imbib/collection".into()),
+            schema: Some(binding.schema_ref.into()),
+            predicates: binding.scope_predicates(),
             ..Default::default()
         };
         Ok(self.store.count(&q)? as u32)
@@ -4333,50 +4364,48 @@ impl ImbibStore {
 
     /// List all manuscript-collections (flat; tree assembly via `parent_id`
     /// happens in the sidebar view model, same as imbib collections).
+    ///
+    /// Kernel-read since ADR-0022 F3, for the same reason as
+    /// [`Self::list_collections`] — and with more at stake, because this one is
+    /// still LIVE: `ImbibSidebarViewModel.manuscriptFolderNodes()` is the only
+    /// reader, it is dead in imbib (publications-only since 2026-07-27) and
+    /// very much alive in imprint, whose Manuscripts section runs the same
+    /// shared chassis. Post-flip the legacy literal emptied imprint's folder
+    /// tree while imprint's own writes — already on the kernel through
+    /// `ManuscriptStoreAdapter` — kept landing in a tree the sidebar could no
+    /// longer see.
+    ///
+    /// Two shape notes, both deliberate:
+    ///
+    /// - `manuscript_count` is now the kernel's `member_count` (every outgoing
+    ///   `Contains` edge) where it was `count(schema = "manuscript" AND
+    ///   ReferencedBy(Contains, folder))`. The numbers agree for every row this
+    ///   store can hold — nothing files a non-manuscript into a manuscript
+    ///   folder — and where they could ever diverge the kernel's is the number
+    ///   imprint's own `collectionMemberCounts` already reports for the same
+    ///   folder. This REMOVES a divergence rather than introducing one.
+    /// - `is_workspace` is imprint's, not the kernel's (the kernel has no such
+    ///   concept), so it is read off the item — from the payload root where a
+    ///   pre-flip or post-flip-created row carries it, and from the migration's
+    ///   `legacy` extras bag where a MIGRATED row carries it. Without that
+    ///   fallback the flip would silently demote every migrated workspace.
     pub fn list_manuscript_collections(
         &self,
     ) -> Result<Vec<ManuscriptCollectionRow>, StoreApiError> {
-        let q = ItemQuery {
-            schema: Some("manuscript-collection".into()),
-            sort: vec![SortDescriptor {
-                field: "payload.sort_order".into(),
-                ascending: true,
-            }],
-            ..Default::default()
-        };
-        let items = self.store.query(&q)?;
-        let mut rows = Vec::new();
-        for item in &items {
-            let count_q = ItemQuery {
-                schema: Some("manuscript".into()),
-                predicates: vec![Predicate::ReferencedBy(EdgeType::Contains, item.id)],
-                ..Default::default()
-            };
-            let count = self.store.count(&count_q)? as i32;
-            rows.push(item_to_manuscript_collection_row(item, count));
-        }
-        Ok(rows)
-    }
-
-    /// Create a manuscript-collection (folder). Nesting via `parent_id`.
-    pub fn create_manuscript_collection(
-        &self,
-        name: String,
-        parent_id: Option<String>,
-    ) -> Result<ManuscriptCollectionRow, StoreApiError> {
-        if let Some(pid) = &parent_id {
-            parse_uuid(pid)?; // validate early
-        }
-        let id = Uuid::new_v4();
-        let mut payload = std::collections::BTreeMap::new();
-        payload.insert("name".into(), Value::String(name));
-        payload.insert("sort_order".into(), Value::Int(0));
-        if let Some(pid) = parent_id {
-            payload.insert("parent_collection_ref".into(), Value::String(pid));
-        }
-        let item = conversion::bare_item(id, "manuscript-collection", payload);
-        self.store.insert(item.clone())?;
-        Ok(item_to_manuscript_collection_row(&item, 0))
+        let rows = collection_ops::list_tree(&self.store, &MANUSCRIPT_COLLECTION)?;
+        let workspaces = self.manuscript_workspace_ids()?;
+        Ok(rows
+            .iter()
+            .map(|row| ManuscriptCollectionRow {
+                id: row.id.clone(),
+                name: row.name.clone(),
+                parent_id: row.parent_id.clone(),
+                sort_order: row.sort_order as i32,
+                is_smart: row.is_smart,
+                is_workspace: workspaces.contains(&row.id),
+                manuscript_count: row.member_count as i32,
+            })
+            .collect())
     }
 
     /// List revision snapshots of a manuscript, newest first.
@@ -4580,6 +4609,46 @@ impl ImbibStore {
             ..Default::default()
         };
         Ok(self.store.count(&q)?)
+    }
+
+    /// Ids of the manuscript folders imprint marked `is_workspace`, on BOTH
+    /// sides of the `collections.unified` marker.
+    ///
+    /// One query, not one `get` per row: the tree read already carries every
+    /// structural field, and this is the single field the kernel does not know
+    /// about. `is_workspace` is not a canonical collection field, so the
+    /// migration files it into the `legacy` extras bag
+    /// ([`collection_migration::LEGACY_EXTRAS_KEY`]) rather than dropping it —
+    /// which means a MIGRATED row spells it `legacy.is_workspace` while a row
+    /// imprint created before or after the flip spells it at the payload root
+    /// (`ManuscriptStoreAdapter.createCollection` writes it as an additive
+    /// follow-up field on whatever schema the kernel just wrote). Both
+    /// spellings are the same fact, so both are read.
+    fn manuscript_workspace_ids(&self) -> Result<std::collections::HashSet<String>, StoreApiError> {
+        use impress_core::collection_migration::LEGACY_EXTRAS_KEY;
+
+        let binding = collection_ops::resolve(&self.store, &MANUSCRIPT_COLLECTION)?;
+        let q = ItemQuery {
+            schema: Some(binding.schema_ref.into()),
+            predicates: binding.scope_predicates(),
+            ..Default::default()
+        };
+        let flagged = |payload: &std::collections::BTreeMap<String, Value>| {
+            matches!(payload.get("is_workspace"), Some(Value::Bool(true)))
+        };
+        Ok(self
+            .store
+            .query(&q)?
+            .into_iter()
+            .filter(|item| {
+                flagged(&item.payload)
+                    || match item.payload.get(LEGACY_EXTRAS_KEY) {
+                        Some(Value::Object(extras)) => flagged(extras),
+                        _ => false,
+                    }
+            })
+            .map(|item| item.id.to_string())
+            .collect())
     }
 
     fn count_collection_members(&self, collection_id: Uuid) -> Result<usize, StoreApiError> {

@@ -208,6 +208,11 @@ mixed-kind gate test, litmus re-run) landed the same day.
    *(Superseded in part by C2 below: publication collections' WRITES now run on
    the kernel, and the audit is finished. The flag still ships OFF, for a
    smaller and now fully enumerated reason.)*
+   *(Superseded outright by F3, 2026-07-30: the enumerated reason is gone and the
+   verdict is READY. The flag still ships OFF as a DEFAULT — it is a deliberate,
+   human-invoked data migration, not something an app turns on at launch — but
+   there is no longer a code reason not to turn it on. See the F3 verdict and
+   the flip procedure at the end of this document.)*
 
 ## C2 — the collection kernel completed (2026-07-30)
 
@@ -505,6 +510,9 @@ explicitly rather than described.
 
 ## Flip-readiness verdict, re-run on the F2 tree (2026-07-30)
 
+*Superseded by the F3 verdict below (2026-07-30). Kept because it is the audit
+F3 was scoped against, and its residue table is what the final verdict walks.*
+
 **NOT READY. The flag stays OFF.** F2 closed the four exports it was scoped to
 and two more besides — but the re-run found the gate is **wider than the four**,
 in three places the previous audit did not reach: a Swift *migration runner*, the
@@ -574,6 +582,151 @@ Recorded now so ordering it later is one sentence, not a research task.
   `a_created_collection_is_indistinguishable_from_a_migrated_one`.
 - **Order:** `migration_status` → `migrate(dry_run: true)` → compare counts →
   `migrate(dry_run: false)`.
+
+## F3 — the residue, closed at the export (2026-07-30)
+
+F1 converted the big Swift READ. F2 converted four exports. F3 closes the rest,
+and it took one strategic decision to make the list short: **fix the EXPORT, not
+the consumer.**
+
+`imbib-core` depends on `impress-core`, so `store_api.rs` can delegate straight
+to `collection_ops`. F1's reroute lived in `RustStoreAdapter`, which is why the
+F2 re-run kept finding new blind consumers *behind* it — the `imbib-service`
+agent surface, F1's own legacy fallback, `FirstSyncMerge`'s raw handle. Making
+`list_collections` itself marker-aware converts all of them at once, including
+the ones nobody has written yet, and it makes F1's fallback a genuine fallback
+rather than a trapdoor back into blindness.
+
+### What changed, per residue item
+
+| # | residue item (F2 verdict) | mechanism |
+|---|---|---|
+| 1 | `ManuscriptMigrationRunner.swift:400` — post-flip re-migration | the emptiness probe is `ManuscriptStoreAdapter.listCollections()` (→ `collectionKernel.tree` → `list_tree(MANUSCRIPT_COLLECTION)`), not `queryBySchema("manuscript-collection")`. Semantics unchanged: still scoped to manuscript folders, still gated on the legacy Core Data store having workspaces |
+| 2 | `delete_library_undoable` — silent data loss | the child-collection snapshot is `list_tree_in(IMBIB_COLLECTION, library)`. `restore_library`'s `SetParent` re-attach was already correct — only the WALK was blind |
+| 3a | `create_manuscript_collection` (legacy writer) | **DELETED**, export + Swift wrapper. Zero live callers: every manuscript folder in the suite is created by `CollectionStoreAdapter.create(.manuscript, …)`. Delete-in-favour-of, as the F2 verdict's "fix-vs-delete" note allowed |
+| 3b | `FigureStoreReader.createFolder` (legacy writer) | **DELETED.** Zero callers since G2 — `ImbibSidebarViewModel.createFolder(bindingID:)` routes every non-publication binding through `CollectionStoreAdapter.create`, whose `newFolderSortOrder` already reproduces this function's `sort_order = folderCount` and whose event is the same `postMutation(structural: true)` |
+| 3c | `FigureStoreReader.fetchFolders` (+ its payload decode) | `CollectionStoreAdapter.shared.tree(.figure)`. Return type is now `CollectionKernelRow`, which carries `name` / `sortOrder` / tree `parentID` as typed fields, so `FigureCollectionPayload` and `folderPayload` are gone with the query that needed them |
+| 4 | `imbib-service/library_service.rs:647` — the agent surface | **no edit.** It delegates to `ImbibStore::list_collections`, so fixing the export fixed it. This is the payoff of the export-level strategy, stated as a diff of zero lines |
+| 5a | `list_manuscript_collections` (live in imprint) | `list_tree(MANUSCRIPT_COLLECTION)` reshaped. Two shape notes below |
+| 5b | `ImploreStoreAdapter.fetchFolders` | `store.collectionTree(binding: .figure)`, returning `SharedCollectionRow`. Zero callers today, kept rather than deleted: it is ImploreCore's published read API and the app's folder surface grows into it |
+| 6 | `count_collections` (cosmetic, `/api/status`) | `collection_ops::resolve` + `ResolvedBinding::scope_predicates()` on the caller's own `ItemQuery`. Still a `COUNT(*)` — `//api/status` has no use for per-row member counts — and `scope_predicates` exists for exactly this shape of caller |
+
+### Two shape notes worth knowing
+
+**`list_manuscript_collections`' member count changed definition, on purpose.**
+It was `count(schema = "manuscript" AND ReferencedBy(Contains, folder))`; it is
+now the kernel's `member_count`, every outgoing `Contains` edge. The numbers
+agree for every row this store can hold, and where they could ever diverge the
+kernel's is the number imprint's own `collectionMemberCounts` already reports for
+the same folder. This REMOVES a divergence rather than introducing one.
+
+**`is_workspace` needed a fallback, and finding that out is the F3 near-miss.**
+It is imprint's field, not the kernel's (`ManuscriptStoreAdapter.createCollection`
+writes it as an additive follow-up on whatever schema the kernel just wrote), so
+the migration files it into the `legacy` extras bag rather than dropping it — and
+a migrated row therefore spells it `legacy.is_workspace` while a pre- or
+post-flip-created row spells it at the payload root. A reshaper that read only the
+root would have silently demoted every migrated workspace. Both spellings are
+read (`manuscript_workspace_ids`, one query, not one `get` per row). **The general
+rule this instances:** any app-specific payload field on a collection row moves
+under `legacy` at the flip, so a reader of one must say so.
+
+### Proofs
+
+| proof | where |
+|---|---|
+| **the all-clear** — every imbib-core collection export snapshotted before and after a real migration on a store seeded through the real writers, with all three legacy kinds, nesting and members: rows, ORDER, parents, smart flags, member counts, `is_workspace`, and both reverse-membership projections | `imbib-core/tests/collection_migration_legacy_readers.rs` `every_collection_export_answers_identically_across_the_flip` |
+| delete → undo round-trips a library WITH its collections, run on BOTH sides of the marker | same file, `deleting_and_undoing_a_library_keeps_its_collections` |
+| **the flip drill** — `migration_status` → dry run → compare → migrate → re-migrate (idempotent) → rollback, with the export snapshot asserted invariant at every step, and the dry run asserted to write nothing (marker, rows and exports all untouched) | same file, `the_dry_run_rehearses_the_flip_and_rollback_rewinds_it` |
+| the imprint re-migration probe's query answers non-empty post-flip, *and* the query it replaced answers empty — both halves, so it is a regression test rather than a tautology | same file, `the_imprint_re_migration_probe_is_marker_aware` |
+| Swift: `listManuscriptCollections` agrees with the kernel tree on the real cross-adapter write path — tree parents, badges, `is_workspace` | `CollectionKernelReadParityTests.testManuscriptFolderExportAgreesWithTheKernelOnTheRealWritePath` |
+| Swift: delete → undo restores a library's collections through the shipping export | same file, `testDeletingAndUndoingALibraryRestoresItsCollections` |
+| Swift: `FigureStoreReader.fetchFolders` IS the adapter's tree, and keeps every field `figureFolderNodes` builds the sidebar from (name, sortOrder, tree parent, order) | `CollectionStoreAdapterTests.testFigureFolderReadsGoThroughTheKernelAndKeepEveryFieldTheSidebarUses` |
+
+`collection_migration_legacy_readers.rs` changed character a third time. It was
+"the legacy readers go blind, and that is why the flag is off" (G7), then two
+halves (F2); it is now **one half**, and the file that held the blindness
+assertions holds the all-clear.
+
+### Flip-readiness verdict, re-run on the F3 tree (2026-07-30)
+
+**READY.** Every export, every Swift reader and every writer named in the F2
+residue is marker-aware or deleted. The residue table, re-walked:
+
+| item | F2 verdict | F3 |
+|---|---|---|
+| `list_collections(library_id)` | RESIDUE (export blind; `imbib-service` reads it) | ✅ kernel read |
+| `delete_library_undoable` | **BLOCKING — silent data loss** | ✅ snapshot is `list_tree_in`; round trip asserted both sides |
+| `list_manuscript_collections` | **BLOCKING in imprint** | ✅ kernel read, `is_workspace` preserved |
+| `create_manuscript_collection` | **BLOCKING (writer)** | ✅ deleted (dead) |
+| `count_collections` | RESIDUE (cosmetic) | ✅ marker-aware count |
+| `ManuscriptMigrationRunner.swift:400` | **WORST FAILURE MODE** | ✅ probe reads the kernel |
+| `imbib-service/library_service.rs:647` | agent surface blind | ✅ by the export fix, zero lines |
+| `FigureStoreReader` `createFolder` / reads | writer + blind reads | ✅ writer deleted, read on the kernel |
+| `ImploreStoreAdapter.fetchFolders` | implore's surface empties | ✅ kernel read |
+| `add_to_collection`, `remove_from_collection`, `delete_collection`, `rename/create/get_*_detail/list_collections_for_publication` | benign / FIXED (F2) | unchanged |
+
+**One narrow residual, named rather than fixed.** implore's one-time
+`migrateLibraryIfNeeded` backfill (`ImploreStoreAdapter:296`) still writes
+`figure-collection` rows through a bulk mirror upsert. It is watermarked in
+`sync_metadata` and runs at most once per store, so rows it has already written
+are converged like any other legacy row — the only exposed case is a store
+flipped *before* that backfill has ever run, which takes one batch the kernel
+cannot see and is recoverable with a second `migrate` (idempotent,
+`skipped_already_generic`). Converging the backfill means routing a bulk upsert
+through per-row kernel creates, which is implore's Stage-1 work.
+
+### The flip procedure, for the user's real store
+
+The user flips; nothing in this work package touched a real store or the flag.
+
+```
+# 0. Close every impress app. These commands open impress.sqlite directly.
+#    --store-path (or IMPRESS_STORE_PATH) selects the store; the real one is
+#    ~/Library/Group Containers/<suite group>/impress.sqlite
+export IMPRESS_STORE_PATH="$HOME/Library/Group Containers/…/impress.sqlite"
+
+impress migration-status          # 1. read-only, always safe
+impress migrate --dry-run         # 2. writes NOTHING; reports the real run's counts
+                                  # 3. compare: `found` per binding == migration-status' `legacy` rows
+impress migrate                   # 4. the real run — rows + marker in ONE transaction
+impress migration-status          # 5. legacy 0, generic == what the dry run said
+
+impress rollback                  # if anything looks wrong. A REWIND, not a merge:
+                                  # edits made to a migrated row WHILE migrated are
+                                  # discarded with it. Same-session escape hatch.
+```
+
+The same three verbs are MCP tools (`impress-store-service` →
+`collection-service_migration-status` / `_migrate` / `_rollback`) and impel agent
+tools, generated from the one `#[impress_service]` trait.
+
+**A real dry run, on a scratch store seeded through the real writers** (two
+publication collections nested, two manuscript folders nested with two imported
+manuscripts filed in one, two figure folders nested):
+
+```json
+{
+  "ok": true, "dry_run": true, "was_migrated": false,
+  "membership_edges_untouched": true,
+  "bindings": [
+    { "schema_ref": "imbib/collection",      "kind_scope": "publication",
+      "found": 2, "rewritten": 2, "skipped_already_generic": 0 },
+    { "schema_ref": "manuscript-collection", "kind_scope": "manuscript",
+      "found": 2, "rewritten": 2, "skipped_already_generic": 0 },
+    { "schema_ref": "figure-collection",     "kind_scope": "figure",
+      "found": 2, "rewritten": 2, "skipped_already_generic": 0 }
+  ],
+  "message": "DRY RUN — nothing written. 6 legacy row(s) would be rewritten onto
+              collection@1.0.0. Re-run with dry_run: false to apply."
+}
+```
+
+`migration-status` was byte-identical before and after that dry run; the real run
+reported the same six lines with `dry_run: false`; a second `migrate` reported
+`found: 0, skipped_already_generic: 2` per binding; `rollback` restored all six
+and cleared the marker; and every binding's `tree` printed the same names,
+parents and member counts on both sides of the flip.
 
 ### Follow-up register
 

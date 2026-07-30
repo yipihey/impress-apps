@@ -40,18 +40,13 @@ struct FigurePayload: Decodable {
     }
 }
 
-/// Decoded `figure-collection@…` payload fields.
-struct FigureCollectionPayload: Decodable {
-    var name: String?
-    var sortOrder: Int?
-    var isCollapsed: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case name
-        case sortOrder = "sort_order"
-        case isCollapsed = "is_collapsed"
-    }
-}
+// A `FigureCollectionPayload` decoder used to live here, next to
+// `FigurePayload`. It is gone with `fetchFolders`' raw query (ADR-0022 F3):
+// `CollectionKernelRow` carries `name` and `sortOrder` as typed fields, and
+// decoding them out of payload JSON is exactly the step that made the read
+// schema-shaped — and therefore blind at the `collections.unified` flip. Its
+// third field, `is_collapsed`, had no reader; post-flip the migration files it
+// into the `legacy` extras bag, where it stays legible.
 
 @MainActor
 public final class FigureStoreReader {
@@ -88,13 +83,25 @@ public final class FigureStoreReader {
 
     // MARK: - Reads
 
-    /// All figure folders (figure-collection items), sorted by payload sort_order.
-    public func fetchFolders() -> [SharedItemRow] {
-        guard let store else { return [] }
-        return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: "figure-collection", parentId: nil, payloadEq: [],
-            modifiedAfterMs: nil, sortField: "payload.sort_order",
-            ascending: true, limit: 1000, offset: 0))) ?? []
+    /// All figure folders, ordered by `sort_order`. Callers assemble the tree
+    /// from `parentID`.
+    ///
+    /// **The kernel's read** (ADR-0022 F3). This was a raw
+    /// `schemaRef: "figure-collection"` query — the literal
+    /// `collection_migration` rewrites away — so implore's and the chassis's
+    /// entire folder surface emptied at the `collections.unified` flip while
+    /// the folders themselves sat untouched in the store. `CollectionStoreAdapter`
+    /// resolves the marker per call and is cross-platform (this file's contract),
+    /// so the reroute costs a delegation and no second binding table.
+    ///
+    /// The row type changes with it, deliberately: `CollectionKernelRow` already
+    /// carries every field the one caller extracted from the payload JSON
+    /// (`name`, `sortOrder`, tree `parentID`) and it reads the tree parent the
+    /// way the BINDING says to — post-flip a figure folder's tree parent is
+    /// payload `parent_id`, mirrored from the envelope, and a `SharedItemRow`'s
+    /// `parentId` is the envelope no matter what.
+    public func fetchFolders() -> [CollectionKernelRow] {
+        CollectionStoreAdapter.shared.tree(CollectionBindingID.figure)
     }
 
     /// Figures, optionally scoped to one folder; `nil` returns ALL figures
@@ -144,43 +151,21 @@ public final class FigureStoreReader {
         }
     }
 
-    /// Create a figure folder. There is no createFigureCollection FFI on
-    /// RustStoreAdapter — create via upsertItemV2 with the figure-collection
-    /// schema (name payload; nesting via envelope parent). Returns the new
-    /// folder's lowercase store id.
-    @discardableResult
-    public func createFolder(name: String, parentID: String? = nil) -> String? {
-        guard let store else { return nil }
-        let id = UUID().uuidString.lowercased()
-        let sortOrder = fetchFolders().count
-        let payload: [String: Any] = ["name": name, "sort_order": sortOrder]
-        guard let json = try? JSONSerialization.data(withJSONObject: payload),
-              let jsonString = String(data: json, encoding: .utf8) else { return nil }
-        do {
-            try store.upsertItemV2(row: SharedItemUpsert(
-                id: id, schemaRef: "figure-collection",
-                payloadJson: jsonString, parentId: parentID?.lowercased(), tags: [],
-                createdMs: nil, isRead: nil, isStarred: nil))
-            Self.logger.infoCapture(
-                "created figure folder '\(name)' (\(id)) parent=\(parentID ?? "root")",
-                category: "figures")
-            ImbibImpressStore.shared.postMutation(structural: true)
-            return id
-        } catch {
-            Self.logger.errorCapture("createFolder failed: \(error)", category: "figures")
-            return nil
-        }
-    }
+    // `createFolder` is GONE (ADR-0022 F3). It hand-wrote a `figure-collection`
+    // row through `upsertItemV2` — the last legacy figure-folder WRITER, and
+    // post-flip a second writer to a tree the kernel reads as `collection`.
+    // It had zero callers: `ImbibSidebarViewModel.createFolder(bindingID:)`
+    // routes every non-publication binding through
+    // `CollectionStoreAdapter.create`, which reproduces this function exactly —
+    // including the `sort_order = folderCount` read taken BEFORE the insert
+    // (`newFolderSortOrder`, which is why figure folders still append in
+    // creation order) and the `postMutation(structural: true)` fan-out. One
+    // writer, one shape, one place that knows what a folder row looks like.
 
     // MARK: - Payload decoding helpers
 
     nonisolated static func figurePayload(from row: SharedItemRow) -> FigurePayload? {
         guard let data = row.payloadJson.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(FigurePayload.self, from: data)
-    }
-
-    nonisolated static func folderPayload(from row: SharedItemRow) -> FigureCollectionPayload? {
-        guard let data = row.payloadJson.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(FigureCollectionPayload.self, from: data)
     }
 }

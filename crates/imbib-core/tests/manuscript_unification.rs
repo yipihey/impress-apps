@@ -183,13 +183,31 @@ fn large_inline_body_round_trips_and_blob_ref_is_flagged() {
 #[test]
 fn manuscript_collections_reuse_generic_contains_membership() {
     let (_dir, path) = temp_db();
-    let imbib = ImbibStore::open(path).expect("open");
+    let imbib = ImbibStore::open(path.clone()).expect("open");
 
-    let folder = imbib
-        .create_manuscript_collection("Cosmology".into(), None)
+    // Folders are created through the KERNEL — the suite's only manuscript
+    // folder writer since ADR-0022 F3 deleted `create_manuscript_collection`
+    // (zero callers, and post-flip a second writer to a tree the kernel reads
+    // under a different schema). Written on a second handle, which is also the
+    // WAL topology `ManuscriptStoreAdapter` uses in the shipping apps.
+    let shared = SharedStore::open(path).expect("open SharedStore");
+    let folder = shared
+        .collection_create(
+            impress_store_ffi::SharedCollectionBinding::Manuscript,
+            "Cosmology".into(),
+            None,
+            None,
+            None,
+        )
         .expect("create folder");
-    let child = imbib
-        .create_manuscript_collection("Drafts".into(), Some(folder.id.clone()))
+    let child = shared
+        .collection_create(
+            impress_store_ffi::SharedCollectionBinding::Manuscript,
+            "Drafts".into(),
+            Some(folder.id.clone()),
+            None,
+            None,
+        )
         .expect("create nested folder");
     assert_eq!(child.parent_id.as_deref(), Some(folder.id.as_str()));
 

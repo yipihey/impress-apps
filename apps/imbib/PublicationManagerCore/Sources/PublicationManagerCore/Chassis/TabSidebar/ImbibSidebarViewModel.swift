@@ -614,19 +614,23 @@ final class ImbibSidebarViewModel {
             }
         }
 
+        // The kernel row IS the entry (ADR-0022 F3): `fetchFolders` returns
+        // `CollectionKernelRow`s, so `name` / `sortOrder` / tree `parentID` are
+        // typed fields rather than a payload decode. An unnamed folder keeps
+        // reading "Untitled Folder" — the kernel spells a missing name as "",
+        // where the decoder spelled it `nil`.
         struct FolderEntry {
             let id: String
             let name: String
             let sortOrder: Int
             let parentID: String?
         }
-        let entries = folders.map { row -> FolderEntry in
-            let payload = FigureStoreReader.folderPayload(from: row)
-            return FolderEntry(
+        let entries = folders.map { row in
+            FolderEntry(
                 id: row.id,
-                name: payload?.name ?? "Untitled Folder",
-                sortOrder: payload?.sortOrder ?? 0,
-                parentID: row.parentId)
+                name: row.name.isEmpty ? "Untitled Folder" : row.name,
+                sortOrder: Int(row.sortOrder),
+                parentID: row.parentID)
         }
 
         func makeNode(_ folder: FolderEntry, depth: Int) -> [ImbibSidebarNode] {

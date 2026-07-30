@@ -1229,12 +1229,19 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// List collections in a library.
     ///
     /// Reads through the collection KERNEL (`collectionTreeIn`), which resolves
-    /// the `collections.unified` marker — the legacy `list_collections` export
-    /// matches `schema_ref = "imbib/collection"` by equality and goes blind the
-    /// moment the G7 migration runs. Same rows, same `sort_order` ordering,
+    /// the `collections.unified` marker. Same rows, same `sort_order` ordering,
     /// same member counts (`the_container_axis_is_invariant_across_the_unified_flip`
-    /// pins all three). Falls back to the legacy path only when no kernel
+    /// pins all three). Falls back to the "legacy" path only when no kernel
     /// handle exists (in-memory test stores).
+    ///
+    /// That fallback is now genuinely a fallback (ADR-0022 F3). When F1 added
+    /// this reroute, `imbibStore.listCollections` still matched
+    /// `schema_ref = "imbib/collection"` by equality, so a store that had been
+    /// migrated and a handle that failed to open combined into an EMPTY sidebar
+    /// — the fast path was safe and the slow path was a trapdoor back into
+    /// blindness. F3 made the export itself kernel-backed, so both paths now
+    /// answer identically on both sides of the flip and the only difference
+    /// left is which handle does the reading.
     public func listCollections(libraryId: UUID) -> [CollectionModel] {
         StoreTimings.shared.measure("listCollections") {
             kernelCollections(libraryId: libraryId) ?? legacyListCollections(libraryId: libraryId)
@@ -3867,25 +3874,16 @@ extension RustStoreAdapter {
         }
     }
 
-    /// Create a manuscript folder (nested under `parentID` when given).
-    /// Parent refs are lowercased: the Rust store's canonical item-id form is
-    /// lowercase and `parent_collection_ref` is matched by string equality.
-    @discardableResult
-    public func createManuscriptCollection(
-        name: String,
-        parentID: UUID? = nil
-    ) -> ManuscriptCollectionRow? {
-        do {
-            let row = try store.createManuscriptCollection(
-                name: name, parentId: parentID?.uuidString.lowercased())
-            didMutate(structural: true)
-            return row
-        } catch {
-            Logger.library.errorCapture(
-                "createManuscriptCollection failed: \(error)", category: "manuscripts")
-            return nil
-        }
-    }
+    // `createManuscriptCollection` is GONE (ADR-0022 F3). It was the last legacy
+    // manuscript-collection WRITER in the suite — `imbib-core`'s
+    // `create_manuscript_collection` wrote a `manuscript-collection` row by
+    // hand, which post-flip is a second writer to a tree the kernel reads under
+    // a different schema. It had zero callers: every folder creation in the
+    // suite runs `CollectionStoreAdapter.create(.manuscript, …)` (macOS chassis
+    // `ImbibSidebarViewModel.createFolder`, iOS `IOSManuscriptSidebarBindings`,
+    // imprint's `ManuscriptStoreAdapter.createCollection`), and the Rust export
+    // it wrapped is deleted with it. Delete-in-favour-of, not fix: a legacy
+    // writer nobody calls is not worth a marker-aware pass.
 
     // MARK: Manuscript versions (revision snapshots, ADR-0011 D45)
 

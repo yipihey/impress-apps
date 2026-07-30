@@ -93,13 +93,16 @@
 //!
 //! # What the flag does NOT turn on
 //!
-//! imbib-core's legacy readers (`ImbibStore::list_collections`,
-//! `list_manuscript_collections`, `list_collections_for_publication`, …) query
-//! the legacy `schema_ref` literals directly and will return EMPTY after
-//! migration. That is expected and is the reason the flag stays off until the
-//! remaining Swift callers of those exports are audited and moved onto the
-//! `collection_*` kernel FFI. `crates/imbib-core/tests/collection_migration_legacy_readers.rs`
-//! asserts this effect on purpose so it can never be discovered in production.
+//! Nothing, any more. imbib-core's exports (`ImbibStore::list_collections`,
+//! `list_manuscript_collections`, `count_collections`,
+//! `delete_library_undoable`, `list_collections_for_publication`, …) used to
+//! query the legacy `schema_ref` literals directly and returned EMPTY after a
+//! migration — which is why this flag shipped off for three waves. ADR-0022
+//! F1/F2/F3 moved every one of them onto [`crate::collection_ops`], so they
+//! resolve the marker per call and answer identically on both sides.
+//! `crates/imbib-core/tests/collection_migration_legacy_readers.rs` is the
+//! file that used to assert the blindness and now asserts the invariance,
+//! export by export, on a store seeded through the real writers.
 
 use std::collections::BTreeMap;
 

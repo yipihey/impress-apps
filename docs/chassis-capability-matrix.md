@@ -1100,13 +1100,23 @@ data migration that rewrites `imbib/collection` / `manuscript-collection` /
 `figure-collection` rows onto `collection@1.0.0`, keeping every id, every
 `Contains` edge and every envelope parent, and stashing each row's original
 schema and payload verbatim so `rollback` is byte-faithful. The flag
-(`collections.unified` in `store_metadata`) is **off by default and stays off**
-until imbib-core's remaining legacy collection readers — `list_collections`,
-`list_manuscript_collections`, `list_collections_for_publication`,
-`rename_collection`, `delete_library_undoable`, plus
-`FigureStoreReader.fetchFolders` — are moved onto the kernel FFI: they query
-the legacy `schema_ref` literals directly and would go empty (or throw) the
-moment it is flipped. `crates/impress-core/src/collection_migration.rs` carries
+(`collections.unified` in `store_metadata`) is **off by default** — it is a
+deliberate, human-invoked data migration, not something an app turns on at
+launch.
+
+It used to be off *because it was unsafe*: imbib-core's legacy collection
+readers (`list_collections`, `list_manuscript_collections`,
+`list_collections_for_publication`, `rename_collection`,
+`delete_library_undoable`, `count_collections`) plus
+`FigureStoreReader.fetchFolders` and `ImploreStoreAdapter.fetchFolders` queried
+the legacy `schema_ref` literals directly and would have gone empty (or thrown)
+the moment it flipped. **ADR-0022 F1/F2/F3 closed all of them** — every export
+and every Swift reader now resolves the marker, the two surviving legacy WRITERS
+(`create_manuscript_collection`, `FigureStoreReader.createFolder`) were deleted
+as dead, and imprint's `ManuscriptMigrationRunner` emptiness probe reads the
+kernel instead of the literal that would have triggered a folder-duplicating
+re-migration. The flip verdict is **READY** (ADR-0022 § F3), and the ordered
+procedure lives there. `crates/impress-core/src/collection_migration.rs` carries
 the full contract; the kernel reads correctly on both sides of the flip.
 
 ### Smart search (Stage 7 item 8, 2026-07-30)

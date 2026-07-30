@@ -204,6 +204,69 @@ final class CollectionStoreAdapterTests: XCTestCase {
         )
     }
 
+    // MARK: - FigureStoreReader's reroute (ADR-0022 F3)
+
+    /// `FigureStoreReader.fetchFolders()` was a raw
+    /// `schemaRef: "figure-collection"` query — the literal
+    /// `collection_migration` rewrites away — and `createFolder` hand-wrote a
+    /// row under the same literal. F3 routed the read through this adapter and
+    /// deleted the writer (zero callers; `ImbibSidebarViewModel.createFolder`
+    /// has created figure folders through `CollectionStoreAdapter.create`
+    /// since G2).
+    ///
+    /// Two things must hold, and both are asserted on the ONE store this
+    /// process shares (`SharedWorkspace` is diverted to a temp directory in a
+    /// test process, so no real user store is touched):
+    ///
+    /// 1. The reader and the adapter answer with the same rows — the reroute is
+    ///    a delegation, not a second read.
+    /// 2. The row type carries everything the deleted `FigureCollectionPayload`
+    ///    decode used to yield for `figureFolderNodes`: `name`, `sortOrder`, and
+    ///    the tree `parentID`. This is the substantive half — a reroute that
+    ///    dropped a field would empty the sidebar just as thoroughly as the
+    ///    blind query it replaced.
+    ///
+    /// Swift cannot set the `collections.unified` marker, so post-flip
+    /// invariance is proved in Rust
+    /// (`imbib-core/tests/collection_migration_legacy_readers.rs`
+    /// `every_collection_export_answers_identically_across_the_flip`, whose
+    /// figure half runs on the same kernel verb this delegates to).
+    func testFigureFolderReadsGoThroughTheKernelAndKeepEveryFieldTheSidebarUses() throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        try XCTSkipIf(!FigureStoreReader.shared.isReady, "figure reader unavailable")
+
+        let outerName = uniqueName("fig-outer")
+        let innerName = uniqueName("fig-inner")
+        let outer = try XCTUnwrap(
+            adapter.create(CollectionBindingID.figure, name: outerName))
+        let inner = try XCTUnwrap(
+            adapter.create(CollectionBindingID.figure, name: innerName, parentID: outer.id))
+
+        let viaReader = FigureStoreReader.shared.fetchFolders()
+        let viaAdapter = adapter.tree(CollectionBindingID.figure)
+        XCTAssertEqual(
+            viaReader, viaAdapter,
+            "fetchFolders is the kernel tree — one read, not two")
+
+        let outerRow = try XCTUnwrap(viaReader.first { $0.id == outer.id })
+        let innerRow = try XCTUnwrap(viaReader.first { $0.id == inner.id })
+        XCTAssertEqual(outerRow.name, outerName, "name survives the reroute")
+        XCTAssertNil(outerRow.parentID, "a root folder has no tree parent")
+        XCTAssertEqual(
+            innerRow.parentID, outer.id,
+            "and nesting survives it — the field figureFolderNodes builds the tree from")
+        XCTAssertLessThan(
+            outerRow.sortOrder, innerRow.sortOrder,
+            "sortOrder survives it, still appending in creation order")
+
+        // Ordering is the kernel's `sort_order` ascending, which is what the
+        // deleted query asked SQLite for. A reroute that lost the ORDER would
+        // reshuffle every user's figure sidebar silently.
+        XCTAssertEqual(
+            viaReader.map(\.sortOrder), viaReader.map(\.sortOrder).sorted(),
+            "rows come back ordered by sort_order")
+    }
+
     // MARK: - Rename (kernel + undo)
 
     func testRenameRoundTripsThroughTheKernel() throws {

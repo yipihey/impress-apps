@@ -173,4 +173,128 @@ final class CollectionKernelReadParityTests: XCTestCase {
             try imbib.listCollectionsForPublication(publicationId: paper)
                 .contains { $0.id == late.id })
     }
+
+    /// ADR-0022 F3. `listManuscriptCollections` is imprint's LIVE folder read
+    /// through the shared chassis (`ImbibSidebarViewModel.manuscriptFolderNodes`),
+    /// and its writer has been the kernel since G2
+    /// (`ManuscriptStoreAdapter.createCollection` → `CollectionStoreAdapter.create`).
+    /// Until F3 the read was a `schema_ref = "manuscript-collection"` literal,
+    /// so the write went one way and the read the other the moment the marker
+    /// flipped.
+    ///
+    /// This pins the reshaper on the real cross-adapter write path: folders
+    /// created through the kernel handle must surface through imbib-core's
+    /// export with their tree parents, their member counts and — the field the
+    /// kernel has no concept of — imprint's `is_workspace` flag.
+    func testManuscriptFolderExportAgreesWithTheKernelOnTheRealWritePath() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("manuscript-folder-parity-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbPath = dir.appendingPathComponent("impress.sqlite").path
+
+        let imbib = try ImbibStore.open(path: dbPath)
+        let kernel = try ImpressRustCore.SharedStore.open(path: dbPath)
+
+        // imprint's writer, verbatim: kernel create, then `is_workspace` as an
+        // additive follow-up field on whatever schema the kernel just wrote.
+        let workspace = try kernel.collectionCreate(
+            binding: .manuscript, name: "Workspace", parentId: nil,
+            kindScope: nil, sortOrder: 0)
+        let workspaceSchema = try XCTUnwrap(try kernel.getItem(id: workspace.id)).schemaRef
+        try kernel.upsertItemV2(row: SharedItemUpsert(
+            id: workspace.id, schemaRef: workspaceSchema,
+            payloadJson: #"{"is_workspace":true}"#, parentId: nil, tags: [],
+            createdMs: nil, isRead: nil, isStarred: nil))
+        let drafts = try kernel.collectionCreate(
+            binding: .manuscript, name: "Drafts", parentId: workspace.id,
+            kindScope: nil, sortOrder: 1)
+
+        let alpha = try imbib.createManuscript(
+            title: "Alpha", format: "typst", body: "", authors: [])
+        let beta = try imbib.createManuscript(
+            title: "Beta", format: "typst", body: "", authors: [])
+        _ = try imbib.addToCollection(
+            publicationIds: [alpha.id, beta.id], collectionId: drafts.id)
+
+        let rows = try imbib.listManuscriptCollections()
+        XCTAssertEqual(rows.map(\.id), [workspace.id, drafts.id], "ordered by sort_order")
+
+        let workspaceRow = try XCTUnwrap(rows.first { $0.id == workspace.id })
+        XCTAssertEqual(workspaceRow.name, "Workspace")
+        XCTAssertNil(workspaceRow.parentId, "a workspace is a root")
+        XCTAssertTrue(workspaceRow.isWorkspace, "imprint's flag survives the reshaper")
+        XCTAssertEqual(workspaceRow.manuscriptCount, 0)
+
+        let draftsRow = try XCTUnwrap(rows.first { $0.id == drafts.id })
+        XCTAssertEqual(
+            draftsRow.parentId, workspace.id,
+            "the TREE parent, never the owning library (c902a22f)")
+        XCTAssertFalse(draftsRow.isWorkspace)
+        XCTAssertEqual(draftsRow.manuscriptCount, 2, "the badge imprint's sidebar renders")
+
+        // The export and the kernel tree are one read now — a divergence here
+        // is the two-writers/two-readers hazard reappearing.
+        let tree = try kernel.collectionTree(binding: .manuscript)
+        XCTAssertEqual(rows.map(\.id), tree.map(\.id))
+        XCTAssertEqual(rows.map(\.name), tree.map(\.name))
+        XCTAssertEqual(rows.map { Int64($0.sortOrder) }, tree.map(\.sortOrder))
+        XCTAssertEqual(rows.map { Int64($0.manuscriptCount) }, tree.map(\.memberCount))
+    }
+
+    /// ADR-0022 F3. Deleting a library must round-trip its COLLECTIONS, not
+    /// only its publications.
+    ///
+    /// `deleteLibraryUndoable` snapshots the ids the delete is about to orphan
+    /// (`ON DELETE SET NULL` on the envelope parent) and `restoreLibrary`
+    /// re-parents them. The collection half of that snapshot was a legacy
+    /// schema query, so post-flip it came back empty and the "Undo Delete
+    /// Library" entry restored a library with no collections in it — the one
+    /// residue item that lost DATA rather than a display.
+    ///
+    /// Invariance across the marker is proved in Rust (Swift cannot set it);
+    /// this is the pre-flip half, through the shipping export, so the
+    /// round-trip itself is pinned on the path a user's ⌘Z takes.
+    func testDeletingAndUndoingALibraryRestoresItsCollections() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("library-undo-parity-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbPath = dir.appendingPathComponent("impress.sqlite").path
+
+        let imbib = try ImbibStore.open(path: dbPath)
+
+        let library = try imbib.createLibrary(name: "Doomed")
+        let root = try imbib.createCollection(
+            name: "Reading", libraryId: library.id, isSmart: false, query: nil)
+        let nested = try imbib.createCollection(
+            name: "Reionization", libraryId: library.id, isSmart: false, query: nil)
+        try imbib.updateField(id: nested.id, field: "parent_id", value: root.id)
+        let pubIDs = try imbib.importBibtex(
+            bibtex: "@article{Doomed, author = {A. Author}, title = {Paper}, year = {2001} }",
+            libraryId: library.id)
+        _ = try imbib.addToCollection(publicationIds: pubIDs, collectionId: nested.id)
+
+        let before = try imbib.listCollections(libraryId: library.id)
+        XCTAssertEqual(before.count, 2)
+
+        let snapshot = try imbib.deleteLibraryUndoable(id: library.id)
+        XCTAssertEqual(
+            Set(snapshot.childCollectionIds), Set([root.id, nested.id]),
+            "the snapshot names BOTH the root collection and the nested one — "
+                + "every collection of a library carries it on the envelope, whatever "
+                + "its depth in the tree")
+        XCTAssertEqual(snapshot.childPublicationIds.count, 1)
+
+        try imbib.restoreLibrary(snapshot: snapshot)
+
+        let after = try imbib.listCollections(libraryId: library.id)
+        XCTAssertEqual(after.map(\.id), before.map(\.id), "delete → undo is a round trip")
+        XCTAssertEqual(
+            after.map(\.parentId), before.map(\.parentId),
+            "nesting comes back with them")
+        XCTAssertEqual(
+            after.map(\.publicationCount), before.map(\.publicationCount),
+            "and so does membership")
+    }
 }

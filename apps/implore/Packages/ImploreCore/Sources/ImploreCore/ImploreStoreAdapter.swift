@@ -326,13 +326,32 @@ public final class ImploreStoreAdapter {
     }
 
     #if canImport(ImpressRustCore)
-    /// All figure folders (store-native read path).
-    public func fetchFolders() -> [SharedItemRow] {
+    /// All figure folders (store-native read path), ordered by `sort_order`.
+    ///
+    /// Reads through the ADR-0022 collection kernel, not a `schemaRef:
+    /// "figure-collection"` literal (F3). The literal is the spelling
+    /// `collection_migration` rewrites away, so this returned NOTHING once the
+    /// `collections.unified` marker went on — the folders were all still there.
+    /// `collectionTree` resolves the marker per call and answers identically on
+    /// both sides of the flip, and its row already carries the tree parent the
+    /// way the binding defines it (post-flip a figure folder nests through
+    /// payload `parent_id`, mirrored from the envelope the migration leaves
+    /// alone).
+    ///
+    /// The one-time `migrateLibraryIfNeeded` backfill above still WRITES
+    /// `figure-collection` rows, and deliberately so: it is watermarked in
+    /// `sync_metadata`, runs at most once per store, and its rows are exactly
+    /// the shape this read expects pre-flip — so rows it has ALREADY written are
+    /// converged by the G7 migration like any other legacy row. The residual
+    /// case is narrow and named rather than fixed: a store flipped BEFORE the
+    /// backfill has ever run would take one `figure-collection` batch the kernel
+    /// cannot see, recoverable with a second `migrate_collections` (idempotent,
+    /// `skipped_already_generic`). Converging the backfill itself means routing
+    /// a bulk mirror upsert through per-row kernel creates, which is implore's
+    /// Stage-1 work, not a marker fix.
+    public func fetchFolders() -> [SharedCollectionRow] {
         guard isReady, let store else { return [] }
-        return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: "figure-collection", parentId: nil, payloadEq: [],
-            modifiedAfterMs: nil, sortField: "payload.sort_order",
-            ascending: true, limit: 1000, offset: 0))) ?? []
+        return (try? store.collectionTree(binding: .figure)) ?? []
     }
 
     /// Figures, optionally scoped to one folder; `nil` returns ALL figures

@@ -645,6 +645,14 @@ public protocol ImbibStoreProtocol : AnyObject {
      * NULL. Four of this store's collections are parented to nothing, so the
      * per-library sum reports zero — which is exactly what `/api/status` used
      * to publish. Counting rows by schema is the only total that is right.
+     *
+     * Which is why it needs the marker (ADR-0022 F3): the schema this counts
+     * by is exactly the spelling `collection_migration` rewrites away, so the
+     * literal reported 0 post-flip. Resolved through
+     * [`collection_ops::resolve`] and its `scope_predicates`, which exist for
+     * precisely this caller — one that owns its own `ItemQuery` and must not
+     * fork the resolution table. Still a `COUNT(*)`, not a tree read: this
+     * answers `/api/status` and has no use for per-row member counts.
      */
     func countCollections() throws  -> UInt32
     
@@ -783,11 +791,6 @@ public protocol ImbibStoreProtocol : AnyObject {
     func createManuscript(title: String, format: String, body: String, authors: [String]) throws  -> ManuscriptRow
     
     /**
-     * Create a manuscript-collection (folder). Nesting via `parent_id`.
-     */
-    func createManuscriptCollection(name: String, parentId: String?) throws  -> ManuscriptCollectionRow
-    
-    /**
      * Create an immutable revision snapshot of the manuscript's current body
      * and advance its `current_revision_ref` (ADR-0011 D45 linear chain).
      * `snapshot_reason`: status-change | user-tag | stable-churn | manual.
@@ -844,6 +847,23 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     /**
      * Delete a library with snapshot for undo.
+     *
+     * The child-collection half of the snapshot is the KERNEL's read
+     * (ADR-0022 F3). It used to be a `schema_ref = "imbib/collection"` query,
+     * which is the failure mode this whole work package is about — except
+     * here it did not fail loudly or even visibly. Post-flip the walk found
+     * nothing, the delete orphaned every collection anyway (`ON DELETE SET
+     * NULL` on the envelope parent), and `restore_library` put the library and
+     * its publications back while silently leaving the collections detached
+     * from any library, invisible to every per-library read in the suite.
+     * Silent data loss behind a working Undo entry.
+     *
+     * "The collections of a library" is `list_tree_in(IMBIB_COLLECTION,
+     * library)` — the same envelope filter, resolved against the marker. It
+     * returns nested sub-collections too, exactly as the legacy query did:
+     * every publication collection carries its owning library on the envelope
+     * whatever its depth in the tree (`EnvelopeParent::OwningLibrary`), and
+     * `restore_library`'s `SetParent` re-attaches all of them.
      */
     func deleteLibraryUndoable(id: String) throws  -> LibraryDeleteSnapshot
     
@@ -1049,6 +1069,27 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func listCollectionMembers(collectionId: String, sortField: String, ascending: Bool, limit: UInt32?, offset: UInt32?) throws  -> [BibliographyRow]
     
+    /**
+     * The collections of one library, ordered by `sort_order`.
+     *
+     * **The read is the kernel's** (ADR-0022 F3). This export's own query
+     * matched `schema_ref = "imbib/collection"` by equality, so it returned
+     * EMPTY the moment the `collections.unified` marker went on — and F1's fix
+     * was a Swift-side reroute, which protected `RustStoreAdapter`'s callers
+     * and nothing else. Everything that reaches this function *directly* was
+     * still blind: `imbib-service::library_service::list_collections` (the
+     * whole MCP / CLI / impel agent surface), and F1's own legacy FALLBACK,
+     * which reactivates the blind path exactly when the kernel handle fails to
+     * open. Fixing the EXPORT fixes every consumer at once, including the ones
+     * nobody has written yet.
+     *
+     * `list_tree_in` is an exact drop-in: same `HasParent(library)` filter on
+     * the ENVELOPE (which the migration never touches), same
+     * `payload.sort_order` ordering, and `CollectionRow::member_count` is the
+     * outgoing `Contains`-edge count `count_collection_members` computed here
+     * — the equality F1 established and `CollectionKernelReadParityTests`
+     * pins on imbib's real write path.
+     */
     func listCollections(libraryId: String) throws  -> [CollectionRow]
     
     /**
@@ -1104,6 +1145,31 @@ public protocol ImbibStoreProtocol : AnyObject {
     /**
      * List all manuscript-collections (flat; tree assembly via `parent_id`
      * happens in the sidebar view model, same as imbib collections).
+     *
+     * Kernel-read since ADR-0022 F3, for the same reason as
+     * [`Self::list_collections`] — and with more at stake, because this one is
+     * still LIVE: `ImbibSidebarViewModel.manuscriptFolderNodes()` is the only
+     * reader, it is dead in imbib (publications-only since 2026-07-27) and
+     * very much alive in imprint, whose Manuscripts section runs the same
+     * shared chassis. Post-flip the legacy literal emptied imprint's folder
+     * tree while imprint's own writes — already on the kernel through
+     * `ManuscriptStoreAdapter` — kept landing in a tree the sidebar could no
+     * longer see.
+     *
+     * Two shape notes, both deliberate:
+     *
+     * - `manuscript_count` is now the kernel's `member_count` (every outgoing
+     * `Contains` edge) where it was `count(schema = "manuscript" AND
+     * ReferencedBy(Contains, folder))`. The numbers agree for every row this
+     * store can hold — nothing files a non-manuscript into a manuscript
+     * folder — and where they could ever diverge the kernel's is the number
+     * imprint's own `collectionMemberCounts` already reports for the same
+     * folder. This REMOVES a divergence rather than introducing one.
+     * - `is_workspace` is imprint's, not the kernel's (the kernel has no such
+     * concept), so it is read off the item — from the payload root where a
+     * pre-flip or post-flip-created row carries it, and from the migration's
+     * `legacy` extras bag where a MIGRATED row carries it. Without that
+     * fallback the flip would silently demote every migrated workspace.
      */
     func listManuscriptCollections() throws  -> [ManuscriptCollectionRow]
     
@@ -1691,6 +1757,14 @@ open func countCollectionMembersPublic(collectionId: String)throws  -> UInt32 {
      * NULL. Four of this store's collections are parented to nothing, so the
      * per-library sum reports zero — which is exactly what `/api/status` used
      * to publish. Counting rows by schema is the only total that is right.
+     *
+     * Which is why it needs the marker (ADR-0022 F3): the schema this counts
+     * by is exactly the spelling `collection_migration` rewrites away, so the
+     * literal reported 0 post-flip. Resolved through
+     * [`collection_ops::resolve`] and its `scope_predicates`, which exist for
+     * precisely this caller — one that owns its own `ItemQuery` and must not
+     * fork the resolution table. Still a `COUNT(*)`, not a tree read: this
+     * answers `/api/status` and has no use for per-row member counts.
      */
 open func countCollections()throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -2021,18 +2095,6 @@ open func createManuscript(title: String, format: String, body: String, authors:
 }
     
     /**
-     * Create a manuscript-collection (folder). Nesting via `parent_id`.
-     */
-open func createManuscriptCollection(name: String, parentId: String?)throws  -> ManuscriptCollectionRow {
-    return try  FfiConverterTypeManuscriptCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
-    uniffi_imbib_core_fn_method_imbibstore_create_manuscript_collection(self.uniffiClonePointer(),
-        FfiConverterString.lower(name),
-        FfiConverterOptionString.lower(parentId),$0
-    )
-})
-}
-    
-    /**
      * Create an immutable revision snapshot of the manuscript's current body
      * and advance its `current_revision_ref` (ADR-0011 D45 linear chain).
      * `snapshot_reason`: status-change | user-tag | stable-churn | manual.
@@ -2176,6 +2238,23 @@ open func deleteLibrary(id: String)throws  {try rustCallWithError(FfiConverterTy
     
     /**
      * Delete a library with snapshot for undo.
+     *
+     * The child-collection half of the snapshot is the KERNEL's read
+     * (ADR-0022 F3). It used to be a `schema_ref = "imbib/collection"` query,
+     * which is the failure mode this whole work package is about — except
+     * here it did not fail loudly or even visibly. Post-flip the walk found
+     * nothing, the delete orphaned every collection anyway (`ON DELETE SET
+     * NULL` on the envelope parent), and `restore_library` put the library and
+     * its publications back while silently leaving the collections detached
+     * from any library, invisible to every per-library read in the suite.
+     * Silent data loss behind a working Undo entry.
+     *
+     * "The collections of a library" is `list_tree_in(IMBIB_COLLECTION,
+     * library)` — the same envelope filter, resolved against the marker. It
+     * returns nested sub-collections too, exactly as the legacy query did:
+     * every publication collection carries its owning library on the envelope
+     * whatever its depth in the tree (`EnvelopeParent::OwningLibrary`), and
+     * `restore_library`'s `SetParent` re-attaches all of them.
      */
 open func deleteLibraryUndoable(id: String)throws  -> LibraryDeleteSnapshot {
     return try  FfiConverterTypeLibraryDeleteSnapshot.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -2707,6 +2786,27 @@ open func listCollectionMembers(collectionId: String, sortField: String, ascendi
 })
 }
     
+    /**
+     * The collections of one library, ordered by `sort_order`.
+     *
+     * **The read is the kernel's** (ADR-0022 F3). This export's own query
+     * matched `schema_ref = "imbib/collection"` by equality, so it returned
+     * EMPTY the moment the `collections.unified` marker went on — and F1's fix
+     * was a Swift-side reroute, which protected `RustStoreAdapter`'s callers
+     * and nothing else. Everything that reaches this function *directly* was
+     * still blind: `imbib-service::library_service::list_collections` (the
+     * whole MCP / CLI / impel agent surface), and F1's own legacy FALLBACK,
+     * which reactivates the blind path exactly when the kernel handle fails to
+     * open. Fixing the EXPORT fixes every consumer at once, including the ones
+     * nobody has written yet.
+     *
+     * `list_tree_in` is an exact drop-in: same `HasParent(library)` filter on
+     * the ENVELOPE (which the migration never touches), same
+     * `payload.sort_order` ordering, and `CollectionRow::member_count` is the
+     * outgoing `Contains`-edge count `count_collection_members` computed here
+     * — the equality F1 established and `CollectionKernelReadParityTests`
+     * pins on imbib's real write path.
+     */
 open func listCollections(libraryId: String)throws  -> [CollectionRow] {
     return try  FfiConverterSequenceTypeCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_collections(self.uniffiClonePointer(),
@@ -2817,6 +2917,31 @@ open func listLinkedFiles(publicationId: String)throws  -> [LinkedFileRow] {
     /**
      * List all manuscript-collections (flat; tree assembly via `parent_id`
      * happens in the sidebar view model, same as imbib collections).
+     *
+     * Kernel-read since ADR-0022 F3, for the same reason as
+     * [`Self::list_collections`] — and with more at stake, because this one is
+     * still LIVE: `ImbibSidebarViewModel.manuscriptFolderNodes()` is the only
+     * reader, it is dead in imbib (publications-only since 2026-07-27) and
+     * very much alive in imprint, whose Manuscripts section runs the same
+     * shared chassis. Post-flip the legacy literal emptied imprint's folder
+     * tree while imprint's own writes — already on the kernel through
+     * `ManuscriptStoreAdapter` — kept landing in a tree the sidebar could no
+     * longer see.
+     *
+     * Two shape notes, both deliberate:
+     *
+     * - `manuscript_count` is now the kernel's `member_count` (every outgoing
+     * `Contains` edge) where it was `count(schema = "manuscript" AND
+     * ReferencedBy(Contains, folder))`. The numbers agree for every row this
+     * store can hold — nothing files a non-manuscript into a manuscript
+     * folder — and where they could ever diverge the kernel's is the number
+     * imprint's own `collectionMemberCounts` already reports for the same
+     * folder. This REMOVES a divergence rather than introducing one.
+     * - `is_workspace` is imprint's, not the kernel's (the kernel has no such
+     * concept), so it is read off the item — from the payload root where a
+     * pre-flip or post-flip-created row carries it, and from the migration's
+     * `legacy` extras bag where a MIGRATED row carries it. Without that
+     * fallback the flip would silently demote every migrated workspace.
      */
 open func listManuscriptCollections()throws  -> [ManuscriptCollectionRow] {
     return try  FfiConverterSequenceTypeManuscriptCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -29241,7 +29366,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_count_collection_members_public() != 56890) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_count_collections() != 55205) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_collections() != 63823) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_flagged() != 43029) {
@@ -29310,9 +29435,6 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_create_manuscript() != 65213) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_create_manuscript_collection() != 54416) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_manuscript_revision() != 28666) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29349,7 +29471,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_library() != 48813) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_delete_library_undoable() != 64489) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_delete_library_undoable() != 44211) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_delete_publications() != 51586) {
@@ -29496,7 +29618,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_list_collection_members() != 54062) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_list_collections() != 19950) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_collections() != 35872) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_collections_for_publication() != 48207) {
@@ -29523,7 +29645,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_list_linked_files() != 1338) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_list_manuscript_collections() != 6043) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_manuscript_collections() != 5482) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_manuscript_revisions() != 34652) {

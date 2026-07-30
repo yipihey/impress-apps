@@ -393,38 +393,46 @@ public enum ManuscriptMigrationRunner {
     }
 
     /// If the completion flag is set but the unified store has no
-    /// manuscript-collection items, treat that as an out-of-band reset
+    /// manuscript folders, treat that as an out-of-band reset
     /// and rerun the migration. Common cause: user nuked the app-group
     /// container while keeping `ImprintProjects.sqlite` intact.
+    ///
+    /// **The emptiness probe reads through the KERNEL** (ADR-0022 F3), and this
+    /// is the single most dangerous read in the collection-flip audit. It used
+    /// to be `sharedStore.queryBySchema(schemaRef: "manuscript-collection")` —
+    /// a literal, and the exact spelling `collection_migration` rewrites away.
+    /// The moment the `collections.unified` marker went on, a fully populated
+    /// store answered EMPTY here; this function reads that as "the migration's
+    /// output has vanished"; `runIfNeeded` then re-runs the whole Core Data
+    /// import, and every workspace and folder the user has appears TWICE. It
+    /// fires for any user who still has an `ImprintProjects.sqlite` — i.e.
+    /// everyone who ever used imprint before the unified store — and duplicated
+    /// user data is the one irreversible failure in the residue.
+    ///
+    /// The SEMANTICS are unchanged and must stay unchanged: this asks "has the
+    /// migration's output vanished?", not "is the store empty". Its answer is
+    /// therefore still scoped to manuscript folders, and still gated on the
+    /// legacy Core Data store actually having workspaces to re-import.
+    /// `ManuscriptStoreAdapter.listCollections()` is `collectionKernel.tree` on
+    /// the manuscript binding, which resolves the marker per call and answers
+    /// identically on both sides of the flip — the same read the sidebar this
+    /// migration feeds has used since ADR-0022 G2.
     private static func shouldReRunDueToEmptyStore() -> Bool {
-        let adapter = ManuscriptStoreAdapter.shared
-        do {
-            let collections = try adapter.sharedStore.queryBySchema(
-                schemaRef: "manuscript-collection",
-                limit: 1,
-                offset: 0
-            )
-            if collections.isEmpty {
-                // Check whether the legacy CD store actually has rows we
-                // could re-import. If not, there's nothing to do.
-                let context = ImprintPersistenceController.shared.viewContext
-                let wsCount = (try? context.count(
-                    for: NSFetchRequest<NSManagedObject>(entityName: "Workspace")
-                )) ?? 0
-                if wsCount > 0 {
-                    Logger.sharedStore.warningCapture(
-                        "Migration flag is set but no collections in store and legacy data present — re-running",
-                        category: "manuscript-migration"
-                    )
-                    return true
-                }
-            }
-        } catch {
-            Logger.sharedStore.warningCapture(
-                "shouldReRunDueToEmptyStore check failed: \(error.localizedDescription)",
-                category: "manuscript-migration"
-            )
-        }
-        return false
+        let collections = ManuscriptStoreAdapter.shared.listCollections()
+        guard collections.isEmpty else { return false }
+
+        // Check whether the legacy CD store actually has rows we
+        // could re-import. If not, there's nothing to do.
+        let context = ImprintPersistenceController.shared.viewContext
+        let wsCount = (try? context.count(
+            for: NSFetchRequest<NSManagedObject>(entityName: "Workspace")
+        )) ?? 0
+        guard wsCount > 0 else { return false }
+
+        Logger.sharedStore.warningCapture(
+            "Migration flag is set but no collections in store and legacy data present — re-running",
+            category: "manuscript-migration"
+        )
+        return true
     }
 }
