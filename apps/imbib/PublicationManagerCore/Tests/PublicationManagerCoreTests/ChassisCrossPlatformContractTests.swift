@@ -252,8 +252,7 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
 
     func testContractFilesAreNotWrappedInAMacOSGate() throws {
         for relativePath in Self.crossPlatformContractFiles {
-            let url = Self.sourcesRoot.appendingPathComponent(relativePath)
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try ChassisSourceRoots.text(of: relativePath)
             let firstCode = text
                 .split(separator: "\n", omittingEmptySubsequences: false)
                 .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -295,21 +294,46 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
             "Chassis/Shared/UnifiedPublicationListWrapper.swift",
         ]
         for relativePath in gated {
-            let url = Self.sourcesRoot.appendingPathComponent(relativePath)
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try ChassisSourceRoots.text(of: relativePath)
             XCTAssertTrue(
                 text.hasPrefix("#if os(macOS)"),
                 "\(relativePath) must stay macOS-gated")
         }
     }
 
-    /// `<package>/Sources/PublicationManagerCore`, derived from this test's
-    /// own path so the test is location-independent.
-    private static let sourcesRoot: URL = {
-        URL(fileURLWithPath: #filePath)          // …/Tests/PublicationManagerCoreTests/<this>
-            .deletingLastPathComponent()          // …/Tests/PublicationManagerCoreTests
-            .deletingLastPathComponent()          // …/Tests
-            .deletingLastPathComponent()          // …/PublicationManagerCore
-            .appendingPathComponent("Sources/PublicationManagerCore")
-    }()
+    /// C5 (ADR-0021 D5): five chassis contract files no longer live in PMC —
+    /// four of them appear in the cross-platform list above, and the fifth
+    /// (`ChassisNavigation`) never needed a gate assertion. All five were
+    /// lifted into `packages/ImpressChassis`. `ChassisSourceRoots` resolves a
+    /// `Chassis/…` path against whichever package holds it, so this suite
+    /// keeps spelling the paths it always spelled and keeps asserting the same
+    /// thing about them.
+    ///
+    /// This test pins the lift itself, because the resolver is deliberately
+    /// forgiving: a file that moved BACK to PMC would still resolve, and the
+    /// gate assertions would still pass, and nobody would notice the layering
+    /// had been undone. Here it fails.
+    func testTheLiftedContractFilesLiveInTheChassisPackage() throws {
+        let lifted = [
+            "Chassis/Settings/SettingsSectionDescriptor.swift",
+            "Chassis/Settings/AppSettingsConfiguration.swift",
+            "Chassis/RecordKind/RecordListHostModel.swift",
+            "Chassis/Shared/ChassisNavigation.swift",
+            "Chassis/Manuscripts/FocusedManuscript.swift",
+        ]
+        for relativePath in lifted {
+            let url = ChassisSourceRoots.url(for: relativePath)
+            XCTAssertTrue(
+                url.path.contains("packages/ImpressChassis"),
+                """
+                \(relativePath) was lifted into packages/ImpressChassis by C5 \
+                and is expected to still be there. If it moved back into PMC, \
+                that is a real decision — record it in ADR-0021 D5 and drop \
+                the line here.
+                """)
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: url.path),
+                "\(relativePath) resolves nowhere")
+        }
+    }
 }

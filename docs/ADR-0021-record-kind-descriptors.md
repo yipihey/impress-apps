@@ -1,6 +1,11 @@
 # ADR-0021: Record-Kind Descriptors — the Chassis Contract as Data
 
-Status: Accepted (Stage 1 of the GUI unification)
+Status: Accepted (Stage 1 of the GUI unification).
+D5's package extraction: **PARTIAL as of 2026-07-30** — five contract files
+lifted into `packages/ImpressChassis`, 92 stayed, and the boundary map for the
+rest is in "D5 extraction status" below. The third extraction trigger (build
+time / binary size) has not fired and, on the measured graph, will not fire
+from packaging alone.
 Date: 2026-07-26
 Depends on: ADR-0001 (unified item architecture), ADR-0018 (thin-twin chassis)
 
@@ -56,6 +61,176 @@ catch.
    Extraction trigger (Stage 2+): all three app conversions shipped AND the
    descriptor API survived two consecutive record-kind additions unchanged
    AND build time or binary size measurably hurts.
+
+   *Status 2026-07-30 (Stage 3 item C5): PARTIAL — five files lifted, 92
+   stayed, and the "folder move" claim above is now known to be false for the
+   descriptor itself. The measurement is below and it is the substantive
+   output of C5; the code move is the small part.*
+
+### D5 extraction status — measured 2026-07-30 (Stage 3 item C5)
+
+**Verdict: partial lift. Five contract files moved; the chassis proper stays
+in PMC, and the reason is structural rather than a matter of effort.**
+
+The two named triggers had fired (conversions shipped; the descriptor API
+survived the additions). The third — "build time or binary size measurably
+hurts" — had not, and still has not; see the timings at the end. So C5
+measured the cut before making it.
+
+#### What the graph says
+
+`Chassis/` is 97 files / 32,312 LOC. Its **transitive closure inside PMC is
+348 of 545 files — 64% of PMC, 116,749 of 181,273 LOC**. Extracting the
+chassis wholesale is not extracting a chassis; it is moving two thirds of
+imbib, including `Domain/`, `Manuscript/`, `Search/`, `Inbox/`, `Persistence/`
+and `SharedViews/`.
+
+The asymmetry is the point. In the OTHER direction the boundary is almost
+clean: only **9 chassis-declared symbols are referenced from 8 non-chassis PMC
+files**, and **no PMC file extends a chassis type**. The chassis is the TOP
+layer of PMC, not the bottom one. But the extraction D5 envisages
+needs it to be the bottom layer — PMC must be able to depend on it — and a
+top layer cannot be lifted underneath the thing it sits on.
+
+#### The boundary table
+
+64 of 97 chassis files name at least one non-chassis PMC symbol: **137 distinct
+symbols, 771 references**. Classified by what the edge would have to BECOME for
+the chassis to move:
+
+| Class | Symbols | Refs | Chassis files touched | What it means |
+|---|---:|---:|---:|---|
+| **SEAM** — generic, moves WITH the chassis | 28 | 194 | 28 | `SidebarSectionType` (43), `DetailTab` (38), `PaneLayoutStore` (13), `CollectionStoreAdapter` (12), `ScreenConfigurationObserver` (12), `StoreUndoScope`/`RecordTriageStoreKernel`, `CollectionModel`, the sidebar order/collapse stores, `ListViewID`, `AppearanceMode` |
+| **INJECTION POINT** — should become a protocol or closure the app supplies | 48 | 332 | 44 | `RustStoreAdapter` (115 — see below), `LibraryManager` (16), `ImbibImpressStore` (16), `InboxManager` (16), `AttachmentManager` (16), `LibraryViewModel` (15), `PDFSettingsStore` (13), `ExplorationService` (11), the SciX trio, `ManuscriptBridge`, `ManuscriptEditorSession` |
+| **HARD ENTANGLEMENT** — publication/imbib types woven into shared surfaces | 61 | 245 | 41 | `PublicationModel` (33), `LinkedFileModel` (27), `PublicationSource` (17), `PublicationRowData` (15), `JournalManuscript(+Status)` (24), `PaperRepresentable` (9), `ResearchArtifact` (8), `DocumentFormat` (7), the per-source search-form views |
+| **TOTAL** | **137** | **771** | **64** | |
+
+Everything else the chassis names — `ImpressFTUI`, `ImpressMailStyle`,
+`ImpressSidebar`, `ImpressTheme`, `ImpressKit`, `ImpressStoreKit` — is already
+a package dependency and cost nothing to reason about. That part of ADR-0018
+worked exactly as designed.
+
+Three findings inside the table are worth more than the totals:
+
+* **`RustStoreAdapter` is 115 of the 771 references, across 24 of the 97
+  files** — a single imbib singleton reached for by a quarter of the chassis.
+  It is one injection point, and it is the highest-leverage one in the suite:
+  `StoreKernelScope` already proved the shape (the three host hooks a generic
+  kernel needs), and nothing that generalises the chassis further can skip it.
+* **The `PublicationSource` edge in `RecordScopeKey.swift` is a retroactive
+  conformance, not an entanglement.** `extension PublicationSource:
+  RecordScopeKey` is five lines that could sit next to `PublicationSource` in
+  PMC while the protocol moves down. ADR-0018 D3 is not the obstacle it looks
+  like here — the obstacle is `SidebarSectionType`, which `RecordSidebarModel`
+  needs and which lives in `Files/SidebarSectionOrderStore.swift` (a SEAM,
+  movable).
+* **The descriptor is blocked by exactly one edge, and it is not a store
+  type.** `RecordKindDescriptor.previewKind` is typed
+  `DocumentFormat.PreviewKind`, and `BuiltinRecordKinds` builds the manuscript
+  creation affordances from `DocumentFormat.allCases`.
+  `Manuscript/Compile/DocumentFormat.swift` `import`s **ImbibRustCore** (its
+  grammar table is a Rust constant, Stage 7 item 4), so moving it would make
+  the suite-wide chassis package depend on imbib's Rust FFI. D5's purity rule —
+  "must not import store types" — held, and was not sufficient: nobody wrote
+  down "must not import a Rust core either". With `DetailTab` and
+  `DocumentFormat` treated as movable seams, the clean subset jumps from **9
+  chassis files / 1,674 LOC to 21 chassis files / 4,278 LOC** (4,512 LOC
+  counting the two seam files themselves) — the whole descriptor core,
+  `KindTaggedRow`, `RecordDragSession`, `AnyRecordListWrapper`,
+  `SchemaRefKindLookup`, `RelatedItemsSection`, the Agents reader + rows. One
+  enum's Rust-backed home is standing between the ADR's headline claim and its
+  being true.
+
+#### What moved
+
+The closed subset that reaches nothing outside `Chassis/` is 9 files / 1,674
+LOC. Five moved to `packages/ImpressChassis`:
+
+| File (now `Sources/ImpressChassis/…`) | LOC |
+|---|---:|
+| `Settings/AppSettingsConfiguration.swift` | 817 |
+| `Settings/SettingsSectionDescriptor.swift` | 273 |
+| `RecordKind/RecordListHostModel.swift` | 73 |
+| `Shared/ChassisNavigation.swift` | 46 |
+| `Manuscripts/FocusedManuscript.swift` | 25 |
+
+Four members of that subset stayed, on one rule: **do not split a file from
+its gated companion across a module boundary.** `MarkdownPreviewTab.swift`
+belongs with `MarkdownPreviewTab+Session.swift`,
+`RecordTriageNewTagPrompt.swift` with `RecordTriage.swift`,
+`DetachedWindowStateStore.swift` with `DetailWindowController.swift`;
+`JournalEventBridge` is `internal` and lifting it would have meant widening
+PMC's public surface to move 123 lines, which is a change wearing a move's
+clothes.
+
+#### The compatibility mechanism
+
+`packages/ImpressChassis` was an eleven-line façade
+(`@_exported import PublicationManagerCore`). C5 **reversed the arrow**: it
+now has zero dependencies, PMC depends on it, and
+`Chassis/ImpressChassisReexport.swift` does `@_exported import ImpressChassis`.
+Every existing `import PublicationManagerCore` resolves every symbol exactly as
+before, so **not one app target changed and not one test assertion changed**.
+The only test-side edit is mechanical: the three suites that assert on chassis
+SOURCE TEXT by path (`ChassisCrossPlatformContractTests`,
+`SettingsSurfaceContractTests`, `RecordListHostTests`) now resolve through
+`ChassisSourceRoots`, which tries PMC and falls back to the package — so they
+kept their subjects, and a sixth file going down needs no edit there. One
+assertion was ADDED, pinning the lift itself
+(`testTheLiftedContractFilesLiveInTheChassisPackage`), because the resolver is
+deliberately forgiving and a file quietly moving back would otherwise still
+pass. Nothing in the tree imported `ImpressChassis` when the reversal happened,
+so the façade could be retired outright rather than deprecated.
+
+`scripts/check-chassis-deps.sh` now polices both manifests: PMC's historical
+allowlist (22 local, 4 remote) plus an **empty** allowlist for ImpressChassis
+and an explicit check that it never depends back on PMC.
+
+#### Build time — the trigger that still has not fired
+
+| | before | after |
+|---|---|---|
+| PMC clean `swift build` (compile / wall) | 66.7 s / 85.9 s | 68.3–74.5 s / 83.0–99.7 s (3 samples) |
+| imbib macOS clean `xcodebuild` | 75.9 s | 70.6 s |
+| ImpressChassis alone | — | 4.5 s |
+
+The extraction bought nothing. An added module boundary is a serialization
+point, and it costs about what five files' worth of parallelism saves. This is
+the honest reading of D5's third trigger: **it has not fired, and the two-thirds
+closure above says it will not fire from packaging alone.**
+
+#### What must be untangled first, in dependency order
+
+1. **`DocumentFormat.PreviewKind` off `RecordKindDescriptor`** (~half a day).
+   Give the chassis its own preview-kind enum and typealias `DocumentFormat`'s
+   nested one to it; make the manuscript kind's creation affordances declared
+   data rather than a fold over `DocumentFormat.allCases`. Unlocks the whole
+   descriptor core — 9 chassis files → 21, 1.7k LOC → 4.3k — with `DetailTab`
+   moving alongside as the trivial seam it is. This is the highest
+   value-per-hour item in the campaign, and it is a behaviour-shaped change,
+   which is why C5 (moves + plumbing only) correctly did not do it.
+2. **`SidebarSectionType` + the sidebar order/collapse stores down as a seam**
+   (~1 day). Unlocks `RecordSidebarModel` / `RecordSidebarBuilder` /
+   `RecordCollectionActions` / `RecordViewerRegistry` — the iOS shell surface —
+   once (1) has moved `RecordScopeKey`, whose only blocker is a five-line
+   retroactive conformance that stays behind with `PublicationSource`.
+3. **`RustStoreAdapter` behind a protocol** (~1–2 weeks). 115 references, 24
+   files. `StoreKernelScope` is the proven shape; this is the same move at the
+   scale of the whole chassis, and until it lands `Shared/`, `TabSidebar/`,
+   `Detail/` and the per-kind wrappers cannot move at all.
+4. **The publication surfaces** (open-ended, and possibly never). `PublicationModel`,
+   `PublicationSource`, `PublicationRowData` and `LinkedFileModel` are woven
+   through `UnifiedPublicationListWrapper`, `PublicationListCore`,
+   `SectionContentView`, `InfoTab` and `DetailView` — 245 references in the
+   HARD class. ADR-0018 D3 forbids widening `PublicationSource`, and these are
+   imbib's own types: the right end state is probably that these surfaces stay
+   in PMC behind a boundary comment, and the chassis package is the contract
+   plus the kinds that never name a publication.
+
+Steps 1 and 2 are worth doing on their own merits — they make the descriptor
+claim in D5 true. Step 3 is worth doing for the suite, not for the packaging.
+Step 4 is not obviously worth doing at all, and no one should start 3 expecting
+4 to follow.
 
 ## Consequences
 

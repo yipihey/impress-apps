@@ -3,7 +3,7 @@
 // `.openStoreSearch`'s does.
 //
 //  ChassisNavigation.swift
-//  PublicationManagerCore
+//  ImpressChassis (lifted out of PublicationManagerCore by C5)
 //
 //  Stage 4c (ADDITIVE seam, flagged): programmatic navigation INTO the chassis
 //  from an app's own menu commands and URL scheme.

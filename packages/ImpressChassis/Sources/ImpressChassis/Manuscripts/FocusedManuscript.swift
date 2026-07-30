@@ -2,7 +2,7 @@
 // declaration — pure SwiftUI focus plumbing.
 //
 //  FocusedManuscript.swift
-//  PublicationManagerCore
+//  ImpressChassis (lifted out of PublicationManagerCore by C5)
 //
 //  Scene-focused manuscript identity. Both manuscript hosts publish it —
 //  ManuscriptSectionView (chassis list|detail split) and imprint's standalone

@@ -5,7 +5,7 @@
 // shipped NO settings, because the list existed only as a macOS `TabView` body.
 //
 //  AppSettingsConfiguration.swift
-//  PublicationManagerCore
+//  ImpressChassis (lifted out of PublicationManagerCore by C5)
 //
 //  Stage 6 phase 1 (ADR-0021 descriptor/factory split, applied to settings).
 //
@@ -18,15 +18,21 @@
 //     `SectionContentView` and the shell parity tests; a settings preset is
 //     read by exactly two renderers. Fusing them would make every settings
 //     change a diff on the file the whole chassis depends on.
-//  3. Extraction shape. ADR-0021 D5 defers the package split but wants the
-//     folder boundary honest NOW: `Chassis/Settings/` is a clean folder move
-//     into a future `ImpressSettings`, which it would not be if the preset
-//     lived in the shell file.
+//  3. Extraction shape. ADR-0021 D5 deferred the package split but wanted the
+//     folder boundary honest in advance, so that `Chassis/Settings/` would be
+//     a clean folder move — which it would not have been if the preset lived
+//     in the shell file. **C5 (2026-07-30) collected on that**: this file and
+//     `SettingsSectionDescriptor.swift` are the move, and they are now in
+//     `packages/ImpressChassis`. `SettingsSectionRegistry.swift` did NOT come
+//     with them — it reads `AppearanceMode` from PMC's theme layer — which is
+//     the descriptor/factory split of D3 turning into a package boundary
+//     rather than a new one being invented.
 //
-//  They stay siblings, not strangers: both are `appID`-keyed presets in
-//  `Chassis/`, and `AppSettingsConfigurationTests` asserts every settings
-//  preset's `appID` matches a shell preset's, so the two cannot drift into
-//  disagreeing about which apps exist.
+//  They stay siblings, not strangers: `AppShellConfiguration` is still in PMC
+//  (it names `SidebarSectionType`), both remain `appID`-keyed presets, and
+//  `AppSettingsConfigurationTests` asserts every settings preset's `appID`
+//  matches a shell preset's — across the package boundary now — so the two
+//  cannot drift into disagreeing about which apps exist.
 //
 
 import Foundation

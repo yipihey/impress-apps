@@ -43,7 +43,14 @@ let package = Package(
         .package(path: "../../../packages/ImpressTheme"),
         .package(path: "../../../packages/ImpressUndoHistory"),
         .package(path: "../../../packages/ImpressSmartSearch"),
-        .package(path: "../../../packages/ImpressHelixCore")
+        .package(path: "../../../packages/ImpressHelixCore"),
+        // ADR-0021 D5 / C5: the extracted half of the chassis contract. PMC
+        // depends on it and `@_exported import`s it (see
+        // `Chassis/ImpressChassisReexport.swift`), so every existing
+        // `import PublicationManagerCore` still resolves every symbol — the
+        // compatibility invariant of the lift. The arrow used to point the
+        // other way (ImpressChassis was a façade over PMC).
+        .package(path: "../../../packages/ImpressChassis")
     ],
     targets: [
         .target(
@@ -73,7 +80,8 @@ let package = Package(
                 "ImpressTheme",
                 "ImpressUndoHistory",
                 "ImpressSmartSearch",
-                "ImpressHelixCore"
+                "ImpressHelixCore",
+                "ImpressChassis"
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),

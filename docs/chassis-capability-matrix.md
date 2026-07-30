@@ -186,7 +186,7 @@ split and is listed here so the reach table stays complete.
 | `Chassis/RecordKind/AnyRecordListWrapper.swift` | ✅ both | the mixed-kind list over `KindTaggedRow` — plain SwiftUI `List` |
 | `Chassis/TabSidebar/TabSidebarTypes.swift` | ✅ both | 345 lines of route enums (`ImbibTab`, `ImbibContentRoute`, journal/figure/mail/agent routes) + notification names. The chassis's ROUTE vocabulary, which iOS had to re-encode as literals |
 | `Chassis/TabSidebar/FocusedPane.swift` | ✅ both | the focus twin of the never-gated `DetailTab` |
-| `Chassis/Manuscripts/FocusedManuscript.swift` | ✅ both | a `FocusedValueKey` — pure SwiftUI focus plumbing |
+| `ImpressChassis/Manuscripts/FocusedManuscript.swift` | ✅ both | a `FocusedValueKey` — pure SwiftUI focus plumbing. **Lifted out of PMC into `packages/ImpressChassis` by C5** (ADR-0021 D5); PMC re-exports the module, so the import that reaches it is unchanged |
 | `Chassis/Shared/FindCoordinator.swift` | ✅ both | ⌘F / ⌘⇧F `Commands`, the `listFilterFocusAction` focused value, and the store-search notification names. `Commands` is SwiftUI, not AppKit. ISLAND: `ImpressStoreSearchCommands` contributes nothing on iOS — the surface it opens (`StoreSearchSurface`) is the one AppKit-linking builtin, so the chord would open nothing (the `RecordTriageNewTagPrompt` "omit the affordance" rule) |
 | `Chassis/Manuscripts/ManuscriptRowData.swift` | ✅ both | display-ready row snapshot (Foundation + ImpressFTUI/ImpressMailStyle value types) |
 | `Chassis/Messages/MessageRowData.swift` | ✅ both | as above, mail |
@@ -227,6 +227,44 @@ they compile 26 more chassis files each.
 
 **Rule when a macOS-only symbol lands in a contract file: SPLIT the file**
 (data here, AppKit companion gated) — never re-gate the contract.
+
+### The chassis lives in two packages now (C5, 2026-07-30)
+
+ADR-0021 D5's package extraction ran, was measured first, and moved five files.
+`packages/ImpressChassis` used to be an eleven-line façade
+(`@_exported import PublicationManagerCore`); it is now a real target with no
+dependencies at all, and PMC depends on it and re-exports it. **Every existing
+`import PublicationManagerCore` still resolves every symbol** — that
+re-export is the compatibility invariant, and it is why this landed with zero
+diffs in any app target.
+
+| Where a chassis file lives | What that means |
+|---|---|
+| `packages/ImpressChassis/Sources/ImpressChassis/…` | it names NOTHING outside `Chassis/` — pure contract data, Foundation or SwiftUI only. Five files: the settings descriptor + preset, `RecordListHostModel`, `ChassisNavigation`, `FocusedManuscript` |
+| `apps/imbib/PublicationManagerCore/…/Chassis/…` | everything else — 92 files, and the reason is measured, not aesthetic (see below) |
+
+**Why so few, and why that is the finding.** `Chassis/` is 97 files / 32.3k
+LOC, but its transitive closure inside PMC is **348 of 545 files (64% of PMC,
+117k LOC)**: the chassis sits on TOP of imbib's domain, not underneath it. 64
+of the 97 chassis files name at least one non-chassis PMC symbol — 137 distinct
+symbols over 771 references — and the single heaviest is `RustStoreAdapter`
+(115 references across 24 chassis files), imbib's own store facade. The full
+boundary table, classified into seams / injection points / hard entanglements
+with counts, is in ADR-0021 D5.
+
+The lint follows the code: `scripts/check-chassis-deps.sh` now polices BOTH
+manifests, with an empty allowlist for ImpressChassis and an explicit check
+that it never depends back on PMC. `ChassisCrossPlatformContractTests` and the
+settings/list-host suites resolve a `Chassis/…` path through
+`ChassisSourceRoots`, which tries PMC and falls back to the package — so the
+structural assertions above kept their subjects and gained one more:
+`testTheLiftedContractFilesLiveInTheChassisPackage`.
+
+**Build time did not improve, and that was the point of measuring.** PMC clean
+`swift build` 66.7 s → 68.3–74.5 s (three samples); imbib macOS clean
+`xcodebuild` 75.9 s → 70.6 s. The extra module boundary costs about as much as
+the five files saved. ADR-0021 D5's third extraction trigger — "build time or
+binary size measurably hurts" — is still not met.
 
 ### iOS shell surface (`Chassis/Shared/RecordSidebar/`, 2026-07-29)
 
@@ -315,9 +353,9 @@ apps are phase 2 and are deliberately untouched.
 
 | File | Reach | Role |
 |---|---|---|
-| `Chassis/Settings/SettingsSectionDescriptor.swift` | ✅ both | `SettingsSectionID` (string-backed, additive), `SettingsSectionDescriptor` (id, title, SF Symbol, subtitle, availability, order — Sendable DATA, no closures), `SettingsPlatform`, `SettingsRequirement`, `SettingsSectionAvailability`, `SettingsHostCapabilities` |
+| `ImpressChassis/Settings/SettingsSectionDescriptor.swift` | ✅ both | **lifted into `packages/ImpressChassis` by C5.** `SettingsSectionID` (string-backed, additive), `SettingsSectionDescriptor` (id, title, SF Symbol, subtitle, availability, order — Sendable DATA, no closures), `SettingsPlatform`, `SettingsRequirement`, `SettingsSectionAvailability`, `SettingsHostCapabilities` |
 | `Chassis/Settings/SettingsSectionRegistry.swift` | ✅ both | `SettingsSectionFactory` (the `@MainActor @Sendable → AnyView` builder), the registry (`register` / `subscript` / `composing` / `unresolvedSections`), the environment key, the two BUILTIN panes, and `SettingsForm` (the one `#if` island — macOS tabs want `.padding()`, iOS pushed screens must not have it) |
-| `Chassis/Settings/AppSettingsConfiguration.swift` | ✅ both | the per-app ordered section list. A SIBLING of `AppShellConfiguration.swift`, not part of it: different consumers (two renderers vs. the whole sidebar), and `Chassis/Settings/` stays a clean folder move for the deferred `ImpressSettings` extraction (ADR-0021 D5) |
+| `ImpressChassis/Settings/AppSettingsConfiguration.swift` | ✅ both | **lifted into `packages/ImpressChassis` by C5** — the folder-move claim this row used to make in the future tense, made good. The per-app ordered section list; a SIBLING of `AppShellConfiguration.swift`, not part of it (different consumers: two renderers vs. the whole sidebar). Note what did NOT come with it: `SettingsSectionRegistry.swift`, which reads `AppearanceMode` from PMC's theme layer. Descriptor and preset are data; the registry builds views over app types, and that is the seam the package boundary now makes physical |
 | `Chassis/Settings/MacSettingsSceneContent.swift` | macOS | the tabbed renderer (`TabView` + `.tabItem`), sized to imprint's shipped Settings-window metrics |
 | `Chassis/Settings/IOSSettingsScreen.swift` | iOS | the grouped-list renderer (`NavigationStack` + `List` of `NavigationLink`s), iOS idiom rather than a ported `TabView` |
 
@@ -852,7 +890,7 @@ middle of imprint-iOS's `IOSManuscriptLibraryView` and impart-iOS's
 
 | File | Reach | Role |
 |---|---|---|
-| `Chassis/RecordKind/RecordListHostModel.swift` | ✅ both | the DATA half: `RecordListPhase.resolve` and the row-identifier convention |
+| `ImpressChassis/RecordKind/RecordListHostModel.swift` | ✅ both | the DATA half: `RecordListPhase.resolve` and the row-identifier convention. **Lifted into `packages/ImpressChassis` by C5** — the data/view split became a package boundary, with the renderer below staying in PMC |
 | `Chassis/RecordKind/RecordListHostView.swift` | iOS | the renderer. Gated because `navigationBarTitleDisplayMode` and `.topBarTrailing` are iOS-only — the same data/view split as `RecordSidebarModel` / `RecordSidebarView` |
 | `Chassis/Shared/ChassisEmptyState.swift` | ✅ both | ADDITIVE: `view(actions:)`, the same state with a recovery button under it |
 

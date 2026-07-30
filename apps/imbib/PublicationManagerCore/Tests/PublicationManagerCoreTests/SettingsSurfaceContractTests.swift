@@ -235,8 +235,10 @@ final class SettingsSurfaceContractTests: XCTestCase {
 
     func testSettingsContractFilesAreNotWrappedInAMacOSGate() throws {
         for relativePath in Self.crossPlatformContractFiles {
-            let url = Self.sourcesRoot.appendingPathComponent(relativePath)
-            let text = try String(contentsOf: url, encoding: .utf8)
+            // Two of the three now live in `packages/ImpressChassis` (C5); the
+            // registry, which reads `AppearanceMode` from PMC's theme layer,
+            // does not. `ChassisSourceRoots` resolves either.
+            let text = try ChassisSourceRoots.text(of: relativePath)
             let firstCode = text
                 .split(separator: "\n", omittingEmptySubsequences: false)
                 .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -270,18 +272,9 @@ final class SettingsSurfaceContractTests: XCTestCase {
             ("Chassis/Settings/MacSettingsSidebarSceneContent.swift", "#if os(macOS)"),
             ("Chassis/Settings/IOSSettingsScreen.swift", "#if os(iOS)"),
         ] {
-            let url = Self.sourcesRoot.appendingPathComponent(relativePath)
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try ChassisSourceRoots.text(of: relativePath)
             XCTAssertTrue(
                 text.hasPrefix(gate), "\(relativePath) must start with `\(gate)`")
         }
     }
-
-    private static let sourcesRoot: URL = {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/PublicationManagerCore")
-    }()
 }

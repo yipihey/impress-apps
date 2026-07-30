@@ -3,7 +3,8 @@
 // data/view split `RecordSidebarModel` / `RecordSidebarView` uses.
 //
 //  RecordListHostModel.swift
-//  PublicationManagerCore
+//  ImpressChassis (lifted out of PublicationManagerCore by C5;
+//  the renderer stayed behind, so the data/view split is a package boundary now)
 //
 //  C1 (2026-07-30) — what a single-kind iOS record list decides, as data.
 //

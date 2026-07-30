@@ -118,16 +118,12 @@ final class RecordListHostTests: XCTestCase {
 
     // MARK: - Paths
 
-    /// `<package>/Sources/PublicationManagerCore/<relativePath>`, derived from
-    /// this file's own location so the test is location-independent.
+    /// A chassis source file, from whichever package holds it — the DATA half
+    /// moved to `packages/ImpressChassis` in C5 while the iOS renderer stayed
+    /// in PMC, so the two paths this suite reads now resolve to two packages.
+    /// That is the split becoming physical rather than a new kind of split.
     private static func source(_ relativePath: String) throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()  // PublicationManagerCoreTests
-            .deletingLastPathComponent()  // Tests
-            .deletingLastPathComponent()  // package root
-            .appendingPathComponent("Sources/PublicationManagerCore")
-        return try String(
-            contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+        try ChassisSourceRoots.text(of: relativePath)
     }
 
     /// The repo root: this file lives at

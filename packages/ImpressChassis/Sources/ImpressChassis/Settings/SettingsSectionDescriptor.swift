@@ -4,7 +4,7 @@
 // keeps view builders off `RecordKindDescriptor` (ADR-0021 D3).
 //
 //  SettingsSectionDescriptor.swift
-//  PublicationManagerCore
+//  ImpressChassis (lifted out of PublicationManagerCore by C5)
 //
 //  Stage 6 phase 1 of the declarative chassis: settings stop being authored
 //  per app AND per platform. Before this file the suite had ~7.9k lines of
