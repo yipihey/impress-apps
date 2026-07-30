@@ -41,7 +41,15 @@ final class ImpressRealStoreUITests: XCTestCase {
         let list = app.collectionViews.firstMatch
         var sections = Set<String>()
         for step in 0...20 {
-            sections.formUnion(query.allElementsBoundByIndex.map(\.identifier))
+            // Let the scroll SETTLE before resolving the query: on a physical
+            // device the list is still moving when the swipe returns, and
+            // resolving element identifiers mid-scroll throws "Failed to get
+            // matching snapshot" for an index that vanished between the
+            // snapshot and the read.
+            Thread.sleep(forTimeInterval: 0.6)
+            sections.formUnion(query.allElementsBoundByIndex.compactMap {
+                $0.exists ? $0.identifier : nil
+            })
             if step < 20 {
                 if list.exists { list.swipeUp(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
             }
