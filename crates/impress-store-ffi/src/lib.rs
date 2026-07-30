@@ -250,6 +250,11 @@ pub struct SharedCollectionRow {
     /// predicate imbib's sidebar gates Rename / New Subcollection on, leaving
     /// Delete. `false` for bindings whose schema has no such field.
     pub is_smart: bool,
+    /// Member count — for a Contains-edge binding, the outgoing `Contains`-edge
+    /// count (exactly imbib-core `list_collections`' `publication_count`, so a
+    /// tree read is a drop-in for it); for an envelope-membership binding, the
+    /// filed-children count.
+    pub member_count: i64,
 }
 
 /// The value the mutated field held BEFORE a single-field structural verb ran
@@ -1486,6 +1491,7 @@ fn collection_row_to_ffi(row: collection_ops::CollectionRow) -> SharedCollection
         kind_scope: row.kind_scope,
         container_id: row.container_id,
         is_smart: row.is_smart,
+        member_count: row.member_count,
     }
 }
 
@@ -1499,6 +1505,7 @@ fn collection_row_from_ffi(row: SharedCollectionRow) -> collection_ops::Collecti
         kind_scope: row.kind_scope,
         container_id: row.container_id,
         is_smart: row.is_smart,
+        member_count: row.member_count,
     }
 }
 

@@ -2214,6 +2214,13 @@ public struct SharedCollectionRow {
      * Delete. `false` for bindings whose schema has no such field.
      */
     public var isSmart: Bool
+    /**
+     * Member count — for a Contains-edge binding, the outgoing `Contains`-edge
+     * count (exactly imbib-core `list_collections`' `publication_count`, so a
+     * tree read is a drop-in for it); for an envelope-membership binding, the
+     * filed-children count.
+     */
+    public var memberCount: Int64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2238,7 +2245,13 @@ public struct SharedCollectionRow {
          * Is this a SMART (query-defined) collection? The per-row read-only
          * predicate imbib's sidebar gates Rename / New Subcollection on, leaving
          * Delete. `false` for bindings whose schema has no such field.
-         */isSmart: Bool) {
+         */isSmart: Bool, 
+        /**
+         * Member count — for a Contains-edge binding, the outgoing `Contains`-edge
+         * count (exactly imbib-core `list_collections`' `publication_count`, so a
+         * tree read is a drop-in for it); for an envelope-membership binding, the
+         * filed-children count.
+         */memberCount: Int64) {
         self.id = id
         self.name = name
         self.parentId = parentId
@@ -2246,6 +2259,7 @@ public struct SharedCollectionRow {
         self.kindScope = kindScope
         self.containerId = containerId
         self.isSmart = isSmart
+        self.memberCount = memberCount
     }
 }
 
@@ -2274,6 +2288,9 @@ extension SharedCollectionRow: Equatable, Hashable {
         if lhs.isSmart != rhs.isSmart {
             return false
         }
+        if lhs.memberCount != rhs.memberCount {
+            return false
+        }
         return true
     }
 
@@ -2285,6 +2302,7 @@ extension SharedCollectionRow: Equatable, Hashable {
         hasher.combine(kindScope)
         hasher.combine(containerId)
         hasher.combine(isSmart)
+        hasher.combine(memberCount)
     }
 }
 
@@ -2302,7 +2320,8 @@ public struct FfiConverterTypeSharedCollectionRow: FfiConverterRustBuffer {
                 sortOrder: FfiConverterInt64.read(from: &buf), 
                 kindScope: FfiConverterOptionString.read(from: &buf), 
                 containerId: FfiConverterOptionString.read(from: &buf), 
-                isSmart: FfiConverterBool.read(from: &buf)
+                isSmart: FfiConverterBool.read(from: &buf), 
+                memberCount: FfiConverterInt64.read(from: &buf)
         )
     }
 
@@ -2314,6 +2333,7 @@ public struct FfiConverterTypeSharedCollectionRow: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.kindScope, into: &buf)
         FfiConverterOptionString.write(value.containerId, into: &buf)
         FfiConverterBool.write(value.isSmart, into: &buf)
+        FfiConverterInt64.write(value.memberCount, into: &buf)
     }
 }
 

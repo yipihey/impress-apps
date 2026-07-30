@@ -302,20 +302,30 @@ decoded as a figure. The residual issue is the ordinary one: `fetchFolders()`
 queries `schema_ref = "figure-collection"` and would return empty, which is
 implore's surface and belongs with implore's adapter work.
 
-**The single fix that unblocks nearly all of it.** `list_tree_in` is a drop-in
-for `list_collections(library_id)`: same rows, same `sort_order` ordering, and
-it filters on the ENVELOPE, which the migration never touches — proved by
-`the_container_axis_is_invariant_across_the_unified_flip`. Routing
-`RustStoreAdapter.listCollections(libraryId:)` through
-`CollectionStoreAdapter.tree(_:in:)` converts one adapter method and, with it,
-every consumer in the table above except the four exports that need their own
-marker-aware pass (`list_collections_for_publication`, `rename_collection`,
-`create_collection`, `get_publication_detail`).
+**The single fix that unblocks nearly all of it — DONE (F1, 2026-07-31).**
+`list_tree_in` is a drop-in for `list_collections(library_id)`: same rows, same
+`sort_order` ordering, and it filters on the ENVELOPE, which the migration
+never touches — proved by
+`the_container_axis_is_invariant_across_the_unified_flip`. F1 additionally put
+the MEMBER COUNT on the kernel row (`CollectionRow.member_count` /
+`SharedCollectionRow.memberCount` — the legacy export's `publication_count` is
+the outgoing `Contains`-edge count, which the kernel now reports identically;
+the invariance test pins count parity across the flip), because without it the
+"drop-in" would have zeroed every sidebar badge.
+`RustStoreAdapter.listCollections(libraryId:)` and
+`listCollectionsBackground(libraryId:)` now read kernel-first through a
+dedicated `SharedStore` handle on the same database file (WAL), converting
+every consumer in the table above in one move.
+`CollectionKernelReadParityTests` proves the equivalence on the REAL write
+path (imbib's own `createLibrary`/`createCollection`/`importBibtex`/
+`addToCollection`). Honest caveat: in-memory test stores cannot share a second
+handle (two opens = two databases), so they fall back to the legacy path —
+which is also the pre-flip behaviour those tests encode.
 
-That is the flip gate, and it is now a bounded list rather than "44 call sites".
-It was deliberately NOT done in C2: it changes the read path for every
-publication surface in the suite including iOS (C1's) and the exporters, and
-this wave's contract was the kernel and the sidebar.
+**The remaining flip gate** is the bounded list of four exports needing their
+own marker-aware pass: `list_collections_for_publication`,
+`rename_collection`, `create_collection`, `get_publication_detail` — plus
+re-running this table's per-site audit after those land.
 
 ### Follow-up register
 

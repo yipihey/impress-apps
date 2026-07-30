@@ -44,12 +44,16 @@ fn temp_store() -> (tempfile::TempDir, SqliteItemStore) {
 /// A stand-in owning container. The kernel only ever writes its id onto the
 /// envelope, so any real item will do — this is shaped like an imbib library.
 fn make_library(store: &SqliteItemStore, name: &str) -> String {
+    make_item(store, "imbib/library", name)
+}
+
+fn make_item(store: &SqliteItemStore, schema: &str, name: &str) -> String {
     let now = chrono::Utc::now();
     let mut payload = std::collections::BTreeMap::new();
     payload.insert("name".to_string(), Value::String(name.to_string()));
     let item = Item {
         id: uuid::Uuid::new_v4(),
-        schema: "imbib/library".into(),
+        schema: schema.into(),
         payload,
         created: now,
         modified: now,
@@ -145,9 +149,21 @@ fn the_container_axis_is_invariant_across_the_unified_flip() {
         "container and tree parent are DIFFERENT fields — conflating them is c902a22f"
     );
 
+    // A member, so the count the tree rows carry is exercised across the flip
+    // too — `member_count` is imbib-core `list_collections`' number (outgoing
+    // Contains edges), which the drop-in replacement must keep reporting.
+    let paper = make_item(&store, "imbib/bibliography-entry", "A paper");
+    collection_ops::add_members(&store, &IMBIB_COLLECTION, &reading.id, &[paper])
+        .expect("file a member");
+
     let before = collection_ops::list_tree_in(&store, &IMBIB_COLLECTION, Some(&main))
         .expect("scoped read before the flip");
     assert_eq!(names(&before), vec!["Reading", "Nested"]);
+    assert_eq!(
+        before.iter().map(|r| r.member_count).collect::<Vec<_>>(),
+        vec![1, 0],
+        "tree rows carry the Contains-edge member count"
+    );
 
     // ── The flip ──
     let report = collection_migration::migrate_collections(&store, false).expect("migrate");

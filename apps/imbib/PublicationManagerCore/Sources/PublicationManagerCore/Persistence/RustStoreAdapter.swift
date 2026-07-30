@@ -71,6 +71,14 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// ImbibStore uses Arc<Mutex<Connection>> internally, so concurrent reads are safe.
     public nonisolated(unsafe) let imbibStore: ImbibStore
 
+    /// Kernel (`SharedStore`) handle on the SAME database file, for the
+    /// flip-safe collection reads (`collectionTreeIn` resolves the
+    /// `collections.unified` marker; the legacy `list_collections` export goes
+    /// blind at the flip — ADR-0022 "flip gate"). `nil` for in-memory test
+    /// stores, where a second open would be a second database; readers then
+    /// fall back to the legacy path. Thread-safe like `imbibStore`.
+    nonisolated(unsafe) private let kernelStore: ImpressRustCore.SharedStore?
+
     /// Whether the Rust store is enabled (feature flag for gradual rollout).
     public static var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: "useRustStore")
@@ -136,6 +144,10 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         let s = try ImbibStore.open(path: dbPath)
         self.store = s
         self.imbibStore = s
+        // Same FILE as `imbibStore` (WAL permits concurrent handles), so kernel
+        // reads see every ImbibStore write. Optional: a failed open degrades to
+        // the legacy read path rather than failing init.
+        self.kernelStore = try? ImpressRustCore.SharedStore.open(path: dbPath)
         Logger.library.infoCapture("RustStoreAdapter initialized at \(dbPath)", category: "rust-store")
     }
 
@@ -145,11 +157,17 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             let s = try ImbibStore.openInMemory()
             self.store = s
             self.imbibStore = s
+            // Two in-memory opens are two DATABASES (the imprint seed lesson),
+            // so there is no kernel handle to share here — collection reads
+            // fall back to the legacy ImbibStore path, which is also the
+            // pre-flip behaviour the in-memory tests were written against.
+            self.kernelStore = nil
         } else {
             let dbPath = Self.databasePath()
             let s = try ImbibStore.open(path: dbPath)
             self.store = s
             self.imbibStore = s
+            self.kernelStore = try? ImpressRustCore.SharedStore.open(path: dbPath)
         }
     }
 
@@ -1191,14 +1209,38 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     // MARK: - Collection Operations
 
     /// List collections in a library.
+    ///
+    /// Reads through the collection KERNEL (`collectionTreeIn`), which resolves
+    /// the `collections.unified` marker — the legacy `list_collections` export
+    /// matches `schema_ref = "imbib/collection"` by equality and goes blind the
+    /// moment the G7 migration runs. Same rows, same `sort_order` ordering,
+    /// same member counts (`the_container_axis_is_invariant_across_the_unified_flip`
+    /// pins all three). Falls back to the legacy path only when no kernel
+    /// handle exists (in-memory test stores).
     public func listCollections(libraryId: UUID) -> [CollectionModel] {
         StoreTimings.shared.measure("listCollections") {
-            do {
-                return try store.listCollections(libraryId: libraryId.uuidString).map { CollectionModel(from: $0) }
-            } catch {
-                Logger.library.error("listCollections failed: \(error)")
-                return []
-            }
+            kernelCollections(libraryId: libraryId) ?? legacyListCollections(libraryId: libraryId)
+        }
+    }
+
+    private nonisolated func kernelCollections(libraryId: UUID) -> [CollectionModel]? {
+        guard let kernelStore else { return nil }
+        do {
+            return try kernelStore
+                .collectionTreeIn(binding: .publication, containerId: libraryId.uuidString.lowercased())
+                .map { CollectionModel(fromKernel: $0) }
+        } catch {
+            Logger.library.error("kernel collection read failed, using legacy path: \(error)")
+            return nil
+        }
+    }
+
+    private nonisolated func legacyListCollections(libraryId: UUID) -> [CollectionModel] {
+        do {
+            return try imbibStore.listCollections(libraryId: libraryId.uuidString).map { CollectionModel(from: $0) }
+        } catch {
+            Logger.library.error("listCollections failed: \(error)")
+            return []
         }
     }
 
@@ -3303,13 +3345,11 @@ extension RustStoreAdapter {
         }
     }
 
-    /// List collections for a library off the main thread.
+    /// List collections for a library off the main thread. Kernel-first like
+    /// `listCollections(libraryId:)` — both variants must answer identically,
+    /// or the sidebar's background rebuild disagrees with its foreground one.
     nonisolated public func listCollectionsBackground(libraryId: UUID) -> [CollectionModel] {
-        do {
-            return try imbibStore.listCollections(libraryId: libraryId.uuidString).map { CollectionModel(from: $0) }
-        } catch {
-            return []
-        }
+        kernelCollections(libraryId: libraryId) ?? legacyListCollections(libraryId: libraryId)
     }
 
     /// List collection members off the main thread.

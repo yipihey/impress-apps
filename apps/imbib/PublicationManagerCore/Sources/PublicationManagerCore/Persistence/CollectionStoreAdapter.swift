@@ -82,6 +82,11 @@ public struct CollectionKernelRow: Equatable, Sendable {
     /// `CollectionCapability.allowsOrganize(isSmart:tier:)` consumes; `false`
     /// for bindings whose schema has no such field.
     public let isSmart: Bool
+    /// Member count — the outgoing `Contains`-edge count for edge-membership
+    /// bindings (exactly imbib-core `list_collections`' `publication_count`),
+    /// the filed-children count for envelope bindings. Carried on the row so a
+    /// kernel tree read is a drop-in for the legacy per-kind list exports.
+    public let memberCount: Int
 
     init(_ row: SharedCollectionRow) {
         self.id = row.id
@@ -90,6 +95,7 @@ public struct CollectionKernelRow: Equatable, Sendable {
         self.sortOrder = row.sortOrder
         self.containerID = row.containerId
         self.isSmart = row.isSmart
+        self.memberCount = Int(row.memberCount)
     }
 }
 

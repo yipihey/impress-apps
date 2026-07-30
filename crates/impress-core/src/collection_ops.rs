@@ -397,6 +397,12 @@ pub struct CollectionRow {
     /// this is a REPORTED fact a caller may gate its own verbs on — which is
     /// what imbib's sidebar does (smart rows offer Delete only).
     pub is_smart: bool,
+    /// How many members the collection holds — [`member_counts`]'s number,
+    /// carried on the row so a tree read is a drop-in for imbib-core's
+    /// `list_collections` (whose `publication_count` is exactly the outgoing
+    /// `Contains`-edge count, unfiltered by member schema). For an
+    /// envelope-membership binding this is the filed-children count instead.
+    pub member_count: i64,
 }
 
 /// The value the mutated field held BEFORE a single-field structural verb ran.
@@ -548,14 +554,17 @@ fn list_tree_resolved(
             ascending: true,
         }],
         include_tags: false,
-        include_references: false,
+        // References are the ContainsEdge member count (`row_of`); collection
+        // trees are small, so loading them here is cheaper than a count query
+        // per row and keeps the read one round trip.
+        include_references: true,
         ..Default::default()
     };
-    Ok(store
+    store
         .query(&q)?
         .iter()
-        .map(|item| row_of(b, item))
-        .collect())
+        .map(|item| row_of(store, b, item))
+        .collect()
 }
 
 /// The items belonging to a collection, in creation order (newest first).
@@ -583,18 +592,9 @@ pub fn member_counts(
     let mut counts = Vec::with_capacity(collection_ids.len());
     for raw in collection_ids {
         let id = parse_id(raw)?;
-        counts.push(match b.membership {
-            // Sub-collections nest through the parent field, never through a
-            // Contains edge, so every outgoing Contains edge is a member.
-            Membership::ContainsEdge => match store.get(id)? {
-                Some(item) if is_bound(&b, &item) => item
-                    .references
-                    .iter()
-                    .filter(|r| r.edge_type == EdgeType::Contains)
-                    .count() as u32,
-                _ => 0,
-            },
-            Membership::EnvelopeParent => store.count(&member_query(&b, id))? as u32,
+        counts.push(match store.get(id)? {
+            Some(item) if is_bound(&b, &item) => member_count_of(store, &b, &item)?,
+            _ => 0,
         });
     }
     Ok(counts)
@@ -688,7 +688,7 @@ pub fn create_in(
     };
 
     store.insert(item.clone())?;
-    Ok(row_of(&b, &item))
+    row_of(store, &b, &item)
 }
 
 /// Rename a collection.
@@ -874,7 +874,7 @@ pub fn delete(
     let b = resolve(store, binding)?;
     let id = parse_id(id)?;
     let item = load_collection(store, &b, id)?;
-    let row = row_of(&b, &item);
+    let row = row_of(store, &b, &item)?;
 
     // Membership the delete is about to drop. `member_query` already excludes
     // sub-collections for envelope bindings; Contains edges never point at
@@ -1219,11 +1219,15 @@ fn reload_row(
     id: ItemId,
 ) -> Result<CollectionRow, StoreError> {
     let item = load_collection(store, b, id)?;
-    Ok(row_of(b, &item))
+    row_of(store, b, &item)
 }
 
-fn row_of(b: &ResolvedBinding, item: &Item) -> CollectionRow {
-    CollectionRow {
+fn row_of(
+    store: &SqliteItemStore,
+    b: &ResolvedBinding,
+    item: &Item,
+) -> Result<CollectionRow, StoreError> {
+    Ok(CollectionRow {
         id: item.id.to_string(),
         name: string_field(item, "name").unwrap_or_default(),
         parent_id: tree_parent(b, item).map(|p| p.to_string()),
@@ -1239,7 +1243,30 @@ fn row_of(b: &ResolvedBinding, item: &Item) -> CollectionRow {
             .smart_field
             .and_then(|field| bool_field(item, field))
             .unwrap_or(false),
-    }
+        member_count: i64::from(member_count_of(store, b, item)?),
+    })
+}
+
+/// One collection's member count, from an item already in hand. The
+/// `ContainsEdge` arm needs the item loaded WITH references (`store.get` does;
+/// a query must say `include_references: true`) and costs no store round trip;
+/// the envelope arm is a count query, which is what [`member_counts`] has
+/// always done for it.
+fn member_count_of(
+    store: &SqliteItemStore,
+    b: &ResolvedBinding,
+    item: &Item,
+) -> Result<u32, StoreError> {
+    Ok(match b.membership {
+        // Sub-collections nest through the parent field, never through a
+        // Contains edge, so every outgoing Contains edge is a member.
+        Membership::ContainsEdge => item
+            .references
+            .iter()
+            .filter(|r| r.edge_type == EdgeType::Contains)
+            .count() as u32,
+        Membership::EnvelopeParent => store.count(&member_query(b, item.id))? as u32,
+    })
 }
 
 /// The collection's owning container, or `None` for a binding with no container
@@ -1966,7 +1993,16 @@ mod tests {
         let before_members = member_ids(&store, &MANUSCRIPT_COLLECTION, &folder.id);
 
         let snapshot = delete(&store, &MANUSCRIPT_COLLECTION, &folder.id).unwrap();
-        assert_eq!(snapshot.row, folder);
+        // Structurally the create-time row; `member_count` truthfully reports
+        // the two members added since (it is a live read, not part of the
+        // structural identity the round trip must preserve).
+        assert_eq!(
+            snapshot.row,
+            CollectionRow {
+                member_count: 2,
+                ..folder.clone()
+            }
+        );
         assert_eq!(
             snapshot.envelope_parent_id,
             Some(library_id.to_string()),
@@ -1979,7 +2015,14 @@ mod tests {
         assert_eq!(list_tree(&store, &MANUSCRIPT_COLLECTION).unwrap().len(), 2);
 
         let restored = restore(&store, &MANUSCRIPT_COLLECTION, &snapshot).unwrap();
-        assert_eq!(restored, folder, "restored under its ORIGINAL id");
+        assert_eq!(
+            restored,
+            CollectionRow {
+                member_count: 2,
+                ..folder.clone()
+            },
+            "restored under its ORIGINAL id, with its two members re-filed"
+        );
         assert_eq!(
             tree_by_id(&store, &MANUSCRIPT_COLLECTION),
             before_tree,
@@ -2066,7 +2109,15 @@ mod tests {
         );
 
         let restored = restore(&store, &FIGURE_COLLECTION, &snapshot).unwrap();
-        assert_eq!(restored, folder);
+        // Restore re-files both figures, so the truthful count is 2; every
+        // structural field must match the create-time row exactly.
+        assert_eq!(
+            restored,
+            CollectionRow {
+                member_count: 2,
+                ..folder.clone()
+            }
+        );
         assert_eq!(
             tree_by_id(&store, &FIGURE_COLLECTION),
             before_tree,
@@ -2201,8 +2252,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            undone.row, shelf,
-            "an undone rename restores the row exactly"
+            undone.row,
+            CollectionRow {
+                member_count: 3,
+                ..shelf.clone()
+            },
+            "an undone rename restores the row exactly (count reflects the \
+             three members added after creation — a live read, not identity)"
         );
 
         // ─ reparent round trip: the mixed collection is an ordinary tree node ─
@@ -2220,14 +2276,27 @@ mod tests {
             "moving a collection must not disturb its membership"
         );
         let back = reparent(&store, &GENERIC_COLLECTION, &shelf.id, None).unwrap();
-        assert_eq!(back.row, shelf, "the tree is exactly where it started");
+        assert_eq!(
+            back.row,
+            CollectionRow {
+                member_count: 3,
+                ..shelf.clone()
+            },
+            "the tree is exactly where it started (count is a live read)"
+        );
 
         // ─ delete → restore brings the MIXED membership back intact ─
         let before_members = member_ids(&store, &GENERIC_COLLECTION, &shelf.id);
         let before_tree = tree_by_id(&store, &GENERIC_COLLECTION);
 
         let snapshot = delete(&store, &GENERIC_COLLECTION, &shelf.id).unwrap();
-        assert_eq!(snapshot.row, shelf);
+        assert_eq!(
+            snapshot.row,
+            CollectionRow {
+                member_count: 3,
+                ..shelf.clone()
+            }
+        );
         assert_eq!(
             snapshot.row.kind_scope.as_deref(),
             Some("any"),
@@ -2246,8 +2315,12 @@ mod tests {
 
         let restored = restore(&store, &GENERIC_COLLECTION, &snapshot).unwrap();
         assert_eq!(
-            restored, shelf,
-            "restored under its ORIGINAL id, scope included"
+            restored,
+            CollectionRow {
+                member_count: 3,
+                ..shelf.clone()
+            },
+            "restored under its ORIGINAL id, scope included, members re-filed"
         );
         assert_eq!(
             tree_by_id(&store, &GENERIC_COLLECTION),

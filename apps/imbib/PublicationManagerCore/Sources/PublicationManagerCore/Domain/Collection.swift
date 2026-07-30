@@ -7,6 +7,7 @@
 
 import Foundation
 import ImbibRustCore
+import ImpressRustCore
 
 /// A publication collection (manual or smart).
 public struct CollectionModel: Identifiable, Hashable, Sendable {
@@ -23,6 +24,21 @@ public struct CollectionModel: Identifiable, Hashable, Sendable {
         self.parentID = row.parentId.flatMap { UUID(uuidString: $0) }
         self.isSmart = row.isSmart
         self.publicationCount = Int(row.publicationCount)
+        self.sortOrder = Int(row.sortOrder)
+    }
+
+    /// From a kernel tree row (`collectionTreeIn`) — the flip-safe read path.
+    /// `memberCount` is the same number the legacy export called
+    /// `publication_count` (outgoing `Contains` edges), so the two
+    /// constructors agree row-for-row; ADR-0022's
+    /// `the_container_axis_is_invariant_across_the_unified_flip` and the
+    /// count-parity assertion beside it pin that.
+    public init(fromKernel row: SharedCollectionRow) {
+        self.id = UUID(uuidString: row.id) ?? UUID()
+        self.name = row.name
+        self.parentID = row.parentId.flatMap { UUID(uuidString: $0) }
+        self.isSmart = row.isSmart
+        self.publicationCount = Int(row.memberCount)
         self.sortOrder = Int(row.sortOrder)
     }
 
