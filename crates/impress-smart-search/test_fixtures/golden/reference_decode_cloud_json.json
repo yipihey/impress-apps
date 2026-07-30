@@ -1,0 +1,367 @@
+[
+  {
+    "input" : "",
+    "parsed" : null
+  },
+  {
+    "input" : " ",
+    "parsed" : null
+  },
+  {
+    "input" : "{}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "not json",
+    "parsed" : null
+  },
+  {
+    "input" : "null",
+    "parsed" : null
+  },
+  {
+    "input" : "[]",
+    "parsed" : null
+  },
+  {
+    "input" : "[1,2,3]",
+    "parsed" : null
+  },
+  {
+    "input" : "{\"query\":\"author:\\\"Abel\\\"\",\"interpretation\":\"Papers by Abel\",\"confidence\":0.9}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.90000000000000002,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"query\":\"author:\\\"Abel\\\"\",\"confidence\":0.9}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.90000000000000002,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"query\":\"author:\\\"Abel\\\"\"}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"interpretation\":\"x\"}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"query\":null,\"interpretation\":null,\"confidence\":null}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"query\":\"a: Abel, T.; title:dark matter\",\"interpretation\":\"x\",\"confidence\":0.5}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"query\":\"\",\"interpretation\":\"\",\"confidence\":0}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"confidence\":1.5,\"query\":\"x\"}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 1.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"confidence\":-1,\"query\":\"x\"}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : -1,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "```json\n{\"query\":\"author:\\\"Abel\\\"\",\"confidence\":0.7}\n```",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.69999999999999996,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "```\n{\"query\":\"abs:dark matter\"}\n```",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "```json\n{\"query\":\"x\"}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"query\":\"x\"}\n```",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "Here is the JSON:\n{\"query\":\"x\"}",
+    "parsed" : null
+  },
+  {
+    "input" : "{\"authors\":[\"Abel\",\"Bryan\"],\"title\":\"The Formation of the First Star\",\"year\":2002,\"journal\":\"Science\",\"volume\":\"295\",\"pages\":\"93\",\"doi\":\"10.1126/science.295.5552.93\",\"arxiv\":\"\",\"bibcode\":\"2002Sci...295...93A\",\"confidence\":0.95}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+        "Abel",
+        "Bryan"
+      ],
+      "bibcode" : "2002Sci...295...93A",
+      "confidence" : 0.94999999999999996,
+      "doi" : "10.1126/science.295.5552.93",
+      "journal" : "Science",
+      "pages" : "93",
+      "title" : "The Formation of the First Star",
+      "volume" : "295",
+      "year" : 2002
+    }
+  },
+  {
+    "input" : "{\"authors\":[],\"title\":\"\",\"year\":0,\"journal\":\"\",\"volume\":\"\",\"pages\":\"\",\"doi\":\"\",\"arxiv\":\"\",\"bibcode\":\"\",\"confidence\":0}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    }
+  },
+  {
+    "input" : "{\"authors\":[\"Abel\"],\"year\":\"2002\"}",
+    "parsed" : null
+  },
+  {
+    "input" : "{\"authors\":\"Abel\"}",
+    "parsed" : null
+  },
+  {
+    "input" : "{\"authors\":[\"Abel\",\"\"],\"title\":\"T\",\"year\":1500,\"doi\":\"nope\",\"arxiv\":\"nope\",\"bibcode\":\"nope\",\"confidence\":0.5}",
+    "parsed" : {
+      "arxiv" : "nope",
+      "authors" : [
+        "Abel",
+        ""
+      ],
+      "bibcode" : "nope",
+      "confidence" : 0.5,
+      "doi" : "nope",
+      "journal" : "",
+      "pages" : "",
+      "title" : "T",
+      "volume" : "",
+      "year" : 1500
+    }
+  },
+  {
+    "input" : "{\"year\":2002.0,\"authors\":[\"Abel\"]}",
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+        "Abel"
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 2002
+    }
+  },
+  {
+    "input" : "{\"year\":2002.7,\"authors\":[\"Abel\"]}",
+    "parsed" : null
+  },
+  {
+    "input" : "```json\n{\"authors\":[\"Müller\"],\"title\":\"Réionisation\",\"year\":2019,\"journal\":\"A&A\",\"volume\":\"621\",\"pages\":\"A45\",\"doi\":\"10.1051/0004-6361/201834567\",\"arxiv\":\"1901.01234\",\"bibcode\":\"2019A&A...621A..45M\",\"confidence\":0.88}\n```",
+    "parsed" : {
+      "arxiv" : "1901.01234",
+      "authors" : [
+        "Müller"
+      ],
+      "bibcode" : "2019A&A...621A..45M",
+      "confidence" : 0.88,
+      "doi" : "10.1051/0004-6361/201834567",
+      "journal" : "A&A",
+      "pages" : "A45",
+      "title" : "Réionisation",
+      "volume" : "621",
+      "year" : 2019
+    }
+  }
+]

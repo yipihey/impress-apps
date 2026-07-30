@@ -1,0 +1,777 @@
+[
+  {
+    "entities" : "",
+    "html" : "",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : " ",
+    "html" : " ",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<html></html>",
+    "html" : "<html></html>",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<title>Simple</title>",
+    "html" : "<title>Simple</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "Simple"
+  },
+  {
+    "entities" : "<TITLE>Upper</TITLE>",
+    "html" : "<TITLE>Upper</TITLE>",
+    "identifiers" : [
+
+    ],
+    "title" : "Upper"
+  },
+  {
+    "entities" : "<title class=\"x\">Attributed</title>",
+    "html" : "<title class=\"x\">Attributed</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "Attributed"
+  },
+  {
+    "entities" : "<title>\n  Multi\n  line\n</title>",
+    "html" : "<title>\n  Multi\n  line\n</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "Multi\n  line"
+  },
+  {
+    "entities" : "<title>A & B <C> \"D\" 'E' 'F'</title>",
+    "html" : "<title>A &amp; B &lt;C&gt; &quot;D&quot; &apos;E&apos; &#39;F&#39;</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "A & B <C> \"D\" 'E' 'F'"
+  },
+  {
+    "entities" : "<title> —–…©</title>",
+    "html" : "<title>&nbsp;&mdash;&ndash;&hellip;&copy;</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "—–…©"
+  },
+  {
+    "entities" : "<title>ABCD</title>",
+    "html" : "<title>&#65;&#66;&#x43;&#x44;</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "ABCD"
+  },
+  {
+    "entities" : "<title>🔭 telescope</title>",
+    "html" : "<title>&#x1F52D; telescope</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "🔭 telescope"
+  },
+  {
+    "entities" : "<title>&#999999999;</title>",
+    "html" : "<title>&#999999999;</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "&#999999999;"
+  },
+  {
+    "entities" : "<title>&#xZZ;</title>",
+    "html" : "<title>&#xZZ;</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "&#xZZ;"
+  },
+  {
+    "entities" : "<title>Unclosed",
+    "html" : "<title>Unclosed",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<title></title>",
+    "html" : "<title></title>",
+    "identifiers" : [
+
+    ],
+    "title" : ""
+  },
+  {
+    "entities" : "<title>First</title><title>Second</title>",
+    "html" : "<title>First</title><title>Second</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "First"
+  },
+  {
+    "entities" : "<head><title>Nested & escaped</title></head><body>10.1086/164143</body>",
+    "html" : "<head><title>Nested &amp; escaped</title></head><body>10.1086/164143</body>",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : "Nested & escaped"
+  },
+  {
+    "entities" : "<p>doi:10.1086/164143</p>",
+    "html" : "<p>doi:10.1086/164143</p>",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<a href=\"https://doi.org/10.1126/science.295.5552.93\">link</a>",
+    "html" : "<a href=\"https://doi.org/10.1126/science.295.5552.93\">link</a>",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1126/science.295.5552.93"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<a href=\"https://doi.org/10.1126/science.295.5552.93&format=xml\">link</a>",
+    "html" : "<a href=\"https://doi.org/10.1126/science.295.5552.93&amp;format=xml\">link</a>",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1126/science.295.5552.93"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<meta name=\"citation_doi\" content=\"10.1038/s41586-024-07930-y\">",
+    "html" : "<meta name=\"citation_doi\" content=\"10.1038/s41586-024-07930-y\">",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1038/s41586-024-07930-y"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "10.1086/164143. Next sentence.",
+    "html" : "10.1086/164143. Next sentence.",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "(10.1086/164143)",
+    "html" : "(10.1086/164143)",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "[10.1086/164143]",
+    "html" : "[10.1086/164143]",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "\"10.1086/164143\"",
+    "html" : "\"10.1086/164143\"",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "10.1086/164143; 10.1086/164144",
+    "html" : "10.1086/164143; 10.1086/164144",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      },
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164144"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "10.1/x",
+    "html" : "10.1/x",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "10.1234/",
+    "html" : "10.1234/",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "10.1234/ab",
+    "html" : "10.1234/ab",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1234/ab"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "10.1234/abcdefgh",
+    "html" : "10.1234/abcdefgh",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1234/abcdefgh"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "duplicate 10.1086/164143 and 10.1086/164143 again",
+    "html" : "duplicate 10.1086/164143 and 10.1086/164143 again",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "case 10.1086/ABC and 10.1086/abc",
+    "html" : "case 10.1086/ABC and 10.1086/abc",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/ABC"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<a href=\"/doi/10.1002/(SICI)1099-1409(199907)3:5<517::AID-JPP173>3.0.CO;2-Y\">x</a>",
+    "html" : "<a href=\"/doi/10.1002/(SICI)1099-1409(199907)3:5&lt;517::AID-JPP173&gt;3.0.CO;2-Y\">x</a>",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "arXiv:2301.04153",
+    "html" : "arXiv:2301.04153",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "arXiv: 2301.04153",
+    "html" : "arXiv: 2301.04153",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "arXiv/2301.04153",
+    "html" : "arXiv/2301.04153",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "ARXIV:2301.04153v3",
+    "html" : "ARXIV:2301.04153v3",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "arxiv:2301.04153v11",
+    "html" : "arxiv:2301.04153v11",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<a href=\"https://arxiv.org/abs/2301.04153\">arXiv</a>",
+    "html" : "<a href=\"https://arxiv.org/abs/2301.04153\">arXiv</a>",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "bare 2301.04153 identifier",
+    "html" : "bare 2301.04153 identifier",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "1234.5678 and 1234.56789",
+    "html" : "1234.5678 and 1234.56789",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "1234.5678"
+      },
+      {
+        "kind" : "arxiv",
+        "value" : "1234.56789"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "version 1.2345 build 3.4567",
+    "html" : "version 1.2345 build 3.4567",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "astro-ph/0112088",
+    "html" : "astro-ph/0112088",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "astro-ph/0112088"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "hep-th/9711200v2",
+    "html" : "hep-th/9711200v2",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "hep-th/9711200"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "math.GT/0309136",
+    "html" : "math.GT/0309136",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "math.GT/0309136"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "gnd/4226307",
+    "html" : "gnd/4226307",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "oclc/1234567",
+    "html" : "oclc/1234567",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "isbn/1234567",
+    "html" : "isbn/1234567",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "cs/0112088",
+    "html" : "cs/0112088",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "cs/0112088"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "physics/0112088",
+    "html" : "physics/0112088",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "physics/0112088"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "chem-ph/0112088",
+    "html" : "chem-ph/0112088",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "chem-ph/0112088"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "unknownarchive/0112088",
+    "html" : "unknownarchive/0112088",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "2002Sci...295...93A",
+    "html" : "2002Sci...295...93A",
+    "identifiers" : [
+      {
+        "kind" : "bibcode",
+        "value" : "2002Sci...295...93A"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "1986ApJ...304...15B",
+    "html" : "1986ApJ...304...15B",
+    "identifiers" : [
+      {
+        "kind" : "bibcode",
+        "value" : "1986ApJ...304...15B"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "1998A&A...333L..47M",
+    "html" : "1998A&amp;A...333L..47M",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "1998A&A...333L..47M",
+    "html" : "1998A&A...333L..47M",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "2002Sci...295...93AB",
+    "html" : "2002Sci...295...93AB",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "PMID: 1234567",
+    "html" : "PMID: 1234567",
+    "identifiers" : [
+      {
+        "kind" : "pmid",
+        "value" : "1234567"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "pmid:12345678",
+    "html" : "pmid:12345678",
+    "identifiers" : [
+      {
+        "kind" : "pmid",
+        "value" : "12345678"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "PMID 1234567",
+    "html" : "PMID 1234567",
+    "identifiers" : [
+      {
+        "kind" : "pmid",
+        "value" : "1234567"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "https://pubmed.ncbi.nlm.nih.gov/1234567/",
+    "html" : "https://pubmed.ncbi.nlm.nih.gov/1234567/",
+    "identifiers" : [
+      {
+        "kind" : "pmid",
+        "value" : "1234567"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "pmid:1234",
+    "html" : "pmid:1234",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "pmid:1234567890",
+    "html" : "pmid:1234567890",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<html><head><title>The Formation of the First Star in the Universe | Science</title>\n<meta name=\"citation_doi\" content=\"10.1126/science.295.5552.93\">\n<meta name=\"citation_arxiv_id\" content=\"astro-ph/0112088\"></head>\n<body><p>DOI: 10.1126/science.295.5552.93</p>\n<p>arXiv:astro-ph/0112088</p>\n<p>ADS: 2002Sci...295...93A</p>\n<p>PMID: 11778040</p>\n<ul><li>10.1086/164143</li><li>10.1093/mnras/stac1234</li></ul>\n</body></html>",
+    "html" : "<html><head><title>The Formation of the First Star in the Universe | Science</title>\n<meta name=\"citation_doi\" content=\"10.1126/science.295.5552.93\">\n<meta name=\"citation_arxiv_id\" content=\"astro-ph/0112088\"></head>\n<body><p>DOI: 10.1126/science.295.5552.93</p>\n<p>arXiv:astro-ph/0112088</p>\n<p>ADS: 2002Sci...295...93A</p>\n<p>PMID: 11778040</p>\n<ul><li>10.1086/164143</li><li>10.1093/mnras/stac1234</li></ul>\n</body></html>",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1126/science.295.5552.93"
+      },
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      },
+      {
+        "kind" : "doi",
+        "value" : "10.1093/mnras/stac1234"
+      },
+      {
+        "kind" : "arxiv",
+        "value" : "astro-ph/0112088"
+      },
+      {
+        "kind" : "bibcode",
+        "value" : "2002Sci...295...93A"
+      },
+      {
+        "kind" : "pmid",
+        "value" : "11778040"
+      }
+    ],
+    "title" : "The Formation of the First Star in the Universe | Science"
+  },
+  {
+    "entities" : "<html><head><title>References</title></head><body>\n<ol>\n<li>Bardeen et al. 1986, ApJ 304, 15, doi:10.1086/164143</li>\n<li>Abel et al. 2002, Science 295, 93, doi:10.1126/science.295.5552.93</li>\n<li>arXiv:2301.04153</li>\n<li>1998A&A...333L..47M</li>\n</ol></body></html>",
+    "html" : "<html><head><title>References</title></head><body>\n<ol>\n<li>Bardeen et al. 1986, ApJ 304, 15, doi:10.1086/164143</li>\n<li>Abel et al. 2002, Science 295, 93, doi:10.1126/science.295.5552.93</li>\n<li>arXiv:2301.04153</li>\n<li>1998A&amp;A...333L..47M</li>\n</ol></body></html>",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      },
+      {
+        "kind" : "doi",
+        "value" : "10.1126/science.295.5552.93"
+      },
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : "References"
+  },
+  {
+    "entities" : "<html><body>Nothing to see here.</body></html>",
+    "html" : "<html><body>Nothing to see here.</body></html>",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<html><body>Publication year 2024 volume 295 page 93</body></html>",
+    "html" : "<html><body>Publication year 2024 volume 295 page 93</body></html>",
+    "identifiers" : [
+
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<title>Gödel’s Theorem — Über die Vollständigkeit</title>",
+    "html" : "<title>Gödel’s Theorem — Über die Vollständigkeit</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "Gödel’s Theorem — Über die Vollständigkeit"
+  },
+  {
+    "entities" : "<title>​Zero width​</title>",
+    "html" : "<title>​Zero width​</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "Zero width"
+  },
+  {
+    "entities" : "<title>   padded   </title>",
+    "html" : "<title>   padded   </title>",
+    "identifiers" : [
+
+    ],
+    "title" : "padded"
+  },
+  {
+    "entities" : "<title\n>newline in tag</title>",
+    "html" : "<title\n>newline in tag</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "newline in tag"
+  },
+  {
+    "entities" : "10.1086/164143&more",
+    "html" : "10.1086/164143&amp;more",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "10.1086/164143&more",
+    "html" : "10.1086/164143&more",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1086/164143"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "arXiv:2301.04153v2 and arXiv:2301.04153",
+    "html" : "arXiv:2301.04153v2 and arXiv:2301.04153",
+    "identifiers" : [
+      {
+        "kind" : "arxiv",
+        "value" : "2301.04153"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "PMID: 1234567 PMID: 1234567",
+    "html" : "PMID: 1234567 PMID: 1234567",
+    "identifiers" : [
+      {
+        "kind" : "pmid",
+        "value" : "1234567"
+      }
+    ],
+    "title" : null
+  },
+  {
+    "entities" : "<title>反物質の研究</title>",
+    "html" : "<title>反物質の研究</title>",
+    "identifiers" : [
+
+    ],
+    "title" : "反物質の研究"
+  },
+  {
+    "entities" : "<p>Müller, H. 2019, A&A, 621, A45, doi:10.1051/0004-6361/201834567</p>",
+    "html" : "<p>Müller, H. 2019, A&amp;A, 621, A45, doi:10.1051/0004-6361/201834567</p>",
+    "identifiers" : [
+      {
+        "kind" : "doi",
+        "value" : "10.1051/0004-6361/201834567"
+      }
+    ],
+    "title" : null
+  }
+]

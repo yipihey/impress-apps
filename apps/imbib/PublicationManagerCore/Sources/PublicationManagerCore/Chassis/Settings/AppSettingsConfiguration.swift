@@ -727,14 +727,30 @@ public struct AppSettingsConfiguration: Sendable {
         ],
         defaultSection: .general)
 
-    /// impart: six macOS tabs.
+    /// impart: six macOS tabs, two of which now also render on iOS.
     ///
-    /// `.macOSOnly()` throughout for a reason worth writing down: impart DOES
-    /// have an iOS target with its own settings `List`, but `impart-iOS` does not
-    /// link PublicationManagerCore, so no chassis renderer can run there today.
-    /// Adding the package to the target is a project-file change and belongs to
-    /// whoever owns impart's iOS surface; until then, claiming `.everywhere`
-    /// would describe a screen that cannot be built.
+    /// Phase 2 declared `.macOSOnly()` throughout, for a reason it wrote down:
+    /// impart-iOS had its own hand-rolled settings `List` but did not link
+    /// PublicationManagerCore, "so no chassis renderer can run there today …
+    /// claiming `.everywhere` would describe a screen that cannot be built".
+    /// **Stage 5c linked the package** (`apps/impart/project.yml`, `impart-iOS`
+    /// dependencies), so that sentence expired and two rows became buildable:
+    ///
+    ///  * `.general` — Appearance + Default View are pure `@AppStorage` over
+    ///    `appearanceMode` / `defaultViewMode`, the same two keys macOS reads.
+    ///    impart-iOS's `IOSAppearanceSettingsView` was a THIRD hand-rolled clone
+    ///    of `ImpressTheme.AppearanceSettingsSection` over that key; it is gone,
+    ///    and the iOS pane is registered app-side against this descriptor.
+    ///  * `.accounts` — the account list. On iOS it is READ-ONLY, over the
+    ///    `mail-account` rows in the shared store (`MailSidebarSnapshot`),
+    ///    because account creation is an IMAP/Keychain flow impart-iOS has no
+    ///    path for. The old iOS pane's `+` button had an empty body; a row that
+    ///    reports which accounts this device can see is the honest version.
+    ///
+    /// The other four stay `.macOSOnly()`, and each absence is real: `.ai` is a
+    /// provider/key surface impart-iOS does not run, `.keyboard` is a shortcut
+    /// reference for a hardware-keyboard-first window, and `.automation` /
+    /// `.spotlight` carry capability requirements iOS never grants.
     ///
     /// Spotlight becomes the chassis builtin (impart's tab was the same
     /// `Form { SpotlightSettingsSection() }` wrapper implore's was). Automation
@@ -751,7 +767,7 @@ public struct AppSettingsConfiguration: Sendable {
                 title: "Accounts",
                 systemImage: "person.crop.circle",
                 subtitle: "Email accounts",
-                availability: .macOSOnly(),
+                availability: .everywhere,
                 order: 10),
             SettingsSectionDescriptor(
                 id: .ai,
@@ -765,7 +781,7 @@ public struct AppSettingsConfiguration: Sendable {
                 title: "General",
                 systemImage: "gearshape",
                 subtitle: "Appearance and default view",
-                availability: .macOSOnly(),
+                availability: .everywhere,
                 order: 30),
             SettingsSectionDescriptor(
                 id: .keyboard,

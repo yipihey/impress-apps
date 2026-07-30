@@ -1,0 +1,52 @@
+[
+  {
+    "input" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%2527s_completeness_theorem",
+    "output" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%27s_completeness_theorem",
+    "url" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%2527s_completeness_theorem"
+  },
+  {
+    "input" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%27s_completeness_theorem",
+    "output" : null,
+    "url" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%27s_completeness_theorem"
+  },
+  {
+    "input" : "https://example.com/%2520space",
+    "output" : "https://example.com/%20space",
+    "url" : "https://example.com/%2520space"
+  },
+  {
+    "input" : "https://example.com/plain",
+    "output" : null,
+    "url" : "https://example.com/plain"
+  },
+  {
+    "input" : "https://example.com/%25",
+    "output" : null,
+    "url" : "https://example.com/%25"
+  },
+  {
+    "input" : "https://example.com/%25zz",
+    "output" : null,
+    "url" : "https://example.com/%25zz"
+  },
+  {
+    "input" : "https://example.com/a%252Fb",
+    "output" : "https://example.com/a%2Fb",
+    "url" : "https://example.com/a%252Fb"
+  },
+  {
+    "input" : "https://example.com/%2525",
+    "output" : "https://example.com/%25",
+    "url" : "https://example.com/%2525"
+  },
+  {
+    "input" : "https://example.com/?q=%2527",
+    "output" : "https://example.com/?q=%27",
+    "url" : "https://example.com/?q=%2527"
+  },
+  {
+    "input" : "https://example.com/#%2527",
+    "output" : "https://example.com/#%27",
+    "url" : "https://example.com/#%2527"
+  }
+]

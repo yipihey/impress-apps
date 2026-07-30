@@ -402,6 +402,8 @@ public actor ArchiveExporter {
     private func compressArchive(at url: URL) throws -> URL {
         let compressedURL = url.deletingPathExtension().appendingPathExtension("impartarchive.zip")
 
+        // `Process` is macOS-only — see `ArchivePlatformError`.
+        #if os(macOS)
         // Use zip command for simplicity
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
@@ -412,6 +414,10 @@ public actor ArchiveExporter {
         process.waitUntilExit()
 
         return compressedURL
+        #else
+        _ = compressedURL
+        throw ArchivePlatformError.compressionUnavailable
+        #endif
     }
 
     private func getCurrentUserIdentifier() -> String {

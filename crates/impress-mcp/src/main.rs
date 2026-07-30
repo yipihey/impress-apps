@@ -23,6 +23,8 @@ use implore_service as _force_link_implore_service;
 #[allow(unused_imports)]
 use impress_bridges_service as _force_link_bridges;
 #[allow(unused_imports)]
+use impress_smart_search_service as _force_link_smart_search_service;
+#[allow(unused_imports)]
 use impress_store_service as _force_link_store_service;
 #[allow(unused_imports)]
 use imprint_selftest as _force_link_imprint_selftest;

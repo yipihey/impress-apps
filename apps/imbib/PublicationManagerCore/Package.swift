@@ -87,7 +87,14 @@ let package = Package(
         ),
         .testTarget(
             name: "PublicationManagerCoreTests",
-            dependencies: ["PublicationManagerCore"],
+            dependencies: [
+                "PublicationManagerCore",
+                // Imported directly by the smart-search parity suite and by
+                // ADSQueryNormalizerTests (which now assert the Rust
+                // implementation through the real FFI).
+                "ImpressSmartSearch",
+                "ImbibRustCore",
+            ],
             resources: [
                 .copy("Fixtures")
             ],

@@ -1,0 +1,1892 @@
+[
+  {
+    "input" : "",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : " ",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : "   \n  ",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : "\t",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : "\n\n",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : "…",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "…"
+  },
+  {
+    "input" : "?",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "?"
+  },
+  {
+    "input" : "!!!",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "!!!"
+  },
+  {
+    "input" : "-",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "-"
+  },
+  {
+    "input" : "--",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "--"
+  },
+  {
+    "input" : "/",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "/"
+  },
+  {
+    "input" : ":",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ":"
+  },
+  {
+    "input" : "::",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "::"
+  },
+  {
+    "input" : "10.",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "10."
+  },
+  {
+    "input" : "10",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "10"
+  },
+  {
+    "input" : "doi:",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "doi:"
+  },
+  {
+    "input" : "arxiv:",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "arxiv:"
+  },
+  {
+    "input" : "pmid:",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "pmid:"
+  },
+  {
+    "input" : "bibcode:",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "bibcode:"
+  },
+  {
+    "input" : "arxiv ",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "arxiv"
+  },
+  {
+    "input" : "doi ",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "doi"
+  },
+  {
+    "input" : "🔭",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "🔭"
+  },
+  {
+    "input" : "🔭 galaxies",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "🔭 galaxies"
+  },
+  {
+    "input" : " ",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : "​",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : "null",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "null"
+  },
+  {
+    "input" : "undefined",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "undefined"
+  },
+  {
+    "input" : "NaN",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "NaN"
+  },
+  {
+    "input" : "　",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : " ",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : " ",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : "",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : ""
+  },
+  {
+    "input" : "﻿",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "﻿"
+  },
+  {
+    "input" : "᠎",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "᠎"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "​10.1086/164143​",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : " 10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "input" : "﻿10.1086/164143",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "﻿10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1086/164143​",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "input" : "​dark matter",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "dark matter"
+  },
+  {
+    "input" : "\thttps://example.com",
+    "kind" : "url",
+    "label" : "URL · example.com",
+    "url" : "https://example.com"
+  },
+  {
+    "input" : "https://example.com\t",
+    "kind" : "url",
+    "label" : "URL · example.com",
+    "url" : "https://example.com"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1126/science.295.5552.93",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1126/science.295.5552.93"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "doi:10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "DOI:10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "Doi: 10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "doi 10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "DOI 10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "  10.1126/science.295.5552.93  ",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1126/science.295.5552.93"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1038/s41586-024-07930-y",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1038/s41586-024-07930-y"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1093/mnras/stac1234",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1093/mnras/stac1234"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1051/0004-6361/202142441",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1051/0004-6361/202142441"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1103/PhysRevD.23.347",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1103/PhysRevD.23.347"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1073/pnas.1234567890",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1073/pnas.1234567890"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1002/(SICI)1099-1409(199907)3:5<517::AID-JPP173>3.0.CO;2-Y",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1002/(SICI)1099-1409(199907)3:5<517::AID-JPP173>3.0.CO;2-Y"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1016/j.icarus.2020.113867",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1016/j.icarus.2020.113867"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.5281/zenodo.1234567",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.5281/zenodo.1234567"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1234/foo(bar)baz",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1234/foo(bar)baz"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1234/foo;bar",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1234/foo;bar"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1234/a",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1234/a"
+  },
+  {
+    "input" : "10.123/tooshortprefix",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "10.123/tooshortprefix"
+  },
+  {
+    "input" : "10.1234567890/waytoolongprefix",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "10.1234567890/waytoolongprefix"
+  },
+  {
+    "input" : "10.1234/",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "10.1234/"
+  },
+  {
+    "input" : "10.1234/with space",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "10.1234/with space"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "10.1126/science.295.5552.93.",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1126/science.295.5552.93."
+  },
+  {
+    "input" : "see 10.1126/science.295.5552.93",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "see 10.1126/science.295.5552.93"
+  },
+  {
+    "input" : "10.1126/science.295.5552.93 and more",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "10.1126/science.295.5552.93 and more"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "2112.01234",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2112.01234"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "2301.04153",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "2301.04153v2",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153v2"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "2301.04153v11",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153v11"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "arXiv:2301.04153",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "arxiv:2301.04153",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "ARXIV:2301.04153",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "arXiv 2602.04407",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2602.04407"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "arxiv 2602.04407",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2602.04407"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "arXiv  2602.04407",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2602.04407"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "arXiv:2301.04153v3",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153v3"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "1234.5678",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "1234.5678"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "1234.56789",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "1234.56789"
+  },
+  {
+    "input" : "1234.567",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "1234.567"
+  },
+  {
+    "input" : "1234.567890",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "1234.567890"
+  },
+  {
+    "input" : "2301.04153v",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "2301.04153v"
+  },
+  {
+    "input" : "2301.04153V2",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "2301.04153V2"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "astro-ph/0112088",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "astro-ph/0112088"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "hep-th/9711200",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "hep-th/9711200"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "gr-qc/0602086",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "gr-qc/0602086"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "math.GT/0309136",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "math.GT/0309136"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "cond-mat/0011256",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "cond-mat/0011256"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "quant-ph/0512071",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "quant-ph/0512071"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "astro-ph/0112088v2",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "astro-ph/0112088v2"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "arXiv:astro-ph/0112088",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "astro-ph/0112088"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "math/0309136",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "math/0309136"
+  },
+  {
+    "input" : "astro-ph/011208",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "astro-ph/011208"
+  },
+  {
+    "input" : "astro-ph/01120888",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "astro-ph/01120888"
+  },
+  {
+    "input" : "ASTRO-PH/0112088",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "ASTRO-PH/0112088"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "gnd/4226307",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "gnd/4226307"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "2002Sci...295...93A",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "2002Sci...295...93A"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "1986ApJ...304...15B",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "1986ApJ...304...15B"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "2023MNRAS.518.1234S",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "2023MNRAS.518.1234S"
+  },
+  {
+    "input" : "1998A&A...333L..47M",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "1998A&A...333L..47M"
+  },
+  {
+    "input" : "2024ApJL.960L..12X",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "2024ApJL.960L..12X"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "1974ApJ...187..425P",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "1974ApJ...187..425P"
+  },
+  {
+    "input" : "2002Sci...295...93a",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "2002Sci...295...93a"
+  },
+  {
+    "input" : "2002Sci...295...93",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "2002Sci...295...93"
+  },
+  {
+    "input" : "2002Sci...295...93AB",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "2002Sci...295...93AB"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "bibcode:2002Sci...295...93A",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "2002Sci...295...93A"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "BIBCODE:2002Sci...295...93A",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "2002Sci...295...93A"
+  },
+  {
+    "idKind" : "pmid",
+    "input" : "pmid:1234567",
+    "kind" : "identifier",
+    "label" : "PMID",
+    "value" : "1234567"
+  },
+  {
+    "idKind" : "pmid",
+    "input" : "PMID:1234567",
+    "kind" : "identifier",
+    "label" : "PMID",
+    "value" : "1234567"
+  },
+  {
+    "idKind" : "pmid",
+    "input" : "pmid:12345678",
+    "kind" : "identifier",
+    "label" : "PMID",
+    "value" : "12345678"
+  },
+  {
+    "idKind" : "pmid",
+    "input" : "pmid:12345",
+    "kind" : "identifier",
+    "label" : "PMID",
+    "value" : "12345"
+  },
+  {
+    "input" : "pmid:1234",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "pmid:1234"
+  },
+  {
+    "input" : "pmid:1234567890",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "pmid:1234567890"
+  },
+  {
+    "input" : "1234567",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "1234567"
+  },
+  {
+    "input" : "12345678",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "12345678"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://doi.org/10.1126/science.295.5552.93",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1126/science.295.5552.93"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "http://doi.org/10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://dx.doi.org/10.1086/164143",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1086/164143"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://doi.org/10.1038/s41586-024-07930-y",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1038/s41586-024-07930-y"
+  },
+  {
+    "input" : "https://doi.org/notadoi",
+    "kind" : "url",
+    "label" : "URL · doi.org",
+    "url" : "https://doi.org/notadoi"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://arxiv.org/abs/2301.04153",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://arxiv.org/abs/2301.04153v2",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153v2"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://arxiv.org/abs/astro-ph/0112088",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "astro-ph/0112088"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://arxiv.org/pdf/2301.04153",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://arxiv.org/pdf/2301.04153.pdf",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://arxiv.org/pdf/2301.04153v2.pdf",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153v2"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://arxiv.org/html/2301.04153",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://arxiv.org/html/2301.04153.html",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "idKind" : "arxiv",
+    "input" : "https://www.arxiv.org/abs/2301.04153",
+    "kind" : "identifier",
+    "label" : "arXiv",
+    "value" : "2301.04153"
+  },
+  {
+    "input" : "https://arxiv.org/list/astro-ph.CO/2024-01",
+    "kind" : "url",
+    "label" : "URL · arxiv.org",
+    "url" : "https://arxiv.org/list/astro-ph.CO/2024-01"
+  },
+  {
+    "input" : "https://arxiv.org/abs/",
+    "kind" : "url",
+    "label" : "URL · arxiv.org",
+    "url" : "https://arxiv.org/abs/"
+  },
+  {
+    "idKind" : "pmid",
+    "input" : "https://pubmed.ncbi.nlm.nih.gov/1234567/",
+    "kind" : "identifier",
+    "label" : "PMID",
+    "value" : "1234567"
+  },
+  {
+    "idKind" : "pmid",
+    "input" : "https://pubmed.ncbi.nlm.nih.gov/1234567",
+    "kind" : "identifier",
+    "label" : "PMID",
+    "value" : "1234567"
+  },
+  {
+    "input" : "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1234567/",
+    "kind" : "url",
+    "label" : "URL · www.ncbi.nlm.nih.gov",
+    "url" : "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1234567/"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "https://ui.adsabs.harvard.edu/abs/2002Sci...295...93A/abstract",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "2002Sci...295...93A"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "https://ui.adsabs.harvard.edu/abs/2002Sci...295...93A",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "2002Sci...295...93A"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "https://ui.adsabs.harvard.edu/abs/1986ApJ...304...15B/references",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "1986ApJ...304...15B"
+  },
+  {
+    "idKind" : "bibcode",
+    "input" : "https://ui.adsabs.harvard.edu/abs/2023arXiv230104153S/abstract",
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "2023arXiv230104153S"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://www.nature.com/articles/nature01080",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1038/nature01080"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://www.nature.com/articles/s41586-024-07930-y",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1038/s41586-024-07930-y"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://www.nature.com/articles/s41467-023-12345-6",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1038/s41467-023-12345-6"
+  },
+  {
+    "input" : "https://nature.com/articles/",
+    "kind" : "url",
+    "label" : "URL · nature.com",
+    "url" : "https://nature.com/articles/"
+  },
+  {
+    "input" : "https://www.nature.com/news/some-news-story-1.12345",
+    "kind" : "url",
+    "label" : "URL · www.nature.com",
+    "url" : "https://www.nature.com/news/some-news-story-1.12345"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://www.science.org/doi/10.1126/science.295.5552.93",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1126/science.295.5552.93"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2024GL114318",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1029/2024GL114318"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://onlinelibrary.wiley.com/doi/abs/10.1002/anie.202001234",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1002/anie.202001234"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://onlinelibrary.wiley.com/doi/pdf/10.1002/anie.202001234",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1002/anie.202001234"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://onlinelibrary.wiley.com/doi/epdf/10.1002/anie.202001234",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1002/anie.202001234"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://onlinelibrary.wiley.com/doi/reader/10.1002/anie.202001234",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1002/anie.202001234"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://link.springer.com/article/10.1007/BF01696781",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1007/BF01696781"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://link.springer.com/chapter/10.1007/978-3-319-12345-6_7",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1007/978-3-319-12345-6_7"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://www.cell.com/cell/fulltext/10.1016/j.cell.2020.01.001",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1016/j.cell.2020.01.001"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://pubs.acs.org/doi/10.1021/jacs.0c00001",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1021/jacs.0c00001"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://www.tandfonline.com/doi/full/10.1080/00107514.2020.1712900",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1080/00107514.2020.1712900"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://www.cambridge.org/core/journals/x/article/abs/10.1017/S0956792500000000",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.1017/S0956792500000000"
+  },
+  {
+    "idKind" : "doi",
+    "input" : "https://iopscience.iop.org/article/10.3847/1538-4357/abc123",
+    "kind" : "identifier",
+    "label" : "DOI",
+    "value" : "10.3847/1538-4357/abc123"
+  },
+  {
+    "input" : "https://academic.oup.com/mnras/article/518/1/1234/6789012",
+    "kind" : "url",
+    "label" : "URL · academic.oup.com",
+    "url" : "https://academic.oup.com/mnras/article/518/1/1234/6789012"
+  },
+  {
+    "input" : "https://ui.adsabs.harvard.edu/search/q=author%3A%22Abel%22%20year%3A2002&sort=date%20desc",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "author:\"Abel\" year:2002"
+  },
+  {
+    "input" : "https://ui.adsabs.harvard.edu/search?q=author%3A%22Abel%22&sort=date+desc",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "author:\"Abel\""
+  },
+  {
+    "input" : "https://ui.adsabs.harvard.edu/search/fq=%7B!type%3Daqp%20v%3D%24fq_database%7D&fq_database=database%3A%20astronomy&q=author%3A(%22Abel%22)%20first_author%3A(%22Yuan%22)&sort=date%20desc%2C%20bibcode%20desc&p_=0",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "author:(\"Abel\") first_author:(\"Yuan\")"
+  },
+  {
+    "input" : "https://ui.adsabs.harvard.edu/search/",
+    "kind" : "url",
+    "label" : "URL · ui.adsabs.harvard.edu",
+    "url" : "https://ui.adsabs.harvard.edu/search/"
+  },
+  {
+    "input" : "https://ui.adsabs.harvard.edu/search/q=",
+    "kind" : "url",
+    "label" : "URL · ui.adsabs.harvard.edu",
+    "url" : "https://ui.adsabs.harvard.edu/search/q="
+  },
+  {
+    "input" : "https://ui.adsabs.harvard.edu/search/sort=date%20desc",
+    "kind" : "url",
+    "label" : "URL · ui.adsabs.harvard.edu",
+    "url" : "https://ui.adsabs.harvard.edu/search/sort=date%20desc"
+  },
+  {
+    "input" : "https://ui.adsabs.harvard.edu/",
+    "kind" : "url",
+    "label" : "URL · ui.adsabs.harvard.edu",
+    "url" : "https://ui.adsabs.harvard.edu/"
+  },
+  {
+    "input" : "https://en.wikipedia.org/wiki/Population_III_star",
+    "kind" : "url",
+    "label" : "URL · en.wikipedia.org",
+    "url" : "https://en.wikipedia.org/wiki/Population_III_star"
+  },
+  {
+    "input" : "https://en.wikipedia.org/wiki/Cosmic_microwave_background",
+    "kind" : "url",
+    "label" : "URL · en.wikipedia.org",
+    "url" : "https://en.wikipedia.org/wiki/Cosmic_microwave_background"
+  },
+  {
+    "input" : "https://en.wikipedia.org/wiki/Inflation_(cosmology)",
+    "kind" : "url",
+    "label" : "URL · en.wikipedia.org",
+    "url" : "https://en.wikipedia.org/wiki/Inflation_(cosmology)"
+  },
+  {
+    "input" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%27s_completeness_theorem",
+    "kind" : "url",
+    "label" : "URL · en.wikipedia.org",
+    "url" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%27s_completeness_theorem"
+  },
+  {
+    "input" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%2527s_completeness_theorem",
+    "kind" : "url",
+    "label" : "URL · en.wikipedia.org",
+    "url" : "https://en.wikipedia.org/wiki/Original_proof_of_G%C3%B6del%2527s_completeness_theorem"
+  },
+  {
+    "input" : "https://example.com/",
+    "kind" : "url",
+    "label" : "URL · example.com",
+    "url" : "https://example.com/"
+  },
+  {
+    "input" : "https://example.com",
+    "kind" : "url",
+    "label" : "URL · example.com",
+    "url" : "https://example.com"
+  },
+  {
+    "input" : "https://www.iana.org/help/example-domains",
+    "kind" : "url",
+    "label" : "URL · www.iana.org",
+    "url" : "https://www.iana.org/help/example-domains"
+  },
+  {
+    "input" : "https://ras.ac.uk/some/page?utm_source=x#frag",
+    "kind" : "url",
+    "label" : "URL · ras.ac.uk",
+    "url" : "https://ras.ac.uk/some/page?utm_source=x#frag"
+  },
+  {
+    "input" : "http://localhost:8080/foo",
+    "kind" : "url",
+    "label" : "URL · localhost",
+    "url" : "http://localhost:8080/foo"
+  },
+  {
+    "input" : "https://user:pass@example.com/path",
+    "kind" : "url",
+    "label" : "URL · example.com",
+    "url" : "https://user:pass@example.com/path"
+  },
+  {
+    "input" : "https://example.com:8443/a/b",
+    "kind" : "url",
+    "label" : "URL · example.com",
+    "url" : "https://example.com:8443/a/b"
+  },
+  {
+    "input" : "https://例え.jp/テスト",
+    "kind" : "url",
+    "label" : "URL · xn--r8jz45g.jp",
+    "url" : "https://xn--r8jz45g.jp/%E3%83%86%E3%82%B9%E3%83%88"
+  },
+  {
+    "input" : "www.example.com",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "www.example.com"
+  },
+  {
+    "input" : "example.com",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "example.com"
+  },
+  {
+    "input" : "ftp://example.com/x",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "ftp://example.com/x"
+  },
+  {
+    "input" : "file:///Users/x/y.pdf",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "file:///Users/x/y.pdf"
+  },
+  {
+    "input" : "mailto:a@b.com",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "mailto:a@b.com"
+  },
+  {
+    "input" : "https://",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "https://"
+  },
+  {
+    "input" : "https:// example.com",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "https:// example.com"
+  },
+  {
+    "input" : "javascript:alert(1)",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "javascript:alert(1)"
+  },
+  {
+    "input" : "https://example.com\nhttps://example.org",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "https://example.com\nhttps://example.org"
+  },
+  {
+    "input" : "au:\"Abel\" abs:\"first stars\"",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "au:\"Abel\" abs:\"first stars\""
+  },
+  {
+    "input" : "au:Abel year:2002",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "au:Abel year:2002"
+  },
+  {
+    "input" : "author:Abel",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "author:Abel"
+  },
+  {
+    "input" : "author:\"Abel, T.\"",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "author:\"Abel, T.\""
+  },
+  {
+    "input" : "title:(dark matter) year:2020-2024",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "title:(dark matter) year:2020-2024"
+  },
+  {
+    "input" : "abs:(galaxy formation)",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "abs:(galaxy formation)"
+  },
+  {
+    "input" : "first_author:Bardeen year:1986",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "first_author:Bardeen year:1986"
+  },
+  {
+    "input" : "citations(bibcode:2002Sci...295...93A)",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "citations(bibcode:2002Sci...295...93A)"
+  },
+  {
+    "input" : "references(bibcode:1986ApJ...304...15B)",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "references(bibcode:1986ApJ...304...15B)"
+  },
+  {
+    "input" : "similar(bibcode:2002Sci...295...93A)",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "similar(bibcode:2002Sci...295...93A)"
+  },
+  {
+    "input" : "trending(author:Abel)",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "trending(author:Abel)"
+  },
+  {
+    "input" : "reviews(abs:dark energy)",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "reviews(abs:dark energy)"
+  },
+  {
+    "input" : "useful(abs:dark energy)",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "useful(abs:dark energy)"
+  },
+  {
+    "input" : "AUTHOR:Abel",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "AUTHOR:Abel"
+  },
+  {
+    "input" : "Author: Abel",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "Author: Abel"
+  },
+  {
+    "input" : "bibstem:ApJ year:2020",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "bibstem:ApJ year:2020"
+  },
+  {
+    "input" : "property:refereed abs:reionization",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "property:refereed abs:reionization"
+  },
+  {
+    "input" : "doctype:article year:2024",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "doctype:article year:2024"
+  },
+  {
+    "input" : "orcid:0000-0002-1825-0097",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "orcid:0000-0002-1825-0097"
+  },
+  {
+    "input" : "arxiv_class:astro-ph.CO",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "arxiv_class:astro-ph.CO"
+  },
+  {
+    "input" : "aff:Stanford",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "aff:Stanford"
+  },
+  {
+    "input" : "full:\"dark energy\"",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "full:\"dark energy\""
+  },
+  {
+    "input" : "body:reionization",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "body:reionization"
+  },
+  {
+    "input" : "object:M31",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "object:M31"
+  },
+  {
+    "input" : "keyword:cosmology",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "keyword:cosmology"
+  },
+  {
+    "input" : "collection:astronomy",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "collection:astronomy"
+  },
+  {
+    "input" : "identifier:2301.04153",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "identifier:2301.04153"
+  },
+  {
+    "input" : "citation_count:>100",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "citation_count:>100"
+  },
+  {
+    "input" : "author_count:1",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "author_count:1"
+  },
+  {
+    "input" : "read_count:>50",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "read_count:>50"
+  },
+  {
+    "input" : "database:astronomy",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "database:astronomy"
+  },
+  {
+    "input" : "ti:dark matter",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "ti:dark matter"
+  },
+  {
+    "input" : "ab:reionization",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "ab:reionization"
+  },
+  {
+    "input" : "abstract:reionization",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "abstract:reionization"
+  },
+  {
+    "input" : "affiliation:Princeton",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "affiliation:Princeton"
+  },
+  {
+    "input" : "Note: this is interesting",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "Note: this is interesting"
+  },
+  {
+    "input" : "Title: A Study of Things",
+    "kind" : "fielded",
+    "label" : "Fielded query",
+    "query" : "Title: A Study of Things"
+  },
+  {
+    "input" : "TODO: read the Abel paper",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "TODO: read the Abel paper"
+  },
+  {
+    "input" : "ratio 3:1 in the sample",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "ratio 3:1 in the sample"
+  },
+  {
+    "input" : "12:30 meeting about dark matter",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "12:30 meeting about dark matter"
+  },
+  {
+    "input" : "https://doi.org/10.1/x year:2002",
+    "kind" : "url",
+    "label" : "URL · doi.org",
+    "url" : "https://doi.org/10.1/x%20year:2002"
+  },
+  {
+    "blocks" : [
+      "Abel, T., Bryan, G. L., Norman, M. L. 2002, Science, 295, 93"
+    ],
+    "input" : "Abel, T., Bryan, G. L., Norman, M. L. 2002, Science, 295, 93",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Bardeen J.M., Bond J.R., Kaiser N., Szalay A.S. 1986, ApJ, 304, 15"
+    ],
+    "input" : "Bardeen J.M., Bond J.R., Kaiser N., Szalay A.S. 1986, ApJ, 304, 15",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Riess, A. G., et al. 1998, AJ, 116, 1009"
+    ],
+    "input" : "Riess, A. G., et al. 1998, AJ, 116, 1009",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Peebles, P. J. E. 1980, The Large-Scale Structure of the Universe (Princeton: Princeton Univ. Press)"
+    ],
+    "input" : "Peebles, P. J. E. 1980, The Large-Scale Structure of the Universe (Princeton: Princeton Univ. Press)",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Springel, V., et al. 2005, Nature, 435, 629"
+    ],
+    "input" : "Springel, V., et al. 2005, Nature, 435, 629",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Planck Collaboration et al. 2020, A&A, 641, A6"
+    ],
+    "input" : "Planck Collaboration et al. 2020, A&A, 641, A6",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "White, S. D. M., & Rees, M. J. 1978, MNRAS, 183, 341"
+    ],
+    "input" : "White, S. D. M., & Rees, M. J. 1978, MNRAS, 183, 341",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Kroupa, P. (2001). On the variation of the initial mass function. MNRAS, 322, 231."
+    ],
+    "input" : "Kroupa, P. (2001). On the variation of the initial mass function. MNRAS, 322, 231.",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Navarro, J. F., Frenk, C. S., & White, S. D. M. 1997, ApJ, 490, 493"
+    ],
+    "input" : "Navarro, J. F., Frenk, C. S., & White, S. D. M. 1997, ApJ, 490, 493",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Müller, H., & Schröder, K. 2019, A&A, 621, A45"
+    ],
+    "input" : "Müller, H., & Schröder, K. 2019, A&A, 621, A45",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Ostriker, J. P. & Steinhardt, P. J., Nature 377, 600 (1995)"
+    ],
+    "input" : "Ostriker, J. P. & Steinhardt, P. J., Nature 377, 600 (1995)",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Guth, A. H., Phys. Rev. D 23, 347 (1981)"
+    ],
+    "input" : "Guth, A. H., Phys. Rev. D 23, 347 (1981)",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Weinberg, S. 1989, Rev. Mod. Phys., 61, 1"
+    ],
+    "input" : "Weinberg, S. 1989, Rev. Mod. Phys., 61, 1",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Smith et al. 2020, vol. 12, pp. 45-67"
+    ],
+    "input" : "Smith et al. 2020, vol. 12, pp. 45-67",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Jones, A. 2015, Icarus, 250, 100"
+    ],
+    "input" : "Jones, A. 2015, Icarus, 250, 100",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Zel'dovich, Ya. B. 1970, A&A, 5, 84"
+    ],
+    "input" : "Zel'dovich, Ya. B. 1970, A&A, 5, 84",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "de Sitter, W. 1917, MNRAS, 78, 3"
+    ],
+    "input" : "de Sitter, W. 1917, MNRAS, 78, 3",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "input" : "van der Waals, J. D. 1873, Ph.D. thesis, Leiden",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "van der Waals, J. D. 1873, Ph.D. thesis, Leiden"
+  },
+  {
+    "blocks" : [
+      "Lema\\^{i}tre, G. 1927, Ann. Soc. Sci. Bruxelles, A47, 49"
+    ],
+    "input" : "Lema\\^{i}tre, G. 1927, Ann. Soc. Sci. Bruxelles, A47, 49",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "H\\\"{o}fner, S. 2015, A&A, 579, A64"
+    ],
+    "input" : "H\\\"{o}fner, S. 2015, A&A, 579, A64",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "Abel, T. et al., \\emph{Science} \\textbf{295}, 93 (2002)"
+    ],
+    "input" : "Abel, T. et al., \\emph{Science} \\textbf{295}, 93 (2002)",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "[1] A. Einstein, Ann. Phys. 49, 769 (1916)"
+    ],
+    "input" : "[1] A. Einstein, Ann. Phys. 49, 769 (1916)",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "(1) A. Einstein, Ann. Phys. 49, 769 (1916)"
+    ],
+    "input" : "(1) A. Einstein, Ann. Phys. 49, 769 (1916)",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "1. Einstein, A. 1916, Ann. Phys., 49, 769"
+    ],
+    "input" : "1. Einstein, A. 1916, Ann. Phys., 49, 769",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "\\bibitem{einstein1916} A. Einstein, Ann. Phys. 49, 769 (1916)"
+    ],
+    "input" : "\\bibitem{einstein1916} A. Einstein, Ann. Phys. 49, 769 (1916)",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "[1] Abel, T., Bryan, G. L., Norman, M. L. 2002, Science, 295, 93",
+      "[2] Bardeen J.M., Bond J.R., Kaiser N., Szalay A.S. 1986, ApJ, 304, 15"
+    ],
+    "input" : "[1] Abel, T., Bryan, G. L., Norman, M. L. 2002, Science, 295, 93\n[2] Bardeen J.M., Bond J.R., Kaiser N., Szalay A.S. 1986, ApJ, 304, 15",
+    "kind" : "reference",
+    "label" : "References (2)"
+  },
+  {
+    "blocks" : [
+      "1. Abel, T. et al. 2002, Science, 295, 93",
+      "2. Bromm, V. & Larson, R. B. 2004, ARA&A, 42, 79",
+      "3. Klessen, R. S. 2019, Formation of the First Stars"
+    ],
+    "input" : "1. Abel, T. et al. 2002, Science, 295, 93\n2. Bromm, V. & Larson, R. B. 2004, ARA&A, 42, 79\n3. Klessen, R. S. 2019, Formation of the First Stars",
+    "kind" : "reference",
+    "label" : "References (3)"
+  },
+  {
+    "blocks" : [
+      "\\bibitem{abel2002} Abel, T. et al. 2002, Science, 295, 93",
+      "\\bibitem{bbks} Bardeen J.M. et al. 1986, ApJ, 304, 15"
+    ],
+    "input" : "\\bibitem{abel2002} Abel, T. et al. 2002, Science, 295, 93\n\\bibitem{bbks} Bardeen J.M. et al. 1986, ApJ, 304, 15",
+    "kind" : "reference",
+    "label" : "References (2)"
+  },
+  {
+    "blocks" : [
+      "Abel, T., Bryan, G. L., Norman, M. L. 2002, Science, 295, 93",
+      "Bardeen J.M., Bond J.R., Kaiser N., Szalay A.S. 1986, ApJ, 304, 15"
+    ],
+    "input" : "Abel, T., Bryan, G. L., Norman, M. L. 2002, Science, 295, 93\n\nBardeen J.M., Bond J.R., Kaiser N., Szalay A.S. 1986, ApJ, 304, 15",
+    "kind" : "reference",
+    "label" : "References (2)"
+  },
+  {
+    "blocks" : [
+      "(1) Abel, T. 2002, Science, 295, 93",
+      "(2) Bromm, V. 2004, ARA&A, 42, 79"
+    ],
+    "input" : "(1) Abel, T. 2002, Science, 295, 93\n(2) Bromm, V. 2004, ARA&A, 42, 79",
+    "kind" : "reference",
+    "label" : "References (2)"
+  },
+  {
+    "blocks" : [
+      "Abel 2002\nBromm 2004"
+    ],
+    "input" : "Abel 2002\nBromm 2004",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "blocks" : [
+      "[1] Abel, T. 2002, Science, 295, 93\n    continued on the next line",
+      "[2] Bromm, V. 2004, ARA&A, 42, 79"
+    ],
+    "input" : "[1] Abel, T. 2002, Science, 295, 93\n    continued on the next line\n[2] Bromm, V. 2004, ARA&A, 42, 79",
+    "kind" : "reference",
+    "label" : "References (2)"
+  },
+  {
+    "blocks" : [
+      "dark matter\nin galaxies 1998"
+    ],
+    "input" : "dark matter\nin galaxies 1998",
+    "kind" : "reference",
+    "label" : "Reference"
+  },
+  {
+    "input" : "hello\nworld",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "hello\nworld"
+  },
+  {
+    "input" : "abel norman first stars science",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "abel norman first stars science"
+  },
+  {
+    "input" : "abel bryan norman first stars science",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "abel bryan norman first stars science"
+  },
+  {
+    "input" : "Riess dark energy since 2020 refereed",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "Riess dark energy since 2020 refereed"
+  },
+  {
+    "input" : "JWST galaxy formation high redshift",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "JWST galaxy formation high redshift"
+  },
+  {
+    "input" : "recent JWST observations",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "recent JWST observations"
+  },
+  {
+    "input" : "galaxy rotation curves 1970s",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "galaxy rotation curves 1970s"
+  },
+  {
+    "input" : "papers about reionization",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "papers about reionization"
+  },
+  {
+    "input" : "what did Abel say about the first stars",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "what did Abel say about the first stars"
+  },
+  {
+    "input" : "dark matter",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "dark matter"
+  },
+  {
+    "input" : "dark energy 2020-2024",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "dark energy 2020-2024"
+  },
+  {
+    "input" : "BBKS power spectrum",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "BBKS power spectrum"
+  },
+  {
+    "input" : "SDSS DR17 spectroscopy",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "SDSS DR17 spectroscopy"
+  },
+  {
+    "input" : "Smith and Jones 2020",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "Smith and Jones 2020"
+  },
+  {
+    "input" : "last 5 years gravitational waves",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "last 5 years gravitational waves"
+  },
+  {
+    "input" : "latest results from LIGO",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "latest results from LIGO"
+  },
+  {
+    "input" : "peer-reviewed papers on inflation",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "peer-reviewed papers on inflation"
+  },
+  {
+    "input" : "by Peebles",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "by Peebles"
+  },
+  {
+    "input" : "since 1999 cosmic microwave background",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "since 1999 cosmic microwave background"
+  },
+  {
+    "input" : "after 2010 exoplanet detection",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "after 2010 exoplanet detection"
+  },
+  {
+    "input" : "Müller Schröder spectroscopy",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "Müller Schröder spectroscopy"
+  },
+  {
+    "input" : "反物質 の 研究",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "反物質 の 研究"
+  },
+  {
+    "input" : "θ_MC cosmological parameters",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "θ_MC cosmological parameters"
+  },
+  {
+    "input" : "α-enhancement in globular clusters",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "α-enhancement in globular clusters"
+  },
+  {
+    "input" : "e^+ e^- annihilation",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "e^+ e^- annihilation"
+  },
+  {
+    "input" : "$\\Lambda$CDM tensions",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "$\\Lambda$CDM tensions"
+  },
+  {
+    "input" : "a very long free text query word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "kind" : "freeText",
+    "label" : "Free-text search",
+    "query" : "a very long free text query word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+  }
+]

@@ -47,3 +47,6 @@ impress-bridges-service = { workspace = true }
 impress-store-service = { workspace = true }
 # Pulls the ImprintSelftestService inventory (run-selftest MCP tool).
 imprint-selftest = { workspace = true }
+# Pulls the SmartSearchService inventory (pure, app-independent — no
+# reachability gate entry needed).
+impress-smart-search-service = { workspace = true }

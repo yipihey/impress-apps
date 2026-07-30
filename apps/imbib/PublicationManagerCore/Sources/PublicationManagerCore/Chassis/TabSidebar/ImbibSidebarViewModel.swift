@@ -530,83 +530,45 @@ final class ImbibSidebarViewModel {
     /// node per mail-account with its folders as tree children (flat
     /// pre-order list with `treeDepth`, same shape as figureFolderNodes).
     /// Read-only by design — IMAP owns account/folder lifecycle.
+    /// The TREE is `MailSidebarSnapshot` (Stage 5c, cross-platform): role
+    /// ordering, the six folder glyphs, the display-name fallback chain and the
+    /// All-Inboxes fan-out all live there now, so impart-iOS's sidebar shows the
+    /// same rows in the same order without re-encoding any of it. This method
+    /// only maps the snapshot onto macOS's `ImbibSidebarNode`.
     private func mailChildren() -> [ImbibSidebarNode] {
-        let reader = MailStoreReader.shared
-        let inboxFolders = reader.fetchInboxFolders()
-        let allInboxCount = inboxFolders.reduce(0) { $0 + reader.messageCount(inFolder: $1.id) }
+        let snapshot = MailSidebarSnapshot.load()
         var nodes: [ImbibSidebarNode] = [
             ImbibSidebarNode(
                 id: ImbibSidebarNodeID.mailAllInboxes,
                 nodeType: .mailAllInboxes,
-                displayName: "All Inboxes",
-                iconName: "tray.2",
-                displayCount: allInboxCount > 0 ? allInboxCount : nil
+                displayName: MailSidebarSnapshot.allInboxesTitle,
+                iconName: MailSidebarSnapshot.allInboxesSystemImage,
+                displayCount: snapshot.allInboxesCount > 0 ? snapshot.allInboxesCount : nil
             ),
         ]
-        for account in reader.fetchAccounts() {
-            let payload = MailStoreReader.accountPayload(from: account)
-            let folders = Self.roleSortedMailFolders(
-                reader.fetchFolders(accountID: account.id))
+        for account in snapshot.accounts {
             var accountNode = ImbibSidebarNode(
-                id: ImbibSidebarNodeID.mailAccount(account.id),
-                nodeType: .mailAccount(account.id),
-                displayName: payload?.name ?? payload?.address ?? "Account",
+                id: ImbibSidebarNodeID.mailAccount(account.storeID),
+                nodeType: .mailAccount(account.storeID),
+                displayName: account.name,
                 iconName: "person.crop.circle"
             )
             accountNode.treeDepth = 0
-            accountNode.hasTreeChildren = !folders.isEmpty
+            accountNode.hasTreeChildren = !account.folders.isEmpty
             nodes.append(accountNode)
-            for folder in folders {
-                let folderPayload = MailStoreReader.folderPayload(from: folder)
+            for folder in account.folders {
                 var folderNode = ImbibSidebarNode(
-                    id: ImbibSidebarNodeID.mailFolder(folder.id),
-                    nodeType: .mailFolder(folder.id),
-                    displayName: folderPayload?.name ?? "Folder",
-                    iconName: Self.mailFolderIcon(role: folderPayload?.role)
+                    id: ImbibSidebarNodeID.mailFolder(folder.storeID),
+                    nodeType: .mailFolder(folder.storeID),
+                    displayName: folder.name,
+                    iconName: folder.systemImage
                 )
-                let count = reader.messageCount(inFolder: folder.id)
-                folderNode.displayCount = count > 0 ? count : nil
+                folderNode.displayCount = folder.messageCount > 0 ? folder.messageCount : nil
                 folderNode.treeDepth = 1
                 nodes.append(folderNode)
             }
         }
         return nodes
-    }
-
-    /// Role-ordered folder sort: inbox/drafts/sent/archive/trash/spam first,
-    /// then custom folders by payload sort_order, then name.
-    private static func roleSortedMailFolders(_ folders: [SharedItemRow]) -> [SharedItemRow] {
-        let roleOrder: [String: Int] = [
-            "inbox": 0, "drafts": 1, "sent": 2, "archive": 3, "trash": 4, "spam": 5,
-        ]
-        struct Sortable {
-            let row: SharedItemRow
-            let roleRank: Int
-            let sortOrder: Int
-            let name: String
-        }
-        return folders.map { row -> Sortable in
-            let payload = MailStoreReader.folderPayload(from: row)
-            return Sortable(
-                row: row,
-                roleRank: payload?.role.flatMap { roleOrder[$0] } ?? 100,
-                sortOrder: payload?.sortOrder ?? 0,
-                name: payload?.name ?? "")
-        }
-        .sorted { ($0.roleRank, $0.sortOrder, $0.name) < ($1.roleRank, $1.sortOrder, $1.name) }
-        .map(\.row)
-    }
-
-    private static func mailFolderIcon(role: String?) -> String {
-        switch role {
-        case "inbox": return "tray"
-        case "sent": return "paperplane"
-        case "drafts": return "doc"
-        case "trash": return "trash"
-        case "archive": return "archivebox"
-        case "spam": return "xmark.bin"
-        default: return "folder"
-        }
     }
 
     // MARK: Figures (Stage 2-B)

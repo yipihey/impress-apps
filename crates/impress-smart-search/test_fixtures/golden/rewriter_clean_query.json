@@ -1,0 +1,224 @@
+[
+  {
+    "cleaned" : "",
+    "commas" : "",
+    "input" : "",
+    "unquoted" : ""
+  },
+  {
+    "cleaned" : "",
+    "commas" : " ",
+    "input" : " ",
+    "unquoted" : " "
+  },
+  {
+    "cleaned" : "author:\"Abel, T.\" year:2002",
+    "commas" : "author:\"Abel, T.\" year:2002",
+    "input" : "author:\"Abel, T.\" year:2002",
+    "unquoted" : "author:\"Abel, T.\" year:2002"
+  },
+  {
+    "cleaned" : "author:\"Abel, T.\" year:2002",
+    "commas" : "author:\"Abel, T.\"; year:2002",
+    "input" : "author:\"Abel, T.\"; year:2002",
+    "unquoted" : "author:\"Abel, T.\"; year:2002"
+  },
+  {
+    "cleaned" : "author:\"Abel, T.\" year:2002",
+    "commas" : "author:\"Abel, T.\"  year:2002",
+    "input" : "author:\"Abel, T.\", year:2002",
+    "unquoted" : "author:\"Abel, T.\", year:2002"
+  },
+  {
+    "cleaned" : "author:\"Abel, T.\" year:2002",
+    "commas" : "author:\"Abel, T.\" year:2002",
+    "input" : "author:\"Abel, T.\",year:2002",
+    "unquoted" : "author:\"Abel, T.\",year:2002"
+  },
+  {
+    "cleaned" : "abs:\"dark matter\" year:2002 property:refereed",
+    "commas" : "abs:dark matter; year:2002; property:refereed",
+    "input" : "abs:dark matter; year:2002; property:refereed",
+    "unquoted" : "abs:dark matter; year:2002; property:refereed"
+  },
+  {
+    "cleaned" : "title:(dark matter)",
+    "commas" : "title:\"dark matter\"",
+    "input" : "title:\"dark matter\"",
+    "unquoted" : "title:(dark matter)"
+  },
+  {
+    "cleaned" : "title:(dark matter halos)",
+    "commas" : "title:\"dark matter halos\"",
+    "input" : "title:\"dark matter halos\"",
+    "unquoted" : "title:(dark matter halos)"
+  },
+  {
+    "cleaned" : "title:\"dark\"",
+    "commas" : "title:\"dark\"",
+    "input" : "title:\"dark\"",
+    "unquoted" : "title:\"dark\""
+  },
+  {
+    "cleaned" : "abs:(first stars)",
+    "commas" : "abs:\"first stars\"",
+    "input" : "abs:\"first stars\"",
+    "unquoted" : "abs:(first stars)"
+  },
+  {
+    "cleaned" : "abstract:(first stars)",
+    "commas" : "abstract:\"first stars\"",
+    "input" : "abstract:\"first stars\"",
+    "unquoted" : "abstract:(first stars)"
+  },
+  {
+    "cleaned" : "body:(first stars)",
+    "commas" : "body:\"first stars\"",
+    "input" : "body:\"first stars\"",
+    "unquoted" : "body:(first stars)"
+  },
+  {
+    "cleaned" : "full:(first stars)",
+    "commas" : "full:\"first stars\"",
+    "input" : "full:\"first stars\"",
+    "unquoted" : "full:(first stars)"
+  },
+  {
+    "cleaned" : "object:(alpha Cen)",
+    "commas" : "object:\"alpha Cen\"",
+    "input" : "object:\"alpha Cen\"",
+    "unquoted" : "object:(alpha Cen)"
+  },
+  {
+    "cleaned" : "keyword:(large scale structure)",
+    "commas" : "keyword:\"large scale structure\"",
+    "input" : "keyword:\"large scale structure\"",
+    "unquoted" : "keyword:(large scale structure)"
+  },
+  {
+    "cleaned" : "title:(dark matter)",
+    "commas" : "TITLE:\"dark matter\"",
+    "input" : "TITLE:\"dark matter\"",
+    "unquoted" : "title:(dark matter)"
+  },
+  {
+    "cleaned" : "author:\"Abel, T.\" title:(first stars) year:2002",
+    "commas" : "author:\"Abel, T.\" title:\"first stars\" year:2002",
+    "input" : "author:\"Abel, T.\" title:\"first stars\" year:2002",
+    "unquoted" : "author:\"Abel, T.\" title:(first stars) year:2002"
+  },
+  {
+    "cleaned" : "abs:\"dark matter\"",
+    "commas" : "abs:dark  matter",
+    "input" : "abs:dark  matter",
+    "unquoted" : "abs:dark  matter"
+  },
+  {
+    "cleaned" : "abs:\"dark matter halos\"",
+    "commas" : "abs:dark   matter   halos",
+    "input" : "abs:dark   matter   halos",
+    "unquoted" : "abs:dark   matter   halos"
+  },
+  {
+    "cleaned" : "abs:\"dark matter\"",
+    "commas" : "  abs:dark matter  ",
+    "input" : "  abs:dark matter  ",
+    "unquoted" : "  abs:dark matter  "
+  },
+  {
+    "cleaned" : "abs:\"dark matter\"",
+    "commas" : "abs:dark matter\n",
+    "input" : "abs:dark matter\n",
+    "unquoted" : "abs:dark matter\n"
+  },
+  {
+    "cleaned" : "author:\"Abel, T.,Bond, J.\" year:2002",
+    "commas" : "author:\"Abel, T.,Bond, J.\" year:2002",
+    "input" : "author:\"Abel, T.,Bond, J.\" year:2002",
+    "unquoted" : "author:\"Abel, T.,Bond, J.\" year:2002"
+  },
+  {
+    "cleaned" : "a: Abel T. title:\"dark matter\" AND year:2002",
+    "commas" : "a: Abel  T.; t:dark matter; and year: 2002",
+    "input" : "a: Abel, T.; t:dark matter; and year: 2002",
+    "unquoted" : "a: Abel, T.; t:dark matter; and year: 2002"
+  },
+  {
+    "cleaned" : "title:\"a\" abs:(b c) body:(d e f)",
+    "commas" : "title:\"a\" abs:\"b c\" body:\"d e f\"",
+    "input" : "title:\"a\" abs:\"b c\" body:\"d e f\"",
+    "unquoted" : "title:\"a\" abs:(b c) body:(d e f)"
+  },
+  {
+    "cleaned" : "title:\"unbalanced",
+    "commas" : "title:\"unbalanced",
+    "input" : "title:\"unbalanced",
+    "unquoted" : "title:\"unbalanced"
+  },
+  {
+    "cleaned" : "title:\"\"",
+    "commas" : "title:\"\"",
+    "input" : "title:\"\"",
+    "unquoted" : "title:\"\""
+  },
+  {
+    "cleaned" : "title:\"\" abs:(x y)",
+    "commas" : "title:\"\" abs:\"x y\"",
+    "input" : "title:\"\" abs:\"x y\"",
+    "unquoted" : "title:\"\" abs:(x y)"
+  },
+  {
+    "cleaned" : "abs:(dark matter) year:2002",
+    "commas" : "abs:(dark matter) year:2002",
+    "input" : "abs:(dark matter),year:2002",
+    "unquoted" : "abs:(dark matter),year:2002"
+  },
+  {
+    "cleaned" : "author:Abel year:2002",
+    "commas" : "author:Abel;;year:2002",
+    "input" : "author:Abel;;year:2002",
+    "unquoted" : "author:Abel;;year:2002"
+  },
+  {
+    "cleaned" : "",
+    "commas" : ";;;",
+    "input" : ";;;",
+    "unquoted" : ";;;"
+  },
+  {
+    "cleaned" : "",
+    "commas" : "   ",
+    "input" : ",,,",
+    "unquoted" : ",,,"
+  },
+  {
+    "cleaned" : "",
+    "commas" : ";  ",
+    "input" : "; ,",
+    "unquoted" : "; ,"
+  },
+  {
+    "cleaned" : "abs:(dark, matter)",
+    "commas" : "abs:\"dark, matter\"",
+    "input" : "abs:\"dark, matter\"",
+    "unquoted" : "abs:(dark, matter)"
+  },
+  {
+    "cleaned" : "author:\"Müller, H.\" abs:(réionisation cosmique)",
+    "commas" : "author:\"Müller, H.\"; abs:\"réionisation cosmique\"",
+    "input" : "author:\"Müller, H.\"; abs:\"réionisation cosmique\"",
+    "unquoted" : "author:\"Müller, H.\"; abs:(réionisation cosmique)"
+  },
+  {
+    "cleaned" : "citations(bibcode:2002Sci...295...93A) year:2010",
+    "commas" : "citations(bibcode:2002Sci...295...93A); year:2010",
+    "input" : "citations(bibcode:2002Sci...295...93A); year:2010",
+    "unquoted" : "citations(bibcode:2002Sci...295...93A); year:2010"
+  },
+  {
+    "cleaned" : "abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x abs:x",
+    "commas" : "abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; ",
+    "input" : "abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; ",
+    "unquoted" : "abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; abs:x; "
+  }
+]

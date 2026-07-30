@@ -35,6 +35,9 @@ const _STORE_SERVICE_FORCE_LINK: fn() -> impress_store_service::DefaultCollectio
 #[allow(dead_code)]
 const _DOCS_IMPORT_FORCE_LINK: fn() -> impress_store_service::DefaultDocsImportService =
     impress_store_service::DefaultDocsImportService::new;
+#[allow(dead_code)]
+const _SMART_SEARCH_FORCE_LINK: fn() -> impress_smart_search_service::DefaultSmartSearchService =
+    impress_smart_search_service::DefaultSmartSearchService::default;
 
 /// Refuse to run against a store we cannot reach.
 ///

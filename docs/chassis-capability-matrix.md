@@ -491,12 +491,21 @@ knew. Those differences now survive as `availability` with stated reasons.
   `ImpressAutomation.AutomationSettingsSection` but drops `logRequests` (swapping
   it in would ADD a control). Both are phase-3 alignments; the reframe's value is
   that they are stated next to the declaration.
-- **`impart-iOS` is NOT migrated, and cannot be:** that target does not link
-  PublicationManagerCore (absent from `apps/impart/project.yml`), so no chassis
-  renderer can run there. Its `IOSAppearanceSettingsView` is a second clone of the
-  shared appearance section over the same key;
-  `testImpartIOSStillReadsTheSameAppearanceKeyAsMacOS` keeps the preference from
-  forking until the target links the package.
+- **`impart-iOS` was NOT migrated and could not be — CLOSED by Stage 5c
+  (2026-07-30).** Phase 2's reason was true and specific: the target did not link
+  PublicationManagerCore, so no chassis renderer could run there, and its
+  `IOSAppearanceSettingsView` was a second clone of the shared appearance section.
+  Stage 5c added the package, so `.accounts` and `.general` are now `.everywhere`
+  and impart-iOS renders `IOSSettingsScreen` — two rows plus the derived footer
+  ("4 more settings are available on the Mac — they need a local HTTP server or a
+  Spotlight index"). The other four stay `.macOSOnly()`: `.ai` is a provider/key
+  surface iOS does not run, `.keyboard` is a hardware-keyboard reference, and
+  `.automation`/`.spotlight` carry requirements iOS never grants. The iOS panes are
+  registered app-side in `impart-iOS/Views/IOSImpartSettingsFactories.swift`
+  (`ImpartIOSSettingsSections.registry`, builtins + two). The appearance clone
+  survives on BOTH platforms for the reason above (one of two controls inside
+  General), and `testImpartIOSSettingsReadTheSameKeysAsMacOS` now pins the iOS
+  pane's key SET as a subset of the Mac's rather than pinning the absence.
 - Two ids that look like duplicates are not: `keyboard` (implore, impart —
   shipped `settings.tabs.keyboard`) and `shortcuts` (imbib — shipped
   `settings.tabs.shortcuts`, even though its Swift case was `keyboardShortcuts`).
@@ -517,8 +526,8 @@ render and the four macOS-gated ones do not, and a `helixModeEnabled` toggle
 survives `terminate()` + `launch()`). `SettingsSurfaceContractTests.testRenderersStayPlatformGated`
 gained the third renderer.
 
-Phase 3 candidates, all recorded above rather than done: link
-PublicationManagerCore into `impart-iOS`; align impart's two hand-rolled clones;
+Phase 3 candidates, all recorded above rather than done (the first is DONE — Stage
+5c linked PublicationManagerCore into `impart-iOS`): align impart's two hand-rolled clones;
 give impel an `automation` pane (its `ImpelHTTPServer` reads
 `httpAutomationEnabled`/`httpAutomationPort` that **no impel pane writes** — the
 server is unconfigurable from the GUI); reconcile impel's `counselModel`, which has
@@ -705,6 +714,49 @@ the legacy `schema_ref` literals directly and would go empty (or throw) the
 moment it is flipped. `crates/impress-core/src/collection_migration.rs` carries
 the full contract; the kernel reads correctly on both sides of the flip.
 
+### Smart search (Stage 7 item 8, 2026-07-30)
+
+`crates/impress-smart-search` + `impress-smart-search-service` — the Cmd+S
+overlay's brain, ported out of the `ImpressSmartSearch` Swift package (2,408
+lines). Ten tools under `smart-search-service_`. Pure functions over strings:
+no store, no network, no app, so like the store-generic namespaces above they
+are absent from `reachability::APP_GATED` and answer with every app closed.
+CLI host is `impress` (the same store-generic binary), because these verbs
+belong to no single app.
+
+These automate no matrix cell — they are not GUI verbs. They exist because the
+logic *was* unreachable: it decided what every Cmd+S keystroke did, and an
+agent asking "what would imbib do with this pasted citation?" had no way to
+find out. Now `classify-search-input` answers exactly that.
+
+| Tool | What it exposes |
+|---|---|
+| `smart-search-service_classify-search-input` | the 5-way router: bare identifier / ADS fielded query / pasted citation blocks / URL / free text, with the overlay's own label string |
+| `smart-search-service_normalize-ads-query` | the 6 repair rules (shorthand expansion, value quoting, boolean case, `First Last` → `Last, F`), plus the per-rule change log the UI shows |
+| `smart-search-service_rewrite-free-text-query` | the no-model fallback: year/decade/"last N years"/"since YYYY", `refereed`, `by <Author>`, `abs:(…)` residue. Takes `this_year` explicitly |
+| `smart-search-service_build-ads-query` | the stage that runs on a model's structured output, including the hallucination filters |
+| `smart-search-service_clean-ads-query` | repair of a model's free-form query string |
+| `smart-search-service_split-reference-blocks` | bibliography paste → blocks (`\bibitem`, numbered markers, blank-line) |
+| `smart-search-service_extract-page-identifiers` | DOI/arXiv/bibcode/PMID + `<title>` out of HTML. The **fetch stays Swift** — this is the half after the bytes arrive |
+| `smart-search-service_validate-parsed-reference` | drops identifiers a model invented; a hallucinated DOI resolves to the wrong paper silently |
+| `smart-search-service_free-text-extraction-prompt` | the on-device prompt, verbatim — so it can be read and A/B'd instead of guessed at |
+| `smart-search-service_reference-parse-prompt` | likewise for citation parsing |
+
+**Three of the five original components keep a Swift half** (the on-device
+`FoundationModels` session, the cloud runner call, and `URLSession`). That is a
+platform split, not an unfinished port: see
+[docs/smart-search-swift-rust-split.md](smart-search-swift-rust-split.md) for
+where the line is drawn and why, and for the Foundation-vs-Rust behavioral
+differences the golden corpus surfaced (`URL.path` percent-decoding, U+200B
+whitespace, `capitalized` word boundaries, `JSONSerialization`'s BOM stripping).
+
+Behavior is pinned by 2,628 golden cases in
+`crates/impress-smart-search/test_fixtures/golden/`, captured from the Swift
+implementations before their bodies were replaced and asserted from both sides
+— `tests/golden_parity.rs` and
+`PublicationManagerCoreTests/Golden/SmartSearchParityTests.swift`, the latter
+through the real FFI. There is no regeneration path, deliberately.
+
 ### Resources (WP G6)
 
 Tools answer a question the agent knew to ask; resources answer the one it
@@ -864,6 +916,106 @@ in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
     `StoreEvents` → list reload, so an unguarded write would let selection pump
     the list. Note the guard is on the WRITE, not the notification — filtering
     unread-only in the chassis would leave the host's reply target stale.
+
+- **impart-iOS on the chassis (Stage 5c, 2026-07-30) — the last iOS target with
+  zero chassis reach, and an HONEST READ-ONLY v1.** `impart-iOS/Views/IOSContentView.swift`
+  (380 lines of `TabView`) is DELETED; the root is `IOSMailHostView` — PMC's
+  `RecordSidebarView` + `IOSMessageListColumn` + PMC's `MessageDetailPane` — over
+  `AppShellConfiguration.impart.presenting([.message])` and
+  `ImpartSidebarBindings` (89 code lines). What the deleted shell contained,
+  verbatim: `Text("No accounts configured")` under `// TODO: Populate with
+  accounts and mailboxes`; `Text("Message content will appear here")` under
+  `// TODO: Fetch and display message content`; bottom-bar buttons whose bodies
+  were `// Archive`, `// Delete`, `// Reply`, `// Forward`; a Send button reading
+  `// TODO: Send message`; an Accounts `+` reading `// Add account`.
+
+  **What runs on iOS, surveyed before any code:** reads work (the app-group
+  `impress.sqlite` — VERIFIED: a signed simulator build opens
+  `AppGroup/…/workspace/impress.sqlite`, the same file imbib-iOS and imprint use);
+  bodies are the payload `body` field as PLAIN TEXT (impart's mirror writes
+  `CDMessage.content.textBody`), not CAS, so remote content is blocked by
+  construction — nothing in this target renders HTML or loads a URL, and PMC is
+  denied WebKit by `scripts/check-chassis-deps.sh`. Star/flag/tag write through the
+  same `RecordTriageActions.storeBacked` ops macOS uses. **Read state is NOT
+  written** and **no `RecordHostVerbs` are registered**: both verbs macOS supplies
+  are verbs iOS cannot perform — `isRead` is mirrored FROM Core Data (a store-only
+  write would be reverted by the Mac's next mirror pass), and there is no SMTP
+  path anywhere (`RustMailProvider.send` is `// Pretend to send`, `fetchMessages`
+  returns `[]`, `ImpartRustCore` is a placeholder package with no Rust). So the
+  chassis omits the `n` key and the empty-state create button rather than
+  offering dead ones, and impart-iOS's refresh gesture re-READS the store instead
+  of pretending to fetch. There is no IMAP sync and no scheduler on EITHER
+  platform.
+
+  **Three ADDITIVE chassis extractions, each because iOS needed an answer that
+  existed only inside a macOS-gated file:**
+  - `MailStoreReader.messages(in:)` — `MessageListWrapper.reload()`'s body. "Which
+    messages does All Inboxes / an account / a folder / a flag colour contain",
+    thread-collapsed, is not a rendering question; both list hosts call it now.
+  - `Chassis/Messages/MailSidebarSnapshot.swift` — the mail sidebar TREE (All
+    Inboxes, accounts, folders in role order with the role's glyph and a count).
+    It lived in `ImbibSidebarViewModel.mailChildren()` and needed
+    `MailStoreReader`'s INTERNAL payload decoders, so an app-target iOS sidebar
+    could not have reproduced it even by copying. macOS's `mailChildren()` now
+    maps this snapshot.
+  - `MessageDetailPane` DE-GATED. It was `#if os(macOS)` from the GUI-meld Phase 1
+    header plus an `import AppKit` nothing used; the body is plain SwiftUI over
+    cross-platform types. impart-iOS renders THE pane, not a clone — the Stage-5b
+    lesson from imbib's publication detail, applied before the second copy exists.
+
+  **Flagged mail is still absent on both platforms** (`.impart` does not permit
+  `.flagged`, and it would need a `.flagged: .message` binding + routing). Mail
+  folders carry `isFolder: false`, so the shared organise grammar stays off a
+  server mailbox. The Chat/Category/Research/Development custom surfaces are NOT
+  registered on iOS: they read an `InboxViewModel` whose `accounts` is assigned
+  nowhere in MessageManagerCore, so they are empty on macOS too.
+
+  Regression oracle: `impart-iOSUITests` (impart's FIRST UI-test target) — sidebar
+  sections + seeded mail tree, list rows + thread badge, the shared detail pane,
+  and the availability-filtered settings screen, on a booted simulator with a
+  `--uitesting-seed` fixture (`impart-iOS/Support/ImpartIOSUITestSeed.swift`) that
+  writes through `ImpartStoreAdapter`'s own row builders so a seeded row is shaped
+  exactly like a mirrored one.
+
+  **Reported gap — there is no shared iOS LIST host.** Every macOS list wrapper is
+  `#if os(macOS)`, so imprint-iOS, imbib-iOS and now impart-iOS each write their
+  own `List`. Three is where "each app writes its own" stops being a coincidence.
+  The parts that matter are shared (rows, row chrome, triage grammar, scope→rows);
+  what is duplicated is the `List` + search field + reload triggers.
+
+  **FIVE pre-existing breaks were in the way, all found by being the first person
+  to build and run impart's targets** (there is NO `impart-*.yml` CI workflow —
+  impart is the one app with no Swift CI at all, which is why none of these had
+  surfaced). Four are fixed; the fifth is macOS and out of Stage 5c's scope:
+  1. `MessageManagerCore` did not COMPILE for iOS, though `impart-iOS` had listed
+     it as a dependency for months: `DirectoryArtifact` used the macOS-only
+     `.withSecurityScope` bookmark options unconditionally, and
+     `ArchiveExporter`/`ArchiveImporter` shell out to `/usr/bin/zip`/`unzip`
+     through `Process`. Now `#if` islands plus `ArchivePlatformError` (throwing
+     beats returning an un-extracted URL that fails later as a missing manifest).
+  2. The project-wide `PRODUCT_NAME: impart` made `impart-iOS`, its share
+     extension and `impart-iOSTests` all emit `impart.swiftmodule` into one
+     products directory — four "Multiple commands produce …" errors before any
+     compile. Fixed with `PRODUCT_MODULE_NAME` overrides (`impart-Widgets` and
+     `impartTests` already carried the same override on macOS).
+  3. `impart-ShareExtension`'s generated Info.plist had **no `NSExtension`
+     dictionary**, so `simctl install` failed the WHOLE app with "Failed to create
+     app extension placeholder". The keys had to go in `project.yml`'s
+     `info.properties` — an `info:` block means XcodeGen GENERATES that plist, so
+     hand edits to the file are overwritten, which is presumably how it was lost.
+  4. `impart-iOSTests` had no `TEST_HOST` override, so `xcodebuild test` failed
+     with "Could not find test host" (same cause as 2 — the product is
+     `impart.app/impart`, not `impart-iOS.app/impart-iOS`).
+  5. **NOT FIXED — impart macOS traps on launch.** `ImpartApp.chassisRoot` applies
+     `.environment(appState)` BEFORE `.modifier(MailChassisHost())`, so the
+     modifier is an ANCESTOR of the injection and its `@Environment(AppState.self)`
+     is unresolved: `MailChassisHost.body`'s first line reads it and hits
+     "Fatal error: No Observable object of type AppState found". `xcodebuild build`
+     is green (this is a runtime trap), and `impartTests` cannot run because it
+     hosts the app. Introduced with `MailChassisHost` in Stage 4c and invisible
+     because impart has no CI and macOS apps are not launched during these passes.
+     The fix is one line — move `.environment(appState)` after the modifier — in
+     `apps/impart/macOS/ImpartApp.swift`, which Stage 5c was scoped out of.
 
 - **`RecordHostVerbs` / `ChassisNavigation` (Stage 4c) — two ADDITIVE seams,
   flagged here because they are chassis edits made for an app's benefit:**

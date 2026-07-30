@@ -82,9 +82,13 @@ struct ImpartApp: App {
     /// URL handling) move here unchanged.
     private var chassisRoot: some View {
         ImpartChassisRoot()
-            .environment(appState)
             .withAppearance()
             .modifier(MailChassisHost())
+            // AFTER MailChassisHost, so the host sits INSIDE the injection —
+            // its `@Environment(AppState.self)` traps at launch otherwise
+            // (environment values flow down; a modifier applied after
+            // `.environment` wraps it and cannot see the value).
+            .environment(appState)
             .task {
                 // Start heartbeat for SiblingDiscovery
                 Task.detached {

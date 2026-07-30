@@ -32,7 +32,9 @@ packages:
   MessageManagerCore:
     path: MessageManagerCore
   # The shared GUI chassis (GUI-meld / ADR-0021). impart consumes it for the
-  # Stage 2-A unified mail window (ImpartChassisRoot); macOS target only.
+  # Stage 2-A unified mail window (ImpartChassisRoot) on macOS and, since
+  # Stage 5c, for the iOS sidebar/list/detail surfaces too (ImpartSidebarBindings
+  # + IOSMailHostView). BOTH targets link it.
   PublicationManagerCore:
     path: ../imbib/PublicationManagerCore
   ImpartRustCore:
@@ -168,6 +170,11 @@ targets:
   impart-iOS:
     type: application
     platform: iOS
+    # Stage 5c: impart-iOS links PublicationManagerCore (see `dependencies`
+    # below), so it compiles the chassis's `UTType(exportedAs:)` call sites and
+    # must export those types or fault on first access. The wave-2 UTI work
+    # deliberately skipped this target because it did NOT link PMC; it does now.
+    templates: [ChassisUTIs]
     deploymentTarget: "26.0"
     sources:
       - path: Shared
@@ -183,6 +190,11 @@ targets:
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
     dependencies:
       - package: MessageManagerCore
+      # Stage 5c: the shared GUI chassis on iOS too. imbib-iOS and imprint-iOS
+      # list PMC and let SwiftPM resolve its transitive packages; impart-iOS
+      # keeps the packages it already named explicitly (they are its own direct
+      # imports) and adds PMC alongside.
+      - package: PublicationManagerCore
       - package: ImpartRustCore
       - package: ImpressAI
       - package: ImpressAutomation
@@ -239,6 +251,21 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart.share-extension
+        # PRE-EXISTING BUILD BREAK, fixed here because it blocks every
+        # impart-iOS build (Stage 5c was the first time anyone compiled that
+        # target for a simulator). The project-wide `PRODUCT_NAME: impart` makes
+        # PRODUCT_MODULE_NAME default to `impart` for BOTH this extension and
+        # the app, so the two targets emit `impart.swiftmodule` into the same
+        # Products directory and the build fails with four "Multiple commands
+        # produce …/impart.swiftmodule/…" errors before compiling a single file.
+        # `impart-Widgets` already carries the same override for the same reason.
+        # PRODUCT_NAME is deliberately left alone: only the MODULE name collides,
+        # and renaming the product would rename the appex's executable.
+        PRODUCT_MODULE_NAME: impartShareExtension
+        # The appex was also named `impart.appex` (project-wide PRODUCT_NAME),
+        # inside `impart.app` — imbib's names its own `imbib-iOS-ShareExtension`.
+        PRODUCT_NAME: impart-ShareExtension
+        SKIP_INSTALL: YES
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: impart-ShareExtension/Info.plist
         MARKETING_VERSION: "1.0.0"
@@ -247,7 +274,33 @@ targets:
       - sdk: UIKit.framework
       - sdk: UniformTypeIdentifiers.framework
     info:
+      # XcodeGen GENERATES this plist from the properties below (that is what an
+      # `info:` block means), so hand edits to the file on disk are overwritten
+      # on the next `xcodegen generate` — which is presumably how the target
+      # ended up with no NSExtension dictionary at all.
+      #
+      # And with no `NSExtensionPointIdentifier` an `.appex` is not an extension:
+      # `simctl install` fails the WHOLE app with "Failed to create app extension
+      # placeholder for … impart-ShareExtension.appex" before it is ever
+      # launched, so impart-iOS could not be run on a simulator. Nobody had
+      # tried until Stage 5c.
+      #
+      # The activation rule matches what `ShareViewController.didSelectPost`
+      # actually handles: plain text, one web URL, one image.
       path: impart-ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: impart
+        CFBundlePackageType: XPC!
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          # Module-qualified, and the module is the PRODUCT_MODULE_NAME override
+          # above rather than the project-wide `impart`.
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 1
     entitlements:
       path: impart-ShareExtension/impart-ShareExtension.entitlements
       properties:
@@ -264,6 +317,41 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart.iostests
+        # Same `impart.swiftmodule` collision the share extension had — the
+        # macOS `impartTests` target already sets `PRODUCT_MODULE_NAME`.
+        PRODUCT_NAME: impart-iOSTests
+        PRODUCT_MODULE_NAME: impartIOSTests
+        GENERATE_INFOPLIST_FILE: YES
+        # PRE-EXISTING BUILD BREAK. XcodeGen derives TEST_HOST from the app
+        # target's NAME (`impart-iOS.app/impart-iOS`), but the project-wide
+        # `PRODUCT_NAME: impart` means the product is `impart.app/impart` — so
+        # `xcodebuild test` failed with "Could not find test host for
+        # impart-iOSTests" before running anything. imprint's `imprint-iOSTests`
+        # carries the same override for the same reason.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/impart.app/impart"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  # iOS UI tests (Stage 5c) — impart's first, following imbib-iOSUITests.
+  # A UI-testing bundle launches the app out of process, so it needs no
+  # TEST_HOST override; PRODUCT_NAME/PRODUCT_MODULE_NAME ARE overridden because
+  # the project-wide `PRODUCT_NAME: impart` would otherwise collide with the
+  # app's own product in the simulator products directory.
+  # NOT depended on: ImpressTestKit — that package is macOS-only
+  # (platforms: [.macOS(.v26)]). Accessibility anchors are declared locally in
+  # the test target so the runner does not link PMC + the Rust xcframework.
+  impart-iOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: impart-iOSUITests
+    dependencies:
+      - target: impart-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.impart.iosuitests
+        PRODUCT_NAME: impart-iOSUITests
+        PRODUCT_MODULE_NAME: impartiOSUITests
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:
@@ -286,12 +374,14 @@ schemes:
     build:
       targets:
         impart-iOS: all
+        impart-iOSUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
         - impart-iOSTests
+        - impart-iOSUITests
     profile:
       config: Release
     archive:

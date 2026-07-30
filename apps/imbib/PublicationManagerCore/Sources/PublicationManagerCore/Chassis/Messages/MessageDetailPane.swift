@@ -1,5 +1,12 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS) since Stage 5c.
+//
+// It was gated by the GUI-meld Phase 1 header copied verbatim, and by an
+// `import AppKit` that nothing in the body used: the whole pane is plain
+// SwiftUI over cross-platform chassis types (`MailStoreReader`,
+// `MessageRowData`, `DetailTab`, `RelatedItemsSection`, `TagChip`,
+// `FlowLayout`, `ImbibImpressStore.events`). impart-iOS renders THIS pane —
+// not an app-side clone — which is what keeps the two platforms' message
+// detail from drifting the way imbib's publication detail did before Stage 5b.
 //
 //  MessageDetailPane.swift
 //  PublicationManagerCore
@@ -19,7 +26,6 @@
 //
 
 import SwiftUI
-import AppKit
 import ImpressFTUI
 import ImpressRustCore
 
@@ -294,4 +300,3 @@ public struct MessageDetailPane: View {
         )
     }
 }
-#endif

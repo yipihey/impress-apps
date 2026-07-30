@@ -5,10 +5,13 @@
 //  Deterministic natural language → ADS query translator.
 //  Combines pattern matching from the former fallbackTranslation() with
 //  optional synonym expansion from VagueMemoryQueryBuilder.
-//  All output is normalized via ADSQueryNormalizer.
+//  All output is normalized via ADSQueryNormalizer, which now lives in
+//  ImpressSmartSearch (backed by Rust) — PMC used to carry a byte-identical
+//  second copy of it, deleted during the smart-search port.
 //
 
 import Foundation
+import ImpressSmartSearch
 
 // MARK: - Smart Query Translator
 

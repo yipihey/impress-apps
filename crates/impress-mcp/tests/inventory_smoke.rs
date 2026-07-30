@@ -129,6 +129,22 @@ fn list_and_call_inventory_tool_via_stdio() {
         "store-query-service_related-items",
         "store-query-service_get-item",
         "store-query-service_list-items",
+        // Stage 7 item 8: the smart-search core, ported out of the
+        // ImpressSmartSearch Swift package. Pure string functions with no app
+        // or store dependency, so — like the store-generic namespaces above —
+        // they must appear with every app closed and need no reachability
+        // entry. Listing them here is what catches a missing force-link `use`
+        // in `main.rs`, which would dead-strip all ten silently.
+        "smart-search-service_classify-search-input",
+        "smart-search-service_normalize-ads-query",
+        "smart-search-service_rewrite-free-text-query",
+        "smart-search-service_build-ads-query",
+        "smart-search-service_clean-ads-query",
+        "smart-search-service_split-reference-blocks",
+        "smart-search-service_extract-page-identifiers",
+        "smart-search-service_validate-parsed-reference",
+        "smart-search-service_free-text-extraction-prompt",
+        "smart-search-service_reference-parse-prompt",
     ] {
         assert!(names.contains(&inv), "missing inventory {inv} in {names:?}");
     }

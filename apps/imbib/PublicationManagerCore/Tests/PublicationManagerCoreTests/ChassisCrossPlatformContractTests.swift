@@ -206,6 +206,23 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
         "Chassis/Detail/Shared/PublicationDetailLifecycle.swift",
         // Collapsed outright: ONE BibTeX tab, both platforms.
         "Chassis/Detail/Tabs/BibTeXTab.swift",
+
+        // MARK: Stage 5c — impart-iOS joins the chassis
+        //
+        // The mail sidebar's account/folder TREE (role order, the six folder
+        // glyphs, the All-Inboxes fan-out) was inside the macOS-gated
+        // `ImbibSidebarViewModel.mailChildren()`, and it needed
+        // `MailStoreReader`'s INTERNAL payload decoders — so impart-iOS could
+        // not have reproduced it even by copying. Now both sidebars map this
+        // one snapshot onto their own node type.
+        "Chassis/Messages/MailSidebarSnapshot.swift",
+        // The message detail pane, collapsed outright: it was gated by the
+        // GUI-meld Phase 1 header plus an `import AppKit` nothing used. Its
+        // body is plain SwiftUI over cross-platform chassis types, so
+        // impart-iOS renders THIS pane rather than an app-side clone — the
+        // Stage-5b lesson from imbib's publication detail, applied before the
+        // second copy exists rather than after.
+        "Chassis/Messages/MessageDetailPane.swift",
     ]
 
     func testContractFilesAreNotWrappedInAMacOSGate() throws {

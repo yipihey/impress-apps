@@ -56,6 +56,12 @@ members = [
     "crates/scix-client-ffi",
     # impress-sources - HTTP clients for arXiv/Crossref/ADS/OpenAlex/etc
     "crates/impress-sources",
+    # impress-smart-search - deterministic Cmd+S search core (intent
+    # classification, ADS query normalization/rewriting, reference validation,
+    # page identifier extraction). Ported from the ImpressSmartSearch Swift
+    # package; the LLM call and the page fetch stay Swift.
+    "crates/impress-smart-search",
+    "crates/impress-smart-search-service",
     # impress-service-core + macros - codegen pipeline for Swift/Python/MCP/CLI bindings
     "crates/impress-service-core",
     "crates/impress-service-macros",
@@ -136,6 +142,8 @@ imbib-service = { path = "crates/imbib-service" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
 impress-sources = { path = "crates/impress-sources" }
+impress-smart-search = { path = "crates/impress-smart-search" }
+impress-smart-search-service = { path = "crates/impress-smart-search-service" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }

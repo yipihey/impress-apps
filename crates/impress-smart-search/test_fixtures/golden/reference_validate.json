@@ -1,0 +1,488 @@
+[
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+        "Abel",
+        "Bryan",
+        "Norman"
+      ],
+      "bibcode" : "2002Sci...295...93A",
+      "doi" : "10.1126/science.295.5552.93",
+      "freeText" : "RAW",
+      "hasIdentifier" : true,
+      "journal" : "Science",
+      "pages" : "93",
+      "title" : "The Formation of the First Star in the Universe",
+      "volume" : "295",
+      "year" : 2002
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+        "Abel",
+        "Bryan",
+        "Norman"
+      ],
+      "bibcode" : "2002Sci...295...93A",
+      "confidence" : 0.94999999999999996,
+      "doi" : "10.1126/science.295.5552.93",
+      "journal" : "Science",
+      "pages" : "93",
+      "title" : "The Formation of the First Star in the Universe",
+      "volume" : "295",
+      "year" : 2002
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : null,
+      "pages" : null,
+      "title" : null,
+      "volume" : null,
+      "year" : null
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 0
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "parsed" : {
+      "arxiv" : "not-an-arxiv",
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : "not-a-bibcode",
+      "confidence" : 0.5,
+      "doi" : "not-a-doi",
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "parsed" : {
+      "arxiv" : "1234.567",
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : "2002Sci...295...93",
+      "confidence" : 0.5,
+      "doi" : "10.123/x",
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : "astro-ph/0112088",
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : "1986ApJ...304...15B",
+      "doi" : "10.1234/y",
+      "freeText" : "RAW",
+      "hasIdentifier" : true,
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "parsed" : {
+      "arxiv" : "astro-ph/0112088",
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : "1986ApJ...304...15B",
+      "confidence" : 0.5,
+      "doi" : "10.1234/y",
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : "2301.04153v2",
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : true,
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "parsed" : {
+      "arxiv" : "2301.04153v2",
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : "1998A&A...333L..47M",
+      "confidence" : 0.5,
+      "doi" : "10.1234/y with space",
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : null,
+      "pages" : null,
+      "title" : null,
+      "volume" : null,
+      "year" : null
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 1899
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : null,
+      "pages" : null,
+      "title" : null,
+      "volume" : null,
+      "year" : 1900
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 1900
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : null,
+      "pages" : null,
+      "title" : null,
+      "volume" : null,
+      "year" : 2100
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 2100
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : null,
+      "pages" : null,
+      "title" : null,
+      "volume" : null,
+      "year" : null
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : 2101
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : null,
+      "pages" : null,
+      "title" : null,
+      "volume" : null,
+      "year" : null
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+
+      ],
+      "bibcode" : "",
+      "confidence" : 0,
+      "doi" : "",
+      "journal" : "",
+      "pages" : "",
+      "title" : "",
+      "volume" : "",
+      "year" : -1
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : "1901.01234",
+      "authors" : [
+        "Müller"
+      ],
+      "bibcode" : null,
+      "doi" : "10.1051/0004-6361/201834567",
+      "freeText" : "RAW",
+      "hasIdentifier" : true,
+      "journal" : "A&A",
+      "pages" : "A45",
+      "title" : "Réionisation",
+      "volume" : "621",
+      "year" : 2019
+    },
+    "parsed" : {
+      "arxiv" : "1901.01234",
+      "authors" : [
+        "",
+        "Müller",
+        ""
+      ],
+      "bibcode" : "2019A&A...621A..45M",
+      "confidence" : 0.88,
+      "doi" : "10.1051/0004-6361/201834567",
+      "journal" : "A&A",
+      "pages" : "A45",
+      "title" : "Réionisation",
+      "volume" : "621",
+      "year" : 2019
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "parsed" : {
+      "arxiv" : "2301.04153\n",
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : "1986ApJ...304...15B\n",
+      "confidence" : 0.5,
+      "doi" : "10.1234/x\n",
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+        "X"
+      ],
+      "bibcode" : "",
+      "confidence" : 0.5,
+      "doi" : "\n10.1234/x",
+      "journal" : "J",
+      "pages" : "2",
+      "title" : "T",
+      "volume" : "1",
+      "year" : 2002
+    },
+    "raw" : "RAW"
+  },
+  {
+    "citation" : {
+      "arxiv" : null,
+      "authors" : [
+        "Zel'dovich"
+      ],
+      "bibcode" : null,
+      "doi" : null,
+      "freeText" : "RAW",
+      "hasIdentifier" : false,
+      "journal" : "A&A",
+      "pages" : "84",
+      "title" : "Гравитация",
+      "volume" : "5",
+      "year" : 1970
+    },
+    "parsed" : {
+      "arxiv" : "",
+      "authors" : [
+        "Zel'dovich"
+      ],
+      "bibcode" : "",
+      "confidence" : 0.40000000000000002,
+      "doi" : "",
+      "journal" : "A&A",
+      "pages" : "84",
+      "title" : "Гравитация",
+      "volume" : "5",
+      "year" : 1970
+    },
+    "raw" : "RAW"
+  }
+]

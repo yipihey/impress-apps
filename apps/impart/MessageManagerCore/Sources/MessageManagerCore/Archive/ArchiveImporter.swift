@@ -266,6 +266,12 @@ public actor ArchiveImporter {
     private func prepareArchive(from url: URL) throws -> URL {
         // If compressed, extract first
         if url.pathExtension == "zip" || url.lastPathComponent.hasSuffix(".impartarchive.zip") {
+            // `Process` is macOS-only — see `ArchivePlatformError`. Throwing here
+            // beats returning the un-extracted URL, which would fail further down
+            // with a missing-manifest error that says nothing about the cause.
+            #if !os(macOS)
+            throw ArchivePlatformError.decompressionUnavailable
+            #else
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -287,6 +293,7 @@ public actor ArchiveImporter {
             }
 
             return tempDir
+            #endif
         }
 
         return url

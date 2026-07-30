@@ -288,3 +288,34 @@ public enum ArchiveStructure {
         "\(attachmentsDirectory)/\(sha256).\(ext)"
     }
 }
+
+// MARK: - Platform availability
+
+/// Archive operations that need an external tool, on a platform that has none.
+///
+/// `ArchiveExporter.compressArchive(at:)` and `ArchiveImporter.prepareArchive(from:)`
+/// shell out to `/usr/bin/zip` and `/usr/bin/unzip` through `Process`, which does
+/// not exist on iOS — so MessageManagerCore did not compile for iOS at all.
+/// Nothing noticed because `impart-iOS` was never built for a simulator until
+/// Stage 5c, though it has listed the package as a dependency for months.
+///
+/// The zip/unzip steps are now `#if os(macOS)` islands and iOS throws this. That
+/// is the honest answer rather than a silent no-op: an import that quietly
+/// returned the un-extracted URL would fail later with a missing-manifest error
+/// that says nothing about the cause. The UNCOMPRESSED archive directory paths
+/// work on both platforms, so this only fires for `.zip` input/output — the
+/// iOS-side fix, when someone wants it, is `Compression`/`AppleArchive` rather
+/// than a subprocess.
+public enum ArchivePlatformError: LocalizedError {
+    case compressionUnavailable
+    case decompressionUnavailable
+
+    public var errorDescription: String? {
+        switch self {
+        case .compressionUnavailable:
+            return "Compressing an archive requires the zip tool, which is unavailable on this platform."
+        case .decompressionUnavailable:
+            return "Opening a compressed archive requires the unzip tool, which is unavailable on this platform."
+        }
+    }
+}

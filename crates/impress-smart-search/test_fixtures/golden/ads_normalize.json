@@ -1,0 +1,1344 @@
+[
+  {
+    "corrected" : "",
+    "corrections" : [
+
+    ],
+    "input" : "",
+    "secondPass" : "",
+    "wasModified" : false
+  },
+  {
+    "corrected" : " ",
+    "corrections" : [
+
+    ],
+    "input" : " ",
+    "secondPass" : " ",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "  ",
+    "corrections" : [
+
+    ],
+    "input" : "  ",
+    "secondPass" : "  ",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "\t",
+    "corrections" : [
+
+    ],
+    "input" : "\t",
+    "secondPass" : "\t",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "\n",
+    "corrections" : [
+
+    ],
+    "input" : "\n",
+    "secondPass" : "\n",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"Abel, T.\" year:2002",
+    "corrections" : [
+
+    ],
+    "input" : "author:\"Abel, T.\" year:2002",
+    "secondPass" : "author:\"Abel, T.\" year:2002",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "abs:(dark matter) year:2020-2024",
+    "corrections" : [
+
+    ],
+    "input" : "abs:(dark matter) year:2020-2024",
+    "secondPass" : "abs:(dark matter) year:2020-2024",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "bibstem:ApJ property:refereed",
+    "corrections" : [
+
+    ],
+    "input" : "bibstem:ApJ property:refereed",
+    "secondPass" : "bibstem:ApJ property:refereed",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:Abel",
+    "corrections" : [
+      "Expanded a: → author:"
+    ],
+    "input" : "a:Abel",
+    "secondPass" : "author:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "title:dark",
+    "corrections" : [
+      "Expanded t: → title:"
+    ],
+    "input" : "t:dark",
+    "secondPass" : "title:dark",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "bibcode:2002Sci...295...93A",
+    "corrections" : [
+      "Expanded b: → bibcode:"
+    ],
+    "input" : "b:2002Sci...295...93A",
+    "secondPass" : "bibcode:2002Sci...295...93A",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Abel title:dark bibcode:2002Sci...295...93A",
+    "corrections" : [
+      "Expanded a: → author:",
+      "Expanded t: → title:",
+      "Expanded b: → bibcode:"
+    ],
+    "input" : "a:Abel t:dark b:2002Sci...295...93A",
+    "secondPass" : "author:Abel title:dark bibcode:2002Sci...295...93A",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "aa:Abel",
+    "corrections" : [
+
+    ],
+    "input" : "aa:Abel",
+    "secondPass" : "aa:Abel",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "xa:Abel",
+    "corrections" : [
+
+    ],
+    "input" : "xa:Abel",
+    "secondPass" : "xa:Abel",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "data:Abel",
+    "corrections" : [
+
+    ],
+    "input" : "data:Abel",
+    "secondPass" : "data:Abel",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "_a:Abel",
+    "corrections" : [
+
+    ],
+    "input" : "_a:Abel",
+    "secondPass" : "_a:Abel",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "a: Abel",
+    "corrections" : [
+
+    ],
+    "input" : "a: Abel",
+    "secondPass" : "a: Abel",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "a: Abel",
+    "corrections" : [
+
+    ],
+    "input" : "a: Abel",
+    "secondPass" : "a: Abel",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:​Abel",
+    "corrections" : [
+      "Expanded a: → author:"
+    ],
+    "input" : "a:​Abel",
+    "secondPass" : "author:​Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Abel",
+    "corrections" : [
+      "Removed space after author:"
+    ],
+    "input" : "author: Abel",
+    "secondPass" : "author:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"dark matter\"",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "abs:dark matter",
+    "secondPass" : "abs:\"dark matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "a:",
+    "corrections" : [
+
+    ],
+    "input" : "a:",
+    "secondPass" : "a:",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "t:",
+    "corrections" : [
+
+    ],
+    "input" : "t:",
+    "secondPass" : "t:",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "b:",
+    "corrections" : [
+
+    ],
+    "input" : "b:",
+    "secondPass" : "b:",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "(author:Abel)",
+    "corrections" : [
+      "Expanded a: → author:"
+    ],
+    "input" : "(a:Abel)",
+    "secondPass" : "(author:Abel)",
+    "wasModified" : true
+  },
+  {
+    "corrected" : " author:Abel",
+    "corrections" : [
+      "Expanded a: → author:"
+    ],
+    "input" : " a:Abel",
+    "secondPass" : " author:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "-author:Abel",
+    "corrections" : [
+      "Expanded a: → author:"
+    ],
+    "input" : "-a:Abel",
+    "secondPass" : "-author:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "\"author:Abel\"",
+    "corrections" : [
+      "Expanded a: → author:"
+    ],
+    "input" : "\"a:Abel\"",
+    "secondPass" : "\"author:Abel\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "meta:value",
+    "corrections" : [
+
+    ],
+    "input" : "meta:value",
+    "secondPass" : "meta:value",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:author:a",
+    "corrections" : [
+      "Expanded a: → author:",
+      "Expanded a: → author:"
+    ],
+    "input" : "a:a:a",
+    "secondPass" : "author:author:a",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Abel",
+    "corrections" : [
+      "Removed space after author:"
+    ],
+    "input" : "author: Abel",
+    "secondPass" : "author:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Abel",
+    "corrections" : [
+      "Removed space after author:"
+    ],
+    "input" : "author:  Abel",
+    "secondPass" : "author:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "year:2002",
+    "corrections" : [
+      "Removed space after year:"
+    ],
+    "input" : "year: 2002",
+    "secondPass" : "year:2002",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "title:\"dark matter\"",
+    "corrections" : [
+      "Removed space after title:",
+      "Quoted multi-word value: title:\"dark matter\""
+    ],
+    "input" : "title: dark matter",
+    "secondPass" : "title:\"dark matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "unknownfield: value",
+    "corrections" : [
+
+    ],
+    "input" : "unknownfield: value",
+    "secondPass" : "unknownfield: value",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "AUTHOR:Abel",
+    "corrections" : [
+      "Removed space after AUTHOR:"
+    ],
+    "input" : "AUTHOR: Abel",
+    "secondPass" : "AUTHOR:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "Author:Abel",
+    "corrections" : [
+      "Removed space after Author:"
+    ],
+    "input" : "Author: Abel",
+    "secondPass" : "Author:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Abel",
+    "corrections" : [
+      "Removed space after author:"
+    ],
+    "input" : "author:\tAbel",
+    "secondPass" : "author:Abel",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:",
+    "corrections" : [
+
+    ],
+    "input" : "author: ",
+    "secondPass" : "author:",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:",
+    "corrections" : [
+
+    ],
+    "input" : "author:  ",
+    "secondPass" : "author:",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"Abel, T.\"",
+    "corrections" : [
+      "Quoted author name: author:\"Abel, T.\""
+    ],
+    "input" : "author:Abel, T.",
+    "secondPass" : "author:\"Abel, T.\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:\"Abel,T.\"",
+    "corrections" : [
+      "Quoted author name: author:\"Abel,T.\""
+    ],
+    "input" : "author:Abel,T.",
+    "secondPass" : "author:\"Abel,T.\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Abel , T.",
+    "corrections" : [
+
+    ],
+    "input" : "author:Abel , T.",
+    "secondPass" : "author:Abel , T.",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "first_author:\"Bardeen, J.M.\"",
+    "corrections" : [
+      "Quoted author name: first_author:\"Bardeen, J.M.\""
+    ],
+    "input" : "first_author:Bardeen, J.M.",
+    "secondPass" : "first_author:\"Bardeen, J.M.\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:\"Abel, T.\"",
+    "corrections" : [
+
+    ],
+    "input" : "author:\"Abel, T.\"",
+    "secondPass" : "author:\"Abel, T.\"",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"Abel,T.\" author:\"Bond,J.\"",
+    "corrections" : [
+      "Quoted author name: author:\"Bond,J.\"",
+      "Quoted author name: author:\"Abel,T.\""
+    ],
+    "input" : "author:Abel,T. author:Bond,J.",
+    "secondPass" : "author:\"Abel,T.\" author:\"Bond,J.\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:van der Waals, J.",
+    "corrections" : [
+
+    ],
+    "input" : "author:van der Waals, J.",
+    "secondPass" : "author:van der Waals, J.",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"Zel'dovich, Ya.\"",
+    "corrections" : [
+      "Quoted author name: author:\"Zel'dovich, Ya.\""
+    ],
+    "input" : "author:Zel'dovich, Ya.",
+    "secondPass" : "author:\"Zel'dovich, Ya.\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"dark matter\"",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "abs:dark matter",
+    "secondPass" : "abs:\"dark matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "title:\"dark matter halos\"",
+    "corrections" : [
+      "Quoted multi-word value: title:\"dark matter halos\""
+    ],
+    "input" : "title:dark matter halos",
+    "secondPass" : "title:\"dark matter halos\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"dark matter\" AND year:2002",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "abs:dark matter AND year:2002",
+    "secondPass" : "abs:\"dark matter\" AND year:2002",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"dark matter\" AND year:2002",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\"",
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "abs:dark matter and year:2002",
+    "secondPass" : "abs:\"dark matter\" AND year:2002",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"dark matter\" (year:2002)",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "abs:dark matter (year:2002)",
+    "secondPass" : "abs:\"dark matter\" (year:2002)",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "title:\"first stars\" abs:reionization",
+    "corrections" : [
+      "Quoted multi-word value: title:\"first stars\""
+    ],
+    "input" : "title:first stars abs:reionization",
+    "secondPass" : "title:\"first stars\" abs:reionization",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "object:\"M 31\"",
+    "corrections" : [
+      "Quoted multi-word value: object:\"M 31\""
+    ],
+    "input" : "object:M 31",
+    "secondPass" : "object:\"M 31\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "keyword:\"large scale structure\"",
+    "corrections" : [
+      "Quoted multi-word value: keyword:\"large scale structure\""
+    ],
+    "input" : "keyword:large scale structure",
+    "secondPass" : "keyword:\"large scale structure\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "full:\"dark energy\"",
+    "corrections" : [
+      "Quoted multi-word value: full:\"dark energy\""
+    ],
+    "input" : "full:dark energy",
+    "secondPass" : "full:\"dark energy\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "body:\"cosmic reionization\"",
+    "corrections" : [
+      "Quoted multi-word value: body:\"cosmic reionization\""
+    ],
+    "input" : "body:cosmic reionization",
+    "secondPass" : "body:\"cosmic reionization\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "aff:\"Stanford University\"",
+    "corrections" : [
+      "Quoted multi-word value: aff:\"Stanford University\""
+    ],
+    "input" : "aff:Stanford University",
+    "secondPass" : "aff:\"Stanford University\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "year:2002 2003",
+    "corrections" : [
+
+    ],
+    "input" : "year:2002 2003",
+    "secondPass" : "year:2002 2003",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "bibcode:2002Sci...295...93A extra",
+    "corrections" : [
+
+    ],
+    "input" : "bibcode:2002Sci...295...93A extra",
+    "secondPass" : "bibcode:2002Sci...295...93A extra",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "doi:10.1086/164143 extra",
+    "corrections" : [
+
+    ],
+    "input" : "doi:10.1086/164143 extra",
+    "secondPass" : "doi:10.1086/164143 extra",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "property:refereed notrefereed",
+    "corrections" : [
+
+    ],
+    "input" : "property:refereed notrefereed",
+    "secondPass" : "property:refereed notrefereed",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "volume:295 93",
+    "corrections" : [
+
+    ],
+    "input" : "volume:295 93",
+    "secondPass" : "volume:295 93",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "page:93 94",
+    "corrections" : [
+
+    ],
+    "input" : "page:93 94",
+    "secondPass" : "page:93 94",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "issue:5 6",
+    "corrections" : [
+
+    ],
+    "input" : "issue:5 6",
+    "secondPass" : "issue:5 6",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "abs:dark AND abs:matter",
+    "corrections" : [
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "abs:dark and abs:matter",
+    "secondPass" : "abs:dark AND abs:matter",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:dark OR abs:matter",
+    "corrections" : [
+      "Uppercased operator: or → OR"
+    ],
+    "input" : "abs:dark or abs:matter",
+    "secondPass" : "abs:dark OR abs:matter",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:dark NOT abs:matter",
+    "corrections" : [
+      "Uppercased operator: not → NOT"
+    ],
+    "input" : "abs:dark not abs:matter",
+    "secondPass" : "abs:dark NOT abs:matter",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:dark AND abs:matter",
+    "corrections" : [
+
+    ],
+    "input" : "abs:dark AND abs:matter",
+    "secondPass" : "abs:dark AND abs:matter",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "abs:dark AND abs:matter",
+    "corrections" : [
+      "Uppercased operator: And → AND"
+    ],
+    "input" : "abs:dark And abs:matter",
+    "secondPass" : "abs:dark AND abs:matter",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Anderson",
+    "corrections" : [
+
+    ],
+    "input" : "author:Anderson",
+    "secondPass" : "author:Anderson",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "abs:\"dark AND matter\"",
+    "corrections" : [
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "abs:\"dark and matter\"",
+    "secondPass" : "abs:\"dark AND matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:(dark AND matter)",
+    "corrections" : [
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "abs:(dark and matter)",
+    "secondPass" : "abs:(dark AND matter)",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "AND",
+    "corrections" : [
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "and",
+    "secondPass" : "AND",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "OR",
+    "corrections" : [
+      "Uppercased operator: or → OR"
+    ],
+    "input" : "or",
+    "secondPass" : "OR",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "NOT",
+    "corrections" : [
+      "Uppercased operator: not → NOT"
+    ],
+    "input" : "not",
+    "secondPass" : "NOT",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "AND",
+    "corrections" : [
+
+    ],
+    "input" : "AND",
+    "secondPass" : "AND",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "AND OR NOT",
+    "corrections" : [
+      "Uppercased operator: not → NOT",
+      "Uppercased operator: or → OR",
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "and or not",
+    "secondPass" : "AND OR NOT",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "band AND sand",
+    "corrections" : [
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "band and sand",
+    "secondPass" : "band AND sand",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "notation",
+    "corrections" : [
+
+    ],
+    "input" : "notation",
+    "secondPass" : "notation",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "candor",
+    "corrections" : [
+
+    ],
+    "input" : "candor",
+    "secondPass" : "candor",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"Abel, T\"",
+    "corrections" : [
+      "Fixed author order: \"Tom Abel\" → \"Abel, T\""
+    ],
+    "input" : "author:\"Tom Abel\"",
+    "secondPass" : "author:\"Abel, T\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "first_author:\"Abel, T\"",
+    "corrections" : [
+      "Fixed author order: \"Tom Abel\" → \"Abel, T\""
+    ],
+    "input" : "first_author:\"Tom Abel\"",
+    "secondPass" : "first_author:\"Abel, T\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:\"Abel, T.\"",
+    "corrections" : [
+
+    ],
+    "input" : "author:\"Abel, T.\"",
+    "secondPass" : "author:\"Abel, T.\"",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"tom abel\"",
+    "corrections" : [
+
+    ],
+    "input" : "author:\"tom abel\"",
+    "secondPass" : "author:\"tom abel\"",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"Tom ABEL\"",
+    "corrections" : [
+
+    ],
+    "input" : "author:\"Tom ABEL\"",
+    "secondPass" : "author:\"Tom ABEL\"",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"Abel, T\" author:\"Doe, J\"",
+    "corrections" : [
+      "Fixed author order: \"Jane Doe\" → \"Doe, J\"",
+      "Fixed author order: \"Tom Abel\" → \"Abel, T\""
+    ],
+    "input" : "author:\"Tom Abel\" author:\"Jane Doe\"",
+    "secondPass" : "author:\"Abel, T\" author:\"Doe, J\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:\"Tom Michael Abel\"",
+    "corrections" : [
+
+    ],
+    "input" : "author:\"Tom Michael Abel\"",
+    "secondPass" : "author:\"Tom Michael Abel\"",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "citations(bibcode:2002Sci...295...93A)",
+    "corrections" : [
+
+    ],
+    "input" : "citations(bibcode:2002Sci...295...93A)",
+    "secondPass" : "citations(bibcode:2002Sci...295...93A)",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "references(bibcode:1986ApJ...304...15B)",
+    "corrections" : [
+
+    ],
+    "input" : "references(bibcode:1986ApJ...304...15B)",
+    "secondPass" : "references(bibcode:1986ApJ...304...15B)",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "similar(abs:dark matter)",
+    "corrections" : [
+
+    ],
+    "input" : "similar(abs:dark matter)",
+    "secondPass" : "similar(abs:dark matter)",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "trending(author:Abel)",
+    "corrections" : [
+
+    ],
+    "input" : "trending(author:Abel)",
+    "secondPass" : "trending(author:Abel)",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "reviews(abs:dark energy)",
+    "corrections" : [
+
+    ],
+    "input" : "reviews(abs:dark energy)",
+    "secondPass" : "reviews(abs:dark energy)",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "useful(abs:\"dark energy\")",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark energy\""
+    ],
+    "input" : "useful(abs:dark energy)",
+    "secondPass" : "useful(abs:\"dark energy\")",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "citations(bibcode:2002Sci...295...93A) year:2010-2020",
+    "corrections" : [
+
+    ],
+    "input" : "citations(bibcode:2002Sci...295...93A) year:2010-2020",
+    "secondPass" : "citations(bibcode:2002Sci...295...93A) year:2010-2020",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "citations(",
+    "corrections" : [
+
+    ],
+    "input" : "citations(",
+    "secondPass" : "citations(",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "citations()",
+    "corrections" : [
+
+    ],
+    "input" : "citations()",
+    "secondPass" : "citations()",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "citations(nested(x))",
+    "corrections" : [
+
+    ],
+    "input" : "citations(nested(x))",
+    "secondPass" : "citations(nested(x))",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "(abs:\"dark matter\")",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "(abs:dark matter)",
+    "secondPass" : "(abs:\"dark matter\")",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "((abs:dark))",
+    "corrections" : [
+
+    ],
+    "input" : "((abs:dark))",
+    "secondPass" : "((abs:dark))",
+    "wasModified" : false
+  },
+  {
+    "corrected" : ")",
+    "corrections" : [
+
+    ],
+    "input" : ")",
+    "secondPass" : ")",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "(",
+    "corrections" : [
+
+    ],
+    "input" : "(",
+    "secondPass" : "(",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "abs:(unclosed",
+    "corrections" : [
+
+    ],
+    "input" : "abs:(unclosed",
+    "secondPass" : "abs:(unclosed",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "abs:\"unclosed",
+    "corrections" : [
+
+    ],
+    "input" : "abs:\"unclosed",
+    "secondPass" : "abs:\"unclosed",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:(Abel OR Bryan)",
+    "corrections" : [
+
+    ],
+    "input" : "author:(Abel OR Bryan)",
+    "secondPass" : "author:(Abel OR Bryan)",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "abs:()",
+    "corrections" : [
+
+    ],
+    "input" : "abs:()",
+    "secondPass" : "abs:()",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "a: Abel, T. AND title:\"dark matter\"",
+    "corrections" : [
+      "Quoted multi-word value: title:\"dark matter\"",
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "a: Abel, T. and title:dark matter",
+    "secondPass" : "a: Abel, T. AND title:\"dark matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:\"Abel,T.\" title:\"first stars\" bibcode:2002Sci...295...93A AND year:2002",
+    "corrections" : [
+      "Expanded a: → author:",
+      "Expanded t: → title:",
+      "Expanded b: → bibcode:",
+      "Removed space after year:",
+      "Quoted author name: author:\"Abel,T.\"",
+      "Quoted multi-word value: title:\"first stars\"",
+      "Uppercased operator: and → AND"
+    ],
+    "input" : "a:Abel,T. t:first stars b:2002Sci...295...93A and year: 2002",
+    "secondPass" : "author:\"Abel,T.\" title:\"first stars\" bibcode:2002Sci...295...93A AND year:2002",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Tom Abel abs:\"dark matter\" OR title:\"first stars\"",
+    "corrections" : [
+      "Removed space after author:",
+      "Quoted multi-word value: abs:\"dark matter\"",
+      "Uppercased operator: or → OR"
+    ],
+    "input" : "author: Tom Abel abs:dark matter or title:\"first stars\"",
+    "secondPass" : "author:Tom Abel abs:\"dark matter\" OR title:\"first stars\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"dark matter\"",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "abs:dark    matter",
+    "secondPass" : "abs:\"dark matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "  abs:\"dark matter\"",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "  abs:dark matter  ",
+    "secondPass" : "  abs:\"dark matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"dark matter\"",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "abs:dark\nmatter",
+    "secondPass" : "abs:\"dark matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"dark matter\"",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"dark matter\""
+    ],
+    "input" : "abs:dark\tmatter",
+    "secondPass" : "abs:\"dark matter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:Müller",
+    "corrections" : [
+
+    ],
+    "input" : "author:Müller",
+    "secondPass" : "author:Müller",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:\"Müller, H.\"",
+    "corrections" : [
+      "Quoted author name: author:\"Müller, H.\""
+    ],
+    "input" : "author:Müller, H.",
+    "secondPass" : "author:\"Müller, H.\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:\"Hans Müller\"",
+    "corrections" : [
+
+    ],
+    "input" : "author:\"Hans Müller\"",
+    "secondPass" : "author:\"Hans Müller\"",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "abs:\"réionisation cosmique\"",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"réionisation cosmique\""
+    ],
+    "input" : "abs:réionisation cosmique",
+    "secondPass" : "abs:\"réionisation cosmique\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:\"θ parameter\"",
+    "corrections" : [
+      "Quoted multi-word value: abs:\"θ parameter\""
+    ],
+    "input" : "abs:θ parameter",
+    "secondPass" : "abs:\"θ parameter\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "object:\"α Cen\"",
+    "corrections" : [
+      "Quoted multi-word value: object:\"α Cen\""
+    ],
+    "input" : "object:α Cen",
+    "secondPass" : "object:\"α Cen\"",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "abs:反物質",
+    "corrections" : [
+
+    ],
+    "input" : "abs:反物質",
+    "secondPass" : "abs:反物質",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:Ω",
+    "corrections" : [
+      "Expanded a: → author:"
+    ],
+    "input" : "a:Ω",
+    "secondPass" : "author:Ω",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x",
+    "corrections" : [
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:",
+      "Expanded a: → author:"
+    ],
+    "input" : "a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x a:x ",
+    "secondPass" : "author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x author:x",
+    "wasModified" : true
+  },
+  {
+    "corrected" : "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"",
+    "corrections" : [
+
+    ],
+    "input" : "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"",
+    "secondPass" : "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"",
+    "wasModified" : false
+  },
+  {
+    "corrected" : "author:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "corrections" : [
+
+    ],
+    "input" : "author:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "secondPass" : "author:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "wasModified" : false
+  }
+]

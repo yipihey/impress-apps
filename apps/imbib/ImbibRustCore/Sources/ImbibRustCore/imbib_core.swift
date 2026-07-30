@@ -15767,6 +15767,825 @@ public func FfiConverterTypeSearchResultInput_lower(_ value: SearchResultInput) 
 
 
 /**
+ * A citation after invented identifiers have been dropped.
+ */
+public struct SmartSearchCitation {
+    public var authors: [String]
+    public var title: String?
+    public var year: Int32?
+    public var journal: String?
+    public var volume: String?
+    public var pages: String?
+    public var doi: String?
+    public var arxiv: String?
+    public var bibcode: String?
+    public var freeText: String?
+    public var hasIdentifier: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(authors: [String], title: String?, year: Int32?, journal: String?, volume: String?, pages: String?, doi: String?, arxiv: String?, bibcode: String?, freeText: String?, hasIdentifier: Bool) {
+        self.authors = authors
+        self.title = title
+        self.year = year
+        self.journal = journal
+        self.volume = volume
+        self.pages = pages
+        self.doi = doi
+        self.arxiv = arxiv
+        self.bibcode = bibcode
+        self.freeText = freeText
+        self.hasIdentifier = hasIdentifier
+    }
+}
+
+
+
+extension SmartSearchCitation: Equatable, Hashable {
+    public static func ==(lhs: SmartSearchCitation, rhs: SmartSearchCitation) -> Bool {
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.year != rhs.year {
+            return false
+        }
+        if lhs.journal != rhs.journal {
+            return false
+        }
+        if lhs.volume != rhs.volume {
+            return false
+        }
+        if lhs.pages != rhs.pages {
+            return false
+        }
+        if lhs.doi != rhs.doi {
+            return false
+        }
+        if lhs.arxiv != rhs.arxiv {
+            return false
+        }
+        if lhs.bibcode != rhs.bibcode {
+            return false
+        }
+        if lhs.freeText != rhs.freeText {
+            return false
+        }
+        if lhs.hasIdentifier != rhs.hasIdentifier {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(authors)
+        hasher.combine(title)
+        hasher.combine(year)
+        hasher.combine(journal)
+        hasher.combine(volume)
+        hasher.combine(pages)
+        hasher.combine(doi)
+        hasher.combine(arxiv)
+        hasher.combine(bibcode)
+        hasher.combine(freeText)
+        hasher.combine(hasIdentifier)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSmartSearchCitation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SmartSearchCitation {
+        return
+            try SmartSearchCitation(
+                authors: FfiConverterSequenceString.read(from: &buf), 
+                title: FfiConverterOptionString.read(from: &buf), 
+                year: FfiConverterOptionInt32.read(from: &buf), 
+                journal: FfiConverterOptionString.read(from: &buf), 
+                volume: FfiConverterOptionString.read(from: &buf), 
+                pages: FfiConverterOptionString.read(from: &buf), 
+                doi: FfiConverterOptionString.read(from: &buf), 
+                arxiv: FfiConverterOptionString.read(from: &buf), 
+                bibcode: FfiConverterOptionString.read(from: &buf), 
+                freeText: FfiConverterOptionString.read(from: &buf), 
+                hasIdentifier: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SmartSearchCitation, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.authors, into: &buf)
+        FfiConverterOptionString.write(value.title, into: &buf)
+        FfiConverterOptionInt32.write(value.year, into: &buf)
+        FfiConverterOptionString.write(value.journal, into: &buf)
+        FfiConverterOptionString.write(value.volume, into: &buf)
+        FfiConverterOptionString.write(value.pages, into: &buf)
+        FfiConverterOptionString.write(value.doi, into: &buf)
+        FfiConverterOptionString.write(value.arxiv, into: &buf)
+        FfiConverterOptionString.write(value.bibcode, into: &buf)
+        FfiConverterOptionString.write(value.freeText, into: &buf)
+        FfiConverterBool.write(value.hasIdentifier, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchCitation_lift(_ buf: RustBuffer) throws -> SmartSearchCitation {
+    return try FfiConverterTypeSmartSearchCitation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchCitation_lower(_ value: SmartSearchCitation) -> RustBuffer {
+    return FfiConverterTypeSmartSearchCitation.lower(value)
+}
+
+
+/**
+ * An identifier, as `(kind, value)`.
+ */
+public struct SmartSearchIdentifier {
+    /**
+     * `doi` | `arxiv` | `bibcode` | `pmid`.
+     */
+    public var kind: String
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `doi` | `arxiv` | `bibcode` | `pmid`.
+         */kind: String, value: String) {
+        self.kind = kind
+        self.value = value
+    }
+}
+
+
+
+extension SmartSearchIdentifier: Equatable, Hashable {
+    public static func ==(lhs: SmartSearchIdentifier, rhs: SmartSearchIdentifier) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.value != rhs.value {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(value)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSmartSearchIdentifier: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SmartSearchIdentifier {
+        return
+            try SmartSearchIdentifier(
+                kind: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SmartSearchIdentifier, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchIdentifier_lift(_ buf: RustBuffer) throws -> SmartSearchIdentifier {
+    return try FfiConverterTypeSmartSearchIdentifier.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchIdentifier_lower(_ value: SmartSearchIdentifier) -> RustBuffer {
+    return FfiConverterTypeSmartSearchIdentifier.lower(value)
+}
+
+
+/**
+ * Flattened `SearchIntent`. `kind` is one of `identifier`, `fielded`,
+ * `reference`, `freeText`, `url`.
+ */
+public struct SmartSearchIntent {
+    public var kind: String
+    /**
+     * UI label, e.g. `"DOI"`, `"References (3)"`, `"URL · arxiv.org"`.
+     */
+    public var label: String
+    /**
+     * For `identifier`: `doi` | `arxiv` | `bibcode` | `pmid`.
+     */
+    public var identifierKind: String?
+    /**
+     * For `identifier`, the id; for `url`, the absolute URL string.
+     */
+    public var value: String?
+    /**
+     * For `fielded` / `freeText`.
+     */
+    public var query: String?
+    /**
+     * For `reference`, one entry per citation block.
+     */
+    public var blocks: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: String, 
+        /**
+         * UI label, e.g. `"DOI"`, `"References (3)"`, `"URL · arxiv.org"`.
+         */label: String, 
+        /**
+         * For `identifier`: `doi` | `arxiv` | `bibcode` | `pmid`.
+         */identifierKind: String?, 
+        /**
+         * For `identifier`, the id; for `url`, the absolute URL string.
+         */value: String?, 
+        /**
+         * For `fielded` / `freeText`.
+         */query: String?, 
+        /**
+         * For `reference`, one entry per citation block.
+         */blocks: [String]) {
+        self.kind = kind
+        self.label = label
+        self.identifierKind = identifierKind
+        self.value = value
+        self.query = query
+        self.blocks = blocks
+    }
+}
+
+
+
+extension SmartSearchIntent: Equatable, Hashable {
+    public static func ==(lhs: SmartSearchIntent, rhs: SmartSearchIntent) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.label != rhs.label {
+            return false
+        }
+        if lhs.identifierKind != rhs.identifierKind {
+            return false
+        }
+        if lhs.value != rhs.value {
+            return false
+        }
+        if lhs.query != rhs.query {
+            return false
+        }
+        if lhs.blocks != rhs.blocks {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(label)
+        hasher.combine(identifierKind)
+        hasher.combine(value)
+        hasher.combine(query)
+        hasher.combine(blocks)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSmartSearchIntent: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SmartSearchIntent {
+        return
+            try SmartSearchIntent(
+                kind: FfiConverterString.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf), 
+                identifierKind: FfiConverterOptionString.read(from: &buf), 
+                value: FfiConverterOptionString.read(from: &buf), 
+                query: FfiConverterOptionString.read(from: &buf), 
+                blocks: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SmartSearchIntent, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterOptionString.write(value.identifierKind, into: &buf)
+        FfiConverterOptionString.write(value.value, into: &buf)
+        FfiConverterOptionString.write(value.query, into: &buf)
+        FfiConverterSequenceString.write(value.blocks, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchIntent_lift(_ buf: RustBuffer) throws -> SmartSearchIntent {
+    return try FfiConverterTypeSmartSearchIntent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchIntent_lower(_ value: SmartSearchIntent) -> RustBuffer {
+    return FfiConverterTypeSmartSearchIntent.lower(value)
+}
+
+
+/**
+ * Result of ADS query normalization.
+ */
+public struct SmartSearchNormalization {
+    public var correctedQuery: String
+    public var corrections: [String]
+    public var wasModified: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(correctedQuery: String, corrections: [String], wasModified: Bool) {
+        self.correctedQuery = correctedQuery
+        self.corrections = corrections
+        self.wasModified = wasModified
+    }
+}
+
+
+
+extension SmartSearchNormalization: Equatable, Hashable {
+    public static func ==(lhs: SmartSearchNormalization, rhs: SmartSearchNormalization) -> Bool {
+        if lhs.correctedQuery != rhs.correctedQuery {
+            return false
+        }
+        if lhs.corrections != rhs.corrections {
+            return false
+        }
+        if lhs.wasModified != rhs.wasModified {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(correctedQuery)
+        hasher.combine(corrections)
+        hasher.combine(wasModified)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSmartSearchNormalization: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SmartSearchNormalization {
+        return
+            try SmartSearchNormalization(
+                correctedQuery: FfiConverterString.read(from: &buf), 
+                corrections: FfiConverterSequenceString.read(from: &buf), 
+                wasModified: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SmartSearchNormalization, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.correctedQuery, into: &buf)
+        FfiConverterSequenceString.write(value.corrections, into: &buf)
+        FfiConverterBool.write(value.wasModified, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchNormalization_lift(_ buf: RustBuffer) throws -> SmartSearchNormalization {
+    return try FfiConverterTypeSmartSearchNormalization.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchNormalization_lower(_ value: SmartSearchNormalization) -> RustBuffer {
+    return FfiConverterTypeSmartSearchNormalization.lower(value)
+}
+
+
+/**
+ * What a page's markup yielded.
+ */
+public struct SmartSearchPageExtraction {
+    public var pageTitle: String?
+    public var identifiers: [SmartSearchIdentifier]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pageTitle: String?, identifiers: [SmartSearchIdentifier]) {
+        self.pageTitle = pageTitle
+        self.identifiers = identifiers
+    }
+}
+
+
+
+extension SmartSearchPageExtraction: Equatable, Hashable {
+    public static func ==(lhs: SmartSearchPageExtraction, rhs: SmartSearchPageExtraction) -> Bool {
+        if lhs.pageTitle != rhs.pageTitle {
+            return false
+        }
+        if lhs.identifiers != rhs.identifiers {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(pageTitle)
+        hasher.combine(identifiers)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSmartSearchPageExtraction: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SmartSearchPageExtraction {
+        return
+            try SmartSearchPageExtraction(
+                pageTitle: FfiConverterOptionString.read(from: &buf), 
+                identifiers: FfiConverterSequenceTypeSmartSearchIdentifier.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SmartSearchPageExtraction, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.pageTitle, into: &buf)
+        FfiConverterSequenceTypeSmartSearchIdentifier.write(value.identifiers, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchPageExtraction_lift(_ buf: RustBuffer) throws -> SmartSearchPageExtraction {
+    return try FfiConverterTypeSmartSearchPageExtraction.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchPageExtraction_lower(_ value: SmartSearchPageExtraction) -> RustBuffer {
+    return FfiConverterTypeSmartSearchPageExtraction.lower(value)
+}
+
+
+/**
+ * A model's raw citation parse, before validation.
+ */
+public struct SmartSearchParsedReference {
+    public var authors: [String]
+    public var title: String
+    public var year: Int32
+    public var journal: String
+    public var volume: String
+    public var pages: String
+    public var doi: String
+    public var arxiv: String
+    public var bibcode: String
+    public var confidence: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(authors: [String], title: String, year: Int32, journal: String, volume: String, pages: String, doi: String, arxiv: String, bibcode: String, confidence: Double) {
+        self.authors = authors
+        self.title = title
+        self.year = year
+        self.journal = journal
+        self.volume = volume
+        self.pages = pages
+        self.doi = doi
+        self.arxiv = arxiv
+        self.bibcode = bibcode
+        self.confidence = confidence
+    }
+}
+
+
+
+extension SmartSearchParsedReference: Equatable, Hashable {
+    public static func ==(lhs: SmartSearchParsedReference, rhs: SmartSearchParsedReference) -> Bool {
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.year != rhs.year {
+            return false
+        }
+        if lhs.journal != rhs.journal {
+            return false
+        }
+        if lhs.volume != rhs.volume {
+            return false
+        }
+        if lhs.pages != rhs.pages {
+            return false
+        }
+        if lhs.doi != rhs.doi {
+            return false
+        }
+        if lhs.arxiv != rhs.arxiv {
+            return false
+        }
+        if lhs.bibcode != rhs.bibcode {
+            return false
+        }
+        if lhs.confidence != rhs.confidence {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(authors)
+        hasher.combine(title)
+        hasher.combine(year)
+        hasher.combine(journal)
+        hasher.combine(volume)
+        hasher.combine(pages)
+        hasher.combine(doi)
+        hasher.combine(arxiv)
+        hasher.combine(bibcode)
+        hasher.combine(confidence)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSmartSearchParsedReference: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SmartSearchParsedReference {
+        return
+            try SmartSearchParsedReference(
+                authors: FfiConverterSequenceString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                year: FfiConverterInt32.read(from: &buf), 
+                journal: FfiConverterString.read(from: &buf), 
+                volume: FfiConverterString.read(from: &buf), 
+                pages: FfiConverterString.read(from: &buf), 
+                doi: FfiConverterString.read(from: &buf), 
+                arxiv: FfiConverterString.read(from: &buf), 
+                bibcode: FfiConverterString.read(from: &buf), 
+                confidence: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SmartSearchParsedReference, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.authors, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterInt32.write(value.year, into: &buf)
+        FfiConverterString.write(value.journal, into: &buf)
+        FfiConverterString.write(value.volume, into: &buf)
+        FfiConverterString.write(value.pages, into: &buf)
+        FfiConverterString.write(value.doi, into: &buf)
+        FfiConverterString.write(value.arxiv, into: &buf)
+        FfiConverterString.write(value.bibcode, into: &buf)
+        FfiConverterDouble.write(value.confidence, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchParsedReference_lift(_ buf: RustBuffer) throws -> SmartSearchParsedReference {
+    return try FfiConverterTypeSmartSearchParsedReference.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchParsedReference_lower(_ value: SmartSearchParsedReference) -> RustBuffer {
+    return FfiConverterTypeSmartSearchParsedReference.lower(value)
+}
+
+
+/**
+ * Structured fields a language model extracted from free text.
+ */
+public struct SmartSearchQueryParts {
+    public var authors: [String]
+    public var bibstem: String
+    public var topicWords: [String]
+    public var yearFrom: Int32
+    public var yearTo: Int32
+    public var refereedOnly: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(authors: [String], bibstem: String, topicWords: [String], yearFrom: Int32, yearTo: Int32, refereedOnly: Bool) {
+        self.authors = authors
+        self.bibstem = bibstem
+        self.topicWords = topicWords
+        self.yearFrom = yearFrom
+        self.yearTo = yearTo
+        self.refereedOnly = refereedOnly
+    }
+}
+
+
+
+extension SmartSearchQueryParts: Equatable, Hashable {
+    public static func ==(lhs: SmartSearchQueryParts, rhs: SmartSearchQueryParts) -> Bool {
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.bibstem != rhs.bibstem {
+            return false
+        }
+        if lhs.topicWords != rhs.topicWords {
+            return false
+        }
+        if lhs.yearFrom != rhs.yearFrom {
+            return false
+        }
+        if lhs.yearTo != rhs.yearTo {
+            return false
+        }
+        if lhs.refereedOnly != rhs.refereedOnly {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(authors)
+        hasher.combine(bibstem)
+        hasher.combine(topicWords)
+        hasher.combine(yearFrom)
+        hasher.combine(yearTo)
+        hasher.combine(refereedOnly)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSmartSearchQueryParts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SmartSearchQueryParts {
+        return
+            try SmartSearchQueryParts(
+                authors: FfiConverterSequenceString.read(from: &buf), 
+                bibstem: FfiConverterString.read(from: &buf), 
+                topicWords: FfiConverterSequenceString.read(from: &buf), 
+                yearFrom: FfiConverterInt32.read(from: &buf), 
+                yearTo: FfiConverterInt32.read(from: &buf), 
+                refereedOnly: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SmartSearchQueryParts, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.authors, into: &buf)
+        FfiConverterString.write(value.bibstem, into: &buf)
+        FfiConverterSequenceString.write(value.topicWords, into: &buf)
+        FfiConverterInt32.write(value.yearFrom, into: &buf)
+        FfiConverterInt32.write(value.yearTo, into: &buf)
+        FfiConverterBool.write(value.refereedOnly, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchQueryParts_lift(_ buf: RustBuffer) throws -> SmartSearchQueryParts {
+    return try FfiConverterTypeSmartSearchQueryParts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchQueryParts_lower(_ value: SmartSearchQueryParts) -> RustBuffer {
+    return FfiConverterTypeSmartSearchQueryParts.lower(value)
+}
+
+
+/**
+ * Result of a free-text → ADS query rewrite.
+ */
+public struct SmartSearchRewrite {
+    public var query: String
+    public var interpretation: String
+    public var confidence: Double
+    /**
+     * `appleIntelligence` | `cloud` | `degenerate`.
+     */
+    public var source: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(query: String, interpretation: String, confidence: Double, 
+        /**
+         * `appleIntelligence` | `cloud` | `degenerate`.
+         */source: String) {
+        self.query = query
+        self.interpretation = interpretation
+        self.confidence = confidence
+        self.source = source
+    }
+}
+
+
+
+extension SmartSearchRewrite: Equatable, Hashable {
+    public static func ==(lhs: SmartSearchRewrite, rhs: SmartSearchRewrite) -> Bool {
+        if lhs.query != rhs.query {
+            return false
+        }
+        if lhs.interpretation != rhs.interpretation {
+            return false
+        }
+        if lhs.confidence != rhs.confidence {
+            return false
+        }
+        if lhs.source != rhs.source {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(query)
+        hasher.combine(interpretation)
+        hasher.combine(confidence)
+        hasher.combine(source)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSmartSearchRewrite: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SmartSearchRewrite {
+        return
+            try SmartSearchRewrite(
+                query: FfiConverterString.read(from: &buf), 
+                interpretation: FfiConverterString.read(from: &buf), 
+                confidence: FfiConverterDouble.read(from: &buf), 
+                source: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SmartSearchRewrite, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.query, into: &buf)
+        FfiConverterString.write(value.interpretation, into: &buf)
+        FfiConverterDouble.write(value.confidence, into: &buf)
+        FfiConverterString.write(value.source, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchRewrite_lift(_ buf: RustBuffer) throws -> SmartSearchRewrite {
+    return try FfiConverterTypeSmartSearchRewrite.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSmartSearchRewrite_lower(_ value: SmartSearchRewrite) -> RustBuffer {
+    return FfiConverterTypeSmartSearchRewrite.lower(value)
+}
+
+
+/**
  * Smart search / saved query summary for sidebar.
  */
 public struct SmartSearchRow {
@@ -22040,6 +22859,54 @@ fileprivate struct FfiConverterOptionTypeSciXLibraryRow: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeSmartSearchParsedReference: FfiConverterRustBuffer {
+    typealias SwiftType = SmartSearchParsedReference?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSmartSearchParsedReference.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSmartSearchParsedReference.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeSmartSearchRewrite: FfiConverterRustBuffer {
+    typealias SwiftType = SmartSearchRewrite?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSmartSearchRewrite.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSmartSearchRewrite.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeSmartSearchRow: FfiConverterRustBuffer {
     typealias SwiftType = SmartSearchRow?
 
@@ -23628,6 +24495,31 @@ fileprivate struct FfiConverterSequenceTypeSearchResultInput: FfiConverterRustBu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSearchResultInput.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSmartSearchIdentifier: FfiConverterRustBuffer {
+    typealias SwiftType = [SmartSearchIdentifier]
+
+    public static func write(_ value: [SmartSearchIdentifier], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSmartSearchIdentifier.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SmartSearchIdentifier] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SmartSearchIdentifier]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSmartSearchIdentifier.read(from: &buf))
         }
         return seq
     }
@@ -26065,6 +26957,146 @@ public func sharesIdentifier(a: DeduplicationInput, b: DeduplicationInput) -> Bo
 })
 }
 /**
+ * Assemble an ADS query from model-extracted structured fields, applying the
+ * hallucinated-author and bare-year filters.
+ */
+public func smartSearchBuildAdsQuery(parts: SmartSearchQueryParts, originalInput: String, thisYear: Int32) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_build_ads_query(
+        FfiConverterTypeSmartSearchQueryParts.lower(parts),
+        FfiConverterString.lower(originalInput),
+        FfiConverterInt32.lower(thisYear),$0
+    )
+})
+}
+/**
+ * Classify search input. Deterministic and cheap — safe on every keystroke.
+ */
+public func smartSearchClassify(input: String) -> SmartSearchIntent {
+    return try!  FfiConverterTypeSmartSearchIntent.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_classify(
+        FfiConverterString.lower(input),$0
+    )
+})
+}
+/**
+ * Repair a model-emitted ADS query string, then normalize it.
+ */
+public func smartSearchCleanAdsQuery(query: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_clean_ads_query(
+        FfiConverterString.lower(query),$0
+    )
+})
+}
+/**
+ * Decode a cloud model's JSON citation response. `None` on malformed input.
+ */
+public func smartSearchDecodeReferenceJson(text: String) -> SmartSearchParsedReference? {
+    return try!  FfiConverterOptionTypeSmartSearchParsedReference.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_decode_reference_json(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * Decode a cloud model's JSON query-rewrite response. `None` on malformed input.
+ */
+public func smartSearchDecodeRewriteJson(text: String) -> SmartSearchRewrite? {
+    return try!  FfiConverterOptionTypeSmartSearchRewrite.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_decode_rewrite_json(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * The no-model fallback rewrite. `this_year` anchors relative ranges.
+ */
+public func smartSearchDegenerateRewrite(input: String, thisYear: Int32) -> SmartSearchRewrite {
+    return try!  FfiConverterTypeSmartSearchRewrite.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_degenerate_rewrite(
+        FfiConverterString.lower(input),
+        FfiConverterInt32.lower(thisYear),$0
+    )
+})
+}
+/**
+ * Scrape identifiers and the `<title>` out of a page's HTML. The fetch itself
+ * stays in Swift (`URLSession`); this is everything after the bytes arrive.
+ */
+public func smartSearchExtractPageIdentifiers(html: String) -> SmartSearchPageExtraction {
+    return try!  FfiConverterTypeSmartSearchPageExtraction.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_extract_page_identifiers(
+        FfiConverterString.lower(html),$0
+    )
+})
+}
+/**
+ * Repair an ADS query (shorthands, quoting, boolean case, author order).
+ */
+public func smartSearchNormalizeAdsQuery(query: String) -> SmartSearchNormalization {
+    return try!  FfiConverterTypeSmartSearchNormalization.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_normalize_ads_query(
+        FfiConverterString.lower(query),$0
+    )
+})
+}
+/**
+ * The on-device prompt for parsing one citation reference.
+ */
+public func smartSearchReferencePrompt(block: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_reference_prompt(
+        FfiConverterString.lower(block),$0
+    )
+})
+}
+/**
+ * The on-device prompt for extracting search fields from free text.
+ */
+public func smartSearchRewritePrompt(input: String, thisYear: Int32, today: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_rewrite_prompt(
+        FfiConverterString.lower(input),
+        FfiConverterInt32.lower(thisYear),
+        FfiConverterString.lower(today),$0
+    )
+})
+}
+/**
+ * Split a pasted bibliography into reference blocks.
+ */
+public func smartSearchSplitReferenceBlocks(text: String) -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_split_reference_blocks(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * Unwind one round of `%25XX → %XX` in a URL, for the 404-retry path.
+ * `None` when there is nothing to unwind.
+ */
+public func smartSearchUnwindDoubleEncoding(url: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_unwind_double_encoding(
+        FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
+ * Drop any identifier the model invented. `raw` is kept as the citation's
+ * free-text fallback.
+ */
+public func smartSearchValidateReference(parsed: SmartSearchParsedReference, raw: String) -> SmartSearchCitation {
+    return try!  FfiConverterTypeSmartSearchCitation.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_smart_search_validate_reference(
+        FfiConverterTypeSmartSearchParsedReference.lower(parsed),
+        FfiConverterString.lower(raw),$0
+    )
+})
+}
+/**
  * Split a BibTeX author field into individual authors.
  *
  * Handles " and " separators (BibTeX style) and ";" separators.
@@ -26789,6 +27821,45 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_shares_identifier() != 15446) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_build_ads_query() != 59826) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_classify() != 17740) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_clean_ads_query() != 6428) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_decode_reference_json() != 2069) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_decode_rewrite_json() != 19006) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_degenerate_rewrite() != 43413) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_extract_page_identifiers() != 8827) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_normalize_ads_query() != 22346) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_reference_prompt() != 40511) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_rewrite_prompt() != 35157) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_split_reference_blocks() != 59863) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_unwind_double_encoding() != 54403) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_smart_search_validate_reference() != 65489) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_split_authors() != 31716) {

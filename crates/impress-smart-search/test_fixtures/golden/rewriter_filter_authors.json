@@ -1,0 +1,496 @@
+[
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Abel"
+    ],
+    "filtered" : [
+      "Abel"
+    ],
+    "inputLower" : "abel first stars",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Abel",
+      "Norman"
+    ],
+    "filtered" : [
+      "Abel",
+      "Norman"
+    ],
+    "inputLower" : "abel norman first stars science",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Smith"
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "sdss dr17 spectroscopy",
+    "rejected" : [
+      "Smith"
+    ]
+  },
+  {
+    "authors" : [
+      "abel"
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "abel first stars",
+    "rejected" : [
+      "abel"
+    ]
+  },
+  {
+    "authors" : [
+      "JWST"
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "jwst galaxy formation",
+    "rejected" : [
+      "JWST"
+    ]
+  },
+  {
+    "authors" : [
+      "Gaia",
+      "Hubble",
+      "Rubin"
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "gaia hubble rubin",
+    "rejected" : [
+      "Gaia",
+      "Hubble",
+      "Rubin"
+    ]
+  },
+  {
+    "authors" : [
+      "Galaxy",
+      "Rotation",
+      "Curves",
+      "Dark"
+    ],
+    "filtered" : [
+      "Dark"
+    ],
+    "inputLower" : "galaxy rotation curves dark",
+    "rejected" : [
+      "Galaxy",
+      "Rotation",
+      "Curves"
+    ]
+  },
+  {
+    "authors" : [
+      "Abel",
+      "Bryan",
+      "Norman",
+      "Klessen"
+    ],
+    "filtered" : [
+      "Abel",
+      "Bryan",
+      "Norman",
+      "Klessen"
+    ],
+    "inputLower" : "abel bryan norman klessen",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Abel",
+      "Bryan",
+      "Norman",
+      "Klessen"
+    ],
+    "filtered" : [
+      "Abel",
+      "Bryan",
+      "Norman",
+      "Klessen"
+    ],
+    "inputLower" : "abel bryan norman klessen first stars",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Abel"
+    ],
+    "filtered" : [
+      "Abel"
+    ],
+    "inputLower" : "abel first stars",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "galaxy rotation curves",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "dark matter",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "dark matter 1970s",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "2020 dark energy",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "1899 2101",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "apj",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "a&a",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "phys rev",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "apj",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "x",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "apj",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "x",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "2002",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "since 2002",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "2002",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "before 2002",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "1970s",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "galaxy rotation curves 1970s",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "papers from the 1980s",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "the 2010s were busy",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "1975s",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "refereed",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Riess"
+    ],
+    "filtered" : [
+      "Riess"
+    ],
+    "inputLower" : "riess dark energy since 2020 refereed",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      " Abel ",
+      "",
+      "A",
+      "X"
+    ],
+    "filtered" : [
+      "Abel"
+    ],
+    "inputLower" : "abel first stars",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Müller"
+    ],
+    "filtered" : [
+      "Müller"
+    ],
+    "inputLower" : "müller réionisation",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Zel'dovich"
+    ],
+    "filtered" : [
+      "Zel'dovich"
+    ],
+    "inputLower" : "zel'dovich",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+
+    ],
+    "filtered" : [
+
+    ],
+    "inputLower" : "dark matter",
+    "rejected" : [
+
+    ]
+  },
+  {
+    "authors" : [
+      "Abel"
+    ],
+    "filtered" : [
+      "Abel"
+    ],
+    "inputLower" : "abel first stars science 2000-2005 refereed",
+    "rejected" : [
+
+    ]
+  }
+]

@@ -14,6 +14,37 @@ import OSLog
 /// An external directory artifact referenced by a conversation.
 /// Uses security-scoped bookmarks to maintain access across app launches.
 public struct DirectoryArtifact: Identifiable, Codable, Sendable {
+
+    // MARK: Bookmark options (the one platform difference)
+    //
+    // `URL.BookmarkCreationOptions.withSecurityScope` and its resolution twin are
+    // MACOS-ONLY, and this file used them unconditionally — which meant
+    // MessageManagerCore did not compile for iOS at all. Nothing noticed because
+    // `impart-iOS` was never built for a simulator (Stage 5c was the first time);
+    // the target listed the package as a dependency and had done for months.
+    //
+    // On iOS a document-picker URL yields a bookmark with NO options and is
+    // reopened the same way; `startAccessingSecurityScopedResource()` — which the
+    // rest of this file already calls unqualified — works on both platforms. So
+    // the option sets are the whole difference, and they live here as one `#if`
+    // ISLAND rather than four scattered through the type.
+
+    static let bookmarkCreationOptions: URL.BookmarkCreationOptions = {
+        #if os(macOS)
+        return .withSecurityScope
+        #else
+        return []
+        #endif
+    }()
+
+    static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = {
+        #if os(macOS)
+        return .withSecurityScope
+        #else
+        return []
+        #endif
+    }()
+
     /// Unique identifier
     public let id: UUID
 
@@ -35,7 +66,7 @@ public struct DirectoryArtifact: Identifiable, Codable, Sendable {
         var isStale = false
         guard let url = try? URL(
             resolvingBookmarkData: bookmarkData,
-            options: .withSecurityScope,
+            options: Self.bookmarkResolutionOptions,
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         ) else {
@@ -49,7 +80,7 @@ public struct DirectoryArtifact: Identifiable, Codable, Sendable {
         var isStale = false
         _ = try? URL(
             resolvingBookmarkData: bookmarkData,
-            options: .withSecurityScope,
+            options: Self.bookmarkResolutionOptions,
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
@@ -70,7 +101,7 @@ public struct DirectoryArtifact: Identifiable, Codable, Sendable {
 
         // Create security-scoped bookmark
         self.bookmarkData = try url.bookmarkData(
-            options: .withSecurityScope,
+            options: Self.bookmarkCreationOptions,
             includingResourceValuesForKeys: [.isDirectoryKey, .nameKey],
             relativeTo: nil
         )

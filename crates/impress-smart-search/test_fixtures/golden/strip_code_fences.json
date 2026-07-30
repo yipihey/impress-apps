@@ -1,0 +1,147 @@
+[
+  {
+    "input" : "",
+    "reference" : "",
+    "rewriter" : ""
+  },
+  {
+    "input" : " ",
+    "reference" : "",
+    "rewriter" : ""
+  },
+  {
+    "input" : "{}",
+    "reference" : "{}",
+    "rewriter" : "{}"
+  },
+  {
+    "input" : "not json",
+    "reference" : "not json",
+    "rewriter" : "not json"
+  },
+  {
+    "input" : "null",
+    "reference" : "null",
+    "rewriter" : "null"
+  },
+  {
+    "input" : "[]",
+    "reference" : "[]",
+    "rewriter" : "[]"
+  },
+  {
+    "input" : "[1,2,3]",
+    "reference" : "[1,2,3]",
+    "rewriter" : "[1,2,3]"
+  },
+  {
+    "input" : "{\"query\":\"author:\\\"Abel\\\"\",\"interpretation\":\"Papers by Abel\",\"confidence\":0.9}",
+    "reference" : "{\"query\":\"author:\\\"Abel\\\"\",\"interpretation\":\"Papers by Abel\",\"confidence\":0.9}",
+    "rewriter" : "{\"query\":\"author:\\\"Abel\\\"\",\"interpretation\":\"Papers by Abel\",\"confidence\":0.9}"
+  },
+  {
+    "input" : "{\"query\":\"author:\\\"Abel\\\"\",\"confidence\":0.9}",
+    "reference" : "{\"query\":\"author:\\\"Abel\\\"\",\"confidence\":0.9}",
+    "rewriter" : "{\"query\":\"author:\\\"Abel\\\"\",\"confidence\":0.9}"
+  },
+  {
+    "input" : "{\"query\":\"author:\\\"Abel\\\"\"}",
+    "reference" : "{\"query\":\"author:\\\"Abel\\\"\"}",
+    "rewriter" : "{\"query\":\"author:\\\"Abel\\\"\"}"
+  },
+  {
+    "input" : "{\"interpretation\":\"x\"}",
+    "reference" : "{\"interpretation\":\"x\"}",
+    "rewriter" : "{\"interpretation\":\"x\"}"
+  },
+  {
+    "input" : "{\"query\":null,\"interpretation\":null,\"confidence\":null}",
+    "reference" : "{\"query\":null,\"interpretation\":null,\"confidence\":null}",
+    "rewriter" : "{\"query\":null,\"interpretation\":null,\"confidence\":null}"
+  },
+  {
+    "input" : "{\"query\":\"a: Abel, T.; title:dark matter\",\"interpretation\":\"x\",\"confidence\":0.5}",
+    "reference" : "{\"query\":\"a: Abel, T.; title:dark matter\",\"interpretation\":\"x\",\"confidence\":0.5}",
+    "rewriter" : "{\"query\":\"a: Abel, T.; title:dark matter\",\"interpretation\":\"x\",\"confidence\":0.5}"
+  },
+  {
+    "input" : "{\"query\":\"\",\"interpretation\":\"\",\"confidence\":0}",
+    "reference" : "{\"query\":\"\",\"interpretation\":\"\",\"confidence\":0}",
+    "rewriter" : "{\"query\":\"\",\"interpretation\":\"\",\"confidence\":0}"
+  },
+  {
+    "input" : "{\"confidence\":1.5,\"query\":\"x\"}",
+    "reference" : "{\"confidence\":1.5,\"query\":\"x\"}",
+    "rewriter" : "{\"confidence\":1.5,\"query\":\"x\"}"
+  },
+  {
+    "input" : "{\"confidence\":-1,\"query\":\"x\"}",
+    "reference" : "{\"confidence\":-1,\"query\":\"x\"}",
+    "rewriter" : "{\"confidence\":-1,\"query\":\"x\"}"
+  },
+  {
+    "input" : "```json\n{\"query\":\"author:\\\"Abel\\\"\",\"confidence\":0.7}\n```",
+    "reference" : "{\"query\":\"author:\\\"Abel\\\"\",\"confidence\":0.7}",
+    "rewriter" : "{\"query\":\"author:\\\"Abel\\\"\",\"confidence\":0.7}"
+  },
+  {
+    "input" : "```\n{\"query\":\"abs:dark matter\"}\n```",
+    "reference" : "{\"query\":\"abs:dark matter\"}",
+    "rewriter" : "{\"query\":\"abs:dark matter\"}"
+  },
+  {
+    "input" : "```json\n{\"query\":\"x\"}",
+    "reference" : "{\"query\":\"x\"}",
+    "rewriter" : "{\"query\":\"x\"}"
+  },
+  {
+    "input" : "{\"query\":\"x\"}\n```",
+    "reference" : "{\"query\":\"x\"}",
+    "rewriter" : "{\"query\":\"x\"}"
+  },
+  {
+    "input" : "Here is the JSON:\n{\"query\":\"x\"}",
+    "reference" : "Here is the JSON:\n{\"query\":\"x\"}",
+    "rewriter" : "Here is the JSON:\n{\"query\":\"x\"}"
+  },
+  {
+    "input" : "{\"authors\":[\"Abel\",\"Bryan\"],\"title\":\"The Formation of the First Star\",\"year\":2002,\"journal\":\"Science\",\"volume\":\"295\",\"pages\":\"93\",\"doi\":\"10.1126/science.295.5552.93\",\"arxiv\":\"\",\"bibcode\":\"2002Sci...295...93A\",\"confidence\":0.95}",
+    "reference" : "{\"authors\":[\"Abel\",\"Bryan\"],\"title\":\"The Formation of the First Star\",\"year\":2002,\"journal\":\"Science\",\"volume\":\"295\",\"pages\":\"93\",\"doi\":\"10.1126/science.295.5552.93\",\"arxiv\":\"\",\"bibcode\":\"2002Sci...295...93A\",\"confidence\":0.95}",
+    "rewriter" : "{\"authors\":[\"Abel\",\"Bryan\"],\"title\":\"The Formation of the First Star\",\"year\":2002,\"journal\":\"Science\",\"volume\":\"295\",\"pages\":\"93\",\"doi\":\"10.1126/science.295.5552.93\",\"arxiv\":\"\",\"bibcode\":\"2002Sci...295...93A\",\"confidence\":0.95}"
+  },
+  {
+    "input" : "{\"authors\":[],\"title\":\"\",\"year\":0,\"journal\":\"\",\"volume\":\"\",\"pages\":\"\",\"doi\":\"\",\"arxiv\":\"\",\"bibcode\":\"\",\"confidence\":0}",
+    "reference" : "{\"authors\":[],\"title\":\"\",\"year\":0,\"journal\":\"\",\"volume\":\"\",\"pages\":\"\",\"doi\":\"\",\"arxiv\":\"\",\"bibcode\":\"\",\"confidence\":0}",
+    "rewriter" : "{\"authors\":[],\"title\":\"\",\"year\":0,\"journal\":\"\",\"volume\":\"\",\"pages\":\"\",\"doi\":\"\",\"arxiv\":\"\",\"bibcode\":\"\",\"confidence\":0}"
+  },
+  {
+    "input" : "{\"authors\":[\"Abel\"],\"year\":\"2002\"}",
+    "reference" : "{\"authors\":[\"Abel\"],\"year\":\"2002\"}",
+    "rewriter" : "{\"authors\":[\"Abel\"],\"year\":\"2002\"}"
+  },
+  {
+    "input" : "{\"authors\":\"Abel\"}",
+    "reference" : "{\"authors\":\"Abel\"}",
+    "rewriter" : "{\"authors\":\"Abel\"}"
+  },
+  {
+    "input" : "{\"authors\":[\"Abel\",\"\"],\"title\":\"T\",\"year\":1500,\"doi\":\"nope\",\"arxiv\":\"nope\",\"bibcode\":\"nope\",\"confidence\":0.5}",
+    "reference" : "{\"authors\":[\"Abel\",\"\"],\"title\":\"T\",\"year\":1500,\"doi\":\"nope\",\"arxiv\":\"nope\",\"bibcode\":\"nope\",\"confidence\":0.5}",
+    "rewriter" : "{\"authors\":[\"Abel\",\"\"],\"title\":\"T\",\"year\":1500,\"doi\":\"nope\",\"arxiv\":\"nope\",\"bibcode\":\"nope\",\"confidence\":0.5}"
+  },
+  {
+    "input" : "{\"year\":2002.0,\"authors\":[\"Abel\"]}",
+    "reference" : "{\"year\":2002.0,\"authors\":[\"Abel\"]}",
+    "rewriter" : "{\"year\":2002.0,\"authors\":[\"Abel\"]}"
+  },
+  {
+    "input" : "{\"year\":2002.7,\"authors\":[\"Abel\"]}",
+    "reference" : "{\"year\":2002.7,\"authors\":[\"Abel\"]}",
+    "rewriter" : "{\"year\":2002.7,\"authors\":[\"Abel\"]}"
+  },
+  {
+    "input" : "```json\n{\"authors\":[\"Müller\"],\"title\":\"Réionisation\",\"year\":2019,\"journal\":\"A&A\",\"volume\":\"621\",\"pages\":\"A45\",\"doi\":\"10.1051/0004-6361/201834567\",\"arxiv\":\"1901.01234\",\"bibcode\":\"2019A&A...621A..45M\",\"confidence\":0.88}\n```",
+    "reference" : "{\"authors\":[\"Müller\"],\"title\":\"Réionisation\",\"year\":2019,\"journal\":\"A&A\",\"volume\":\"621\",\"pages\":\"A45\",\"doi\":\"10.1051/0004-6361/201834567\",\"arxiv\":\"1901.01234\",\"bibcode\":\"2019A&A...621A..45M\",\"confidence\":0.88}",
+    "rewriter" : "{\"authors\":[\"Müller\"],\"title\":\"Réionisation\",\"year\":2019,\"journal\":\"A&A\",\"volume\":\"621\",\"pages\":\"A45\",\"doi\":\"10.1051/0004-6361/201834567\",\"arxiv\":\"1901.01234\",\"bibcode\":\"2019A&A...621A..45M\",\"confidence\":0.88}"
+  }
+]

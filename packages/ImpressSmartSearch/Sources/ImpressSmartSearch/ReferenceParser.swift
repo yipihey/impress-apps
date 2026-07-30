@@ -4,11 +4,22 @@
 //
 //  Parse a single citation reference string into a structured `CitationInputLite`
 //  ready for downstream resolution. Tries Apple Intelligence (`@Generable`)
-//  first, then optionally falls back to a cloud LLM via `AIMultiModelExecutor`
-//  if the user has enabled that.
+//  first, then optionally falls back to a cloud LLM if the user enabled that.
+//
+//  ## Swift/Rust split
+//
+//  What stays here: the `FoundationModels` session and the cloud runner call.
+//
+//  What moved to Rust (`crates/impress-smart-search`, module `reference`): the
+//  prompt, the cloud JSON decode, and — most importantly — `validate`, which
+//  drops any DOI / arXiv id / bibcode whose shape is wrong. That check is
+//  load-bearing: a hallucinated identifier resolves to the *wrong paper*
+//  silently, which is worse than returning nothing. Pinned by
+//  `test_fixtures/golden/reference_validate.json`.
 //
 
 import Foundation
+import ImbibRustCore
 import OSLog
 
 #if canImport(FoundationModels)
@@ -65,7 +76,7 @@ public actor ReferenceParser {
 
     /// Cloud LLM runner. Caller plugs this in (e.g. wrapping ImpressAI in imbib).
     /// Receives a system prompt and a user message; returns the model's text
-    /// (which the parser then JSON-decodes), or nil on failure / disabled.
+    /// (which Rust then JSON-decodes), or nil on failure / disabled.
     public typealias CloudRunner = @Sendable (_ systemPrompt: String, _ userMessage: String) async -> String?
 
     private let cloudRunner: CloudRunner?
@@ -77,40 +88,37 @@ public actor ReferenceParser {
     /// Parse a single citation block. Returns `nil` if no parser is available
     /// (Apple Intelligence off, cloud fallback off) or parsing fails.
     public func parse(referenceBlock: String) async -> CitationInputLite? {
-        let trimmed = referenceBlock.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let bounded = trimmed.count > 2000 ? String(trimmed.prefix(2000)) : trimmed
-
-        if let result = await parseOnDevice(bounded) {
-            return validate(result, raw: bounded)
+        guard let raw = await parseRaw(referenceBlock: referenceBlock) else {
+            logger.warning("Reference parse failed for input of \(referenceBlock.count) chars")
+            return nil
         }
-        if let runner = cloudRunner, let result = await parseCloud(bounded, runner: runner) {
-            return validate(result, raw: bounded)
-        }
-        logger.warning("Reference parse failed for input of \(bounded.count) chars")
-        return nil
+        return Self.validate(raw, raw: Self.bounded(referenceBlock))
     }
 
-    /// Lower-level entry point used by the test harness — returns the raw
-    /// `ParsedReference` without converting to `CitationInputLite`. Lets tests
-    /// inspect what the LLM returned before validation drops invalid IDs.
+    /// Lower-level entry point — returns the raw `ParsedReference` without
+    /// converting to `CitationInputLite`, so callers and tests can inspect what
+    /// the model emitted before validation drops invalid ids.
     public func parseRaw(referenceBlock: String) async -> ParsedReference? {
-        let trimmed = referenceBlock.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let bounded = trimmed.count > 2000 ? String(trimmed.prefix(2000)) : trimmed
+        let bounded = Self.bounded(referenceBlock)
+        guard !bounded.isEmpty else { return nil }
+
         if let r = await parseOnDevice(bounded) { return r }
         if let runner = cloudRunner, let r = await parseCloud(bounded, runner: runner) { return r }
         return nil
     }
 
-    // MARK: - Apple Intelligence path
+    private static func bounded(_ block: String) -> String {
+        let trimmed = block.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > 2000 ? String(trimmed.prefix(2000)) : trimmed
+    }
+
+    // MARK: - Apple Intelligence path (stays Swift — this is the platform)
 
     private func parseOnDevice(_ block: String) async -> ParsedReference? {
         #if canImport(FoundationModels)
         if #available(macOS 26, iOS 26, *) {
             guard SystemLanguageModel.default.isAvailable else { return nil }
-            let prompt = Self.makeReferencePrompt(block: block)
+            let prompt = smartSearchReferencePrompt(block: block)
             do {
                 let session = LanguageModelSession()
                 let response = try await session.respond(
@@ -167,104 +175,59 @@ public actor ReferenceParser {
         guard let text = await runner(systemPrompt, userMessage) else {
             return nil
         }
-        return Self.decodeCloudJSON(text)
+        // Fence-stripping + JSON decoding happen in Rust.
+        guard let ffi = smartSearchDecodeReferenceJson(text: text) else {
+            logger.warning("Cloud JSON decode failed; raw=\(text.prefix(200))")
+            return nil
+        }
+        return Self.parsedReference(from: ffi)
     }
 
-    // MARK: - Validation
+    // MARK: - Validation (Rust)
 
-    private func validate(_ p: ParsedReference, raw: String) -> CitationInputLite {
-        let doi = p.doi.range(of: #"^10\.\d{4,9}/\S+$"#, options: .regularExpression) != nil ? p.doi : nil
-        let arxivPattern = #"^(\d{4}\.\d{4,5}(v\d+)?|[a-z\-]+(\.[A-Z]{2})?/\d{7}(v\d+)?)$"#
-        let arxiv = p.arxiv.range(of: arxivPattern, options: .regularExpression) != nil ? p.arxiv : nil
-        let bibcodeOK = p.bibcode.count == 19 &&
-            p.bibcode.range(of: #"^\d{4}[A-Za-z&\.][A-Za-z&\.]{1,7}[\.\d][\.\d]+[A-Z]$"#,
-                            options: .regularExpression) != nil
-        let bibcode = bibcodeOK ? p.bibcode : nil
-
-        let authors = p.authors.filter { !$0.isEmpty }
-        let title = p.title.isEmpty ? nil : p.title
-        let year: Int? = (1900...2100).contains(p.year) ? p.year : nil
-        let journal = p.journal.isEmpty ? nil : p.journal
-        let volume = p.volume.isEmpty ? nil : p.volume
-        let pages = p.pages.isEmpty ? nil : p.pages
-
+    /// Drop identifiers the model invented, and normalize empty strings to nil.
+    public static func validate(_ p: ParsedReference, raw: String) -> CitationInputLite {
+        let c = smartSearchValidateReference(
+            parsed: SmartSearchParsedReference(
+                authors: p.authors,
+                title: p.title,
+                year: Int32(clamping: p.year),
+                journal: p.journal,
+                volume: p.volume,
+                pages: p.pages,
+                doi: p.doi,
+                arxiv: p.arxiv,
+                bibcode: p.bibcode,
+                confidence: p.confidence
+            ),
+            raw: raw
+        )
         return CitationInputLite(
-            authors: authors,
-            title: title,
-            year: year,
-            journal: journal,
-            volume: volume,
-            pages: pages,
-            doi: doi,
-            arxiv: arxiv,
-            bibcode: bibcode,
-            freeText: raw
+            authors: c.authors,
+            title: c.title,
+            year: c.year.map(Int.init),
+            journal: c.journal,
+            volume: c.volume,
+            pages: c.pages,
+            doi: c.doi,
+            arxiv: c.arxiv,
+            bibcode: c.bibcode,
+            freeText: c.freeText
         )
     }
 
-    // MARK: - Prompt + JSON helpers
-
-    fileprivate static func makeReferencePrompt(block: String) -> String {
-        """
-        Parse this scientific bibliography reference into structured fields. \
-        It may be in any common style (APA, AMS, Nature, AAS, BibTeX-rendered, ADS). \
-        Preserve the original title capitalization. Use empty string for missing string \
-        fields and 0 for missing year. Do not invent DOI / arXiv / bibcode — only emit \
-        them if they appear verbatim in the input.
-
-        Reference:
-        \(block)
-        """
+    private static func parsedReference(from ffi: SmartSearchParsedReference) -> ParsedReference {
+        ParsedReference(
+            authors: ffi.authors,
+            title: ffi.title,
+            year: Int(ffi.year),
+            journal: ffi.journal,
+            volume: ffi.volume,
+            pages: ffi.pages,
+            doi: ffi.doi,
+            arxiv: ffi.arxiv,
+            bibcode: ffi.bibcode,
+            confidence: ffi.confidence
+        )
     }
-
-    fileprivate static func decodeCloudJSON(_ text: String) -> ParsedReference? {
-        let cleaned = stripCodeFences(text)
-        guard let data = cleaned.data(using: .utf8) else { return nil }
-        do {
-            let raw = try JSONDecoder().decode(CloudParsedCitation.self, from: data)
-            return ParsedReference(
-                authors: raw.authors ?? [],
-                title: raw.title ?? "",
-                year: raw.year ?? 0,
-                journal: raw.journal ?? "",
-                volume: raw.volume ?? "",
-                pages: raw.pages ?? "",
-                doi: raw.doi ?? "",
-                arxiv: raw.arxiv ?? "",
-                bibcode: raw.bibcode ?? "",
-                confidence: raw.confidence ?? 0.5
-            )
-        } catch {
-            logger.warning("Cloud JSON decode failed: \(error.localizedDescription); raw=\(cleaned.prefix(200))")
-            return nil
-        }
-    }
-
-    private static func stripCodeFences(_ s: String) -> String {
-        var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.hasPrefix("```") {
-            if let firstNewline = t.firstIndex(of: "\n") {
-                t = String(t[t.index(after: firstNewline)...])
-            }
-        }
-        if t.hasSuffix("```") {
-            t = String(t.dropLast(3))
-        }
-        return t.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-// MARK: - Cloud JSON shape
-
-private struct CloudParsedCitation: Decodable {
-    let authors: [String]?
-    let title: String?
-    let year: Int?
-    let journal: String?
-    let volume: String?
-    let pages: String?
-    let doi: String?
-    let arxiv: String?
-    let bibcode: String?
-    let confidence: Double?
 }

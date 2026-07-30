@@ -1,0 +1,23 @@
+[package]
+name = "impress-smart-search-service"
+description = "#[impress_service] trait exposing the deterministic smart-search core (intent classification, ADS query normalization/rewriting, reference validation, page identifier extraction) as MCP tools, CLI subcommands and impel agent tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-smart-search = { workspace = true }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Codegen pipeline — one #[impress_method] becomes an MCP tool, a CLI
+# subcommand and an impel agent tool.
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

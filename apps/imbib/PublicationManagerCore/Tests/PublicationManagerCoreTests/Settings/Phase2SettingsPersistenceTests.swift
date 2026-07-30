@@ -237,24 +237,32 @@ final class Phase2SettingsPersistenceTests: XCTestCase {
             Self.impartMacKeys)
     }
 
-    /// impart's iOS settings are UNMIGRATED, and this pins the reason so it is not
-    /// mistaken for an omission.
+    /// impart's iOS settings are MIGRATED as of Stage 5c, and this is the same
+    /// assertion in its new home.
     ///
-    /// `impart-iOS` does not link PublicationManagerCore — the package is absent
-    /// from that target in `apps/impart/project.yml` — so no chassis renderer can
-    /// run there. Its `IOSAppearanceSettingsView` is a second hand-rolled clone of
-    /// the shared appearance section over the same `appearanceMode` key, which is
-    /// exactly what the builtin would replace once the target links the package.
-    /// Until then the key must match macOS's, or the two platforms fork the
-    /// preference.
-    func testImpartIOSStillReadsTheSameAppearanceKeyAsMacOS() throws {
-        let ios = try Self.appStorageKeys(
-            in: "apps/impart/impart-iOS/Views/IOSContentView.swift")
+    /// The previous version of this test read `impart-iOS/Views/IOSContentView.swift`
+    /// and pinned the reason impart-iOS was unmigrated: the target did not link
+    /// PublicationManagerCore, so no chassis renderer could run there, and its
+    /// `IOSAppearanceSettingsView` was a second hand-rolled clone of the shared
+    /// appearance section. Stage 5c added the package to the target, deleted that
+    /// 380-line shell (and the clone with it), and put impart-iOS on
+    /// `IOSSettingsScreen` over `AppSettingsConfiguration.impart` — whose
+    /// `.general` and `.accounts` rows are now `.everywhere`.
+    ///
+    /// What still needs pinning is the KEY: the iOS General pane must read the
+    /// same `appearanceMode`/`defaultViewMode` macOS does, or the two platforms
+    /// fork the preference. Directory-wide (like imbib's) rather than file-by-file,
+    /// so moving a pane between files is not a test edit.
+    func testImpartIOSSettingsReadTheSameKeysAsMacOS() throws {
+        let ios = try Self.appStorageKeys(inDirectory: "apps/impart/impart-iOS/Views")
         XCTAssertEqual(
-            ios, ["appearanceMode"],
-            "impart-iOS's settings are not on the chassis (its target does not link "
-                + "PublicationManagerCore); its one preference must at least agree "
-                + "with macOS's key")
+            ios, ["appearanceMode", "defaultViewMode"],
+            "impart-iOS's settings are on the chassis now; the two preferences its "
+                + "General pane writes must be the same keys macOS's General tab "
+                + "writes (both are in `impartMacKeys`)")
+        XCTAssertTrue(
+            ios.isSubset(of: Self.impartMacKeys),
+            "impart-iOS reads a preference macOS does not: \(ios.subtracting(Self.impartMacKeys))")
     }
 
     // MARK: - Source access

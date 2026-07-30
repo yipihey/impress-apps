@@ -1,0 +1,666 @@
+[
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "",
+    "interpretation" : "Free-text search (no parser available)",
+    "query" : "",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : " ",
+    "interpretation" : "Free-text search (no parser available)",
+    "query" : " ",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "dark matter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "galaxy rotation curves 1970s",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:1968-1982 abs:(galaxy rotation curves)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "1970s",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:1968-1982",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "1980s",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:1978-1992",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2020s",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2018-2032",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "1890s",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(1890s)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2100s",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(2100s)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2020-2024",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2020-2024",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "1999-2001",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:1999-2001",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2020-2019",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2020-2019",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "1800-1900",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(1800-1900)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2020-2200",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(2020-2200)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2002",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2002",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "1899",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(1899)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "1900",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:1900",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2100",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2100",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2101",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(2101)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "42",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(42)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "since 2020",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2020-2026",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "since 2020 dark energy",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2020-2026 abs:(dark energy)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "after 2010 exoplanets",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2010-2026 abs:(exoplanets)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "since abel",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(since abel)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "since",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(since)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "after",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(after)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "recent",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2022-2026",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "latest",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2022-2026",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "recent JWST observations",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2022-2026 abs:(JWST observations)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "latest LIGO results",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2022-2026 abs:(LIGO results)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "last 5 years",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2021-2026",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "last 5 years gravitational waves",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2021-2026 abs:(gravitational waves)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "last 0 years",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(last 0 years)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "last 100 years",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(last 100 years)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "last 99 years",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:1927-2026",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "last five years",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(last five years)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "last 5",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(last 5)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "refereed",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "property:refereed",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "peer-reviewed",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "property:refereed",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "refereed dark matter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter) property:refereed",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "Peer-Reviewed",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "property:refereed",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by Peebles",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Peebles\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by peebles",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Peebles\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(by)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by peebles dark energy",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Peebles\" abs:(dark energy)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by van der waals",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Van\" abs:(der waals)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by van-der-waals",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Van-Der-Waals\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by o'brien",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"O'brien\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by MÜLLER",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Müller\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by ünal",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Ünal\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by 2020",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"2020\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by refereed",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Refereed\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by recent",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Recent\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by by",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"By\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by mcdonald",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"Mcdonald\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by de-la-cruz",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"De-La-Cruz\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by x",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"X\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "by A",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "author:\"A\"",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "abel norman first stars science",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(abel norman first stars science)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "Riess dark energy since 2020 refereed",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2020-2026 abs:(Riess dark energy) property:refereed",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "JWST galaxy formation high redshift",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(JWST galaxy formation high redshift)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "recent refereed papers by Abel since 2015 about first stars 1970s",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "year:2022-2026 author:\"Abel\" year:2015-2026 year:1968-1982 abs:(papers about first stars) property:refereed",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "dark   matter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : " dark matter ",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "dark\nmatter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "dark\tmatter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : " dark matter ",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "dark​matter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "　dark　matter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "dark matter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(dark matter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "​",
+    "interpretation" : "Free-text search (no parser available)",
+    "query" : "​",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : " ",
+    "interpretation" : "Free-text search (no parser available)",
+    "query" : " ",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "Müller spectroscopy",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(Müller spectroscopy)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "θ parameter",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(θ parameter)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "反物質",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(反物質)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "10.1086/164143",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(10.1086/164143)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2301.04153",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(2301.04153)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "a-b",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(a-b)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "1-2",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(1-2)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "2020-",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(2020-)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "-2020",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(-2020)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "20-20",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(20-20)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  },
+  {
+    "confidence" : 0.40000000000000002,
+    "input" : "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+    "interpretation" : "Local pattern match (no AI available)",
+    "query" : "abs:(word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word)",
+    "source" : "degenerate",
+    "thisYear" : 2026
+  }
+]

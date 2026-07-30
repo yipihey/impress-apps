@@ -3,20 +3,28 @@
 //  ImpressSmartSearch
 //
 //  Fetch a web page and extract any paper identifiers it contains. The output
-//  is a list of `PaperIdentifierLite` that the caller can run through its
+//  is a list of `PaperIdentifierLite` that the caller runs through its existing
 //  identifier-resolution pipeline (which already calls SciX/ADS).
 //
-//  v1: regex-driven extraction. Pulls DOIs, arXiv IDs (new and old format),
-//  ADS bibcodes, and PMIDs out of the HTML body. Most academic pages
-//  (publisher landing, ADS, arXiv, ResearchGate, conference proceedings)
-//  embed these prominently in the markup, so this catches the common cases
-//  without an LLM.
+//  ## Swift/Rust split
 //
-//  v2 (deferred): LLM-based reference extraction for pages that have citation
-//  lists in prose form without identifiers.
+//  What stays here: the fetch. `URLSession` carries the system proxy
+//  configuration, App Transport Security, the sandbox's network entitlement,
+//  the shared cookie/cache stores and the redirect policy — reimplementing that
+//  on `reqwest` would mean reimplementing platform policy, not logic, and would
+//  need an async FFI boundary to do it. So the HTTP round-trip, the status-code
+//  handling, the byte cap and the UTF-8/Latin-1 decode ladder stay Swift.
+//
+//  What moved to Rust (`crates/impress-smart-search`, module `url_extract`):
+//  everything downstream of "here are some bytes" — the `<title>` read, the
+//  DOI/arXiv/bibcode/PMID patterns, the arXiv legacy-archive whitelist that
+//  keeps `gnd/4226307` from being mistaken for a paper, HTML entity decoding,
+//  and the `%25XX` double-encoding unwind. That is the half that decides what
+//  the user gets. Pinned by `test_fixtures/golden/url_extract.json`.
 //
 
 import Foundation
+import ImbibRustCore
 import OSLog
 
 private let logger = Logger(subsystem: "com.impress.smartsearch", category: "urlext")
@@ -84,8 +92,11 @@ public actor URLContentExtractor {
             let html = String(data: bounded, encoding: .utf8)
                 ?? String(data: bounded, encoding: .isoLatin1)
                 ?? ""
-            let title = Self.extractTitle(from: html)
-            let identifiers = Self.extractIdentifiers(from: html)
+
+            // Everything from here is Rust.
+            let extraction = smartSearchExtractPageIdentifiers(html: html)
+            let title = extraction.pageTitle
+            let identifiers = extraction.identifiers.compactMap(Self.identifier(from:))
             logger.info("URL extract \(url.absoluteString): title='\(title ?? "?")', \(identifiers.count) identifier(s)")
 
             if identifiers.isEmpty {
@@ -108,174 +119,22 @@ public actor URLContentExtractor {
         }
     }
 
-    /// Surgically unwind one round of `%25XX → %XX` percent-encoding in the URL
-    /// path / query. Wikipedia (and similar) encode an apostrophe as `%27`; if
-    /// the URL has been doubly encoded, the apostrophe shows up as `%2527`
-    /// which the server interprets as a literal `%27` substring in the slug.
-    /// Returns nil if the URL contains no `%25` sequences or rebuilding fails.
+    /// Unwind one round of `%25XX → %XX` in the URL. Returns nil if the URL
+    /// contains no `%25` sequences or rebuilding fails.
     static func unwindDoubleEncoding(_ url: URL) -> URL? {
-        let abs = url.absoluteString
-        guard abs.range(of: #"%25[0-9A-Fa-f]{2}"#, options: .regularExpression) != nil else {
+        guard let unwound = smartSearchUnwindDoubleEncoding(url: url.absoluteString) else {
             return nil
         }
-        let unwound = abs.replacingOccurrences(
-            of: #"%25([0-9A-Fa-f]{2})"#,
-            with: "%$1",
-            options: .regularExpression
-        )
         return URL(string: unwound)
     }
 
-    // MARK: - HTML scraping
-
-    static func extractTitle(from html: String) -> String? {
-        let nsRange = NSRange(html.startIndex..., in: html)
-        guard let regex = try? NSRegularExpression(pattern: #"<title[^>]*>([\s\S]*?)</title>"#,
-                                                   options: .caseInsensitive),
-              let m = regex.firstMatch(in: html, range: nsRange),
-              let r = Range(m.range(at: 1), in: html) else {
-            return nil
+    private static func identifier(from ffi: SmartSearchIdentifier) -> PaperIdentifierLite? {
+        switch ffi.kind {
+        case "doi": return .doi(ffi.value)
+        case "arxiv": return .arxiv(ffi.value)
+        case "bibcode": return .bibcode(ffi.value)
+        case "pmid": return .pmid(ffi.value)
+        default: return nil
         }
-        let raw = String(html[r])
-        return decodeHTMLEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Extract identifiers in priority order: DOI, arXiv (new/old), bibcode,
-    /// PMID. Deduped while preserving first-seen order.
-    static func extractIdentifiers(from html: String) -> [PaperIdentifierLite] {
-        var found: [PaperIdentifierLite] = []
-        var seen: Set<String> = []
-        func add(_ id: PaperIdentifierLite) {
-            let key = "\(id.typeName):\(id.value.lowercased())"
-            if seen.insert(key).inserted { found.append(id) }
-        }
-
-        // DOI: 10.NNNN/anything-not-whitespace-or-html-delimiter.
-        // We deliberately stop at HTML/URL boundary characters: " < > ( ) { }
-        // [ ] \ space, AND the ampersand `&` — real DOIs never contain `&`,
-        // but `&amp;` and `&format=...` query trailers are everywhere in HTML.
-        let doiPattern = #"\b10\.\d{4,9}/[^\s"<>()\\{}\[\]&]+"#
-        for raw in matches(in: html, pattern: doiPattern) {
-            let cleaned = trimTrailingPunct(raw)
-            if cleaned.count >= 8 { add(.doi(cleaned)) }
-        }
-
-        // arXiv new format: arXiv:YYMM.NNNNN(vN)? or bare YYMM.NNNNN preceded by arXiv markers.
-        // Two passes — explicit "arXiv:" prefix first, then bare ids in URL contexts.
-        let arxivPrefixed = #"(?i)\barxiv[:\s/]+(\d{4}\.\d{4,5})(?:v\d+)?"#
-        for cap in capturedMatches(in: html, pattern: arxivPrefixed, captureGroup: 1) {
-            add(.arxiv(cap))
-        }
-        // Bare new format (be conservative — only allow when surrounded by URL/text boundaries).
-        let arxivBare = #"\b(\d{4}\.\d{4,5})\b"#
-        for cap in capturedMatches(in: html, pattern: arxivBare, captureGroup: 1) {
-            // Skip year-only-looking bare numbers; YYMM.NNNNN is min 9 chars
-            if cap.count >= 9 { add(.arxiv(cap)) }
-        }
-        // arXiv old format: archive[.subclass]/YYMMNNN. Restrict to the known
-        // arxiv archive whitelist — otherwise unrelated `slug/1234567` patterns
-        // (e.g. `gnd/4226307` for German National Library IDs) get mis-classified.
-        let arxivOld = #"\b([a-z\-]{2,12}(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?\b"#
-        for cap in capturedMatches(in: html, pattern: arxivOld, captureGroup: 1) {
-            let archive = cap.split(separator: "/").first.map(String.init)?
-                .split(separator: ".").first.map(String.init) ?? ""
-            if Self.arxivOldArchives.contains(archive) {
-                add(.arxiv(cap))
-            }
-        }
-
-        // ADS bibcode: 19 chars, year prefix.
-        let bibcode = #"\b(\d{4}[A-Za-z&\.][A-Za-z&\.]{1,7}[\.\d][\.\d]+[A-Z])\b"#
-        for cap in capturedMatches(in: html, pattern: bibcode, captureGroup: 1) {
-            if cap.count == 19 { add(.bibcode(cap)) }
-        }
-
-        // PMID: pubmed-style URLs and explicit PMID labels.
-        let pmidLabel = #"(?i)\bpmid[:\s]+(\d{5,9})\b"#
-        for cap in capturedMatches(in: html, pattern: pmidLabel, captureGroup: 1) {
-            add(.pmid(cap))
-        }
-        let pubmedURL = #"pubmed\.ncbi\.nlm\.nih\.gov/(\d{5,9})"#
-        for cap in capturedMatches(in: html, pattern: pubmedURL, captureGroup: 1) {
-            add(.pmid(cap))
-        }
-
-        return found
-    }
-
-    /// arXiv pre-2007 archive identifiers. Drawn from
-    /// https://info.arxiv.org/help/arxiv_identifier.html (legacy archives).
-    /// Used to filter out non-arxiv `slug/N{7}` patterns (GND, OCLC, etc.).
-    static let arxivOldArchives: Set<String> = [
-        "math", "astro-ph", "hep-th", "hep-ph", "hep-ex", "hep-lat", "gr-qc",
-        "nucl-th", "nucl-ex", "cond-mat", "quant-ph", "q-alg", "alg-geom",
-        "dg-ga", "funct-an", "q-bio", "cs", "nlin", "physics", "chao-dyn",
-        "solv-int", "comp-gas", "adap-org", "atom-ph", "plasm-ph", "supr-con",
-        "mtrl-th", "cmp-lg", "acc-phys", "patt-sol", "ao-sci", "bayes-an",
-        "chem-ph"
-    ]
-
-    // MARK: - Regex helpers
-
-    private static func matches(in text: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
-        let nsRange = NSRange(text.startIndex..., in: text)
-        return regex.matches(in: text, range: nsRange).compactMap {
-            Range($0.range, in: text).map { String(text[$0]) }
-        }
-    }
-
-    private static func capturedMatches(in text: String, pattern: String, captureGroup: Int) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
-        let nsRange = NSRange(text.startIndex..., in: text)
-        return regex.matches(in: text, range: nsRange).compactMap { m -> String? in
-            guard m.numberOfRanges > captureGroup,
-                  let r = Range(m.range(at: captureGroup), in: text) else { return nil }
-            return String(text[r])
-        }
-    }
-
-    private static func trimTrailingPunct(_ s: String) -> String {
-        var t = s
-        while let last = t.last, ".,;:)\"']".contains(last) {
-            t.removeLast()
-        }
-        return t
-    }
-
-    // MARK: - HTML entity decoding (just the common ones)
-
-    private static let htmlEntities: [String: String] = [
-        "&amp;": "&", "&lt;": "<", "&gt;": ">",
-        "&quot;": "\"", "&apos;": "'", "&#39;": "'",
-        "&nbsp;": " ", "&mdash;": "—", "&ndash;": "–",
-        "&hellip;": "…", "&copy;": "©"
-    ]
-
-    static func decodeHTMLEntities(_ s: String) -> String {
-        var out = s
-        for (k, v) in htmlEntities {
-            out = out.replacingOccurrences(of: k, with: v)
-        }
-        // Numeric entities &#N; and &#xHH;
-        if let regex = try? NSRegularExpression(pattern: #"&#(x?[0-9A-Fa-f]+);"#, options: []) {
-            let nsRange = NSRange(out.startIndex..., in: out)
-            let matches = regex.matches(in: out, range: nsRange).reversed()
-            for m in matches {
-                guard let full = Range(m.range, in: out),
-                      let inner = Range(m.range(at: 1), in: out) else { continue }
-                let raw = String(out[inner])
-                let scalar: Unicode.Scalar?
-                if raw.lowercased().hasPrefix("x"), let n = UInt32(raw.dropFirst(), radix: 16) {
-                    scalar = Unicode.Scalar(n)
-                } else if let n = UInt32(raw) {
-                    scalar = Unicode.Scalar(n)
-                } else {
-                    scalar = nil
-                }
-                if let scalar { out.replaceSubrange(full, with: String(Character(scalar))) }
-            }
-        }
-        return out
     }
 }

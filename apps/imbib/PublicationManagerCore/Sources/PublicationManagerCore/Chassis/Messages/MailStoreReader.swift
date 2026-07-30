@@ -168,6 +168,53 @@ public final class MailStoreReader {
         return Int(count)
     }
 
+    // MARK: - Scope resolution
+
+    /// The rows one `MessageListScope` shows, thread-collapsed and newest-first.
+    ///
+    /// ADDITIVE (Stage 5c, flagged): this is `MessageListWrapper.reload()`'s
+    /// body, lifted verbatim out of the macOS-gated list wrapper. It had to move
+    /// because impart-iOS needs the same answer and the wrapper is AppKit-adjacent
+    /// — and "which messages does All Inboxes contain" is not a rendering
+    /// question. The fan-out rules (folder = envelope parent, account = its
+    /// inbox-role folder, allInboxes = every inbox-role folder merged, flagged =
+    /// colour filter over all messages) were the one part of the mail surface
+    /// still spelled once per platform; now both list hosts call this.
+    public func messages(in scope: MessageListScope, limit: UInt32 = 5000) -> [MessageRowData] {
+        let fetched: [SharedItemRow]
+        switch scope {
+        case .folder(let id):
+            // Folder scope = envelope parentId filter, pushed to the store.
+            fetched = fetchMessages(inFolder: id.uuidString.lowercased(), limit: limit)
+        case .account(let id):
+            // v1: an account node lists its inbox-role folder. Sent/Drafts/…
+            // are one click away as child folder nodes.
+            let folders = fetchFolders(accountID: id.uuidString.lowercased())
+            if let inbox = folders.first(where: {
+                Self.folderPayload(from: $0)?.role == "inbox"
+            }) {
+                fetched = fetchMessages(inFolder: inbox.id, limit: limit)
+            } else {
+                fetched = []
+            }
+        case .allInboxes:
+            // Fetch folders with role inbox, parentId-query each, merge+sort
+            // — fine at Stage-2 scale (per-folder queries are indexed).
+            fetched = fetchInboxFolders()
+                .flatMap { fetchMessages(inFolder: $0.id, limit: limit) }
+                .sorted { $0.createdMs > $1.createdMs }
+        case .flagged(let color):
+            fetched = fetchAllMessages(limit: limit).filter { row in
+                guard let flagColor = row.flagColor else { return false }
+                if let color { return flagColor == color.rawValue }
+                return true
+            }
+        }
+        // Thread grouping: collapse to the newest message per thread with a
+        // "(n)" badge; the detail pane shows the full thread.
+        return MessageRowData.collapsedByThread(fetched.compactMap { MessageRowData(from: $0) })
+    }
+
     // MARK: - Payload decoding helpers
 
     nonisolated static func messagePayload(from row: SharedItemRow) -> MailMessagePayload? {

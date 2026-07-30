@@ -1,0 +1,18 @@
+[package]
+name = "impress-smart-search"
+description = "Deterministic smart-search core: intent classification, ADS query normalization/rewriting, reference validation, and page identifier extraction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+regex = { workspace = true }
+lazy_static = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+url = { workspace = true }
+percent-encoding = "2"
+
+[dev-dependencies]
+serde_json = { workspace = true }

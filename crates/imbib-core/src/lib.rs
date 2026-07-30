@@ -31,6 +31,11 @@ pub mod manuscript_format;
 pub mod merge;
 pub mod ris;
 pub mod search;
+/// UniFFI surface for the deterministic smart-search core
+/// (`crates/impress-smart-search`). Hosted here so PMC reaches it through the
+/// xcframework it already links, instead of a new one.
+#[cfg(feature = "native")]
+pub mod smart_search_ffi;
 #[cfg(feature = "native")]
 pub mod sources;
 pub mod text;

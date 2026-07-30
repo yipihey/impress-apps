@@ -330,41 +330,10 @@ public struct MessageListWrapper: View {
     private func reload() async {
         isLoading = true
         defer { isLoading = false }
-        let reader = MailStoreReader.shared
-        let fetched: [SharedItemRow]
-        switch scope {
-        case .folder(let id):
-            // Folder scope = envelope parentId filter, pushed to the store.
-            fetched = reader.fetchMessages(inFolder: id.uuidString.lowercased())
-        case .account(let id):
-            // v1: an account node lists its inbox-role folder. Sent/Drafts/…
-            // are one click away as child folder nodes.
-            let folders = reader.fetchFolders(accountID: id.uuidString.lowercased())
-            if let inbox = folders.first(where: {
-                MailStoreReader.folderPayload(from: $0)?.role == "inbox"
-            }) {
-                fetched = reader.fetchMessages(inFolder: inbox.id)
-            } else {
-                fetched = []
-            }
-        case .allInboxes:
-            // Fetch folders with role inbox, parentId-query each, merge+sort
-            // — fine at Stage-2 scale (per-folder queries are indexed).
-            let inboxes = reader.fetchInboxFolders()
-            fetched = inboxes
-                .flatMap { reader.fetchMessages(inFolder: $0.id) }
-                .sorted { $0.createdMs > $1.createdMs }
-        case .flagged(let color):
-            fetched = reader.fetchAllMessages().filter { row in
-                guard let flagColor = row.flagColor else { return false }
-                if let color { return flagColor == color.rawValue }
-                return true
-            }
-        }
-        let mapped = fetched.compactMap { MessageRowData(from: $0) }
-        // Thread grouping: collapse to the newest message per thread with a
-        // "(n)" badge; the detail pane shows the full thread.
-        let collapsed = MessageRowData.collapsedByThread(mapped)
+        // Scope → rows lives in `MailStoreReader.messages(in:)` (Stage 5c), so
+        // impart-iOS's list host resolves All Inboxes / an account / a folder /
+        // a flag colour exactly the way this one does.
+        let collapsed = MailStoreReader.shared.messages(in: scope)
         rows = collapsed
         // Keep the current selection valid; otherwise select the first row so
         // the detail pane always has something to show.
@@ -373,7 +342,7 @@ public struct MessageListWrapper: View {
         } else if selectedID == nil {
             selectedID = collapsed.first?.id
         }
-        logger.debug("Mail reloaded scope=\(String(describing: scope)) messages=\(mapped.count) threads=\(collapsed.count)")
+        logger.debug("Mail reloaded scope=\(String(describing: scope)) threads=\(collapsed.count)")
     }
 }
 #endif

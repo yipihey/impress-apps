@@ -1,0 +1,54 @@
+[
+  {
+    "input" : "10.1086/164143.",
+    "output" : "10.1086/164143"
+  },
+  {
+    "input" : "10.1086/164143,",
+    "output" : "10.1086/164143"
+  },
+  {
+    "input" : "abc;",
+    "output" : "abc"
+  },
+  {
+    "input" : "abc:",
+    "output" : "abc"
+  },
+  {
+    "input" : "x)",
+    "output" : "x"
+  },
+  {
+    "input" : "x\"",
+    "output" : "x"
+  },
+  {
+    "input" : "x'",
+    "output" : "x"
+  },
+  {
+    "input" : "x]",
+    "output" : "x"
+  },
+  {
+    "input" : "x/",
+    "output" : "x/"
+  },
+  {
+    "input" : "...",
+    "output" : ""
+  },
+  {
+    "input" : "",
+    "output" : ""
+  },
+  {
+    "input" : "a....",
+    "output" : "a"
+  },
+  {
+    "input" : "10.1086/164143.,;:)\"']",
+    "output" : "10.1086/164143"
+  }
+]

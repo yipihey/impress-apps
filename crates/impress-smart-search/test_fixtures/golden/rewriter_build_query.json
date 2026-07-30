@@ -1,0 +1,688 @@
+[
+  {
+    "originalInput" : "",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "abel first stars",
+    "parts" : {
+      "authors" : [
+        "Abel"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Abel\"",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "abel norman first stars science",
+    "parts" : {
+      "authors" : [
+        "Abel",
+        "Norman"
+      ],
+      "bibstem" : "Sci",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "first stars"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Abel\" author:\"Norman\" bibstem:Sci abs:(first stars)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "SDSS DR17 spectroscopy",
+    "parts" : {
+      "authors" : [
+        "Smith"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "SDSS",
+        "DR17"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(SDSS DR17 Smith)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "abel first stars",
+    "parts" : {
+      "authors" : [
+        "abel"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(abel)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "JWST galaxy formation",
+    "parts" : {
+      "authors" : [
+        "JWST"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "galaxy formation"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(galaxy formation JWST)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "gaia hubble rubin",
+    "parts" : {
+      "authors" : [
+        "Gaia",
+        "Hubble",
+        "Rubin"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(Gaia Hubble Rubin)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "galaxy rotation curves dark",
+    "parts" : {
+      "authors" : [
+        "Galaxy",
+        "Rotation",
+        "Curves",
+        "Dark"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Dark\" abs:(Galaxy Rotation Curves)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "abel bryan norman klessen",
+    "parts" : {
+      "authors" : [
+        "Abel",
+        "Bryan",
+        "Norman",
+        "Klessen"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(Abel Bryan Norman Klessen)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "abel bryan norman klessen first stars",
+    "parts" : {
+      "authors" : [
+        "Abel",
+        "Bryan",
+        "Norman",
+        "Klessen"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "first stars"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Abel\" author:\"Bryan\" author:\"Norman\" author:\"Klessen\" abs:(first stars)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "abel first stars",
+    "parts" : {
+      "authors" : [
+        "Abel"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "Abel",
+        "first stars"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Abel\" abs:(first stars)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "galaxy rotation curves",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "galaxy rotation curves",
+        "galaxy rotation curves"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(galaxy rotation curves)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "dark matter",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "dark matter",
+        "matter dark"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(dark matter)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "dark matter 1970s",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "1970",
+        "dark matter"
+      ],
+      "yearFrom" : 1970,
+      "yearTo" : 1979
+    },
+    "query" : "abs:(dark matter) year:1970-1979",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "2020 dark energy",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "2020"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "1899 2101",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "1899",
+        "2101"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(1899 2101)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "apj",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "ApJ",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "bibstem:ApJ",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "a&a",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "A&A",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "bibstem:A&A",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "phys rev",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "Phys.Rev.",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "bibstem:Phys.Rev.",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "apj",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "ApJ123",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "x",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "waytoolongbibstem",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "apj",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "  ApJ  ",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "bibstem:ApJ",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "x",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : " ",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "2002",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 2002,
+      "yearTo" : 2002
+    },
+    "query" : "year:2002",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "since 2002",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 2002,
+      "yearTo" : 0
+    },
+    "query" : "year:2002-2026",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "2002",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 2002,
+      "yearTo" : 1999
+    },
+    "query" : "year:2002-2026",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "before 2002",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 2002
+    },
+    "query" : "",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "1970s",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 1970,
+      "yearTo" : 1979
+    },
+    "query" : "year:1970-1979",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "galaxy rotation curves 1970s",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 2020,
+      "yearTo" : 2024
+    },
+    "query" : "year:1970-1979",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "papers from the 1980s",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "year:1980-1989",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "the 2010s were busy",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "year:2010-2019",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "1975s",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "refereed",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : true,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "property:refereed",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "Riess dark energy since 2020 refereed",
+    "parts" : {
+      "authors" : [
+        "Riess"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : true,
+      "topicWords" : [
+        "dark energy"
+      ],
+      "yearFrom" : 2020,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Riess\" abs:(dark energy) year:2020-2026 property:refereed",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "abel first stars",
+    "parts" : {
+      "authors" : [
+        " Abel ",
+        "",
+        "A",
+        "X"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "  first stars  ",
+        ""
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Abel\" abs:(first stars)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "müller réionisation",
+    "parts" : {
+      "authors" : [
+        "Müller"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "réionisation"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Müller\" abs:(réionisation)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "zel'dovich",
+    "parts" : {
+      "authors" : [
+        "Zel'dovich"
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "author:\"Zel'dovich\"",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "dark matter",
+    "parts" : {
+      "authors" : [
+
+      ],
+      "bibstem" : "",
+      "refereedOnly" : false,
+      "topicWords" : [
+        "dark\tmatter",
+        "a\nb"
+      ],
+      "yearFrom" : 0,
+      "yearTo" : 0
+    },
+    "query" : "abs:(dark matter a b)",
+    "thisYear" : 2026
+  },
+  {
+    "originalInput" : "abel first stars science 2000-2005 refereed",
+    "parts" : {
+      "authors" : [
+        "Abel"
+      ],
+      "bibstem" : "Sci",
+      "refereedOnly" : true,
+      "topicWords" : [
+        "first stars"
+      ],
+      "yearFrom" : 2000,
+      "yearTo" : 2005
+    },
+    "query" : "author:\"Abel\" bibstem:Sci abs:(first stars) year:2000-2005 property:refereed",
+    "thisYear" : 2026
+  }
+]
