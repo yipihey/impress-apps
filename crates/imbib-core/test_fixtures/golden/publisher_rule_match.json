@@ -1,0 +1,260 @@
+[
+  {
+    "constructedURLs" : [
+
+    ],
+    "doi" : "",
+    "matchingRuleIDs" : [
+
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "iop-aas",
+        "url" : "https:\/\/iopscience.iop.org\/article\/10.3847\/1538-4357\/abc123\/pdf"
+      }
+    ],
+    "doi" : "10.3847\/1538-4357\/abc123",
+    "matchingRuleIDs" : [
+      "iop-aas"
+    ]
+  },
+  {
+    "constructedURLs" : [
+
+    ],
+    "doi" : "10.3847",
+    "matchingRuleIDs" : [
+
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "iop-journals",
+        "url" : "https:\/\/iopscience.iop.org\/article\/10.1088\/0004-637X\/700\/1\/1\/pdf"
+      }
+    ],
+    "doi" : "10.1088\/0004-637X\/700\/1\/1",
+    "matchingRuleIDs" : [
+      "iop-journals"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "aps",
+        "url" : "https:\/\/link.aps.org\/pdf\/10.1103\/PhysRevD.100.123456"
+      }
+    ],
+    "doi" : "10.1103\/PhysRevD.100.123456",
+    "matchingRuleIDs" : [
+      "aps"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "nature",
+        "url" : "https:\/\/www.nature.com\/articles\/nature12373.pdf"
+      }
+    ],
+    "doi" : "10.1038\/nature12373",
+    "matchingRuleIDs" : [
+      "nature"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "science",
+        "url" : "https:\/\/www.science.org\/doi\/pdf\/10.1126\/science.1234567"
+      }
+    ],
+    "doi" : "10.1126\/science.1234567",
+    "matchingRuleIDs" : [
+      "science"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "elsevier",
+        "url" : null
+      }
+    ],
+    "doi" : "10.1016\/j.physletb.2012.08.020",
+    "matchingRuleIDs" : [
+      "elsevier"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "wiley",
+        "url" : null
+      }
+    ],
+    "doi" : "10.1002\/asna.201512345",
+    "matchingRuleIDs" : [
+      "wiley"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "aanda",
+        "url" : null
+      }
+    ],
+    "doi" : "10.1051\/0004-6361\/202348170",
+    "matchingRuleIDs" : [
+      "aanda"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "mnras",
+        "url" : null
+      }
+    ],
+    "doi" : "10.1093\/mnras\/stab123",
+    "matchingRuleIDs" : [
+      "mnras"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "mdpi",
+        "url" : null
+      }
+    ],
+    "doi" : "10.3390\/galaxies12010001",
+    "matchingRuleIDs" : [
+      "mdpi"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "arxiv",
+        "url" : "https:\/\/arxiv.org\/pdf\/2401.12345.pdf"
+      }
+    ],
+    "doi" : "10.48550\/arXiv.2401.12345",
+    "matchingRuleIDs" : [
+      "arxiv"
+    ]
+  },
+  {
+    "constructedURLs" : [
+
+    ],
+    "doi" : "10.48550\/ARXIV.2401.12345",
+    "matchingRuleIDs" : [
+
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "arxiv",
+        "url" : "https:\/\/arxiv.org\/pdf\/.pdf"
+      }
+    ],
+    "doi" : "10.48550\/arXiv.",
+    "matchingRuleIDs" : [
+      "arxiv"
+    ]
+  },
+  {
+    "constructedURLs" : [
+
+    ],
+    "doi" : "10.48550\/notarxiv",
+    "matchingRuleIDs" : [
+
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "aip",
+        "url" : null
+      }
+    ],
+    "doi" : "10.1063\/1.1234567",
+    "matchingRuleIDs" : [
+      "aip"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "annual-reviews",
+        "url" : null
+      }
+    ],
+    "doi" : "10.1146\/annurev-astro-081817-051829",
+    "matchingRuleIDs" : [
+      "annual-reviews"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "springer",
+        "url" : null
+      }
+    ],
+    "doi" : "10.1007\/s11214-024-01234-5",
+    "matchingRuleIDs" : [
+      "springer"
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "cambridge",
+        "url" : null
+      }
+    ],
+    "doi" : "10.1017\/S1743921324000123",
+    "matchingRuleIDs" : [
+      "cambridge"
+    ]
+  },
+  {
+    "constructedURLs" : [
+
+    ],
+    "doi" : "10.9999\/unknown-prefix",
+    "matchingRuleIDs" : [
+
+    ]
+  },
+  {
+    "constructedURLs" : [
+
+    ],
+    "doi" : "not-a-doi",
+    "matchingRuleIDs" : [
+
+    ]
+  },
+  {
+    "constructedURLs" : [
+      {
+        "ruleID" : "nature",
+        "url" : "https:\/\/www.nature.com\/articles\/.pdf"
+      }
+    ],
+    "doi" : "10.1038\/",
+    "matchingRuleIDs" : [
+      "nature"
+    ]
+  }
+]

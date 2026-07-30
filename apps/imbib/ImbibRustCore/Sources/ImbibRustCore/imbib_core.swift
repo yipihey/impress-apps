@@ -8518,6 +8518,744 @@ public func FfiConverterTypeFeatureVector_lower(_ value: FeatureVector) -> RustB
 
 
 /**
+ * One segment of a parsed abstract. `kind` is `text` | `inlineMath` |
+ * `displayMath`; a flat record rather than an enum because Swift's
+ * `AbstractSegment` is already the shape the renderer wants.
+ */
+public struct FfiAbstractSegment {
+    public var kind: String
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: String, value: String) {
+        self.kind = kind
+        self.value = value
+    }
+}
+
+
+
+extension FfiAbstractSegment: Equatable, Hashable {
+    public static func ==(lhs: FfiAbstractSegment, rhs: FfiAbstractSegment) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.value != rhs.value {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(value)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAbstractSegment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAbstractSegment {
+        return
+            try FfiAbstractSegment(
+                kind: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiAbstractSegment, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAbstractSegment_lift(_ buf: RustBuffer) throws -> FfiAbstractSegment {
+    return try FfiConverterTypeFfiAbstractSegment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAbstractSegment_lower(_ value: FfiAbstractSegment) -> RustBuffer {
+    return FfiConverterTypeFfiAbstractSegment.lower(value)
+}
+
+
+/**
+ * An attachment on an mbox message.
+ */
+public struct FfiMboxAttachment {
+    public var filename: String
+    public var contentType: String
+    public var data: Data
+    public var customHeaderNames: [String]
+    public var customHeaderValues: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(filename: String, contentType: String, data: Data, customHeaderNames: [String], customHeaderValues: [String]) {
+        self.filename = filename
+        self.contentType = contentType
+        self.data = data
+        self.customHeaderNames = customHeaderNames
+        self.customHeaderValues = customHeaderValues
+    }
+}
+
+
+
+extension FfiMboxAttachment: Equatable, Hashable {
+    public static func ==(lhs: FfiMboxAttachment, rhs: FfiMboxAttachment) -> Bool {
+        if lhs.filename != rhs.filename {
+            return false
+        }
+        if lhs.contentType != rhs.contentType {
+            return false
+        }
+        if lhs.data != rhs.data {
+            return false
+        }
+        if lhs.customHeaderNames != rhs.customHeaderNames {
+            return false
+        }
+        if lhs.customHeaderValues != rhs.customHeaderValues {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(filename)
+        hasher.combine(contentType)
+        hasher.combine(data)
+        hasher.combine(customHeaderNames)
+        hasher.combine(customHeaderValues)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMboxAttachment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMboxAttachment {
+        return
+            try FfiMboxAttachment(
+                filename: FfiConverterString.read(from: &buf), 
+                contentType: FfiConverterString.read(from: &buf), 
+                data: FfiConverterData.read(from: &buf), 
+                customHeaderNames: FfiConverterSequenceString.read(from: &buf), 
+                customHeaderValues: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMboxAttachment, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.filename, into: &buf)
+        FfiConverterString.write(value.contentType, into: &buf)
+        FfiConverterData.write(value.data, into: &buf)
+        FfiConverterSequenceString.write(value.customHeaderNames, into: &buf)
+        FfiConverterSequenceString.write(value.customHeaderValues, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMboxAttachment_lift(_ buf: RustBuffer) throws -> FfiMboxAttachment {
+    return try FfiConverterTypeFfiMboxAttachment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMboxAttachment_lower(_ value: FfiMboxAttachment) -> RustBuffer {
+    return FfiConverterTypeFfiMboxAttachment.lower(value)
+}
+
+
+/**
+ * A parsed mbox message.
+ *
+ * `message_id` and `date_unix_seconds` are `Option`: Swift's parser substituted
+ * a fresh UUID and `Date()` respectively, which made both untestable and made a
+ * message's identity depend on when it was imported. The absence is now
+ * reported and the Swift shim supplies its own fallback, unchanged, so callers
+ * see the same values they always did.
+ */
+public struct FfiMboxMessage {
+    public var from: String
+    public var subject: String
+    public var messageId: String?
+    public var dateUnixSeconds: Int64?
+    public var headerNames: [String]
+    public var headerValues: [String]
+    public var body: String
+    public var attachments: [FfiMboxAttachment]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(from: String, subject: String, messageId: String?, dateUnixSeconds: Int64?, headerNames: [String], headerValues: [String], body: String, attachments: [FfiMboxAttachment]) {
+        self.from = from
+        self.subject = subject
+        self.messageId = messageId
+        self.dateUnixSeconds = dateUnixSeconds
+        self.headerNames = headerNames
+        self.headerValues = headerValues
+        self.body = body
+        self.attachments = attachments
+    }
+}
+
+
+
+extension FfiMboxMessage: Equatable, Hashable {
+    public static func ==(lhs: FfiMboxMessage, rhs: FfiMboxMessage) -> Bool {
+        if lhs.from != rhs.from {
+            return false
+        }
+        if lhs.subject != rhs.subject {
+            return false
+        }
+        if lhs.messageId != rhs.messageId {
+            return false
+        }
+        if lhs.dateUnixSeconds != rhs.dateUnixSeconds {
+            return false
+        }
+        if lhs.headerNames != rhs.headerNames {
+            return false
+        }
+        if lhs.headerValues != rhs.headerValues {
+            return false
+        }
+        if lhs.body != rhs.body {
+            return false
+        }
+        if lhs.attachments != rhs.attachments {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(from)
+        hasher.combine(subject)
+        hasher.combine(messageId)
+        hasher.combine(dateUnixSeconds)
+        hasher.combine(headerNames)
+        hasher.combine(headerValues)
+        hasher.combine(body)
+        hasher.combine(attachments)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMboxMessage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMboxMessage {
+        return
+            try FfiMboxMessage(
+                from: FfiConverterString.read(from: &buf), 
+                subject: FfiConverterString.read(from: &buf), 
+                messageId: FfiConverterOptionString.read(from: &buf), 
+                dateUnixSeconds: FfiConverterOptionInt64.read(from: &buf), 
+                headerNames: FfiConverterSequenceString.read(from: &buf), 
+                headerValues: FfiConverterSequenceString.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf), 
+                attachments: FfiConverterSequenceTypeFfiMboxAttachment.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMboxMessage, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.from, into: &buf)
+        FfiConverterString.write(value.subject, into: &buf)
+        FfiConverterOptionString.write(value.messageId, into: &buf)
+        FfiConverterOptionInt64.write(value.dateUnixSeconds, into: &buf)
+        FfiConverterSequenceString.write(value.headerNames, into: &buf)
+        FfiConverterSequenceString.write(value.headerValues, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+        FfiConverterSequenceTypeFfiMboxAttachment.write(value.attachments, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMboxMessage_lift(_ buf: RustBuffer) throws -> FfiMboxMessage {
+    return try FfiConverterTypeFfiMboxMessage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMboxMessage_lower(_ value: FfiMboxMessage) -> RustBuffer {
+    return FfiConverterTypeFfiMboxMessage.lower(value)
+}
+
+
+/**
+ * One decoded MIME part. Flattened `mbox::MimePart`; `headers` is a sorted
+ * key/value list because UniFFI has no ordered-map record.
+ */
+public struct FfiMimePart {
+    public var contentType: String
+    public var transferEncoding: String?
+    public var filename: String?
+    public var headerNames: [String]
+    public var headerValues: [String]
+    public var content: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(contentType: String, transferEncoding: String?, filename: String?, headerNames: [String], headerValues: [String], content: Data) {
+        self.contentType = contentType
+        self.transferEncoding = transferEncoding
+        self.filename = filename
+        self.headerNames = headerNames
+        self.headerValues = headerValues
+        self.content = content
+    }
+}
+
+
+
+extension FfiMimePart: Equatable, Hashable {
+    public static func ==(lhs: FfiMimePart, rhs: FfiMimePart) -> Bool {
+        if lhs.contentType != rhs.contentType {
+            return false
+        }
+        if lhs.transferEncoding != rhs.transferEncoding {
+            return false
+        }
+        if lhs.filename != rhs.filename {
+            return false
+        }
+        if lhs.headerNames != rhs.headerNames {
+            return false
+        }
+        if lhs.headerValues != rhs.headerValues {
+            return false
+        }
+        if lhs.content != rhs.content {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(contentType)
+        hasher.combine(transferEncoding)
+        hasher.combine(filename)
+        hasher.combine(headerNames)
+        hasher.combine(headerValues)
+        hasher.combine(content)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMimePart: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMimePart {
+        return
+            try FfiMimePart(
+                contentType: FfiConverterString.read(from: &buf), 
+                transferEncoding: FfiConverterOptionString.read(from: &buf), 
+                filename: FfiConverterOptionString.read(from: &buf), 
+                headerNames: FfiConverterSequenceString.read(from: &buf), 
+                headerValues: FfiConverterSequenceString.read(from: &buf), 
+                content: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMimePart, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.contentType, into: &buf)
+        FfiConverterOptionString.write(value.transferEncoding, into: &buf)
+        FfiConverterOptionString.write(value.filename, into: &buf)
+        FfiConverterSequenceString.write(value.headerNames, into: &buf)
+        FfiConverterSequenceString.write(value.headerValues, into: &buf)
+        FfiConverterData.write(value.content, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMimePart_lift(_ buf: RustBuffer) throws -> FfiMimePart {
+    return try FfiConverterTypeFfiMimePart.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMimePart_lower(_ value: FfiMimePart) -> RustBuffer {
+    return FfiConverterTypeFfiMimePart.lower(value)
+}
+
+
+/**
+ * What the pure logic concludes from those fields.
+ */
+public struct FfiPdfBestFields {
+    public var bestTitle: String?
+    public var bestAuthors: [String]
+    public var bestYear: Int32?
+    public var hasIdentifier: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(bestTitle: String?, bestAuthors: [String], bestYear: Int32?, hasIdentifier: Bool) {
+        self.bestTitle = bestTitle
+        self.bestAuthors = bestAuthors
+        self.bestYear = bestYear
+        self.hasIdentifier = hasIdentifier
+    }
+}
+
+
+
+extension FfiPdfBestFields: Equatable, Hashable {
+    public static func ==(lhs: FfiPdfBestFields, rhs: FfiPdfBestFields) -> Bool {
+        if lhs.bestTitle != rhs.bestTitle {
+            return false
+        }
+        if lhs.bestAuthors != rhs.bestAuthors {
+            return false
+        }
+        if lhs.bestYear != rhs.bestYear {
+            return false
+        }
+        if lhs.hasIdentifier != rhs.hasIdentifier {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(bestTitle)
+        hasher.combine(bestAuthors)
+        hasher.combine(bestYear)
+        hasher.combine(hasIdentifier)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPdfBestFields: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPdfBestFields {
+        return
+            try FfiPdfBestFields(
+                bestTitle: FfiConverterOptionString.read(from: &buf), 
+                bestAuthors: FfiConverterSequenceString.read(from: &buf), 
+                bestYear: FfiConverterOptionInt32.read(from: &buf), 
+                hasIdentifier: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPdfBestFields, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.bestTitle, into: &buf)
+        FfiConverterSequenceString.write(value.bestAuthors, into: &buf)
+        FfiConverterOptionInt32.write(value.bestYear, into: &buf)
+        FfiConverterBool.write(value.hasIdentifier, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPdfBestFields_lift(_ buf: RustBuffer) throws -> FfiPdfBestFields {
+    return try FfiConverterTypeFfiPdfBestFields.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPdfBestFields_lower(_ value: FfiPdfBestFields) -> RustBuffer {
+    return FfiConverterTypeFfiPdfBestFields.lower(value)
+}
+
+
+/**
+ * The fields `bestTitle` / `bestAuthors` / `bestYear` resolve from.
+ */
+public struct FfiPdfExtractedFields {
+    public var title: String?
+    public var author: String?
+    public var heuristicTitle: String?
+    public var heuristicAuthors: [String]
+    public var heuristicYear: Int32?
+    public var firstPageText: String?
+    public var extractedDoi: String?
+    public var extractedArxivId: String?
+    public var extractedBibcode: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String?, author: String?, heuristicTitle: String?, heuristicAuthors: [String], heuristicYear: Int32?, firstPageText: String?, extractedDoi: String?, extractedArxivId: String?, extractedBibcode: String?) {
+        self.title = title
+        self.author = author
+        self.heuristicTitle = heuristicTitle
+        self.heuristicAuthors = heuristicAuthors
+        self.heuristicYear = heuristicYear
+        self.firstPageText = firstPageText
+        self.extractedDoi = extractedDoi
+        self.extractedArxivId = extractedArxivId
+        self.extractedBibcode = extractedBibcode
+    }
+}
+
+
+
+extension FfiPdfExtractedFields: Equatable, Hashable {
+    public static func ==(lhs: FfiPdfExtractedFields, rhs: FfiPdfExtractedFields) -> Bool {
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.author != rhs.author {
+            return false
+        }
+        if lhs.heuristicTitle != rhs.heuristicTitle {
+            return false
+        }
+        if lhs.heuristicAuthors != rhs.heuristicAuthors {
+            return false
+        }
+        if lhs.heuristicYear != rhs.heuristicYear {
+            return false
+        }
+        if lhs.firstPageText != rhs.firstPageText {
+            return false
+        }
+        if lhs.extractedDoi != rhs.extractedDoi {
+            return false
+        }
+        if lhs.extractedArxivId != rhs.extractedArxivId {
+            return false
+        }
+        if lhs.extractedBibcode != rhs.extractedBibcode {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(title)
+        hasher.combine(author)
+        hasher.combine(heuristicTitle)
+        hasher.combine(heuristicAuthors)
+        hasher.combine(heuristicYear)
+        hasher.combine(firstPageText)
+        hasher.combine(extractedDoi)
+        hasher.combine(extractedArxivId)
+        hasher.combine(extractedBibcode)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPdfExtractedFields: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPdfExtractedFields {
+        return
+            try FfiPdfExtractedFields(
+                title: FfiConverterOptionString.read(from: &buf), 
+                author: FfiConverterOptionString.read(from: &buf), 
+                heuristicTitle: FfiConverterOptionString.read(from: &buf), 
+                heuristicAuthors: FfiConverterSequenceString.read(from: &buf), 
+                heuristicYear: FfiConverterOptionInt32.read(from: &buf), 
+                firstPageText: FfiConverterOptionString.read(from: &buf), 
+                extractedDoi: FfiConverterOptionString.read(from: &buf), 
+                extractedArxivId: FfiConverterOptionString.read(from: &buf), 
+                extractedBibcode: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPdfExtractedFields, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.title, into: &buf)
+        FfiConverterOptionString.write(value.author, into: &buf)
+        FfiConverterOptionString.write(value.heuristicTitle, into: &buf)
+        FfiConverterSequenceString.write(value.heuristicAuthors, into: &buf)
+        FfiConverterOptionInt32.write(value.heuristicYear, into: &buf)
+        FfiConverterOptionString.write(value.firstPageText, into: &buf)
+        FfiConverterOptionString.write(value.extractedDoi, into: &buf)
+        FfiConverterOptionString.write(value.extractedArxivId, into: &buf)
+        FfiConverterOptionString.write(value.extractedBibcode, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPdfExtractedFields_lift(_ buf: RustBuffer) throws -> FfiPdfExtractedFields {
+    return try FfiConverterTypeFfiPdfExtractedFields.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPdfExtractedFields_lower(_ value: FfiPdfExtractedFields) -> RustBuffer {
+    return FfiConverterTypeFfiPdfExtractedFields.lower(value)
+}
+
+
+/**
+ * One publisher resolution rule.
+ */
+public struct FfiPublisherRule {
+    public var id: String
+    public var name: String
+    public var doiPrefixes: [String]
+    public var pdfUrlPattern: String?
+    public var requiresProxy: Bool
+    /**
+     * `low` | `medium` | `high`.
+     */
+    public var captchaRisk: String
+    public var preferOpenAlex: Bool
+    public var notes: String?
+    public var htmlParserId: String?
+    public var supportsLandingPageScraping: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, doiPrefixes: [String], pdfUrlPattern: String?, requiresProxy: Bool, 
+        /**
+         * `low` | `medium` | `high`.
+         */captchaRisk: String, preferOpenAlex: Bool, notes: String?, htmlParserId: String?, supportsLandingPageScraping: Bool) {
+        self.id = id
+        self.name = name
+        self.doiPrefixes = doiPrefixes
+        self.pdfUrlPattern = pdfUrlPattern
+        self.requiresProxy = requiresProxy
+        self.captchaRisk = captchaRisk
+        self.preferOpenAlex = preferOpenAlex
+        self.notes = notes
+        self.htmlParserId = htmlParserId
+        self.supportsLandingPageScraping = supportsLandingPageScraping
+    }
+}
+
+
+
+extension FfiPublisherRule: Equatable, Hashable {
+    public static func ==(lhs: FfiPublisherRule, rhs: FfiPublisherRule) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.doiPrefixes != rhs.doiPrefixes {
+            return false
+        }
+        if lhs.pdfUrlPattern != rhs.pdfUrlPattern {
+            return false
+        }
+        if lhs.requiresProxy != rhs.requiresProxy {
+            return false
+        }
+        if lhs.captchaRisk != rhs.captchaRisk {
+            return false
+        }
+        if lhs.preferOpenAlex != rhs.preferOpenAlex {
+            return false
+        }
+        if lhs.notes != rhs.notes {
+            return false
+        }
+        if lhs.htmlParserId != rhs.htmlParserId {
+            return false
+        }
+        if lhs.supportsLandingPageScraping != rhs.supportsLandingPageScraping {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        hasher.combine(doiPrefixes)
+        hasher.combine(pdfUrlPattern)
+        hasher.combine(requiresProxy)
+        hasher.combine(captchaRisk)
+        hasher.combine(preferOpenAlex)
+        hasher.combine(notes)
+        hasher.combine(htmlParserId)
+        hasher.combine(supportsLandingPageScraping)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPublisherRule: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPublisherRule {
+        return
+            try FfiPublisherRule(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                doiPrefixes: FfiConverterSequenceString.read(from: &buf), 
+                pdfUrlPattern: FfiConverterOptionString.read(from: &buf), 
+                requiresProxy: FfiConverterBool.read(from: &buf), 
+                captchaRisk: FfiConverterString.read(from: &buf), 
+                preferOpenAlex: FfiConverterBool.read(from: &buf), 
+                notes: FfiConverterOptionString.read(from: &buf), 
+                htmlParserId: FfiConverterOptionString.read(from: &buf), 
+                supportsLandingPageScraping: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPublisherRule, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterSequenceString.write(value.doiPrefixes, into: &buf)
+        FfiConverterOptionString.write(value.pdfUrlPattern, into: &buf)
+        FfiConverterBool.write(value.requiresProxy, into: &buf)
+        FfiConverterString.write(value.captchaRisk, into: &buf)
+        FfiConverterBool.write(value.preferOpenAlex, into: &buf)
+        FfiConverterOptionString.write(value.notes, into: &buf)
+        FfiConverterOptionString.write(value.htmlParserId, into: &buf)
+        FfiConverterBool.write(value.supportsLandingPageScraping, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPublisherRule_lift(_ buf: RustBuffer) throws -> FfiPublisherRule {
+    return try FfiConverterTypeFfiPublisherRule.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPublisherRule_lower(_ value: FfiPublisherRule) -> RustBuffer {
+    return FfiConverterTypeFfiPublisherRule.lower(value)
+}
+
+
+/**
  * Options for filename generation
  */
 public struct FilenameOptions {
@@ -22547,6 +23285,30 @@ fileprivate struct FfiConverterOptionTypeConflict: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFfiPublisherRule: FfiConverterRustBuffer {
+    typealias SwiftType = FfiPublisherRule?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiPublisherRule.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiPublisherRule.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeFormatAffixes: FfiConverterRustBuffer {
     typealias SwiftType = FormatAffixes?
 
@@ -23828,6 +24590,131 @@ fileprivate struct FfiConverterSequenceTypeFeatureVector: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiAbstractSegment: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiAbstractSegment]
+
+    public static func write(_ value: [FfiAbstractSegment], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiAbstractSegment.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiAbstractSegment] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiAbstractSegment]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiAbstractSegment.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiMboxAttachment: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiMboxAttachment]
+
+    public static func write(_ value: [FfiMboxAttachment], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiMboxAttachment.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiMboxAttachment] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiMboxAttachment]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiMboxAttachment.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiMboxMessage: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiMboxMessage]
+
+    public static func write(_ value: [FfiMboxMessage], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiMboxMessage.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiMboxMessage] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiMboxMessage]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiMboxMessage.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiMimePart: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiMimePart]
+
+    public static func write(_ value: [FfiMimePart], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiMimePart.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiMimePart] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiMimePart]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiMimePart.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiPublisherRule: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiPublisherRule]
+
+    public static func write(_ value: [FfiPublisherRule], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiPublisherRule.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiPublisherRule] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiPublisherRule]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiPublisherRule.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeHelpSearchResult: FfiConverterRustBuffer {
     typealias SwiftType = [HelpSearchResult]
 
@@ -24979,6 +25866,39 @@ fileprivate struct FfiConverterDictionaryTypeFeatureTypeDouble: FfiConverterRust
     }
 }
 /**
+ * Cheap sniff for math delimiters or MathML in an abstract.
+ */
+public func abstractContainsMath(text: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_abstract_contains_math(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * Convert `<inline-formula>` / `<mml:math>` markup to LaTeX, targeting a LaTeX
+ * renderer (MathJax/SwiftMath). Distinct from `parse_mathml`, which targets
+ * Unicode super/subscripts for the search index.
+ */
+public func abstractMathmlToLatex(text: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_abstract_mathml_to_latex(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * Split an abstract into prose and math segments, after arXiv de-escaping,
+ * MathML→LaTeX conversion, HTML entity decoding and `<sub>`/`<sup>` rewriting.
+ */
+public func abstractParse(text: String) -> [FfiAbstractSegment] {
+    return try!  FfiConverterSequenceTypeFfiAbstractSegment.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_abstract_parse(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
  * Extract every supported identifier from BibTeX fields in one FFI call.
  *
  * Keys are identifier-type names: `doi`, `arxiv`, `bibcode`, `pmid`, `pmcid`.
@@ -25073,6 +25993,18 @@ public func annIndexSize(handleId: UInt64) -> UInt32 {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_ann_index_size(
         FfiConverterUInt64.lower(handleId),$0
+    )
+})
+}
+/**
+ * Classify an artifact from its filename alone — the filename hints and the
+ * extension table. Returns `None` when only `UTType` can decide, which is why
+ * the Swift caller keeps its `conforms(to:)` tail.
+ */
+public func artifactTypeFromFilename(path: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_artifact_type_from_filename(
+        FfiConverterString.lower(path),$0
     )
 })
 }
@@ -26197,6 +27129,29 @@ public func highlightTerms(text: String, queryTerms: [String], highlightStart: S
     )
 })
 }
+/**
+ * `<meta name="…" content="…">`. Note there is no reversed-order pattern here;
+ * Swift had none either.
+ */
+public func htmlMetaName(html: String, name: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_html_meta_name(
+        FfiConverterString.lower(html),
+        FfiConverterString.lower(name),$0
+    )
+})
+}
+/**
+ * `<meta property="…" content="…">` — both attribute orders, first match wins.
+ */
+public func htmlMetaProperty(html: String, property: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_html_meta_property(
+        FfiConverterString.lower(html),
+        FfiConverterString.lower(property),$0
+    )
+})
+}
 public func identifierDisplayName(idType: IdentifierType) -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_identifier_display_name(
@@ -26388,6 +27343,16 @@ public func manuscriptFormatGrammar() -> [ManuscriptFormatDescriptor] {
 })
 }
 /**
+ * Parse a whole mbox document into messages.
+ */
+public func mboxParse(content: String) -> [FfiMboxMessage] {
+    return try!  FfiConverterSequenceTypeFfiMboxMessage.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_mbox_parse(
+        FfiConverterString.lower(content),$0
+    )
+})
+}
+/**
  * Merge two annotation sets (for sync conflicts)
  *
  * Strategy: Keep all unique annotations, prefer newer versions for conflicts
@@ -26406,6 +27371,70 @@ public func mergePublications(local: Publication, remote: Publication, strategy:
         FfiConverterTypePublication.lower(local),
         FfiConverterTypePublication.lower(remote),
         FfiConverterTypeMergeStrategy.lower(strategy),$0
+    )
+})
+}
+/**
+ * Base64 decode with Foundation's semantics: whitespace stripped, padding
+ * required, `nil` on any error.
+ */
+public func mimeBase64Decode(encoded: String) -> Data? {
+    return try!  FfiConverterOptionData.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_mime_base64_decode(
+        FfiConverterString.lower(encoded),$0
+    )
+})
+}
+/**
+ * Decode RFC 2047 encoded-words in a header value.
+ */
+public func mimeDecodeHeaderValue(value: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_mime_decode_header_value(
+        FfiConverterString.lower(value),$0
+    )
+})
+}
+/**
+ * Split a multipart body on its boundary (`multipart/mixed`, `alternative`, …).
+ */
+public func mimeDecodeMultipart(content: String, boundary: String) -> [FfiMimePart] {
+    return try!  FfiConverterSequenceTypeFfiMimePart.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_mime_decode_multipart(
+        FfiConverterString.lower(content),
+        FfiConverterString.lower(boundary),$0
+    )
+})
+}
+/**
+ * Extract the `boundary=` parameter from a `Content-Type`.
+ */
+public func mimeExtractBoundary(contentType: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_mime_extract_boundary(
+        FfiConverterString.lower(contentType),$0
+    )
+})
+}
+/**
+ * Charset-aware quoted-printable decode. Pass the `charset=` parameter from the
+ * part's `Content-Type`, or `"UTF-8"` when absent.
+ */
+public func mimeQuotedPrintableDecode(encoded: String, charset: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_mime_quoted_printable_decode(
+        FfiConverterString.lower(encoded),
+        FfiConverterString.lower(charset),$0
+    )
+})
+}
+/**
+ * mboxrd unescaping: drop one `>` from `>+From ` lines.
+ */
+public func mimeUnescapeFromLines(text: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_mime_unescape_from_lines(
+        FfiConverterString.lower(text),$0
     )
 })
 }
@@ -26601,6 +27630,16 @@ public func parseUrlCommand(urlString: String) -> ParseResult {
 })
 }
 /**
+ * Resolve the best title/authors/year from everything the extractor found.
+ */
+public func pdfBestFields(fields: FfiPdfExtractedFields) -> FfiPdfBestFields {
+    return try!  FfiConverterTypeFfiPdfBestFields.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_pdf_best_fields(
+        FfiConverterTypeFfiPdfExtractedFields.lower(fields),$0
+    )
+})
+}
+/**
  * Extract all text from a PDF file.
  *
  * Returns structured text content with per-page breakdown for search indexing.
@@ -26644,6 +27683,17 @@ public func pdfGetPageDimensions(pdfBytes: Data, pageNumber: UInt32)throws  -> P
     uniffi_imbib_core_fn_func_pdf_get_page_dimensions(
         FfiConverterData.lower(pdfBytes),
         FfiConverterUInt32.lower(pageNumber),$0
+    )
+})
+}
+/**
+ * Whether a PDF `titleAttribute` value is worth trusting, or is a PII code, a
+ * bare DOI, a `Microsoft Word - …` artefact, `Untitled`, or too short.
+ */
+public func pdfIsPlausibleTitle(candidate: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_pdf_is_plausible_title(
+        FfiConverterString.lower(candidate),$0
     )
 })
 }
@@ -26731,6 +27781,69 @@ public func publicationToBibtexString(publication: Publication) -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_publication_to_bibtex_string(
         FfiConverterTypePublication.lower(publication),$0
+    )
+})
+}
+/**
+ * Build a PDF URL from a DOI using the rule's pattern.
+ */
+public func publisherConstructPdfUrl(ruleId: String, doi: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_publisher_construct_pdf_url(
+        FfiConverterString.lower(ruleId),
+        FfiConverterString.lower(doi),$0
+    )
+})
+}
+/**
+ * The whole default rule table, in declaration order.
+ */
+public func publisherDefaultRules() -> [FfiPublisherRule] {
+    return try!  FfiConverterSequenceTypeFfiPublisherRule.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_publisher_default_rules($0
+    )
+})
+}
+/**
+ * Extract a PDF URL from landing-page HTML. **The fetch stays Swift** — this is
+ * the half after the bytes arrive.
+ */
+public func publisherExtractPdfUrl(html: String, baseUrl: String, publisherHost: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_publisher_extract_pdf_url(
+        FfiConverterString.lower(html),
+        FfiConverterString.lower(baseUrl),
+        FfiConverterString.lower(publisherHost),$0
+    )
+})
+}
+/**
+ * Which extraction strategy a hostname selects.
+ */
+public func publisherParserId(publisherHost: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_publisher_parser_id(
+        FfiConverterString.lower(publisherHost),$0
+    )
+})
+}
+/**
+ * The rule governing `doi` — longest matching DOI prefix wins.
+ */
+public func publisherRuleForDoi(doi: String) -> FfiPublisherRule? {
+    return try!  FfiConverterOptionTypeFfiPublisherRule.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_publisher_rule_for_doi(
+        FfiConverterString.lower(doi),$0
+    )
+})
+}
+/**
+ * The rule with this id.
+ */
+public func publisherRuleForId(id: String) -> FfiPublisherRule? {
+    return try!  FfiConverterOptionTypeFfiPublisherRule.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_publisher_rule_for_id(
+        FfiConverterString.lower(id),$0
     )
 })
 }
@@ -27229,6 +28342,15 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_imbib_core_checksum_func_abstract_contains_math() != 17273) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_abstract_mathml_to_latex() != 15071) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_abstract_parse() != 58446) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_all_identifiers_from_fields() != 55350) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -27254,6 +28376,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_ann_index_size() != 62570) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_artifact_type_from_filename() != 5104) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_arxiv_id_from_fields() != 58660) {
@@ -27586,6 +28711,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_highlight_terms() != 15570) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_html_meta_name() != 41525) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_html_meta_property() != 55650) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_identifier_display_name() != 3998) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -27649,10 +28780,31 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_manuscript_format_grammar() != 7794) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_mbox_parse() != 8145) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_merge_annotations() != 16430) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_merge_publications() != 39027) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_mime_base64_decode() != 21208) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_mime_decode_header_value() != 17598) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_mime_decode_multipart() != 31218) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_mime_extract_boundary() != 2597) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_mime_quoted_printable_decode() != 43970) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_mime_unescape_from_lines() != 30394) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_normalize_arxiv_id() != 51977) {
@@ -27715,6 +28867,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_parse_url_command() != 56881) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_pdf_best_fields() != 52215) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_pdf_extract_text() != 59811) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -27725,6 +28880,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_pdf_get_page_dimensions() != 3862) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_pdf_is_plausible_title() != 20347) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_pdf_search() != 19162) {
@@ -27752,6 +28910,24 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_publication_to_bibtex_string() != 2490) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_publisher_construct_pdf_url() != 26942) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_publisher_default_rules() != 13900) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_publisher_extract_pdf_url() != 11134) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_publisher_parser_id() != 22) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_publisher_rule_for_doi() != 44314) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_publisher_rule_for_id() != 15625) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_reanchor_comment() != 50524) {

@@ -104,17 +104,30 @@ public actor PublisherRegistry {
 
     // MARK: - Rule Lookup
 
-    /// Find the rule that matches a DOI.
+    /// Find the rule that matches a DOI: **longest matching DOI prefix wins**,
+    /// with table order as the tiebreak.
+    ///
+    /// This used to iterate `rulesByPrefix`, a `Dictionary` — so when two
+    /// prefixes both matched a DOI the winner was *unspecified* and could differ
+    /// between process launches, and it did not prefer the longer prefix either.
+    /// Nothing was observably broken (no two current prefixes overlap), but the
+    /// next overlapping pair would have been a coin flip. Matches
+    /// `publishers::rule_for_doi` in imbib-core, which is the same rule against
+    /// the same table.
     public func rule(forDOI doi: String) -> PublisherRule? {
-        // Try exact prefix match first
-        for (prefix, rule) in rulesByPrefix {
-            if doi.hasPrefix(prefix) {
-                return rule
+        var best: (rule: PublisherRule, prefixLength: Int)?
+        for rule in rules {
+            guard
+                let matched = rule.doiPrefixes
+                    .filter({ doi.hasPrefix($0) })
+                    .map(\.count)
+                    .max()
+            else { continue }
+            if best == nil || matched > best!.prefixLength {
+                best = (rule, matched)
             }
         }
-
-        // Fall back to iterating all rules
-        return rules.first { $0.matches(doi: doi) }
+        return best?.rule
     }
 
     /// Get all loaded rules.

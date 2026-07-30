@@ -1,0 +1,114 @@
+[
+  {
+    "host" : "",
+    "parserID" : "generic"
+  },
+  {
+    "host" : "iopscience.iop.org",
+    "parserID" : "iop"
+  },
+  {
+    "host" : "IOPSCIENCE.IOP.ORG",
+    "parserID" : "generic"
+  },
+  {
+    "host" : "link.aps.org",
+    "parserID" : "aps"
+  },
+  {
+    "host" : "journals.aps.org",
+    "parserID" : "aps"
+  },
+  {
+    "host" : "www.nature.com",
+    "parserID" : "nature"
+  },
+  {
+    "host" : "nature.com",
+    "parserID" : "nature"
+  },
+  {
+    "host" : "academic.oup.com",
+    "parserID" : "oxford"
+  },
+  {
+    "host" : "www.sciencedirect.com",
+    "parserID" : "elsevier"
+  },
+  {
+    "host" : "www.aanda.org",
+    "parserID" : "aanda"
+  },
+  {
+    "host" : "www.science.org",
+    "parserID" : "science"
+  },
+  {
+    "host" : "onlinelibrary.wiley.com",
+    "parserID" : "wiley"
+  },
+  {
+    "host" : "wiley.com",
+    "parserID" : "wiley"
+  },
+  {
+    "host" : "link.springer.com",
+    "parserID" : "springer"
+  },
+  {
+    "host" : "springer.com",
+    "parserID" : "springer"
+  },
+  {
+    "host" : "www.cambridge.org",
+    "parserID" : "cambridge"
+  },
+  {
+    "host" : "www.annualreviews.org",
+    "parserID" : "annual-reviews"
+  },
+  {
+    "host" : "www.mdpi.com",
+    "parserID" : "mdpi"
+  },
+  {
+    "host" : "www.frontiersin.org",
+    "parserID" : "frontiers"
+  },
+  {
+    "host" : "journals.plos.org",
+    "parserID" : "plos"
+  },
+  {
+    "host" : "plos.org",
+    "parserID" : "plos"
+  },
+  {
+    "host" : "pubs.aip.org",
+    "parserID" : "aip"
+  },
+  {
+    "host" : "aip.scitation.org",
+    "parserID" : "aip"
+  },
+  {
+    "host" : "arxiv.org",
+    "parserID" : "generic"
+  },
+  {
+    "host" : "example.org",
+    "parserID" : "generic"
+  },
+  {
+    "host" : "evil-nature.com.example.org",
+    "parserID" : "nature"
+  },
+  {
+    "host" : "notnature.com",
+    "parserID" : "nature"
+  },
+  {
+    "host" : "iopscience.iop.org.phish.net",
+    "parserID" : "iop"
+  }
+]

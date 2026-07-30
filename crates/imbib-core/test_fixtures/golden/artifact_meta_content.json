@@ -1,0 +1,114 @@
+[
+  {
+    "author" : null,
+    "html" : "",
+    "name" : "empty",
+    "ogDescription" : null,
+    "ogTitle" : null
+  },
+  {
+    "author" : null,
+    "html" : "<meta property=\"og:title\" content=\"The Page Title\">",
+    "name" : "og-property-then-content",
+    "ogDescription" : null,
+    "ogTitle" : "The Page Title"
+  },
+  {
+    "author" : null,
+    "html" : "<meta content=\"Reversed Title\" property=\"og:title\">",
+    "name" : "og-content-then-property",
+    "ogDescription" : null,
+    "ogTitle" : "Reversed Title"
+  },
+  {
+    "author" : null,
+    "html" : "<meta property='og:title' content='Single Quoted'>",
+    "name" : "og-single-quotes",
+    "ogDescription" : null,
+    "ogTitle" : "Single Quoted"
+  },
+  {
+    "author" : null,
+    "html" : "<META PROPERTY=\"OG:TITLE\" CONTENT=\"Upper\">",
+    "name" : "og-uppercase",
+    "ogDescription" : null,
+    "ogTitle" : "Upper"
+  },
+  {
+    "author" : null,
+    "html" : "<meta property=\"og:description\" content=\"A description here\">",
+    "name" : "og-description",
+    "ogDescription" : "A description here",
+    "ogTitle" : null
+  },
+  {
+    "author" : "Jane Doe",
+    "html" : "<meta name=\"author\" content=\"Jane Doe\">",
+    "name" : "meta-name-author",
+    "ogDescription" : null,
+    "ogTitle" : null
+  },
+  {
+    "author" : null,
+    "html" : "<meta content=\"John Roe\" name=\"author\">",
+    "name" : "meta-name-author-reversed",
+    "ogDescription" : null,
+    "ogTitle" : null
+  },
+  {
+    "author" : "A",
+    "html" : "<meta property=\"og:title\" content=\"T\"><meta property=\"og:description\" content=\"D\"><meta name=\"author\" content=\"A\">",
+    "name" : "all-three",
+    "ogDescription" : "D",
+    "ogTitle" : "T"
+  },
+  {
+    "author" : null,
+    "html" : "<html><head><title>Just A Title Tag<\/title><\/head><\/html>",
+    "name" : "title-tag-only",
+    "ogDescription" : null,
+    "ogTitle" : null
+  },
+  {
+    "author" : null,
+    "html" : "<meta property=\"og:title\" content=\"A &amp; B &lt;C&gt;\">",
+    "name" : "og-with-entities",
+    "ogDescription" : null,
+    "ogTitle" : "A &amp; B &lt;C&gt;"
+  },
+  {
+    "author" : null,
+    "html" : "<meta property=\"og:title\" content=\"\">",
+    "name" : "og-empty-content",
+    "ogDescription" : null,
+    "ogTitle" : null
+  },
+  {
+    "author" : null,
+    "html" : "<meta property=\"og:title\" content=\"   \">",
+    "name" : "og-whitespace-content",
+    "ogDescription" : null,
+    "ogTitle" : ""
+  },
+  {
+    "author" : null,
+    "html" : "<meta property=\"og:title\"\n      content=\"Across Lines\">",
+    "name" : "og-multiline-tag",
+    "ogDescription" : null,
+    "ogTitle" : "Across Lines"
+  },
+  {
+    "author" : null,
+    "html" : "<meta property=\"og:titlex\" content=\"Decoy\">",
+    "name" : "decoy-property",
+    "ogDescription" : null,
+    "ogTitle" : null
+  },
+  {
+    "author" : null,
+    "html" : "<meta property=\"og:title\" content=\"First\"><meta property=\"og:title\" content=\"Second\">",
+    "name" : "first-match-wins",
+    "ogDescription" : null,
+    "ogTitle" : "First"
+  }
+]

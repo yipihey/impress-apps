@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 import OSLog
 import CoreGraphics
 import ImageIO
+import ImbibRustCore
 
 /// Extracted metadata from a file or URL, ready for artifact creation.
 nonisolated public struct ArtifactMetadata: Sendable {
@@ -100,44 +101,26 @@ nonisolated public enum ArtifactMetadataExtractor {
         return metadata
     }
 
-    /// Infer the artifact type from a file URL based on its UTType.
+    /// Infer the artifact type from a file URL.
+    ///
+    /// Two halves, deliberately split (Stage 7 item 9): the filename hints
+    /// (`slide`/`talk`/`presentation`/`lecture`/`poster`/`readme`/`codebook`/
+    /// `dataset`) and the extension table are pure logic and live in
+    /// `imbib-core`'s `pdf::infer_artifact_type_from_filename`, pinned by 43
+    /// golden cases. The `UTType.conforms(to:)` fallback below is PLATFORM — it
+    /// is what classifies a `.pdf`, a `.png` or an unknown extension — and stays
+    /// here. Rust returns nil for exactly the inputs only `UTType` can decide,
+    /// and its own test asserts it never answers `.general`, because `.general`
+    /// is the *last* line of the platform block: collapsing "undecided" into it
+    /// would type every dropped figure as generic while still passing the corpus.
     public static func inferArtifactType(from url: URL) -> ArtifactType {
+        if let raw = ImbibRustCore.artifactTypeFromFilename(path: url.lastPathComponent),
+           let decided = ArtifactType(rawValue: raw) {
+            return decided
+        }
+
         let ext = url.pathExtension.lowercased()
-        let utType = UTType(filenameExtension: ext)
-
-        // Check filename hints first
-        let lowercaseName = url.lastPathComponent.lowercased()
-        if lowercaseName.contains("slide") || lowercaseName.contains("talk")
-            || lowercaseName.contains("presentation") || lowercaseName.contains("lecture") {
-            return .presentation
-        }
-        if lowercaseName.contains("poster") {
-            return .poster
-        }
-        if lowercaseName.contains("readme") || lowercaseName.contains("codebook")
-            || lowercaseName.contains("dataset") {
-            return .dataset
-        }
-
-        // Check by extension / UTType
-        switch ext {
-        case "pptx", "ppt", "key", "odp":
-            return .presentation
-        case "csv", "tsv", "parquet", "hdf5", "h5", "fits", "nc", "netcdf":
-            return .dataset
-        case "py", "r", "jl", "m", "sh", "swift", "rs", "c", "cpp", "java", "js", "ts":
-            return .code
-        case "ipynb":
-            return .code
-        case "html", "htm", "mhtml", "webloc":
-            return .webpage
-        case "md", "txt", "rtf":
-            return .note
-        default:
-            break
-        }
-
-        if let utType {
+        if let utType = UTType(filenameExtension: ext) {
             if utType.conforms(to: .image) || utType.conforms(to: .movie)
                 || utType.conforms(to: .audio) {
                 return .media
@@ -213,31 +196,22 @@ nonisolated public enum ArtifactMetadataExtractor {
         return nil
     }
 
-    private static func extractMetaContent(from html: String, property: String) -> String? {
-        // Match <meta property="og:title" content="...">
-        let pattern = "<meta[^>]+property=[\"']\(NSRegularExpression.escapedPattern(for: property))[\"'][^>]+content=[\"']([^\"']+)[\"']"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            return String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        // Also try reversed attribute order: content before property
-        let pattern2 = "<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']\(NSRegularExpression.escapedPattern(for: property))[\"']"
-        if let regex = try? NSRegularExpression(pattern: pattern2, options: .caseInsensitive),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            return String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return nil
+    // MARK: - HTML metadata (Rust)
+
+    // Stage 7 item 9: the two `<meta>` scrapers moved to `imbib-core`'s
+    // `pdf::artifact_meta`, pinned by 48 golden assertions over 16 HTML cases.
+    // Two behaviours are preserved there with the reasoning spelled out:
+    // `content=""` yields nil but `content="   "` yields `Some("")` — two
+    // answers for two spellings of "no title", and the caller assigns on any
+    // non-nil, so this decides `<title>` vs `og:title` for real pages — and the
+    // `name:` form has no reversed-attribute-order pattern, so
+    // `<meta content="…" name="author">` is not found.
+
+    static func extractMetaContent(from html: String, property: String) -> String? {
+        ImbibRustCore.htmlMetaProperty(html: html, property: property)
     }
 
-    private static func extractMetaContent(from html: String, name: String) -> String? {
-        let pattern = "<meta[^>]+name=[\"']\(NSRegularExpression.escapedPattern(for: name))[\"'][^>]+content=[\"']([^\"']+)[\"']"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            return String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return nil
+    static func extractMetaContent(from html: String, name: String) -> String? {
+        ImbibRustCore.htmlMetaName(html: html, name: name)
     }
 }

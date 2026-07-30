@@ -1,0 +1,42 @@
+[
+  {
+    "name" : "empty",
+    "swiftTitle" : null,
+    "text" : ""
+  },
+  {
+    "name" : "simple",
+    "swiftTitle" : "The Statistics of Peaks of Gaussian Random Fields J. M. Bardeen, J. R. Bond, N. Kaiser, A. S. Szalay",
+    "text" : "The Statistics of Peaks of Gaussian Random Fields\nJ. M. Bardeen, J. R. Bond, N. Kaiser, A. S. Szalay\nReceived 1985 October 7; accepted 1986 January 8\n"
+  },
+  {
+    "name" : "skip-prefix-lines",
+    "swiftTitle" : "A Genuine Paper Title Appears Here",
+    "text" : "arXiv:2401.12345v2 [astro-ph.CO] 3 Feb 2024\nPreprint typeset using LaTeX style\nA Genuine Paper Title Appears Here\nSomeone A. Author and Someone B. Author\n"
+  },
+  {
+    "name" : "two-line-title",
+    "swiftTitle" : "A Very Long Title That Continues Onto A Second Line Here",
+    "text" : "A Very Long Title That Continues\nOnto A Second Line Here\nFirst Author and Second Author\n"
+  },
+  {
+    "name" : "affiliation-noise",
+    "swiftTitle" : "The Actual Title",
+    "text" : "Department of Astronomy, University of Somewhere\nThe Actual Title\na.author@university.edu\n"
+  },
+  {
+    "name" : "short-lines-only",
+    "swiftTitle" : null,
+    "text" : "a\nb\nc\nd\n"
+  },
+  {
+    "name" : "authors-first",
+    "swiftTitle" : "Title After Authors",
+    "text" : "N. Kaiser and J. R. Bond\nTitle After Authors\n"
+  },
+  {
+    "name" : "journal-header",
+    "swiftTitle" : "Real Title Line",
+    "text" : "The Astrophysical Journal, 304:15-61, 1986 May 1\nReal Title Line\n"
+  }
+]

@@ -1,0 +1,26 @@
+[package]
+name = "impress-parsers-service"
+description = "#[impress_service] trait exposing imbib's archive and publisher parsers (mbox/MIME decoding, RFC 2047 headers, publisher PDF-resolution rules, landing-page PDF extraction) as MCP tools, CLI subcommands and impel agent tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The parsers themselves. imbib-core is already in impress-mcp's dependency
+# graph (it links it directly for the library service), so this namespace adds
+# no new weight to the server.
+imbib-core = { workspace = true, features = ["native"] }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Codegen pipeline — one #[impress_method] becomes an MCP tool, a CLI
+# subcommand and an impel agent tool.
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

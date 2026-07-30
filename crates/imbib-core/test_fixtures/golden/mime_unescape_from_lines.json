@@ -1,0 +1,74 @@
+[
+  {
+    "input" : "",
+    "output" : ""
+  },
+  {
+    "input" : "no from lines here",
+    "output" : "no from lines here"
+  },
+  {
+    "input" : ">From someone@example.com Thu Jan 01",
+    "output" : "From someone@example.com Thu Jan 01"
+  },
+  {
+    "input" : ">>From doubled",
+    "output" : ">From doubled"
+  },
+  {
+    "input" : ">>>From tripled",
+    "output" : ">>From tripled"
+  },
+  {
+    "input" : "From unescaped stays",
+    "output" : "From unescaped stays"
+  },
+  {
+    "input" : ">Not a from line",
+    "output" : ">Not a from line"
+  },
+  {
+    "input" : ">",
+    "output" : ">"
+  },
+  {
+    "input" : ">>",
+    "output" : ">>"
+  },
+  {
+    "input" : "first\n>From middle\nlast",
+    "output" : "first\nFrom middle\nlast"
+  },
+  {
+    "input" : ">From a\n>From b",
+    "output" : "From a\nFrom b"
+  },
+  {
+    "input" : ">Fromage is cheese",
+    "output" : ">Fromage is cheese"
+  },
+  {
+    "input" : ">From",
+    "output" : ">From"
+  },
+  {
+    "input" : ">From ",
+    "output" : "From "
+  },
+  {
+    "input" : "> From leading space",
+    "output" : "> From leading space"
+  },
+  {
+    "input" : "a\n\nb",
+    "output" : "a\n\nb"
+  },
+  {
+    "input" : ">From x\n",
+    "output" : "From x\n"
+  },
+  {
+    "input" : "\n>From y",
+    "output" : "\nFrom y"
+  }
+]

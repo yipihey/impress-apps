@@ -1,0 +1,422 @@
+[
+  {
+    "baseURL" : "https:\/\/example.org\/article\/1",
+    "host" : "example.org",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"https:\/\/example.org\/a\/1.pdf\">",
+    "name" : "meta-name-then-content",
+    "pdfURL" : "https:\/\/example.org\/a\/1.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/article\/1",
+    "host" : "example.org",
+    "html" : "<meta content=\"https:\/\/example.org\/a\/2.pdf\" name=\"citation_pdf_url\">",
+    "name" : "meta-content-then-name",
+    "pdfURL" : "https:\/\/example.org\/a\/2.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/article\/1",
+    "host" : "example.org",
+    "html" : "<meta name='citation_pdf_url' content='https:\/\/example.org\/a\/3.pdf'>",
+    "name" : "meta-single-quotes",
+    "pdfURL" : "https:\/\/example.org\/a\/3.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/article\/1",
+    "host" : "example.org",
+    "html" : "<META NAME=\"CITATION_PDF_URL\" CONTENT=\"https:\/\/example.org\/a\/4.pdf\">",
+    "name" : "meta-uppercase-attrs",
+    "pdfURL" : "https:\/\/example.org\/a\/4.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/journal\/article\/1",
+    "host" : "example.org",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"\/pdf\/1.pdf\">",
+    "name" : "meta-relative-href",
+    "pdfURL" : "https:\/\/example.org\/pdf\/1.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/journal\/article\/1",
+    "host" : "example.org",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"sibling.pdf\">",
+    "name" : "meta-relative-no-slash",
+    "pdfURL" : "https:\/\/example.org\/journal\/article\/sibling.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"https:\/\/example.org\/g?a=1&amp;b=2.pdf\">",
+    "name" : "meta-entity-encoded-amp",
+    "pdfURL" : "https:\/\/example.org\/g?a=1&b=2.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<meta name=\"citation_pdf_url\"\n content=\"https:\/\/example.org\/nl.pdf\">",
+    "name" : "meta-with-newline-in-tag",
+    "pdfURL" : "https:\/\/example.org\/nl.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<link rel=\"alternate\" type=\"application\/pdf\" href=\"https:\/\/example.org\/alt.pdf\">",
+    "name" : "generic-link-alternate",
+    "pdfURL" : "https:\/\/example.org\/alt.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<a href=\"https:\/\/example.org\/get\/x.pdf\">Download PDF<\/a>",
+    "name" : "generic-download-pdf-text",
+    "pdfURL" : "https:\/\/example.org\/get\/x.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<a href=\"https:\/\/example.org\/get\/x.html\">Download PDF<\/a>",
+    "name" : "generic-download-pdf-text-fails-sanity",
+    "pdfURL" : null
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<a href=\"\/files\/paper.pdf\">click<\/a>",
+    "name" : "generic-pdf-extension-href",
+    "pdfURL" : "https:\/\/example.org\/files\/paper.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<a href=\"\/n\/p.pdf\"><span class=\"i\"><\/span> PDF<\/a>",
+    "name" : "generic-nested-tags-before-pdf-text",
+    "pdfURL" : "https:\/\/example.org\/n\/p.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "",
+    "name" : "generic-empty-html",
+    "pdfURL" : null
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<html><body><p>nothing here<\/p><\/body><\/html>",
+    "name" : "generic-no-pdf-anywhere",
+    "pdfURL" : null
+  },
+  {
+    "baseURL" : "https:\/\/example.org\/a",
+    "host" : "example.org",
+    "html" : "<a href=\"\/first.pdf\">x<\/a><a href=\"\/second.pdf\">y<\/a>",
+    "name" : "generic-first-match-wins",
+    "pdfURL" : "https:\/\/example.org\/first.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.3847\/1538-4357\/abc",
+    "host" : "iopscience.iop.org",
+    "html" : "<html>no meta<\/html>",
+    "name" : "iop-article-path",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/article\/10.3847\/1538-4357\/abc\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.3847\/1538-4357\/abc\/pdf",
+    "host" : "iopscience.iop.org",
+    "html" : "<html>no meta<\/html>",
+    "name" : "iop-already-pdf-suffix",
+    "pdfURL" : null
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.3847\/x",
+    "host" : "iopscience.iop.org",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"https:\/\/iopscience.iop.org\/m.pdf\">",
+    "name" : "iop-meta-wins-over-path",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/m.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/other\/page",
+    "host" : "iopscience.iop.org",
+    "html" : "<a class=\"btn btn-download x\" href=\"\/dl\/y.pdf\">get<\/a>",
+    "name" : "iop-btn-download",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/dl\/y.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/journal\/1538-4357",
+    "host" : "iopscience.iop.org",
+    "html" : "<html><\/html>",
+    "name" : "iop-non-article-path",
+    "pdfURL" : null
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/a%20b",
+    "host" : "iopscience.iop.org",
+    "html" : "<html><\/html>",
+    "name" : "iop-percent-encoded-path",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/a%20b\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/a%25b",
+    "host" : "iopscience.iop.org",
+    "html" : "<html><\/html>",
+    "name" : "iop-literal-percent-in-path",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/a%25b\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/M%C3%BCller",
+    "host" : "iopscience.iop.org",
+    "html" : "<html><\/html>",
+    "name" : "iop-non-ascii-path",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/M%C3%BCller\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/x?rel=cite",
+    "host" : "iopscience.iop.org",
+    "html" : "<html><\/html>",
+    "name" : "iop-path-with-query",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/x\/pdf?rel=cite"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/x#sec2",
+    "host" : "iopscience.iop.org",
+    "html" : "<html><\/html>",
+    "name" : "iop-path-with-fragment",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/x\/pdf#sec2"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/a+b:c",
+    "host" : "iopscience.iop.org",
+    "html" : "<html><\/html>",
+    "name" : "iop-path-with-plus-and-colon",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/a+b:c\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/x\/",
+    "host" : "iopscience.iop.org",
+    "html" : "<html><\/html>",
+    "name" : "iop-trailing-slash-path",
+    "pdfURL" : "https:\/\/iopscience.iop.org\/article\/10.1088\/x\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/link.aps.org\/doi\/abstract\/10.1103\/PhysRevD.1.1",
+    "host" : "link.aps.org",
+    "html" : "<html><\/html>",
+    "name" : "aps-abstract-to-pdf",
+    "pdfURL" : "https:\/\/link.aps.org\/doi\/pdf\/10.1103\/PhysRevD.1.1"
+  },
+  {
+    "baseURL" : "https:\/\/journals.aps.org\/prd\/abstract\/10.1103\/PhysRevD.1.1",
+    "host" : "journals.aps.org",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"https:\/\/journals.aps.org\/m.pdf\">",
+    "name" : "aps-abstract-beats-meta",
+    "pdfURL" : "https:\/\/journals.aps.org\/prd\/pdf\/10.1103\/PhysRevD.1.1"
+  },
+  {
+    "baseURL" : "https:\/\/journals.aps.org\/prd\/landing\/x",
+    "host" : "journals.aps.org",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"https:\/\/journals.aps.org\/m.pdf\">",
+    "name" : "aps-no-abstract-uses-meta",
+    "pdfURL" : "https:\/\/journals.aps.org\/m.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/journals.aps.org\/prd\/other",
+    "host" : "journals.aps.org",
+    "html" : "<a href=\"\/prd\/pdf\/10.1103\/x\">PDF<\/a>",
+    "name" : "aps-pdf-link-text",
+    "pdfURL" : "https:\/\/journals.aps.org\/prd\/pdf\/10.1103\/x"
+  },
+  {
+    "baseURL" : "https:\/\/www.nature.com\/articles\/nature12373",
+    "host" : "www.nature.com",
+    "html" : "<html><\/html>",
+    "name" : "nature-articles-path",
+    "pdfURL" : "https:\/\/www.nature.com\/articles\/nature12373.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.nature.com\/articles\/nature12373.pdf",
+    "host" : "www.nature.com",
+    "html" : "<html><\/html>",
+    "name" : "nature-already-pdf",
+    "pdfURL" : null
+  },
+  {
+    "baseURL" : "https:\/\/www.nature.com\/other",
+    "host" : "www.nature.com",
+    "html" : "<a data-track-action=\"download pdf\" href=\"\/dl\/n.pdf\">PDF<\/a>",
+    "name" : "nature-data-track-action",
+    "pdfURL" : "https:\/\/www.nature.com\/dl\/n.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.nature.com\/other",
+    "host" : "www.nature.com",
+    "html" : "<a href=\"\/dl\/r.pdf\" data-track-action=\"download pdf\">PDF<\/a>",
+    "name" : "nature-data-track-action-reversed",
+    "pdfURL" : "https:\/\/www.nature.com\/dl\/r.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/academic.oup.com\/mnras\/article\/500\/1\/1",
+    "host" : "academic.oup.com",
+    "html" : "<a class=\"al-link pdf-link\" href=\"\/mnras\/article-pdf\/500\/1\/1\/x.pdf\">PDF<\/a>",
+    "name" : "oxford-pdf-link-class",
+    "pdfURL" : "https:\/\/academic.oup.com\/mnras\/article-pdf\/500\/1\/1\/x.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/academic.oup.com\/mnras\/article\/500\/1\/1",
+    "host" : "academic.oup.com",
+    "html" : "<a href=\"\/x\/y.pdf\"><span><\/span> View PDF<\/a>",
+    "name" : "oxford-view-pdf-text",
+    "pdfURL" : "https:\/\/academic.oup.com\/x\/y.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.sciencedirect.com\/science\/article\/pii\/S0001",
+    "host" : "www.sciencedirect.com",
+    "html" : "{\"pdfLink\":\"\/science\/article\/pii\/S0001\/pdfft?md5=abc\"}",
+    "name" : "elsevier-json-pdflink",
+    "pdfURL" : "https:\/\/www.sciencedirect.com\/science\/article\/pii\/S0001\/pdfft?md5=abc"
+  },
+  {
+    "baseURL" : "https:\/\/www.sciencedirect.com\/science\/article\/pii\/S0001",
+    "host" : "www.sciencedirect.com",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"https:\/\/x\/m.pdf\">{\"pdfLink\":\"\/j.pdf\"}",
+    "name" : "elsevier-json-beats-meta",
+    "pdfURL" : "https:\/\/www.sciencedirect.com\/j.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.sciencedirect.com\/science\/article\/pii\/S0001",
+    "host" : "www.sciencedirect.com",
+    "html" : "<a id=\"pdfLink\" href=\"\/dl\/e.pdf\">PDF<\/a>",
+    "name" : "elsevier-id-pdflink",
+    "pdfURL" : "https:\/\/www.sciencedirect.com\/dl\/e.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.sciencedirect.com\/science\/article\/pii\/S0001",
+    "host" : "www.sciencedirect.com",
+    "html" : "<a class=\"a pdf-download b\" href=\"\/dl\/f.pdf\">PDF<\/a>",
+    "name" : "elsevier-pdf-download-class",
+    "pdfURL" : "https:\/\/www.sciencedirect.com\/dl\/f.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.sciencedirect.com\/science\/article\/pii\/S0001",
+    "host" : "www.sciencedirect.com",
+    "html" : "<meta name=\"citation_pdf_url\" content=\"https:\/\/x\/last.pdf\">",
+    "name" : "elsevier-meta-last-resort",
+    "pdfURL" : "https:\/\/x\/last.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.aanda.org\/articles\/aa\/full_html\/2024\/06\/aa1",
+    "host" : "www.aanda.org",
+    "html" : "<a href=\"\/articles\/aa\/pdf\/2024\/06\/aa1.pdf\"><i><\/i> PDF<\/a>",
+    "name" : "aanda-pdf-text",
+    "pdfURL" : "https:\/\/www.aanda.org\/articles\/aa\/pdf\/2024\/06\/aa1.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.aanda.org\/articles\/aa\/full_html\/2024\/06\/aa1",
+    "host" : "www.aanda.org",
+    "html" : "<div class=\"downloads box\"><ul><li><a href=\"\/d\/x.pdf\">get<\/a><\/li><\/ul><\/div>",
+    "name" : "aanda-downloads-div",
+    "pdfURL" : "https:\/\/www.aanda.org\/d\/x.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.aanda.org\/a",
+    "host" : "www.aanda.org",
+    "html" : "<div class=\"downloads\">\n  <a href=\"\/d\/multi.pdf\">get<\/a>\n<\/div>",
+    "name" : "aanda-downloads-div-multiline",
+    "pdfURL" : "https:\/\/www.aanda.org\/d\/multi.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.science.org\/doi\/10.1126\/science.1234567",
+    "host" : "www.science.org",
+    "html" : "<html><\/html>",
+    "name" : "science-doi-to-doi-pdf",
+    "pdfURL" : "https:\/\/www.science.org\/doi\/pdf\/10.1126\/science.1234567"
+  },
+  {
+    "baseURL" : "https:\/\/www.science.org\/doi\/pdf\/10.1126\/science.1234567",
+    "host" : "www.science.org",
+    "html" : "<html><\/html>",
+    "name" : "science-already-pdf",
+    "pdfURL" : null
+  },
+  {
+    "baseURL" : "https:\/\/onlinelibrary.wiley.com\/doi\/10.1002\/abc.123",
+    "host" : "onlinelibrary.wiley.com",
+    "html" : "<html><\/html>",
+    "name" : "wiley-doi-to-epdf",
+    "pdfURL" : "https:\/\/onlinelibrary.wiley.com\/doi\/epdf\/10.1002\/abc.123"
+  },
+  {
+    "baseURL" : "https:\/\/onlinelibrary.wiley.com\/doi\/epdf\/10.1002\/abc.123",
+    "host" : "onlinelibrary.wiley.com",
+    "html" : "<html><\/html>",
+    "name" : "wiley-already-epdf",
+    "pdfURL" : null
+  },
+  {
+    "baseURL" : "https:\/\/onlinelibrary.wiley.com\/other",
+    "host" : "onlinelibrary.wiley.com",
+    "html" : "<a class=\"pdf-tools\" href=\"\/dl\/w.pdf\">PDF<\/a>",
+    "name" : "wiley-pdf-tools",
+    "pdfURL" : "https:\/\/onlinelibrary.wiley.com\/dl\/w.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/link.springer.com\/article\/10.1007\/s001",
+    "host" : "link.springer.com",
+    "html" : "<a data-track-action=\"Download Article\" href=\"\/content\/pdf\/10.1007.pdf\">x<\/a>",
+    "name" : "springer-download-article",
+    "pdfURL" : "https:\/\/link.springer.com\/content\/pdf\/10.1007.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/link.springer.com\/article\/10.1007\/s001",
+    "host" : "link.springer.com",
+    "html" : "<a href=\"\/content\/pdf\/10.1007\/s001.pdf?x=1\">x<\/a>",
+    "name" : "springer-content-pdf-href",
+    "pdfURL" : "https:\/\/link.springer.com\/content\/pdf\/10.1007\/s001.pdf?x=1"
+  },
+  {
+    "baseURL" : "https:\/\/www.cambridge.org\/core\/journals\/x\/article\/abc",
+    "host" : "www.cambridge.org",
+    "html" : "<html><\/html>",
+    "name" : "cambridge-article-path",
+    "pdfURL" : "https:\/\/www.cambridge.org\/core\/journals\/x\/article\/abc\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.annualreviews.org\/doi\/10.1146\/x",
+    "host" : "www.annualreviews.org",
+    "html" : "<a href=\"\/doi\/pdf\/10.1146\/x\">PDF<\/a>",
+    "name" : "annual-reviews-pdf-path",
+    "pdfURL" : "https:\/\/www.annualreviews.org\/doi\/pdf\/10.1146\/x"
+  },
+  {
+    "baseURL" : "https:\/\/www.mdpi.com\/2075-4434\/12\/1\/1",
+    "host" : "www.mdpi.com",
+    "html" : "<html><\/html>",
+    "name" : "mdpi-appends-pdf",
+    "pdfURL" : "https:\/\/www.mdpi.com\/2075-4434\/12\/1\/1\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.mdpi.com",
+    "host" : "www.mdpi.com",
+    "html" : "<html><\/html>",
+    "name" : "mdpi-root-path",
+    "pdfURL" : "https:\/\/www.mdpi.com\/pdf"
+  },
+  {
+    "baseURL" : "https:\/\/www.frontiersin.org\/articles\/10.3389\/x\/full",
+    "host" : "www.frontiersin.org",
+    "html" : "<a class=\"download-files-pdf\" href=\"\/pdf\/x.pdf\">PDF<\/a>",
+    "name" : "frontiers-download-class",
+    "pdfURL" : "https:\/\/www.frontiersin.org\/pdf\/x.pdf"
+  },
+  {
+    "baseURL" : "https:\/\/journals.plos.org\/plosone\/article?id=10.1371\/x",
+    "host" : "journals.plos.org",
+    "html" : "<a id=\"downloadPdf\" href=\"\/plosone\/article\/file?id=x&amp;type=printable\">x<\/a>",
+    "name" : "plos-download-id",
+    "pdfURL" : "https:\/\/journals.plos.org\/plosone\/article\/file?id=x&type=printable"
+  },
+  {
+    "baseURL" : "https:\/\/pubs.aip.org\/aip\/jcp\/article\/1\/1\/1",
+    "host" : "pubs.aip.org",
+    "html" : "<a class=\"pdf-link\" href=\"\/dl\/a.pdf\">PDF<\/a>",
+    "name" : "aip-pdf-link-class",
+    "pdfURL" : "https:\/\/pubs.aip.org\/dl\/a.pdf"
+  }
+]

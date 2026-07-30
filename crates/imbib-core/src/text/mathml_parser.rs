@@ -1,11 +1,37 @@
-//! MathML parsing and Unicode conversion
+//! MathML traversal, with two renderings.
 //!
-//! Parses MathML from scientific abstracts and converts to readable Unicode text.
-//! Handles `<inline-formula>` and `<mml:math>` tags from ADS and other sources.
+//! Parses MathML from scientific abstracts. Handles `<inline-formula>` and
+//! `<mml:math>` tags from ADS and other sources.
+//!
+//! **The traversal is written once and the rendering is a parameter**
+//! ([`MathTarget`]), because there are two legitimate targets for the same tree
+//! and they were previously two copies of the same scanner:
+//!
+//! | | [`MathTarget::Unicode`] | [`MathTarget::Latex`] |
+//! |---|---|---|
+//! | `msup` | `H²` | `{H}^{2}` |
+//! | `msub` | `x₁` | `{x}_{1}` |
+//! | `mfrac`, `msqrt` | not handled | `\frac{a}{b}`, `\sqrt{a}` |
+//! | wrapper | content inlined | content wrapped in `$…$` |
+//! | consumer | the FTS index ([`parse_mathml`], live, called from Swift) | MathJax ([`super::abstract_parser::mathml_to_latex`]) |
+//!
+//! Unicode super/subscripts are right for a search index — `H²O` and `H2O` both
+//! fold to something a reader recognises, and there is no renderer downstream.
+//! LaTeX is right for an abstract on its way to a MathJax web view. Neither is
+//! a bug; only having two scanners was.
+//!
+//! `parse_mathml`'s observable behaviour is unchanged by the parameterisation —
+//! that is what the nine unit tests at the bottom of this file are for. Two
+//! deliberate asymmetries survive as [`MathTarget`] methods rather than being
+//! unified, and both are documented there: the LaTeX side trims each extracted
+//! child (Swift's `stripMathMLTags` ended in `trimmingCharacters`) and uses
+//! Foundation's whitespace set, the Unicode side does neither.
 
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::HashMap;
+
+use impress_smart_search::foundation::trim_ws;
 
 lazy_static! {
     /// Superscript Unicode characters
@@ -64,6 +90,18 @@ lazy_static! {
         r"(?is)<mml:msub[^>]*>(.*?)</mml:msub>"
     ).unwrap();
 
+    // `mfrac` and `msqrt` are reached only by the LaTeX rendering: the Unicode
+    // one has no character to put a fraction bar on, so it lets the tag
+    // stripper flatten them (`a/b` → `ab`, admittedly lossy, but it feeds an
+    // index whose tokenizer would split on `/` anyway).
+    static ref MFRAC_RE: Regex = Regex::new(
+        r"(?is)<mml:mfrac[^>]*>(.*?)</mml:mfrac>"
+    ).unwrap();
+
+    static ref MSQRT_RE: Regex = Regex::new(
+        r"(?is)<mml:msqrt[^>]*>(.*?)</mml:msqrt>"
+    ).unwrap();
+
     static ref MATHML_TAG_RE: Regex = Regex::new(
         r"(?i)</?mml:[a-z]+[^>]*>"
     ).unwrap();
@@ -84,6 +122,57 @@ lazy_static! {
     ).unwrap();
 }
 
+/// Which rendering the shared traversal emits. See the module docs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MathTarget {
+    /// Unicode super/subscript characters — for the full-text search index.
+    Unicode,
+    /// LaTeX `{base}^{exp}` / `\frac` / `\sqrt` — for MathJax.
+    Latex,
+}
+
+impl MathTarget {
+    /// Strip `<mml:…>` tags from an extracted child.
+    ///
+    /// The LaTeX side trims afterwards because Swift's `stripMathMLTags` ended
+    /// in `trimmingCharacters(in: .whitespaces)`; the Unicode side never did,
+    /// and adding a trim there would change `parse_mathml` output for
+    /// pretty-printed MathML. Neither is worth breaking to make them match.
+    fn strip_tags(self, text: &str) -> String {
+        let stripped = strip_mathml_tags(text);
+        match self {
+            MathTarget::Unicode => stripped,
+            MathTarget::Latex => trim_ws(&stripped).to_string(),
+        }
+    }
+
+    /// Trim the edges of a finished rendering.
+    ///
+    /// Foundation's `.whitespaces` contains U+200B and excludes newlines, so it
+    /// is neither `str::trim()` nor a subset of it — see
+    /// `impress_smart_search::foundation`.
+    fn trim_edges(self, text: &str) -> &str {
+        match self {
+            MathTarget::Unicode => text.trim(),
+            MathTarget::Latex => trim_ws(text),
+        }
+    }
+
+    fn render_sup(self, base: &str, exponent: &str) -> String {
+        match self {
+            MathTarget::Unicode => format!("{}{}", base, convert_to_superscript(exponent)),
+            MathTarget::Latex => format!("{{{}}}^{{{}}}", base, exponent),
+        }
+    }
+
+    fn render_sub(self, base: &str, subscript: &str) -> String {
+        match self {
+            MathTarget::Unicode => format!("{}{}", base, convert_to_subscript(subscript)),
+            MathTarget::Latex => format!("{{{}}}_{{{}}}", base, subscript),
+        }
+    }
+}
+
 /// Parse text containing MathML and convert to readable Unicode text.
 ///
 /// Example input:
@@ -97,23 +186,28 @@ lazy_static! {
 #[cfg(feature = "native")]
 #[uniffi::export]
 pub fn parse_mathml(text: String) -> String {
-    let mut result = text;
-
-    // Process <inline-formula>...</inline-formula> tags
-    result = process_inline_formulas(&result);
-
-    // Process standalone <mml:math>...</mml:math> tags (without inline-formula wrapper)
-    result = process_standalone_mathml(&result);
-
-    result
+    replace_mathml_wrappers(&text, |content| {
+        convert_mathml_content(content, MathTarget::Unicode)
+    })
 }
 
-/// Process inline-formula tags and extract their content
-fn process_inline_formulas(text: &str) -> String {
-    let mut result = text.to_string();
+/// Rewrite every `<inline-formula>` and every standalone `<mml:math>` wrapper,
+/// handing each one's inner MathML to `render`.
+///
+/// Both wrapper passes run in that order, and each replaces its matches
+/// back-to-front so earlier byte offsets stay valid.
+pub(crate) fn replace_mathml_wrappers(text: &str, render: impl Fn(&str) -> String) -> String {
+    let after_inline = replace_captures_reversed(&INLINE_FORMULA_RE, text, &render);
+    replace_captures_reversed(&STANDALONE_MATHML_RE, &after_inline, &render)
+}
 
-    // Collect all matches first
-    let matches: Vec<_> = INLINE_FORMULA_RE
+/// Replace every match of `re` with `render(capture group 1)`, back-to-front.
+///
+/// This was written out four times (inline-formula, mml:math, msup, msub) with
+/// the same off-by-nothing index bookkeeping in each copy.
+fn replace_captures_reversed(re: &Regex, text: &str, render: impl Fn(&str) -> String) -> String {
+    let mut result = text.to_string();
+    let matches: Vec<(usize, usize, String)> = re
         .captures_iter(&result)
         .map(|cap| {
             let full_match = cap.get(0).unwrap();
@@ -125,155 +219,84 @@ fn process_inline_formulas(text: &str) -> String {
         })
         .collect();
 
-    // Process in reverse order to preserve indices
     for (start, end, content) in matches.into_iter().rev() {
-        let parsed = parse_mathml_content(&content);
-        result.replace_range(start..end, &parsed);
+        result.replace_range(start..end, &render(&content));
     }
 
     result
 }
 
-/// Process standalone mml:math tags
-fn process_standalone_mathml(text: &str) -> String {
+/// As [`replace_captures_reversed`], but repeated until no match remains, which
+/// is how `msup`/`msub` reach nested occurrences: the lazy `(.*?)` stops at the
+/// *first* closing tag, so one pass over `<msup><msup>…</msup>…</msup>` leaves
+/// the outer element behind.
+fn replace_captures_until_stable(
+    re: &Regex,
+    text: &str,
+    render: impl Fn(&str) -> String,
+) -> String {
     let mut result = text.to_string();
-
-    // Collect all matches first
-    let matches: Vec<_> = STANDALONE_MATHML_RE
-        .captures_iter(&result)
-        .map(|cap| {
-            let full_match = cap.get(0).unwrap();
-            let content = cap
-                .get(1)
-                .map(|m| m.as_str().to_string())
-                .unwrap_or_default();
-            (full_match.start(), full_match.end(), content)
-        })
-        .collect();
-
-    // Process in reverse order to preserve indices
-    for (start, end, content) in matches.into_iter().rev() {
-        let parsed = parse_mathml_content(&content);
-        result.replace_range(start..end, &parsed);
+    while re.is_match(&result) {
+        result = replace_captures_reversed(re, &result, &render);
     }
-
     result
 }
 
-/// Parse MathML content and convert to Unicode text
-fn parse_mathml_content(content: &str) -> String {
-    let mut result = content.to_string();
+/// Convert one MathML fragment (the inside of a wrapper) to `target`'s syntax.
+pub(crate) fn convert_mathml_content(content: &str, target: MathTarget) -> String {
+    let mut result = replace_captures_until_stable(&MSUP_RE, content, |inner| {
+        let (base, exponent) = extract_two_children(inner, target);
+        target.render_sup(&target.strip_tags(&base), &target.strip_tags(&exponent))
+    });
 
-    // Process msup (superscript) first - before stripping tags
-    result = process_superscripts(&result);
+    result = replace_captures_until_stable(&MSUB_RE, &result, |inner| {
+        let (base, subscript) = extract_two_children(inner, target);
+        target.render_sub(&target.strip_tags(&base), &target.strip_tags(&subscript))
+    });
 
-    // Process msub (subscript) - before stripping tags
-    result = process_subscripts(&result);
+    if target == MathTarget::Latex {
+        // PRESERVED QUIRK — a nesting gap. `msup`/`msub` loop until stable but
+        // `mfrac`/`msqrt` get a single pass, so `\frac` inside `\frac` survives
+        // in the output as a residual tag that the stripper then flattens. That
+        // is what the Swift original did, and closing the gap would change
+        // rendered abstracts (for the better, probably) rather than port them.
+        // Do it as its own change, with corpus cases that show the improvement.
+        result = replace_captures_reversed(&MFRAC_RE, &result, |inner| {
+            let (numerator, denominator) = extract_two_children(inner, target);
+            format!(
+                "\\frac{{{}}}{{{}}}",
+                target.strip_tags(&numerator),
+                target.strip_tags(&denominator)
+            )
+        });
+        result = replace_captures_reversed(&MSQRT_RE, &result, |inner| {
+            format!("\\sqrt{{{}}}", target.strip_tags(inner))
+        });
+    }
 
-    // Now strip remaining MathML tags and extract text content
-    result = strip_mathml_tags(&result);
-
-    // Normalize whitespace
+    result = target.strip_tags(&result);
     result = WHITESPACE_RE.replace_all(&result, " ").to_string();
-    result = result.trim().to_string();
-
-    result
+    target.trim_edges(&result).to_string()
 }
 
-/// Process msup elements and convert to Unicode superscript
-fn process_superscripts(text: &str) -> String {
-    let mut result = text.to_string();
-
-    // Keep processing until no more matches (handles nested elements)
-    loop {
-        let matches: Vec<_> = MSUP_RE
-            .captures_iter(&result)
-            .map(|cap| {
-                let full_match = cap.get(0).unwrap();
-                let content = cap
-                    .get(1)
-                    .map(|m| m.as_str().to_string())
-                    .unwrap_or_default();
-                (full_match.start(), full_match.end(), content)
-            })
-            .collect();
-
-        if matches.is_empty() {
-            break;
-        }
-
-        // Process in reverse order to preserve indices
-        for (start, end, content) in matches.into_iter().rev() {
-            let (base, superscript) = extract_msup_parts(&content);
-            let base_text = strip_mathml_tags(&base);
-            let sup_text = convert_to_superscript(&strip_mathml_tags(&superscript));
-            result.replace_range(start..end, &format!("{}{}", base_text, sup_text));
-        }
-    }
-
-    result
-}
-
-/// Process msub elements and convert to Unicode subscript
-fn process_subscripts(text: &str) -> String {
-    let mut result = text.to_string();
-
-    // Keep processing until no more matches (handles nested elements)
-    loop {
-        let matches: Vec<_> = MSUB_RE
-            .captures_iter(&result)
-            .map(|cap| {
-                let full_match = cap.get(0).unwrap();
-                let content = cap
-                    .get(1)
-                    .map(|m| m.as_str().to_string())
-                    .unwrap_or_default();
-                (full_match.start(), full_match.end(), content)
-            })
-            .collect();
-
-        if matches.is_empty() {
-            break;
-        }
-
-        // Process in reverse order to preserve indices
-        for (start, end, content) in matches.into_iter().rev() {
-            let (base, subscript) = extract_msub_parts(&content);
-            let base_text = strip_mathml_tags(&base);
-            let sub_text = convert_to_subscript(&strip_mathml_tags(&subscript));
-            result.replace_range(start..end, &format!("{}{}", base_text, sub_text));
-        }
-    }
-
-    result
-}
-
-/// Extract base and superscript parts from msup content
-fn extract_msup_parts(content: &str) -> (String, String) {
-    let children = extract_top_level_elements(content);
-    if children.len() >= 2 {
-        (children[0].clone(), children[1].clone())
-    } else if children.len() == 1 {
-        (children[0].clone(), String::new())
-    } else {
-        (content.to_string(), String::new())
-    }
-}
-
-/// Extract base and subscript parts from msub content
-fn extract_msub_parts(content: &str) -> (String, String) {
-    let children = extract_top_level_elements(content);
-    if children.len() >= 2 {
-        (children[0].clone(), children[1].clone())
-    } else if children.len() == 1 {
-        (children[0].clone(), String::new())
-    } else {
-        (content.to_string(), String::new())
+/// Extract the first two top-level children of a two-argument element.
+///
+/// A single child yields an empty second slot, and no children at all yields
+/// the whole fragment as the first — which is how `${a2}^{}3$` (the nested-msup
+/// corpus case) happens: the depth scanner finds no *complete* element in the
+/// outer fragment, so the base becomes the flattened inner text and the
+/// exponent becomes empty.
+fn extract_two_children(content: &str, target: MathTarget) -> (String, String) {
+    let children = extract_top_level_elements(content, target);
+    match children.len() {
+        0 => (content.to_string(), String::new()),
+        1 => (children[0].clone(), String::new()),
+        _ => (children[0].clone(), children[1].clone()),
     }
 }
 
 /// Extract top-level MathML elements from content using stack-based parsing
-fn extract_top_level_elements(content: &str) -> Vec<String> {
+fn extract_top_level_elements(content: &str, target: MathTarget) -> Vec<String> {
     let mut elements = Vec::new();
     let chars: Vec<char> = content.chars().collect();
     let mut i = 0;
@@ -285,6 +308,17 @@ fn extract_top_level_elements(content: &str) -> Vec<String> {
             let rest: String = chars[i..].iter().collect();
 
             // Check for self-closing tag: <mml:xxx ... />
+            //
+            // This branch has no counterpart in the Swift original, and now
+            // that the scanner is shared, the LaTeX rendering inherits it.
+            // Swift's opening-tag pattern was `^<mml:[a-z]+[^>]*>`, and `[^>]*`
+            // happily matches the `/`, so `<mml:mspace/>` counted as an OPEN
+            // tag that never closed: depth stayed above zero and every later
+            // sibling was swallowed into an element that was never emitted. No
+            // corpus case carries a self-closing tag — `<mml:mspace/>` and
+            // `<mml:none/>` are rare in ADS output — so this is an unobservable
+            // improvement rather than a listed divergence. Noted because it is
+            // a real behaviour difference and should not be discovered twice.
             if let Some(m) = SELF_CLOSING_RE.find(&rest) {
                 if depth == 0 {
                     elements.push(rest[..m.end()].to_string());
@@ -324,7 +358,7 @@ fn extract_top_level_elements(content: &str) -> Vec<String> {
 
     // If no elements found, return the content as-is
     if elements.is_empty() {
-        vec![content.trim().to_string()]
+        vec![target.trim_edges(content).to_string()]
     } else {
         elements
     }
@@ -419,9 +453,33 @@ mod tests {
     #[test]
     fn test_extract_top_level_elements() {
         let content = "<mml:mi>x</mml:mi><mml:mn>2</mml:mn>";
-        let elements = extract_top_level_elements(content);
-        assert_eq!(elements.len(), 2);
-        assert_eq!(elements[0], "<mml:mi>x</mml:mi>");
-        assert_eq!(elements[1], "<mml:mn>2</mml:mn>");
+        for target in [MathTarget::Unicode, MathTarget::Latex] {
+            let elements = extract_top_level_elements(content, target);
+            assert_eq!(elements.len(), 2);
+            assert_eq!(elements[0], "<mml:mi>x</mml:mi>");
+            assert_eq!(elements[1], "<mml:mn>2</mml:mn>");
+        }
+    }
+
+    /// The scanner is shared, so the two renderings must stay distinguishable
+    /// on the same input — otherwise a future "simplification" could collapse
+    /// them and only the FTS index (or only MathJax) would notice.
+    #[test]
+    fn the_two_targets_render_the_same_tree_differently() {
+        let msup = "<mml:msup><mml:mi>H</mml:mi><mml:mn>2</mml:mn></mml:msup>";
+        assert_eq!(convert_mathml_content(msup, MathTarget::Unicode), "H²");
+        assert_eq!(convert_mathml_content(msup, MathTarget::Latex), "{H}^{2}");
+
+        let msub = "<mml:msub><mml:mi>x</mml:mi><mml:mn>1</mml:mn></mml:msub>";
+        assert_eq!(convert_mathml_content(msub, MathTarget::Unicode), "x₁");
+        assert_eq!(convert_mathml_content(msub, MathTarget::Latex), "{x}_{1}");
+
+        // `mfrac`/`msqrt` are LaTeX-only; the Unicode target flattens them.
+        let mfrac = "<mml:mfrac><mml:mi>a</mml:mi><mml:mi>b</mml:mi></mml:mfrac>";
+        assert_eq!(convert_mathml_content(mfrac, MathTarget::Unicode), "ab");
+        assert_eq!(
+            convert_mathml_content(mfrac, MathTarget::Latex),
+            "\\frac{a}{b}"
+        );
     }
 }

@@ -228,54 +228,17 @@ struct UnifiedPublicationListWrapper: View {
         }
     }
 
-    private var currentLibraryID: UUID? {
-        switch source {
-        case .library(let id): return id
-        case .inbox(let id): return id
-        case .scixLibrary(let id): return id
-        case .smartSearch(let id):
-            return RustStoreAdapter.shared.getSmartSearch(id: id)?.libraryID
-                ?? RustStoreAdapter.shared.getDefaultLibrary()?.id
-        case .collection, .flagged, .unread, .starred, .tag, .dismissed, .citedInManuscripts,
-             .recent:
-            return RustStoreAdapter.shared.getDefaultLibrary()?.id
-        case .combined:
-            // Multi-source: no single "current" library — fall back to default
-            // for behaviors keyed off currentLibraryID (e.g., new-paper landing).
-            return RustStoreAdapter.shared.getDefaultLibrary()?.id
-        }
-    }
+    /// Stage 5d SPLIT: the switch moved verbatim to
+    /// `PublicationSource.libraryIDOrDefaultLibrary` so iOS's list reads the
+    /// same derivation. This wrapper wants the FALLBACK policy (somewhere to put
+    /// a paper); iOS's attachment paths want the strict `owningLibraryID`. Both
+    /// are named in Chassis/Shared/PublicationScope.swift.
+    private var currentLibraryID: UUID? { source.libraryIDOrDefaultLibrary }
 
-    private var listID: ListViewID {
-        switch source {
-        case .library(let id):
-            return .library(id)
-        case .smartSearch(let id):
-            return .smartSearch(id)
-        case .collection(let id):
-            return .collection(id)
-        case .flagged:
-            return .flagged(source.viewID)
-        case .scixLibrary(let id):
-            return .scixLibrary(id)
-        case .unread:
-            return .library(source.viewID)
-        case .starred:
-            return .library(source.viewID)
-        case .tag:
-            return .library(source.viewID)
-        case .inbox(let id):
-            return .library(id)
-        case .dismissed:
-            return .library(source.viewID)
-        case .citedInManuscripts:
-            return .library(source.viewID)
-        case .recent:
-            return .library(source.viewID)
-        case .combined:
-            return .library(source.viewID)
-        }
-    }
+    /// Stage 5d SPLIT: `PublicationSource.listViewID`. iOS had a hand-copied
+    /// UUID table here that did NOT match this one, so the two platforms read
+    /// and wrote different `ListViewStateStore` entries for flagged scopes.
+    private var listID: ListViewID { source.listViewID }
 
     private var emptyMessage: String {
         switch source {
@@ -343,28 +306,14 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Body
 
-    /// Check if we're viewing the Inbox library or an Inbox feed
-    private var isInboxView: Bool {
-        switch source {
-        case .inbox:
-            return true
-        case .smartSearch(let id):
-            return RustStoreAdapter.shared.getSmartSearch(id: id)?.feedsToInbox ?? false
-        case .library, .collection, .flagged, .scixLibrary, .unread, .starred, .tag, .dismissed,
-             .citedInManuscripts, .recent, .combined:
-            return false
-        }
-    }
+    /// Check if we're viewing the Inbox library or an Inbox feed.
+    /// Stage 5d SPLIT: `PublicationSource.isInboxScope`.
+    private var isInboxView: Bool { source.isInboxScope }
 
     /// Check if we're viewing any auto-refreshing feed (inbox or library).
     /// Feed views have triage behavior: S saves to target library + removes, D dismisses + removes.
-    private var isFeedView: Bool {
-        if isInboxView { return true }
-        if case .smartSearch(let id) = source {
-            return RustStoreAdapter.shared.getSmartSearch(id: id)?.autoRefreshEnabled ?? false
-        }
-        return false
-    }
+    /// Stage 5d SPLIT: `PublicationSource.isFeedScope`.
+    private var isFeedView: Bool { source.isFeedScope }
 
     /// Check if we're viewing an exploration collection (in the system Exploration library).
     /// Exploration collections have special triage behavior:
@@ -878,43 +827,19 @@ struct UnifiedPublicationListWrapper: View {
                 // Clear selection for deleted items
                 self.selectedPublicationIDs.subtract(ids)
 
-                let store = RustStoreAdapter.shared
-
-                if case .dismissed = self.source {
-                    // Dismissed library = Trash: permanently delete
-                    store.deletePublications(ids: Array(ids))
-                } else {
-                    // Everything else: move to Dismissed (like macOS Trash)
-                    let dismissed = self.libraryManager.getOrCreateDismissedLibrary()
-                    store.beginBatchMutation()
-
-                    // Track dismissal for inbox/smart-search papers
-                    if self.isInboxView {
-                        let ssID = self.smartSearchLibraryID
-                        for id in ids {
-                            InboxManager.shared.trackDismissal(id)
-                            InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
-                        }
-                    }
-
-                    // SciX libraries: also remove the Contains edge
-                    if case .scixLibrary(let scixID) = self.source {
-                        store.removeFromScixLibrary(publicationIds: Array(ids), scixLibraryId: scixID)
-                    }
-
-                    // Collections: also remove the Contains edge
-                    if case .collection(let collID) = self.source {
-                        store.removeFromCollection(publicationIds: Array(ids), collectionId: collID)
-                    }
-
-                    // Smart searches: remove from collection
-                    if let ssID = self.smartSearchLibraryID {
-                        store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
-                    }
-
-                    store.movePublications(ids: Array(ids), toLibraryId: dismissed.id)
-                    store.endBatchMutation()
-                }
+                // Stage 5d SPLIT: the sequence below moved verbatim to
+                // `PublicationListMutations.delete`. iOS's copy called
+                // `deletePublications` unconditionally from every scope, so
+                // "Delete" destroyed the paper there and soft-deleted it here.
+                var isDismissedScope = false
+                if case .dismissed = self.source { isDismissedScope = true }
+                PublicationListMutations.delete(
+                    ids: ids,
+                    source: self.source,
+                    permanently: isDismissedScope,
+                    // Lazy: deleting OUT of Dismissed must not create it.
+                    dismissedLibraryID: { self.libraryManager.getOrCreateDismissedLibrary().id }
+                )
             }
             a.onCut = { ids in
                 await self.libraryViewModel.cutToClipboard(ids)
@@ -1513,10 +1438,8 @@ struct UnifiedPublicationListWrapper: View {
     }
 
     /// The smart search ID when viewing a smart search inbox feed (for removing papers after triage).
-    private var smartSearchLibraryID: UUID? {
-        if case .smartSearch(let id) = source { return id }
-        return nil
-    }
+    /// Stage 5d SPLIT: `PublicationSource.smartSearchID`.
+    private var smartSearchLibraryID: UUID? { source.smartSearchID }
 
     /// Save selected publications to the target library.
     /// Feed views (inbox or library feeds): resolves per-feed save target, moves papers, tracks dismissal.
@@ -1534,19 +1457,11 @@ struct UnifiedPublicationListWrapper: View {
             } else {
                 targetLibraryID = libraryManager.getOrCreateSaveLibrary().id
             }
-            let ssID = smartSearchLibraryID
+            let scope = source
             performTriageAnimation(ids: ids, flashColor: .green) { ids in
-                let store = RustStoreAdapter.shared
-                store.beginBatchMutation()
-                for id in ids {
-                    InboxManager.shared.trackDismissal(id)
-                    InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
-                }
-                store.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
-                if let ssID {
-                    store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
-                }
-                store.endBatchMutation()
+                // Stage 5d SPLIT: `PublicationListMutations.saveFromFeed`.
+                PublicationListMutations.saveFromFeed(
+                    ids: ids, to: targetLibraryID, source: scope)
             }
         } else {
             let saveLibrary = libraryManager.getOrCreateSaveLibrary()
@@ -1577,19 +1492,13 @@ struct UnifiedPublicationListWrapper: View {
             } else {
                 targetLibraryID = libraryManager.getOrCreateSaveLibrary().id
             }
-            let ssID = smartSearchLibraryID
+            let scope = source
             performTriageAnimation(ids: ids, flashColor: .yellow) { ids in
-                let store = RustStoreAdapter.shared
-                store.beginBatchMutation()
-                for id in ids {
-                    InboxManager.shared.trackDismissal(id)
-                    InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
-                }
-                store.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
-                if let ssID {
-                    store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
-                }
-                store.endBatchMutation()
+                // Stage 5d SPLIT: same sequence as plain save — see
+                // `PublicationListMutations.saveFromFeed`. Only the flash colour
+                // and the unconditional `setStarred` above differ.
+                PublicationListMutations.saveFromFeed(
+                    ids: ids, to: targetLibraryID, source: scope)
             }
         } else {
             let saveLibrary = libraryManager.getOrCreateSaveLibrary()
@@ -1859,87 +1768,19 @@ struct UnifiedPublicationListWrapper: View {
     /// This is the single source of truth for list order during triage operations.
     /// Called synchronously before triage to ensure selection advancement uses the correct order.
     ///
+    /// Stage 5d SPLIT: the comparator and the "pre-sorted from SQL, except
+    /// `.recommended`" rule moved verbatim to `PublicationListOrder`. iOS's copy
+    /// re-sorted every order client-side with a `Bool` comparator that was not a
+    /// strict weak ordering for `.starred`; it now reads this one.
+    ///
     /// - Returns: Publications sorted according to current sort order and filters
     private func computeVisualOrder() -> [PublicationRowData] {
-        // Data arrives pre-sorted from SQL. Only "recommended" sort needs client-side ordering.
-        if currentSortOrder == .recommended {
-            let ascending = currentSortAscending == currentSortOrder.defaultAscending
-            return publications.sorted { lhs, rhs in
-                let primaryResult = primarySortComparison(lhs, rhs)
-                if primaryResult != .orderedSame { return primaryResult == .orderedAscending }
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
-        }
-        return publications
-    }
-
-    /// Primary sort comparison — returns .orderedSame when items are equal on the sort key.
-    /// Used by computeVisualOrder for stable tie-breaking.
-    private func primarySortComparison(_ lhs: PublicationRowData, _ rhs: PublicationRowData) -> ComparisonResult {
-        let ascending = currentSortAscending == currentSortOrder.defaultAscending
-
-        switch currentSortOrder {
-        case .recommended:
-            let lhsScore = recommendationScores[lhs.id] ?? 0
-            let rhsScore = recommendationScores[rhs.id] ?? 0
-            if lhsScore != rhsScore {
-                let result: ComparisonResult = lhsScore > rhsScore ? .orderedAscending : .orderedDescending
-                return ascending ? result : result.flipped
-            }
-            if lhs.dateAdded != rhs.dateAdded {
-                let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
-                return ascending ? result : result.flipped
-            }
-            return .orderedSame
-        case .dateAdded:
-            if lhs.dateAdded == rhs.dateAdded { return .orderedSame }
-            let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
-            return ascending ? result : result.flipped
-        case .dateModified:
-            if lhs.dateModified == rhs.dateModified { return .orderedSame }
-            let result: ComparisonResult = lhs.dateModified > rhs.dateModified ? .orderedAscending : .orderedDescending
-            return ascending ? result : result.flipped
-        case .title:
-            let cmp = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
-            if cmp == .orderedSame { return .orderedSame }
-            let result: ComparisonResult = cmp == .orderedAscending ? .orderedAscending : .orderedDescending
-            return ascending ? result : result.flipped
-        case .year:
-            let ly = lhs.year ?? 0, ry = rhs.year ?? 0
-            if ly == ry { return .orderedSame }
-            let result: ComparisonResult = ly > ry ? .orderedAscending : .orderedDescending
-            return ascending ? result : result.flipped
-        case .citeKey:
-            let cmp = lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey)
-            if cmp == .orderedSame { return .orderedSame }
-            let result: ComparisonResult = cmp == .orderedAscending ? .orderedAscending : .orderedDescending
-            return ascending ? result : result.flipped
-        case .citationCount:
-            if lhs.citationCount == rhs.citationCount { return .orderedSame }
-            let result: ComparisonResult = lhs.citationCount > rhs.citationCount ? .orderedAscending : .orderedDescending
-            return ascending ? result : result.flipped
-        case .starred:
-            if lhs.isStarred != rhs.isStarred {
-                let result: ComparisonResult = lhs.isStarred ? .orderedAscending : .orderedDescending
-                return ascending ? result : result.flipped
-            }
-            if lhs.dateAdded == rhs.dateAdded { return .orderedSame }
-            let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
-            return ascending ? result : result.flipped
-        case .recentActivity:
-            // nil stamp = never touched = distant past. This matches SQLite's
-            // NULL ordering (last under DESC, first under ASC) so the local
-            // re-sort never fights the server-side ORDER BY.
-            let la = lhs.lastActivityAt ?? .distantPast
-            let ra = rhs.lastActivityAt ?? .distantPast
-            if la != ra {
-                let result: ComparisonResult = la > ra ? .orderedAscending : .orderedDescending
-                return ascending ? result : result.flipped
-            }
-            if lhs.dateAdded == rhs.dateAdded { return .orderedSame }
-            let result: ComparisonResult = lhs.dateAdded > rhs.dateAdded ? .orderedAscending : .orderedDescending
-            return ascending ? result : result.flipped
-        }
+        PublicationListOrder.visualOrder(
+            publications,
+            sortOrder: currentSortOrder,
+            ascending: currentSortAscending,
+            recommendationScores: recommendationScores
+        )
     }
 
     /// Dismiss selected publications (moves to Dismissed library, not delete).
@@ -1949,22 +1790,12 @@ struct UnifiedPublicationListWrapper: View {
         let ids = selectedPublicationIDs.subtracting(triageInFlight)
         guard !ids.isEmpty else { return }
         let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
-        let ssID = smartSearchLibraryID
+        let scope = source
 
         performTriageAnimation(ids: ids, flashColor: .orange) { ids in
-            let store = RustStoreAdapter.shared
-            store.beginBatchMutation()
-            if self.isFeedView {
-                for id in ids {
-                    InboxManager.shared.trackDismissal(id)
-                    InboxManager.shared.cleanupDismissedCopies(of: id, ssCollectionID: ssID)
-                }
-            }
-            store.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
-            if let ssID {
-                store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
-            }
-            store.endBatchMutation()
+            // Stage 5d SPLIT: `PublicationListMutations.dismissFromFeed`.
+            PublicationListMutations.dismissFromFeed(
+                ids: ids, source: scope, dismissedLibraryID: dismissedLibrary.id)
         }
     }
 
@@ -2003,30 +1834,12 @@ struct UnifiedPublicationListWrapper: View {
     }
 
     /// Compute the next selection ID after removing the given IDs from the visual order.
+    ///
+    /// Stage 5d SPLIT: `PublicationListOrder.nextSelection`, moved verbatim.
+    /// iOS's copy walked down from `ids.first` — an unordered `Set`'s first
+    /// element — so triaging a multi-row block landed inside it.
     private func computeNextSelection(removing ids: Set<UUID>, from visualOrder: [PublicationRowData]) -> UUID? {
-        // Find the last selected item in visual order (bottom of the selection block).
-        // This ensures we advance "downward" from where the user's selection ends.
-        guard let lastSelectedIndex = visualOrder.lastIndex(where: { ids.contains($0.id) }) else {
-            return nil
-        }
-
-        // Try the item immediately after the last selected item
-        for i in (lastSelectedIndex + 1)..<visualOrder.count {
-            if !ids.contains(visualOrder[i].id) {
-                return visualOrder[i].id
-            }
-        }
-
-        // If no next item, try before the first selected item
-        if let firstSelectedIndex = visualOrder.firstIndex(where: { ids.contains($0.id) }) {
-            for i in (0..<firstSelectedIndex).reversed() {
-                if !ids.contains(visualOrder[i].id) {
-                    return visualOrder[i].id
-                }
-            }
-        }
-
-        return nil
+        PublicationListOrder.nextSelection(removing: ids, from: visualOrder)
     }
 
     // MARK: - Save Implementation
@@ -2037,12 +1850,11 @@ struct UnifiedPublicationListWrapper: View {
         // Compute visual order synchronously for correct selection advancement
         let visualOrder = computeVisualOrder()
 
-        // Track dismissal for inbox papers to prevent reappearance in feeds
-        if isInboxView {
-            for id in ids {
-                InboxManager.shared.trackDismissal(id)
-            }
-        }
+        // Track dismissal for inbox papers to prevent reappearance in feeds.
+        // Stage 5d SPLIT: `PublicationListMutations.trackInboxDismissals`. It is
+        // a separate verb from `save` because it has to run BEFORE the selection
+        // advance below, and the advance writes this view's bindings.
+        PublicationListMutations.trackInboxDismissals(ids: ids, source: source)
 
         // Compute and advance selection BEFORE mutation
         let nextID = computeNextSelection(removing: ids, from: visualOrder)
@@ -2054,15 +1866,9 @@ struct UnifiedPublicationListWrapper: View {
             selectedPublicationID = nil
         }
 
-        // Remove Contains edges from smart search collection (immediate feed cleanup)
-        if case .smartSearch(let ssID) = source {
-            let store = RustStoreAdapter.shared
-            store.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
-        }
-
-        // Move publications to the target library (triggers .storeDidMutate → refresh)
-        let store = RustStoreAdapter.shared
-        store.movePublications(ids: Array(ids), toLibraryId: targetLibraryID)
+        // Delink from the feed, then move. Stage 5d SPLIT:
+        // `PublicationListMutations.save`.
+        PublicationListMutations.save(ids: ids, to: targetLibraryID, source: source)
     }
 
     // MARK: - Inbox Triage Callback Implementations
@@ -2072,11 +1878,6 @@ struct UnifiedPublicationListWrapper: View {
         // Compute visual order synchronously for correct selection advancement
         let visualOrder = computeVisualOrder()
 
-        // Track dismissal to prevent reappearance in feeds
-        for id in ids {
-            InboxManager.shared.trackDismissal(id)
-        }
-
         // Compute and advance selection BEFORE mutation
         let nextID = computeNextSelection(removing: ids, from: visualOrder)
         if let nextID {
@@ -2087,14 +1888,13 @@ struct UnifiedPublicationListWrapper: View {
             selectedPublicationID = nil
         }
 
-        // Remove Contains edges from smart search collection (immediate feed cleanup)
-        if case .smartSearch(let ssID) = source {
-            RustStoreAdapter.shared.removeFromCollection(publicationIds: Array(ids), collectionId: ssID)
-        }
-
-        // Move to dismissed library (triggers .storeDidMutate → refresh)
+        // Track the dismissal, delink from the feed, move to Dismissed.
+        // Stage 5d SPLIT: `PublicationListMutations.dismiss` — iOS's copy of this
+        // sequence skipped the tracking, so a paper dismissed on a phone came
+        // back on the next feed refresh.
         let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
-        RustStoreAdapter.shared.movePublications(ids: Array(ids), toLibraryId: dismissedLibrary.id)
+        PublicationListMutations.dismiss(
+            ids: ids, source: source, dismissedLibraryID: dismissedLibrary.id)
     }
 
     /// Mute an author

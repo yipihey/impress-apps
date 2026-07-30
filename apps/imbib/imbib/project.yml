@@ -235,12 +235,15 @@ targets:
           # BrowserURLProviderRegistry, AttachmentManager keyed by UUIDs).
           # Its stub is excluded so the type is unique.
           - "Views/IOSPDFBrowserViewStub.swift"
-          # IOSUnifiedPublicationListWrapper.swift REVIVED — ported to the
-          # value-type + RustStoreAdapter world (id-based Source enum,
-          # getPublication/getSmartSearch/getScixLibrary, AttachmentManager
-          # keyed by UUIDs, id-based smart-search/SciX refresh services).
-          # Its stub is excluded so the type is unique.
-          - "Views/IOSUnifiedPublicationListWrapperStub.swift"
+          # IOSUnifiedPublicationListWrapperStub.swift DELETED 2026-07-30
+          # (Stage 5d). It was the "enough to show a working list" replacement
+          # written while the real wrapper still referenced Core Data types; the
+          # real wrapper has been live since 2026-07-20, so the stub had been an
+          # excluded-from-build third copy of the Source enum and a third
+          # publication `List` ever since. No exclude needed — there is no second
+          # implementation left to exclude. The wrapper's model half now lives in
+          # PMC (Chassis/Shared/PublicationListCore.swift + PublicationScope +
+          # PublicationListOrder + PublicationListMutations), shared with macOS.
           # IOSNoPDFView.swift REVIVED — ported to RustStoreAdapter/PublicationModel
           # (getPublicationDetail + AttachmentManager.importPDF(data:for:in:) +
           # id-based IOSPDFBrowserView). Its stub is excluded so the type is unique.

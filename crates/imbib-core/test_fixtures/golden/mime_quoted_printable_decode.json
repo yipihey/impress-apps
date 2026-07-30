@@ -1,0 +1,114 @@
+[
+  {
+    "input" : "",
+    "output" : ""
+  },
+  {
+    "input" : "plain ascii",
+    "output" : "plain ascii"
+  },
+  {
+    "input" : "Hello=3DWorld",
+    "output" : "Hello=World"
+  },
+  {
+    "input" : "Hello=3dWorld",
+    "output" : "Hello=World"
+  },
+  {
+    "input" : "a=\nb",
+    "output" : "ab"
+  },
+  {
+    "input" : "a=\r\nb",
+    "output" : "a=\r\nb"
+  },
+  {
+    "input" : "trailing soft break=\n",
+    "output" : "trailing soft break"
+  },
+  {
+    "input" : "=E2=80=94",
+    "output" : "â"
+  },
+  {
+    "input" : "M=C3=BCller",
+    "output" : "MÃ¼ller"
+  },
+  {
+    "input" : "caf=C3=A9",
+    "output" : "cafÃ©"
+  },
+  {
+    "input" : "=C3",
+    "output" : "Ã"
+  },
+  {
+    "input" : "=ZZ",
+    "output" : "=ZZ"
+  },
+  {
+    "input" : "=2",
+    "output" : "=2"
+  },
+  {
+    "input" : "=",
+    "output" : "="
+  },
+  {
+    "input" : "=00",
+    "output" : "\u0000"
+  },
+  {
+    "input" : "=0A",
+    "output" : "\n"
+  },
+  {
+    "input" : "=09tab",
+    "output" : "\ttab"
+  },
+  {
+    "input" : "a=3D=3Db",
+    "output" : "a==b"
+  },
+  {
+    "input" : "=E2=80=9Cquoted=E2=80=9D",
+    "output" : "âquotedâ"
+  },
+  {
+    "input" : "line one=\nline two=\nline three",
+    "output" : "line oneline twoline three"
+  },
+  {
+    "input" : "=41=42=43",
+    "output" : "ABC"
+  },
+  {
+    "input" : "=7F",
+    "output" : ""
+  },
+  {
+    "input" : "=FF",
+    "output" : "ÿ"
+  },
+  {
+    "input" : "mixed =C3=BC and =3D and plain",
+    "output" : "mixed Ã¼ and = and plain"
+  },
+  {
+    "input" : "=3d=3D",
+    "output" : "=="
+  },
+  {
+    "input" : "soft=\r",
+    "output" : "soft=\r"
+  },
+  {
+    "input" : "=\t",
+    "output" : "=\t"
+  },
+  {
+    "input" : "already ü unicode",
+    "output" : "already ü unicode"
+  }
+]

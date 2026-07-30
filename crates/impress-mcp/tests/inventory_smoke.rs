@@ -145,6 +145,18 @@ fn list_and_call_inventory_tool_via_stdio() {
         "smart-search-service_validate-parsed-reference",
         "smart-search-service_free-text-extraction-prompt",
         "smart-search-service_reference-parse-prompt",
+        // Stage 7 item 9: imbib's archive and publisher parsers, ported out of
+        // PMC/{Mbox,Publishers}. Same shape as the smart-search namespace above
+        // — pure functions, no store, no app, no network — so they must appear
+        // with every app closed and need no reachability entry. Listed here for
+        // the same reason: a missing force-link `use` in `main.rs` would
+        // dead-strip all six silently.
+        "parsers-service_parse-mbox",
+        "parsers-service_decode-mime-header",
+        "parsers-service_decode-quoted-printable",
+        "parsers-service_resolve-publisher-pdf",
+        "parsers-service_list-publisher-rules",
+        "parsers-service_extract-landing-page-pdf",
     ] {
         assert!(names.contains(&inv), "missing inventory {inv} in {names:?}");
     }

@@ -77,8 +77,12 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/neal_dalal_quote.jpg"),
-                .copy("Resources/mathjax"),
-                .copy("Publishers/Resources/publisher-rules.json")
+                .copy("Resources/mathjax")
+                // `Publishers/Resources/publisher-rules.json` was removed in
+                // Stage 7 item 9: it was a stale 12-rule subset of
+                // DefaultRules.swift's 16, it shipped in every app bundle, and
+                // nothing ever loaded it (`setCustomRulesPath` had no callers).
+                // The rule table now lives in imbib-core.
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),

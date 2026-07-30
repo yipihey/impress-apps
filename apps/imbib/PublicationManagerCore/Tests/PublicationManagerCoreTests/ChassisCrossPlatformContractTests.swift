@@ -223,6 +223,22 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
         // Stage-5b lesson from imbib's publication detail, applied before the
         // second copy exists rather than after.
         "Chassis/Messages/MessageDetailPane.swift",
+
+        // MARK: Stage 5d — the publication list's shared halves
+        //
+        // The suite's highest-traffic surface had two hosts and two copies of
+        // its model: scope derivations (including a hand-written `.flagged`
+        // UUID table that claimed to match `PublicationSource.viewID` and did
+        // not), the visual-order comparator, the selection-advance rule, and
+        // the composite triage sequences. Four invariant violations lived in
+        // the iOS copies — see `PublicationListSharedSurfaceTests`, which owns
+        // the behavioural oracle for each file. The macOS list CHROME
+        // (`Chassis/Shared/UnifiedPublicationListWrapper.swift`) stays gated;
+        // it is asserted in the gated list below.
+        "Chassis/Shared/PublicationScope.swift",
+        "Chassis/Shared/PublicationListOrder.swift",
+        "Chassis/Shared/PublicationListMutations.swift",
+        "Chassis/Shared/PublicationListCore.swift",
     ]
 
     func testContractFilesAreNotWrappedInAMacOSGate() throws {
@@ -261,6 +277,13 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
             // along with this one — the declaration they both read is in the
             // cross-platform list above.
             "Chassis/Settings/MacSettingsSceneContent.swift",
+            // Stage 5d: the macOS publication list CHROME — vim keys, the
+            // flag/tag/filter input overlays, drag-and-drop with its preview
+            // sheet, the import toast, the unread snapshot + FTS filter
+            // pipeline. Its model half is in the cross-platform list above and
+            // iOS reads it; this file stays gated, and if it ever stops being
+            // gated that means AppKit-adjacent chrome leaked onto iOS.
+            "Chassis/Shared/UnifiedPublicationListWrapper.swift",
         ]
         for relativePath in gated {
             let url = Self.sourcesRoot.appendingPathComponent(relativePath)

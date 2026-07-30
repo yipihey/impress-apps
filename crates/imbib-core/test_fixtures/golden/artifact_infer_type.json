@@ -1,0 +1,210 @@
+[
+  {
+    "artifactType" : "impress\/artifact\/general",
+    "filename" : "paper.pdf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/presentation",
+    "filename" : "slides.key"
+  },
+  {
+    "artifactType" : "impress\/artifact\/presentation",
+    "filename" : "slides.pptx"
+  },
+  {
+    "artifactType" : "impress\/artifact\/presentation",
+    "filename" : "slides.odp"
+  },
+  {
+    "artifactType" : "impress\/artifact\/presentation",
+    "filename" : "my-slide-deck.pdf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/presentation",
+    "filename" : "conference-talk.pdf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/presentation",
+    "filename" : "a-lecture.pdf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/presentation",
+    "filename" : "the-presentation.pdf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/poster",
+    "filename" : "POSTER-final.pdf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "README.md"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "readme.txt"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "codebook.xlsx"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "dataset-v2.bin"
+  },
+  {
+    "artifactType" : "impress\/artifact\/note",
+    "filename" : "notes.md"
+  },
+  {
+    "artifactType" : "impress\/artifact\/note",
+    "filename" : "notes.txt"
+  },
+  {
+    "artifactType" : "impress\/artifact\/note",
+    "filename" : "notes.rtf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "data.csv"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "data.tsv"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "data.parquet"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "data.hdf5"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "data.h5"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "image.fits"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "grid.nc"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "grid.netcdf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "script.py"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "script.R"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "script.jl"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "script.m"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "script.sh"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "code.swift"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "code.rs"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "code.c"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "code.cpp"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "code.java"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "code.js"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "code.ts"
+  },
+  {
+    "artifactType" : "impress\/artifact\/code",
+    "filename" : "analysis.ipynb"
+  },
+  {
+    "artifactType" : "impress\/artifact\/webpage",
+    "filename" : "page.html"
+  },
+  {
+    "artifactType" : "impress\/artifact\/webpage",
+    "filename" : "page.htm"
+  },
+  {
+    "artifactType" : "impress\/artifact\/webpage",
+    "filename" : "page.mhtml"
+  },
+  {
+    "artifactType" : "impress\/artifact\/webpage",
+    "filename" : "link.webloc"
+  },
+  {
+    "artifactType" : "impress\/artifact\/media",
+    "filename" : "figure.png"
+  },
+  {
+    "artifactType" : "impress\/artifact\/media",
+    "filename" : "figure.jpg"
+  },
+  {
+    "artifactType" : "impress\/artifact\/media",
+    "filename" : "movie.mp4"
+  },
+  {
+    "artifactType" : "impress\/artifact\/media",
+    "filename" : "audio.m4a"
+  },
+  {
+    "artifactType" : "impress\/artifact\/general",
+    "filename" : "archive.zip"
+  },
+  {
+    "artifactType" : "impress\/artifact\/general",
+    "filename" : "noextension"
+  },
+  {
+    "artifactType" : "impress\/artifact\/general",
+    "filename" : "UPPER.PDF"
+  },
+  {
+    "artifactType" : "impress\/artifact\/general",
+    "filename" : "weird.name.with.dots.pdf"
+  },
+  {
+    "artifactType" : "impress\/artifact\/presentation",
+    "filename" : "slide-data.csv"
+  },
+  {
+    "artifactType" : "impress\/artifact\/poster",
+    "filename" : "poster.csv"
+  },
+  {
+    "artifactType" : "impress\/artifact\/dataset",
+    "filename" : "readme.py"
+  }
+]

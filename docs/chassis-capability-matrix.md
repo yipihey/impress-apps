@@ -60,7 +60,7 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 
 | Row kind | Select→detail | Multi-select | Context menu | Drag | Keyboard | Delete flow |
 |---|---|---|---|---|---|---|
-| Publication (`MailStylePublicationRow`) | ✅ `.id(source.viewID)` | ✅ Set + combined BibTeX | ✅ full (flag/tag/collections/…) | ✅ multi, cross-app ref | ✅ j/k + guarded | soft-delete → Dismissed, Undo |
+| Publication (`MailStylePublicationRow`) | ✅ `.id(source.viewID)` | ✅ Set + combined BibTeX | ✅ full (flag/tag/collections/…) | ✅ multi, cross-app ref | ✅ j/k + guarded | soft-delete → Dismissed, Undo — **on both platforms as of Stage 5d**; iOS's list had its own `handleDelete` calling `deletePublications` unconditionally, from every scope |
 | Manuscript (`ManuscriptListWrapper`) | ✅ `.id(scope)` only (no pane `.id` — rebuilding the NSTextView made selection sluggish) | ✅ Set, primary drives detail | ✅ Open/Duplicate/Star/Archive/Flag/Tags/Folder/Delete | ✅ multi → folders (pasteboard + `RecordDragSession.manuscript` fallback) | ✅ j/k/n/s guarded | confirm alert → hard delete + Undo, session discarded; swipe = archive (status) / delete |
 | Artifact | ✅ | ❌ | partial | ❌ | ✅ | ✅ |
 | Figure (`FigureListWrapper`) | ✅ `.id(scope)` | ✅ Set, primary drives detail | ✅ Open in Canvas/Star/Flag/Tags/Folder/Delete (shared TriageMenu) | ✅ multi → folders/Unfiled (pasteboard `com.impress.figure-id` + `RecordDragSession.figure` fallback) | ✅ j/k/s/o// via TriageKeyGrammar (n, d ignored — no create/dismiss capability) | confirm alert → hard delete + Undo (no session to discard) |
@@ -648,6 +648,146 @@ factory needed no edit, the same courtesy the settings migration paid
 `IOSContentView`. Every app that links ImpressLogging now has an iOS console,
 and it has the Performance tab.
 
+### Publication list (`Chassis/Shared/`, Stage 5d, 2026-07-30)
+
+The suite's highest-traffic surface, and the last iOS list on its own model.
+macOS's `UnifiedPublicationListWrapper` was 1,682 code lines; imbib-iOS's
+`IOSUnifiedPublicationListWrapper` 710, plus a 159-line `…Stub.swift` that had
+been excluded from the build — and therefore a THIRD copy of the scope enum and
+a third publication `List` — since the real wrapper was revived on 2026-07-20.
+
+**The list itself was never the duplication.** `SharedViews/PublicationListView`
+(2,021 cross-platform lines) has been the one host for rows, the sort menu, the
+swipes, the toolbar and `.refreshable` all along; both wrappers call it. What was
+written twice is the MODEL around it — which scope means which rows, what order
+the user is looking at, where selection goes when rows leave, and what a triage
+verb actually does to the store. Four of those five had a defect in the iOS copy,
+so this is a SPLIT that also closes bugs rather than a tidy-up.
+
+| Half | Verdict | What moved cross-platform | What stayed two, and why |
+|---|---|---|---|
+| Scope derivations | **ONE SURFACE — collapsed outright.** | `PublicationScope`: `listViewID`, `isInboxScope`, `isFeedScope`, `smartSearchID`, and the two owning-library policies | Nothing. The iOS `Source` enum survives as the SIDEBAR ROUTE (it carries a display name `PublicationSource` cannot express) but derives nothing — it maps to a `PublicationSource` and asks |
+| Visual order + selection advance | **ONE SURFACE — collapsed outright.** | `PublicationListOrder.visualOrder` / `primaryComparison` / `nextSelection`, macOS's implementations moved without edits | Nothing |
+| Triage verbs | **SPLIT — one sequence, two selection policies.** | `PublicationListMutations`: the COMPOSITES (delete, dismiss, dismissFromFeed, save, saveFromFeed, trackInboxDismissals, removeFromAllCollections) | The selection policy. macOS ADVANCES to the next paper; iOS CLEARS, because on a phone the split view is a stack and writing a selection pushes the detail pane over the list being triaged in (matrix line ~271, the rule that has now bitten twice) |
+| Reload / scope→rows / network refresh | **SPLIT — iOS adopts, macOS names its price.** | `PublicationListCore`: `PaginatedDataSource` ownership, `reload`, `applySort`, pagination, the store-event subscription, the smart-search + SciX refresh | macOS keeps its own `refreshPublicationsList`: around the same reload it runs store-version dedup, the Apple-Mail unread snapshot, `LocalFilter` + debounced FTS, and two change-detected caches. iOS has none of them and every one is observable behaviour on the frozen pane |
+| Empty-state + title copy | **TWO DESIGNS — kept, with reasons.** | Nothing | Different product copy per platform (macOS "No new papers in your inbox."; iOS "Add feeds to start discovering papers."), and iOS guards an empty smart-search query where macOS renders `No Results for ""`. Unifying words changes the frozen pane — a product decision. Same rule as `InfoTab.macExplorationKinds` |
+| macOS list chrome | **TWO DESIGNS.** | Nothing | Vim keys, the flag/tag/filter input overlays, drag-and-drop + preview sheet, the import toast. Stays `#if os(macOS)` and is asserted so |
+
+**Five defects the duplication was hiding, each now a test** (a sixth, the blank
+BibTeX sheet, is below — it was hiding behind the absence of a test, not behind
+the duplication).
+
+1. **iOS's Delete destroyed data.** `handleDelete` called
+   `deletePublications(ids:)` unconditionally, from every scope, while the same
+   word on the Mac moved the paper to a recoverable Dismissed library — the
+   "soft-delete → Dismissed, Undo" this document promises for the publication
+   row. Now `PublicationListMutations.delete`, with `permanently` the one
+   decision the host owns (macOS matches `if case .dismissed`; iOS routes its
+   Dismissed screen through `.libraryByID` and compares ids).
+2. **iOS triage let dismissed papers back into the inbox.** Neither
+   `handleDismiss` nor `handleSaveToLibrary` called
+   `InboxManager.trackDismissal` — imbib's FIRST critical invariant. Dismiss a
+   paper on iPhone, let a feed refresh, and it came back.
+3. **The "deterministic" `.flagged` id table was two tables.** iOS's
+   `flaggedID(for:)` carried the comment *"matches the macOS wrapper's mapping so
+   saved selection state survives platform transitions"* and mapped
+   red/amber/blue/gray to `F1A99ED0-000{1,2,3,4}-…`; `PublicationSource.viewID`
+   maps them into `00000000-…-%012x` by a different colour index and has no
+   `amber` branch at all. `listViewID` keys `ListViewStateStore`, so the two
+   platforms had been reading and writing DIFFERENT saved sort/unread/selection
+   state for every flagged scope for as long as both files existed. Nothing
+   failed loudly; the comment was simply false.
+4. **The iOS sort menu was inert.** iOS held `currentSortOrder`, handed it to
+   `PublicationListView` (which renders the menu), and had no
+   `onChange` — it loaded once at the store's default `created DESC` and never
+   re-queried, and `PublicationListView` sorts client-side only for
+   `.recommended`. Every other entry ticked and the list did not move. Meanwhile
+   iOS's `computeVisualOrder()` sorted a copy nobody rendered, and
+   `handleSaveToLibrary` discarded the result outright (`_ =
+   computeVisualOrder()`).
+5. **Multi-row triage landed inside the block it was triaging.** iOS's
+   `computeNextSelection` walked down from `ids.first` — an unordered `Set`'s
+   first element. macOS walks down from the LAST selected row in visual order.
+   iOS's client-side comparator was also not a strict weak ordering for
+   `.starred` (`lhs.isStarred && !rhs.isStarred` reports "equal" for two starred
+   papers and for two unstarred ones).
+
+| File | Reach | Role |
+|---|---|---|
+| `Chassis/Shared/PublicationScope.swift` | ✅ both | scope → persisted list key, inbox/feed classification, smart-search id, the two owning-library policies. Derivations only — ADR-0018 D3, no new cases |
+| `Chassis/Shared/PublicationListOrder.swift` | ✅ both | the visual order (SQL-sorted passthrough; total order for `.recommended`) and the selection-advance rule |
+| `Chassis/Shared/PublicationListMutations.swift` | ✅ both | the composite triage sequences with their invariant steps (dismissal tracking, feed delinking, batching, soft delete) |
+| `Chassis/Shared/PublicationListCore.swift` | iOS (macOS pending, price stated in its header) | `@Observable` scope→rows: paginated read, sort→`ORDER BY`, store-event subscription, smart-search + SciX network refresh |
+| `Chassis/Shared/UnifiedPublicationListWrapper.swift` | macOS | the chrome: vim keys, input overlays, drag-and-drop, import toast, the unread-snapshot + FTS filter pipeline |
+| `imbib-iOS/Views/IOSUnifiedPublicationListWrapper.swift` | iOS | the chrome: navigation title, Select/Done + per-scope refresh + SciX glyph toolbar, bottom bar, library picker, share / open-in-browser, the BibTeX sheet |
+
+**What was NOT collapsed, deliberately.** The empty-state and title strings (see
+the verdict table). `handleOpenInBrowser` / `handleShare` / `handleDownloadPDF`,
+which are iOS-only affordances with no macOS counterpart to converge with — the
+chassis's `BrowserURLProviderRegistry` answers "the one best URL for this paper",
+not "the URL for this destination", so there is nothing to read. Single-call
+verbs (`setFlag`, `clearFlag`, `toggleRead`, `addToLibrary`, `addToCollection`):
+they are already one line into the shared `RustStoreAdapter` and were never
+implemented twice — wrapping them would add a hop and remove no duplication.
+macOS's `onRemoveFromAllCollections`, still an empty `// TODO` closure that
+silently does nothing when the user picks the menu item: the working body is now
+in `PublicationListMutations` and adopting it is one line, but it is a BEHAVIOUR
+change to the frozen pane. And **the tracked triage-builder exception below
+stands** — this pass did not touch `MailStylePublicationRow`'s swipes, keys or
+menu styling.
+
+Net: 901 code lines deleted across five files, 470 added as one shared
+implementation. Two whole files went with it — the excluded-from-build
+`IOSUnifiedPublicationListWrapperStub.swift` (159) and, with the BibTeX collapse
+below, `IOSBibTeXEditorView.swift` (237).
+
+**`IOSBibTeXEditorSheet` — the third BibTeX surface (verdict: full collapse).**
+Stage 5b collapsed `IOSBibTeXTab` into `BibTeXTab` and missed this one, which the
+publication list presents from its row context menu; imbib-iOS therefore still
+had two BibTeX editors. 163 code lines → 32, all of them sheet chrome
+(`NavigationStack`, "BibTeX" title, one Done button). Every difference it carried
+was a defect: it looped `updateField` over `entry.fields` — **the exact bug Stage
+5b fixed in the tab**, which cannot express a renamed cite key, a changed entry
+type or a deleted field, so those edits showed a saved sheet and changed nothing;
+its 35-line hand-rolled brace counter and `^@\w+\s*\{` regex were a FOURTH BibTeX
+grammar and the strictest (it rejected `@string`/`@preamble`), while
+`BibTeXEditor` has had real-time `BibTeXValidator` checking with a line-numbered
+validation bar all along; and its read mode was plain monospaced `Text` with no
+highlighting, line numbers or error markers. `confirmsUnsavedDiscard` (the one
+thing the iOS copies did better) already defaults to `true` on
+`BibTeXTab.init?(publicationID:)`, so the confirmation survives. Edit / Copy /
+Cancel / Save moved out of the navigation bar into the tab's own inline bar
+rather than being duplicated into it — the only visible change.
+
+**And the sheet was presenting nothing at all.** Writing the UI test for it
+turned up a sixth defect, independent of the collapse and older than it: the
+wrapper held `showBibTeXEditor: Bool` beside `publicationForBibTeXSheet: UUID?`,
+presented with `.sheet(isPresented:)` and an `if let` inside the content builder.
+`handleViewEditBibTeX` writes both in the same runloop turn, and SwiftUI
+evaluated the builder while the id was still nil — so "View/Edit BibTeX" opened a
+**blank sheet**, with no navigation bar and no content in the accessibility tree.
+Now one `@State` (`bibTeXTarget`) and `.sheet(item:)`, which derives presentation
+FROM the id so there is no order to get wrong. The same shape is worth checking
+anywhere `.sheet(isPresented:)` sits beside a separately-written payload — this is
+the `@State`-capture rule (root CLAUDE.md) in its presentation form. Note the
+test that catches it must anchor on `app.navigationBars["BibTeX"]`:
+`app.staticTexts["BibTeX"]` is a false positive, because the app publishes a
+zero-size keyboard-shortcut element with exactly that label, and it let the empty
+sheet pass.
+
+Regression oracles: `PublicationListSharedSurfaceTests` (15 tests, `swift test` —
+the frozen `.flagged` scope keys and the amber fallback, virtual-scope key
+distinctness, SQL-sorted passthrough for all eight non-recommended orders,
+`.recommended` totality under a full score tie, selection advancing below a
+multi-row block across 50 shuffles of the `Set`, the end-of-list fallback, plus
+structural guards: the triage verbs still carry their invariant steps, the macOS
+chrome no longer re-implements them, and the core owns no strings and no
+selection); the four new rows in
+`ChassisCrossPlatformContractTests.crossPlatformContractFiles` and the new gated
+row for the macOS wrapper; and `imbib-iOSUITests/IOSPublicationListUITests`
+(booted simulator — selection updates the detail pane, pull-to-refresh, and the
+BibTeX sheet opening the shared editor).
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
@@ -756,6 +896,80 @@ implementations before their bodies were replaced and asserted from both sides
 — `tests/golden_parity.rs` and
 `PublicationManagerCoreTests/Golden/SmartSearchParityTests.swift`, the latter
 through the real FFI. There is no regeneration path, deliberately.
+
+### Archive and publisher parsers (Stage 7 item 9, 2026-07-30)
+
+`crates/imbib-core/src/{mbox,publishers}` + `src/pdf/{title_quality,artifact_meta}`
++ `src/text/abstract_parser` + `impress-parsers-service` — 2,835 lines of Swift
+parsers ported out of `PMC/{Mbox,Publishers,RichText,Artifacts,DragDrop}/`. Six
+tools under `parsers-service_`. Pure functions over strings and bytes: no store,
+no app, **no network**, so like the store-generic namespaces they are absent from
+`reachability::APP_GATED` and answer with every app closed. CLI host is `impress`.
+
+These automate no matrix cell — they are not GUI verbs. They exist because the
+logic was unreachable: it decided whether a paper's PDF could be downloaded and
+what an imported archive contained, and an agent had no way to ask.
+
+| Tool | What it exposes |
+|---|---|
+| `parsers-service_parse-mbox` | an mbox archive → messages with `X-Imbib-*` metadata, decoded bodies and an attachment manifest. Attachment BYTES are withheld (names/types/sizes only) because a library export carries whole PDFs; `max_messages` caps and `truncated` says so |
+| `parsers-service_decode-mime-header` | RFC 2047 encoded-words, charset-honouring |
+| `parsers-service_decode-quoted-printable` | charset-aware quoted-printable, Latin-1 fallback rather than an empty string |
+| `parsers-service_resolve-publisher-pdf` | which publisher owns a DOI, whether its PDF URL is predictable, the constructed URL, and a prose recommendation |
+| `parsers-service_list-publisher-rules` | the whole 16-rule table, so an agent can see *why* a DOI resolves as it does |
+| `parsers-service_extract-landing-page-pdf` | the PDF link out of landing-page markup, naming which strategy ran. **Does not fetch** — that half is Swift |
+
+Behaviour is pinned by **437 golden cases** in
+`crates/imbib-core/test_fixtures/golden/`, captured from the Swift
+implementations before their bodies became shims and asserted from both sides —
+`tests/stage7_{parser,pdf,abstract}_parity.rs` and
+`PublicationManagerCoreTests/Golden/Stage7ParityTests.swift`, the latter through
+the real FFI. There is no regeneration path, deliberately.
+
+**Three components keep a Swift half**, and that is a platform split rather than
+an unfinished port: the `URLSession` landing-page fetch, `PDFDocument`'s info
+dictionary (pdfium *can* read it — `FPDF_GetMetaText` — nobody has written the
+binding), and `UTType.conforms(to:)` / Vision OCR. See
+[docs/parser-batch-swift-rust-split.md](parser-batch-swift-rust-split.md) for
+where each line falls, the four Foundation-vs-Rust behavioural differences the
+corpus surfaced (Latin-1 quoted-printable, `Character`-as-grapheme-cluster,
+`DateFormatter` ignoring an inconsistent weekday, `URLComponents.path`
+re-encoding), and the duplication retired.
+
+**The bug that made this worth doing:** `MIMEDecoder.quotedPrintableDecode` built
+one Latin-1 scalar per `=XX` octet, and `MIMEEncoder` writes every body as
+quoted-printable over UTF-8 — so **an imbib mbox export followed by an imbib mbox
+import corrupted every non-ASCII character in every abstract** (`Müller` →
+`MÃ¼ller`). The only quoted-printable test in the suite used `=3D`. Fixed, with a
+round-trip regression test (`Stage7ParityTests.mboxRoundTripPreservesUnicode`).
+
+#### Known gaps recorded by this wave
+
+| Gap | Where | Why it is not fixed here |
+|---|---|---|
+| **Abstracts render unpreprocessed.** `MathJaxAbstractView` interpolates the RAW abstract into its WKWebView (`RichText/MathJaxView.swift`), so an arXiv abstract's `\\Omega_m` shows visible backslashes and an ADS `<mml:math>` abstract renders as markup — even though `AbstractParser` fixes both and always has. Reached from `InfoTab` (macOS) and `IOSInfoTab` (iOS) | `RichText/MathJaxView.swift` | one line, but it changes what the detail pane renders, which is a product decision with its own before/after — not a side effect of a port wave. `RichText/MathJaxView.swift` was also outside the wave's file boundary |
+| **`MathTextParser` is a live Swift duplicate** of `AbstractParser`'s segment splitter, with two deliberate differences (`AbstractParser` trims display-math latex and rejects inline math containing a blank line; `MathTextParser` does neither and rejects any newline). Reached via `RichTextView` → `NotesTab`, `IOSHelpView` | `RichText/RichTextTheme.swift` | same boundary; converging them changes note rendering |
+| **A `freezesSource` facet on `StatusSpec`** would make CounselEngine's `autoSnapshotStatuses` a derivation instead of a literal. The set is not expressible from existing facets: `isTerminal` = {published, archived, dismissed}, which wrongly includes `dismissed` and wrongly excludes `submitted` | `Chassis/RecordKind/RecordKindDescriptor.swift` + `BuiltinRecordKinds.swift` | `Chassis/**` was outside the wave's boundary. Interlocked meanwhile by `JournalStatusPolicyParityTests` (item 10) |
+| **`bestAuthors` splits on `,` only**, so `"Smith, John; Doe, Jane"` becomes three names — and the comma-separated form is mangled identically | `imbib-core/src/pdf/title_quality.rs` | the real fix is the shared author parser in `impress-bibtex`, which changes every PDF import and needs its own corpus |
+| **`impart-core::mbox` escapes `From ` on write but never unescapes on read**, and `parse_mbox_message` drops every `X-*` header — so impart's conversation round trip is asymmetric | `crates/impart-core/src/mbox.rs` | impart was not this wave's boundary. Found during the twin survey |
+| **`ImpartRustCore` is still a placeholder** — 146 lines of hand-written stub structs and a `threadMessages` that returns one thread per message. impart's CLAUDE.md claim that MIME and threading "live in Rust" describes intent, not shipped code | `apps/impart/ImpartRustCore/` | wave 5 found this; still true |
+
+#### Deleted as dead code
+
+`PMC/Search/SmartQueryTranslator.swift` (444 L) and its
+`SmartQueryTranslatorTests.swift` (293 L, 37 test cases). Verified independently
+before deletion: the entire reference footprint was 2 self-references, 37 test
+references and 2 doc mentions — **zero production consumers** in any `.swift`,
+`.rs`, `.pbxproj`, `Package.swift` or manifest. Its original consumers
+(`NLSearchService`, `NLSearchFormView`, `NLSearchOverlayView`) were deleted in
+`30419c30`; its function is served by the Rust-backed
+`FreeTextQueryRewriter.degenerateRewrite` fallback. It declared no extension,
+conformance or typealias.
+
+Also deleted: `PMC/Publishers/Resources/publisher-rules.json` — a stale 12-rule
+subset of the live 16-rule table that shipped in **every app bundle** and was
+**never loaded** (`setCustomRulesPath` had no callers), plus its
+`Package.swift` `.copy(...)` entry.
 
 ### Resources (WP G6)
 
@@ -982,6 +1196,23 @@ in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
   own `List`. Three is where "each app writes its own" stops being a coincidence.
   The parts that matter are shared (rows, row chrome, triage grammar, scope→rows);
   what is duplicated is the `List` + search field + reload triggers.
+
+  **NARROWED, and the `RecordListHost` idea REJECTED, by Stage 5d
+  (2026-07-30).** Investigating it from imbib found the framing wrong. imbib-iOS
+  does not hand-write a `List` at all — its host is
+  `SharedViews/PublicationListView.swift`, 2021 cross-platform lines with the
+  rows, the sort menu, the swipes, the toolbar and `.refreshable` already in it.
+  What imbib-iOS duplicated was the MODEL: scope→rows, the sort, the reload
+  triggers and the triage sequences, now `Chassis/Shared/PublicationListCore` +
+  `PublicationScope` + `PublicationListOrder` + `PublicationListMutations` (see
+  the Stage 5d section). So a `RecordListHost` generalized from imbib would be
+  generalized from a file imbib would not use, and the two apps that WOULD use it
+  (`IOSMessageListColumn`, 177 lines; the `listColumn` middle of
+  `IOSManuscriptLibraryView`) are not the ones asking. **The honest shared iOS
+  list host for record kinds is the iOS half of `AnyRecordListWrapper`** — which
+  still has no consumer on either platform, so building its iOS twin now would
+  be a second surface with zero callers. Recorded as still-open, with the target
+  named: give `AnyRecordListWrapper` its first consumer, then de-gate it.
 
   **FIVE pre-existing breaks were in the way, all found by being the first person
   to build and run impart's targets** (there is NO `impart-*.yml` CI workflow —

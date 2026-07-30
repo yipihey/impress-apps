@@ -1,0 +1,367 @@
+name: impart - Swift Tests
+
+# impart had NO workflow at all until 2026-07-30. It was the only app in the
+# suite with none: imbib has imbib-tests.yml, imprint has imprint-swift.yml +
+# imprint-apps.yml, impel has impel-swift.yml, implore has implore-swift.yml.
+#
+# The cost was measured, not hypothetical. Stage 5c found FIVE pre-existing
+# breaks simply by being the first thing to build and run impart's targets (see
+# docs/chassis-capability-matrix.md, "impart-iOS on the chassis"):
+#
+#   1. MessageManagerCore did not COMPILE for iOS at all, though impart-iOS had
+#      listed it as a dependency for months (macOS-only `.withSecurityScope`
+#      bookmarks; `Process`-based zip/unzip).
+#   2. The project-wide `PRODUCT_NAME: impart` made impart-iOS, its share
+#      extension and impart-iOSTests all emit `impart.swiftmodule` into one
+#      products directory — four "Multiple commands produce …" errors.
+#   3. impart-ShareExtension's generated Info.plist had no `NSExtension`
+#      dictionary, failing `simctl install` for the whole app.
+#   4. impart-iOSTests had no TEST_HOST override, so `xcodebuild test` died with
+#      "Could not find test host" before a single assertion.
+#   5. NOT FIXED — impart macOS TRAPS ON LAUNCH (`MailChassisHost` reads
+#      `@Environment(AppState.self)` from above its own injection).
+#
+# Breaks 1-4 are exactly what this lane catches, in minutes, on every push.
+#
+# Break 5 it does NOT catch, and the reason matters: it is a RUNTIME trap, so
+# `xcodebuild build` is green, and the only thing that would catch it is
+# launching the app — which this lane deliberately does not do (see the
+# build-for-testing comments below). Catching that class needs either the one-line
+# fix in apps/impart/macOS/ImpartApp.swift plus host-free unit coverage, or an
+# impart-iOSUITests run on a booted simulator, the way imbib-tests.yml's install
+# smoke does. Both are follow-ups; this lane is the floor, not the ceiling.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/impart/**'
+      # The shared halves impart consumes. PublicationManagerCore is called out
+      # explicitly even though it lives under apps/imbib/: since Stage 5c BOTH
+      # impart targets link the chassis, so a PMC-only edit can break impart
+      # while touching nothing under apps/impart/.
+      - 'apps/imbib/PublicationManagerCore/**'
+      - 'apps/imprint/Packages/ImprintCore/**'
+      - 'packages/**'
+      # The Rust cores whose xcframeworks this lane's targets link, directly or
+      # through PMC. Enumerated rather than 'crates/**' so a change to, say,
+      # implore-core does not queue a 40-minute mac job for nothing.
+      - 'crates/impart-core/**'
+      - 'crates/impress-core/**'
+      - 'crates/impress-store-ffi/**'
+      - 'crates/imbib-core/**'
+      - 'crates/imprint-core/**'
+      - 'crates/impress-helix/**'
+      - 'crates/scix-client-ffi/**'
+      - 'schema-refs.json'
+      - 'scripts/check-schema-refs.sh'
+      - '.github/workflows/impart-tests.yml'
+# NO pull_request trigger, deliberately — same rule the other lanes document:
+# this runs on a self-hosted runner and the repo is public, so a fork PR must
+# never reach that machine.
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: impart-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-messagemanagercore:
+    name: Test MessageManagerCore
+    # MessageManagerCore's Package.swift declares platforms: .macOS(.v26), so
+    # executing its tests needs a macOS 26 RUNTIME — building on an older image
+    # works, dlopen of the test bundle does not. Same constraint as PMC.
+    runs-on: [self-hosted, impress-mac]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Schema-ref lint
+        # impart reads and writes unified-store rows (Stage 5c put its mail
+        # surfaces on the chassis), and the store matches `items.schema_ref` by
+        # EXACT equality — a misspelled ref returns zero rows silently, which
+        # looks exactly like an empty mailbox. No other lane covers this for a
+        # Swift-only impart change: imbib-tests.yml is gated on apps/imbib/**,
+        # workspace-rust.yml on crates/**.
+        run: ./scripts/check-schema-refs.sh
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impart-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-impart-
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          # NOT ~/Library/Developer/Xcode/DerivedData: on the self-hosted
+          # runner that is the DEVELOPER's DerivedData (see imbib-tests.yml).
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-impart-${{ hashFiles('apps/impart/*/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-impart-
+
+      # MessageManagerCore -> ImpressRustCore, whose binary target is the
+      # gitignored ImpressStoreFfi.xcframework. `swift test` resolves the whole
+      # package graph, so the artifact has to exist before resolution.
+      #
+      # NOT built here: ImpartCore.xcframework. crates/impart-core does ship a
+      # build-xcframework.sh, but apps/impart/ImpartRustCore is still a plain
+      # placeholder target with no binaryTarget — nothing in the Swift graph
+      # links impart_coreFFI yet. Adding the step would cost a cold Rust build
+      # for an artifact no target opens. Wire it up here when ImpartRustCore
+      # grows its binary target.
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+
+      - name: Build and Test MessageManagerCore
+        working-directory: apps/impart/MessageManagerCore
+        run: |
+          # pipefail: without it the step exits with tee's status, and a
+          # resolution/build failure reports GREEN. That masking is what let a
+          # missing xcframework "pass" in imbib-tests.yml until 2026-07-27.
+          set -o pipefail
+          swift build
+          swift test 2>&1 | tee test-output.txt
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: messagemanagercore-test-output
+          path: apps/impart/MessageManagerCore/test-output.txt
+
+  build-impart-macos:
+    name: Build impart (macOS) + unit bundle
+    runs-on: [self-hosted, impress-mac]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        # apps/*/*.xcodeproj/ is gitignored, so the project must be generated.
+        run: brew install xcodegen
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impart-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-impart-
+
+      # Both impart targets link PublicationManagerCore, which drags in four
+      # more Rust cores on top of impart's own graph. Every xcframework below is
+      # a gitignored build artifact, so a clean checkout has to produce them all
+      # or xcodebuild fails during package resolution.
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          # MACOSX_DEPLOYMENT_TARGET is the script's own default, stated
+          # explicitly so this job shares one cache entry with the other lanes
+          # instead of rebuilding the identical artifact.
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
+
+      # PMC -> ImprintCore -> imprint_coreFFI. FULL slice set, not
+      # IMPRINT_SKIP_IOS=1: impart's generated project carries an iOS target
+      # beside the macOS one, so resolution walks the whole graph even in a
+      # macOS-only build — and the iOS job below needs the same artifact.
+      - name: ImprintCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
+
+      - name: Generate Xcode project
+        working-directory: apps/impart
+        run: xcodegen generate
+
+      # BUILD-FOR-TESTING, NOT `test`. impartTests is a bundle.unit-test with a
+      # dependency on the `impart` app target, so XcodeGen gives it a TEST_HOST
+      # and `xcodebuild test` would LAUNCH impart.app to host the bundle. That
+      # is a GUI app launch on a shared runner, which this repo does not do from
+      # CI. `build-for-testing` compiles the app AND the test bundle — which is
+      # what catches the class of break this lane exists for — and runs nothing.
+      # When impartTests gains host-free coverage, split those cases into a
+      # library-hosted target and add a real `test` step for it.
+      - name: Build impart (macOS) + impartTests
+        working-directory: apps/impart
+        run: |
+          set -o pipefail
+          xcodebuild -derivedDataPath "$PWD/.ci-derived" build-for-testing \
+            -project impart.xcodeproj \
+            -scheme impart \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -resultBundlePath ${{ runner.temp }}/BuildResults-impart-macOS.xcresult \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build-output-macos.txt | tail -50
+
+      - name: Upload macOS build results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-results-impart-macos
+          path: |
+            ${{ runner.temp }}/BuildResults-impart-macOS.xcresult
+            apps/impart/build-output-macos.txt
+
+  build-impart-ios:
+    name: Build impart-iOS (Simulator)
+    # Rule 1 of the iOS/macOS parity protocol (ADR-023): every commit that
+    # touches the shared chassis must also compile the iOS target. impart-iOS
+    # links PublicationManagerCore as of Stage 5c, so it is now in scope — and
+    # it was precisely the target whose five breaks nothing was compiling.
+    runs-on: [self-hosted, impress-mac]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, x86_64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impart-ios-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-impart-ios-
+
+      - name: ImpressStoreFfi.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-store-ffi
+
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
+
+      # iOS slices required here, so the script's default (multi-platform)
+      # slice set — the same artifact the macOS job above builds.
+      - name: ImprintCore.xcframework (multi-platform)
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
+
+      - name: Generate Xcode project
+        working-directory: apps/impart
+        run: xcodegen generate
+
+      # Same reasoning as the macOS job: `build-for-testing`, never `test`.
+      # impart-iOSTests carries an explicit TEST_HOST
+      # ($(BUILT_PRODUCTS_DIR)/impart.app/impart, because the project-wide
+      # PRODUCT_NAME: impart makes XcodeGen's derived value wrong), and
+      # impart-iOSUITests drives the app out of process — both of them RUN the
+      # app. Compiling all three targets is what proves the project is sound;
+      # running them is the simulator-UI job that does not live here.
+      #
+      # `generic/platform=iOS Simulator` on purpose: no device is booted, so
+      # nothing launches and no runtime/device-set mismatch can flake the lane.
+      - name: Build impart-iOS + test bundles (Simulator)
+        working-directory: apps/impart
+        run: |
+          set -o pipefail
+          xcodebuild -derivedDataPath "$PWD/.ci-derived" build-for-testing \
+            -project impart.xcodeproj \
+            -scheme impart-iOS \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -resultBundlePath ${{ runner.temp }}/BuildResults-impart-iOS.xcresult \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build-output-ios.txt | tail -50
+
+      - name: Upload iOS build results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-results-impart-ios
+          path: |
+            ${{ runner.temp }}/BuildResults-impart-iOS.xcresult
+            apps/impart/build-output-ios.txt

@@ -1,0 +1,94 @@
+[
+  {
+    "input" : "",
+    "isPlausible" : false
+  },
+  {
+    "input" : "   ",
+    "isPlausible" : false
+  },
+  {
+    "input" : "A Perfectly Good Paper Title",
+    "isPlausible" : true
+  },
+  {
+    "input" : "ab",
+    "isPlausible" : false
+  },
+  {
+    "input" : "abcd",
+    "isPlausible" : false
+  },
+  {
+    "input" : "1234-5678",
+    "isPlausible" : false
+  },
+  {
+    "input" : "1234-5678(96)00123-4",
+    "isPlausible" : false
+  },
+  {
+    "input" : "1234-567890",
+    "isPlausible" : false
+  },
+  {
+    "input" : "1234-5678(9AB)12X",
+    "isPlausible" : false
+  },
+  {
+    "input" : "10.1038\/nature12373",
+    "isPlausible" : false
+  },
+  {
+    "input" : "10.1038\/nature12373 and more",
+    "isPlausible" : true
+  },
+  {
+    "input" : "microsoft word - draft.doc",
+    "isPlausible" : false
+  },
+  {
+    "input" : "Microsoft Word - Draft.doc",
+    "isPlausible" : false
+  },
+  {
+    "input" : "untitled",
+    "isPlausible" : false
+  },
+  {
+    "input" : "Untitled",
+    "isPlausible" : false
+  },
+  {
+    "input" : "UNTITLED",
+    "isPlausible" : false
+  },
+  {
+    "input" : "1234567890",
+    "isPlausible" : false
+  },
+  {
+    "input" : "!!!???",
+    "isPlausible" : false
+  },
+  {
+    "input" : "   Leading and trailing   ",
+    "isPlausible" : true
+  },
+  {
+    "input" : "A title with 10.1038\/x inside it",
+    "isPlausible" : true
+  },
+  {
+    "input" : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "isPlausible" : true
+  },
+  {
+    "input" : "Ångström Measurements of Müller Bands",
+    "isPlausible" : true
+  },
+  {
+    "input" : "​Zero width prefixed title",
+    "isPlausible" : true
+  }
+]

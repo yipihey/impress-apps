@@ -61,6 +61,7 @@ members = [
     # page identifier extraction). Ported from the ImpressSmartSearch Swift
     # package; the LLM call and the page fetch stay Swift.
     "crates/impress-smart-search",
+    "crates/impress-parsers-service",
     "crates/impress-smart-search-service",
     # impress-service-core + macros - codegen pipeline for Swift/Python/MCP/CLI bindings
     "crates/impress-service-core",
@@ -143,6 +144,7 @@ imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
 impress-sources = { path = "crates/impress-sources" }
 impress-smart-search = { path = "crates/impress-smart-search" }
+impress-parsers-service = { path = "crates/impress-parsers-service" }
 impress-smart-search-service = { path = "crates/impress-smart-search-service" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }

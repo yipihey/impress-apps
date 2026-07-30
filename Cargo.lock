@@ -3667,6 +3667,7 @@ dependencies = [
  "bincode",
  "chrono",
  "criterion",
+ "encoding_rs",
  "fastembed",
  "hnsw_rs",
  "impress-bibtex",
@@ -3682,6 +3683,7 @@ dependencies = [
  "lazy_static",
  "nom 7.1.3",
  "pdfium-render",
+ "percent-encoding",
  "plist",
  "proptest",
  "quick-xml 0.31.0",
@@ -3698,6 +3700,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "unicode-normalization",
+ "unicode-segmentation",
  "uniffi",
  "url",
  "urlencoding",
@@ -4058,6 +4061,7 @@ dependencies = [
 name = "impress-cli"
 version = "0.1.0"
 dependencies = [
+ "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",
  "impress-store-service",
@@ -4174,6 +4178,7 @@ dependencies = [
  "implore-service",
  "implore-service-http",
  "impress-bridges-service",
+ "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",
  "impress-store-service",
@@ -4183,6 +4188,20 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "impress-parsers-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "imbib-core",
+ "impress-service-core",
+ "impress-service-macros",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

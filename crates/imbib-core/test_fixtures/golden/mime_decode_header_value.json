@@ -1,0 +1,94 @@
+[
+  {
+    "input" : "",
+    "output" : ""
+  },
+  {
+    "input" : "Plain ASCII Subject",
+    "output" : "Plain ASCII Subject"
+  },
+  {
+    "input" : "=?UTF-8?B?w5xiZXIgUsOpc3Vtw6k=?=",
+    "output" : "Über Résumé"
+  },
+  {
+    "input" : "=?utf-8?b?w5xiZXIgUsOpc3Vtw6k=?=",
+    "output" : "Über Résumé"
+  },
+  {
+    "input" : "=?UTF-8?Q?M=C3=BCller?=",
+    "output" : "MÃ¼ller"
+  },
+  {
+    "input" : "=?UTF-8?Q?Hello_World?=",
+    "output" : "Hello World"
+  },
+  {
+    "input" : "=?ISO-8859-1?Q?M=FCller?=",
+    "output" : "Müller"
+  },
+  {
+    "input" : "=?ISO-8859-1?B?TfxsbGVy?=",
+    "output" : "Müller"
+  },
+  {
+    "input" : "=?US-ASCII?Q?plain?=",
+    "output" : "plain"
+  },
+  {
+    "input" : "=?WINDOWS-1252?B?TfxsbGVy?=",
+    "output" : "Müller"
+  },
+  {
+    "input" : "=?ISO-8859-2?Q?a=B1b?=",
+    "output" : "a±b"
+  },
+  {
+    "input" : "=?UNKNOWN-CHARSET?B?SGVsbG8=?=",
+    "output" : "Hello"
+  },
+  {
+    "input" : "prefix =?UTF-8?B?dGVzdA==?= suffix",
+    "output" : "prefix test suffix"
+  },
+  {
+    "input" : "=?UTF-8?B?YQ==?= =?UTF-8?B?Yg==?=",
+    "output" : "a b"
+  },
+  {
+    "input" : "=?UTF-8?B?YQ==?==?UTF-8?B?Yg==?=",
+    "output" : "ab"
+  },
+  {
+    "input" : "=?UTF-8?B?bm90IGJhc2U2NA?=",
+    "output" : "=?UTF-8?B?bm90IGJhc2U2NA?="
+  },
+  {
+    "input" : "=?UTF-8?B?!!!invalid!!!?=",
+    "output" : "=?UTF-8?B?!!!invalid!!!?="
+  },
+  {
+    "input" : "=?UTF-8?X?unknown-encoding?=",
+    "output" : "=?UTF-8?X?unknown-encoding?="
+  },
+  {
+    "input" : "=?UTF-8?Q??=",
+    "output" : ""
+  },
+  {
+    "input" : "=?UTF-8?Q?a=\nb?=",
+    "output" : "ab"
+  },
+  {
+    "input" : "not =? an encoded word",
+    "output" : "not =? an encoded word"
+  },
+  {
+    "input" : "=?UTF-8?Q?100=25_done?=",
+    "output" : "100% done"
+  },
+  {
+    "input" : "Re: =?UTF-8?B?4pyU?= done",
+    "output" : "Re: ✔ done"
+  }
+]

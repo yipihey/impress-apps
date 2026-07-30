@@ -4,8 +4,12 @@
 //
 //  Data types for publisher PDF resolution rules.
 //
+//  Stage 7 item 9: `matches(doi:)` and `constructPDFURL(doi:)` moved to Rust
+//  (`crates/imbib-core/src/publishers/rules.rs`), along with the rule TABLE.
+//
 
 import Foundation
+import ImbibRustCore
 
 // MARK: - Publisher Rule
 
@@ -13,6 +17,12 @@ import Foundation
 ///
 /// Publisher rules define how to construct PDF URLs from DOIs and what to expect
 /// when accessing publisher content.
+///
+/// **The table is Rust's** (`publishers::DEFAULT_RULES`), pinned field-by-field
+/// by `crates/imbib-core/test_fixtures/golden/publisher_default_rules.json`. This
+/// struct is the value type the Swift call sites read; it is `Codable` only
+/// because `PublisherRulesFile` is, and that file format has no writer and no
+/// reader (see `PublisherRegistry`).
 public struct PublisherRule: Sendable, Codable, Identifiable, Hashable {
     public let id: String
     public let name: String
@@ -55,48 +65,37 @@ public struct PublisherRule: Sendable, Codable, Identifiable, Hashable {
         self.supportsLandingPageScraping = supportsLandingPageScraping
     }
 
+    /// Bridge from the Rust record.
+    init(ffi: FfiPublisherRule) {
+        self.id = ffi.id
+        self.name = ffi.name
+        self.doiPrefixes = ffi.doiPrefixes
+        self.pdfURLPattern = ffi.pdfUrlPattern
+        self.requiresProxy = ffi.requiresProxy
+        self.captchaRisk = CaptchaRisk(rawValue: ffi.captchaRisk) ?? .low
+        self.preferOpenAlex = ffi.preferOpenAlex
+        self.notes = ffi.notes
+        self.htmlParserID = ffi.htmlParserId
+        self.supportsLandingPageScraping = ffi.supportsLandingPageScraping
+    }
+
     /// Check if this rule matches a DOI.
+    ///
+    /// Case-SENSITIVE `hasPrefix`, which is why `10.48550/ARXIV.…` matches no
+    /// rule even though `{arxivID}` extraction lowercases. Preserved.
     public func matches(doi: String) -> Bool {
         doiPrefixes.contains { doi.hasPrefix($0) }
     }
 
     /// Construct a PDF URL from a DOI using this rule's pattern.
+    ///
+    /// `{doi}` / `{articleID}` / `{arxivID}` substitution, in Rust so the
+    /// template semantics have one definition.
     public func constructPDFURL(doi: String) -> URL? {
-        guard let pattern = pdfURLPattern else { return nil }
-
-        var urlString = pattern.replacingOccurrences(of: "{doi}", with: doi)
-
-        // Handle special patterns
-        if urlString.contains("{articleID}") {
-            // For publishers like Nature that use article ID
-            // Find the prefix that matches and extract the suffix
-            for prefix in doiPrefixes {
-                if doi.hasPrefix(prefix) {
-                    let articleID = String(doi.dropFirst(prefix.count))
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                    urlString = urlString.replacingOccurrences(of: "{articleID}", with: articleID)
-                    break
-                }
-            }
+        guard let resolved = ImbibRustCore.publisherConstructPdfUrl(ruleId: id, doi: doi) else {
+            return nil
         }
-
-        if urlString.contains("{arxivID}") {
-            // For arXiv DOIs
-            if let arxivID = extractArXivID(from: doi) {
-                urlString = urlString.replacingOccurrences(of: "{arxivID}", with: arxivID)
-            } else {
-                return nil
-            }
-        }
-
-        return URL(string: urlString)
-    }
-
-    private func extractArXivID(from doi: String) -> String? {
-        // arXiv DOI format: 10.48550/arXiv.2311.12345
-        let prefix = "10.48550/arXiv."
-        guard doi.lowercased().hasPrefix(prefix.lowercased()) else { return nil }
-        return String(doi.dropFirst(prefix.count))
+        return URL(string: resolved)
     }
 }
 
@@ -120,6 +119,11 @@ public enum CaptchaRisk: String, Sendable, Codable, CaseIterable {
 // MARK: - Publisher Rules File
 
 /// Container for publisher rules loaded from JSON.
+///
+/// Retained as public API. Note that nothing writes or reads this format:
+/// `PublisherRegistry.setCustomRulesPath` has no callers, and the
+/// `Publishers/Resources/publisher-rules.json` the package bundles was a stale
+/// 12-rule subset that was never loaded. The rule table lives in Rust.
 public struct PublisherRulesFile: Sendable, Codable {
     public let version: String
     public let rules: [PublisherRule]

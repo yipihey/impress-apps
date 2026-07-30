@@ -49,4 +49,5 @@ impress-store-service = { workspace = true }
 imprint-selftest = { workspace = true }
 # Pulls the SmartSearchService inventory (pure, app-independent — no
 # reachability gate entry needed).
+impress-parsers-service = { workspace = true }
 impress-smart-search-service = { workspace = true }

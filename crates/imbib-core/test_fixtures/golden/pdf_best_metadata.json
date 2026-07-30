@@ -1,0 +1,369 @@
+[
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "all-empty",
+    "title" : null
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : "The Document Title",
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : "A Heuristic Title",
+    "heuristicYear" : null,
+    "name" : "doc-title-wins",
+    "title" : "The Document Title"
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : "A Heuristic Title",
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : "A Heuristic Title",
+    "heuristicYear" : null,
+    "name" : "doc-title-untitled-falls-through",
+    "title" : "Untitled"
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : "A Heuristic Title",
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : "A Heuristic Title",
+    "heuristicYear" : null,
+    "name" : "doc-title-empty-falls-through",
+    "title" : ""
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : "A Heuristic Title",
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : "A Heuristic Title",
+    "heuristicYear" : null,
+    "name" : "doc-title-junk-pii-falls-through",
+    "title" : "1234-5678(96)00123-4"
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : "A Heuristic Title",
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : "A Heuristic Title",
+    "heuristicYear" : null,
+    "name" : "doc-title-msword-falls-through",
+    "title" : "microsoft word - x.doc"
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : "First Page Guess",
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : "First Page Guess",
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "heuristic-then-firstpage",
+    "title" : null
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : "ab",
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : "First Page Guess",
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : "ab",
+    "heuristicYear" : null,
+    "name" : "heuristic-junk-then-firstpage",
+    "title" : null
+  },
+  {
+    "author" : "Smith, John; Doe, Jane",
+    "bestAuthors" : [
+      "Smith",
+      "John; Doe",
+      "Jane"
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "authors-from-doc-author",
+    "title" : null
+  },
+  {
+    "author" : "Smith, John, Doe, Jane",
+    "bestAuthors" : [
+      "Smith",
+      "John",
+      "Doe",
+      "Jane"
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "authors-comma-split",
+    "title" : null
+  },
+  {
+    "author" : "",
+    "bestAuthors" : [
+      "Kaiser, N."
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+      "Kaiser, N."
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "authors-doc-empty-uses-heuristic",
+    "title" : null
+  },
+  {
+    "author" : "   ",
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+      "Kaiser, N."
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "authors-whitespace-only-doc",
+    "title" : null
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : null,
+    "bestYear" : 1996,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : false,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : 1996,
+    "name" : "year-from-heuristic",
+    "title" : null
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : "10.1038\/nature12373",
+    "firstPageText" : null,
+    "hasIdentifier" : true,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "identifier-doi",
+    "title" : null
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : "2401.12345",
+    "extractedBibcode" : null,
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : true,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "identifier-arxiv",
+    "title" : null
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : null,
+    "extractedBibcode" : "2023ApJ...123..456A",
+    "extractedDOI" : null,
+    "firstPageText" : null,
+    "hasIdentifier" : true,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "identifier-bibcode",
+    "title" : null
+  },
+  {
+    "author" : null,
+    "bestAuthors" : [
+
+    ],
+    "bestTitle" : null,
+    "bestYear" : null,
+    "extractedArXivID" : "2401.12345",
+    "extractedBibcode" : "2023ApJ...123..456A",
+    "extractedDOI" : "10.1\/x",
+    "firstPageText" : null,
+    "hasIdentifier" : true,
+    "heuristicAuthors" : [
+
+    ],
+    "heuristicTitle" : null,
+    "heuristicYear" : null,
+    "name" : "identifier-all-three",
+    "title" : null
+  },
+  {
+    "author" : "Bardeen, J.; Bond, J.",
+    "bestAuthors" : [
+      "Bardeen",
+      "J.; Bond",
+      "J."
+    ],
+    "bestTitle" : "A Real Title",
+    "bestYear" : 1986,
+    "extractedArXivID" : null,
+    "extractedBibcode" : null,
+    "extractedDOI" : "10.1\/x",
+    "firstPageText" : "FP",
+    "hasIdentifier" : true,
+    "heuristicAuthors" : [
+      "X"
+    ],
+    "heuristicTitle" : "Heuristic",
+    "heuristicYear" : 1986,
+    "name" : "full-house",
+    "title" : "A Real Title"
+  }
+]

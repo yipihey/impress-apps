@@ -194,9 +194,11 @@ byte-identical copy in `PublicationManagerCore` (which is the one PMC's
 import), and the drifted Rust twin. After: one, in Rust, with 125 golden cases
 and the 45 pre-existing PMC assertions retargeted at it through the real FFI.
 
-`PublicationManagerCore/Sources/.../Search/SmartQueryTranslator.swift` (441 L)
-is dead code — no non-test consumer, superseded by the rewriter's fallback path.
-Left in place as out of scope, noted here so it stops being rediscovered.
+`PublicationManagerCore/Sources/.../Search/SmartQueryTranslator.swift` was dead
+code — no non-test consumer, superseded by the rewriter's fallback path. It was
+left in place as out of scope here and **deleted in Stage 7 item 9** (444 L, plus
+293 L of tests), after the no-consumer claim was verified independently. See
+[docs/parser-batch-swift-rust-split.md](parser-batch-swift-rust-split.md).
 
 ## FFI path
 

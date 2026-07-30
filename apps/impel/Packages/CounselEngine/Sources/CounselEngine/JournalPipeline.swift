@@ -39,10 +39,57 @@ public actor JournalPipeline {
     private var inFlightManuscripts: Set<String> = []
 
     /// Statuses that should trigger an automatic snapshot when entered.
-    /// Per ADR-0011 D5: `submitted`, `published`, `archived` are user-meaningful
-    /// transitions that warrant freezing the source. Others (draft,
-    /// internal-review, in-revision) are working states.
-    private let autoSnapshotStatuses: Set<String> = ["submitted", "published", "archived"]
+    ///
+    /// **Canonical source of the manuscript lifecycle:**
+    /// `ManuscriptRecordKind.descriptor.triage` in
+    /// `apps/imbib/PublicationManagerCore/.../Chassis/RecordKind/BuiltinRecordKinds.swift`.
+    /// That descriptor — not this line — decides which status values exist and
+    /// how they are spelled. This set is a DERIVED VIEW of it, and the rule is:
+    ///
+    ///   *the non-dismissal terminal statuses, plus `submitted`.*
+    ///
+    /// Today that resolves to `published` + `archived` (both `isTerminal`,
+    /// neither is the dismissal status) plus `submitted` — matching ADR-0011 D5,
+    /// which calls these the user-meaningful transitions that warrant freezing
+    /// the source. The remaining values (`draft`, `internal-review`,
+    /// `in-revision`) are working states, and `dismissed` is terminal but must
+    /// NOT freeze a revision.
+    ///
+    /// **Why this is a literal set rather than a computed property over the
+    /// descriptor.** Two reasons, in order:
+    ///
+    /// 1. Linking `PublicationManagerCore` into this target would drag the
+    ///    shared GUI chassis (~20 `packages/Impress*` plus HighlightSwift,
+    ///    SwiftMath and swift-markdown-ui) into CounselEngine's product graph —
+    ///    and CounselEngine's `Package.swift` builds two EXECUTABLES
+    ///    (`journal-submit`, `journal-backfill`) off this library, so every one
+    ///    of those would link the whole GUI stack to read three strings. That is
+    ///    a bad blast-radius trade. Note this is a JUDGEMENT CALL, not a lint
+    ///    constraint: `scripts/check-chassis-deps.sh` does not forbid this edge
+    ///    — it only lints PMC's OWN manifest for what PMC depends on.
+    ///
+    /// 2. The set is not expressible as any single existing descriptor
+    ///    predicate. `isTerminal` gives {published, archived, dismissed}: it
+    ///    wrongly includes `dismissed` and wrongly excludes `submitted`, which
+    ///    is the PRIMARY snapshot trigger and is declared `isTerminal: false`.
+    ///    So even with PMC linked, the derivation would still be hand-written
+    ///    here.
+    ///
+    /// **The interlock** is therefore a test, not the type system:
+    /// `JournalStatusPolicyParityTests` (in `Tests/CounselEngineTests/`) imports
+    /// the descriptor in a TEST-ONLY dependency and asserts this set against it
+    /// in both directions — every member is a status the descriptor actually
+    /// declares (so a rename cannot silently stop snapshotting), and every
+    /// non-dismissal terminal status is a member (so a newly-added terminal
+    /// status cannot be forgotten).
+    ///
+    /// Recommended follow-up: declare this facet on `StatusSpec` itself (e.g.
+    /// `freezesSource: Bool`), which would make the rule readable at the
+    /// declaration and delete the derivation entirely. `Chassis/**` is outside
+    /// this wave's boundary, so it is deliberately not done here.
+    ///
+    /// `internal` rather than `private` solely so the parity test can see it.
+    internal let autoSnapshotStatuses: Set<String> = ["submitted", "published", "archived"]
 
     private init() {
         // Per CLAUDE.md: defer first work cycle by 60-90s after launch to avoid
@@ -189,7 +236,13 @@ public actor JournalPipeline {
             let result = try await job.snapshot(
                 manuscriptID: manuscriptID,
                 source: snapshotSource,
-                revisionTag: revisionTag(for: status),
+                // The revision tag IS the raw status. This used to route through
+                // a `revisionTag(for:)` switch over the same three literals as
+                // `autoSnapshotStatuses`, but every case returned its own input
+                // (`case "submitted": return "submitted"`, …) with
+                // `default: return status` — a second copy of the status set
+                // that was an identity function. Deleted; behaviour-preserving.
+                revisionTag: status,
                 reason: "status-change"
             )
             if result.wasNoOp {
@@ -497,16 +550,6 @@ public actor JournalPipeline {
     private static let placeholderRevisionRef = "00000000-0000-0000-0000-000000000000"
 
     // MARK: - Helpers
-
-    /// Map a manuscript status to a default revision tag for the auto-snapshot.
-    private nonisolated func revisionTag(for status: String) -> String {
-        switch status {
-        case "submitted": return "submitted"
-        case "published": return "published"
-        case "archived":  return "archived"
-        default:          return status
-        }
-    }
 
     #if canImport(ImpressRustCore)
     /// Lazy SharedStore opener. Each call returns a fresh handle — the store

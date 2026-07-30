@@ -2,242 +2,53 @@
 //  DefaultRules.swift
 //  PublicationManagerCore
 //
-//  Built-in publisher rules compiled into the app.
+//  Built-in publisher rules.
+//
+//  Stage 7 item 9: the table moved to Rust
+//  (`imbib-core`'s `publishers::DEFAULT_RULES`).
 //
 
 import Foundation
+import ImbibRustCore
 
 // MARK: - Default Publisher Rules
 
-/// Default publisher rules compiled into the app.
+/// Default publisher rules.
 ///
-/// These rules provide a reliable fallback when no custom rules are configured.
-/// They can be overridden by user-provided JSON rules.
+/// **This is a shim.** The sixteen rules live in
+/// `crates/imbib-core/src/publishers/rules.rs` and are pinned field-by-field by
+/// `test_fixtures/golden/publisher_default_rules.json`, captured from the Swift
+/// declaration this file used to hold.
+///
+/// The port collapsed **three** copies of the same table, already disagreeing:
+///
+/// | Copy | Rows | Drift |
+/// |---|---|---|
+/// | this file | 16 | the live one |
+/// | `Publishers/Resources/publisher-rules.json` | 12 | bundled by `Package.swift` and **never loaded** — `setCustomRulesPath` has zero callers — missing `aip`, `annual-reviews`, `springer`, `cambridge` |
+/// | `Tools/pdf-resolution-test/…/TestFixtures.swift` | 16, own type | prefixes spelled `"10.3847"` without the trailing `/`, so its matches differ |
 public struct DefaultPublisherRules {
 
-    /// All default rules.
-    public static let rules: [PublisherRule] = [
-        // IOP Publishing - AAS Journals (ApJ, AJ, ApJL, etc.)
-        PublisherRule(
-            id: "iop-aas",
-            name: "IOP Publishing (AAS Journals)",
-            doiPrefixes: ["10.3847/"],
-            pdfURLPattern: "https://iopscience.iop.org/article/{doi}/pdf",
-            requiresProxy: true,
-            captchaRisk: .low,
-            notes: "American Astronomical Society journals hosted by IOP",
-            htmlParserID: "iop",
-            supportsLandingPageScraping: true
-        ),
-
-        // IOP Publishing - Legacy ApJ DOIs
-        PublisherRule(
-            id: "iop-legacy",
-            name: "IOP Publishing (Legacy ApJ)",
-            doiPrefixes: ["10.1086/"],
-            pdfURLPattern: "https://iopscience.iop.org/article/{doi}/pdf",
-            requiresProxy: true,
-            captchaRisk: .low,
-            notes: "Legacy Astrophysical Journal DOIs before 2016",
-            htmlParserID: "iop",
-            supportsLandingPageScraping: true
-        ),
-
-        // IOP Publishing - Other IOP Journals
-        PublisherRule(
-            id: "iop-journals",
-            name: "IOP Publishing",
-            doiPrefixes: ["10.1088/"],
-            pdfURLPattern: "https://iopscience.iop.org/article/{doi}/pdf",
-            requiresProxy: true,
-            captchaRisk: .low,
-            notes: "IOP physics journals (JCAP, CQG, etc.)",
-            htmlParserID: "iop",
-            supportsLandingPageScraping: true
-        ),
-
-        // APS - Physical Review Journals
-        PublisherRule(
-            id: "aps",
-            name: "American Physical Society",
-            doiPrefixes: ["10.1103/"],
-            pdfURLPattern: "https://link.aps.org/pdf/{doi}",
-            requiresProxy: true,
-            captchaRisk: .low,
-            notes: "Physical Review journals (PRL, PRD, PRX, etc.)",
-            htmlParserID: "aps",
-            supportsLandingPageScraping: true
-        ),
-
-        // Nature Publishing Group
-        PublisherRule(
-            id: "nature",
-            name: "Nature Publishing Group",
-            doiPrefixes: ["10.1038/"],
-            pdfURLPattern: "https://www.nature.com/articles/{articleID}.pdf",
-            requiresProxy: true,
-            captchaRisk: .medium,
-            notes: "Nature, Nature Astronomy, Nature Physics, etc.",
-            htmlParserID: "nature",
-            supportsLandingPageScraping: true
-        ),
-
-        // Science (AAAS)
-        PublisherRule(
-            id: "science",
-            name: "Science (AAAS)",
-            doiPrefixes: ["10.1126/"],
-            pdfURLPattern: "https://www.science.org/doi/pdf/{doi}",
-            requiresProxy: true,
-            captchaRisk: .high,
-            preferOpenAlex: true,
-            notes: "Science and Science Advances - high CAPTCHA risk",
-            htmlParserID: "science",
-            supportsLandingPageScraping: false  // High CAPTCHA risk
-        ),
-
-        // Elsevier
-        PublisherRule(
-            id: "elsevier",
-            name: "Elsevier",
-            doiPrefixes: ["10.1016/"],
-            pdfURLPattern: nil,
-            requiresProxy: true,
-            captchaRisk: .high,
-            preferOpenAlex: true,
-            notes: "No predictable PDF URL pattern - use OpenAlex OA",
-            htmlParserID: "elsevier",
-            supportsLandingPageScraping: true
-        ),
-
-        // Wiley
-        PublisherRule(
-            id: "wiley",
-            name: "Wiley",
-            doiPrefixes: ["10.1002/", "10.1111/"],
-            pdfURLPattern: nil,
-            requiresProxy: true,
-            captchaRisk: .medium,
-            preferOpenAlex: true,
-            notes: "Complex URL pattern - prefer OpenAlex",
-            htmlParserID: "wiley",
-            supportsLandingPageScraping: true
-        ),
-
-        // A&A (Astronomy & Astrophysics)
-        PublisherRule(
-            id: "aanda",
-            name: "Astronomy & Astrophysics",
-            doiPrefixes: ["10.1051/0004-6361"],
-            pdfURLPattern: nil,  // Complex pattern based on article year/number
-            requiresProxy: false,
-            captchaRisk: .low,
-            preferOpenAlex: true,
-            notes: "Usually open access - prefer OpenAlex",
-            htmlParserID: "aanda",
-            supportsLandingPageScraping: true
-        ),
-
-        // MNRAS (Oxford)
-        PublisherRule(
-            id: "mnras",
-            name: "MNRAS (Oxford Academic)",
-            doiPrefixes: ["10.1093/mnras"],
-            pdfURLPattern: nil,
-            requiresProxy: true,
-            captchaRisk: .medium,
-            preferOpenAlex: true,
-            notes: "Oxford Academic has complex authentication",
-            htmlParserID: "oxford",
-            supportsLandingPageScraping: true
-        ),
-
-        // MDPI (Open Access)
-        PublisherRule(
-            id: "mdpi",
-            name: "MDPI",
-            doiPrefixes: ["10.3390/"],
-            pdfURLPattern: nil,
-            requiresProxy: false,
-            captchaRisk: .low,
-            preferOpenAlex: true,
-            notes: "Fully open access - use OpenAlex for direct URL",
-            htmlParserID: "mdpi",
-            supportsLandingPageScraping: true
-        ),
-
-        // arXiv
-        PublisherRule(
-            id: "arxiv",
-            name: "arXiv",
-            doiPrefixes: ["10.48550/arXiv."],
-            pdfURLPattern: "https://arxiv.org/pdf/{arxivID}.pdf",
-            requiresProxy: false,
-            captchaRisk: .low,
-            notes: "arXiv preprints - always accessible",
-            supportsLandingPageScraping: false  // Direct pattern works
-        ),
-
-        // AIP (American Institute of Physics)
-        PublisherRule(
-            id: "aip",
-            name: "American Institute of Physics",
-            doiPrefixes: ["10.1063/"],
-            pdfURLPattern: nil,
-            requiresProxy: true,
-            captchaRisk: .medium,
-            preferOpenAlex: true,
-            notes: "AIP journals (JCP, APL, etc.)",
-            htmlParserID: "aip",
-            supportsLandingPageScraping: true
-        ),
-
-        // Annual Reviews
-        PublisherRule(
-            id: "annual-reviews",
-            name: "Annual Reviews",
-            doiPrefixes: ["10.1146/"],
-            pdfURLPattern: nil,
-            requiresProxy: true,
-            captchaRisk: .low,
-            preferOpenAlex: true,
-            notes: "Annual Review journals",
-            htmlParserID: "annual-reviews",
-            supportsLandingPageScraping: true
-        ),
-
-        // Springer
-        PublisherRule(
-            id: "springer",
-            name: "Springer",
-            doiPrefixes: ["10.1007/"],
-            pdfURLPattern: nil,
-            requiresProxy: true,
-            captchaRisk: .medium,
-            preferOpenAlex: true,
-            notes: "Springer journals and books",
-            htmlParserID: "springer",
-            supportsLandingPageScraping: true
-        ),
-
-        // Cambridge University Press
-        PublisherRule(
-            id: "cambridge",
-            name: "Cambridge University Press",
-            doiPrefixes: ["10.1017/"],
-            pdfURLPattern: nil,
-            requiresProxy: true,
-            captchaRisk: .medium,
-            preferOpenAlex: true,
-            notes: "Cambridge journals (PASA, etc.)",
-            htmlParserID: "cambridge",
-            supportsLandingPageScraping: true
-        ),
-    ]
+    /// All default rules, in declaration order.
+    ///
+    /// Computed rather than stored: the source of truth is the Rust `const`, and
+    /// a stored `let` here would be a fourth copy the moment anyone edited one
+    /// and not the other. The FFI call is a table walk over 16 records, and the
+    /// only caller that runs per-DOI (`PublisherRegistry`) goes through
+    /// `rule(forDOI:)` below, which does not build this array.
+    public static var rules: [PublisherRule] {
+        ImbibRustCore.publisherDefaultRules().map(PublisherRule.init(ffi:))
+    }
 
     /// Find the rule that matches a DOI.
+    ///
+    /// **Divergence (nondeterminism removed):** this used to be
+    /// `rules.first { $0.matches(doi:) }` here and a `Dictionary` iteration in
+    /// `PublisherRegistry`, so with two matching prefixes the winner was
+    /// *unspecified* per process launch and neither preferred the longer prefix.
+    /// Rust resolves longest-matching-prefix, table order as the tiebreak.
     public static func rule(forDOI doi: String) -> PublisherRule? {
-        rules.first { $0.matches(doi: doi) }
+        ImbibRustCore.publisherRuleForDoi(doi: doi).map(PublisherRule.init(ffi:))
     }
 
     /// Get publisher name for a DOI.

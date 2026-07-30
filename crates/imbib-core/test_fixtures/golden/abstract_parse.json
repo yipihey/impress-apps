@@ -1,0 +1,835 @@
+[
+  {
+    "containsMath" : false,
+    "input" : "",
+    "mathmlConverted" : "",
+    "name" : "empty",
+    "segments" : [
+
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "We measure the mass function of dark matter haloes.",
+    "mathmlConverted" : "We measure the mass function of dark matter haloes.",
+    "name" : "plain-prose",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "We measure the mass function of dark matter haloes."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "The value is $x = 1$ in our units.",
+    "mathmlConverted" : "The value is $x = 1$ in our units.",
+    "name" : "inline-dollar",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "The value is "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "x = 1"
+      },
+      {
+        "kind" : "text",
+        "value" : " in our units."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "We find $$E = mc^2$$ exactly.",
+    "mathmlConverted" : "We find $$E = mc^2$$ exactly.",
+    "name" : "display-dollar",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "We find "
+      },
+      {
+        "kind" : "displayMath",
+        "value" : "E = mc^2"
+      },
+      {
+        "kind" : "text",
+        "value" : " exactly."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "We find \\[E = mc^2\\] exactly.",
+    "mathmlConverted" : "We find \\[E = mc^2\\] exactly.",
+    "name" : "display-bracket",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "We find "
+      },
+      {
+        "kind" : "displayMath",
+        "value" : "E = mc^2"
+      },
+      {
+        "kind" : "text",
+        "value" : " exactly."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "The value is \\(x = 1\\) here.",
+    "mathmlConverted" : "The value is \\(x = 1\\) here.",
+    "name" : "inline-paren",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "The value is "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "x = 1"
+      },
+      {
+        "kind" : "text",
+        "value" : " here."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "before $$ after",
+    "mathmlConverted" : "before $$ after",
+    "name" : "empty-inline-math",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "before "
+      },
+      {
+        "kind" : "text",
+        "value" : "$"
+      },
+      {
+        "kind" : "text",
+        "value" : "$ after"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "an unclosed $x = 1 dollar",
+    "mathmlConverted" : "an unclosed $x = 1 dollar",
+    "name" : "unclosed-inline",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "an unclosed "
+      },
+      {
+        "kind" : "text",
+        "value" : "$x = 1 dollar"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "an unclosed $$x = 1",
+    "mathmlConverted" : "an unclosed $$x = 1",
+    "name" : "unclosed-display",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "an unclosed "
+      },
+      {
+        "kind" : "text",
+        "value" : "$"
+      },
+      {
+        "kind" : "text",
+        "value" : "$x = 1"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "text $x =\n\n1$ more",
+    "mathmlConverted" : "text $x =\n\n1$ more",
+    "name" : "inline-with-blank-line",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "text "
+      },
+      {
+        "kind" : "text",
+        "value" : "$x =\n\n1"
+      },
+      {
+        "kind" : "text",
+        "value" : "$ more"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$a$$b$",
+    "mathmlConverted" : "$a$$b$",
+    "name" : "adjacent-math",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "a"
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "b"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "It costs $5 and $10 to run.",
+    "mathmlConverted" : "It costs $5 and $10 to run.",
+    "name" : "dollar-as-currency",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "It costs "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "5 and "
+      },
+      {
+        "kind" : "text",
+        "value" : "10 to run."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "We fit $\\\\beta = 1.5$ and $\\\\alpha_0$.",
+    "mathmlConverted" : "We fit $\\\\beta = 1.5$ and $\\\\alpha_0$.",
+    "name" : "arxiv-escaped-greek",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "We fit "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "\\beta = 1.5"
+      },
+      {
+        "kind" : "text",
+        "value" : " and "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "\\alpha_0"
+      },
+      {
+        "kind" : "text",
+        "value" : "."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$\\\\sqrt{\\\\frac{\\\\Omega_m}{\\\\Omega_\\\\Lambda}}$",
+    "mathmlConverted" : "$\\\\sqrt{\\\\frac{\\\\Omega_m}{\\\\Omega_\\\\Lambda}}$",
+    "name" : "arxiv-escaped-many",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\sqrt{\\frac{\\Omega_m}{\\Omega_\\Lambda}}"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "We find \\\\[M_\\\\odot\\\\] here.",
+    "mathmlConverted" : "We find \\\\[M_\\\\odot\\\\] here.",
+    "name" : "arxiv-escaped-brackets",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "We find \\"
+      },
+      {
+        "kind" : "displayMath",
+        "value" : "M_\\odot\\"
+      },
+      {
+        "kind" : "text",
+        "value" : " here."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "inline $a \\\\[ b \\\\] c$ done",
+    "mathmlConverted" : "inline $a \\\\[ b \\\\] c$ done",
+    "name" : "arxiv-escaped-brackets-in-inline",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "inline "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "a \\[ b \\] c"
+      },
+      {
+        "kind" : "text",
+        "value" : " done"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$a \\\\, b \\\\; c \\\\: d \\\\! e$",
+    "mathmlConverted" : "$a \\\\, b \\\\; c \\\\: d \\\\! e$",
+    "name" : "arxiv-escaped-spacing",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "a \\, b \\; c \\: d \\! e"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$\\\\{ x \\\\}$",
+    "mathmlConverted" : "$\\\\{ x \\\\}$",
+    "name" : "arxiv-escaped-braces",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\{ x \\}"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$\\\\text{km}\\\\,\\\\text{s}^{-1}$",
+    "mathmlConverted" : "$\\\\text{km}\\\\,\\\\text{s}^{-1}$",
+    "name" : "arxiv-escaped-text",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\text{km}\\,\\text{s}^{-1}"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$\\\\sin\\\\theta \\\\cos\\\\phi \\\\log_{10} M$",
+    "mathmlConverted" : "$\\\\sin\\\\theta \\\\cos\\\\phi \\\\log_{10} M$",
+    "name" : "arxiv-escaped-trig",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\sin\\theta \\cos\\phi \\log_{10} M"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$a \\\\rightarrow b \\\\Rightarrow c$",
+    "mathmlConverted" : "$a \\\\rightarrow b \\\\Rightarrow c$",
+    "name" : "arxiv-escaped-arrows",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "a \\rightarrow b \\Rightarrow c"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$\\\\hat{x} \\\\bar{y} \\\\vec{z} \\\\dot{w}$",
+    "mathmlConverted" : "$\\\\hat{x} \\\\bar{y} \\\\vec{z} \\\\dot{w}$",
+    "name" : "arxiv-escaped-accents",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\hat{x} \\bar{y} \\vec{z} \\dot{w}"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$\\\\left( \\\\frac{a}{b} \\\\right)$",
+    "mathmlConverted" : "$\\\\left( \\\\frac{a}{b} \\\\right)$",
+    "name" : "arxiv-escaped-delims",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\left( \\frac{a}{b} \\right)"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "the file name_with\\_underscore in prose",
+    "mathmlConverted" : "the file name_with\\_underscore in prose",
+    "name" : "escaped-underscore",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "the file name_with_underscore in prose"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$\\\\alphabet$ should not become \\alphabet",
+    "mathmlConverted" : "$\\\\alphabet$ should not become \\alphabet",
+    "name" : "command-prefix-trap",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\\\alphabet"
+      },
+      {
+        "kind" : "text",
+        "value" : " should not become \\alphabet"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "a &lt;b&gt; c &amp; d &quot;e&quot; f&nbsp;g",
+    "mathmlConverted" : "a &lt;b&gt; c &amp; d &quot;e&quot; f&nbsp;g",
+    "name" : "entity-structural",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "a <b> c & d \"e\" f g"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "&alpha; &beta; &Gamma; &Omega; &mu;",
+    "mathmlConverted" : "&alpha; &beta; &Gamma; &Omega; &mu;",
+    "name" : "entity-greek",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "α β &Gamma; &Omega; μ"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "&infin; &sum; &int; &radic; &le; &ge; &ne; &plusmn;",
+    "mathmlConverted" : "&infin; &sum; &int; &radic; &le; &ge; &ne; &plusmn;",
+    "name" : "entity-math",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "∞ ∑ ∫ √ ≤ ≥ ≠ ±"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "&#65;&#66;&#67; and &#8212;",
+    "mathmlConverted" : "&#65;&#66;&#67; and &#8212;",
+    "name" : "entity-numeric-decimal",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "ABC and —"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "&#x41;&#x42; and &#x2014;",
+    "mathmlConverted" : "&#x41;&#x42; and &#x2014;",
+    "name" : "entity-numeric-hex",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "AB and —"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "&#xD800; stays",
+    "mathmlConverted" : "&#xD800; stays",
+    "name" : "entity-numeric-surrogate",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "&#xD800; stays"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "&#x110000; stays",
+    "mathmlConverted" : "&#x110000; stays",
+    "name" : "entity-numeric-out-of-range",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "&#x110000; stays"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "&amp;lt; decodes once",
+    "mathmlConverted" : "&amp;lt; decodes once",
+    "name" : "entity-cascading",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "&lt; decodes once"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "&frac12; and &notanentity; stay",
+    "mathmlConverted" : "&frac12; and &notanentity; stay",
+    "name" : "entity-unknown",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "&frac12; and &notanentity; stay"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "a & b",
+    "mathmlConverted" : "a & b",
+    "name" : "entity-bare-ampersand",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "a & b"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "H<sub>2<\/sub>O",
+    "mathmlConverted" : "H<sub>2<\/sub>O",
+    "name" : "html-sub-single",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "H_2O"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "x<sup>2<\/sup>",
+    "mathmlConverted" : "x<sup>2<\/sup>",
+    "name" : "html-sup-single",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "x^2"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "CH<sub>3<\/sub>COOH and M<sub>halo<\/sub>",
+    "mathmlConverted" : "CH<sub>3<\/sub>COOH and M<sub>halo<\/sub>",
+    "name" : "html-sub-multi",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "CH_3COOH and M_{\\text{halo}}"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "10<sup>-3<\/sup>",
+    "mathmlConverted" : "10<sup>-3<\/sup>",
+    "name" : "html-sup-multi",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "10^{\\text{-3}}"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "H<SUB>2<\/SUB>O",
+    "mathmlConverted" : "H<SUB>2<\/SUB>O",
+    "name" : "html-sub-uppercase-tag",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "H_2O"
+      }
+    ]
+  },
+  {
+    "containsMath" : false,
+    "input" : "a<sub>b<i>c<\/i><\/sub>",
+    "mathmlConverted" : "a<sub>b<i>c<\/i><\/sub>",
+    "name" : "html-sub-nested-fails",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "a<sub>b<i>c<\/i><\/sub>"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "value <inline-formula><mml:math><mml:mi>x<\/mml:mi><\/mml:math><\/inline-formula> here",
+    "mathmlConverted" : "value $x$ here",
+    "name" : "mathml-inline-formula",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "value "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "x"
+      },
+      {
+        "kind" : "text",
+        "value" : " here"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "value <mml:math><mml:mi>y<\/mml:mi><\/mml:math> here",
+    "mathmlConverted" : "value $y$ here",
+    "name" : "mathml-standalone",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "value "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "y"
+      },
+      {
+        "kind" : "text",
+        "value" : " here"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "<mml:math><mml:msup><mml:mi>H<\/mml:mi><mml:mn>2<\/mml:mn><\/mml:msup><\/mml:math>",
+    "mathmlConverted" : "${H}^{2}$",
+    "name" : "mathml-msup",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "{H}^{2}"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "<mml:math><mml:msub><mml:mi>x<\/mml:mi><mml:mn>1<\/mml:mn><\/mml:msub><\/mml:math>",
+    "mathmlConverted" : "${x}_{1}$",
+    "name" : "mathml-msub",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "{x}_{1}"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "<mml:math><mml:mfrac><mml:mi>a<\/mml:mi><mml:mi>b<\/mml:mi><\/mml:mfrac><\/mml:math>",
+    "mathmlConverted" : "$\\frac{a}{b}$",
+    "name" : "mathml-mfrac",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\frac{a}{b}"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "<mml:math><mml:msqrt><mml:mi>a<\/mml:mi><\/mml:msqrt><\/mml:math>",
+    "mathmlConverted" : "$\\sqrt{a}$",
+    "name" : "mathml-msqrt",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "\\sqrt{a}"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "<mml:math><mml:msup><mml:msup><mml:mi>a<\/mml:mi><mml:mn>2<\/mml:mn><\/mml:msup><mml:mn>3<\/mml:mn><\/mml:msup><\/mml:math>",
+    "mathmlConverted" : "${a2}^{}3$",
+    "name" : "mathml-nested-msup",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "{a2}^{}3"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "<mml:math display=\"inline\" xmlns:mml=\"x\"><mml:mi>z<\/mml:mi><\/mml:math>",
+    "mathmlConverted" : "$z$",
+    "name" : "mathml-with-attrs",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "z"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "<mml:math>\n  <mml:mi>a<\/mml:mi>\n\n<\/mml:math>",
+    "mathmlConverted" : "$a$",
+    "name" : "mathml-whitespace-collapse",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "a"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "<mml:math><mml:mrow><mml:mi>q<\/mml:mi><\/mml:mrow><\/mml:math>",
+    "mathmlConverted" : "$q$",
+    "name" : "mathml-residual-tags",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "q"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "We present measurements of $\\\\Omega_m = 0.31 \\\\pm 0.02$ using H<sub>0<\/sub> = 70 km&nbsp;s<sup>-1<\/sup>&nbsp;Mpc<sup>-1<\/sup>. The scaling is \\\\[M \\\\propto \\\\sigma^4\\\\] for &alpha; &le; 2.",
+    "mathmlConverted" : "We present measurements of $\\\\Omega_m = 0.31 \\\\pm 0.02$ using H<sub>0<\/sub> = 70 km&nbsp;s<sup>-1<\/sup>&nbsp;Mpc<sup>-1<\/sup>. The scaling is \\\\[M \\\\propto \\\\sigma^4\\\\] for &alpha; &le; 2.",
+    "name" : "realistic-arxiv-abstract",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "We present measurements of "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "\\Omega_m = 0.31 \\pm 0.02"
+      },
+      {
+        "kind" : "text",
+        "value" : " using H_0 = 70 km s^{\\text{-1}} Mpc^{\\text{-1}}. The scaling is \\"
+      },
+      {
+        "kind" : "displayMath",
+        "value" : "M \\propto \\sigma^4\\"
+      },
+      {
+        "kind" : "text",
+        "value" : " for α ≤ 2."
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "line one\n$x$\nline three\n\n$$y$$\nline five",
+    "mathmlConverted" : "line one\n$x$\nline three\n\n$$y$$\nline five",
+    "name" : "multiline-with-math",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "line one\n"
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "x"
+      },
+      {
+        "kind" : "text",
+        "value" : "\nline three\n\n"
+      },
+      {
+        "kind" : "displayMath",
+        "value" : "y"
+      },
+      {
+        "kind" : "text",
+        "value" : "\nline five"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$x$",
+    "mathmlConverted" : "$x$",
+    "name" : "only-math",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "x"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "$x$ tail",
+    "mathmlConverted" : "$x$ tail",
+    "name" : "trailing-text-after-math",
+    "segments" : [
+      {
+        "kind" : "inlineMath",
+        "value" : "x"
+      },
+      {
+        "kind" : "text",
+        "value" : " tail"
+      }
+    ]
+  },
+  {
+    "containsMath" : true,
+    "input" : "head $x$",
+    "mathmlConverted" : "head $x$",
+    "name" : "leading-text-before-math",
+    "segments" : [
+      {
+        "kind" : "text",
+        "value" : "head "
+      },
+      {
+        "kind" : "inlineMath",
+        "value" : "x"
+      }
+    ]
+  }
+]

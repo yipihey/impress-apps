@@ -1,0 +1,294 @@
+[
+  {
+    "boundary" : "B",
+    "content" : "",
+    "name" : "empty",
+    "parts" : [
+
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "preamble text ignored\n--B\nContent-Type: text\/plain\n\nfirst part body\n--B\nContent-Type: text\/html\n\n<p>second<\/p>\n--B--\nepilogue ignored",
+    "name" : "simple-two-parts",
+    "parts" : [
+      {
+        "contentBase64" : "cHJlYW1ibGUgdGV4dCBpZ25vcmVk",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+
+        },
+        "transferEncoding" : null
+      },
+      {
+        "contentBase64" : "Zmlyc3QgcGFydCBib2R5",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/plain"
+        },
+        "transferEncoding" : null
+      },
+      {
+        "contentBase64" : "PHA+c2Vjb25kPC9wPg==",
+        "contentType" : "text\/html",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/html"
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: text\/plain; charset=utf-8\nContent-Transfer-Encoding: quoted-printable\n\nM=C3=BCller wrote=3A a note\n--B--",
+    "name" : "quoted-printable-part",
+    "parts" : [
+      {
+        "contentBase64" : "TcODwrxsbGVyIHdyb3RlOiBhIG5vdGU=",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Transfer-Encoding" : "quoted-printable",
+          "Content-Type" : "text\/plain; charset=utf-8"
+        },
+        "transferEncoding" : "quoted-printable"
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: application\/pdf; name=\"paper.pdf\"\nContent-Transfer-Encoding: base64\nContent-Disposition: attachment; filename=\"paper.pdf\"\nX-Imbib-LinkedFile-Index: 0\n\nSGVsbG8sIFdvcmxkIQ==\n--B--",
+    "name" : "base64-attachment",
+    "parts" : [
+      {
+        "contentBase64" : "SGVsbG8sIFdvcmxkIQ==",
+        "contentType" : "application\/pdf",
+        "filename" : "paper.pdf",
+        "headers" : {
+          "Content-Disposition" : "attachment; filename=\"paper.pdf\"",
+          "Content-Transfer-Encoding" : "base64",
+          "Content-Type" : "application\/pdf; name=\"paper.pdf\"",
+          "X-Imbib-LinkedFile-Index" : "0"
+        },
+        "transferEncoding" : "base64"
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: application\/pdf;\n name=\"folded name.pdf\"\nContent-Disposition: attachment;\n\tfilename=\"folded name.pdf\"\n\nbody\n--B--",
+    "name" : "folded-headers",
+    "parts" : [
+      {
+        "contentBase64" : "Ym9keQ==",
+        "contentType" : "application\/pdf",
+        "filename" : "folded name.pdf",
+        "headers" : {
+          "Content-Disposition" : "attachment; filename=\"folded name.pdf\"",
+          "Content-Type" : "application\/pdf; name=\"folded name.pdf\""
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\n\njust a body\n--B--",
+    "name" : "no-headers-at-all",
+    "parts" : [
+      {
+        "contentBase64" : "anVzdCBhIGJvZHk=",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: text\/plain\nThisLineHasNoColon\nX-After: kept\n\nbody\n--B--",
+    "name" : "header-without-colon",
+    "parts" : [
+      {
+        "contentBase64" : "Ym9keQ==",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/plain",
+          "X-After" : "kept"
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: application\/pdf\nContent-Disposition: attachment; filename=\"=?UTF-8?B?TcO8bGxlci5wZGY=?=\"\n\nx\n--B--",
+    "name" : "rfc2047-filename",
+    "parts" : [
+      {
+        "contentBase64" : "eA==",
+        "contentType" : "application\/pdf",
+        "filename" : "Müller.pdf",
+        "headers" : {
+          "Content-Disposition" : "attachment; filename=\"=?UTF-8?B?TcO8bGxlci5wZGY=?=\"",
+          "Content-Type" : "application\/pdf"
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\r\nContent-Type: text\/plain\r\n\r\nbody with crlf\r\n--B--\r\n",
+    "name" : "crlf-line-endings",
+    "parts" : [
+      {
+        "contentBase64" : "Ym9keSB3aXRoIGNybGY=",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/plain"
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "OUTER",
+    "content" : "--OUTER\nContent-Type: multipart\/alternative; boundary=\"INNER\"\n\n--INNER\nContent-Type: text\/plain\n\ninner plain\n--INNER\nContent-Type: text\/html\n\n<p>inner html<\/p>\n--INNER--\n--OUTER--",
+    "name" : "nested-multipart",
+    "parts" : [
+      {
+        "contentBase64" : "LS1JTk5FUgpDb250ZW50LVR5cGU6IHRleHQvcGxhaW4KCmlubmVyIHBsYWluCi0tSU5ORVIKQ29udGVudC1UeXBlOiB0ZXh0L2h0bWwKCjxwPmlubmVyIGh0bWw8L3A+Ci0tSU5ORVItLQ==",
+        "contentType" : "multipart\/alternative",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "multipart\/alternative; boundary=\"INNER\""
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: text\/plain\n\nbody that never closes",
+    "name" : "malformed-missing-close",
+    "parts" : [
+      {
+        "contentBase64" : "Ym9keSB0aGF0IG5ldmVyIGNsb3Nlcw==",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/plain"
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: text\/plain\n\nthis body mentions --B inline\n--B--",
+    "name" : "boundary-appears-in-body",
+    "parts" : [
+      {
+        "contentBase64" : "dGhpcyBib2R5IG1lbnRpb25z",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/plain"
+        },
+        "transferEncoding" : null
+      },
+      {
+        "contentBase64" : "aW5saW5l",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: text\/plain\nContent-Transfer-Encoding: 7bit\n\nplain seven bit\n--B--",
+    "name" : "unknown-transfer-encoding",
+    "parts" : [
+      {
+        "contentBase64" : "cGxhaW4gc2V2ZW4gYml0",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Transfer-Encoding" : "7bit",
+          "Content-Type" : "text\/plain"
+        },
+        "transferEncoding" : "7bit"
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: text\/plain; charset=\"iso-8859-1\"; format=flowed\n\nlatin text\n--B--",
+    "name" : "content-type-with-params",
+    "parts" : [
+      {
+        "contentBase64" : "bGF0aW4gdGV4dA==",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/plain; charset=\"iso-8859-1\"; format=flowed"
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: text\/plain\n\na\n--B\n--B\nContent-Type: text\/plain\n\nb\n--B--",
+    "name" : "empty-part-between",
+    "parts" : [
+      {
+        "contentBase64" : "YQ==",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/plain"
+        },
+        "transferEncoding" : null
+      },
+      {
+        "contentBase64" : "Yg==",
+        "contentType" : "text\/plain",
+        "filename" : null,
+        "headers" : {
+          "Content-Type" : "text\/plain"
+        },
+        "transferEncoding" : null
+      }
+    ]
+  },
+  {
+    "boundary" : "B",
+    "content" : "--B\nContent-Type: application\/octet-stream; name=\"from-name.bin\"\n\nzz\n--B--",
+    "name" : "name-param-no-disposition",
+    "parts" : [
+      {
+        "contentBase64" : "eno=",
+        "contentType" : "application\/octet-stream",
+        "filename" : "from-name.bin",
+        "headers" : {
+          "Content-Type" : "application\/octet-stream; name=\"from-name.bin\""
+        },
+        "transferEncoding" : null
+      }
+    ]
+  }
+]

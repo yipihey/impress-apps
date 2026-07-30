@@ -28,7 +28,17 @@ pub mod import;
 /// Manuscript-format grammar table (Stage 7 item 4) — the FFI shape of
 /// `impress_core::manuscript_format`, read by Swift's `DocumentFormat`.
 pub mod manuscript_format;
+/// imbib's mbox archive format (Stage 7 item 9) — RFC 2045/2047 decoding and
+/// message splitting, ported out of `PMC/Mbox/{MboxParser,MIMEDecoder}.swift`.
+pub mod mbox;
 pub mod merge;
+/// UniFFI surface for the Stage 7 item 9 parser batch (mbox/MIME, publishers).
+/// Hosted here for the same reason as `smart_search_ffi`: no new xcframework.
+#[cfg(feature = "native")]
+pub mod parsers_ffi;
+/// Publisher PDF-resolution rules and landing-page HTML extraction
+/// (Stage 7 item 9), ported out of `PMC/Publishers/`.
+pub mod publishers;
 pub mod ris;
 pub mod search;
 /// UniFFI surface for the deterministic smart-search core

@@ -1,0 +1,58 @@
+[
+  {
+    "input" : "",
+    "output" : ""
+  },
+  {
+    "input" : "SGVsbG8sIFdvcmxkIQ==",
+    "output" : "SGVsbG8sIFdvcmxkIQ=="
+  },
+  {
+    "input" : "SGVsbG8s\nIFdvcmxkIQ==",
+    "output" : "SGVsbG8sIFdvcmxkIQ=="
+  },
+  {
+    "input" : "SGVsbG8s\r\nIFdvcmxkIQ==",
+    "output" : "SGVsbG8sIFdvcmxkIQ=="
+  },
+  {
+    "input" : "SGVsbG8s IFdvcmxkIQ==",
+    "output" : "SGVsbG8sIFdvcmxkIQ=="
+  },
+  {
+    "input" : "  SGVsbG8sIFdvcmxkIQ==  ",
+    "output" : "SGVsbG8sIFdvcmxkIQ=="
+  },
+  {
+    "input" : "SGVsbG8",
+    "output" : null
+  },
+  {
+    "input" : "SGVsbG8=",
+    "output" : "SGVsbG8="
+  },
+  {
+    "input" : "!!!not base64!!!",
+    "output" : null
+  },
+  {
+    "input" : "w5xiZXIgUsOpc3Vtw6k=",
+    "output" : "w5xiZXIgUsOpc3Vtw6k="
+  },
+  {
+    "input" : "AAAA",
+    "output" : "AAAA"
+  },
+  {
+    "input" : "=",
+    "output" : null
+  },
+  {
+    "input" : "A",
+    "output" : null
+  },
+  {
+    "input" : "AA==",
+    "output" : "AA=="
+  }
+]

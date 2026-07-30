@@ -1,0 +1,62 @@
+[
+  {
+    "input" : "",
+    "output" : null
+  },
+  {
+    "input" : "text\/plain",
+    "output" : null
+  },
+  {
+    "input" : "multipart\/mixed; boundary=\"----=_Part_ABC123\"",
+    "output" : "----=_Part_ABC123"
+  },
+  {
+    "input" : "multipart\/mixed; boundary=simple",
+    "output" : "simple"
+  },
+  {
+    "input" : "multipart\/mixed; boundary=simple; charset=utf-8",
+    "output" : "simple"
+  },
+  {
+    "input" : "multipart\/mixed; BOUNDARY=\"upper\"",
+    "output" : "upper"
+  },
+  {
+    "input" : "multipart\/mixed;boundary=nospace",
+    "output" : "nospace"
+  },
+  {
+    "input" : "multipart\/mixed; boundary = \"spaced\"",
+    "output" : "spaced"
+  },
+  {
+    "input" : "multipart\/mixed; boundary=\"\"",
+    "output" : ""
+  },
+  {
+    "input" : "multipart\/mixed; boundary=",
+    "output" : ""
+  },
+  {
+    "input" : "multipart\/alternative; boundary=\"a\"b\"",
+    "output" : "a"
+  },
+  {
+    "input" : "multipart\/mixed; xboundary=\"decoy\"",
+    "output" : "decoy"
+  },
+  {
+    "input" : "multipart\/mixed; boundary=\"has space\"",
+    "output" : "has space"
+  },
+  {
+    "input" : "multipart\/mixed; boundary=has;semi",
+    "output" : "has"
+  },
+  {
+    "input" : "multipart\/related; type=\"text\/html\"; boundary=\"outer\"",
+    "output" : "outer"
+  }
+]

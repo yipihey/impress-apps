@@ -39,6 +39,15 @@ reqwest = { version = "0.12", features = ["json"], optional = true }
 # URL parsing
 url = "2"
 urlencoding = "2"
+# Foundation `URLComponents.path` setter emulation for the publisher parsers.
+percent-encoding = "2"
+
+# Charset decoding for RFC 2045 bodies and RFC 2047 encoded-words. Already in
+# the lock graph (mailparse/charset pull it in), so this adds no subtree.
+encoding_rs = "0.8"
+# Swift `Character` is an extended grapheme cluster; the quoted-printable
+# tokenizer has to iterate the same units. Already in the lock graph.
+unicode-segmentation = "1"
 
 # Parsing
 nom = { workspace = true }

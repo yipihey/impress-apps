@@ -1,0 +1,543 @@
+[
+  {
+    "content" : "",
+    "messages" : [
+
+    ],
+    "name" : "empty"
+  },
+  {
+    "content" : "   \n\n  \t\n",
+    "messages" : [
+
+    ],
+    "name" : "whitespace-only"
+  },
+  {
+    "content" : "Subject: orphan\n\nbody",
+    "messages" : [
+
+    ],
+    "name" : "no-from-line-at-all"
+  },
+  {
+    "content" : "From sender@example.com Thu Jan 01 00:00:00 2024\nFrom: Sender <sender@example.com>\nSubject: A Simple Paper\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <abc123@imbib.local>\nContent-Type: text\/plain; charset=utf-8\n\nThis is the abstract.",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "This is the abstract.",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "Sender <sender@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "abc123",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "A Simple Paper"
+      }
+    ],
+    "name" : "single-message"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: First\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <one@imbib.local>\n\nbody one\nFrom b@example.com Fri Jan 02 00:00:00 2024\nFrom: B <b@example.com>\nSubject: Second\nDate: Fri, 02 Jan 2024 00:00:00 +0000\nMessage-ID: <two@imbib.local>\n\nbody two",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body one",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "one",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "First"
+      },
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body two",
+        "date" : "2024-01-02T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "B <b@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "two",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "Second"
+      }
+    ],
+    "name" : "two-messages"
+  },
+  {
+    "content" : "garbage preamble line\nFrom a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: Real\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <real@imbib.local>\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "garbage preamble line",
+        "date" : null,
+        "dateIsWallClockFallback" : true,
+        "from" : "unknown@imbib.local",
+        "headers" : {
+
+        },
+        "messageID" : null,
+        "messageIDIsGeneratedUUID" : true,
+        "subject" : ""
+      },
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "real",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "Real"
+      }
+    ],
+    "name" : "preamble-before-first-from"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: Escaped\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <esc@imbib.local>\n\n>From the abstract we learn\n>>From doubly escaped\nnormal line",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "esc",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "Escaped"
+      },
+      {
+        "attachments" : [
+
+        ],
+        "body" : "From the abstract we learn\n>From doubly escaped\nnormal line",
+        "date" : null,
+        "dateIsWallClockFallback" : true,
+        "from" : "unknown@imbib.local",
+        "headers" : {
+
+        },
+        "messageID" : null,
+        "messageIDIsGeneratedUUID" : true,
+        "subject" : ""
+      }
+    ],
+    "name" : "escaped-from-in-body"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: =?UTF-8?B?TcO8bGxlcg==?= <m@example.com>\nSubject: =?UTF-8?B?w5xiZXIgUsOpc3Vtw6k=?=\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <enc@imbib.local>\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "Müller <m@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "enc",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "Über Résumé"
+      }
+    ],
+    "name" : "encoded-word-subject"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: QP\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <qp@imbib.local>\nContent-Type: text\/plain; charset=utf-8\nContent-Transfer-Encoding: quoted-printable\n\nM=C3=BCller measured 50=25 of the sample=2E",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "MÃ¼ller measured 50% of the sample.",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "qp",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "QP"
+      }
+    ],
+    "name" : "quoted-printable-body"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: B64\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <b64@imbib.local>\nContent-Transfer-Encoding: base64\n\nSGVsbG8sIFdvcmxkIQ==",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "Hello, World!",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "b64",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "B64"
+      }
+    ],
+    "name" : "base64-body"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: Multipart\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <mp@imbib.local>\nX-Imbib-CiteKey: smith2024\nX-Imbib-Year: 2024\nContent-Type: multipart\/mixed; boundary=\"SEP\"\n\n--SEP\nContent-Type: text\/plain; charset=utf-8\n\nthe abstract body\n--SEP\nContent-Type: application\/pdf; name=\"p.pdf\"\nContent-Transfer-Encoding: base64\nContent-Disposition: attachment; filename=\"p.pdf\"\nX-Imbib-LinkedFile-Path: files\/p.pdf\n\nSGVsbG8=\n--SEP--",
+    "messages" : [
+      {
+        "attachments" : [
+          {
+            "contentType" : "application\/pdf",
+            "customHeaders" : {
+              "X-Imbib-LinkedFile-Path" : "files\/p.pdf"
+            },
+            "dataBase64" : "SGVsbG8=",
+            "filename" : "p.pdf"
+          }
+        ],
+        "body" : "the abstract body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+          "X-Imbib-CiteKey" : "smith2024",
+          "X-Imbib-Year" : "2024"
+        },
+        "messageID" : "mp",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "Multipart"
+      }
+    ],
+    "name" : "multipart-with-attachment"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: A very long title that has been\n folded across two lines\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <fold@imbib.local>\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "fold",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "A very long title that has been folded across two lines"
+      }
+    ],
+    "name" : "folded-header-continuation"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: Tab\n\tfolded\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <tabfold@imbib.local>\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "tabfold",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "Tab folded"
+      }
+    ],
+    "name" : "tab-folded-header"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: First Subject\nSubject: Second Subject\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <dup@imbib.local>\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "dup",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "Second Subject"
+      }
+    ],
+    "name" : "duplicate-headers-last-wins"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nfrom: A <a@example.com>\nsubject: lowercase subject\ndate: Thu, 01 Jan 2024 00:00:00 +0000\nmessage-id: <lower@imbib.local>\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "unknown@imbib.local",
+        "headers" : {
+
+        },
+        "messageID" : null,
+        "messageIDIsGeneratedUUID" : true,
+        "subject" : ""
+      }
+    ],
+    "name" : "lowercase-header-names"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: NoBlank\nMessage-ID: <noblank@imbib.local>",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "From: A <a@example.com>\nSubject: NoBlank\nMessage-ID: <noblank@imbib.local>",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "noblank",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "NoBlank"
+      }
+    ],
+    "name" : "no-blank-line-before-body"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: NoID\nDate: Thu, 01 Jan 2024 00:00:00 +0000\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : null,
+        "messageIDIsGeneratedUUID" : true,
+        "subject" : "NoID"
+      }
+    ],
+    "name" : "no-message-id"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: Bare\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: bare-id@somewhere\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "bare-id",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "Bare"
+      }
+    ],
+    "name" : "message-id-without-brackets"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: DateZ\nDate: Mon, 15 Apr 2024 13:45:02 -0700\nMessage-ID: <dz@imbib.local>\n\nbody\nFrom b@example.com Thu Jan 01 00:00:00 2024\nFrom: B <b@example.com>\nSubject: DateNamed\nDate: Mon, 15 Apr 2024 13:45:02 GMT\nMessage-ID: <dn@imbib.local>\n\nbody\nFrom c@example.com Thu Jan 01 00:00:00 2024\nFrom: C <c@example.com>\nSubject: DateNoWeekday\nDate: 15 Apr 2024 13:45:02 +0000\nMessage-ID: <dnw@imbib.local>\n\nbody\nFrom d@example.com Thu Jan 01 00:00:00 2024\nFrom: D <d@example.com>\nSubject: DateUnparseable\nDate: yesterday afternoon\nMessage-ID: <du@imbib.local>\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-04-15T20:45:02.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "dz",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "DateZ"
+      },
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-04-15T13:45:02.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "B <b@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "dn",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "DateNamed"
+      },
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-04-15T13:45:02.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "C <c@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "dnw",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "DateNoWeekday"
+      },
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "D <d@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "du",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "DateUnparseable"
+      }
+    ],
+    "name" : "date-formats"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\r\nFrom: A <a@example.com>\r\nSubject: CRLF\r\nDate: Thu, 01 Jan 2024 00:00:00 +0000\r\nMessage-ID: <crlf@imbib.local>\r\n\r\nbody with crlf\r\n",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body with crlf\n",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "crlf",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "CRLF"
+      }
+    ],
+    "name" : "crlf-mbox"
+  },
+  {
+    "content" : ">From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: EscEnvelope\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <escenv@imbib.local>\n\nbody",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "body",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "escenv",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "EscEnvelope"
+      }
+    ],
+    "name" : "escaped-from-envelope-line"
+  },
+  {
+    "content" : "From a@example.com Thu Jan 01 00:00:00 2024\nFrom: A <a@example.com>\nSubject: NoBoundary\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <nb@imbib.local>\nContent-Type: multipart\/mixed\n\norphaned body",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "A <a@example.com>",
+        "headers" : {
+
+        },
+        "messageID" : "nb",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "NoBoundary"
+      }
+    ],
+    "name" : "multipart-missing-boundary-param"
+  },
+  {
+    "content" : "From imbib@localhost Thu Jan 01 00:00:00 2024\nFrom: imbib <imbib@localhost>\nSubject: imbib Library Export\nDate: Thu, 01 Jan 2024 00:00:00 +0000\nMessage-ID: <hdr@imbib.local>\nX-Imbib-Export-Version: 2\nX-Imbib-Library-Name: My Library\nX-Imbib-Publication-Count: 3\n\nLibrary export header.",
+    "messages" : [
+      {
+        "attachments" : [
+
+        ],
+        "body" : "Library export header.",
+        "date" : "2024-01-01T00:00:00.000Z",
+        "dateIsWallClockFallback" : false,
+        "from" : "imbib <imbib@localhost>",
+        "headers" : {
+          "X-Imbib-Export-Version" : "2",
+          "X-Imbib-Library-Name" : "My Library",
+          "X-Imbib-Publication-Count" : "3"
+        },
+        "messageID" : "hdr",
+        "messageIDIsGeneratedUUID" : false,
+        "subject" : "imbib Library Export"
+      }
+    ],
+    "name" : "library-metadata-header-message"
+  }
+]

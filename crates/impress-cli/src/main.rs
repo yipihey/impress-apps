@@ -38,6 +38,9 @@ const _DOCS_IMPORT_FORCE_LINK: fn() -> impress_store_service::DefaultDocsImportS
 #[allow(dead_code)]
 const _SMART_SEARCH_FORCE_LINK: fn() -> impress_smart_search_service::DefaultSmartSearchService =
     impress_smart_search_service::DefaultSmartSearchService::default;
+#[allow(dead_code)]
+const _PARSERS_FORCE_LINK: fn() -> impress_parsers_service::DefaultParsersService =
+    impress_parsers_service::DefaultParsersService::default;
 
 /// Refuse to run against a store we cannot reach.
 ///

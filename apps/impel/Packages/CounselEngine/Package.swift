@@ -28,6 +28,24 @@ let package = Package(
         .package(path: "../../../../packages/ImpressKit"),
         .package(path: "../../../../packages/ImpressRustCore"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        // TEST-TARGET-ONLY. `PublicationManagerCore` is wired into
+        // `CounselEngineTests` and MUST NOT be added to the `CounselEngine`
+        // library target or to either executable target (`journal-submit`,
+        // `journal-backfill`).
+        //
+        // Why: PMC is the shared GUI chassis. It pulls ~20 `packages/Impress*`
+        // plus HighlightSwift, SwiftMath and swift-markdown-ui, and both
+        // executables link the CounselEngine library — so putting PMC on the
+        // library would link the entire GUI stack into two headless CLIs.
+        //
+        // Why it is here at all: `JournalStatusPolicyParityTests` cross-checks
+        // `JournalPipeline.autoSnapshotStatuses` against the canonical
+        // manuscript lifecycle in `ManuscriptRecordKind.descriptor.triage`, so
+        // the shipped status literals cannot drift from the descriptor that owns
+        // them. Only the test needs to see the descriptor; production code
+        // deliberately keeps its own derived literal set (see the doc comment on
+        // `autoSnapshotStatuses` for the full trade).
+        .package(path: "../../../imbib/PublicationManagerCore"),
     ],
     targets: [
         .target(
@@ -81,7 +99,13 @@ let package = Package(
         ),
         .testTarget(
             name: "CounselEngineTests",
-            dependencies: ["CounselEngine"],
+            dependencies: [
+                "CounselEngine",
+                // Test-only — see the note on the package dependency above.
+                // Never add this to `CounselEngine`, `journal-submit` or
+                // `journal-backfill`.
+                "PublicationManagerCore",
+            ],
             path: "Tests/CounselEngineTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

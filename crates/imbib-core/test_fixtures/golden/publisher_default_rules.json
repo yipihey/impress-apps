@@ -1,0 +1,227 @@
+[
+  {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.1051\/0004-6361"
+    ],
+    "htmlParserID" : "aanda",
+    "id" : "aanda",
+    "name" : "Astronomy & Astrophysics",
+    "notes" : "Usually open access - prefer OpenAlex",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : false,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "medium",
+    "doiPrefixes" : [
+      "10.1063\/"
+    ],
+    "htmlParserID" : "aip",
+    "id" : "aip",
+    "name" : "American Institute of Physics",
+    "notes" : "AIP journals (JCP, APL, etc.)",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.1146\/"
+    ],
+    "htmlParserID" : "annual-reviews",
+    "id" : "annual-reviews",
+    "name" : "Annual Reviews",
+    "notes" : "Annual Review journals",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.1103\/"
+    ],
+    "htmlParserID" : "aps",
+    "id" : "aps",
+    "name" : "American Physical Society",
+    "notes" : "Physical Review journals (PRL, PRD, PRX, etc.)",
+    "pdfURLPattern" : "https:\/\/link.aps.org\/pdf\/{doi}",
+    "preferOpenAlex" : false,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.48550\/arXiv."
+    ],
+    "htmlParserID" : null,
+    "id" : "arxiv",
+    "name" : "arXiv",
+    "notes" : "arXiv preprints - always accessible",
+    "pdfURLPattern" : "https:\/\/arxiv.org\/pdf\/{arxivID}.pdf",
+    "preferOpenAlex" : false,
+    "requiresProxy" : false,
+    "supportsLandingPageScraping" : false
+  },
+  {
+    "captchaRisk" : "medium",
+    "doiPrefixes" : [
+      "10.1017\/"
+    ],
+    "htmlParserID" : "cambridge",
+    "id" : "cambridge",
+    "name" : "Cambridge University Press",
+    "notes" : "Cambridge journals (PASA, etc.)",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "high",
+    "doiPrefixes" : [
+      "10.1016\/"
+    ],
+    "htmlParserID" : "elsevier",
+    "id" : "elsevier",
+    "name" : "Elsevier",
+    "notes" : "No predictable PDF URL pattern - use OpenAlex OA",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.3847\/"
+    ],
+    "htmlParserID" : "iop",
+    "id" : "iop-aas",
+    "name" : "IOP Publishing (AAS Journals)",
+    "notes" : "American Astronomical Society journals hosted by IOP",
+    "pdfURLPattern" : "https:\/\/iopscience.iop.org\/article\/{doi}\/pdf",
+    "preferOpenAlex" : false,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.1088\/"
+    ],
+    "htmlParserID" : "iop",
+    "id" : "iop-journals",
+    "name" : "IOP Publishing",
+    "notes" : "IOP physics journals (JCAP, CQG, etc.)",
+    "pdfURLPattern" : "https:\/\/iopscience.iop.org\/article\/{doi}\/pdf",
+    "preferOpenAlex" : false,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.1086\/"
+    ],
+    "htmlParserID" : "iop",
+    "id" : "iop-legacy",
+    "name" : "IOP Publishing (Legacy ApJ)",
+    "notes" : "Legacy Astrophysical Journal DOIs before 2016",
+    "pdfURLPattern" : "https:\/\/iopscience.iop.org\/article\/{doi}\/pdf",
+    "preferOpenAlex" : false,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.3390\/"
+    ],
+    "htmlParserID" : "mdpi",
+    "id" : "mdpi",
+    "name" : "MDPI",
+    "notes" : "Fully open access - use OpenAlex for direct URL",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : false,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "medium",
+    "doiPrefixes" : [
+      "10.1093\/mnras"
+    ],
+    "htmlParserID" : "oxford",
+    "id" : "mnras",
+    "name" : "MNRAS (Oxford Academic)",
+    "notes" : "Oxford Academic has complex authentication",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "medium",
+    "doiPrefixes" : [
+      "10.1038\/"
+    ],
+    "htmlParserID" : "nature",
+    "id" : "nature",
+    "name" : "Nature Publishing Group",
+    "notes" : "Nature, Nature Astronomy, Nature Physics, etc.",
+    "pdfURLPattern" : "https:\/\/www.nature.com\/articles\/{articleID}.pdf",
+    "preferOpenAlex" : false,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "high",
+    "doiPrefixes" : [
+      "10.1126\/"
+    ],
+    "htmlParserID" : "science",
+    "id" : "science",
+    "name" : "Science (AAAS)",
+    "notes" : "Science and Science Advances - high CAPTCHA risk",
+    "pdfURLPattern" : "https:\/\/www.science.org\/doi\/pdf\/{doi}",
+    "preferOpenAlex" : true,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : false
+  },
+  {
+    "captchaRisk" : "medium",
+    "doiPrefixes" : [
+      "10.1007\/"
+    ],
+    "htmlParserID" : "springer",
+    "id" : "springer",
+    "name" : "Springer",
+    "notes" : "Springer journals and books",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  },
+  {
+    "captchaRisk" : "medium",
+    "doiPrefixes" : [
+      "10.1002\/",
+      "10.1111\/"
+    ],
+    "htmlParserID" : "wiley",
+    "id" : "wiley",
+    "name" : "Wiley",
+    "notes" : "Complex URL pattern - prefer OpenAlex",
+    "pdfURLPattern" : null,
+    "preferOpenAlex" : true,
+    "requiresProxy" : true,
+    "supportsLandingPageScraping" : true
+  }
+]

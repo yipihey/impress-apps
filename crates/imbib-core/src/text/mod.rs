@@ -5,10 +5,14 @@
 //! - Scientific text preprocessing
 //! - Author name parsing and normalization
 
+mod abstract_parser;
 mod author_parser;
 mod mathml_parser;
 mod scientific_parser;
 
+pub use abstract_parser::{
+    abstract_contains_math, mathml_to_latex, parse_abstract, AbstractSegment,
+};
 pub use author_parser::{
     extract_first_author_last_name, extract_first_meaningful_word, extract_surname,
     normalize_author_name, split_authors,
