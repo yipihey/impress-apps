@@ -35,7 +35,11 @@ public enum ManuscriptListScope: Hashable, Sendable {
         if case .folder(let id) = self { return id }
         return nil
     }
-    var title: String {
+    /// PUBLIC since ADR-0022 D9: a shell outside PMC labels its list column
+    /// with it. impress-iOS is the first host to route more than one kind, so
+    /// "the sidebar node knows the name, pass it down" (impart's single-kind
+    /// answer) stops scaling — a scope that can name itself should say so.
+    public var title: String {
         switch self {
         case .all: return "All Manuscripts"
         case .status(let s): return s.displayName
@@ -57,7 +61,11 @@ public enum FigureListScope: Hashable, Sendable {
         if case .folder(let id) = self { return id }
         return nil
     }
-    var title: String {
+    /// PUBLIC since ADR-0022 D9: a shell outside PMC labels its list column
+    /// with it. impress-iOS is the first host to route more than one kind, so
+    /// "the sidebar node knows the name, pass it down" (impart's single-kind
+    /// answer) stops scaling — a scope that can name itself should say so.
+    public var title: String {
         switch self {
         case .all: return "All Figures"
         case .unfiled: return "Unfiled"
@@ -78,7 +86,11 @@ public enum MessageListScope: Hashable, Sendable {
     case folder(UUID)
     case flagged(FlagColor?)
 
-    var title: String {
+    /// PUBLIC since ADR-0022 D9: a shell outside PMC labels its list column
+    /// with it. impress-iOS is the first host to route more than one kind, so
+    /// "the sidebar node knows the name, pass it down" (impart's single-kind
+    /// answer) stops scaling — a scope that can name itself should say so.
+    public var title: String {
         switch self {
         case .allInboxes: return "All Inboxes"
         case .account: return "Account"
@@ -98,7 +110,11 @@ public enum AgentListScope: Hashable, Sendable {
     /// Tasks in one kernel lifecycle state (raw payload `state` value).
     case tasksByState(String)
 
-    var title: String {
+    /// PUBLIC since ADR-0022 D9: a shell outside PMC labels its list column
+    /// with it. impress-iOS is the first host to route more than one kind, so
+    /// "the sidebar node knows the name, pass it down" (impart's single-kind
+    /// answer) stops scaling — a scope that can name itself should say so.
+    public var title: String {
         switch self {
         case .tasks: return "Tasks"
         case .runs: return "Runs"

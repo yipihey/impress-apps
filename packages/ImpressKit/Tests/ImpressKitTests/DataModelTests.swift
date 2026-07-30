@@ -7,9 +7,10 @@ struct DataModelTests {
 
     // MARK: - SiblingApp
 
-    @Test("SiblingApp has 5 apps")
+    @Test("SiblingApp has 6 apps")
     func siblingAppCount() {
-        #expect(SiblingApp.allCases.count == 5)
+        // Six since 2026-07-30 (ADR-0022 D9: the `impress` shell shipped).
+        #expect(SiblingApp.allCases.count == 6)
     }
 
     @Test("SiblingApp bundle IDs are non-empty")

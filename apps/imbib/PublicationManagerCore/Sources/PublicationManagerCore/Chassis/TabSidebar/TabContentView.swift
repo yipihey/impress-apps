@@ -126,7 +126,14 @@ public struct TabContentView: View {
             // are ACL'd to imbib's code signature, so a sibling app reading
             // them blocks its cooperative pool on a SecurityAgent password
             // prompt (impart/impel/implore each stalled on this at launch).
-            guard shellConfiguration.permits(.search) else { return }
+            // Two gates, and they say different things. `permits(.search)` is
+            // the shell's DECLARATION that it surfaces external search (imbib
+            // and impress). `itemsAreReadableWithoutPrompting` is the
+            // REACHABILITY fact that the items are ACL'd to imbib's code
+            // signature — the second half of the ADR-0022 D9 signing decision,
+            // which impress's shipping made due.
+            guard shellConfiguration.permits(.search),
+                  CredentialManager.itemsAreReadableWithoutPrompting else { return }
             let adsKey = await CredentialManager.shared.apiKey(for: "ads")
             let scixKey = await CredentialManager.shared.apiKey(for: "scix")
             if adsKey != nil || scixKey != nil {

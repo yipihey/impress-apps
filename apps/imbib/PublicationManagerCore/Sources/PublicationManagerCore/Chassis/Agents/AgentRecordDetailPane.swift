@@ -1,5 +1,13 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis file — CROSS-PLATFORM (macOS + iOS) since ADR-0022 D9.
+//
+// Gated `#if os(macOS)` with the comment "macOS-only in GUI-meld Phase 1 (iOS
+// keeps IOSContentView)", which was historical, not technical: plain SwiftUI
+// over `AgentStoreReader` and `RelatedItemsSection` (both already
+// cross-platform) and MarkdownUI (which ships iOS), with exactly ONE AppKit
+// call — `Color(NSColor.textBackgroundColor)`, for which `ImpressTheme` has
+// shipped `Color.platformTextBackground` since the ADR-023 parity protocol.
+// impress-iOS was the first host to want a task/run detail on a phone; the
+// honest answer is to fix the chassis rather than fork the pane app-side.
 //
 //  AgentRecordDetailPane.swift
 //  PublicationManagerCore
@@ -22,9 +30,9 @@
 //
 
 import SwiftUI
-import AppKit
 import ImpressFTUI
 import ImpressRustCore
+import ImpressTheme
 import MarkdownUI
 
 /// Which agent record kind the pane shows (the section's scope decides).
@@ -328,7 +336,7 @@ public struct AgentRecordDetailPane: View {
                         .padding(24)
                         .frame(maxWidth: .infinity)
                 }
-                .background(Color(NSColor.textBackgroundColor))
+                .background(Color.platformTextBackground)
             } else {
                 ContentUnavailableView(
                     kind == .task ? "No Run Recorded" : "No Result Summary",
@@ -351,4 +359,3 @@ public struct AgentRecordDetailPane: View {
         )
     }
 }
-#endif

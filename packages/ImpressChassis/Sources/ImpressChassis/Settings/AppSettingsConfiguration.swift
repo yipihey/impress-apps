@@ -813,11 +813,60 @@ public struct AppSettingsConfiguration: Sendable {
         ],
         defaultSection: .accounts)
 
+    /// impress: TWO panes, one of which the chassis already owns.
+    ///
+    /// The unifying shell has the SMALLEST settings surface in the suite, and
+    /// that is the D9 claim showing up in a second place. impress adds no
+    /// feature of its own — it hosts every facet through the chassis — so it
+    /// configures only what a shell genuinely has: how it looks, and its
+    /// automation port.
+    ///
+    ///  * `.appearance` is `.everywhere` and comes from
+    ///    `SettingsSectionRegistry.builtin`. impress registers no factory for
+    ///    it, which is the implore/impart precedent for Spotlight: an app that
+    ///    hand-wrote a pane identical to the builtin would be re-forking the
+    ///    thing the builtin exists to share. It is `.everywhere` because the
+    ///    builtin pane is plain SwiftUI over `@AppStorage("appearanceMode")` and
+    ///    genuinely renders on both platforms — impress-iOS shows exactly this
+    ///    one row.
+    ///  * `.automation` carries `.httpAutomation`, so it is macOS-only for a
+    ///    CAPABILITY reason rather than a policy one: iOS never grants
+    ///    `com.apple.security.network.server`.
+    ///
+    /// What is deliberately ABSENT, because declaring it would describe a
+    /// surface impress does not run:
+    ///  * `.spotlight` — impress installs no CoreSpotlight coordinator. The
+    ///    other four macOS apps each install one in their `init()`; adding the
+    ///    tab without the coordinator would configure an index nothing writes.
+    ///  * `.ai`, `.keyboard`, `.accounts`, `.sync`, `.backup`, `.advanced` —
+    ///    features impress hosts but does not own. Their configuration lives in
+    ///    the app that owns the feature; a duplicate here would be a second
+    ///    writer to one set of keys.
+    public static let impress = AppSettingsConfiguration(
+        appID: "impress",
+        sections: [
+            SettingsSectionDescriptor(
+                id: .appearance,
+                title: "Appearance",
+                systemImage: "paintbrush",
+                subtitle: "Light, dark, or system",
+                availability: .everywhere,
+                order: 10),
+            SettingsSectionDescriptor(
+                id: .automation,
+                title: "Automation",
+                systemImage: "terminal",
+                subtitle: "HTTP API",
+                availability: .macOSOnly(requiring: [.httpAutomation]),
+                order: 20),
+        ],
+        defaultSection: .appearance)
+
     /// Every preset the chassis ships, for tests that must not silently skip a
     /// new app. `AppSettingsConfigurationTests` iterates this rather than naming
     /// presets one at a time, which is what caught phase 2's presets needing the
     /// same appID/shell-preset agreement phase 1's did.
     public static let allPresets: [AppSettingsConfiguration] = [
-        .imprint, .imbib, .implore, .impel, .impart,
+        .imprint, .imbib, .implore, .impel, .impart, .impress,
     ]
 }

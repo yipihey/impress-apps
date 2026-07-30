@@ -368,11 +368,13 @@ final class CommandTests: XCTestCase {
     func testAppEndpointAllList() {
         let all = AppEndpoint.all
 
-        XCTAssertEqual(all.count, 5)
+        // Six since ADR-0022 D9 shipped the `impress` shell.
+        XCTAssertEqual(all.count, 6)
         XCTAssertTrue(all.contains(where: { $0.app == "imbib" }))
         XCTAssertTrue(all.contains(where: { $0.app == "imprint" }))
         XCTAssertTrue(all.contains(where: { $0.app == "impart" }))
         XCTAssertTrue(all.contains(where: { $0.app == "impel" }))
         XCTAssertTrue(all.contains(where: { $0.app == "implore" }))
+        XCTAssertTrue(all.contains(where: { $0.app == "impress" }))
     }
 }

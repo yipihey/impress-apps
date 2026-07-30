@@ -422,6 +422,53 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
             factorySource: "apps/impart/macOS/Views/Settings/ImpartSettingsScene.swift",
             alsoRegisteredElsewhere: [],
             builtinsRelied: ["spotlight"])
+        // impress registers ONE pane and takes Appearance from the builtin.
+        //
+        // macOS ONLY here, deliberately. The registration file is compiled into
+        // BOTH targets (one file, no `#if`), so on iOS it registers a factory
+        // for `.automation` — a section iOS never renders. That trips this
+        // helper's "a factory nothing declares is dead code" arm, and the arm is
+        // right about imbib and wrong about this: an availability-filtered
+        // section is not dead code, it is the descriptor doing its job. The iOS
+        // half is asserted directly below instead.
+        try assertFactoryCoverage(
+            preset: .impress, platform: .macOS,
+            factorySource: "apps/impress/Shared/ImpressSettingsSections.swift",
+            alsoRegisteredElsewhere: [],
+            builtinsRelied: ["appearance"])
+        XCTAssertEqual(
+            Set(AppSettingsConfiguration.impress.sections(on: .iOS).map(\.id.rawValue)),
+            ["appearance"],
+            "impress-iOS's whole settings surface is the chassis Appearance builtin")
+    }
+
+    // MARK: - impress (ADR-0022 D9)
+
+    /// The unifying shell's settings surface, frozen. Two rows on the Mac, ONE
+    /// on iOS — the smallest in the suite, which is the D9 thinness claim
+    /// showing up a second time.
+    func testImpressPresetIsTheFrozenTwoTabInventory() {
+        assertInventory(
+            of: .impress, on: .macOS,
+            equals: [
+                (id: "appearance", title: "Appearance", symbol: "paintbrush"),
+                (id: "automation", title: "Automation", symbol: "terminal"),
+            ])
+        assertInventory(
+            of: .impress, on: .iOS,
+            equals: [(id: "appearance", title: "Appearance", symbol: "paintbrush")])
+    }
+
+    /// impress must NOT register over the Appearance builtin — the inverse of
+    /// imbib's claim, and for the same reason implore and impart must not
+    /// register Spotlight: it has no theme editor, so a hand-written pane would
+    /// re-fork the one the builtin exists to share.
+    func testImpressTakesAppearanceFromTheChassisBuiltin() throws {
+        XCTAssertFalse(
+            try Self.registeredSections(in: "apps/impress/Shared/ImpressSettingsSections.swift")
+                .contains("appearance"),
+            "impress should take Appearance from `SettingsSectionRegistry.builtin`")
+        XCTAssertTrue(SettingsSectionRegistry.builtin.registeredSections.contains(.appearance))
     }
 
     /// The portable imbib panes are registered in PMC, once, for both platforms —

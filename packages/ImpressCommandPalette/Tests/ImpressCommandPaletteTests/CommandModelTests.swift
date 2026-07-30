@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import ImpressKit
 @testable import ImpressCommandPalette
 
 @Suite("Command Model")
@@ -86,14 +87,19 @@ struct CommandModelTests {
         #expect(AppEndpoint.impel.port == 23124)
     }
 
-    @Test("AppEndpoint.all contains all 5 apps")
+    @Test("AppEndpoint.all contains every app in the sibling table")
     func allEndpoints() {
-        #expect(AppEndpoint.all.count == 5)
+        // SIX since 2026-07-30 (ADR-0022 D9). `AppEndpoint.all` is derived from
+        // `SiblingApp.descriptors` precisely so a sixth app appears here with no
+        // edit — this count is the assertion that the derivation still holds.
+        #expect(AppEndpoint.all.count == SiblingApp.allCases.count)
+        #expect(AppEndpoint.all.count == 6)
         let apps = Set(AppEndpoint.all.map(\.app))
         #expect(apps.contains("imbib"))
         #expect(apps.contains("imprint"))
         #expect(apps.contains("impart"))
         #expect(apps.contains("impel"))
         #expect(apps.contains("implore"))
+        #expect(apps.contains("impress"))
     }
 }

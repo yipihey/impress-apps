@@ -3,7 +3,7 @@
 # the ~/MyApplications/<app>.app launcher symlink.
 #
 # Usage: scripts/build-impress-app.sh <app> [configuration]
-#   <app>: imbib | imprint | implore | impel | impart
+#   <app>: imbib | imprint | implore | impel | impart | impress
 #   configuration: Debug (default) | Release
 
 set -euo pipefail
@@ -26,7 +26,8 @@ case "$APP" in
     implore) PROJECT_REL="apps/implore/implore.xcodeproj";   SPEC_DIR="apps/implore" ;;
     impel)   PROJECT_REL="apps/impel/impel.xcodeproj";       SPEC_DIR="apps/impel" ;;
     impart)  PROJECT_REL="apps/impart/impart.xcodeproj";     SPEC_DIR="apps/impart" ;;
-    *) echo "Unknown app: $APP (expected imbib|imprint|implore|impel|impart)" >&2; exit 1 ;;
+    impress) PROJECT_REL="apps/impress/impress.xcodeproj";   SPEC_DIR="apps/impress" ;;
+    *) echo "Unknown app: $APP (expected imbib|imprint|implore|impel|impart|impress)" >&2; exit 1 ;;
 esac
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"

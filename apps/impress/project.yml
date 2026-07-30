@@ -1,0 +1,247 @@
+name: impress
+
+# Chassis UTIs (`ChassisUTIs` target template) — the types
+# PublicationManagerCore/ImpressKit build with `UTType(exportedAs:)`. Declared
+# once for the whole suite; see the header of that file. impress links PMC on
+# BOTH platforms, so BOTH app targets carry the template.
+include:
+  - path: ../chassis-utis.yml
+
+options:
+  # `com.impress.` — the newer of the suite's two prefixes (imbib/implore/impel
+  # use it; imprint/impart still carry the older `com.imbib.`). The bundle id is
+  # `com.impress.impress`, which is what `SiblingApp.impress.bundleID` says.
+  bundleIdPrefix: com.impress
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "26.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  groupSortPosition: top
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    PRODUCT_NAME: impress
+    DEVELOPMENT_TEAM: QG3MEYVHMS
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+
+# impress owns NO Rust core and NO app package of its own — that is the point of
+# ADR-0022 D9. Everything it renders comes from the shared chassis
+# (PublicationManagerCore) and the shared packages beside it. D7's "impress
+# links ALL renderers" is satisfied transitively: PMC carries Typst, PDFKit,
+# MarkdownUI, the figure CAS artifact readers, the message viewers and the
+# agent/run viewers, so linking PMC links every renderer the suite has.
+packages:
+  PublicationManagerCore:
+    path: ../imbib/PublicationManagerCore
+  ImpressKit:
+    path: ../../packages/ImpressKit
+  ImpressAutomation:
+    path: ../../packages/ImpressAutomation
+  ImpressLogging:
+    path: ../../packages/ImpressLogging
+  ImpressTheme:
+    path: ../../packages/ImpressTheme
+  # The generated `SharedStore` bindings. Direct because the UI-test seed opens
+  # the store itself (the chassis ships readers and no writer — see the seed's
+  # header) and because the automation server's status route is the only other
+  # place impress names a store type.
+  ImpressRustCore:
+    path: ../../packages/ImpressRustCore
+  # `MailStyleRow` — the ONE row view all three of impress-iOS's kinds render
+  # through, because every chassis row-data type conforms to `MailStyleItem`.
+  ImpressMailStyle:
+    path: ../../packages/ImpressMailStyle
+
+targets:
+  impress:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.0"
+    templates: [ChassisUTIs]
+    sources:
+      - path: Shared
+      - path: macOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.impress
+        INFOPLIST_FILE: macOS/Info.plist
+        CODE_SIGN_ENTITLEMENTS: macOS/impress.entitlements
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: PublicationManagerCore
+      - package: ImpressKit
+      - package: ImpressAutomation
+      - package: ImpressLogging
+      - package: ImpressTheme
+      - package: ImpressRustCore
+      - package: ImpressMailStyle
+    info:
+      path: macOS/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.impress.impress
+            CFBundleURLSchemes:
+              - impress
+        LSApplicationQueriesSchemes:
+          - imbib
+          - imprint
+          - implore
+          - impel
+          - impart
+        # impress exports no types of its own. Its whole exported set is the
+        # chassis one, supplied by the ChassisUTIs template — which is exactly
+        # the claim D9 makes about the app as a whole.
+    entitlements:
+      path: macOS/impress.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.security.application-groups:
+          # Team-ID prefix on macOS: authorized by the QG3MEYVHMS.* profile
+          # wildcard, so access never triggers the app-group TCC prompt.
+          # `com.impress.suite` is THE suite container (the one holding
+          # `workspace/impress.sqlite`). impress does not join
+          # `com.imbib.shared`: that group is imbib's private
+          # Core-Data-era container and impress reads nothing in it.
+          - QG3MEYVHMS.com.impress.suite
+
+  impressTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: impress
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.impress.tests
+        PRODUCT_NAME: impressTests
+        PRODUCT_MODULE_NAME: impressTests
+        GENERATE_INFOPLIST_FILE: YES
+        # THE imprint-iOS LESSON, and it bit here on the first
+        # `build-for-testing`. XcodeGen derives TEST_HOST from the TARGET name
+        # and the iOS bundle LAYOUT — `impress.app/impress` — which is wrong on
+        # macOS twice over: the executable lives in `Contents/MacOS/`, and the
+        # product name comes from the project-wide `PRODUCT_NAME`, not the
+        # target name. Both halves are spelled out here rather than derived.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/impress.app/Contents/MacOS/impress"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  impress-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    templates: [ChassisUTIs]
+    sources:
+      - path: Shared
+      - path: impress-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.impress
+        # THE imprint-iOS LESSON. PRODUCT_NAME stays `impress` (inherited) so
+        # the product is `impress.app` and every install/CI step finds it by
+        # that name — but PRODUCT_MODULE_NAME defaults to PRODUCT_NAME, which
+        # would make this target's module `impress`, colliding with the macOS
+        # target's module in a shared products directory ("Multiple commands
+        # produce …/impress.swiftmodule"). Name the module explicitly.
+        PRODUCT_MODULE_NAME: impress_iOS
+        INFOPLIST_FILE: impress-iOS/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: impress-iOS/Resources/impress-iOS.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    dependencies:
+      - package: PublicationManagerCore
+      - package: ImpressKit
+      - package: ImpressAutomation
+      - package: ImpressLogging
+      - package: ImpressTheme
+      - package: ImpressRustCore
+      - package: ImpressMailStyle
+    info:
+      path: impress-iOS/Resources/Info.plist
+      properties:
+        # Without a UILaunchScreen declaration iOS treats the app as legacy and
+        # LETTERBOXES the window (imprint-iOS / imbib-iOS carry the same block).
+        UILaunchScreen:
+          UIColorName: AccentColor
+        CFBundleURLTypes:
+          - CFBundleURLName: com.impress.impress
+            CFBundleURLSchemes:
+              - impress
+        LSApplicationQueriesSchemes:
+          - imbib
+          - imprint
+          - implore
+          - impel
+          - impart
+    entitlements:
+      path: impress-iOS/Resources/impress-iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.impress.suite
+
+  # iOS UI tests. Separate target + scheme so a UI run is an explicit, opt-in
+  # invocation: these drive a booted simulator. NOT depended on: ImpressTestKit
+  # (macOS-only package) — accessibility anchors are mirrored locally so the
+  # runner never links PMC and its Rust xcframeworks.
+  impress-iOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: impress-iOSUITests
+    dependencies:
+      - target: impress-iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.impress.impress.iosuitests
+        PRODUCT_NAME: impress-iOSUITests
+        PRODUCT_MODULE_NAME: impressiOSUITests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  impress:
+    build:
+      targets:
+        impress: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - impressTests
+    profile:
+      config: Release
+    archive:
+      config: Release
+
+  impress-iOS:
+    build:
+      targets:
+        impress-iOS: all
+        impress-iOSUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - impress-iOSUITests
+    profile:
+      config: Release
+    archive:
+      config: Release

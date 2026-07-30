@@ -1,5 +1,13 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis file — CROSS-PLATFORM (macOS + iOS) since ADR-0022 D9.
+//
+// It was gated `#if os(macOS)` with the comment "macOS-only in GUI-meld Phase 1
+// (iOS keeps IOSContentView)", which was historical rather than technical: the
+// whole file was plain SwiftUI over `RelatedItemsSection` (already
+// cross-platform) and `FigureStoreReader` (already cross-platform), with
+// exactly ONE AppKit call — `NSImage(data:)` in the View tab. impress-iOS was
+// the first host to want a figure detail on a phone, and the honest answer to
+// "the chassis has no iOS figure pane" is to fix the chassis, not to write a
+// sixth app's private copy. `UIImage` decodes the same PNG/JPEG/PDF data.
 //
 //  FigureDetailPane.swift
 //  PublicationManagerCore
@@ -13,7 +21,12 @@
 //
 
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 import ImpressFTUI
 import ImpressRustCore
 
@@ -187,16 +200,16 @@ public struct FigureDetailPane: View {
     private var viewTab: some View {
         if let hash = row?.dataHash,
            let data = FigureStoreReader.shared.contentData(hash: hash),
-           let image = NSImage(data: data) {
-            // NSImage decodes PNG/JPEG/TIFF and PDF data. SVG (and anything
-            // else it can't decode) falls through to the hint below.
+           let artifact = PlatformArtifactImage(data: data) {
+            // NSImage/UIImage decode PNG/JPEG/TIFF and PDF data. SVG (and
+            // anything else they can't decode) falls through to the hint below.
             ScrollView([.horizontal, .vertical]) {
-                Image(nsImage: image)
+                artifact.image
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(
-                        maxWidth: max(image.size.width, 100),
-                        maxHeight: max(image.size.height, 100))
+                        maxWidth: max(artifact.size.width, 100),
+                        maxHeight: max(artifact.size.height, 100))
                     .padding(12)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -213,4 +226,29 @@ public struct FigureDetailPane: View {
         }
     }
 }
-#endif
+
+// MARK: - Platform artifact image
+
+/// The ONE platform bridge this pane needs: decode CAS artifact bytes and hand
+/// back a SwiftUI `Image` plus its natural size.
+///
+/// Deliberately local rather than another `ImpressTheme` helper: that package
+/// bridges COLORS, and an image decoder is not a colour. If a second chassis
+/// surface needs it, it graduates — the `PlatformColors` file header states the
+/// same rule.
+struct PlatformArtifactImage {
+    let image: Image
+    let size: CGSize
+
+    init?(data: Data) {
+        #if os(macOS)
+        guard let decoded = NSImage(data: data) else { return nil }
+        self.image = Image(nsImage: decoded)
+        self.size = decoded.size
+        #else
+        guard let decoded = UIImage(data: data) else { return nil }
+        self.image = Image(uiImage: decoded)
+        self.size = decoded.size
+        #endif
+    }
+}

@@ -135,6 +135,100 @@ wants everything is exactly the shell that must still say so, section by
 section. The parity test then fails when the section enum grows, until someone
 decides.*
 
+### D9 — SHIPPED as a shell of 920 lines (2026-07-30)
+
+`apps/impress/` exists. Both platforms, `xcodegen`-generated, bundle id
+`com.impress.impress`, port **23125** (`SiblingApp.impress`).
+
+**The number.** 920 lines of Swift across both targets, excluding the generated
+pbxproj/plists/entitlements, the UI-test seed and the tests; 513 of those are
+non-comment, non-blank. The macOS root — the artefact D9 estimated at ~120 lines
+— is **79 lines, 14 of them code**, because `ChassisRootView` (Stage 4b) landed
+after the estimate was written and took the rest. The app's own compiled object
+code is **328 KB** on macOS against imprint's 523 MB, three orders of magnitude,
+which is the honest measure of "not a seventh codebase".
+
+| file | lines | code |
+|---|---|---|
+| `macOS/ImpressChassisRoot.swift` | 79 | 14 |
+| `macOS/ImpressApp.swift` | 133 | 77 |
+| `macOS/Services/ImpressHTTPServer.swift` | 97 | 57 |
+| `macOS/Views/Settings/ImpressSettingsScene.swift` | 22 | 10 |
+| `Shared/ImpressSettingsSections.swift` | 58 | 17 |
+| `impress-iOS/ImpressIOSApp.swift` | 37 | 21 |
+| `impress-iOS/Views/ImpressSidebarBindings.swift` | 149 | 61 |
+| `impress-iOS/Views/IOSImpressHostView.swift` | 170 | 123 |
+| `impress-iOS/Views/IOSImpressListColumn.swift` | 175 | 133 |
+| **total** | **920** | **513** |
+
+**What the preset bought.** The macOS shell consumes `.impress` UNCHANGED — no
+`withCustomSurfaces`, no `presenting`, no `openOverrides` edit. Figures, mail,
+tasks and runs arrive from `RecordViewerRegistry.builtin`; manuscripts and
+publications keep their two deliberate `SectionContentView` exceptions; the
+grouped-search surface arrives from `CustomSurfaceRegistry.builtin` without a
+line of registration. That is the ADR-0021 litmus claim holding in a real host:
+**adding the sixth shell required zero chassis edits to make a section render.**
+
+**What the shell was forced to write anyway — the litmus's real-world run.**
+Six findings, in descending order of how much they cost:
+
+1. **The chassis has a reader half and no writer half.** `MailStoreReader`,
+   `FigureStoreReader`, `AgentStoreReader` — and no `*StoreWriter`. Every writer
+   in the suite lives in a sibling APP's core (`ImpartStoreAdapter` in
+   MessageManagerCore, task rows in impel's `TaskStoreApi`). So the UI-test seed
+   hand-builds payloads, which is exactly what the seeding convention forbids.
+   Mitigated by reading every `schema_ref` from the kind's DESCRIPTOR, never as
+   a literal; the field NAMES are still a second spelling of the readers'
+   `CodingKeys`.
+2. **Two chassis detail panes were `#if os(macOS)` for one AppKit call each.**
+   `FigureDetailPane` (`NSImage(data:)`) and `AgentRecordDetailPane`
+   (`Color(NSColor.textBackgroundColor)`, for which `ImpressTheme` has shipped
+   `Color.platformTextBackground` since ADR-023). Both were UN-GATED in PMC
+   rather than forked into the app — the right answer, but the app was the first
+   thing to notice.
+3. **`MessageListScope.title` and its three siblings were `internal`**, so no
+   host outside PMC could label a list column. impart threads the title down
+   from the sidebar node, which works for one kind and stops scaling at three.
+   Now `public`.
+4. **The `PaneLayoutStore` toggles are hand-written in every app.** ⌘0 / ⌥⌘0 /
+   ⌃⌘S are chassis state with a chassis-wide keyboard grammar and no chassis
+   `Commands` value, so the fourth adopter retyped them for the fourth time.
+   `ImpressFindCommands` and `ImpressStoreSearchCommands` show what the fix
+   looks like.
+5. **`withAppearance()` is app-local in every app.** `ImpressTheme` exports the
+   enum and the picker but not the one line that applies the choice, so the
+   18-line `AppearanceModifier` is now written a third time verbatim.
+6. **The keychain decision came due.** The preset permits `.search`, so
+   `TabContentView`'s ADS/SciX read would have run in a differently-signed
+   shell and blocked its cooperative-pool thread on a SecurityAgent prompt. Of
+   D9's two options — imbib's keychain access group, or a reachability check —
+   the check is what shipped (`CredentialManager
+   .itemsAreReadableWithoutPrompting`): a shared access group would need imbib
+   re-signed AND every already-stored item migrated into the group.
+
+**One real bug the shell found in itself**, worth recording because it is the
+class the seed convention exists to prevent: the seed opened
+`SharedWorkspace.databasePath` without first calling `ensureDirectoryExists()`,
+so on a COLD install — before any reader had created `workspace/` — it failed
+silently and every list rendered empty. That reads exactly like "no data yet".
+Caught by the first cold-install UI run, not by any warm one.
+
+**Per-platform reach, declared rather than implied.** macOS presents every kind
+(`presentableKinds` nil). impress-iOS declares `presenting([.message, .figure,
+.task])` and the sidebar drops eleven permitted sections with no section-name
+literal anywhere. `.publication` is absent because the chassis has no PUBLIC iOS
+publication pane (imbib-iOS's is app-private — the C1 finding); `.manuscript`
+because the iOS manuscript surface is imprint's editor HOST, not a viewer;
+`.artifact` because `ArtifactDetailView` is a genuine per-type switch;
+`.agentRun` because `sectionBindings` maps a section to ONE kind and host nodes
+REPLACE derived ones, so surfacing Runs means re-spelling the task rows — the
+same shape as the mixed-kind Flagged gap already in the matrix.
+
+Also absent from iOS: **grouped mixed-kind search, impress's showcase**.
+`StoreSearchSurface` is the one AppKit-linking chassis builtin, so
+`CustomSurfaceRegistry.builtin` is empty on iOS and ⌘⇧F opens nothing there. It
+is macOS-only until a UIKit-clean grouped-search surface exists.*
+
 ## Work packages
 
 | WP | Content | Gate |
@@ -741,10 +835,11 @@ rediscovered:
   path, and adding the app-dependent services to `reachability::APP_GATED` so
   `_list-documents` stops answering `[]` while imprint is closed. Evidence
   table: docs/chassis-capability-matrix.md, "Render / export — ❌ blocked".
-- **A home for the Submissions inbox.** Unreachable in imbib since the
-  purification; `AppShellConfiguration.impress` declares it as the designated
-  future home, but impress ships no target. Adopting it in imprint is the
-  interim option.
+- **A home for the Submissions inbox.** ~~Unreachable in imbib since the
+  purification; impress ships no target.~~ **CLOSED 2026-07-30:** impress ships,
+  permits `.manuscripts`, and carries `.submissionsInbox` in `auxiliaryRoutes`,
+  so the node the route hangs off is built again. Structural, not
+  runtime-verified — no macOS app is launched from the D9 workflow.
 - **UTType Info.plist declarations.** `UTType(exportedAs:)` is used for
   `com.imbib.manuscript-id` and `com.impress.figure-id`
   (`MailStylePublicationRow.swift`), but no app declares them in
@@ -770,9 +865,34 @@ rediscovered:
 - **Mixed-kind Flagged/Dismissed.** `sectionBindings` maps a section to ONE
   `RecordKindID`, so the impress preset binds both to `.publication`. The real
   behaviour wants `AnyRecordListWrapper` over a cross-kind query — a chassis
-  change, not a preset edit.
-- **impress keychain access.** The impress preset permits `.search`, so
-  `TabContentView`'s ADS/SciX credential read would run in it; those keychain
-  items are ACL'd to imbib's code signature. Before an impress target exists,
-  either it ships with imbib's keychain access group or the read moves behind
-  a reachability check.
+  change, not a preset edit. **The shipped shell hit the same limit a second
+  time** (2026-07-30): `.agents` binds `.task`, so impress-iOS has no derived
+  route to `.all(.agentRun)` and declares `agent-run` absent. One `RecordKindID`
+  per section now costs two surfaces, not one.
+- **No writer half of the chassis.** `MailStoreReader`, `FigureStoreReader` and
+  `AgentStoreReader` are cross-platform and public; there is no corresponding
+  `*StoreWriter` anywhere. Every writer lives in a sibling APP's core
+  (`ImpartStoreAdapter`, impel's `TaskStoreApi`, implore's figure paths), so a
+  host that RENDERS a kind cannot create one, and a UI-test fixture for a
+  multi-kind shell has to hand-build payloads — which is what
+  `ImpressIOSUITestSeed` does, against the rule the other seeds follow. The
+  mitigation there is to read every `schema_ref` from the kind's descriptor
+  rather than as a literal; the field NAMES remain a second spelling.
+- **`withAppearance()` and the `PaneLayoutStore` menu toggles are per-app.**
+  `ImpressTheme` exports `AppearanceMode` and the picker but not the modifier
+  that applies the choice, so an 18-line `AppearanceModifier` is now written
+  verbatim in imprint, impart and impress. Likewise ⌘0 / ⌥⌘0 / ⌃⌘S: chassis
+  state, a chassis-wide keyboard grammar (docs/keyboard-grammar.md) and no
+  chassis `Commands` value. `ImpressFindCommands` and
+  `ImpressStoreSearchCommands` are what the fix looks like.
+- **impress keychain access.** ~~Before an impress target exists, either it
+  ships with imbib's keychain access group or the read moves behind a
+  reachability check.~~ **DECIDED 2026-07-30:** the reachability check shipped.
+  `CredentialManager.itemsAreReadableWithoutPrompting` compares
+  `Bundle.main.bundleIdentifier` to `SiblingApp.imbib.bundleID`, and
+  `TabContentView`'s boot task requires it alongside `permits(.search)`. A
+  shared access group was the alternative and was rejected on cost, not taste:
+  it needs imbib re-signed AND every already-stored item migrated into the group
+  (items written without one are not retroactively members). The consequence,
+  plainly: impress renders the Search section with no ADS/SciX credentials, and
+  credential ENTRY stays in imbib, which is where the user set it.

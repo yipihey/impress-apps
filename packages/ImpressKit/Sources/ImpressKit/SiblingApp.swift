@@ -42,6 +42,10 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
     case implore
     case impel
     case impart
+    /// The unifying shell (ADR-0022 D9), shipped 2026-07-30. It is a sibling
+    /// like any other: it has a bundle id, a scheme and a port, and the other
+    /// five discover it through this table exactly as they discover each other.
+    case impress
 
     // MARK: - The Table
 
@@ -87,6 +91,16 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
             urlScheme: "impart",
             httpPort: 23122,
             displayName: "impart"
+        ),
+        SiblingAppDescriptor(
+            id: .impress,
+            bundleID: "com.impress.impress",
+            urlScheme: "impress",
+            // 23125 — the next free address after impel's 23124. Assigned by
+            // this table before the server existed, which is the rule: servers
+            // align TO the table.
+            httpPort: 23125,
+            displayName: "impress"
         ),
     ]
 

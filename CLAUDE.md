@@ -16,8 +16,17 @@ Impress is a **research operating environment**—not a collection of apps, but 
 | **impel** | AI agent orchestration, task delegation | "impel agents" |
 | **implement** | coding, reproducible computation | "implement code" |
 | **impart** | communication—email, chat, messaging | "impart ideas" |
+| **impress** | the unifying shell—every kind, every section, one window | "impress everything" |
 
 These are **facets of a single environment** that share state, context, and interaction paradigms.
+
+**impress is the sixth and the odd one out.** The other five own a domain; impress
+owns none. It is the shell that shows what all of them wrote — a preset
+(`AppShellConfiguration.impress`), the shared root (`ChassisRootView`) and the
+registries, and 920 lines of Swift across both platforms with no business logic
+in any of them (ADR-0022 D9, shipped 2026-07-30). If a change to impress needs
+more than a preset edit or a registration, the thing that changed is the
+chassis.
 
 ## Design Principles
 
@@ -144,7 +153,8 @@ impress-apps/
 │   ├── imprint/        # Typst manuscript authoring
 │   ├── implore/        # Data visualization
 │   ├── impel/          # AI agent orchestration
-│   └── impart/         # Communication & email
+│   ├── impart/         # Communication & email
+│   └── impress/        # The unifying shell (preset + root + registrations)
 ├── packages/
 │   ├── ImpressKit/     # Shared Swift utilities + NotificationHandlerModifier
 │   ├── ImpressAI/      # AI integration layer
@@ -326,7 +336,7 @@ The `ImpressKeyboard` package provides the solution:
 - Handlers that only match modified keys (Cmd+1, Shift+Cmd+R) — modifiers prevent conflict
 - Handlers inside focused text input components (CommandPalette, FilterInput) that manage their own focus
 
-**Every app must depend on `ImpressKeyboard`** and use `.keyboardGuarded` for character-key handlers. Currently wired in: imbib, imprint, implore, impel, impart.
+**Every app must depend on `ImpressKeyboard`** and use `.keyboardGuarded` for character-key handlers. Currently wired in: imbib, imprint, implore, impel, impart. NOT impress, and that is correct rather than an omission: impress writes no key handler of its own — every character key it responds to is handled inside a chassis view that is already guarded.
 
 **Do NOT put `.focusable()` on views that contain text editors.** A `.focusable()` wrapper on a parent view creates a SwiftUI focus target that can intercept key events before they reach an AppKit NSTextView (TextEditor, HelixTextView) inside. Even when `.keyboardGuarded` returns `.ignored`, the `.focusable()` wrapper may consume the event from the AppKit responder chain. Place `.focusable().keyboardGuarded` on the outermost container only (e.g., the detail view wrapping all tabs), not on individual child views containing text input. In imbib, `DetailView` handles h/l pane cycling for all tabs — individual tabs (NotesTab, InfoTab, BibTeXTab) must NOT have their own `.focusable()` wrappers.
 
@@ -446,6 +456,7 @@ the table; the table does not move to match a server.
 | impart | 23122 | `curl 'http://localhost:23122/api/logs?limit=20'` |
 | implore | 23123 | `curl 'http://localhost:23123/api/logs?limit=20'` |
 | impel | 23124 | `curl 'http://localhost:23124/api/logs?limit=20'` |
+| impress | 23125 | `curl 'http://localhost:23125/api/logs?limit=20'` |
 
 > **implore moved.** Its server bound 23124 — impel's port — until 2026-07-30,
 > so the two collided and whichever launched first won the socket. implore now
@@ -491,6 +502,11 @@ If the HTTP server isn't responding, check:
 
 See `apps/*/CLAUDE.md` for detailed app documentation:
 - [imbib CLAUDE.md](apps/imbib/CLAUDE.md) - Bibliography manager specifics
+
+`apps/impress/` has no CLAUDE.md, deliberately: there is nothing app-specific to
+brief. Its behaviour is `AppShellConfiguration.impress` plus
+`docs/chassis-capability-matrix.md`, and a briefing that restated either would
+be a third place to keep in step.
 
 ## The North Star
 

@@ -54,6 +54,7 @@ public extension AppEndpoint {
     static let impart = AppEndpoint(.impart)
     static let impel = AppEndpoint(.impel)
     static let implore = AppEndpoint(.implore)
+    static let impress = AppEndpoint(.impress)
 
     /// Every app in the suite, derived from the table so a sixth app appears
     /// here the moment it gets a descriptor row.

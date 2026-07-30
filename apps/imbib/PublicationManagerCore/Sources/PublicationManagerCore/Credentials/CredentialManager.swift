@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressKit
 import KeychainSwift
 import OSLog
 
@@ -48,6 +49,35 @@ public actor CredentialManager: CredentialProviding {
     public init(keyPrefix: String = "com.imbib.credentials") {
         self.keyPrefix = keyPrefix
         // Don't initialize keychain here - defer until first use
+    }
+
+    // MARK: - Reachability
+
+    /// Can THIS process read the `com.imbib.credentials.*` items without
+    /// prompting?
+    ///
+    /// The items are ACL'd to imbib's code signature, and there is no shared
+    /// keychain access group in the suite. A differently-signed host that reads
+    /// them pops a SecurityAgent password prompt, and the synchronous
+    /// `SecItemCopyMatching` behind `KeychainSwift` blocks the caller's
+    /// cooperative-pool thread until the user answers — the bug that hung
+    /// impart's `/api/logs` (imbib CLAUDE.md invariant).
+    ///
+    /// ADR-0022 D9 named this as a decision impress had to make BEFORE its
+    /// target existed: "either it ships with imbib's keychain access group or
+    /// the read moves behind a reachability check". The target now exists and
+    /// this is that check — the cheaper of the two, because a shared access
+    /// group would require re-signing imbib AND migrating every already-stored
+    /// item into the group (items written without one are not retroactively
+    /// members).
+    ///
+    /// It is a REACHABILITY fact, not a policy: `AppShellConfiguration`'s
+    /// `permits(.search)` still says which shells surface external search, and
+    /// impress still permits it. impress renders the Search section; it just
+    /// does not read credentials it provably cannot open. Sibling-app
+    /// credential entry stays imbib's, which is where the user set it.
+    public nonisolated static var itemsAreReadableWithoutPrompting: Bool {
+        Bundle.main.bundleIdentifier == SiblingApp.imbib.bundleID
     }
 
     // MARK: - Storage
