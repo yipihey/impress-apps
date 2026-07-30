@@ -144,10 +144,7 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         let s = try ImbibStore.open(path: dbPath)
         self.store = s
         self.imbibStore = s
-        // Same FILE as `imbibStore` (WAL permits concurrent handles), so kernel
-        // reads see every ImbibStore write. Optional: a failed open degrades to
-        // the legacy read path rather than failing init.
-        self.kernelStore = try? ImpressRustCore.SharedStore.open(path: dbPath)
+        self.kernelStore = Self.openKernelStore(at: dbPath)
         Logger.library.infoCapture("RustStoreAdapter initialized at \(dbPath)", category: "rust-store")
     }
 
@@ -167,7 +164,28 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             let s = try ImbibStore.open(path: dbPath)
             self.store = s
             self.imbibStore = s
-            self.kernelStore = try? ImpressRustCore.SharedStore.open(path: dbPath)
+            self.kernelStore = Self.openKernelStore(at: dbPath)
+        }
+    }
+
+    /// Open the kernel handle on the SAME FILE as `imbibStore` (WAL permits
+    /// concurrent handles), so kernel reads see every `ImbibStore` write.
+    ///
+    /// Optional by design: a failed open degrades to the legacy read path
+    /// rather than failing init. It is no longer SILENT about it. Today the
+    /// fallback is merely slower-to-notice; after the `collections.unified`
+    /// flip the legacy path returns EMPTY rather than stale, so "no kernel
+    /// handle" and "this library has no collections" would look identical in
+    /// the UI and identical in the logs. One line is the difference between a
+    /// diagnosable degradation and a data-loss report (ADR-0022 F2).
+    private nonisolated static func openKernelStore(at path: String) -> ImpressRustCore.SharedStore? {
+        do {
+            return try ImpressRustCore.SharedStore.open(path: path)
+        } catch {
+            Logger.library.error(
+                "kernel SharedStore open failed at \(path): \(error) — collection reads fall back to the legacy ImbibStore path"
+            )
+            return nil
         }
     }
 

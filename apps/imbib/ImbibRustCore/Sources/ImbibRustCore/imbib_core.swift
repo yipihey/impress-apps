@@ -724,6 +724,43 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func createBackupAtPath(path: String, appVersion: String, label: String?) throws  -> BackupRecordRow
     
+    /**
+     * Create a root collection in `library_id`.
+     *
+     * The WRITE is delegated to `collection_ops::create_in_with_payload` so
+     * there is exactly ONE piece of code in the suite that knows what a
+     * collection row looks like. Post-flip that matters twice over: the row
+     * must land on `collection@1.0.0` with `kind_scope: "publication"` (or the
+     * kernel, the sidebar and the migration status counters all disagree about
+     * whether it exists), and it must be indistinguishable from a row the
+     * migration produced — proved field-for-field by
+     * `impress-core/tests/collection_container_axis.rs`
+     * (`a_created_collection_is_indistinguishable_from_a_migrated_one`).
+     *
+     * `is_smart` / `query` ride along as `extra` payload: they are imbib's,
+     * not the kernel's (the kernel has no predicate language — ADR-0022 risk
+     * register), and they are written in the SAME insert so a create stays one
+     * operation in the op log.
+     *
+     * **Undo is unchanged and stays in Swift.** This export returns no
+     * `UndoInfo` and never did; `RustStoreAdapter.createCollection` registers
+     * a closure with `UndoCoordinator` under the Edit-menu string
+     * **"Create Collection"**, whose inverse is `deleteItem(id:)` — schema-
+     * agnostic, so it inverts a post-flip row exactly as it inverts a legacy
+     * one. The kernel's own create action name
+     * (`StoreKernelUndoAction.createCollection` = "New Folder") belongs to
+     * `CollectionStoreAdapter` and is not reached from here: C2 declined to
+     * converge creation precisely to avoid relabelling a live menu entry, and
+     * delegating the WRITE while leaving the UNDO registration alone is what
+     * keeps that decision intact.
+     *
+     * One deliberate pre-flip shape change: the row now always carries
+     * `sort_order: 0` where the legacy writer omitted the key. Every reader
+     * already defaulted a missing `sort_order` to 0 (`item_to_collection_row`,
+     * `collection_ops::row_of`), and the migration writes `0` for the same
+     * rows, so this makes a freshly created collection identical to its own
+     * migrated form on both sides of the marker instead of only one.
+     */
     func createCollection(name: String, libraryId: String, isSmart: Bool, query: String?) throws  -> CollectionRow
     
     func createComment(publicationId: String, text: String, authorIdentifier: String?, authorDisplayName: String?, parentCommentId: String?) throws  -> CommentRow
@@ -1027,6 +1064,15 @@ public protocol ImbibStoreProtocol : AnyObject {
      *
      * Returns the same `CollectionRow` shape as `create_collection` /
      * `list_collections`, member counts included. Read-only.
+     *
+     * Delegates to `collection_ops::collections_containing`, which resolves the
+     * `collections.unified` marker and asks the reverse-membership question
+     * once for the whole suite instead of once per record kind. The chosen
+     * mechanism is a kernel VERB rather than a marker-resolved schema literal
+     * here, because the identical query is needed twice more on this tree:
+     * `get_publication_detail` runs it for the same binding, and
+     * `get_manuscript_detail` runs it for `MANUSCRIPT_COLLECTION`. Three
+     * marker-resolved copies of one predicate is how the first one drifts.
      */
     func listCollectionsForPublication(publicationId: String) throws  -> [CollectionRow]
     
@@ -1188,6 +1234,30 @@ public protocol ImbibStoreProtocol : AnyObject {
      *
      * Mirrors `update_field`'s `SetPayload` shape but guards that the target item
      * is actually a collection, returning `NotFound` otherwise.
+     *
+     * The guard is marker-aware, the WRITE deliberately is not. Delegating to
+     * `collection_ops::rename` would move this rename off `update_with_undo`
+     * and onto the kernel's `CollectionMutation`, which is a different undo
+     * mechanism with a different owner. Note what that actually costs today:
+     * the `UndoInfo` this call produces is DISCARDED here, and
+     * `RustStoreAdapter.renameCollection` registers no undo either — so there
+     * is no ⌘Z entry to protect. What `update_with_undo` still does is write
+     * the operation-log rows that `recent_undo_groups` (the history panel) and
+     * `undo_operation` read, and swapping the write would silently change what
+     * the history shows for a rename. A behaviour change is a decision, not a
+     * side effect of a marker fix.
+     *
+     * The fix is therefore only to stop asking the wrong question —
+     * `item.schema == "imbib/collection"` is false for every migrated row, and
+     * the guard runs BEFORE the write, which is why this export failed loudly
+     * (`NotFound`) rather than quietly where the reads returned empty.
+     *
+     * Live callers are iOS-only on today's tree: the shared record-sidebar
+     * rename sheet (`ImbibSidebarBindings.collectionActions`) and
+     * `CollectionRenameSheet` (smart collections + the create-then-rename
+     * flow). macOS converged on `CollectionStoreAdapter.rename` in C2, so the
+     * ADR's "iOS inline rename" is right about the platform and wrong about
+     * the affordance — both surviving surfaces are modal sheets.
      */
     func renameCollection(id: String, newName: String) throws  -> CollectionRow
     
@@ -1842,6 +1912,43 @@ open func createBackupAtPath(path: String, appVersion: String, label: String?)th
 })
 }
     
+    /**
+     * Create a root collection in `library_id`.
+     *
+     * The WRITE is delegated to `collection_ops::create_in_with_payload` so
+     * there is exactly ONE piece of code in the suite that knows what a
+     * collection row looks like. Post-flip that matters twice over: the row
+     * must land on `collection@1.0.0` with `kind_scope: "publication"` (or the
+     * kernel, the sidebar and the migration status counters all disagree about
+     * whether it exists), and it must be indistinguishable from a row the
+     * migration produced — proved field-for-field by
+     * `impress-core/tests/collection_container_axis.rs`
+     * (`a_created_collection_is_indistinguishable_from_a_migrated_one`).
+     *
+     * `is_smart` / `query` ride along as `extra` payload: they are imbib's,
+     * not the kernel's (the kernel has no predicate language — ADR-0022 risk
+     * register), and they are written in the SAME insert so a create stays one
+     * operation in the op log.
+     *
+     * **Undo is unchanged and stays in Swift.** This export returns no
+     * `UndoInfo` and never did; `RustStoreAdapter.createCollection` registers
+     * a closure with `UndoCoordinator` under the Edit-menu string
+     * **"Create Collection"**, whose inverse is `deleteItem(id:)` — schema-
+     * agnostic, so it inverts a post-flip row exactly as it inverts a legacy
+     * one. The kernel's own create action name
+     * (`StoreKernelUndoAction.createCollection` = "New Folder") belongs to
+     * `CollectionStoreAdapter` and is not reached from here: C2 declined to
+     * converge creation precisely to avoid relabelling a live menu entry, and
+     * delegating the WRITE while leaving the UNDO registration alone is what
+     * keeps that decision intact.
+     *
+     * One deliberate pre-flip shape change: the row now always carries
+     * `sort_order: 0` where the legacy writer omitted the key. Every reader
+     * already defaulted a missing `sort_order` to 0 (`item_to_collection_row`,
+     * `collection_ops::row_of`), and the migration writes `0` for the same
+     * rows, so this makes a freshly created collection identical to its own
+     * migrated form on both sides of the marker instead of only one.
+     */
 open func createCollection(name: String, libraryId: String, isSmart: Bool, query: String?)throws  -> CollectionRow {
     return try  FfiConverterTypeCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_create_collection(self.uniffiClonePointer(),
@@ -2621,6 +2728,15 @@ open func listCollections(libraryId: String)throws  -> [CollectionRow] {
      *
      * Returns the same `CollectionRow` shape as `create_collection` /
      * `list_collections`, member counts included. Read-only.
+     *
+     * Delegates to `collection_ops::collections_containing`, which resolves the
+     * `collections.unified` marker and asks the reverse-membership question
+     * once for the whole suite instead of once per record kind. The chosen
+     * mechanism is a kernel VERB rather than a marker-resolved schema literal
+     * here, because the identical query is needed twice more on this tree:
+     * `get_publication_detail` runs it for the same binding, and
+     * `get_manuscript_detail` runs it for `MANUSCRIPT_COLLECTION`. Three
+     * marker-resolved copies of one predicate is how the first one drifts.
      */
 open func listCollectionsForPublication(publicationId: String)throws  -> [CollectionRow] {
     return try  FfiConverterSequenceTypeCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -3028,6 +3144,30 @@ open func removeTag(ids: [String], tagPath: String)throws  -> UndoInfo {
      *
      * Mirrors `update_field`'s `SetPayload` shape but guards that the target item
      * is actually a collection, returning `NotFound` otherwise.
+     *
+     * The guard is marker-aware, the WRITE deliberately is not. Delegating to
+     * `collection_ops::rename` would move this rename off `update_with_undo`
+     * and onto the kernel's `CollectionMutation`, which is a different undo
+     * mechanism with a different owner. Note what that actually costs today:
+     * the `UndoInfo` this call produces is DISCARDED here, and
+     * `RustStoreAdapter.renameCollection` registers no undo either — so there
+     * is no ⌘Z entry to protect. What `update_with_undo` still does is write
+     * the operation-log rows that `recent_undo_groups` (the history panel) and
+     * `undo_operation` read, and swapping the write would silently change what
+     * the history shows for a rename. A behaviour change is a decision, not a
+     * side effect of a marker fix.
+     *
+     * The fix is therefore only to stop asking the wrong question —
+     * `item.schema == "imbib/collection"` is false for every migrated row, and
+     * the guard runs BEFORE the write, which is why this export failed loudly
+     * (`NotFound`) rather than quietly where the reads returned empty.
+     *
+     * Live callers are iOS-only on today's tree: the shared record-sidebar
+     * rename sheet (`ImbibSidebarBindings.collectionActions`) and
+     * `CollectionRenameSheet` (smart collections + the create-then-rename
+     * flow). macOS converged on `CollectionStoreAdapter.rename` in C2, so the
+     * ADR's "iOS inline rename" is right about the platform and wrong about
+     * the affordance — both surviving surfaces are modal sheets.
      */
 open func renameCollection(id: String, newName: String)throws  -> CollectionRow {
     return try  FfiConverterTypeCollectionRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
@@ -29152,7 +29292,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_create_backup_at_path() != 13106) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_create_collection() != 21173) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_create_collection() != 7134) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_create_comment() != 35033) {
@@ -29359,7 +29499,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_list_collections() != 19950) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_list_collections_for_publication() != 48719) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_list_collections_for_publication() != 48207) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_comments() != 24687) {
@@ -29467,7 +29607,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_remove_tag() != 29440) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_imbib_core_checksum_method_imbibstore_rename_collection() != 15254) {
+    if (uniffi_imbib_core_checksum_method_imbibstore_rename_collection() != 8082) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_rename_tag() != 556) {

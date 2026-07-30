@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use chrono::Utc;
+use impress_core::collection_ops::{self, IMBIB_COLLECTION, MANUSCRIPT_COLLECTION};
 use impress_core::item::{FlagState, Value};
 use impress_core::query::{ItemQuery, Predicate, SortDescriptor};
 use impress_core::reference::EdgeType;
@@ -513,6 +514,23 @@ impl ImbibStore {
     }
 
     // --- Collection operations ---
+    //
+    // ADR-0022 WP G7 / F2. Four of these exports used to match
+    // `schema_ref = "imbib/collection"` by equality, which is exactly the
+    // spelling `collection_migration` rewrites away — so they returned EMPTY
+    // (or, for the guarded write, `NotFound`) the moment the
+    // `collections.unified` marker went on. They now go through
+    // `impress_core::collection_ops`, which resolves the marker per call:
+    // `collections_containing` for the two reverse-membership reads,
+    // `create_in_with_payload` for the write, and `ResolvedBinding::matches`
+    // for the one guard that must stay where it is (see `rename_collection`).
+    //
+    // Deliberately NOT converted: the row SHAPE. Everything below still
+    // returns imbib's own `CollectionRow` / `PublicationDetail`, built by the
+    // same `item_to_*` converters, because the payload field names the
+    // converters read (`name`, `parent_id`, `is_smart`, `sort_order`) are the
+    // canonical fields the migration preserves verbatim. Only the QUERY was
+    // ever blind.
 
     pub fn list_collections(
         &self,
@@ -537,6 +555,41 @@ impl ImbibStore {
         Ok(rows)
     }
 
+    /// Create a root collection in `library_id`.
+    ///
+    /// The WRITE is delegated to `collection_ops::create_in_with_payload` so
+    /// there is exactly ONE piece of code in the suite that knows what a
+    /// collection row looks like. Post-flip that matters twice over: the row
+    /// must land on `collection@1.0.0` with `kind_scope: "publication"` (or the
+    /// kernel, the sidebar and the migration status counters all disagree about
+    /// whether it exists), and it must be indistinguishable from a row the
+    /// migration produced — proved field-for-field by
+    /// `impress-core/tests/collection_container_axis.rs`
+    /// (`a_created_collection_is_indistinguishable_from_a_migrated_one`).
+    ///
+    /// `is_smart` / `query` ride along as `extra` payload: they are imbib's,
+    /// not the kernel's (the kernel has no predicate language — ADR-0022 risk
+    /// register), and they are written in the SAME insert so a create stays one
+    /// operation in the op log.
+    ///
+    /// **Undo is unchanged and stays in Swift.** This export returns no
+    /// `UndoInfo` and never did; `RustStoreAdapter.createCollection` registers
+    /// a closure with `UndoCoordinator` under the Edit-menu string
+    /// **"Create Collection"**, whose inverse is `deleteItem(id:)` — schema-
+    /// agnostic, so it inverts a post-flip row exactly as it inverts a legacy
+    /// one. The kernel's own create action name
+    /// (`StoreKernelUndoAction.createCollection` = "New Folder") belongs to
+    /// `CollectionStoreAdapter` and is not reached from here: C2 declined to
+    /// converge creation precisely to avoid relabelling a live menu entry, and
+    /// delegating the WRITE while leaving the UNDO registration alone is what
+    /// keeps that decision intact.
+    ///
+    /// One deliberate pre-flip shape change: the row now always carries
+    /// `sort_order: 0` where the legacy writer omitted the key. Every reader
+    /// already defaulted a missing `sort_order` to 0 (`item_to_collection_row`,
+    /// `collection_ops::row_of`), and the migration writes `0` for the same
+    /// rows, so this makes a freshly created collection identical to its own
+    /// migrated form on both sides of the marker instead of only one.
     pub fn create_collection(
         &self,
         name: String,
@@ -544,16 +597,26 @@ impl ImbibStore {
         is_smart: bool,
         query: Option<String>,
     ) -> Result<CollectionRow, StoreApiError> {
-        let parent_uuid = parse_uuid(&library_id)?;
-        let item = conversion::collection_to_item(
+        // Parsed here, not only in the kernel, so a malformed library id keeps
+        // returning `InvalidInput` from the same place it always has.
+        parse_uuid(&library_id)?;
+
+        let mut extra: Vec<(&str, Value)> = vec![("is_smart", Value::Bool(is_smart))];
+        if let Some(q) = query.as_deref() {
+            extra.push(("smart_query", Value::String(q.to_string())));
+        }
+
+        let row = collection_ops::create_in_with_payload(
+            &self.store,
+            &IMBIB_COLLECTION,
             &name,
-            Some(parent_uuid),
-            is_smart,
-            query.as_deref(),
             None,
-        );
-        self.store.insert(item.clone())?;
-        Ok(item_to_collection_row(&item, 0))
+            None,
+            None,
+            Some(&library_id),
+            &extra,
+        )?;
+        Ok(kernel_collection_row(&row))
     }
 
     pub fn add_to_collection(
@@ -633,14 +696,39 @@ impl ImbibStore {
     ///
     /// Mirrors `update_field`'s `SetPayload` shape but guards that the target item
     /// is actually a collection, returning `NotFound` otherwise.
+    ///
+    /// The guard is marker-aware, the WRITE deliberately is not. Delegating to
+    /// `collection_ops::rename` would move this rename off `update_with_undo`
+    /// and onto the kernel's `CollectionMutation`, which is a different undo
+    /// mechanism with a different owner. Note what that actually costs today:
+    /// the `UndoInfo` this call produces is DISCARDED here, and
+    /// `RustStoreAdapter.renameCollection` registers no undo either — so there
+    /// is no ⌘Z entry to protect. What `update_with_undo` still does is write
+    /// the operation-log rows that `recent_undo_groups` (the history panel) and
+    /// `undo_operation` read, and swapping the write would silently change what
+    /// the history shows for a rename. A behaviour change is a decision, not a
+    /// side effect of a marker fix.
+    ///
+    /// The fix is therefore only to stop asking the wrong question —
+    /// `item.schema == "imbib/collection"` is false for every migrated row, and
+    /// the guard runs BEFORE the write, which is why this export failed loudly
+    /// (`NotFound`) rather than quietly where the reads returned empty.
+    ///
+    /// Live callers are iOS-only on today's tree: the shared record-sidebar
+    /// rename sheet (`ImbibSidebarBindings.collectionActions`) and
+    /// `CollectionRenameSheet` (smart collections + the create-then-rename
+    /// flow). macOS converged on `CollectionStoreAdapter.rename` in C2, so the
+    /// ADR's "iOS inline rename" is right about the platform and wrong about
+    /// the affordance — both surviving surfaces are modal sheets.
     pub fn rename_collection(
         &self,
         id: String,
         new_name: String,
     ) -> Result<CollectionRow, StoreApiError> {
         let uuid = parse_uuid(&id)?;
+        let binding = collection_ops::resolve(&self.store, &IMBIB_COLLECTION)?;
         match self.store.get(uuid)? {
-            Some(item) if item.schema == "imbib/collection" => {}
+            Some(item) if binding.matches(&item) => {}
             _ => return Err(StoreApiError::NotFound(id)),
         }
         self.store.update_with_undo(
@@ -667,27 +755,29 @@ impl ImbibStore {
     ///
     /// Returns the same `CollectionRow` shape as `create_collection` /
     /// `list_collections`, member counts included. Read-only.
+    ///
+    /// Delegates to `collection_ops::collections_containing`, which resolves the
+    /// `collections.unified` marker and asks the reverse-membership question
+    /// once for the whole suite instead of once per record kind. The chosen
+    /// mechanism is a kernel VERB rather than a marker-resolved schema literal
+    /// here, because the identical query is needed twice more on this tree:
+    /// `get_publication_detail` runs it for the same binding, and
+    /// `get_manuscript_detail` runs it for `MANUSCRIPT_COLLECTION`. Three
+    /// marker-resolved copies of one predicate is how the first one drifts.
     pub fn list_collections_for_publication(
         &self,
         publication_id: String,
     ) -> Result<Vec<CollectionRow>, StoreApiError> {
-        let pub_uuid = parse_uuid(&publication_id)?;
-        let q = ItemQuery {
-            schema: Some("imbib/collection".into()),
-            predicates: vec![Predicate::HasReference(EdgeType::Contains, pub_uuid)],
-            sort: vec![SortDescriptor {
-                field: "payload.sort_order".into(),
-                ascending: true,
-            }],
-            ..Default::default()
-        };
-        let items = self.store.query(&q)?;
-        let mut rows = Vec::new();
-        for item in &items {
-            let pub_count = self.count_collection_members(item.id)?;
-            rows.push(item_to_collection_row(item, pub_count as i32));
-        }
-        Ok(rows)
+        // Kept so a malformed id still fails as `InvalidInput` here rather than
+        // as a kernel `Validation`, which maps to the same variant but from a
+        // different message.
+        parse_uuid(&publication_id)?;
+        let rows = collection_ops::collections_containing(
+            &self.store,
+            &IMBIB_COLLECTION,
+            &publication_id,
+        )?;
+        Ok(rows.iter().map(kernel_collection_row).collect())
     }
 
     /// Add publications to a library as members WITHOUT duplicating them.
@@ -1465,17 +1555,16 @@ impl ImbibStore {
                 };
                 let child_lf = self.store.query(&lf_q)?;
 
-                // Find collections that reference this publication
-                let coll_q = ItemQuery {
-                    schema: Some("imbib/collection".into()),
-                    predicates: vec![Predicate::HasReference(EdgeType::Contains, uuid)],
-                    include_tags: false,
-                    include_references: false,
-                    ..Default::default()
-                };
-                let collections = self.store.query(&coll_q)?;
-                let collection_ids: Vec<String> =
-                    collections.iter().map(|c| c.id.to_string()).collect();
+                // Find collections that reference this publication. Same kernel
+                // verb as `list_collections_for_publication`, in its id-only
+                // projection: the detail pane opens on every selection change,
+                // so it must not start loading each containing collection's
+                // `Contains` edges just to compute a member count it discards.
+                let collection_ids = collection_ops::collections_containing_ids(
+                    &self.store,
+                    &IMBIB_COLLECTION,
+                    &id,
+                )?;
 
                 let library_ids = item.parent.map(|p| vec![p.to_string()]).unwrap_or_default();
 
@@ -4024,19 +4113,17 @@ impl ImbibStore {
         match self.store.get(uuid)? {
             Some(item) if item.schema == "manuscript" => {
                 let tag_defs = self.load_tag_definitions()?;
-                // Collections containing this manuscript (Contains edge holders
-                // with the manuscript-collection schema).
-                let coll_q = ItemQuery {
-                    schema: Some("manuscript-collection".into()),
-                    predicates: vec![Predicate::HasReference(EdgeType::Contains, uuid)],
-                    ..Default::default()
-                };
-                let collections: Vec<String> = self
-                    .store
-                    .query(&coll_q)?
-                    .iter()
-                    .map(|c| c.id.to_string())
-                    .collect();
+                // Collections containing this manuscript. The SAME kernel verb
+                // `get_publication_detail` uses, with the manuscript binding —
+                // which is the whole reason F2 chose a binding-parameterized
+                // verb over marker-resolving each query in place. One line, and
+                // the manuscript half of the reverse-membership read stops
+                // being a third copy of the predicate.
+                let collections = collection_ops::collections_containing_ids(
+                    &self.store,
+                    &MANUSCRIPT_COLLECTION,
+                    &id,
+                )?;
                 Ok(Some(item_to_manuscript_detail(
                     &item,
                     &tag_defs,
@@ -4792,6 +4879,25 @@ fn is_input_dismissed(
 
 fn parse_uuid(s: &str) -> Result<Uuid, StoreApiError> {
     Uuid::parse_str(s).map_err(|e| StoreApiError::InvalidInput(format!("invalid UUID: {}", e)))
+}
+
+/// Re-shape a kernel row into the `CollectionRow` this crate's FFI publishes.
+///
+/// The two structs carry the same facts under different names and are NOT
+/// merged: `collection_ops::CollectionRow` is the suite-wide shape (it also
+/// carries `kind_scope` and `container_id`), while this one is imbib's frozen
+/// UniFFI record. Field-for-field, `member_count` IS `publication_count` — the
+/// outgoing `Contains`-edge count, which is what `count_collection_members`
+/// computed here and what the sidebar badge renders (ADR-0022 F1).
+fn kernel_collection_row(row: &impress_core::collection_ops::CollectionRow) -> CollectionRow {
+    CollectionRow {
+        id: row.id.clone(),
+        name: row.name.clone(),
+        parent_id: row.parent_id.clone(),
+        is_smart: row.is_smart,
+        publication_count: row.member_count as i32,
+        sort_order: row.sort_order as i32,
+    }
 }
 
 fn normalize_sort_field(field: &str) -> String {

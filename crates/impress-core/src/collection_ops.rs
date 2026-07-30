@@ -1,8 +1,8 @@
 //! The collection kernel (ADR-0022 D1/D2).
 //!
-//! One implementation of the collection verb set — `list_tree`, `create`,
-//! `rename`, `reparent`, `reorder`, `delete`, `add_members`,
-//! `remove_members`, `member_counts` — parameterized by a
+//! One implementation of the collection verb set — `list_tree`,
+//! `collections_containing`, `create`, `rename`, `reparent`, `reorder`,
+//! `delete`, `add_members`, `remove_members`, `member_counts` — parameterized by a
 //! [`CollectionSchemaBinding`] so it can front the schemas that already exist
 //! (`imbib/collection`, `manuscript-collection`, `figure-collection`) as well
 //! as the generic `collection@1.0.0` schema. D2 unifies the API first; the
@@ -30,6 +30,7 @@
 //! |------------------|---------------------------|---------------------------------------------------|
 //! | `create`         | [`CollectionRow`]         | `delete(row.id)`                                  |
 //! | `create_in`      | [`CollectionRow`]         | `delete(row.id)`                                  |
+//! | `create_in_with_payload` | [`CollectionRow`] | `delete(row.id)`                                  |
 //! | `rename`         | [`CollectionMutation`]    | `rename(id, prior.name())`                        |
 //! | `reorder`        | [`CollectionMutation`]    | `reorder(id, prior.sort_order())`                 |
 //! | `reparent`       | [`CollectionMutation`]    | `reparent(id, prior.parent_id())` (`None` = root) |
@@ -329,6 +330,37 @@ pub struct ResolvedBinding {
     pub unified: bool,
 }
 
+impl ResolvedBinding {
+    /// Does `item` belong to this binding — right schema, and (once converged)
+    /// right `kind_scope`?
+    ///
+    /// The public half of the kernel's internal membership test, for callers
+    /// that own a schema GUARD rather than a query: imbib-core's
+    /// `rename_collection` keeps writing through
+    /// `SqliteItemStore::update_with_undo` — its operation-log rows are what
+    /// the history panel reads, which the kernel's `CollectionMutation` is not
+    /// — so it cannot delegate to [`rename`]. But its
+    /// `item.schema == "imbib/collection"` guard is exactly what turns into an
+    /// unconditional `NotFound` at the flip. Resolving the binding once and
+    /// asking it this question is the whole fix, and it does not fork
+    /// [`resolve`].
+    pub fn matches(&self, item: &Item) -> bool {
+        is_bound(self, item)
+    }
+
+    /// The predicates that narrow a query on [`Self::schema_ref`] to this
+    /// binding's rows. Empty with the marker off — the query the store sees is
+    /// then literally the pre-G7 query — and one `kind_scope` equality once
+    /// converged.
+    ///
+    /// Exposed for the same reason as [`Self::matches`]: a caller outside this
+    /// module that must build its own `ItemQuery` can be marker-correct with
+    /// `b.schema_ref` plus this, instead of re-deriving the resolution table.
+    pub fn scope_predicates(&self) -> Vec<Predicate> {
+        scope_predicates(self)
+    }
+}
+
 impl CollectionSchemaBinding {
     /// Resolve this binding for a store whose convergence marker is `unified`.
     ///
@@ -581,6 +613,61 @@ pub fn list_members(
     store.query(&member_query(&b, id))
 }
 
+/// The collections that CONTAIN `member` — the inverse of [`list_members`],
+/// ordered by `sort_order` like every other tree read.
+///
+/// This is the migration-safe replacement for imbib-core's
+/// `list_collections_for_publication`, which hard-codes
+/// `schema_ref = "imbib/collection"` and returns nothing once WP G7 has run.
+/// It is one verb rather than a per-kind query because the inverse-membership
+/// question is not publication-specific: the binding is what makes "which
+/// manuscript folders hold this manuscript" the same call with a different
+/// argument, which is exactly how `get_manuscript_detail` was fixed — one line,
+/// no second predicate.
+///
+/// Both membership mechanics are answered, so a caller need not know which one
+/// its binding uses: a `Contains` binding runs the reverse-edge predicate, and
+/// an envelope binding (figure folders) reports the member's own `item.parent`
+/// when that parent is a collection of this binding — at most one row, which
+/// is the truth for a filing-based membership.
+///
+/// A member id that does not exist yields an empty list rather than an error:
+/// "no collections contain a thing that is not there" is the answer every
+/// caller wants, and it matches [`member_counts`]'s tolerance of stale ids.
+pub fn collections_containing(
+    store: &SqliteItemStore,
+    binding: &CollectionSchemaBinding,
+    member_id: &str,
+) -> Result<Vec<CollectionRow>, StoreError> {
+    let b = resolve(store, binding)?;
+    let member = parse_id(member_id)?;
+    containing_items(store, &b, member, true)?
+        .iter()
+        .map(|item| row_of(store, &b, item))
+        .collect()
+}
+
+/// [`collections_containing`], projected to ids.
+///
+/// The same query, without the per-row member count — which means without
+/// loading every containing collection's `Contains` edges. imbib-core's
+/// `get_publication_detail` wants exactly this (it reports collection IDS on a
+/// detail pane that opens on every selection change), and paying for a
+/// thousand-row reference load per open to throw the count away would be a new
+/// cost the blind query never had.
+pub fn collections_containing_ids(
+    store: &SqliteItemStore,
+    binding: &CollectionSchemaBinding,
+    member_id: &str,
+) -> Result<Vec<String>, StoreError> {
+    let b = resolve(store, binding)?;
+    let member = parse_id(member_id)?;
+    Ok(containing_items(store, &b, member, false)?
+        .iter()
+        .map(|item| item.id.to_string())
+        .collect())
+}
+
 /// Member count per collection, aligned with `collection_ids`. Unknown ids
 /// count 0 rather than erroring, so a stale sidebar cannot break a refresh.
 pub fn member_counts(
@@ -654,6 +741,46 @@ pub fn create_in(
     sort_order: Option<i64>,
     container: Option<&str>,
 ) -> Result<CollectionRow, StoreError> {
+    create_in_with_payload(
+        store,
+        binding,
+        name,
+        parent,
+        kind_scope,
+        sort_order,
+        container,
+        &[],
+    )
+}
+
+/// [`create_in`] plus payload fields the kernel does not interpret.
+///
+/// The kernel owns the STRUCTURAL write shape — `schema_ref`, `name`,
+/// `sort_order`, `kind_scope`, the tree parent, the envelope — because that
+/// shape is what [`crate::collection_migration`] has to be able to produce and
+/// consume. An app layered on top may still have payload of its own on the same
+/// row: imbib's `create_collection` takes `is_smart` and `smart_query`, and
+/// dropping them at the flip would silently demote every smart collection a
+/// user creates.
+///
+/// `extra` is written FIRST, so a structural field can never be shadowed by it:
+/// a caller cannot smuggle a `parent_id` past the binding's tree semantics.
+/// One insert, so a create is still one operation in the store's op log — the
+/// alternative (create, then patch) would put a second entry in the undo
+/// history panel for what the user did once.
+///
+/// **Undo:** `delete(row.id)`.
+#[allow(clippy::too_many_arguments)]
+pub fn create_in_with_payload(
+    store: &SqliteItemStore,
+    binding: &CollectionSchemaBinding,
+    name: &str,
+    parent: Option<&str>,
+    kind_scope: Option<&str>,
+    sort_order: Option<i64>,
+    container: Option<&str>,
+    extra: &[(&str, Value)],
+) -> Result<CollectionRow, StoreError> {
     let b = resolve(store, binding)?;
     let parent_id = parent.map(parse_id).transpose()?;
     let container_id = match b.container_field {
@@ -666,6 +793,9 @@ pub fn create_in(
     };
 
     let mut payload: BTreeMap<String, Value> = BTreeMap::new();
+    for (key, value) in extra {
+        payload.insert((*key).to_string(), value.clone());
+    }
     payload.insert("name".into(), Value::String(name.to_string()));
     payload.insert("sort_order".into(), Value::Int(sort_order.unwrap_or(0)));
     write_kind_scope(&b, &mut payload, kind_scope);
@@ -1290,6 +1420,57 @@ fn tree_parent(b: &ResolvedBinding, item: &Item) -> Option<ItemId> {
             .filter(|s| !s.is_empty())
             .and_then(|s| Uuid::parse_str(&s).ok()),
         ParentField::Envelope => item.parent,
+    }
+}
+
+/// The bound collections that contain `member`. The single implementation
+/// behind [`collections_containing`] and [`collections_containing_ids`], so the
+/// inverse-membership predicate is written once.
+///
+/// `with_references` decides whether the rows come back carrying their
+/// `Contains` edges: [`row_of`] needs them for `member_count`, the id
+/// projection does not, and for a collection holding thousands of papers that
+/// is the difference between one cheap query and a bulk reference load.
+fn containing_items(
+    store: &SqliteItemStore,
+    b: &ResolvedBinding,
+    member: ItemId,
+    with_references: bool,
+) -> Result<Vec<Item>, StoreError> {
+    match b.membership {
+        Membership::ContainsEdge => {
+            let mut predicates = scope_predicates(b);
+            predicates.push(Predicate::HasReference(EdgeType::Contains, member));
+            store.query(&ItemQuery {
+                schema: Some(b.schema_ref.into()),
+                predicates,
+                sort: vec![SortDescriptor {
+                    field: "payload.sort_order".into(),
+                    ascending: true,
+                }],
+                include_tags: false,
+                include_references: with_references,
+                ..Default::default()
+            })
+        }
+        // Filing-based membership: the member names its own collection, so the
+        // answer is its envelope parent — if that parent is a collection of
+        // this binding at all, which is what excludes a figure filed directly
+        // under a library.
+        Membership::EnvelopeParent => {
+            let parent = match store.get(member)? {
+                Some(item) => item.parent,
+                None => return Ok(vec![]),
+            };
+            Ok(match parent {
+                Some(pid) => store
+                    .get(pid)?
+                    .filter(|item| is_bound(b, item))
+                    .map(|item| vec![item])
+                    .unwrap_or_default(),
+                None => vec![],
+            })
+        }
     }
 }
 

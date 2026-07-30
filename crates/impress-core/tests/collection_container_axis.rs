@@ -184,6 +184,265 @@ fn the_container_axis_is_invariant_across_the_unified_flip() {
     );
 }
 
+/// ADR-0022 F2, export 1 and 4: the REVERSE-membership read. imbib-core's
+/// `list_collections_for_publication` and the `.collections` projection of
+/// `get_publication_detail` both asked "which collections hold this paper?" by
+/// querying `schema_ref = "imbib/collection"`, so both returned EMPTY at the
+/// flip. `collections_containing` is the one verb that replaces both, and this
+/// is the property that makes it a drop-in: membership is `Contains` EDGES,
+/// which the migration provably never touches, so the answer — rows, order and
+/// member counts — cannot move when the schema underneath does.
+#[test]
+fn collections_containing_is_invariant_across_the_unified_flip() {
+    let (_dir, store) = temp_store();
+    let main = make_library(&store, "Main");
+
+    let reading = collection_ops::create_in(
+        &store,
+        &IMBIB_COLLECTION,
+        "Reading",
+        None,
+        None,
+        Some(0),
+        Some(&main),
+    )
+    .unwrap();
+    let starred = collection_ops::create_in(
+        &store,
+        &IMBIB_COLLECTION,
+        "Starred",
+        None,
+        None,
+        Some(1),
+        Some(&main),
+    )
+    .unwrap();
+    // A collection the paper is NOT in, to prove the predicate discriminates.
+    collection_ops::create_in(
+        &store,
+        &IMBIB_COLLECTION,
+        "Unrelated",
+        None,
+        None,
+        Some(2),
+        Some(&main),
+    )
+    .unwrap();
+
+    let paper = make_item(&store, "imbib/bibliography-entry", "A paper");
+    let other = make_item(&store, "imbib/bibliography-entry", "Another paper");
+    for collection in [&reading.id, &starred.id] {
+        collection_ops::add_members(
+            &store,
+            &IMBIB_COLLECTION,
+            collection,
+            std::slice::from_ref(&paper),
+        )
+        .unwrap();
+    }
+    // A second member of "Reading" only, so the two rows carry DIFFERENT
+    // member counts and a count that silently collapsed to 0 would show.
+    collection_ops::add_members(&store, &IMBIB_COLLECTION, &reading.id, &[other]).unwrap();
+
+    let before = collection_ops::collections_containing(&store, &IMBIB_COLLECTION, &paper).unwrap();
+    assert_eq!(
+        names(&before),
+        vec!["Reading", "Starred"],
+        "sort_order order"
+    );
+    assert_eq!(
+        before.iter().map(|r| r.member_count).collect::<Vec<_>>(),
+        vec![2, 1],
+        "each row carries its OWN member count, not the queried paper's"
+    );
+    let before_ids =
+        collection_ops::collections_containing_ids(&store, &IMBIB_COLLECTION, &paper).unwrap();
+    assert_eq!(
+        before_ids,
+        before.iter().map(|r| r.id.clone()).collect::<Vec<_>>(),
+        "the id projection is the same query, same order"
+    );
+
+    // ── The flip ──
+    collection_migration::migrate_collections(&store, false).expect("migrate");
+    assert!(collection_migration::is_migrated(&store).unwrap());
+
+    let after = collection_ops::collections_containing(&store, &IMBIB_COLLECTION, &paper).unwrap();
+    assert_eq!(
+        after, before,
+        "reverse-membership reads are BYTE-IDENTICAL across the flip — this is \
+         what makes the kernel verb a drop-in for list_collections_for_publication"
+    );
+    assert_eq!(
+        collection_ops::collections_containing_ids(&store, &IMBIB_COLLECTION, &paper).unwrap(),
+        before_ids,
+        "and so is get_publication_detail's .collections projection"
+    );
+
+    // The negative half: an id nobody holds, and an id that is not there at all.
+    assert!(
+        collection_ops::collections_containing(&store, &IMBIB_COLLECTION, &main)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(collection_ops::collections_containing(
+        &store,
+        &IMBIB_COLLECTION,
+        &uuid::Uuid::new_v4().to_string()
+    )
+    .unwrap()
+    .is_empty());
+}
+
+/// The other membership mechanic, answered by the same verb. Figure folders
+/// collect their figures through the ENVELOPE (`item.parent`), so "which
+/// folders contain this figure" is the member's own parent — at most one — and
+/// a caller must not have to know which mechanic its binding uses.
+#[test]
+fn collections_containing_answers_envelope_membership_too() {
+    use impress_core::store::FieldMutation;
+
+    let (_dir, store) = temp_store();
+    let folder = collection_ops::create(&store, &FIGURE_COLLECTION, "Plots", None, None, None)
+        .expect("create figure folder");
+    let figure = make_item(&store, "figure", "Figure 1");
+    let loose = make_item(&store, "figure", "Figure 2");
+
+    store
+        .update(
+            uuid::Uuid::parse_str(&figure).unwrap(),
+            vec![FieldMutation::SetParent(Some(
+                uuid::Uuid::parse_str(&folder.id).unwrap(),
+            ))],
+        )
+        .unwrap();
+
+    let holders = collection_ops::collections_containing(&store, &FIGURE_COLLECTION, &figure)
+        .expect("envelope membership");
+    assert_eq!(names(&holders), vec!["Plots"]);
+    assert_eq!(holders[0].member_count, 1);
+    assert!(
+        collection_ops::collections_containing(&store, &FIGURE_COLLECTION, &loose)
+            .unwrap()
+            .is_empty(),
+        "an unfiled figure is in no folder — not in the library it hangs off"
+    );
+}
+
+/// ADR-0022 F2, export 3: the WRITE shape. imbib-core's `create_collection`
+/// delegates to `create_in_with_payload`, and this is the property that makes
+/// that safe to flip under: a collection created BEFORE the flip and then
+/// migrated, and a collection created AFTER the flip, must be the same row —
+/// otherwise the store acquires two spellings of one kind and the next reader
+/// picks one.
+///
+/// The comparison is deliberately at TWO levels. The row level is what every
+/// caller sees. The payload level is what the migration and the kernel see, and
+/// it is where a divergence would hide: a missing `kind_scope` would make the
+/// new row invisible to its own binding, and a missing `sort_order` would sort
+/// it against NULL.
+#[test]
+fn a_created_collection_is_indistinguishable_from_a_migrated_one() {
+    use impress_core::item::Value;
+
+    let (_dir, store) = temp_store();
+    let main = make_library(&store, "Main");
+
+    // Exactly the arguments `ImbibStore::create_collection` passes, smart flag
+    // included — the field the migration CONSUMES rather than shunts into
+    // `legacy`, so it has to match.
+    let extras: [(&str, Value); 2] = [
+        ("is_smart", Value::Bool(true)),
+        ("smart_query", Value::String("starred:true".into())),
+    ];
+    let created_before = collection_ops::create_in_with_payload(
+        &store,
+        &IMBIB_COLLECTION,
+        "Starred",
+        None,
+        None,
+        None,
+        Some(&main),
+        &extras,
+    )
+    .expect("create pre-flip");
+
+    // ── The flip ──
+    collection_migration::migrate_collections(&store, false).expect("migrate");
+
+    let created_after = collection_ops::create_in_with_payload(
+        &store,
+        &IMBIB_COLLECTION,
+        "Starred",
+        None,
+        None,
+        None,
+        Some(&main),
+        &extras,
+    )
+    .expect("create post-flip");
+
+    let migrated = collection_ops::list_tree_in(&store, &IMBIB_COLLECTION, Some(&main))
+        .unwrap()
+        .into_iter()
+        .find(|r| r.id == created_before.id)
+        .expect("the pre-flip row survived the migration and is still visible");
+
+    // Row level: identical in every field except the id.
+    assert_eq!(
+        collection_ops::CollectionRow {
+            id: migrated.id.clone(),
+            ..created_after.clone()
+        },
+        migrated,
+        "created-then-migrated and created-post-flip are the same row"
+    );
+    assert!(migrated.is_smart, "and the smart flag survived both routes");
+
+    // Payload level: the canonical fields the kernel and the migration read.
+    let payload_of = |id: &str| {
+        store
+            .get(uuid::Uuid::parse_str(id).unwrap())
+            .unwrap()
+            .unwrap()
+    };
+    let old = payload_of(&created_before.id);
+    let new = payload_of(&created_after.id);
+    assert_eq!(old.schema, new.schema, "both are collection@1.0.0 now");
+    assert_eq!(
+        old.parent, new.parent,
+        "both filed under the same owning library"
+    );
+    for field in ["name", "kind_scope", "sort_order", "is_smart"] {
+        assert_eq!(
+            old.payload.get(field),
+            new.payload.get(field),
+            "canonical field '{field}' must be written identically by the \
+             migration and by a native create"
+        );
+    }
+    assert_eq!(
+        old.payload.get("kind_scope"),
+        Some(&Value::String("publication".into())),
+        "and it is the publication scope, which is what makes the row visible \
+         to IMBIB_COLLECTION at all"
+    );
+
+    // The ONE intended difference: provenance. A migrated row carries the
+    // legacy schema and payload so `rollback_collections` can rewind it; a
+    // natively created one has nothing to rewind to, which is precisely what
+    // `RollbackReport.native_generic_untouched` counts.
+    assert!(old.payload.contains_key("legacy_schema_ref"));
+    assert!(!new.payload.contains_key("legacy_schema_ref"));
+    let report = collection_migration::rollback_collections(&store).expect("rollback");
+    assert_eq!(report.restored(), 1, "only the migrated row rewinds");
+    assert_eq!(
+        report.native_generic_untouched, 1,
+        "the post-flip creation is left exactly where it is — a rollback is a \
+         rewind of the migration, not a deletion of work done after it"
+    );
+}
+
 /// The cross-container move imbib performs as two hand-written Swift writes
 /// (payload `parent_id` plus `reparentItem`), as one kernel verb — and its
 /// documented inverse, applied verbatim.

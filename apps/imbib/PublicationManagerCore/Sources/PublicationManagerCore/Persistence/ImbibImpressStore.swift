@@ -132,17 +132,15 @@ public actor ImbibImpressStore {
         }
     }
 
-    /// List collections in a library.
-    public nonisolated func listCollections(libraryId: UUID) -> [CollectionModel] {
-        StoreTimings.shared.measure("ImbibImpressStore.listCollections") {
-            do {
-                return try store.listCollections(libraryId: libraryId.uuidString)
-                    .map { CollectionModel(from: $0) }
-            } catch {
-                return []
-            }
-        }
-    }
+    // `listCollections(libraryId:)` used to live here, reading the raw
+    // `ImbibStore.listCollections` export. DELETED (ADR-0022 F2): it had zero
+    // callers and was the one door in the suite that bypassed F1's kernel-first
+    // reroute, so at the `collections.unified` flip it would have quietly
+    // started answering "no collections" while every other reader answered
+    // correctly. The gateway is the NEW door; it should not have carried a
+    // pre-F1 copy of the old one. Callers want
+    // `RustStoreAdapter.shared.listCollections(libraryId:)`, which resolves the
+    // marker through `collectionTreeIn`.
 
     /// Count unread publications in a library (or across all libraries
     /// if `parentId` is nil).

@@ -257,6 +257,10 @@ what the axis lets the code say.
 
 ### Flip-readiness verdict for `collections.unified` (G7)
 
+*Superseded by the F2 re-run below (2026-07-30). Kept because it is the audit
+the F2 work was scoped against, and because the per-site table it established is
+what the re-run walks.*
+
 **NOT READY. The flag stays OFF. Do not flip it without an explicit order.**
 
 Re-counted on today's tree. The original gate named "44 Swift `list_collections`
@@ -326,6 +330,250 @@ which is also the pre-flip behaviour those tests encode.
 own marker-aware pass: `list_collections_for_publication`,
 `rename_collection`, `create_collection`, `get_publication_detail` — plus
 re-running this table's per-site audit after those land.
+*Those four landed in F2 (2026-07-30). The re-run below found the estimate
+optimistic: "bounded list of four" was true of imbib-core's publication-collection
+exports and not of the flip.*
+
+## F2 — the four exports, and the flip-readiness re-run (2026-07-30)
+
+F1 converted the big read. F2 was scoped to the remainder the F1 note named —
+`list_collections_for_publication`, `rename_collection`, `create_collection`,
+`get_publication_detail` — and all four now resolve the `collections.unified`
+marker. The re-run that followed is the part worth reading: it found the gate is
+wider than those four, in places the previous audit did not look.
+
+### What the kernel gained
+
+Four additions, all in `impress-core/src/collection_ops.rs`. **No FFI record or
+signature changed** — every addition is either a new Rust-only function or a
+method on an existing type, and `create_in` keeps its exact arity for
+`impress-store-ffi::collection_create_in`.
+
+The xcframework was rebuilt anyway, because the Swift gates must exercise the
+Rust that actually shipped. The regenerated `imbib_core.swift` does differ, and
+the diff is worth knowing about: UniFFI propagates Rust `///` docs into the
+generated Swift **and folds them into its per-method contract checksum**, so
+three checksums moved (`create_collection`, `list_collections_for_publication`,
+`rename_collection`) purely because their doc comments grew. Not a signature
+change — but it does mean the committed bindings file changes whenever an
+exported method's doc comment does, and the `.swift` and the binary must be
+regenerated together or the runtime contract check fails.
+
+| addition | why it exists |
+|---|---|
+| `collections_containing(store, binding, member) -> Vec<CollectionRow>` | the reverse-membership read — the inverse of `list_members`. Answers BOTH mechanics: `Contains` bindings run the reverse-edge predicate, envelope bindings (figure folders) report the member's own `item.parent` when that parent is a bound collection, so a caller need not know which its binding uses |
+| `collections_containing_ids(...) -> Vec<String>` | the same query, id-only, sharing one private `containing_items` helper. Not a second copy: the difference is `include_references`, and it is load-bearing (below) |
+| `create_in_with_payload(..., extra: &[(&str, Value)])` | one insert that writes the kernel's structural shape PLUS payload the kernel does not interpret. `create_in` is this with `&[]` |
+| `ResolvedBinding::matches(&Item)` / `::scope_predicates()` | the public halves of the kernel's internal `is_bound` / `scope_predicates`, for a caller that owns a schema GUARD (rather than a query) and must not fork `resolve()` |
+
+### Per export: mechanism, and why
+
+**1. `list_collections_for_publication` — option (b), a new kernel verb.**
+Option (a) (marker-resolving the schema literal in place) would have been
+correct and two lines shorter. It was rejected because the identical predicate
+is needed *twice more on this tree*: `get_publication_detail` runs it for the
+same binding, and `get_manuscript_detail` runs it for `MANUSCRIPT_COLLECTION`.
+Marker-resolving each site is how three copies of a predicate get three
+different sort orders. One verb, parameterized by binding, is also what makes
+the manuscript and figure fixes a delegation rather than a design.
+Return shape unchanged — imbib's own `CollectionRow`, via a new
+`kernel_collection_row` reshaper; `publication_count` is the kernel row's
+`member_count`, which F1 already established is the same number (outgoing
+`Contains` edges).
+
+**2. `rename_collection` — the guard, not the write.**
+`item.schema == "imbib/collection"` became `binding.matches(&item)` against the
+resolved binding. The write stays on `SqliteItemStore::update_with_undo`. The
+guard is also why this export failed LOUDLY (`NotFound`) where the reads failed
+silently: it runs before the write.
+
+*A correction to the audit's undo premise.* The brief assumed this export's
+op-log undo was feeding imbib's ⌘Z and had to be preserved. It is not: the
+`UndoInfo` is discarded at the call site in `store_api.rs`, and
+`RustStoreAdapter.renameCollection` registers no undo either — **this rename
+ships with no ⌘Z entry at all.** The write still stays put, for the smaller and
+truer reason: `update_with_undo` writes the operation-log rows
+`recent_undo_groups` (the history panel) and `undo_operation` read, and
+delegating would silently change what the history shows for a rename. That is a
+behaviour change, so it is a decision for its own pass, not a side effect of a
+marker fix.
+
+*And a correction to "iOS inline rename".* Right about the platform, wrong about
+the affordance — macOS converged on `CollectionStoreAdapter.rename` in C2 and
+never touches this export. The two surviving live callers are both iOS modal
+sheets: `ImbibSidebarBindings.swift:579` (the shared record-sidebar
+`renameFolder` closure) and `IOSSidebarHost.swift:805` (`CollectionRenameSheet`).
+Live, so deprecating it was rejected.
+
+**3. `create_collection` — the write delegated, the undo untouched.**
+The write is now `create_in_with_payload`, so there is exactly one piece of code
+in the suite that knows what a collection row looks like. `is_smart` /
+`smart_query` ride along as `extra` — they are imbib's, not the kernel's (which
+still has no predicate language) — written in the SAME insert, so a create stays
+one operation in the op log.
+
+*The undo question, resolved by observation.* imbib's creation undo is **not**
+op-log based and never was: this export returns a `CollectionRow`, not an
+`UndoInfo`. `RustStoreAdapter.createCollection` registers a Swift closure with
+`UndoCoordinator` under the Edit-menu string **"Create Collection"**, whose
+inverse is `deleteItem(id:)` — schema-agnostic, so it inverts a post-flip row
+exactly as it inverts a legacy one. `StoreKernelUndoAction.createCollection` =
+**"New Folder"** is imprint's string for its own hand-rolled kernel create
+(`StoreKernelScope.swift` says so in as many words: *"imbib's sidebar has never
+registered a create inverse; imprint has"*). C2 recorded these as a divergence
+to converge; the honest resolution is that they are **two hosts' labels, not two
+labels for one action**, and F2 moves only the WRITE — so no Edit-menu text
+changes, and C2's decision to leave creation unconverged stands intact.
+
+*One deliberate pre-flip shape change.* The row now always carries
+`sort_order: 0` where the legacy writer omitted the key. Every reader already
+defaulted a missing `sort_order` to 0 (`item_to_collection_row`,
+`collection_ops::row_of`) and the migration writes `0` for exactly these rows,
+so this makes a freshly created collection identical to its own migrated form on
+BOTH sides of the marker instead of only one. The single observable nuance:
+`ORDER BY json_extract(payload,'$.sort_order')` sorts SQL `NULL` before `0`, so
+in a tree whose siblings have been hand-reordered a brand-new collection now
+lands at the first explicit position instead of ahead of it. In an
+never-reordered tree (all ties) the order is unchanged.
+
+**4. `get_publication_detail` — the same verb, id projection.**
+`collections_containing_ids`. The id projection is not a convenience: the detail
+pane opens on every selection change, and the row projection would load every
+containing collection's `Contains` edges — thousands of rows for a large
+collection — to compute a `member_count` this caller discards. The blind query
+it replaces used `include_references: false`; so does this.
+
+### What each fix actually unblocked
+
+Re-counted per export, production sites only (protocol declarations, mocks and
+seed/UI-test fixtures excluded):
+
+| export | live production consumers | what a flip would have done |
+|---|---|---|
+| `list_collections_for_publication` | 2 — `PublicationListMutations.swift:255` (`removeFromAllCollections`), `FirstSyncMerge.swift:129` (**raw `ImbibStore`, bypasses `RustStoreAdapter` entirely**) | "Remove from all collections" becomes a no-op; first-sync merge silently drops every membership it was supposed to reconcile |
+| `rename_collection` | 2 — `ImbibSidebarBindings.swift:579`, `IOSSidebarHost.swift:805` (both iOS sheets) | rename throws `NotFound` on iOS |
+| `create_collection` | 12 — macOS sidebar ×2, `CollectionViewModel`, `ExplorationService`, `DefaultLibrarySetManager`, `AutomationService`, the HTTP router, iOS ×4, seeding ×2 | **the two-writers case**: every new collection lands under a `schema_ref` the kernel-first sidebar cannot see, so it is created and immediately invisible |
+| `get_publication_detail` (`.collections`) | 1 — `EverythingExporter.swift:116`, the `X-Imbib-Collections` MIME header re-read by `EverythingImporter.swift:408-410` | export/import round-trip silently loses collection membership |
+
+Two of the audit's original claims did not survive contact with the tree.
+`get_publication_detail`'s `.collections` has exactly **one** real reader — the
+detail pane never reads it, `AutomationService.toPaperResultFromDetail` has zero
+callers, and `HTTPAutomationRouter.swift:3495`'s live path hardcodes
+`collectionIDs: []`. So "detail pane, exporters" was one exporter, and the
+damage was archive fidelity, not a visible pane. `FirstSyncMerge` reaching the
+raw `ImbibStore` is the more interesting find: it means F1's adapter-level
+reroute would not have covered it even if this export had been a tree read.
+
+### Proofs
+
+| proof | where |
+|---|---|
+| reverse-membership read is byte-identical across the flip — rows, order, per-row member counts, and the id projection | `impress-core/tests/collection_container_axis.rs` `collections_containing_is_invariant_across_the_unified_flip` |
+| the same verb answers envelope membership (figure folders), and an unfiled member is in no folder | same file, `collections_containing_answers_envelope_membership_too` |
+| **write shape**: create pre-flip → migrate, vs create post-flip — identical row AND identical canonical payload (`name`, `kind_scope`, `sort_order`, `is_smart`), with the one intended difference (rollback provenance) named and pinned to `RollbackReport.native_generic_untouched` | same file, `a_created_collection_is_indistinguishable_from_a_migrated_one` |
+| all four exports end-to-end through the shipping API across a real migration on a second WAL handle | `imbib-core/tests/collection_migration_legacy_readers.rs` `the_f2_exports_stay_correct_across_the_flip` |
+| write shape through the shipping export, not the kernel function | same file, `create_collection_writes_a_row_a_migration_would_have_produced` |
+| the residue still goes blind — asserted on purpose, so the day one is fixed this file is where the assertion flips | same file, `migration_blinds_the_remaining_legacy_readers` |
+| Swift: the two reverse-membership projections cannot disagree with each other or with the kernel tree, on imbib's real write path | `CollectionKernelReadParityTests.testReverseMembershipReadsAgreeWithEachOtherAndWithTheKernel` |
+
+`collection_migration_legacy_readers.rs` changed character: it was uniformly "the
+legacy readers go blind, and that is why the flag is off". It is now two halves —
+a **stays-correct** half for F2's four, and a **still-blind** half for the
+residue, with `delete_library_undoable`'s incomplete undo snapshot asserted
+explicitly rather than described.
+
+### Three things F2 also closed, because they were inside the four
+
+- **`conversion::collection_to_item`** — export 3's write helper lives in a
+  different file, so a `store_api`-only fix would have left the legacy writer
+  in place. It now has no production caller at all (tests only) and says so in
+  its doc comment.
+- **`ImbibImpressStore.listCollections(libraryId:)` — DELETED.** Zero callers,
+  and the one door in the suite that bypassed F1's kernel-first reroute by
+  reading the raw export. The previous audit filed it under "✅ benign
+  (declarations and a test double)"; it was neither. A gateway that is the NEW
+  door should not carry a pre-F1 copy of the old one.
+- **`RustStoreAdapter`'s kernel-handle open is no longer silent.** Both
+  `try? SharedStore.open(...)` sites route through one `openKernelStore(at:)`
+  that logs the failure. Today a missing kernel handle only means "slower to
+  notice"; post-flip the fallback path returns EMPTY rather than stale, so
+  "no kernel handle" and "this library has no collections" would be
+  indistinguishable in the UI *and* in the logs.
+- **`get_manuscript_detail`** — one line, the same verb with
+  `MANUSCRIPT_COLLECTION`. Taken in-lane precisely because it is the payoff of
+  choosing a binding-parameterized verb over three marker-resolved queries.
+
+## Flip-readiness verdict, re-run on the F2 tree (2026-07-30)
+
+**NOT READY. The flag stays OFF.** F2 closed the four exports it was scoped to
+and two more besides — but the re-run found the gate is **wider than the four**,
+in three places the previous audit did not reach: a Swift *migration runner*, the
+*Rust agent surface*, and the *legacy writers*.
+
+#### imbib-core exports
+
+| export | post-flip | verdict |
+|---|---|---|
+| `list_collections_for_publication` | ✅ correct | **FIXED (F2)** |
+| `rename_collection` | ✅ correct | **FIXED (F2)** |
+| `create_collection` | ✅ correct, write-shape proven | **FIXED (F2)** |
+| `get_publication_detail` (`.collections`) | ✅ correct | **FIXED (F2)** |
+| `get_manuscript_detail` (`.collections`) | ✅ correct | **FIXED (F2, in-lane)** |
+| `list_collections(library_id)` | EMPTY | **RESIDUE** — every *Swift* consumer is safe (F1 kernel-first; F2 deleted the last bypass), but the export itself is still blind and `imbib-service` reads it |
+| `delete_library_undoable` | `child_collection_ids` comes back EMPTY | **BLOCKING — silent data loss.** Delete orphans the collections via `ON DELETE SET NULL`; undo restores the library and never re-parents them. Asserted in `migration_blinds_the_remaining_legacy_readers` |
+| `list_manuscript_collections` | EMPTY | **BLOCKING in imprint** — live through the shared chassis `journalChildren`. Dead in imbib (publications-only) |
+| `create_manuscript_collection` | writes a legacy-schema row | **BLOCKING (writer)** — the two-writers case, for manuscripts. Check supersession by `CollectionStoreAdapter` first: fix-vs-delete, not fix |
+| `count_collections` | 0 | RESIDUE (cosmetic — `/api/status`) |
+| `add_to_collection`, `remove_from_collection`, `delete_collection` | schema-agnostic | ✅ benign |
+
+#### Outside imbib-core — where the previous audit did not look
+
+| site | post-flip |
+|---|---|
+| `ManuscriptMigrationRunner.swift:400-406` | **WORST FAILURE MODE.** The empty read is interpreted as "not migrated yet" and triggers a full Core Data re-migration, **duplicating every folder**. Fires for any user with a legacy `ImprintProjects.sqlite` |
+| `imbib-service/src/library_service.rs:647` | the MCP / CLI / impel **agent surface** reads collections blind. F1 protected Swift only — agents would see an empty library |
+| `FigureStoreReader.swift:161` `createFolder` (+ blind reads `:92-98`, `:155`) | implore keeps WRITING `figure-collection` rows after the flip, and reads none |
+| `ImploreStoreAdapter.swift:330` `fetchFolders` | implore's folder surface empties (already recorded as implore's own work) |
+
+Clean: `imprint-core` and `implore-core` have **zero** legacy-literal hits;
+`collection_service.rs:44-48` and `impress-store-ffi:1477-80` are binding ALIAS
+tables, not readers; `schemas.rs:88`, `manuscript_collection.rs:17` and
+`implore.rs:52` are schema declarations. `ManuscriptStoreAdapter.swift:958`'s
+fallback is safe by design.
+
+#### The gate, in the order it should be closed (F3)
+
+1. `ManuscriptMigrationRunner` — guard the re-migration on something other than
+   an empty read. Duplicated user data is the only irreversible item here.
+2. `delete_library_undoable` / `restore_library` — `list_tree_in` for the
+   snapshot; restore re-parents. Silent data loss.
+3. The legacy WRITERS: `create_manuscript_collection` (fix or delete),
+   `FigureStoreReader.createFolder`.
+4. `imbib-service/library_service.rs:647` — the agent surface.
+5. `list_manuscript_collections` (imprint) and `ImploreStoreAdapter.fetchFolders`.
+6. `count_collections` — cosmetic, last.
+
+#### The flip procedure, for when the gate closes
+
+Recorded now so ordering it later is one sentence, not a research task.
+
+- **Mechanism:** `CollectionService` (`impress-store-service/src/collection_service.rs`)
+  exposes it as MCP/CLI verbs: `migration_status` (read-only, always safe),
+  `migrate(dry_run:)`, `rollback()`. The marker is `collections.unified = "1"`
+  in `store_metadata`; the rewrite and the marker are set in ONE transaction.
+- **Dry run:** yes — `migrate(dry_run: true)` writes nothing (not the rows, not
+  the flag) and reports the exact counts the real run will report.
+- **Idempotent:** a second run rewrites zero rows and says so
+  (`skipped_already_generic`).
+- **Reversal:** `rollback()` restores every migrated row's original
+  `schema_ref` and payload byte-for-byte from the provenance the migration
+  froze, and clears the marker. It is a **rewind, not a merge**: edits made to a
+  migrated row after the migration are discarded with it. Collections created
+  after the flip carry no provenance, are left strictly alone, and are counted
+  separately (`native_generic_untouched`) — proved in
+  `a_created_collection_is_indistinguishable_from_a_migrated_one`.
+- **Order:** `migration_status` → `migrate(dry_run: true)` → compare counts →
+  `migrate(dry_run: false)`.
 
 ### Follow-up register
 

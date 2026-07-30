@@ -281,6 +281,16 @@ pub fn library_to_item(
 }
 
 /// Convert Collection-equivalent fields to an Item.
+/// Build an `imbib/collection` item.
+///
+/// **No production caller since ADR-0022 F2.** `ImbibStore::create_collection`
+/// now delegates its write to `collection_ops::create_in_with_payload`, which
+/// resolves the `collections.unified` marker and therefore writes
+/// `collection@1.0.0` once the store has converged. This function still names
+/// the legacy `schema_ref` literally, so calling it after the flip would mint a
+/// row no reader in the suite can see — it is retained only for the converter
+/// round-trip tests below and in `shaped_queries`, and a new caller wants
+/// `collection_ops` instead.
 pub fn collection_to_item(
     name: &str,
     parent_id: Option<ItemId>,
