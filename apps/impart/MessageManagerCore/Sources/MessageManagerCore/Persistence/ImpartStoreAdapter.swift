@@ -38,6 +38,7 @@ import Foundation
 import OSLog
 import ImpressKit
 import ImpressLogging
+import ImpressStoreKit
 #if canImport(ImpressRustCore)
 import ImpressRustCore
 #endif
@@ -47,37 +48,16 @@ import ImpressRustCore
 /// Sendable mirror of the FFI `SharedItemUpsert` row, so mapped rows can
 /// cross actor boundaries (Core Data background context → mirror/backfill)
 /// without importing UniFFI types into every signature.
-public struct MailItemUpsert: Sendable, Equatable {
-    public var id: String
-    public var schemaRef: String
-    public var payloadJson: String
-    public var parentId: String?
-    public var tags: [String]
-    public var createdMs: Int64?
-    public var isRead: Bool?
-    public var isStarred: Bool?
+///
+/// This is now `ImpressStoreKit.StoreMirrorUpsert` — the shared mirror kernel's
+/// row type — kept under its old name because impart's mapping API, its
+/// backfill, its sync service and the iOS UI-test seed all speak `MailItemUpsert`
+/// and there is nothing mail-specific about the eight fields. implore's mirror
+/// speaks the same type.
+public typealias MailItemUpsert = StoreMirrorUpsert
 
-    public init(
-        id: String,
-        schemaRef: String,
-        payloadJson: String,
-        parentId: String? = nil,
-        tags: [String] = [],
-        createdMs: Int64? = nil,
-        isRead: Bool? = nil,
-        isStarred: Bool? = nil
-    ) {
-        self.id = id
-        self.schemaRef = schemaRef
-        self.payloadJson = payloadJson
-        self.parentId = parentId
-        self.tags = tags
-        self.createdMs = createdMs
-        self.isRead = isRead
-        self.isStarred = isStarred
-    }
-
-    #if canImport(ImpressRustCore)
+#if canImport(ImpressRustCore)
+extension StoreMirrorUpsert {
     /// Convert to the FFI row type at the write site.
     var shared: SharedItemUpsert {
         SharedItemUpsert(
@@ -91,24 +71,53 @@ public struct MailItemUpsert: Sendable, Equatable {
             isStarred: isStarred
         )
     }
-    #endif
 }
 
-// MARK: - Pending operations
+// MARK: - SharedStore backend
 
-/// A store mutation deferred by the startup-grace gate.
-enum PendingStoreOp: Sendable {
-    case upsert(MailItemUpsert)
-    case setRead(id: String, read: Bool)
+/// The twelve mechanical lines that connect the generic mirror kernel to the
+/// UniFFI store. Field-for-field; no logic lives here.
+///
+/// It sits in the app package rather than in ImpressStoreKit because
+/// `ImpressRustCore`'s XCFramework is a local build artefact (gitignored), and
+/// ImpressStoreKit — where the kernel's tests live — must keep building and
+/// testing without a Rust toolchain run. See the note in
+/// `StoreMirrorKernel.swift`.
+private struct SharedStoreMirrorBackend: StoreMirrorBackend, @unchecked Sendable {
+    let store: SharedStore
+
+    func upsertBatch(_ rows: [StoreMirrorUpsert]) throws -> StoreMirrorBatchOutcome {
+        let result = try store.upsertItems(rows: rows.map(\.shared))
+        return StoreMirrorBatchOutcome(
+            inserted: Int(result.inserted),
+            updated: Int(result.updated)
+        )
+    }
+
+    func upsertOne(_ row: StoreMirrorUpsert) throws {
+        try store.upsertItemV2(row: row.shared)
+    }
+
+    func setRead(id: String, isRead: Bool) throws {
+        try store.setRead(id: id, isRead: isRead)
+    }
+
+    func setParent(id: String, parentId: String?) throws {
+        try store.setParent(id: id, parentId: parentId)
+    }
 }
+#endif
 
 // MARK: - MailStoreMirror
 
 /// Nonisolated dual-write engine for impart's unified-store rows.
 ///
-/// Owns the shared store handle (lazily opened, lock-guarded) and enforces
-/// the 90-second startup mutation embargo: operations dispatched during the
-/// grace window are buffered and flushed in order once it passes.
+/// Owns the shared store handle and enforces the 90-second startup mutation
+/// embargo. Both of those are now `ImpressStoreKit`'s: this type is the
+/// mail-shaped FACADE over `LazyStoreHandle` + `StoreMirrorWriteGate`, and holds
+/// no buffering, ordering or batching logic of its own. That logic used to live
+/// here, untested, because exercising it needed a real UniFFI handle and a real
+/// 90-second wall clock; `StoreMirrorKernelTests` now covers it.
 public final class MailStoreMirror: @unchecked Sendable {
 
     // MARK: - Singleton
@@ -130,44 +139,34 @@ public final class MailStoreMirror: @unchecked Sendable {
     /// impel-taskd's 5 s writes — keep transactions short).
     public static let maxBatchRows = 500
 
-    // MARK: - State (lock-guarded)
+    // MARK: - Logging
 
-    private let lock = NSLock()
+    /// impart keeps its own logger, category and capture behaviour; the kernel
+    /// only supplies the message text.
+    private static let mirrorLog = StoreMirrorLog(
+        info: { Logger.impartStore.infoCapture($0, category: "store") },
+        warning: { Logger.impartStore.warningCapture("MailStoreMirror: \($0)", category: "store") },
+        error: { Logger.impartStore.errorCapture($0, category: "store") }
+    )
+
+    private static let handleLog = StoreMirrorLog(
+        info: { Logger.impartStore.infoCapture("MailStoreMirror: \($0)", category: "store") },
+        warning: { Logger.impartStore.warningCapture("MailStoreMirror: \($0)", category: "store") },
+        error: { Logger.impartStore.errorCapture("MailStoreMirror: \($0)", category: "store") }
+    )
+
+    // MARK: - Kernel collaborators
+
     #if canImport(ImpressRustCore)
-    private var _store: SharedStore?
-    private var openAttempted = false
-    #endif
-    private var pendingOps: [PendingStoreOp] = []
-    private var flushScheduled = false
-    private let launchDate = Date()
-
-    init() {}
-
-    // MARK: - Store handle
-
-    #if canImport(ImpressRustCore)
-    /// Lazily open (or return) the shared store handle. Thread-safe.
-    /// The first successful open also declares the mail schemas
-    /// sync-excluded (idempotent; drains any queued outbox rows).
-    public func storeHandle() -> SharedStore? {
-        lock.lock()
-        defer { lock.unlock() }
-        if let store = _store { return store }
-        if openAttempted { return nil }
-        openAttempted = true
-        do {
-            try SharedWorkspace.ensureDirectoryExists()
-            let path = SharedWorkspace.databaseURL.path
-            let store = try SharedStore.open(path: path)
-            _store = store
-            Logger.impartStore.infoCapture(
-                "MailStoreMirror: opened SharedStore at \(path)",
-                category: "store"
-            )
+    /// The store handle: opened once, under a lock, failure remembered. The
+    /// first successful open declares the mail schemas sync-excluded.
+    private let handle = LazyStoreHandle<SharedStore>(
+        log: MailStoreMirror.handleLog,
+        onOpen: { store in
             do {
-                try store.addSyncExcludedSchemas(schemas: Self.mailSyncExcludedSchemas)
+                try store.addSyncExcludedSchemas(schemas: MailStoreMirror.mailSyncExcludedSchemas)
                 Logger.impartStore.infoCapture(
-                    "Mail schemas declared sync-excluded: \(Self.mailSyncExcludedSchemas.joined(separator: ", "))",
+                    "Mail schemas declared sync-excluded: \(MailStoreMirror.mailSyncExcludedSchemas.joined(separator: ", "))",
                     category: "store"
                 )
             } catch {
@@ -176,31 +175,60 @@ public final class MailStoreMirror: @unchecked Sendable {
                     category: "store"
                 )
             }
-            return store
-        } catch {
-            Logger.impartStore.errorCapture(
-                "MailStoreMirror: failed to open SharedStore — \(error.localizedDescription)",
+        },
+        open: {
+            try SharedWorkspace.ensureDirectoryExists()
+            let path = SharedWorkspace.databaseURL.path
+            let store = try SharedStore.open(path: path)
+            Logger.impartStore.infoCapture(
+                "MailStoreMirror: opened SharedStore at \(path)",
                 category: "store"
             )
-            return nil
+            return store
         }
+    )
+    #endif
+
+    /// The gated, ordered, batched write path.
+    private lazy var gate = StoreMirrorWriteGate(
+        startupGraceSeconds: Self.startupGraceSeconds,
+        maxBatchRows: Self.maxBatchRows,
+        backend: { [weak self] in
+            #if canImport(ImpressRustCore)
+            guard let store = self?.handle.get() else { return nil }
+            return SharedStoreMirrorBackend(store: store)
+            #else
+            return nil
+            #endif
+        },
+        log: Self.mirrorLog,
+        onApplied: { _ in
+            Task { @MainActor in
+                ImpartStoreAdapter.shared.didMutate()
+            }
+        }
+    )
+
+    init() {}
+
+    // MARK: - Store handle
+
+    #if canImport(ImpressRustCore)
+    /// Lazily open (or return) the shared store handle. Thread-safe.
+    public func storeHandle() -> SharedStore? {
+        handle.get()
     }
 
     /// Test-only: inject a preopened store (e.g. `SharedStore.openInMemory()`).
     func adopt(store: SharedStore) {
-        lock.lock()
-        _store = store
-        openAttempted = true
-        lock.unlock()
+        handle.adopt(store)
     }
     #endif
 
     // MARK: - Startup grace gate
 
     /// Whether the 90-second startup mutation embargo has elapsed.
-    public var isPastStartupGrace: Bool {
-        Date().timeIntervalSince(launchDate) >= Self.startupGraceSeconds
-    }
+    public var isPastStartupGrace: Bool { gate.isPastStartupGrace }
 
     // MARK: - Write API
 
@@ -209,139 +237,13 @@ public final class MailStoreMirror: @unchecked Sendable {
     /// first). During the startup grace window the rows are buffered and
     /// flushed in one batch once the window passes.
     public func mirror(rows: [MailItemUpsert]) {
-        dispatch(ops: rows.map(PendingStoreOp.upsert))
+        gate.dispatch(ops: rows.map(StoreMirrorOp.upsert))
     }
 
     /// Mirror read-flag changes for messages already in the store.
     /// Unknown ids (not yet dual-written or backfilled) are skipped.
     public func setMessagesRead(itemIDs: [String], read: Bool) {
-        dispatch(ops: itemIDs.map { .setRead(id: $0, read: read) })
-    }
-
-    // MARK: - Gated write path
-
-    private func dispatch(ops: [PendingStoreOp]) {
-        guard !ops.isEmpty else { return }
-        if isPastStartupGrace {
-            // Preserve ordering: drain anything still buffered from the
-            // grace window before applying the new operations.
-            flushPendingOps()
-            apply(ops: ops, batched: false)
-        } else {
-            buffer(ops: ops)
-        }
-    }
-
-    private func buffer(ops: [PendingStoreOp]) {
-        lock.lock()
-        pendingOps.append(contentsOf: ops)
-        let pendingCount = pendingOps.count
-        let needsSchedule = !flushScheduled
-        flushScheduled = true
-        lock.unlock()
-
-        Logger.impartStore.infoCapture(
-            "Startup grace: buffered \(ops.count) store ops (pending: \(pendingCount))",
-            category: "store"
-        )
-
-        if needsSchedule {
-            let remaining = max(0, Self.startupGraceSeconds - Date().timeIntervalSince(launchDate)) + 1
-            Task.detached { [weak self] in
-                try? await Task.sleep(for: .seconds(remaining))
-                guard !Task.isCancelled else { return }
-                self?.flushPendingOps()
-            }
-        }
-    }
-
-    /// Drain and apply all buffered operations (no-op when empty).
-    private func flushPendingOps() {
-        lock.lock()
-        let ops = pendingOps
-        pendingOps.removeAll()
-        lock.unlock()
-        guard !ops.isEmpty else { return }
-        Logger.impartStore.infoCapture(
-            "Startup grace over: flushing \(ops.count) buffered store ops",
-            category: "store"
-        )
-        apply(ops: ops, batched: true)
-    }
-
-    /// Apply operations to the store. `batched: true` groups consecutive
-    /// upserts into `upsertItems` transactions of ≤500 rows (grace-flush
-    /// path); `batched: false` uses per-row `upsertItemV2` (live dual-write).
-    private func apply(ops: [PendingStoreOp], batched: Bool) {
-        #if canImport(ImpressRustCore)
-        guard let store = storeHandle() else {
-            Logger.impartStore.warningCapture(
-                "MailStoreMirror: store not open — dropping \(ops.count) ops",
-                category: "store"
-            )
-            return
-        }
-
-        var batch: [SharedItemUpsert] = []
-        var applied = 0
-
-        func flushBatch() {
-            guard !batch.isEmpty else { return }
-            do {
-                let result = try store.upsertItems(rows: batch)
-                applied += batch.count
-                Logger.impartStore.infoCapture(
-                    "upsertItems: \(batch.count) rows (inserted \(result.inserted), updated \(result.updated))",
-                    category: "store"
-                )
-            } catch {
-                Logger.impartStore.errorCapture(
-                    "upsertItems failed for \(batch.count) rows — \(error)",
-                    category: "store"
-                )
-            }
-            batch.removeAll(keepingCapacity: true)
-        }
-
-        for op in ops {
-            switch op {
-            case .upsert(let row):
-                if batched {
-                    batch.append(row.shared)
-                    if batch.count >= Self.maxBatchRows { flushBatch() }
-                } else {
-                    do {
-                        try store.upsertItemV2(row: row.shared)
-                        applied += 1
-                    } catch {
-                        Logger.impartStore.errorCapture(
-                            "upsertItemV2 failed for \(row.id) — \(error)",
-                            category: "store"
-                        )
-                    }
-                }
-            case .setRead(let id, let read):
-                flushBatch()   // preserve op ordering across kinds
-                do {
-                    try store.setRead(id: id, isRead: read)
-                    applied += 1
-                } catch {
-                    // NotFound is expected for messages not yet mirrored.
-                    Logger.impartStore.infoCapture(
-                        "setRead skipped for \(id) — \(error)",
-                        category: "store"
-                    )
-                }
-            }
-        }
-        flushBatch()
-
-        if applied > 0 {
-            Task { @MainActor in
-                ImpartStoreAdapter.shared.didMutate()
-            }
-        }
-        #endif
+        gate.dispatch(ops: itemIDs.map { .setRead(id: $0, read: read) })
     }
 }
 
@@ -369,8 +271,23 @@ public final class ImpartStoreAdapter {
 
     // MARK: - Observable state
 
+    /// The shared mutation signal (`ImpressStoreKit`): the monotonic version
+    /// plus the typed `StoreEvent` fan-out, in one place instead of one copy per
+    /// store adapter.
+    private let signal = StoreMutationSignal { structural, affectedIDs, kind in
+        ImpartImpressStore.shared.postMutation(
+            structural: structural,
+            affectedIDs: affectedIDs,
+            kind: kind
+        )
+    }
+
     /// Bumped on every successful mutation. Observers can react to this.
-    public private(set) var dataVersion: Int = 0
+    ///
+    /// Reads through to `signal.version`. `StoreMutationSignal` is itself
+    /// `@Observable`, so a SwiftUI `body` that touches `dataVersion` registers
+    /// the same dependency it did when the counter was stored here directly.
+    public var dataVersion: Int { signal.version }
 
     /// Whether the adapter successfully opened the shared workspace.
     public private(set) var isReady: Bool = false
@@ -427,8 +344,7 @@ public final class ImpartStoreAdapter {
     /// publisher so future snapshot maintainers can subscribe via the
     /// `ImpressStoreKit` stream without going through `NotificationCenter`.
     public func didMutate() {
-        dataVersion += 1
-        ImpartImpressStore.shared.postMutation(structural: true)
+        signal.didMutate(structural: true)
     }
 
     // MARK: - Email messages (single-message facade)
@@ -682,12 +598,10 @@ public final class ImpartStoreAdapter {
         return known.contains(raw) ? raw : nil
     }
 
+    /// Deterministic (sorted-key) payload encoding — `ImpressStoreKit`'s, so
+    /// impart, implore and any future mirror encode payloads identically.
     private nonisolated static func encodeJSON(_ object: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
-              let string = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return string
+        StoreMirrorPayload.encodeJSON(object)
     }
 }
 

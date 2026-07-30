@@ -8,6 +8,7 @@
 import CoreData
 import Foundation
 import ImpressAutomation
+import ImpressKit
 import OSLog
 
 private let routerLogger = Logger(subsystem: "com.imbib.impart", category: "httpRouter")
@@ -1100,8 +1101,9 @@ public actor ImpartHTTPServer {
 
     // MARK: - Configuration
 
-    /// Default port (after imbib's 23120, imprint's 23121)
-    public static let defaultPort: UInt16 = 23122
+    /// Default port — read from the one sibling-app table
+    /// (`SiblingApp.descriptors`) rather than re-declared here.
+    public static let defaultPort: UInt16 = SiblingApp.impart.httpPort
 
     // MARK: - Settings
 

@@ -68,6 +68,16 @@ struct IOSContentView: View {
     /// Citation picker sheet visibility.
     @State private var showCitationPicker = false
 
+    /// Throughline pane visibility (C1). A SHEET rather than a third
+    /// `EditorPane` case: the throughline is an inspector — macOS mounts it as a
+    /// side-panel column beside the source, not as a replacement for it — and a
+    /// third pane case would have to fight two things that are already load
+    /// bearing here, the two-state Source↔Preview swipe (`paneSwipe` hard-assigns
+    /// a destination from the drag direction) and the persisted
+    /// `imprint.editor.compactPane` choice, which would strand a user in a pane
+    /// the picker hides for a plain-text document.
+    @State private var showThroughline = false
+
     /// Error-detail popover visibility (compile status badge tap).
     @State private var showingErrorDetail = false
 
@@ -134,6 +144,68 @@ struct IOSContentView: View {
                 insertCitation(picked)
             }
         }
+        // The throughline pane — THE pane, not an iOS copy of it: the same
+        // `ThroughlinePaneView` macOS's side panel mounts, moved to
+        // `Shared/Views/` in C1. Presented here rather than at the navigation
+        // root (where the citation sheet lives) because it is bound to the
+        // document this editor is holding; a deep link with no editor open would
+        // have no document to show.
+        .sheet(isPresented: $showThroughline) {
+            NavigationStack {
+                ThroughlinePaneView(
+                    document: $document,
+                    onNavigateToSection: { key in
+                        // macOS jumps by character offset (`context.jumpToChar`);
+                        // the iOS editor's primitive is a line, so the key is
+                        // resolved against the source's own headings — the same
+                        // `ThroughlineText.sectionKey` slug the anchors use, so a
+                        // chip can never point somewhere the anchor does not.
+                        if let line = lineOfSection(key: key) {
+                            goToLine = line
+                        }
+                        showThroughline = false
+                    })
+                    .navigationTitle("Throughline")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showThroughline = false }
+                                .accessibilityIdentifier("throughline.done")
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    /// The 1-based line of the heading whose section key is `key`, or nil when
+    /// the anchor no longer resolves (which the pane already renders as a red
+    /// `broken` chip — so returning nil leaves the editor where it is rather
+    /// than jumping to line 1).
+    private func lineOfSection(key: String) -> Int? {
+        let lines = document.source.components(separatedBy: "\n")
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let title: String?
+            switch document.format {
+            case .latex:
+                // \section{Title} / \subsection{Title}
+                guard let open = trimmed.firstIndex(of: "{"),
+                      trimmed.hasPrefix("\\"),
+                      let close = trimmed.lastIndex(of: "}") else { continue }
+                title = String(trimmed[trimmed.index(after: open)..<close])
+            default:
+                // Typst / markdown headings: one or more `=` (or `#`) then text.
+                guard trimmed.hasPrefix("=") || trimmed.hasPrefix("#") else { continue }
+                title = trimmed.drop { $0 == "=" || $0 == "#" }
+                    .trimmingCharacters(in: .whitespaces)
+            }
+            guard let title, !title.isEmpty else { continue }
+            if ThroughlineText.sectionKey(forHeading: title) == key {
+                return index + 1
+            }
+        }
+        return nil
     }
 
     // MARK: - iPad Layout
@@ -308,6 +380,21 @@ struct IOSContentView: View {
             }
             .keyboardShortcut("k", modifiers: [.command, .shift])
             .accessibilityIdentifier("toolbar.citationButton")
+
+            // Throughline (ADR-0016) — the narrative spine. Same glyph the
+            // macOS side panel registers, so the two hosts are recognisably the
+            // same surface. Unconditional: the pane's own empty state is the
+            // opt-in create affordance, and hiding the button would leave iOS
+            // with no way to create one at all.
+            Button {
+                showThroughline = true
+            } label: {
+                Image(
+                    systemName:
+                        "point.bottomleft.forward.to.point.topright.scurvepath")
+            }
+            .accessibilityIdentifier("toolbar.throughlineButton")
+            .accessibilityLabel("Throughline")
 
             // Insert an Apple Pencil sketch. `SketchButton` owns the canvas
             // drawing state and its own presentation sheet.

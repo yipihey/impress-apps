@@ -27,9 +27,19 @@ public struct ArXivCategoryBrowser: View {
 
     @State private var searchText: String = ""
     @State private var expandedGroups: Set<String> = []
-    @State private var selectedCategory: ArXivCategory?
     @State private var feedName: String = ""
-    @State private var showingFollowSheet: Bool = false
+
+    /// The follow sheet's target, as ONE piece of state.
+    ///
+    /// This used to be `selectedCategory: ArXivCategory?` beside
+    /// `showingFollowSheet: Bool`, presented with `.sheet(isPresented:)` and an
+    /// `if let` inside the content builder — the shape that shipped a blank
+    /// BibTeX sheet on iOS (docs/chassis-capability-matrix.md). The Follow button
+    /// writes the category and the flag in the same runloop turn, so a builder
+    /// evaluated between the two writes renders an EMPTY sheet.
+    /// `.sheet(item:)` derives presentation FROM the category, so there is no
+    /// order to get wrong.
+    @State private var followTarget: ArXivCategory?
 
     // MARK: - Initialization
 
@@ -77,10 +87,8 @@ public struct ArXivCategoryBrowser: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingFollowSheet) {
-                if let category = selectedCategory {
-                    followSheet(for: category)
-                }
+            .sheet(item: $followTarget) { category in
+                followSheet(for: category)
             }
         }
     }
@@ -175,9 +183,8 @@ public struct ArXivCategoryBrowser: View {
             Spacer()
 
             Button {
-                selectedCategory = category
                 feedName = "arXiv \(category.id)"
-                showingFollowSheet = true
+                followTarget = category
             } label: {
                 Label("Follow", systemImage: "plus.circle")
                     .labelStyle(.iconOnly)
@@ -223,13 +230,13 @@ public struct ArXivCategoryBrowser: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        showingFollowSheet = false
+                        followTarget = nil
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Follow") {
                         onFollow(category, feedName)
-                        showingFollowSheet = false
+                        followTarget = nil
                         onDismiss()
                     }
                     .disabled(feedName.isEmpty)

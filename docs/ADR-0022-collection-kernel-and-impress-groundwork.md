@@ -205,6 +205,117 @@ mixed-kind gate test, litmus re-run) landed the same day.
    `CollectionOps` would give two writers to one tree. Turning it on is its
    own change, with its own gate: count parity per kind plus the imbib tree
    regression named in the G7 row.
+   *(Superseded in part by C2 below: publication collections' WRITES now run on
+   the kernel, and the audit is finished. The flag still ships OFF, for a
+   smaller and now fully enumerated reason.)*
+
+## C2 — the collection kernel completed (2026-07-30)
+
+### The five axes, and where each landed
+
+The wave-3 routing survey found five reasons publication collections could not
+join the generic folder path. Four were real and are now expressible; one was
+not real.
+
+| # | Axis | Landed in | Rationale |
+|---|---|---|---|
+| 1 | **Owning container (library)** | **KERNEL** — `CollectionSchemaBinding.container_field: Option<ContainerField>`, `list_tree_in` / `create_in` / `reparent_in`, `CollectionRow.container_id`; capability half is `CollectionCapability.container` | The container is a STORE fact (the envelope `item.parent`), so the store layer must own it. Putting it in the kernel is also what makes the cross-library move ATOMIC: what was two hand-ordered Swift writes (`updateField("parent_id")` + `reparentItem`) is one `store.update` with an exact inverse. Optional because only imbib is per-container — D1's two-axis pattern (`kind_scope_field`) is the precedent: a binding that declines the axis behaves exactly as before |
+| 2 | **Per-row read-only predicate** | **BOTH** — kernel reports (`smart_field` → `CollectionRow.is_smart`), capability decides (`CollectionOrganizePolicy.unlessSmart`, `allowsOrganize(isSmart:tier:)`) | The FACT is in the payload, so the kernel reads it; the POLICY ("smart ⇒ Delete only") is presentation, so it stays with the descriptor. Splitting it this way is what let the smart guard in `handlePublicationDrop` stop being a second `listCollections` scan. The kernel deliberately does not WRITE the flag — there is still no predicate language (risk register, unchanged) |
+| 3 | **Library-ensuring membership** | **NOWHERE — the axis is a phantom** | `ImbibStore::add_to_collection` does NOT ensure library membership. It is thirty lines of `AddReference(Contains)` and nothing else; the claim came from a Swift call-site COMMENT ("also ensures they're in the library"), not from the code. `add_members` was therefore already faithful, and no hook was added: a seam nothing needs is a seam that rots. The stale comment is gone |
+| 4 | **Tier notion** | **CAPABILITY** — `CollectionTier` table (`CollectionCapability.tiers`), `CollectionTierID` | A tier is `(binding, container)` plus presentation. The kernel already expresses the whole `(binding, container)` half via axis 1, so a kernel-side tier type would have been a second spelling of it. What actually varies between imbib's three tiers is affordances — Exploration collections cannot be renamed or nested — and those are descriptor data. The table is pinned against the frozen matrix rows by `testPublicationTiersMatchTheFrozenMatrixRows`, so it is a checklist that fails, not a comment |
+| 5 | **`PublicationSource.collection(id)` multi-select unions** | **APP-SIDE — stays, as judged** | This is content ROUTING, not collection structure. `.libraryCollection` maps to `.collection(id)`, a `PublicationSource` feeding the publication-only multi-select union; `.recordFolder` maps to `.record(.folder(...))`. Converging the route means rewriting publication content routing, which is `UnifiedPublicationListWrapper`'s remit and outside `RecordRoute`'s. The wave-3 judgement was correct |
+
+### What converged, and what did not
+
+The publication node case **stays** `.libraryCollection` — it cannot become
+`.recordFolder` without the routing rewrite in axis 5. What converged is every
+VERB: `folderNode(_:)` now resolves `.libraryCollection` too, so the generic
+sites serve publication collections with no arm of their own.
+
+| Site | Converged | Note |
+|---|---|---|
+| `handleRename` | ✅ | Kernel `rename`. Event `(false, [id], .otherField)` and undo name "Edit name" are byte-identical to the `updateField` it replaces |
+| `handleReorder` (`.library` / `.libraryCollection` parents) | ✅ | Two identical arms became one `reorderFolders`; same per-sibling write, event and "Edit sort_order" undo |
+| `handleReparent` | ✅ | `reparent_in` with the container. Cycle check moved to Rust. **Gained a complete Undo** ("Move Folder"): the legacy path registered only the `updateField` half, so undoing a cross-library move left the collection in the wrong library |
+| Context menu | ✅ | `buildCollectionContextMenu` DELETED; one `buildFolderContextMenu` for every binding. Labels frozen via `containerNoun: "Collection"` + `deleteTitleOverride: "Delete"` |
+| Delete (menu + ⌫) | ✅ | Kernel `delete`; undo name "Delete" unchanged, and `restore` now puts back membership and child collections the old item-snapshot undo dropped |
+| Smart-collection guard (drop) | ✅ | Kernel row's `is_smart` instead of a `listCollections` scan |
+| Membership (drop) | ✅ | Kernel `addMembers`; same "Add to Collection" undo, and idempotent (undo cannot unfile a pre-existing member) |
+| **Creation** | ❌ | Legacy `createCollection` retained. The kernel's create undo is `StoreKernelUndoAction.createCollection` = **"New Folder"**; imbib's is **"Create Collection"**. Converging would silently relabel a live Edit-menu entry. Needs a capability-declared create action name — a UX decision, not a refactor side effect |
+| **Node reads** (`libraryCollectionChildren`, counts) | ❌ | Still `store.listCollections(libraryId:)`. This is the flip blocker; see below |
+| **Inbox / Exploration tiers** | ❌ | Declared in the tier table, not yet routed. Their nodes are still built from `listCollections`, so moving the WRITES alone would give one tree two writers. They convert with their reads |
+| `canAcceptDrop` `.libraryCollection` arms | ❌ | Deliberate. The frozen drag FEEDBACK omits the ancestor check the generic path performs; converging would refuse drags that today are allowed (and refused later, at the write). A behaviour change, so it is a decision, not a cleanup |
+
+One guard is load-bearing and worth naming: `folderCapability(ofSection:)`
+gained a third gate, `capability.container == nil`. `.inbox`, `.libraries` and
+`.exploration` are all `.primary` sections bound to `.publication`, so the
+moment the publication kind declared a capability those three headers would
+otherwise have started hosting "New Collection", accepting collection drops as
+"move to root", and reordering through `reorderFolders`. A container-scoped
+kind has no section-level root — its root is the container — which is exactly
+what the axis lets the code say.
+
+### Flip-readiness verdict for `collections.unified` (G7)
+
+**NOT READY. The flag stays OFF. Do not flip it without an explicit order.**
+
+Re-counted on today's tree. The original gate named "44 Swift `list_collections`
+call sites + FigureStoreReader decoding migrated folders as figures". Both
+numbers have moved, and the second item is closed.
+
+**Blocking is decided by the RUST reader, not the Swift site.** A Swift caller
+is blind precisely when it reaches an imbib-core export that queries a legacy
+`schema_ref` literal. There are nine such exports and three benign ones:
+
+| imbib-core export | Post-flip behaviour | Verdict |
+|---|---|---|
+| `list_collections(library_id)` | returns EMPTY (`schema_ref = "imbib/collection"`) | **BLOCKING** — the big one; ~30 Swift sites reach it |
+| `list_collections_for_publication` | EMPTY | **BLOCKING** — `FirstSyncMerge`, `PublicationListMutations` |
+| `rename_collection` | `NotFound` (schema guard precedes the write) | **BLOCKING** — iOS inline rename |
+| `create_collection` | writes an `imbib/collection` row the kernel cannot see | **BLOCKING** — the two-writers case |
+| `get_publication_detail` | `.collections` EMPTY | **BLOCKING** — detail pane, exporters |
+| `delete_library_undoable` | orphans the library's collections | **BLOCKING** |
+| `count_collections` | 0 | **BLOCKING** (cosmetic) |
+| `list_manuscript_collections` | EMPTY | **BLOCKING in imbib only** — `manuscriptFolderNodes`. imprint is SAFE: `ManuscriptStoreAdapter.listCollections()` already reads `collectionKernel.tree`. And imbib no longer surfaces the Manuscripts section, so this site is dead code there |
+| `get_manuscript_detail` | collections EMPTY | **BLOCKING** (imprint detail) |
+| `add_to_collection` / `remove_from_collection` | schema-agnostic (`Contains` edges) | ✅ benign |
+| `delete_collection` | schema-agnostic (`store.delete(uuid)`) | ✅ benign |
+
+Per-site Swift audit, grouped by the export reached:
+
+| Swift site group | Count | Status |
+|---|---|---|
+| `ImbibSidebarViewModel` node building — `libraryCollectionChildren`, `collectionSubchildren`, `librariesChildren`, inbox ×2, exploration ×2, `findCollectionModel`, `findLibraryIDForCollection`, `explorationHasContent` | 11 | **BLOCKING** — the imbib tree itself |
+| `ImbibSidebarViewModel` verb sites — reparent ancestor walk, `buildCollectionContextMenu`, smart-drop guard | 3 | ✅ **MIGRATED by C2** (two deleted, one on the kernel) |
+| `SectionContentView` ×4, `LibraryManager` ×2, `CollectionViewModel` ×2, `GlobalSearchViewModel`, `GlobalSearchPaletteView`, `FullTextSearchService`, `PublicationScope`, `DefaultLibrarySetManager` | 13 | **BLOCKING** |
+| Exporters — `EverythingExporter` ×2, `MboxExporter` | 3 | **BLOCKING** (silently empty archives) |
+| Automation — `AutomationService` ×2, `HTTPAutomationRouter`, `CollectionEntity` ×5, `ImbibBridge` | 9 | **BLOCKING** |
+| iOS — `IOSContentView`, `ImbibSidebarBindings` ×3, `IOSUnifiedPublicationListWrapper` | 5 | **BLOCKING** (C1's territory) |
+| imprint — `ManuscriptStoreAdapter.listCollections` and its iOS callers | 4 | ✅ **MIGRATED** (already on `collectionKernel.tree`) |
+| Adapter/protocol/mock definitions — `RustStoreAdapter` ×2, `ImbibImpressStore`, `PublicationStoreProtocol`, `MockPublicationStore` | 5 | ✅ benign (declarations and a test double) |
+
+**FigureStoreReader is CLOSED, and was never the hazard it was recorded as.**
+A migrated figure folder's `schema_ref` becomes `collection`, which
+`RecordKindRegistry.kind(forStoreSchemaRef:)` maps to nothing — base-name
+equality on both sides, never `hasPrefix` (`SchemaRefKindLookup`). It cannot be
+decoded as a figure. The residual issue is the ordinary one: `fetchFolders()`
+queries `schema_ref = "figure-collection"` and would return empty, which is
+implore's surface and belongs with implore's adapter work.
+
+**The single fix that unblocks nearly all of it.** `list_tree_in` is a drop-in
+for `list_collections(library_id)`: same rows, same `sort_order` ordering, and
+it filters on the ENVELOPE, which the migration never touches — proved by
+`the_container_axis_is_invariant_across_the_unified_flip`. Routing
+`RustStoreAdapter.listCollections(libraryId:)` through
+`CollectionStoreAdapter.tree(_:in:)` converts one adapter method and, with it,
+every consumer in the table above except the four exports that need their own
+marker-aware pass (`list_collections_for_publication`, `rename_collection`,
+`create_collection`, `get_publication_detail`).
+
+That is the flip gate, and it is now a bounded list rather than "44 call sites".
+It was deliberately NOT done in C2: it changes the read path for every
+publication surface in the suite including iOS (C1's) and the exporters, and
+this wave's contract was the kernel and the sidebar.
 
 ### Follow-up register
 

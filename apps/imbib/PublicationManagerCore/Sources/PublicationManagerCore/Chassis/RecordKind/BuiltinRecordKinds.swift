@@ -36,7 +36,55 @@ public enum PublicationRecordKind {
             statuses: []
         ),
         creation: [],   // publications arrive by import/search, not `n`
-        defaultOpenBehavior: .detailPane
+        defaultOpenBehavior: .detailPane,
+        // ADR-0022 C2. Publication collections were the ONE shipped collection
+        // binding with no Swift capability, which is why they stayed on the
+        // legacy `.libraryCollection` path while manuscripts and figures moved
+        // onto the generic folder block in G2. The three optional axes below
+        // are exactly what the wave-3 routing survey found missing:
+        //
+        //   1. `container` — collections are per-LIBRARY. A node carries
+        //      (collectionID, libraryID), a drop must not cross libraries
+        //      unless it is a real move, and creation names the library.
+        //   2. `organizePolicy: .unlessSmart` — a SMART collection is defined
+        //      by its query, so it offers Delete only. Sourced per row from
+        //      the kernel's `is_smart`, not from a second legacy read.
+        //   3. `tiers` — the same schema and binding appear in three places
+        //      with different affordances.
+        //
+        // `deleteTitleOverride` keeps the frozen menu literal: imbib says
+        // "Delete", not "Delete Collection".
+        collection: CollectionCapability(
+            bindingID: CollectionBindingID.publication,
+            canOrganize: true,
+            // Publication rows drag as raw UUID JSON on imbib's own
+            // pasteboard type, handled by `handlePublicationDrop` rather than
+            // the generic `handleRecordDrop` — see the C2 matrix note on why
+            // that one site stays app-side (library-membership semantics and
+            // the multi-select union feeding `PublicationSource`).
+            dragUTTypeIdentifier: nil,
+            folderSymbolName: "folder",
+            containerNoun: "Collection",
+            organizePolicy: .unlessSmart,
+            container: CollectionContainerSpec(noun: "Library"),
+            tiers: [
+                // Matrix row `libraryCollection`: Rename / Subcoll / Delete.
+                CollectionTier(
+                    id: CollectionTierID.libraries,
+                    allowsRename: true, allowsSubcontainers: true),
+                // Matrix row `inboxCollection`: rename ✅, delete ✅.
+                CollectionTier(
+                    id: CollectionTierID.inbox,
+                    allowsRename: true, allowsSubcontainers: true),
+                // Matrix row `explorationCollection`: "✅ Delete" only —
+                // named by the search that produced it, so rename and
+                // sub-collections are both meaningless.
+                CollectionTier(
+                    id: CollectionTierID.exploration,
+                    allowsRename: false, allowsSubcontainers: false),
+            ],
+            deleteTitleOverride: "Delete"
+        )
     )
 }
 
@@ -66,21 +114,32 @@ public enum ManuscriptRecordKind {
             // and macOS's former sidebar literals — the labels are
             // navigational ("Drafts", "Archive"), which is why they are not
             // `JournalManuscriptStatus.displayName`'s singular badge spellings.
+            // `freezesSource` marks the three transitions that write a
+            // manuscript-revision snapshot (ADR-0011 D5). It is DECLARED rather
+            // than derived because no other facet yields this set: `submitted`
+            // is the primary freeze trigger and is deliberately non-terminal,
+            // while `dismissed` IS terminal and must not freeze. impel's
+            // `JournalPipeline.autoSnapshotStatuses` is the consumer; its
+            // parity suite checks the pipeline's literal against THIS.
             statuses: [
                 StatusSpec("draft", label: "Drafts", systemImage: "pencil"),
                 StatusSpec(
                     "internal-review", label: "Internal Review",
                     systemImage: "person.2"),
-                StatusSpec("submitted", label: "Submitted", systemImage: "paperplane"),
+                StatusSpec(
+                    "submitted", label: "Submitted", systemImage: "paperplane",
+                    freezesSource: true),
                 StatusSpec(
                     "in-revision", label: "In Revision",
                     systemImage: "arrow.triangle.2.circlepath"),
                 StatusSpec(
                     "published", label: "Published",
-                    systemImage: "checkmark.seal", isTerminal: true),
+                    systemImage: "checkmark.seal", isTerminal: true,
+                    freezesSource: true),
                 StatusSpec(
                     "archived", label: "Archive",
-                    systemImage: "archivebox", isTerminal: true),
+                    systemImage: "archivebox", isTerminal: true,
+                    freezesSource: true),
                 // Owns the Dismissed SECTION, so it is not also a smart child
                 // of the primary section.
                 StatusSpec(

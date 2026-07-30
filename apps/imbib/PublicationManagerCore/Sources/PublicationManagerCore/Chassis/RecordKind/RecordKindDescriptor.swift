@@ -118,6 +118,24 @@ public struct StatusSpec: Sendable, Equatable, Hashable, Identifiable {
     /// sets this: it owns the Dismissed SECTION, and listing it in both
     /// places would give the same rows two homes.
     public let hiddenByDefault: Bool
+    /// Entering this status FREEZES the source record — a durable snapshot of
+    /// the body is written and the status becomes a citable point in the
+    /// record's history (ADR-0011 D5).
+    ///
+    /// Declared here because it is not derivable from any other facet, and the
+    /// only two candidates are both wrong: `isTerminal` includes the dismissal
+    /// status (dismissing is a user saying "not this one" — freezing a
+    /// revision of rejected work, which outlives the restorable dismissal) and
+    /// excludes `submitted`, which is deliberately non-terminal and is the
+    /// PRIMARY freeze trigger. impel's `JournalPipeline.autoSnapshotStatuses`
+    /// carried that set as a hand-written literal for exactly that reason;
+    /// `JournalStatusPolicyParityTests` is the interlock, and this facet is
+    /// what lets it check the literal against a DECLARATION instead of a
+    /// second hand-written list.
+    ///
+    /// Defaulted `false`: a status that says nothing freezes nothing, so every
+    /// existing declaration site is unchanged.
+    public let freezesSource: Bool
 
     public var id: String { rawValue }
 
@@ -126,13 +144,15 @@ public struct StatusSpec: Sendable, Equatable, Hashable, Identifiable {
         label: String,
         systemImage: String,
         isTerminal: Bool = false,
-        hiddenByDefault: Bool = false
+        hiddenByDefault: Bool = false,
+        freezesSource: Bool = false
     ) {
         self.rawValue = rawValue
         self.label = label
         self.systemImage = systemImage
         self.isTerminal = isTerminal
         self.hiddenByDefault = hiddenByDefault
+        self.freezesSource = freezesSource
     }
 }
 
@@ -171,6 +191,14 @@ public struct TriageCapabilities: Sendable, Equatable {
     /// The raw `status` values, for store predicates and validation gates.
     public var statusValues: [String] { statuses.map(\.rawValue) }
 
+    /// The raw values of the statuses that FREEZE the source record
+    /// (`StatusSpec.freezesSource`) — the declared form of what impel's
+    /// journal pipeline calls its auto-snapshot set. A `Set` because every
+    /// consumer asks "is this status in it", never "what order are they in".
+    public var freezingStatusValues: Set<String> {
+        Set(statuses.filter(\.freezesSource).map(\.rawValue))
+    }
+
     /// The spec for a raw status value, if this kind declares it.
     public func status(_ rawValue: String) -> StatusSpec? {
         statuses.first { $0.rawValue == rawValue }
@@ -203,6 +231,90 @@ public enum CollectionBindingID {
     public static let all: [String] = [publication, manuscript, figure, generic]
 }
 
+/// When a kind's containers offer the organise verbs (ADR-0022 C2, axis 2).
+///
+/// `canOrganize` answers "does this KIND organise at all"; this answers "does
+/// THIS ROW", which is a different question the moment a kind has smart
+/// (query-defined) containers. imbib is that kind: a smart publication
+/// collection is defined by its query, so renaming it or nesting a manual
+/// collection under it is meaningless, and its menu has only Delete.
+///
+/// The predicate is sourced from the KERNEL row (`CollectionKernelRow.isSmart`,
+/// which is `collection_ops`' `smart_field` axis), never from a second Swift
+/// read of a legacy row shape — that second read is what kept publication
+/// collections off the generic path.
+public enum CollectionOrganizePolicy: String, Sendable, Equatable {
+    /// Every row offers rename / new sub-container / delete. Manuscript and
+    /// figure folders: their schemas have no smart rows to exclude.
+    case always
+    /// Smart rows offer Delete ONLY; manual rows offer everything.
+    case unlessSmart
+}
+
+/// A kind whose containers live INSIDE another container (ADR-0022 C2, axis 1).
+///
+/// imbib publication collections are per-LIBRARY: a collection node carries
+/// (collectionID, libraryID), drop acceptance requires the same library, a
+/// cross-library move is one `reparent_in` with a container argument, and
+/// creation names the library up front. Manuscript and figure folders are
+/// global and leave `container` nil, which is what makes every container-aware
+/// site below a no-op for them.
+public struct CollectionContainerSpec: Sendable, Equatable {
+    /// What the kind calls its containers ("Library"), for menus and logs.
+    public let noun: String
+    /// Whether a drag may cross containers. imbib allows it (a collection can
+    /// move between libraries, which is the two-write path the kernel now does
+    /// atomically); a kind that said `false` would reject the drop outright.
+    public let allowsCrossContainerMoves: Bool
+
+    public init(noun: String, allowsCrossContainerMoves: Bool = true) {
+        self.noun = noun
+        self.allowsCrossContainerMoves = allowsCrossContainerMoves
+    }
+}
+
+/// One TIER of a kind's containers (ADR-0022 C2, axis 4).
+///
+/// A tier is `(binding, container)` plus the presentation that container's
+/// section gives it — same schema, same kernel binding, different owning
+/// container and different affordances. imbib has three: the per-library
+/// collections under Libraries, the Inbox library's collections, and the
+/// Exploration library's collections.
+///
+/// Declared as DATA rather than discovered from node cases because the
+/// differences are a short, closed list, and writing them down is what turns
+/// three near-copy sidebar blocks into one table. `CollectionTierTests` pins
+/// this table against the frozen matrix rows, so a tier cannot drift from the
+/// behaviour it claims.
+public struct CollectionTier: Sendable, Equatable, Identifiable {
+    /// Stable tier key ("libraries", "inbox", "exploration").
+    public let id: String
+    /// May a row in this tier be renamed? Exploration collections cannot —
+    /// they are named by the search that produced them.
+    public let allowsRename: Bool
+    /// May a row in this tier host sub-collections?
+    public let allowsSubcontainers: Bool
+
+    public init(id: String, allowsRename: Bool, allowsSubcontainers: Bool) {
+        self.id = id
+        self.allowsRename = allowsRename
+        self.allowsSubcontainers = allowsSubcontainers
+    }
+}
+
+/// The tier ids imbib's publication collections form. Named constants rather
+/// than bare strings so the sidebar and the tier table cannot disagree by typo.
+public enum CollectionTierID {
+    /// Collections under a user library (the `libraryCollection` node).
+    public static let libraries = "libraries"
+    /// Collections of the Inbox library (the `inboxCollection` node).
+    public static let inbox = "inbox"
+    /// Collections of the Exploration library (the `explorationCollection`
+    /// node) — Delete only, and selecting one sets
+    /// `ExplorationService.currentExplorationCollectionID`.
+    public static let exploration = "exploration"
+}
+
 /// How a record kind's sidebar folders behave (ADR-0022 D3).
 ///
 /// This is the data that collapsed the per-kind folder blocks in
@@ -231,27 +343,78 @@ public struct CollectionCapability: Sendable, Equatable {
     /// mailboxes, not folders, and that is the kind of thing a capability
     /// should be able to say without an app-side `if`.
     public let containerNoun: String
+    /// When THIS ROW offers the organise verbs (ADR-0022 C2, axis 2).
+    /// `.always` for every kind whose schema has no smart containers.
+    public let organizePolicy: CollectionOrganizePolicy
+    /// The OWNING CONTAINER this kind's collections live in (ADR-0022 C2,
+    /// axis 1), or nil for a kind whose containers are global.
+    public let container: CollectionContainerSpec?
+    /// The TIERS this kind's containers form (ADR-0022 C2, axis 4). Empty for a
+    /// kind with a single undifferentiated tree.
+    public let tiers: [CollectionTier]
+    /// Overrides the derived "Delete \(containerNoun)" menu title.
+    ///
+    /// Exists because imbib's frozen publication-collection menu says plain
+    /// **"Delete"**, not "Delete Collection", and the whole point of routing
+    /// that menu through the generic builder is that the labels do not change.
+    /// A derivation that is wrong in the one place it is adopted has not
+    /// earned its keep.
+    public let deleteTitleOverride: String?
 
     public init(
         bindingID: String,
         canOrganize: Bool = true,
         dragUTTypeIdentifier: String? = nil,
         folderSymbolName: String = "folder",
-        containerNoun: String = "Folder"
+        containerNoun: String = "Folder",
+        organizePolicy: CollectionOrganizePolicy = .always,
+        container: CollectionContainerSpec? = nil,
+        tiers: [CollectionTier] = [],
+        deleteTitleOverride: String? = nil
     ) {
         self.bindingID = bindingID
         self.canOrganize = canOrganize
         self.dragUTTypeIdentifier = dragUTTypeIdentifier
         self.folderSymbolName = folderSymbolName
         self.containerNoun = containerNoun
+        self.organizePolicy = organizePolicy
+        self.container = container
+        self.tiers = tiers
+        self.deleteTitleOverride = deleteTitleOverride
     }
 
     /// Menu title for creating a container at root ("New Folder").
     public var newContainerTitle: String { "New \(containerNoun)" }
     /// Menu title for creating a nested container ("New Subfolder").
     public var newSubContainerTitle: String { "New Sub\(containerNoun.lowercased())" }
-    /// Menu title for deleting a container ("Delete Folder").
-    public var deleteContainerTitle: String { "Delete \(containerNoun)" }
+    /// Menu title for deleting a container ("Delete Folder", or the override).
+    public var deleteContainerTitle: String {
+        deleteTitleOverride ?? "Delete \(containerNoun)"
+    }
+
+    /// The tier with this id, if declared.
+    public func tier(_ id: String) -> CollectionTier? {
+        tiers.first { $0.id == id }
+    }
+
+    /// Whether a row offers rename / new sub-container, given what the KERNEL
+    /// says about it. The ONE place the per-row predicate is evaluated, so no
+    /// caller can forget the smart case.
+    ///
+    /// - Parameters:
+    ///   - isSmart: `CollectionKernelRow.isSmart` — the payload-sourced flag,
+    ///     from `collection_ops`' `smart_field` axis.
+    ///   - tier: the tier the row sits in, when the kind declares tiers. A tier
+    ///     that permits neither rename nor sub-containers (Exploration) wins
+    ///     over an otherwise-organisable row.
+    public func allowsOrganize(isSmart: Bool, tier: CollectionTier? = nil) -> Bool {
+        guard canOrganize else { return false }
+        if let tier, !tier.allowsRename, !tier.allowsSubcontainers { return false }
+        switch organizePolicy {
+        case .always: return true
+        case .unlessSmart: return !isSmart
+        }
+    }
 }
 
 /// A lifecycle a kind owns in a payload field OTHER than `status`, which the

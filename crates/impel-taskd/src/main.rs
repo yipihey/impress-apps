@@ -24,7 +24,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use imbib_core::enrichment::priority::SourcePriority;
-use impel_core::{create_task_dag, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi};
+use impel_core::{
+    create_task_dag, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi, TASK_SCHEMA,
+};
 use impel_enrichment::classify::{Classifier, HeuristicClassifier};
 use impel_enrichment::metadata_resolve::ConfiguredSource;
 use impel_enrichment::{
@@ -163,7 +165,7 @@ fn open_store(args: &Args) -> Arc<SqliteItemStore> {
 /// per-document debounce.
 fn has_open_sync_task(store: &SqliteItemStore, throughline_id: uuid::Uuid) -> bool {
     let q = ItemQuery {
-        schema: Some("task@1.0.0".into()),
+        schema: Some(TASK_SCHEMA.into()),
         predicates: vec![Predicate::HasReference(
             EdgeType::OperatesOn,
             throughline_id,
@@ -197,7 +199,7 @@ fn scan_modified_sections(store: &SqliteItemStore, since_ms: i64) -> Vec<impress
 
 fn already_spawned(store: &SqliteItemStore, entry_id: uuid::Uuid) -> bool {
     let q = ItemQuery {
-        schema: Some("task@1.0.0".into()),
+        schema: Some(TASK_SCHEMA.into()),
         predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, entry_id)],
         limit: Some(1),
         ..Default::default()
@@ -340,6 +342,17 @@ async fn main() {
     // limit and made idempotent by `already_spawned` (once-ever per entry).
     // Touching the live store additionally requires `--enable`. If you widen
     // any of those, re-do this arithmetic.
+    //
+    // NO SPELLING-MIGRATION BURST EITHER. WP C4 converged `impel/task` onto
+    // `task@1.0.0`, which is the ref `ready_tasks` selects — so rows impel's
+    // Swift bridge mirrors into the shared store became visible to the
+    // scheduler for the first time. They are NOT acquired: `ready_tasks` also
+    // requires a non-empty payload `task_kind` (the executor dispatch key), and
+    // a mirror row carries none because impel's own orchestrator runs it. Run
+    // `impress_core::task_schema_migration::migrate_task_spellings(store, true)`
+    // — a dry run — to see the count before flipping anything; its
+    // `newly_schedulable` is exactly what the next pass here will acquire, and
+    // `batch: 8` per `--poll` interval bounds the drain either way.
     const SCAN_SLACK_MS: i64 = 60_000;
     let mut watermark_ms = chrono::Utc::now().timestamp_millis()
         - (args.backfill_hours as i64) * 3_600_000

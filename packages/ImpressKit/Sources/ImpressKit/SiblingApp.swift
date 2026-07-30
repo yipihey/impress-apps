@@ -7,9 +7,7 @@ import Foundation
 /// This is the `AppShellConfiguration` pattern one level down: adding an app to
 /// the suite means adding a descriptor row, not editing N parallel `switch`
 /// statements that drift the moment one of them is updated alone. (They did
-/// drift: `ImpressCommandPalette.AppEndpoint` still carries a second port table
-/// where impel and implore are transposed relative to this one — see the note
-/// on `httpPort` below.)
+/// drift, twice, and both are now fixed — see the note on `httpPort`.)
 public struct SiblingAppDescriptor: Sendable, Equatable, Hashable {
     /// The app this row describes.
     public let id: SiblingApp
@@ -115,13 +113,26 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
 
     /// The default HTTP automation port for this app (development/debug channel).
     ///
-    /// - Warning: implore's and impel's *own* HTTP servers both currently bind
-    ///   23124 (`apps/implore/.../HTTPAutomationServer.swift` and
-    ///   `apps/impel/Shared/Services/ImpelHTTPServer.swift`), and
-    ///   `ImpressCommandPalette.AppEndpoint` transposes the two relative to this
-    ///   table. This table preserves its historical values (implore 23123,
-    ///   impel 23124); reconciling the collision is a behavioural change for
-    ///   those apps, not a table move.
+    /// This is THE published address. **Servers align to this table; the table
+    /// does not move to match a server.** The reasoning: siblings dial
+    /// `SiblingApp.<app>.httpPort`, so whatever this table says is what the rest
+    /// of the suite believes, and a server that binds anything else is simply
+    /// unreachable.
+    ///
+    /// Resolved 2026-07-30 (hardening C3). Previously implore's and impel's own
+    /// servers BOTH bound 23124 — whichever app launched first won the socket
+    /// and the other's automation API silently never came up — while
+    /// `ImpressCommandPalette.AppEndpoint` transposed the pair, so the palette
+    /// asked each of the two for the other's commands. Both were fixed toward
+    /// this table (implore's server 23124 → 23123; the palette now *derives*
+    /// its endpoints from `descriptors` instead of copying them), and every
+    /// binding site in the five apps is now a lookup here rather than a
+    /// literal. Two further live bugs fell out of the same sweep:
+    /// `MessageManagerCore.ArtifactResolver` was dialling 23121 for imbib and
+    /// 23123 for imprint, and `ImpelCore.ImpelClient.defaultPort` was 23123.
+    ///
+    /// - Note: implore's automation port MOVED as part of this. See the
+    ///   user-facing note in `docs/chassis-capability-matrix.md`.
     public var httpPort: UInt16 { descriptor.httpPort }
 
     /// Human-readable display name.

@@ -1173,13 +1173,60 @@ final class ImbibSidebarViewModel {
     /// The lookup is kind-INTRINSIC (`BuiltinRecordKinds`, not
     /// `shellConfiguration.recordKinds`): imbib's preset does not register the
     /// figure kind, yet the chassis it shares renders the Figures section.
+    /// ADR-0022 C2: `.libraryCollection` resolves here TOO, so the generic
+    /// sites below serve publication collections without an arm of their own.
+    ///
+    /// The node CASE stays `.libraryCollection` deliberately — it is not a
+    /// `.recordFolder` and cannot become one, because `imbibTab` maps it to
+    /// `.collection(id)` (a `PublicationSource`, feeding the publication-only
+    /// multi-select union) while `.recordFolder` maps to `.record(.folder(...))`.
+    /// Converging the ROUTE means rewriting publication content routing, which
+    /// is `UnifiedPublicationListWrapper`'s remit, not the sidebar's. What
+    /// converges here is every VERB.
     private func folderNode(
         _ node: ImbibSidebarNode
     ) -> (capability: CollectionCapability, folderID: String)? {
-        guard case .recordFolder(let bindingID, let folderID) = node.nodeType,
-              let capability = BuiltinRecordKinds.collectionCapability(forBindingID: bindingID)
-        else { return nil }
-        return (capability, folderID)
+        switch node.nodeType {
+        case .recordFolder(let bindingID, let folderID):
+            guard let capability = BuiltinRecordKinds.collectionCapability(forBindingID: bindingID)
+            else { return nil }
+            return (capability, folderID)
+        case .libraryCollection(let collectionID, _):
+            guard let capability = BuiltinRecordKinds.collectionCapability(
+                forBindingID: CollectionBindingID.publication)
+            else { return nil }
+            // Node id == item id for collections (unlike folders, whose node id
+            // is derived), and the kernel wants the store's lowercase form.
+            return (capability, collectionID.uuidString.lowercased())
+        default:
+            return nil
+        }
+    }
+
+    /// The kernel row behind a collection node, for the sites that need the
+    /// per-row facts the node does not carry — `isSmart` above all.
+    ///
+    /// Reads through `CollectionStoreAdapter`, so it is marker-aware: unlike
+    /// `store.listCollections(libraryId:)` it keeps answering after the
+    /// `collections.unified` flip.
+    private func collectionRow(_ node: ImbibSidebarNode) -> CollectionKernelRow? {
+        guard let folder = folderNode(node) else { return nil }
+        return CollectionStoreAdapter.shared.row(
+            folder.capability.bindingID, id: folder.folderID)
+    }
+
+    /// Whether a collection node offers the organise verbs, evaluated against
+    /// the KERNEL row rather than a second legacy read (ADR-0022 C2 axis 2).
+    ///
+    /// A row the kernel cannot find is treated as organisable, which is the
+    /// frozen behaviour: `buildCollectionContextMenu` used to bail out entirely
+    /// on a missing row, and the manuscript/figure path never consulted a row
+    /// at all.
+    private func allowsOrganize(_ node: ImbibSidebarNode, tierID: String? = nil) -> Bool {
+        guard let folder = folderNode(node) else { return false }
+        let tier = tierID.flatMap { folder.capability.tier($0) }
+        let isSmart = collectionRow(node)?.isSmart ?? false
+        return folder.capability.allowsOrganize(isSmart: isSmart, tier: tier)
     }
 
     /// The capability whose folder tree a section header hosts. The header is
@@ -1209,14 +1256,48 @@ final class ImbibSidebarViewModel {
         ofSection section: SidebarSectionType
     ) -> CollectionCapability? {
         guard section.role == .primary,
-              let kind = canonicalSectionKinds[section] else { return nil }
-        return BuiltinRecordKinds.registry[kind]?.collection
+              let kind = canonicalSectionKinds[section],
+              let capability = BuiltinRecordKinds.registry[kind]?.collection
+        else { return nil }
+        // ADR-0022 C2, THIRD gate: a container-scoped kind has no SECTION-level
+        // root, so its section header is not a folder host.
+        //
+        // This gate is what the container axis buys here, and it is load-bearing
+        // rather than decorative. `.inbox`, `.libraries` and `.exploration` are
+        // all `.primary` AND all bound to `.publication` in the canonical table,
+        // so the moment the publication kind declared a `CollectionCapability`
+        // those three headers would otherwise have started hosting "New
+        // Collection", accepting collection drops as "move to root", and
+        // reordering through `reorderFolders`. None of that is imbib's frozen
+        // behaviour: a publication collection's root is its LIBRARY (the
+        // container), which is why the tree hangs off `library` nodes and why
+        // "New Collection" lives on the LIBRARY context menu.
+        //
+        // Manuscripts and figures are unaffected — their folders genuinely are
+        // section-rooted, which is exactly what `container == nil` says.
+        guard capability.container == nil else { return nil }
+        return capability
     }
 
     /// Sidebar node id for a folder of `bindingID` (node ids are DERIVED for
     /// folders — unlike collections, node id != item id).
     private static func folderNodeID(_ bindingID: String, _ folderID: String) -> UUID {
         ImbibSidebarNodeID.recordFolder(bindingID, folderID)
+    }
+
+    /// Sidebar node id for a collection of ANY binding (ADR-0022 C2).
+    ///
+    /// The two conventions genuinely differ and must not be unified: folder
+    /// node ids are DERIVED (`recordFolder(binding, id)`) because one store id
+    /// could appear under several bindings, while a `.libraryCollection` node's
+    /// id IS the collection's item id — which is what makes `renameItem`'s
+    /// represented object work unchanged for both.
+    private static func collectionNodeID(_ bindingID: String, _ collectionID: String) -> UUID {
+        if bindingID == CollectionBindingID.publication,
+           let uuid = UUID(uuidString: collectionID) {
+            return uuid
+        }
+        return folderNodeID(bindingID, collectionID)
     }
 
     /// The folder of `bindingID` the content pane currently shows, if any.
@@ -1279,6 +1360,14 @@ final class ImbibSidebarViewModel {
         case .library:
             return [.draggable, .droppable, .renamable, .deletable]
         case .libraryCollection:
+            // ADR-0022 C2: deliberately NOT `allowsOrganize`. The frozen macOS
+            // behaviour gives a SMART collection the same tree capabilities as
+            // a manual one — `capabilities(of:)` has never consulted `isSmart`;
+            // only the MENU and the publication drop do. Gating this on the
+            // per-row predicate would newly make smart collections
+            // undraggable and undeletable, which is a behaviour change, not a
+            // convergence. Same set the `.recordFolder` arm below produces for
+            // a `canOrganize` binding, so the rows agree anyway.
             return [.draggable, .droppable, .renamable, .deletable]
         case .inboxFeed:
             return [.renamable, .deletable]
@@ -1410,21 +1499,16 @@ final class ImbibSidebarViewModel {
             manager.loadLibraries()
             bumpDataVersion()
 
-        case .library(let libraryID):
-            // Root collection reorder in library
-            let collectionIDs = siblings.compactMap { node -> UUID? in
-                if case .libraryCollection(let colID, _) = node.nodeType { return colID }
-                return nil
-            }
-            reorderCollections(collectionIDs)
-
-        case .libraryCollection(let parentColID, _):
-            // Subcollection reorder
-            let collectionIDs = siblings.compactMap { node -> UUID? in
-                if case .libraryCollection(let colID, _) = node.nodeType { return colID }
-                return nil
-            }
-            reorderCollections(collectionIDs)
+        case .library, .libraryCollection:
+            // ADR-0022 C2: root collections under a library, and sub-collections
+            // under a collection, both reorder through the SAME generic path as
+            // manuscript and figure folders. The two arms were byte-identical
+            // before (each collected `.libraryCollection` ids and called
+            // `reorderCollections`), and `reorderFolders` does exactly what
+            // `reorderCollections` did: one write per sibling, index as
+            // `sort_order`, one non-structural `.otherField` event and one
+            // "Edit sort_order" undo entry each.
+            reorderFolders(siblings)
 
         case .section(.search):
             let newOrder = siblings.compactMap { node -> SearchFormType? in
@@ -1477,12 +1561,9 @@ final class ImbibSidebarViewModel {
         }
     }
 
-    private func reorderCollections(_ collectionIDs: [UUID]) {
-        for (index, id) in collectionIDs.enumerated() {
-            store.updateIntField(id: id, field: "sort_order", value: Int64(index))
-        }
-        bumpDataVersion()
-    }
+    // `reorderCollections` is gone (ADR-0022 C2): it was `reorderFolders`
+    // written against `store.updateIntField` instead of the kernel, and both
+    // of its callers now take the generic path.
 
     /// Reorder the collection-folder rows of a sibling list (ADR-0022 D3).
     /// Grouped by binding so a mixed list can never cross-number two trees;
@@ -1537,7 +1618,13 @@ final class ImbibSidebarViewModel {
         // manuscripts, the envelope parent for figures — is the kernel's
         // business, and so is the cycle check (the Swift walk below is only
         // the drag-feedback pre-check that already ran in `canAcceptDrop`).
-        if let folder = folderNode(node), folder.capability.canOrganize {
+        // Container-scoped kinds (publication collections) fall through to the
+        // container-aware path below: their root is a LIBRARY, not a section
+        // header, and their move may have to carry a new container. Manuscript
+        // and figure folders — `container == nil` — take this branch exactly as
+        // they always have.
+        if let folder = folderNode(node), folder.capability.canOrganize,
+           folder.capability.container == nil {
             guard let newParent else { return }
             let adapter = CollectionStoreAdapter.shared
             let bindingID = folder.capability.bindingID
@@ -1558,37 +1645,55 @@ final class ImbibSidebarViewModel {
             return
         }
 
-        guard case .libraryCollection(let collectionID, let sourceLibraryID) = node.nodeType else { return }
+        // ADR-0022 C2: publication collections reparent through the KERNEL, with
+        // the owning library carried as the container argument.
+        //
+        // What this replaces was the clearest case for the container axis in the
+        // whole survey: TWO Swift writes (`updateField("parent_id")` plus a
+        // conditional `reparentItem`) that had to stay consistent by hand, plus
+        // a Swift ancestor walk over a legacy read. `reparent_in` performs both
+        // writes in one `store.update` and does the cycle check in Rust.
+        //
+        // The container is passed ONLY when the library actually changes —
+        // matching the legacy `if sourceLibraryID != targetLibID` guard exactly,
+        // so a same-library move is still a one-field write and its undo still
+        // leaves the envelope alone.
+        //
+        // DELIBERATE IMPROVEMENT, recorded rather than smuggled: this move now
+        // has a complete, exact Undo entry ("Move Folder"). The legacy path
+        // registered only the `updateField` half, so undoing a cross-library
+        // move restored the tree parent and left the collection in the wrong
+        // library. That is the same gap figure folders closed in G2.
+        guard case .libraryCollection(let collectionID, let sourceLibraryID) = node.nodeType,
+              let newParent else { return }
+        let adapter = CollectionStoreAdapter.shared
+        let bindingID = CollectionBindingID.publication
+        let movingID = collectionID.uuidString.lowercased()
 
-        if let newParent = newParent {
-            switch newParent.nodeType {
-            case .library(let libraryID):
-                // Move to root of library — clear parent, update library association
-                store.updateField(id: collectionID, field: "parent_id", value: nil)
-                if sourceLibraryID != libraryID {
-                    store.reparentItem(id: collectionID, newParentId: libraryID)
-                }
-                libraryManager?.loadLibraries()
-                bumpDataVersion()
-
-            case .libraryCollection(let targetColID, let targetLibID):
-                // Check for circular reference by walking ancestor chain
-                if targetColID == collectionID { return }
-                let collections = store.listCollections(libraryId: targetLibID)
-                if isAncestor(collectionID, of: targetColID, in: collections) { return }
-
-                // Update parent collection
-                store.updateField(id: collectionID, field: "parent_id", value: targetColID.uuidString)
-                if sourceLibraryID != targetLibID {
-                    store.reparentItem(id: collectionID, newParentId: targetLibID)
-                }
-                libraryManager?.loadLibraries()
-                bumpDataVersion()
-
-            default:
-                break
-            }
+        let destination: (parentID: String?, libraryID: UUID)
+        switch newParent.nodeType {
+        case .library(let libraryID):
+            destination = (nil, libraryID)
+        case .libraryCollection(let targetColID, let targetLibID):
+            guard targetColID != collectionID,
+                  !adapter.isAncestor(
+                    bindingID, ancestorID: movingID,
+                    of: targetColID.uuidString.lowercased())
+            else { return }
+            destination = (targetColID.uuidString.lowercased(), targetLibID)
+        default:
+            return
         }
+
+        adapter.reparent(
+            bindingID,
+            id: movingID,
+            newParentID: destination.parentID,
+            newContainerID: sourceLibraryID == destination.libraryID
+                ? nil
+                : destination.libraryID.uuidString.lowercased())
+        libraryManager?.loadLibraries()
+        bumpDataVersion()
     }
 
     /// Convert an exploration smart search into an inbox feed.
@@ -1616,18 +1721,12 @@ final class ImbibSidebarViewModel {
     // `CollectionStoreAdapter.isAncestor(_:ancestorID:of:)`, one
     // implementation over the kernel's flat tree for every binding — and the
     // authoritative cycle check moved into Rust with it (ADR-0022 D1).
-
-    /// Check if `ancestorID` is an ancestor of `descendantID` in the collection tree.
-    private func isAncestor(_ ancestorID: UUID, of descendantID: UUID, in collections: [CollectionModel]) -> Bool {
-        var currentID: UUID? = descendantID
-        while let cid = currentID {
-            guard let col = collections.first(where: { $0.id == cid }) else { return false }
-            guard let parentID = col.parentID else { return false }
-            if parentID == ancestorID { return true }
-            currentID = parentID
-        }
-        return false
-    }
+    //
+    // C2 retired the LAST Swift ancestor walk with it: the publication-collection
+    // copy that took `[CollectionModel]` from `store.listCollections`. Its only
+    // caller, `handleReparent`, now uses the same adapter pre-check as every
+    // other binding, so there is one drag-feedback walk in the app and one
+    // authoritative check in Rust.
 
     private func handleExternalDrop(_ pasteboard: NSPasteboard, target: ImbibSidebarNode?) -> Bool {
         // Record rows dropped onto one of their kind's folders (ADR-0022 D3).
@@ -1895,13 +1994,29 @@ final class ImbibSidebarViewModel {
             store.movePublications(ids: uuids, toLibraryId: libraryID)
             bumpDataVersion()
 
-        case .libraryCollection(let collectionID, let libraryID):
-            // Check if collection is not smart
-            let collections = store.listCollections(libraryId: libraryID)
-            guard let collection = collections.first(where: { $0.id == collectionID }),
-                  !collection.isSmart else { return }
-            // Add publications to collection (also ensures they're in the library)
-            store.addToCollection(publicationIds: uuids, collectionId: collectionID)
+        case .libraryCollection(let collectionID, _):
+            // ADR-0022 C2: the smart guard is the KERNEL row's `isSmart` (axis
+            // 2), read through the marker-aware adapter, instead of a
+            // `store.listCollections(libraryId:)` scan that goes blind at the
+            // WP G7 flip. Same predicate, same refusal, one fewer legacy read.
+            let bindingID = CollectionBindingID.publication
+            let itemID = collectionID.uuidString.lowercased()
+            guard let row = CollectionStoreAdapter.shared.row(bindingID, id: itemID),
+                  !row.isSmart else { return }
+            // Membership is the kernel's `Contains` edge — the SAME edge
+            // `ImbibStore.add_to_collection` writes.
+            //
+            // The wave-3 survey listed "also ensures library membership" as a
+            // fifth axis this path needed. It is a PHANTOM: that claim came
+            // from the call-site comment below, not from the code —
+            // `add_to_collection` is thirty lines of `AddReference(Contains)`
+            // and nothing else. So `addMembers` is already faithful, and no
+            // ensure-container hook was added for a behaviour that never
+            // existed. (Full note in `collection_ops`' module docs.)
+            CollectionStoreAdapter.shared.addMembers(
+                bindingID, collectionID: itemID,
+                itemIDs: uuids.map { $0.uuidString.lowercased() },
+                undo: .coordinator)
             bumpDataVersion()
 
         case .scixLibrary(let libraryID):
@@ -1960,7 +2075,11 @@ final class ImbibSidebarViewModel {
             libraryManager?.rename(id: id, to: trimmed)
             bumpDataVersion()
 
-        case .libraryCollection(let colID, _), .inboxCollection(collectionID: let colID):
+        case .inboxCollection(collectionID: let colID):
+            // NOT converged: the Inbox tier's collections still build their
+            // nodes from `store.listCollections(inboxLib.id)`, so routing the
+            // WRITE through the kernel while the READ stays legacy would give
+            // one tree two writers. Converges with the inbox tier (C2 matrix).
             store.updateField(id: colID, field: "name", value: trimmed)
             bumpDataVersion()
 
@@ -1968,10 +2087,22 @@ final class ImbibSidebarViewModel {
             store.updateField(id: feedID, field: "name", value: trimmed)
             bumpDataVersion()
 
-        case .recordFolder:
-            // Collection folders (ADR-0022 D3): one rename for every binding.
-            // The payload field is `name` for all of them; where the folder
-            // NESTS (payload ref vs. envelope parent) is irrelevant here.
+        case .libraryCollection, .recordFolder:
+            // Collection folders (ADR-0022 D3): one rename for every binding —
+            // and, since C2, for publication collections too. The payload field
+            // is `name` for all of them; where the row NESTS (payload ref vs.
+            // envelope parent) and which CONTAINER it sits in are both
+            // irrelevant to a rename.
+            //
+            // Event and undo parity with the `store.updateField(field:"name")`
+            // this replaces is exact: the kernel's `applyRename` posts
+            // (structural: false, [id], .otherField) and registers
+            // `StoreKernelUndoAction.renameCollection` — the same "Edit name"
+            // string the Rust `SetPayload("name")` undo description carried.
+            //
+            // No `loadLibraries()` here, deliberately: the legacy path did not
+            // reload either, and the collection tree is rebuilt from the store
+            // on every `bumpDataVersion()` anyway.
             guard let folder = folderNode(node), folder.capability.canOrganize else { break }
             CollectionStoreAdapter.shared.rename(
                 folder.capability.bindingID, id: folder.folderID, to: trimmed)
@@ -1994,8 +2125,16 @@ final class ImbibSidebarViewModel {
         case .library(let id):
             buildLibraryContextMenu(menu, libraryID: id)
 
-        case .libraryCollection(let colID, let libID):
-            buildCollectionContextMenu(menu, collectionID: colID, libraryID: libID)
+        case .libraryCollection(_, let libID):
+            // ADR-0022 C2: the SAME builder as manuscript/figure folders. The
+            // per-row smart predicate and the owning library are arguments now,
+            // not a second `store.listCollections` read inside the builder.
+            guard let folder = folderNode(node) else { return nil }
+            buildFolderContextMenu(
+                menu, capability: folder.capability, folderID: folder.folderID,
+                nodeID: node.id,
+                allowsOrganize: allowsOrganize(node, tierID: CollectionTierID.libraries),
+                containerID: libID.uuidString.lowercased())
 
         case .inboxFeed(let feedID):
             buildInboxFeedContextMenu(menu, feedID: feedID)
@@ -2316,58 +2455,52 @@ final class ImbibSidebarViewModel {
         menu.addItem(deleteItem)
     }
 
-    private func buildCollectionContextMenu(_ menu: NSMenu, collectionID: UUID, libraryID: UUID) {
-        let collections = store.listCollections(libraryId: libraryID)
-        guard let collection = collections.first(where: { $0.id == collectionID }) else { return }
-
-        if !collection.isSmart {
-            let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
-            renameItem.target = ContextMenuActions.shared
-            renameItem.representedObject = collectionID
-            menu.addItem(renameItem)
-
-            let newSubItem = NSMenuItem(title: "New Subcollection", action: #selector(ContextMenuActions.createSubcollection(_:)), keyEquivalent: "")
-            newSubItem.target = ContextMenuActions.shared
-            newSubItem.representedObject = ["collectionID": collectionID, "libraryID": libraryID] as [String: UUID]
-            menu.addItem(newSubItem)
-
-            menu.addItem(.separator())
-        }
-
-        let deleteItem = NSMenuItem(title: "Delete", action: #selector(ContextMenuActions.deleteCollection(_:)), keyEquivalent: "")
-        deleteItem.target = ContextMenuActions.shared
-        deleteItem.representedObject = collectionID
-        menu.addItem(deleteItem)
-    }
+    // `buildCollectionContextMenu` is gone (ADR-0022 C2). It was
+    // `buildFolderContextMenu` with three literals instead of the capability's
+    // nouns and an `isSmart` read of its own; the generic builder now takes the
+    // per-row predicate as an argument, so publication collections and folders
+    // share ONE builder. The labels are unchanged: `containerNoun: "Collection"`
+    // yields "New Subcollection", and `deleteTitleOverride: "Delete"` keeps the
+    // bare Delete imbib has always shown.
 
     /// Context menu for a collection folder of ANY binding (ADR-0022 D3).
     /// The manuscript and figure menus were already label-for-label
     /// identical — Rename / New Subfolder / ─── / Delete Folder — so the
     /// merge is literal; only the represented objects carry the binding now.
+    /// - Parameters:
+    ///   - allowsOrganize: the PER-ROW predicate (ADR-0022 C2 axis 2). `false`
+    ///     emits Delete only — imbib's frozen smart-collection menu. Always
+    ///     `true` for manuscript and figure folders, whose schemas have no
+    ///     smart rows, so their menus are unchanged.
+    ///   - containerID: the owning library, for the container-scoped bindings
+    ///     whose "New Subcollection" must name it.
     private func buildFolderContextMenu(
-        _ menu: NSMenu, capability: CollectionCapability, folderID: String, nodeID: UUID
+        _ menu: NSMenu, capability: CollectionCapability, folderID: String, nodeID: UUID,
+        allowsOrganize: Bool = true, containerID: String? = nil
     ) {
         guard capability.canOrganize else { return }
 
-        let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
-        renameItem.target = ContextMenuActions.shared
-        // Rename edits by SIDEBAR NODE id (derived for folders, unlike
-        // collections where node id == item id).
-        renameItem.representedObject = nodeID
-        menu.addItem(renameItem)
+        if allowsOrganize {
+            let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
+            renameItem.target = ContextMenuActions.shared
+            // Rename edits by SIDEBAR NODE id — derived for folders, and equal
+            // to the item id for collections, which `collectionNodeID` unifies.
+            renameItem.representedObject = nodeID
+            menu.addItem(renameItem)
 
-        let newSubItem = NSMenuItem(title: capability.newSubContainerTitle, action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
-        newSubItem.target = ContextMenuActions.shared
-        newSubItem.representedObject = FolderMenuTarget(
-            bindingID: capability.bindingID, folderID: folderID)
-        menu.addItem(newSubItem)
+            let newSubItem = NSMenuItem(title: capability.newSubContainerTitle, action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
+            newSubItem.target = ContextMenuActions.shared
+            newSubItem.representedObject = FolderMenuTarget(
+                bindingID: capability.bindingID, folderID: folderID, containerID: containerID)
+            menu.addItem(newSubItem)
 
-        menu.addItem(.separator())
+            menu.addItem(.separator())
+        }
 
         let deleteItem = NSMenuItem(title: capability.deleteContainerTitle, action: #selector(ContextMenuActions.deleteFolder(_:)), keyEquivalent: "")
         deleteItem.target = ContextMenuActions.shared
         deleteItem.representedObject = FolderMenuTarget(
-            bindingID: capability.bindingID, folderID: folderID)
+            bindingID: capability.bindingID, folderID: folderID, containerID: containerID)
         menu.addItem(deleteItem)
     }
 
@@ -2756,20 +2889,55 @@ final class ImbibSidebarViewModel {
     /// begin inline rename (ADR-0022 D3). Mirrors `createInboxCollection` —
     /// folder ids are the Rust store's lowercase strings; sidebar node ids
     /// are derived via `ImbibSidebarNodeID`.
-    func createFolder(bindingID: String, parentID: String? = nil) {
+    /// - Parameter containerID: the OWNING CONTAINER to create in (ADR-0022
+    ///   C2) — imbib's library, which a ROOT collection cannot inherit from a
+    ///   parent because it has none. `nil` for bindings with no container axis.
+    func createFolder(bindingID: String, parentID: String? = nil, containerID: String? = nil) {
+        // CREATION is the one publication-collection verb that does NOT converge
+        // this wave, and the reason is the Edit menu, not the store: the legacy
+        // path registers its undo as "Create Collection" while the kernel's
+        // `create` registers `StoreKernelUndoAction.createCollection` = "New
+        // Folder". Routing publications through the kernel would silently
+        // relabel a live Edit-menu entry, and the frozen-behaviour bar forbids
+        // that. Closing it needs a capability-declared create action name — a
+        // deliberate UX decision, not a side effect of a refactor.
+        //
+        // The MENU is converged regardless: one builder, one represented-object
+        // type, the container axis carrying the difference. Only the
+        // implementation forks, here, once.
+        if bindingID == CollectionBindingID.publication {
+            guard let container = containerID.flatMap({ UUID(uuidString: $0) }) else { return }
+            createCollection(in: container, parentID: parentID.flatMap { UUID(uuidString: $0) })
+            return
+        }
+
+        // The default NAME is the capability's noun, not a literal.
+        let capability = BuiltinRecordKinds.collectionCapability(forBindingID: bindingID)
+        let noun = capability?.containerNoun ?? "Folder"
+        let name = parentID != nil ? "New Sub\(noun.lowercased())" : "New \(noun)"
         guard let row = CollectionStoreAdapter.shared.create(
             bindingID,
-            name: parentID != nil ? "New Subfolder" : "New Folder",
-            parentID: parentID
+            name: name,
+            parentID: parentID,
+            containerID: containerID
         ) else { return }
         if let parentID {
-            expansionState.expand(Self.folderNodeID(bindingID, parentID))
+            expansionState.expand(Self.collectionNodeID(bindingID, parentID))
+        }
+        // Publication collections hang off LIBRARY nodes, whose counts and
+        // children the manager owns; the folder bindings have no such host.
+        if containerID != nil {
+            if let container = containerID.flatMap({ UUID(uuidString: $0) }) {
+                expansionState.expand(container)
+            }
+            libraryManager?.loadLibraries()
         }
         bumpDataVersion()
         Self.logger.infoCapture(
-            "created \(bindingID) folder '\(row.name)' (\(row.id)) parent=\(parentID ?? "root")",
+            "created \(bindingID) folder '\(row.name)' (\(row.id)) parent=\(parentID ?? "root")"
+                + (containerID.map { " container=\($0)" } ?? ""),
             category: "sidebar")
-        let newNodeID = Self.folderNodeID(bindingID, row.id)
+        let newNodeID = Self.collectionNodeID(bindingID, row.id)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.editingNodeID = newNodeID
         }
@@ -2779,10 +2947,29 @@ final class ImbibSidebarViewModel {
     /// membership goes away with the row (`Contains` edges cascade; envelope-
     /// filed members are unfiled by `ON DELETE SET NULL`).
     func deleteFolder(bindingID: String, folderID: String) {
-        if let selected = selectedFolderID(bindingID), selected == UUID(uuidString: folderID) {
+        // Publication collections carry their own selection route
+        // (`.collection(id)`, not `.record(.folder(...))`) and their own host
+        // refresh, so the clear-selection step is per-binding. Both branches
+        // then run the SAME kernel delete.
+        if bindingID == CollectionBindingID.publication {
+            if let uuid = UUID(uuidString: folderID) {
+                switch selectedTab {
+                case .collection(let id) where id == uuid,
+                     .inboxCollection(let id) where id == uuid,
+                     .explorationCollection(let id) where id == uuid:
+                    selectedNodeID = nil
+                default:
+                    break
+                }
+            }
+        } else if let selected = selectedFolderID(bindingID),
+                  selected == UUID(uuidString: folderID) {
             selectedNodeID = nil
         }
         CollectionStoreAdapter.shared.delete(bindingID, id: folderID)
+        if bindingID == CollectionBindingID.publication {
+            libraryManager?.loadLibraries()
+        }
         bumpDataVersion()
         Self.logger.infoCapture("deleted \(bindingID) folder \(folderID)", category: "sidebar")
     }
@@ -2859,7 +3046,14 @@ final class ImbibSidebarViewModel {
             case .library(let id):
                 deleteLibrary(id)
             case .libraryCollection(let id, _):
-                deleteCollection(id)
+                // ADR-0022 C2: the same kernel delete the context-menu Delete
+                // now runs, so ⌫ and the menu cannot diverge. Undo action name
+                // is unchanged ("Delete" both before and after), and the
+                // kernel's `restore` puts back membership and child
+                // collections that the old item-snapshot undo dropped.
+                deleteFolder(
+                    bindingID: CollectionBindingID.publication,
+                    folderID: id.uuidString.lowercased())
             case .explorationCollection(let id):
                 deleteExplorationCollection(id)
             case .explorationSearch(let id):
@@ -3055,6 +3249,16 @@ final class ImbibSidebarViewModel {
 struct FolderMenuTarget {
     let bindingID: String
     let folderID: String?
+    /// The OWNING CONTAINER the action applies in (ADR-0022 C2) — imbib's
+    /// library. `nil` for bindings with no container axis, which is what
+    /// manuscript and figure folders always carry.
+    let containerID: String?
+
+    init(bindingID: String, folderID: String?, containerID: String? = nil) {
+        self.bindingID = bindingID
+        self.folderID = folderID
+        self.containerID = containerID
+    }
 }
 
 // MARK: - Node Type Helpers
@@ -3091,12 +3295,10 @@ final class ContextMenuActions: NSObject {
         viewModel?.createCollection(in: libraryID)
     }
 
-    @objc func createSubcollection(_ sender: NSMenuItem) {
-        guard let info = sender.representedObject as? [String: UUID],
-              let libraryID = info["libraryID"],
-              let collectionID = info["collectionID"] else { return }
-        viewModel?.createCollection(in: libraryID, parentID: collectionID)
-    }
+    // `createSubcollection` is gone (ADR-0022 C2): "New Subcollection" is built
+    // by the generic folder menu now and carries a `FolderMenuTarget`
+    // (binding + parent + container), so the `[String: UUID]` dictionary this
+    // unpacked has no producer left.
 
     @objc func createInboxSubcollection(_ sender: NSMenuItem) {
         guard let collectionID = sender.representedObject as? UUID else { return }
@@ -3118,7 +3320,9 @@ final class ContextMenuActions: NSObject {
     /// (nil parent = a root folder).
     @objc func createFolder(_ sender: NSMenuItem) {
         guard let target = sender.representedObject as? FolderMenuTarget else { return }
-        viewModel?.createFolder(bindingID: target.bindingID, parentID: target.folderID)
+        viewModel?.createFolder(
+            bindingID: target.bindingID, parentID: target.folderID,
+            containerID: target.containerID)
     }
 
     /// Delete a collection folder of any binding (ADR-0022 D3).

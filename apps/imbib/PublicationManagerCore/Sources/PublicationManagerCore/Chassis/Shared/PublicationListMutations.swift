@@ -243,11 +243,10 @@ public enum PublicationListMutations {
     /// The publications themselves are untouched — only `Contains` edges go.
     ///
     /// This body comes from iOS, not macOS: macOS's `onRemoveFromAllCollections`
-    /// is still `// TODO: implement removeFromAllCollections with Rust store`,
-    /// an empty closure that silently does nothing when the user picks the menu
-    /// item. Adopting this here is a one-line change to that closure and a
-    /// deliberate BEHAVIOUR change to the frozen macOS pane, so it is left for
-    /// the wave that is allowed to make one.
+    /// was `// TODO: implement removeFromAllCollections with Rust store`, an
+    /// empty closure that silently did nothing when the user picked the menu
+    /// item. Both hosts now call this — macOS's wiring was the deliberate
+    /// behaviour change to the frozen pane that Stage 5d deferred.
     @discardableResult
     public static func removeFromAllCollections(ids: Set<UUID>) -> Int {
         let store = RustStoreAdapter.shared

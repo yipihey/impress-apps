@@ -68,25 +68,27 @@ public actor JournalPipeline {
     ///    constraint: `scripts/check-chassis-deps.sh` does not forbid this edge
     ///    — it only lints PMC's OWN manifest for what PMC depends on.
     ///
-    /// 2. The set is not expressible as any single existing descriptor
-    ///    predicate. `isTerminal` gives {published, archived, dismissed}: it
-    ///    wrongly includes `dismissed` and wrongly excludes `submitted`, which
-    ///    is the PRIMARY snapshot trigger and is declared `isTerminal: false`.
-    ///    So even with PMC linked, the derivation would still be hand-written
-    ///    here.
+    /// 2. ~~The set is not expressible as any single existing descriptor
+    ///    predicate.~~ **No longer true, as of 2026-07-30.** It was: `isTerminal`
+    ///    gives {published, archived, dismissed} — wrongly including `dismissed`
+    ///    and wrongly excluding `submitted`, which is the PRIMARY snapshot
+    ///    trigger and is declared `isTerminal: false`. The recommended follow-up
+    ///    landed instead: `StatusSpec.freezesSource` declares the facet at the
+    ///    declaration, and `TriageCapabilities.freezingStatusValues` IS this set.
+    ///    Reason 1 alone is why the literal stays.
     ///
     /// **The interlock** is therefore a test, not the type system:
     /// `JournalStatusPolicyParityTests` (in `Tests/CounselEngineTests/`) imports
-    /// the descriptor in a TEST-ONLY dependency and asserts this set against it
-    /// in both directions — every member is a status the descriptor actually
-    /// declares (so a rename cannot silently stop snapshotting), and every
-    /// non-dismissal terminal status is a member (so a newly-added terminal
-    /// status cannot be forgotten).
+    /// the descriptor in a TEST-ONLY dependency and asserts this set against it.
+    /// Its primary assertion is now `policy == triage.freezingStatusValues` —
+    /// literal against DECLARATION, in one comparison. The rename detector and
+    /// the "a new terminal status cannot be forgotten" direction stay alongside
+    /// it.
     ///
-    /// Recommended follow-up: declare this facet on `StatusSpec` itself (e.g.
-    /// `freezesSource: Bool`), which would make the rule readable at the
-    /// declaration and delete the derivation entirely. `Chassis/**` is outside
-    /// this wave's boundary, so it is deliberately not done here.
+    /// If this set is ever edited, edit `freezesSource` in `BuiltinRecordKinds`
+    /// in the same commit. Note the CI shape: `impel-swift.yml` triggers on
+    /// `apps/imbib/PublicationManagerCore/**` for exactly this reason — a
+    /// descriptor-only change must run this lane.
     ///
     /// `internal` rather than `private` solely so the parity test can see it.
     internal let autoSnapshotStatuses: Set<String> = ["submitted", "published", "archived"]

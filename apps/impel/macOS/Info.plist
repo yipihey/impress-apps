@@ -182,9 +182,6 @@
 			<key>UTTypeTagSpecification</key>
 			<dict/>
 		</dict>
-	</array>
-	<key>UTImportedTypeDeclarations</key>
-	<array>
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>
@@ -227,9 +224,69 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
+			<string>Impress Conversation Reference</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.impress.conversation-ref</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Impress Research Artifact Reference</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.impress.research-artifact-reference</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
 			<string>Impress Veusz Plot Reference</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.impress.veusz-plot-reference</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Citation Key</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.impress.citation-key</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>imbib BibTeX Bibliography</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.imbib.bibtex</string>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>imbib Bundle</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.imbib.bundle</string>
 			<key>UTTypeTagSpecification</key>
 			<dict/>
 		</dict>

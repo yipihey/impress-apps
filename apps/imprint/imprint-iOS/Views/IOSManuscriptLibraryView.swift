@@ -57,7 +57,10 @@ struct IOSManuscriptLibraryView: View {
 
     @State private var manuscripts: [ManuscriptModel] = []
     @State private var searchText = ""
-    @State private var searchPresented = false
+    /// `searchPresented` moved into `RecordListHost`: the field and the ⌘F button
+    /// that focuses it are one affordance, so the host owns the flag and this
+    /// view owns only the TEXT (because what a query MEANS here is a store
+    /// search — see `refresh()`).
     @State private var counts = ManuscriptSidebarCounts()
 
     // MARK: - Sheets / confirmations
@@ -181,34 +184,57 @@ struct IOSManuscriptLibraryView: View {
     // MARK: - List column
 
     private var listColumn: some View {
-        Group {
-            if manuscripts.isEmpty {
-                emptyState
-            } else {
-                manuscriptList
-            }
-        }
-        .navigationTitle(scopeTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(
-            text: $searchText,
-            isPresented: $searchPresented,
-            placement: .navigationBarDrawer(displayMode: .automatic),
-            prompt: "Search \(descriptor.displayName.lowercased())s")
+        // THE shared iOS list host (C1): the `List`, the search field, the ⌘F
+        // button, pull-to-refresh, the `.recordTriageRow` wiring and the
+        // three-state branch are `RecordListHost`'s. What imprint parameterizes
+        // is its ROW, its row MENU (Open + the organise grammar), its empty-state
+        // COPY and the New Manuscript button under it.
+        //
+        // Reload triggers stay at this view's root rather than being handed to
+        // the host: `refresh()` feeds the sidebar counts as well as the list, so
+        // one `.onChange(of: adapter.dataVersion)` serves both columns. The host
+        // gets `onReload` alone, which is what pull-to-refresh calls.
+        RecordListHost(
+            rows: manuscripts,
+            selection: $selectedManuscriptID,
+            searchText: $searchText,
+            title: scopeTitle,
+            searchPrompt: "Search \(descriptor.displayName.lowercased())s",
+            emptyState: emptyState,
+            rowIdentifierPrefix: "manuscriptRow.",
+            triage: descriptor.triage,
+            actions: triageActions,
+            rowState: rowState,
+            rowTagPaths: { Set($0.tags) },
+            onReload: { refresh() },
+            rowContent: manuscriptRow,
+            rowMenu: { m in
+                Button {
+                    selectedManuscriptID = m.id
+                } label: {
+                    Label("Open", systemImage: "square.and.pencil")
+                }
+                RecordFolderMenu.moveTo(
+                    folders: folders,
+                    targets: [m.id],
+                    actions: collectionActions,
+                    currentFolderID: scope?.folderID)
+                Divider()
+            },
+            emptyActions: {
+                if searchText.isEmpty {
+                    Button {
+                        newTitle = ""
+                        showNewSheet = true
+                    } label: {
+                        Label("New Manuscript", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            })
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 newManuscriptMenu
-            }
-            // ⌘F for hardware keyboards — the iOS half of macOS's
-            // ImpressFindCommands / ⌘F filter.
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    searchPresented = true
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                }
-                .keyboardShortcut("f", modifiers: .command)
-                .accessibilityIdentifier("toolbar.find")
             }
         }
         .sheet(isPresented: $showNewSheet) { newManuscriptSheet }
@@ -222,35 +248,6 @@ struct IOSManuscriptLibraryView: View {
         } message: {
             Text("This cannot be undone from the Dismissed list.")
         }
-    }
-
-    private var manuscriptList: some View {
-        List(selection: $selectedManuscriptID) {
-            ForEach(manuscripts) { m in
-                manuscriptRow(m)
-                    .tag(m.id)
-                    .recordTriageRow(
-                        triage: descriptor.triage,
-                        row: rowState(m),
-                        targets: [m.id],
-                        actions: triageActions,
-                        rowTagPaths: Set(m.tags),
-                        extraMenuItems: {
-                            Button {
-                                selectedManuscriptID = m.id
-                            } label: {
-                                Label("Open", systemImage: "square.and.pencil")
-                            }
-                            RecordFolderMenu.moveTo(
-                                folders: folders,
-                                targets: [m.id],
-                                actions: collectionActions,
-                                currentFolderID: scope?.folderID)
-                            Divider()
-                        })
-            }
-        }
-        .listStyle(.plain)
     }
 
     @ViewBuilder
@@ -288,7 +285,11 @@ struct IOSManuscriptLibraryView: View {
             }
         }
         .padding(.vertical, 2)
-        .accessibilityIdentifier("manuscriptRow.\(m.id.uuidString)")
+        // No `accessibilityIdentifier` here: the row identifier is the shared
+        // host's (`RecordListRowIdentity`), which is what keeps
+        // `manuscriptRow.<uuid>` and `messageRow.<uuid>` spelled one way. Both
+        // UI suites match it by PREFIX, so a rename in one view file used to be
+        // a silently empty query.
     }
 
     private func statusBadge(_ status: String) -> some View {
@@ -311,26 +312,23 @@ struct IOSManuscriptLibraryView: View {
         (FlagColor(storedValue: raw) ?? .gray).displayColor
     }
 
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label(
-                searchText.isEmpty ? "No Manuscripts" : "No Results",
-                systemImage: searchText.isEmpty ? "doc.text" : "magnifyingglass")
-        } description: {
-            Text(searchText.isEmpty
-                 ? "Create a manuscript to start writing."
-                 : "No manuscripts match “\(searchText)”.")
-        } actions: {
-            if searchText.isEmpty {
-                Button {
-                    newTitle = ""
-                    showNewSheet = true
-                } label: {
-                    Label("New Manuscript", systemImage: "plus")
-                }
-                .buttonStyle(.borderedProminent)
-            }
+    /// The list's empty state as a `ChassisEmptyState` value — the chassis's
+    /// vocabulary, imprint's words. Which of the two states applies depends on
+    /// the query, so the host is handed the RESOLVED one (Stage 5d's rule: list
+    /// copy is per-app product copy, not a shared string).
+    private var emptyState: ChassisEmptyState {
+        if searchText.isEmpty {
+            return ChassisEmptyState(
+                id: "manuscripts-empty",
+                title: "No \(descriptor.pluralDisplayName)",
+                systemImage: descriptor.symbolName,
+                message: "Create a manuscript to start writing.")
         }
+        return ChassisEmptyState(
+            id: "manuscripts-no-matches",
+            title: "No Results",
+            systemImage: "magnifyingglass",
+            message: "No manuscripts match \u{201C}\(searchText)\u{201D}.")
     }
 
     // MARK: - Detail column

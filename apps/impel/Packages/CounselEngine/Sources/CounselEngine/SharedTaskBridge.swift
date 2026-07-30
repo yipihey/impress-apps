@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ImpressKit
 import ImpressStoreKit
@@ -5,6 +6,22 @@ import OSLog
 #if canImport(ImpressRustCore)
 import ImpressRustCore
 #endif
+
+// MARK: - Schema refs
+
+/// The refs this bridge writes, stated ONCE for the file.
+///
+/// `ImpelCore.ImpelStoreAdapter` declares the same two strings for impel's read
+/// path, and CounselEngine deliberately does not depend on ImpelCore (its
+/// Package.swift keeps the graph narrow so two headless CLIs don't link the GUI
+/// stack). Two literals across a package boundary is normally the bug — here it
+/// is safe *because* `scripts/check-schema-refs.sh` holds both to the same
+/// `schema-refs.json` entry, so they cannot drift apart silently. That lint is
+/// the reason a second copy is acceptable at all; without it, delete one.
+enum SharedTaskSchema {
+    static let task = "task@1.0.0"
+    static let agentRun = "agent-run@1.0.0"
+}
 
 // MARK: - SharedTaskBridge
 
@@ -17,10 +34,32 @@ import ImpressRustCore
 ///
 /// ## Schema contract
 ///
-/// - Task items use schema `impel/task@1.0.0`
-/// - Agent-run items use schema `impel/agent-run@1.0.0`
+/// - Task items use `task@1.0.0` (`SharedSchema.task`)
+/// - Agent-run items use `agent-run@1.0.0` (`SharedSchema.agentRun`)
 ///
-/// Both schemas are registered in `crates/impel-core/src/schemas.rs`.
+/// Registered once, in `crates/impress-core/src/schemas/task.rs`; declared once
+/// for the suite in `schema-refs.json`.
+///
+/// These were `impel/task` and `impel/agent-run` until WP C4 — a THIRD spelling
+/// of kinds that impel's own Rust kernel writes versioned and that
+/// `sqlite_store.ready_tasks`, `ImpelStoreAdapter` and imbib's Agents section
+/// all read versioned. The store matches `schema_ref` by exact equality, so
+/// every row this bridge wrote was invisible to all three: impel's OWN window
+/// (`ImpelStoreAdapter.fetchThreads` queries `task@1.0.0`) never listed a
+/// single counsel task it had mirrored. Existing rows are converged by
+/// `impress_core::task_schema_migration` — flagged off, dry-run first,
+/// reversible.
+///
+/// ## MIRROR contract — these rows are not schedulable, by design
+///
+/// GRDB is authoritative and impel's own orchestrator runs these tasks. The
+/// rows here are a projection for sibling apps, so they deliberately carry NO
+/// payload `task_kind`, and `ready_tasks` requires a non-empty `task_kind`
+/// before it will hand a task to `impel-taskd`. That is what makes the
+/// convergence safe: the rows become visible everywhere without becoming work
+/// the impress scheduler will acquire, flip to `running`, and then fail for
+/// want of a registered executor. **Do not add a `task_kind` here** without
+/// reading `ready_tasks`' doc comment first.
 ///
 /// ## Design
 ///
@@ -102,7 +141,7 @@ public actor SharedTaskBridge {
 
     /// Called when a new task is created in GRDB.
     ///
-    /// Writes a `impel/task@1.0.0` item to the shared store so sibling apps
+    /// Writes a `task@1.0.0` item to the shared store so sibling apps
     /// can display the task in their activity feeds.
     ///
     /// - Parameters:
@@ -136,7 +175,8 @@ public actor SharedTaskBridge {
 
         #if canImport(ImpressRustCore)
         do {
-            try store?.upsertItem(id: taskID, schemaRef: "impel/task", payloadJson: payloadString)
+            try store?.upsertItem(
+                id: taskID, schemaRef: SharedTaskSchema.task, payloadJson: payloadString)
             logger.info("SharedTaskBridge: task created \(taskID) '\(title)' state=\(state)")
             // A new task is a structural change to the item graph.
             events.emit(.structural)
@@ -150,7 +190,7 @@ public actor SharedTaskBridge {
 
     /// Called when a task transitions to a new lifecycle state.
     ///
-    /// Updates the `state` field of the existing `impel/task` item in the
+    /// Updates the `state` field of the existing `task@1.0.0` item in the
     /// shared store so sibling apps see the current status.
     ///
     /// - Parameters:
@@ -172,7 +212,8 @@ public actor SharedTaskBridge {
             }
             if let data = try? JSONSerialization.data(withJSONObject: updatedPayload),
                let payloadString = String(data: data, encoding: .utf8) {
-                try store.upsertItem(id: taskID, schemaRef: "impel/task", payloadJson: payloadString)
+                try store.upsertItem(
+                    id: taskID, schemaRef: SharedTaskSchema.task, payloadJson: payloadString)
             }
             logger.info("SharedTaskBridge: task \(taskID) state → \(newState)")
             // A state transition is a field change on an existing item.
@@ -193,7 +234,7 @@ public actor SharedTaskBridge {
 
     /// Called after an AI agent loop execution completes.
     ///
-    /// Writes an `impel/agent-run@1.0.0` item to the shared store for
+    /// Writes an `agent-run@1.0.0` item to the shared store for
     /// provenance. The run item is linked to its parent task via an
     /// `OperatesOn` edge so the full execution history is traceable from
     /// any sibling app.
@@ -221,8 +262,15 @@ public actor SharedTaskBridge {
     ) {
         guard isAvailable else { return }
 
-        // Stable ID for this run: task + round so repeated completions are idempotent.
-        let runID = "\(taskID)-run-\(roundNumber)"
+        // Stable ID for this run: task + round so repeated completions are
+        // idempotent. It must ALSO be a UUID — `upsert_item` parses the id and
+        // rejects anything else (`invalid UUID: …`), so the previous
+        // `"\(taskID)-run-\(roundNumber)"` form meant every single agent-run
+        // write in this bridge's history failed and was swallowed into the
+        // `logger.error` below. Not one row was ever created. Found while
+        // converging the spellings in WP C4; `Self.runItemID` keeps the
+        // stability and makes the id legal.
+        let runID = Self.runItemID(taskID: taskID, roundNumber: roundNumber)
 
         var payload: [String: Any] = [
             "agent_id": agentID,
@@ -246,7 +294,8 @@ public actor SharedTaskBridge {
 
         #if canImport(ImpressRustCore)
         do {
-            try store?.upsertItem(id: runID, schemaRef: "impel/agent-run", payloadJson: payloadString)
+            try store?.upsertItem(
+                id: runID, schemaRef: SharedTaskSchema.agentRun, payloadJson: payloadString)
             logger.info(
                 "SharedTaskBridge: agent-run \(runID) for task \(taskID) round=\(roundNumber) model=\(model) tools=[\(toolList)]"
             )
@@ -260,5 +309,35 @@ public actor SharedTaskBridge {
             "SharedTaskBridge: agent-run for task \(taskID) round=\(roundNumber) model=\(model) tools=[\(toolList)] (ImpressRustCore not linked)"
         )
         #endif
+    }
+
+    // MARK: - Item ids
+
+    /// Namespace for derived agent-run ids. Arbitrary but FROZEN: changing it
+    /// re-ids every run and breaks the idempotency this function exists for.
+    private static let runIDNamespace = UUID(uuidString: "3f6c6b1e-9b2a-4d3e-9c7f-5a1b2c3d4e5f")!
+
+    /// A stable UUID for one (task, round) pair — a UUIDv5, the same
+    /// construction the Rust side uses for derived ids
+    /// (`imprint_service::ThroughlineStore::item_id`, `Uuid::new_v5`). Pure and
+    /// deterministic, so re-reporting a round upserts the same row instead of
+    /// creating a duplicate.
+    ///
+    /// Non-UUID `taskID`s are hashed as their own text rather than rejected:
+    /// the id only has to be stable, and refusing to record provenance because
+    /// a caller's key was unusual would be the worse failure.
+    static func runItemID(taskID: String, roundNumber: Int) -> String {
+        let name = "\(taskID.lowercased())::run::\(roundNumber)"
+        var hasher = Insecure.SHA1()
+        withUnsafeBytes(of: runIDNamespace.uuid) { hasher.update(bufferPointer: $0) }
+        hasher.update(data: Data(name.utf8))
+        var bytes = Array(hasher.finalize().prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50   // version 5
+        bytes[8] = (bytes[8] & 0x3F) | 0x80   // RFC 4122 variant
+        let uuid = UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+        return uuid.uuidString.lowercased()
     }
 }

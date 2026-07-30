@@ -39,8 +39,10 @@
 //    other lacked.** iOS implements smart-search refresh for real (group feeds
 //    via `GroupFeedRefreshService`, everything else via
 //    `SmartSearchProviderCache` + `SmartSearchProvider.refresh()`); macOS's
-//    `.smartSearch` case is `// TODO: implement smart search refresh with Rust
+//    `.smartSearch` case was `// TODO: implement smart search refresh with Rust
 //    store` followed by a 100 ms sleep. The SciX pull is the same code on both.
+//    macOS now calls the same remote half via `pullSmartSearch` — the one part
+//    of this file the gated macOS chrome consumes directly.
 //
 //  ## Why macOS does not hold one yet
 //
@@ -243,20 +245,42 @@ public final class PublicationListCore {
         _ smartSearchID: UUID,
         sourceManager: SourceManager
     ) async -> String? {
+        let failure = await Self.pullSmartSearch(smartSearchID, sourceManager: sourceManager)
+        // Reload from the store after refresh, whether or not it errored — a
+        // partial refresh still landed rows.
+        reload()
+        return failure?.localizedDescription
+    }
+
+    /// The REMOTE half of a smart-search refresh, without the reload.
+    ///
+    /// Exposed as a static because macOS's `UnifiedPublicationListWrapper` does
+    /// not hold a core (see "Why macOS does not hold one yet") but does need
+    /// this exact sequence: its `.smartSearch` case used to be
+    /// `// TODO: implement smart search refresh with Rust store` plus a 100 ms
+    /// `Task.sleep`, so pressing Refresh on a smart search re-read the store and
+    /// fetched nothing. Both hosts call this; each then reloads its own way and
+    /// PRESENTS the error its own way (macOS stores an `Error` for a retry
+    /// `ContentUnavailableView`, iOS shows an alert), which is why the failure is
+    /// returned rather than stored.
+    ///
+    /// - Returns: the failure, or nil on success (including when the smart search
+    ///   no longer exists — there is nothing to pull, and that is not an error).
+    public static func pullSmartSearch(
+        _ smartSearchID: UUID,
+        sourceManager: SourceManager
+    ) async -> Error? {
         guard let smartSearch = RustStoreAdapter.shared.getSmartSearch(id: smartSearchID) else {
-            reload()
             return nil
         }
-
-        var errorMessage: String?
 
         // Route group feeds to GroupFeedRefreshService
         if smartSearch.isGroupFeed {
             do {
                 _ = try await GroupFeedRefreshService.shared.refreshGroupFeedByID(smartSearchID)
             } catch {
-                errorMessage = error.localizedDescription
                 logger.error("Group feed error: \(error.localizedDescription)")
+                return error
             }
         } else if let provider = await SmartSearchProviderCache.shared.getOrCreateByID(
             smartSearchID: smartSearchID,
@@ -265,15 +289,11 @@ public final class PublicationListCore {
             do {
                 try await provider.refresh()
             } catch {
-                errorMessage = error.localizedDescription
                 logger.error("Smart search error: \(error.localizedDescription)")
+                return error
             }
         }
-
-        // Reload from the store after refresh, whether or not it errored — a
-        // partial refresh still landed rows.
-        reload()
-        return errorMessage
+        return nil
     }
 
     private func refreshSciXLibrary(_ scixLibraryID: UUID) async -> String? {

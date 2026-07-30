@@ -26,6 +26,7 @@ use impress_core::operation::{
 };
 use impress_core::query::{ItemQuery, Predicate};
 use impress_core::reference::{EdgeType, TypedReference};
+use impress_core::schemas::task::TASK_SCHEMA;
 use impress_core::store::ItemStore;
 use impress_core::SqliteItemStore;
 use proptest::prelude::*;
@@ -66,7 +67,7 @@ fn task_item(title: &str, state: &str) -> Item {
     let mut payload = BTreeMap::new();
     payload.insert("title".to_string(), Value::String(title.to_string()));
     payload.insert("state".to_string(), Value::String(state.to_string()));
-    make_item("task", payload)
+    make_item(TASK_SCHEMA, payload)
 }
 
 fn set_payload_spec(target: ItemId, field: &str, value: Value) -> OperationSpec {
@@ -483,7 +484,7 @@ proptest! {
             let mut payload = BTreeMap::new();
             payload.insert("title".to_string(), Value::String(format!("{} {}", prefix, tokens[i])));
             payload.insert("state".to_string(), Value::String("pending".to_string()));
-            let item = make_item("task", payload);
+            let item = make_item(TASK_SCHEMA, payload);
             ids.push(item.id);
             store.insert(item).expect("insert");
         }
@@ -634,7 +635,7 @@ proptest! {
 
         // Store walk: query pending task items, then check dependency states.
         let pending_q = ItemQuery {
-            schema: Some("task".to_string()),
+            schema: Some(TASK_SCHEMA.to_string()),
             predicates: vec![Predicate::Eq("state".to_string(), Value::String("pending".to_string()))],
             ..Default::default()
         };

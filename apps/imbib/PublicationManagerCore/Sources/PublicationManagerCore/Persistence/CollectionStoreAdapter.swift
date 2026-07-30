@@ -73,12 +73,23 @@ public struct CollectionKernelRow: Equatable, Sendable {
     /// parent per binding), `nil` for a root. Never the owning library.
     public let parentID: String?
     public let sortOrder: Int64
+    /// Lowercase UUID string of the OWNING CONTAINER — imbib's library — for
+    /// bindings with a container axis (ADR-0022 C2); `nil` for manuscript and
+    /// figure folders, which are global. NEVER the tree parent: that is
+    /// `parentID`, and conflating the two is the c902a22f regression.
+    public let containerID: String?
+    /// Is this a SMART (query-defined) collection? The per-row predicate
+    /// `CollectionCapability.allowsOrganize(isSmart:tier:)` consumes; `false`
+    /// for bindings whose schema has no such field.
+    public let isSmart: Bool
 
     init(_ row: SharedCollectionRow) {
         self.id = row.id
         self.name = row.name
         self.parentID = row.parentId
         self.sortOrder = row.sortOrder
+        self.containerID = row.containerId
+        self.isSmart = row.isSmart
     }
 }
 
@@ -204,14 +215,38 @@ public final class CollectionStoreAdapter {
     /// All collections of a binding, flat and ordered by `sort_order`.
     /// Callers assemble the tree from `parentID`.
     public func tree(_ bindingID: String) -> [CollectionKernelRow] {
+        tree(bindingID, in: nil)
+    }
+
+    /// The collections of ONE owning container, flat and ordered by
+    /// `sort_order` (ADR-0022 C2). `containerID: nil`, or a binding with no
+    /// container axis, answers exactly as `tree(_:)` does.
+    ///
+    /// **This is the migration-safe read.** `RustStoreAdapter.listCollections(libraryId:)`
+    /// goes through imbib-core's `list_collections`, which hard-codes
+    /// `schema_ref = "imbib/collection"` and returns NOTHING once the
+    /// `collections.unified` flag is flipped (WP G7). This resolves the binding
+    /// against the marker and filters on the envelope, which the migration
+    /// never touches — so it answers identically on both sides of the flip.
+    public func tree(_ bindingID: String, in containerID: String?) -> [CollectionKernelRow] {
         guard let store, let binding = Self.binding(for: bindingID) else { return [] }
         do {
-            return try store.collectionTree(binding: binding).map(CollectionKernelRow.init)
+            return try store.collectionTreeIn(
+                binding: binding, containerId: containerID?.lowercased()
+            ).map(CollectionKernelRow.init)
         } catch {
             Self.logger.errorCapture(
                 "collectionTree(\(bindingID)) failed: \(error)", category: "collections")
             return []
         }
+    }
+
+    /// One row by id, from the binding's tree. Convenience for the sidebar
+    /// sites that need a row's `isSmart` / `containerID` to decide what to
+    /// offer, without each of them re-implementing the lookup.
+    public func row(_ bindingID: String, id: String) -> CollectionKernelRow? {
+        let wanted = id.lowercased()
+        return tree(bindingID).first { $0.id == wanted }
     }
 
     /// Member counts aligned index-for-index with `collectionIDs`.
@@ -262,12 +297,18 @@ public final class CollectionStoreAdapter {
     ///   imbib's sidebar has never made "New Folder" undoable, and adopting a
     ///   shared verb must not silently add an Edit-menu entry. imprint passes
     ///   its `UndoManager` and gets the "New Folder" inverse it always had.
+    /// - Parameter containerID: the OWNING CONTAINER the new collection belongs
+    ///   to (ADR-0022 C2) — imbib's library, which a ROOT collection cannot
+    ///   inherit from a parent because it has none. `nil` keeps the historical
+    ///   inherit-from-parent rule, and is what manuscript and figure folders
+    ///   (which have no container axis) always pass.
     @discardableResult
     public func create(
         _ bindingID: String,
         name: String,
         parentID: String? = nil,
         kindScope: String? = nil,
+        containerID: String? = nil,
         undo: StoreUndoScope = .disabled
     ) -> CollectionKernelRow? {
         guard let store, let binding = Self.binding(for: bindingID) else { return nil }
@@ -276,12 +317,13 @@ public final class CollectionStoreAdapter {
             // row) and handed to the kernel, which used to need a follow-up
             // `collectionReorder` to emulate it.
             let sortOrder = Self.newFolderSortOrder(bindingID, binding: binding, store: store)
-            let row = try store.collectionCreate(
+            let row = try store.collectionCreateIn(
                 binding: binding,
                 name: name,
                 parentId: parentID?.lowercased(),
                 kindScope: kindScope,
-                sortOrder: sortOrder
+                sortOrder: sortOrder,
+                containerId: containerID?.lowercased()
             )
             scope.noteMutation(true, nil, nil)
             Self.logger.infoCapture(
@@ -382,24 +424,53 @@ public final class CollectionStoreAdapter {
     /// drag-feedback pre-check in `isAncestor`. A rejection here is logged as
     /// a warning and returns `false`; it must never crash the sidebar.
     /// Registers an Undo entry that moves the collection back.
+    /// - Parameter newContainerID: the container to move INTO (ADR-0022 C2).
+    ///   `nil` means "leave the owning container alone", which is what a
+    ///   same-library move wants: the legacy Swift path skipped its
+    ///   `reparentItem` write entirely when the library did not change, and so
+    ///   does this. A cross-library move passes the destination library and the
+    ///   kernel performs both writes in one `store.update`.
     @discardableResult
     public func reparent(
-        _ bindingID: String, id: String, newParentID: String?, undo: StoreUndoScope? = nil
+        _ bindingID: String, id: String, newParentID: String?,
+        newContainerID: String? = nil, undo: StoreUndoScope? = nil
     ) -> Bool {
-        guard let mutation = applyReparent(bindingID, id: id, newParentID: newParentID) else {
+        guard let mutation = applyReparent(
+            bindingID, id: id, newParentID: newParentID, newContainerID: newContainerID)
+        else {
             return false
         }
-        guard case .parent(let previousParent) = mutation.prior else { return true }
+        // Two priors, two inverses. `.parent` means the container did not move,
+        // so its inverse must not start writing one; `.parentInContainer`
+        // carries both fields and restores both. Same action name either way —
+        // the Edit menu still reads "Move Folder".
         let rowID = mutation.row.id
         let newParent = newParentID?.lowercased()
+        let newContainer = newContainerID?.lowercased()
+        let priorParent: String?
+        let priorContainer: String?
+        switch mutation.prior {
+        case .parent(let previousParent):
+            priorParent = previousParent
+            priorContainer = nil
+        case .parentInContainer(let previousParent, let previousContainer):
+            priorParent = previousParent
+            priorContainer = previousContainer
+        default:
+            return true
+        }
         scope.registerReversible(
             undo,
             actionName: UndoActionName.reparent,
             undo: { [weak self] in
-                _ = self?.applyReparent(bindingID, id: rowID, newParentID: previousParent)
+                _ = self?.applyReparent(
+                    bindingID, id: rowID, newParentID: priorParent,
+                    newContainerID: priorContainer)
             },
             redo: { [weak self] in
-                _ = self?.applyReparent(bindingID, id: rowID, newParentID: newParent)
+                _ = self?.applyReparent(
+                    bindingID, id: rowID, newParentID: newParent,
+                    newContainerID: newContainer)
             }
         )
         return true
@@ -599,16 +670,19 @@ public final class CollectionStoreAdapter {
 
     @discardableResult
     private func applyReparent(
-        _ bindingID: String, id: String, newParentID: String?
+        _ bindingID: String, id: String, newParentID: String?, newContainerID: String? = nil
     ) -> SharedCollectionMutation? {
         guard let store, let binding = Self.binding(for: bindingID) else { return nil }
         let lowerID = id.lowercased()
         do {
-            let mutation = try store.collectionReparent(
-                binding: binding, id: lowerID, newParentId: newParentID?.lowercased())
+            let mutation = try store.collectionReparentIn(
+                binding: binding, id: lowerID,
+                newParentId: newParentID?.lowercased(),
+                newContainerId: newContainerID?.lowercased())
             scope.noteMutation(true, nil, nil)
             Self.logger.infoCapture(
-                "reparented \(bindingID) collection \(lowerID) → \(newParentID ?? "root")",
+                "reparented \(bindingID) collection \(lowerID) → \(newParentID ?? "root")"
+                    + (newContainerID.map { " (container \($0))" } ?? ""),
                 category: "collections")
             return mutation
         } catch {

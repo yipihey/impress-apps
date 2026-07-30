@@ -17,7 +17,10 @@ let package = Package(
     dependencies: [
         .package(path: "../../ImploreRustCore"),
         .package(path: "../../../../packages/ImpressKit"),
-        .package(path: "../../../../packages/ImpressRustCore")
+        .package(path: "../../../../packages/ImpressRustCore"),
+        // The shared store-mirror kernel (buffering / batching / didMutate /
+        // payload encoding). See packages/ImpressStoreKit/.../StoreMirrorKernel.swift.
+        .package(path: "../../../../packages/ImpressStoreKit")
     ],
     targets: [
         .target(
@@ -25,7 +28,8 @@ let package = Package(
             dependencies: [
                 "ImploreRustCore",
                 .product(name: "ImpressKit", package: "ImpressKit"),
-                "ImpressRustCore"
+                "ImpressRustCore",
+                .product(name: "ImpressStoreKit", package: "ImpressStoreKit")
             ],
             path: "Sources/ImploreCore",
             swiftSettings: [

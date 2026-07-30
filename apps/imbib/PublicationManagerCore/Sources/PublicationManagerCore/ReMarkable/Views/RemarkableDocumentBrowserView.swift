@@ -16,8 +16,17 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "remarkableBro
 /// Browser view for reMarkable documents and folders.
 public struct RemarkableDocumentBrowserView: View {
     @State private var viewModel = RemarkableDocumentBrowserViewModel()
-    @State private var selectedDocument: RemarkableDocumentInfo?
-    @State private var showImportSheet = false
+
+    /// The import sheet's target, as ONE piece of state.
+    ///
+    /// This used to be `selectedDocument` beside `showImportSheet: Bool`,
+    /// presented with `.sheet(isPresented:)` and an `if let` inside the content
+    /// builder — the shape that shipped a blank BibTeX sheet on iOS
+    /// (docs/chassis-capability-matrix.md). Tapping a document row writes both in
+    /// the same runloop turn, so a builder evaluated between the two writes
+    /// renders an EMPTY sheet. `.sheet(item:)` derives presentation FROM the
+    /// document, so there is no order to get wrong.
+    @State private var importTarget: RemarkableDocumentInfo?
 
     public init() {}
 
@@ -54,11 +63,9 @@ public struct RemarkableDocumentBrowserView: View {
             } message: {
                 Text(viewModel.error?.localizedDescription ?? "")
             }
-            .sheet(isPresented: $showImportSheet) {
-                if let doc = selectedDocument {
-                    RemarkableImportSheet(document: doc) {
-                        showImportSheet = false
-                    }
+            .sheet(item: $importTarget) { doc in
+                RemarkableImportSheet(document: doc) {
+                    importTarget = nil
                 }
             }
         }
@@ -125,8 +132,7 @@ public struct RemarkableDocumentBrowserView: View {
                             document: document,
                             syncState: viewModel.syncState(for: document)
                         ) {
-                            selectedDocument = document
-                            showImportSheet = true
+                            importTarget = document
                         }
                     }
                 }

@@ -17,6 +17,10 @@ let package = Package(
         // Stage 0: direct reads from the shared item store (task@1.0.0 /
         // agent-run@1.0.0 rows written by impel-taskd).
         .package(path: "../../../../packages/ImpressRustCore"),
+        // The shared store-mirror kernel: `LazyStoreHandle` (open once, remember
+        // the failure) and the buffering/batching write gate this adapter will
+        // need when its command path moves off HTTP.
+        .package(path: "../../../../packages/ImpressStoreKit"),
     ],
     targets: [
         .target(
@@ -24,6 +28,7 @@ let package = Package(
             dependencies: [
                 "ImpressKit",
                 .product(name: "ImpressRustCore", package: "ImpressRustCore"),
+                .product(name: "ImpressStoreKit", package: "ImpressStoreKit"),
             ],
             path: "Sources/ImpelCore",
             swiftSettings: [.swiftLanguageMode(.v5)]

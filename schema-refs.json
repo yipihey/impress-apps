@@ -17,17 +17,25 @@
     "`core/operation`) and versioned (`task@1.0.0`) spellings all exist and all are correct for",
     "their kind. Do not 'regularise' a ref by pattern-matching on its neighbours — that is the",
     "exact reasoning that produced `manuscript-section@1.0.0` and `citation-usage@1.0.0`.",
-    "Copy the spelling from this file, not from a sibling call site."
+    "Copy the spelling from this file, not from a sibling call site.",
+    "",
+    "`knownDivergences` is EMPTY and its budget is 0, as of WP C4. It held three entries:",
+    "the task and agent-run spelling splits (three live spellings each) and the dead",
+    "`impress/operation` registration. All three are resolved — the code by aligning every",
+    "writer, reader and registry, and the DATA by",
+    "`impress_core::task_schema_migration` (flagged off, dry-run first, reversible via a",
+    "changed-id ledger in `store_metadata`). The budget is a RATCHET: it may only shrink.",
+    "At 0, adding a divergence means raising the budget in the same change, in writing,",
+    "with the owner decision that made a second spelling of one kind acceptable."
   ],
   "canonical": {
-    "agent-run": "impress-core registry. Bare form; see knownDivergences/impel-run-spelling.",
-    "agent-run@1.0.0": "VERSIONED. Written by impel-core task_store AGENT_RUN_SCHEMA; claimed by AgentRunRecordKind descriptor and the agentRunsAll sidebar count.",
+    "agent-run@1.0.0": "VERSIONED, and the ONLY spelling of this kind since WP C4. Written by impel-core task_store AGENT_RUN_SCHEMA and by impel SharedTaskBridge.agentRoundCompleted; registered ONCE, in impress-core schemas/task.rs (impel-core's register_impel_schemas delegates there); claimed by the AgentRunRecordKind descriptor, which is what AgentStoreReader and the agentRunsAll sidebar count read. The retired `agent-run` (impress-core registration, unwritten) and `impel/agent-run` (SharedTaskBridge) rows are converged by impress_core::task_schema_migration.",
     "annotation": "impress-core. Written by imbib annotation sync.",
-    "bibliography-entry": "impress-core registry only; see registeredButUnwritten.",
+    "bibliography-entry": "impress-core registry only — NOTHING writes the bare form; THE publication ref is `imbib/bibliography-entry` (reading this one is the iOS-citation-picker bug). Kept in `canonical` rather than moved to `registeredButUnwritten` because reclassifying it would reject existing call sites and belongs to the imbib pass, not C4's. This note used to say 'see registeredButUnwritten', which held only `impress/operation` and is now empty.",
     "chat-message": "impress-core + impart-core. Written by impart ImpartStoreAdapter.",
     "citation-usage": "impress-core. Written BARE by imprint ImprintStoreAdapter.recordCitationUsage. Read by imprint ImprintImpressStore + imbib CitationUsageReader.",
     "collection": "impress-core generic collection kernel (ADR-0022 D1).",
-    "core/operation": "imbib-core registry; written by impress-core sqlite_store operation journal. NOT `impress/operation` — see knownDivergences/operation-spelling.",
+    "core/operation": "The operation journal / CRDT log. Written and queried by impress-core sqlite_store; its one schema definition lives in imbib-core unified::schemas::core_operation_schema. NOT `impress/operation`: impress-core registered that id from the start and nothing ever wrote or read it — the dead registration (schemas/operation.rs) was deleted in WP C4. Remaining wart, deliberately not fixed here: the WRITER crate (impress-core) registers no definition for this id, so registry.validate() is a no-op for operation rows in an impress-core-only registry. Moving the definition up from imbib-core is the fix and is out of C4's boundary.",
     "dataset": "impress-core (implore schemas). Written by implore ImploreStoreAdapter.",
     "email-message": "impress-core + impart-core. Written by impart.",
     "figure": "impress-core (implore schemas). Written by implore ImploreStoreAdapter.",
@@ -47,8 +55,6 @@
     "imbib/scix-library": "imbib-core.",
     "imbib/smart-search": "imbib-core.",
     "imbib/tag-definition": "imbib-core.",
-    "impel/agent-run": "impel-core registry; written by impel SharedTaskBridge.swift. See knownDivergences/impel-run-spelling.",
-    "impel/task": "impel-core registry; written by impel SharedTaskBridge.swift. See knownDivergences/impel-task-spelling.",
     "impress/artifact/code": "impress-core artifact domain.",
     "impress/artifact/dataset": "impress-core artifact domain.",
     "impress/artifact/general": "impress-core artifact domain.",
@@ -68,8 +74,7 @@
     "review": "impress-core knowledge objects. Written by impel JournalReviewService.",
     "review-request@1.0.0": "VERSIONED, and in NO registry. Written by impel-core task_store REVIEW_REQUEST_SCHEMA, validated by impress-store-ffi resolve_review, read by imprint ThroughlineCoordinator. Canonical because it is genuinely the written spelling; the missing registration is tracked in registeredButUnwritten's inverse and is why registry.validate() is a no-op for these rows.",
     "revision-note": "impress-core knowledge objects. Written by impel JournalReviewService.",
-    "task": "impress-core registry. Bare form; see knownDivergences/impel-task-spelling.",
-    "task@1.0.0": "VERSIONED. Written by impel-core task_spawn TASK_SCHEMA; selected by impress-core sqlite_store ready_tasks; claimed by TaskRecordKind descriptor and the agentTasksAll sidebar counts.",
+    "task@1.0.0": "VERSIONED, and the ONLY spelling of this kind since WP C4. Selected by impress-core sqlite_store ready_tasks — which is why it won: it is the spelling with a live queue behind it, so converging on it means nothing that is scheduled today stops being scheduled. Written by impel-core task_spawn TASK_SCHEMA and by impel SharedTaskBridge.taskCreated; registered ONCE, in impress-core schemas/task.rs, whose fields are the union of both writers' payloads; inherited by manuscript-submission; claimed by the TaskRecordKind descriptor, which is what AgentStoreReader and the agentTasksAll sidebar counts read. The retired `task` (impress-core registration, unwritten in production) and `impel/task` (SharedTaskBridge) rows are converged by impress_core::task_schema_migration. NOTE: ready_tasks additionally requires a non-empty payload `task_kind`, so bridge-MIRRORED rows converge without becoming schedulable.",
     "throughline": "impress-core (ADR-0016). Written by imprint ImprintStoreAdapter.",
     "veusz-plot": "impress-core."
   },
@@ -81,11 +86,17 @@
     "",
     "Entry points: impress-core schemas::register_core_schemas, imbib-core",
     "unified::schemas::register_all, impel-core schemas::register_impel_schemas,",
-    "impart-core schemas::register_impart_schemas."
+    "impart-core schemas::register_impart_schemas.",
+    "",
+    "The same id may appear under two crates, but there is only ever ONE DEFINITION of it.",
+    "`task@1.0.0` / `agent-run@1.0.0` are defined in impress-core (schemas/task.rs, next to",
+    "the `ready_tasks` query that consumes them) and impel-core's entry point DELEGATES",
+    "there — it does not keep a copy. Two definitions of one id drift, which is exactly how",
+    "impel ended up with a registry saying `impel/task` while its kernel wrote `task@1.0.0`."
   ],
   "registries": {
     "impress-core": [
-      "agent-run",
+      "agent-run@1.0.0",
       "annotation",
       "bibliography-entry",
       "chat-message",
@@ -104,7 +115,6 @@
       "impress/artifact/poster",
       "impress/artifact/presentation",
       "impress/artifact/webpage",
-      "impress/operation",
       "mail-account",
       "mail-folder",
       "manuscript",
@@ -115,7 +125,7 @@
       "plot-spec",
       "review",
       "revision-note",
-      "task",
+      "task@1.0.0",
       "throughline",
       "veusz-plot"
     ],
@@ -149,17 +159,15 @@
       "manuscript-section"
     ],
     "impel-core": [
-      "impel/agent-run",
-      "impel/task"
+      "agent-run@1.0.0",
+      "task@1.0.0"
     ],
     "impart-core": [
       "chat-message",
       "email-message"
     ]
   },
-  "registeredButUnwritten": {
-    "impress/operation": "impress-core registers this id, but sqlite_store writes the operation journal as `core/operation` (which imbib-core registers). Nothing has ever written or read `impress/operation`. Using it at a call site is always a bug."
-  },
+  "registeredButUnwritten": {},
   "literalAllowlist": {
     "not-a-manuscript-section": "Negative fixture — ImprintImpressStoreTests asserts loadSection REJECTS a wrong-schema row.",
     "s": "Opaque placeholder in SyncEngineCodecTests round-trip; the codec never interprets it.",
@@ -168,35 +176,9 @@
     "preprint": "impress-core registry unit-test fixture for validate-unknown-schema.",
     "publication@1.0.0": "impress-core backup.rs unit-test fixture; the backup format stores whatever ref a row carries, so the value is arbitrary here.",
     "manuscript-bundle-manifest@1.0.0": "NOT a store schema_ref. This is the self-describing `schema` field INSIDE a bundle-manifest JSON payload (impress-core schemas/manuscript_bundle_manifest.rs), which is versioned by design. No row is ever written with this ref.",
-    "manuscript-bundle-manifest@2.0.0": "Same as above — a CounselEngine test asserting an unknown manifest payload version is rejected."
+    "manuscript-bundle-manifest@2.0.0": "Same as above — a CounselEngine test asserting an unknown manifest payload version is rejected.",
+    "impress/litmus-note": "Test-only record kind (LitmusNoteRecordKind, PMC tests): registered from TEST code to prove ADR-0021's add-a-kind-with-zero-chassis-edits litmus continuously in CI. Never written to any store; no registry entry by design."
   },
-  "knownDivergences": [
-    {
-      "id": "impel-task-spelling",
-      "refs": [
-        "task",
-        "impel/task",
-        "task@1.0.0"
-      ],
-      "why": "THREE live spellings for one kind. impel-core's REGISTRY says `impel/task`; its KERNEL (task_spawn.rs TASK_SCHEMA) writes `task@1.0.0`; impress-core registers a bare `task` nothing writes; impel's Swift SharedTaskBridge writes `impel/task`. sqlite_store.ready_tasks selects ONLY `task@1.0.0`, so bridge-written tasks are never scheduled, and registry.validate() cannot validate kernel-written tasks at all. Not fixed here: needs a data migration over existing user stores plus an owner decision on which spelling wins."
-    },
-    {
-      "id": "impel-run-spelling",
-      "refs": [
-        "agent-run",
-        "impel/agent-run",
-        "agent-run@1.0.0"
-      ],
-      "why": "Same split as impel-task-spelling, for agent runs. The agentRunsAll sidebar count reads `agent-run@1.0.0` only."
-    },
-    {
-      "id": "operation-spelling",
-      "refs": [
-        "core/operation",
-        "impress/operation"
-      ],
-      "why": "sqlite_store writes and queries `core/operation`; imbib-core registers that id. impress-core's schemas/operation.rs registers `impress/operation`, which nothing writes or reads. Harmless today (writer and reader agree), but the dead registration is a trap for the next reader."
-    }
-  ],
-  "knownDivergenceBudget": 3
+  "knownDivergences": [],
+  "knownDivergenceBudget": 0
 }

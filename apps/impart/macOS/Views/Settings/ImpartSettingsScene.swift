@@ -160,7 +160,8 @@ struct KeyboardSettingsView: View {
 
 struct AutomationSettingsView: View {
     @AppStorage("httpAutomationEnabled") private var httpEnabled = true
-    @AppStorage("httpAutomationPort") private var httpPort = 23122
+    // Default from THE sibling-app table (ImpressKit), not a literal.
+    @AppStorage("httpAutomationPort") private var httpPort = Int(ImpartHTTPServer.defaultPort)
 
     var body: some View {
         Form {

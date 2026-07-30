@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressKit
 
 // MARK: - App Endpoint Configuration
 
@@ -21,6 +22,13 @@ public struct AppEndpoint: Sendable {
         self.host = host
     }
 
+    /// Address a sibling app by its row in THE sibling-app table
+    /// (`SiblingApp.descriptors`, ImpressKit). This is the only way the presets
+    /// below are built — the palette does not know any port by heart.
+    public init(_ sibling: SiblingApp, host: String = "127.0.0.1") {
+        self.init(app: sibling.rawValue, port: sibling.httpPort, host: host)
+    }
+
     public var baseURL: URL {
         URL(string: "http://\(host):\(port)")!
     }
@@ -34,15 +42,22 @@ public struct AppEndpoint: Sendable {
     }
 }
 
-/// Default ports for impress apps
+/// Default endpoints for the impress apps.
+///
+/// Every value here is a LOOKUP into `SiblingApp.descriptors` (ImpressKit) —
+/// the suite's single port table. These used to be five hand-written literals,
+/// and two of them (impel and implore) were transposed relative to that table,
+/// so the palette asked implore for impel's commands and vice versa.
 public extension AppEndpoint {
-    static let imbib = AppEndpoint(app: "imbib", port: 23120)
-    static let imprint = AppEndpoint(app: "imprint", port: 23121)
-    static let impart = AppEndpoint(app: "impart", port: 23122)
-    static let impel = AppEndpoint(app: "impel", port: 23123)
-    static let implore = AppEndpoint(app: "implore", port: 23124)
+    static let imbib = AppEndpoint(.imbib)
+    static let imprint = AppEndpoint(.imprint)
+    static let impart = AppEndpoint(.impart)
+    static let impel = AppEndpoint(.impel)
+    static let implore = AppEndpoint(.implore)
 
-    static let all: [AppEndpoint] = [.imbib, .imprint, .impart, .impel, .implore]
+    /// Every app in the suite, derived from the table so a sixth app appears
+    /// here the moment it gets a descriptor row.
+    static let all: [AppEndpoint] = SiblingApp.allCases.map { AppEndpoint($0) }
 }
 
 // MARK: - Command Palette Client

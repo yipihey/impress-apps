@@ -12,8 +12,34 @@
 //  Staleness is a visible state, not an error (ADR-0016 D5): badges inform,
 //  they never nag and never auto-fix.
 //
+//  ## CROSS-PLATFORM since C1 (2026-07-30) — moved out of `macOS/Views/`
+//
+//  The throughline was macOS-only for a structural reason that had already been
+//  removed: `ThroughlineCoordinator` and `ThroughlineModel` were de-gated in
+//  wave 2 (the gate there was around the store WRITER, "pure inertia", and it
+//  made the mirror silently no-op on iOS) and both files have been compiled into
+//  the `imprint-iOS` target ever since. Only this VIEW stayed behind, in a
+//  macOS-target directory, so iPad had the whole engine and no way to look at
+//  it — an original user-reported gap.
+//
+//  Nothing in the body was AppKit-adjacent. The port is ONE island
+//  (`BorderlessButtonMenuStyle` is macOS-only) plus one adaptation: `.help(_:)`
+//  compiles on iOS but only reaches VoiceOver, and the badge legend is where
+//  this pane keeps its meaning — so on iOS every badge also answers a LONG
+//  PRESS with the same sentence, the established substitute for hover
+//  (`CitationPaperSheet`, `IOSSourceEditorView.onCiteKeyLongPress`). This is a
+//  relocation, not a redesign: no copy changed, no interaction was dropped.
+//
+//  The two hosts differ only in how they mount it:
+//    * macOS — `ThroughlineSidePanel` in `ManuscriptSidePanels`, a column of the
+//      Source tab's `HSplitView` (`ManuscriptSidePanel` is itself macOS-only;
+//      the seam does not exist on iOS).
+//    * iOS — a toolbar button in `IOSContentView` raising it as a sheet with
+//      medium/large detents. A phone has no room for an inspector COLUMN, and a
+//      third pane state would have to fight the two-state Source/Preview swipe
+//      and its persisted `@AppStorage` choice.
+//
 
-#if os(macOS)
 import SwiftUI
 import ImpressLogging
 
@@ -34,7 +60,11 @@ struct ThroughlinePaneView: View {
                 createAffordance
             }
         }
-        .frame(minWidth: 260, idealWidth: 340, maxWidth: 480)
+        // Column sizing for the macOS inspector. On iOS the pane is a sheet and
+        // sizes itself from the detent, so a 480 pt cap would only narrow it on
+        // iPad.
+        .throughlinePaneWidth()
+        .accessibilityIdentifier("throughline.pane")
     }
 
     // MARK: - Create (explicit opt-in)
@@ -54,6 +84,7 @@ struct ThroughlinePaneView: View {
                 ThroughlineCoordinator.create(in: &document)
             }
             .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("throughline.create")
         }
         .padding(20)
         .frame(maxHeight: .infinity)
@@ -98,6 +129,7 @@ struct ThroughlinePaneView: View {
             }
             .padding(10)
             .background(Color.accentColor.opacity(0.06))
+            .accessibilityIdentifier("throughline.proposals")
             Divider()
         }
     }
@@ -163,6 +195,7 @@ struct ThroughlinePaneView: View {
             .pickerStyle(.segmented)
             .frame(width: 110)
             .help("Story shows paragraphs with sync badges; Edit is the raw Typst source")
+            .accessibilityIdentifier("throughline.modePicker")
 
             Menu {
                 Button("Remove Throughline…", role: .destructive) {
@@ -171,8 +204,8 @@ struct ThroughlinePaneView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
-            .menuStyle(.borderlessButton)
-            .frame(width: 26)
+            .throughlineMenuChrome(width: 26)
+            .accessibilityIdentifier("throughline.overflow")
         }
         .confirmationDialog(
             "Remove this document's throughline?",
@@ -206,6 +239,7 @@ struct ThroughlinePaneView: View {
         )
         .font(.system(.body, design: .monospaced))
         .scrollContentBackground(.hidden)
+        .accessibilityIdentifier("throughline.sourceEditor")
     }
 
     // MARK: - Paragraphs
@@ -238,6 +272,7 @@ struct ThroughlinePaneView: View {
             }
             .padding(10)
         }
+        .accessibilityIdentifier("throughline.paragraphs")
     }
 
     @ViewBuilder
@@ -249,6 +284,12 @@ struct ThroughlinePaneView: View {
                 Text("<\(paragraph.label)>")
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
+                    // The ROW's identifier lives on this label, not on the row
+                    // container: an identifier applied to a container REPLACES
+                    // its children's (the same inheritance imprint's list rows
+                    // rely on), which swallowed the badge and the anchor menu —
+                    // the two elements a test most needs to address.
+                    .accessibilityIdentifier("throughline.paragraph.\(paragraph.label)")
                 Spacer()
                 anchorMenu(for: paragraph)
             }
@@ -280,6 +321,7 @@ struct ThroughlinePaneView: View {
         }
         .buttonStyle(.plain)
         .help(broken ? "Anchored section no longer resolves" : "Section changed since last sync")
+        .accessibilityIdentifier("throughline.chip.\(key)")
     }
 
     @ViewBuilder
@@ -304,6 +346,13 @@ struct ThroughlinePaneView: View {
             .foregroundStyle(color)
             .help(help)
             .accessibilityLabel(state)
+            .accessibilityIdentifier("throughline.badge.\(state)")
+            // The hover adaptation: on macOS `.help` above is a tooltip; on iOS
+            // it reaches VoiceOver only, and a badge whose meaning is invisible
+            // is the one thing this pane cannot afford. Long press answers with
+            // the same sentence — the gesture imprint-iOS already uses in place
+            // of hover for cite keys.
+            .throughlineLongPressLegend(state: state, help: help)
     }
 
     // MARK: - Anchor editing
@@ -339,9 +388,9 @@ struct ThroughlinePaneView: View {
             Image(systemName: "link")
                 .font(.caption)
         }
-        .menuStyle(.borderlessButton)
-        .frame(width: 30)
+        .throughlineMenuChrome(width: 30)
         .help("Anchor this paragraph to manuscript sections (baselines the sync ledger)")
+        .accessibilityIdentifier("throughline.anchorMenu.\(paragraph.label)")
     }
 
     // MARK: - Coverage (ADR-0016 D7: a query, not a nag)
@@ -368,9 +417,10 @@ struct ThroughlinePaneView: View {
                                         derivationTick += 1
                                     }
                                 }
-                                .menuStyle(.borderlessButton)
+                                .throughlineMenuChrome()
                                 .font(.caption2)
                                 .fixedSize()
+                                .accessibilityIdentifier("throughline.uncovered.\(key)")
                             }
                         }
                     }
@@ -380,6 +430,54 @@ struct ThroughlinePaneView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("throughline.coverage")
     }
 }
-#endif // os(macOS)
+
+// MARK: - Platform islands
+//
+// Three modifiers, each an `#if` island rather than a second copy of the pane.
+
+private extension View {
+
+    /// macOS's borderless menu chrome. `BorderlessButtonMenuStyle` does not
+    /// exist on iOS, and the platform's own menu-from-a-glyph rendering is
+    /// already borderless — so iOS simply keeps the default, and the fixed
+    /// width (a pointer-hit-target size) goes with it.
+    @ViewBuilder
+    func throughlineMenuChrome(width: CGFloat? = nil) -> some View {
+        #if os(macOS)
+        if let width {
+            self.menuStyle(.borderlessButton).frame(width: width)
+        } else {
+            self.menuStyle(.borderlessButton)
+        }
+        #else
+        self
+        #endif
+    }
+
+    /// The inspector COLUMN's width, which only the macOS host has.
+    @ViewBuilder
+    func throughlinePaneWidth() -> some View {
+        #if os(macOS)
+        self.frame(minWidth: 260, idealWidth: 340, maxWidth: 480)
+        #else
+        self
+        #endif
+    }
+
+    /// iOS: long press a badge to read what it means. macOS already answers
+    /// that on hover (`.help`), so it adds nothing there.
+    @ViewBuilder
+    func throughlineLongPressLegend(state: String, help: String) -> some View {
+        #if os(iOS)
+        self.contextMenu {
+            Text(state)
+            Text(help)
+        }
+        #else
+        self
+        #endif
+    }
+}

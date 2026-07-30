@@ -9,6 +9,7 @@
 import Foundation
 import OSLog
 import ImpressAI
+import ImpressKit
 import ImpressLogging
 
 // MARK: - Inline Completion Service
@@ -62,7 +63,9 @@ public final class InlineCompletionService {
     private var lastRequestedText: String = ""
     private var lastCursorPosition: Int = 0
     private let aiService = AIAssistantService.shared
-    private let imbibPort = 23120
+    // Dialling a sibling: read the address from THE sibling-app table
+    // (`SiblingApp.descriptors`, ImpressKit), never a local literal.
+    private let imbibPort = Int(SiblingApp.imbib.httpPort)
 
     // Cache for recent imbib searches
     private var citationCache: [String: [CitationSuggestion]] = [:]

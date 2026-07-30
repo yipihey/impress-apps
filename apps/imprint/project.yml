@@ -189,30 +189,22 @@ targets:
             UTTypeTagSpecification:
               public.filename-extension:
                 - imprint
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Document Reference
-            UTTypeIdentifier: com.impress.document-reference
-            UTTypeTagSpecification: {}
           # The chassis drag types that used to be pasted here now come from the
           # ChassisUTIs template (apps/chassis-utis.yml) and are appended to
-          # this list at generate time.
+          # this list at generate time — including document-reference, and the
+          # paper-reference / figure-reference / veusz-plot-reference that used
+          # to be listed below as IMPORTED. All four graduated on 2026-07-30.
+          #
+          # This target was the one with a live latent fault: imprint DOES reach
+          # `UTType.impressPaperReference` (MailStylePublicationRow's drag
+          # provider, via the Cited in Manuscripts publication list) and
+          # `UTType.impressFigureReference` (SourceEditorView's `.onDrop`, via
+          # ManuscriptDetailPane and FocusModeView), but only imported them —
+          # which does not satisfy `UTType(exportedAs:)`.
+          #
+          # Only `.imprint` (above) and `org.veusz.document` (below) stay: both
+          # carry filename-extension claims imprint genuinely owns.
         UTImportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Paper Reference
-            UTTypeIdentifier: com.impress.paper-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Figure Reference
-            UTTypeIdentifier: com.impress.figure-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Veusz Plot Reference
-            UTTypeIdentifier: com.impress.veusz-plot-reference
-            UTTypeTagSpecification: {}
           - UTTypeConformsTo:
               - public.data
               - public.plain-text
@@ -355,27 +347,12 @@ targets:
             UTTypeTagSpecification:
               public.filename-extension:
                 - imprint
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Document Reference
-            UTTypeIdentifier: com.impress.document-reference
-            UTTypeTagSpecification: {}
+          # document-reference, plus the paper-reference / figure-reference /
+          # veusz-plot-reference that used to be listed below as IMPORTED, all
+          # come from the ChassisUTIs template now (graduated 2026-07-30) —
+          # same reasoning as the macOS target above. Only `.imprint` and
+          # `org.veusz.document` stay.
         UTImportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Paper Reference
-            UTTypeIdentifier: com.impress.paper-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Figure Reference
-            UTTypeIdentifier: com.impress.figure-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Veusz Plot Reference
-            UTTypeIdentifier: com.impress.veusz-plot-reference
-            UTTypeTagSpecification: {}
           - UTTypeConformsTo:
               - public.data
               - public.plain-text

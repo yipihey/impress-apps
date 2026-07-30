@@ -70,11 +70,16 @@ public final class AgentStoreReader {
     /// Read from the DESCRIPTORS rather than re-typed: these were two string
     /// literals duplicating what `TaskRecordKind`/`AgentRunRecordKind` already
     /// declare, and a reader with its own copy of a ref is precisely the
-    /// silent-empty-query bug schema-refs.json exists to prevent. There are
-    /// three live spellings of each of these kinds
-    /// (knownDivergences/impel-task-spelling), which makes having exactly one
-    /// Swift-side statement of the one this reader wants worth more here than
-    /// anywhere else.
+    /// silent-empty-query bug schema-refs.json exists to prevent.
+    ///
+    /// There used to be THREE live spellings of each of these kinds
+    /// (`knownDivergences/impel-task-spelling`), which is what made one
+    /// Swift-side statement matter more here than anywhere else. WP C4
+    /// converged them: `impel/task` / `impel/agent-run` are retired, the bare
+    /// forms are unregistered, and existing rows are re-spelled by
+    /// `impress_core::task_schema_migration`. So this reader now sees the rows
+    /// impel's Swift bridge writes as well as the ones its Rust kernel writes —
+    /// before, the Agents section showed only the latter.
     public static let taskSchema = TaskRecordKind.descriptor.primarySchemaRef
     public static let agentRunSchema = AgentRunRecordKind.descriptor.primarySchemaRef
 
@@ -137,7 +142,14 @@ public final class AgentStoreReader {
     public func fetchRun(id: String) -> SharedItemRow? {
         guard let store else { return nil }
         guard let row = try? store.getItem(id: id.lowercased()) else { return nil }
-        guard row.schemaRef.hasPrefix("agent-run") else { return nil }
+        // Registry lookup, not `hasPrefix("agent-run")`, for the same reason
+        // `fetchTask` uses one: the tolerant lookup compares BASE NAMES, so a
+        // future `agent-run-template` row cannot pass as a run. The prefix form
+        // was also the only reason this method tolerated the retired
+        // `impel/agent-run`… which it did not, since that spelling starts with
+        // `impel/`. WP C4 converged the spellings, so there is one thing to match.
+        guard BuiltinRecordKinds.registry.kind(forStoreSchemaRef: row.schemaRef) == .agentRun
+        else { return nil }
         return row
     }
 
@@ -152,7 +164,7 @@ public final class AgentStoreReader {
             .filter { $0.edgeType == "ProducedBy" }
             .compactMap { try? store.getItem(id: $0.targetId) }
             .compactMap { $0 }
-            .filter { $0.schemaRef.hasPrefix("agent-run") }
+            .filter { BuiltinRecordKinds.registry.kind(forStoreSchemaRef: $0.schemaRef) == .agentRun }
             .sorted { $0.createdMs > $1.createdMs }
     }
 

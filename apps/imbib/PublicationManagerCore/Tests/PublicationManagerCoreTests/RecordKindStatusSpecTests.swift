@@ -132,6 +132,80 @@ final class RecordKindStatusSpecTests: XCTestCase {
         }
     }
 
+    // MARK: - freezesSource (the declared freeze facet)
+
+    /// The facet is ADDITIVE: it defaults to `false`, so every declaration site
+    /// that predates it — and every kind that has no notion of freezing a
+    /// source — is unchanged. This is the assertion that keeps it that way.
+    func testFreezesSourceDefaultsToFalse() {
+        let undeclared = StatusSpec("peer-review", label: "Peer Review", systemImage: "circle")
+        XCTAssertFalse(
+            undeclared.freezesSource,
+            "a status that says nothing about freezing must freeze nothing")
+
+        for descriptor in BuiltinRecordKinds.all where descriptor.id != .manuscript {
+            XCTAssertTrue(
+                descriptor.triage.freezingStatusValues.isEmpty,
+                "\(descriptor.id.rawValue) declares a freezing status but has no "
+                    + "snapshot consumer — the manuscript kind is the only one today")
+        }
+        // Kernel-owned lifecycles are not the chassis's to freeze either.
+        for descriptor in BuiltinRecordKinds.all {
+            guard let lifecycle = descriptor.lifecycle else { continue }
+            for state in lifecycle.states {
+                XCTAssertFalse(
+                    state.freezesSource,
+                    "\(descriptor.id.rawValue)/'\(state.rawValue)' is a kernel state; "
+                        + "freezing is a `status` facet")
+            }
+        }
+    }
+
+    /// The manuscript kind's freeze set, frozen. This is the DECLARATION half
+    /// of the interlock impel's `JournalStatusPolicyParityTests` closes: that
+    /// suite compares `JournalPipeline.autoSnapshotStatuses` against
+    /// `triage.freezingStatusValues`, so if this line changes without the
+    /// pipeline changing, impel's lane fails.
+    func testManuscriptDeclaresTheFreezingStatuses() {
+        let triage = ManuscriptRecordKind.descriptor.triage
+        XCTAssertEqual(
+            triage.freezingStatusValues, ["submitted", "published", "archived"],
+            "the manuscript statuses that write a revision snapshot (ADR-0011 D5)")
+    }
+
+    /// The two derivations that LOOK like this set and are both wrong. Pinning
+    /// them is the reason the facet had to be declared rather than computed:
+    /// `isTerminal` over-includes `dismissed` and under-includes `submitted`.
+    func testFreezesSourceIsNotDerivableFromIsTerminal() {
+        let triage = ManuscriptRecordKind.descriptor.triage
+        let terminal = Set(triage.statuses.filter(\.isTerminal).map(\.rawValue))
+        XCTAssertNotEqual(
+            terminal, triage.freezingStatusValues,
+            "if these ever coincide, the facet stops paying for itself — say so here")
+        XCTAssertEqual(triage.status("submitted")?.isTerminal, false)
+        XCTAssertEqual(triage.status("submitted")?.freezesSource, true)
+        XCTAssertEqual(triage.status("dismissed")?.isTerminal, true)
+        XCTAssertEqual(triage.status("dismissed")?.freezesSource, false)
+    }
+
+    /// Every freezing status must be one the kind DECLARES, and the dismissal
+    /// status must never be one — the same two-directional check the archive
+    /// and dismissal semantics get above, for the same reason.
+    func testFreezingStatusesAreDeclaredAndNeverTheDismissalStatus() {
+        for descriptor in BuiltinRecordKinds.all {
+            let triage = descriptor.triage
+            for raw in triage.freezingStatusValues.sorted() {
+                XCTAssertNotNil(
+                    triage.status(raw),
+                    "\(descriptor.id.rawValue): '\(raw)' freezes but is not declared")
+                XCTAssertNotEqual(
+                    raw, triage.dismissedStatus,
+                    "\(descriptor.id.rawValue): the dismissal status must not freeze a "
+                        + "snapshot of work the user just rejected")
+            }
+        }
+    }
+
     // MARK: - Frozen presentation (the no-pixel-moved gate)
 
     /// The manuscript lifecycle's presentation, EXACTLY as it shipped before

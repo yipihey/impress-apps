@@ -17,7 +17,11 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use url::Url;
 
-const DEFAULT_BASE_URL: &str = "http://localhost:23124";
+// implore's automation port. Authority: `SiblingApp.descriptors` in
+// packages/ImpressKit (implore = 23123). This said 23124 — impel's port — for
+// as long as implore's own server bound 23124 too; both were aligned to the
+// table on 2026-07-30 (hardening C3).
+const DEFAULT_BASE_URL: &str = "http://localhost:23123";
 
 fn log_err(method: &str, e: impl std::fmt::Display) {
     eprintln!("[implore-service-http] {method}: {e}");

@@ -29,9 +29,11 @@
 //! | verb             | returns                   | undo by calling                                   |
 //! |------------------|---------------------------|---------------------------------------------------|
 //! | `create`         | [`CollectionRow`]         | `delete(row.id)`                                  |
+//! | `create_in`      | [`CollectionRow`]         | `delete(row.id)`                                  |
 //! | `rename`         | [`CollectionMutation`]    | `rename(id, prior.name())`                        |
 //! | `reorder`        | [`CollectionMutation`]    | `reorder(id, prior.sort_order())`                 |
 //! | `reparent`       | [`CollectionMutation`]    | `reparent(id, prior.parent_id())` (`None` = root) |
+//! | `reparent_in`    | [`CollectionMutation`]    | `reparent_in(id, prior.parent_id(), prior.container_id())` |
 //! | `delete`         | [`DeletedCollection`]     | `restore(snapshot)`                               |
 //! | `restore`        | [`CollectionRow`]         | `delete(row.id)`                                  |
 //! | `add_members`    | changed ids               | `remove_members(collection, changed)`             |
@@ -40,6 +42,33 @@
 //! The membership verbs return only the ids they actually changed — never the
 //! ids the caller asked for — so the inverse cannot re-file an item that was
 //! already a member (or unfile one that never was).
+//!
+//! # The optional axes (ADR-0022 C2)
+//!
+//! Three axes are `Option`al on [`CollectionSchemaBinding`] because exactly one
+//! shipped binding needs each, and a binding that declines one behaves precisely
+//! as it did before the axis existed:
+//!
+//! | axis | declared by | what it buys | `None` means |
+//! |---|---|---|---|
+//! | [`ContainerField`] (`container_field`) | `IMBIB_COLLECTION` | per-container creation ([`create_in`]), per-container listing ([`list_tree_in`]), atomic cross-container reparent ([`reparent_in`]), and a `container_id` on every row | collections are global; every container argument is ignored |
+//! | `smart_field` | `IMBIB_COLLECTION`, `MANUSCRIPT_COLLECTION`, `GENERIC_COLLECTION` | [`CollectionRow::is_smart`], the per-row read-only predicate a sidebar gates Rename / New Subcollection on | rows report `is_smart: false` |
+//! | `kind_scope_field` (pre-existing) | `GENERIC_COLLECTION` | per-row record-kind scope | the binding's scope is a constant it already knows |
+//!
+//! The container axis is the one axis the WP G7 flip provably cannot disturb:
+//! the migration rewrites `schema_ref` and the payload and never touches the
+//! envelope, so a container read or write is byte-identical on both sides.
+//! That is what makes [`list_tree_in`] a drop-in for imbib-core's
+//! `list_collections(library_id)`, which is blind after the flip.
+//!
+//! **Not an axis: "ensure container membership".** The wave-3 routing survey
+//! listed `ImbibStore::add_to_collection` as also ensuring the publication is a
+//! member of the collection's library, which would have made membership a
+//! two-write verb for one binding. It does not — the export is thirty lines of
+//! `AddReference(Contains)` and nothing else (`imbib-core/unified/store_api.rs`),
+//! and the claim came from a Swift call-site COMMENT, not from the code. So
+//! [`add_members`] is already faithful for publication collections and no hook
+//! was added: a seam nothing needs is a seam that rots.
 //!
 //! # Dual mode (ADR-0022 WP G7)
 //!
@@ -114,6 +143,31 @@ pub enum Membership {
     EnvelopeParent,
 }
 
+/// Where a binding records a collection's OWNING CONTAINER (ADR-0022 C2).
+///
+/// The container is what a collection belongs **to**; the tree parent
+/// ([`ParentField`]) is what it nests **under**. imbib is the binding that
+/// forced this to be declared: a publication collection carries
+/// (collectionID, libraryID), drop acceptance requires the SAME library, a
+/// cross-library reparent is TWO writes, and creation is per-library — none of
+/// which the kernel could say before.
+///
+/// A binding with `None` has no container axis at all: manuscript folders and
+/// figure folders are global, and every container-taking verb below degrades to
+/// its historical, container-free behaviour for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerField {
+    /// The envelope `item.parent`. For imbib publication collections that field
+    /// IS the owning library — which is precisely what `list_collections`
+    /// filters on (`HasParent`) and what the c902a22f postmortem is about: the
+    /// envelope is the CONTAINER, never the tree parent.
+    ///
+    /// Migration-invariant on purpose. WP G7 rewrites `schema_ref` and the
+    /// payload and does not touch the envelope, so container reads and writes
+    /// are byte-identical on both sides of the `collections.unified` flip.
+    Envelope,
+}
+
 /// What a binding writes to a collection row's envelope `item.parent`.
 ///
 /// Separate from [`ParentField`] because the two answer different questions:
@@ -151,10 +205,24 @@ pub struct CollectionSchemaBinding {
     /// generic binding, which is unscoped: it is the destination, and it sees
     /// every collection row whatever its scope.
     pub unified_kind_scope: Option<&'static str>,
+    /// Where this binding records the OWNING CONTAINER, or `None` for a binding
+    /// whose collections are global (manuscript folders, figure folders).
+    pub container_field: Option<ContainerField>,
+    /// Payload bool field marking a row as a SMART (query-defined) collection,
+    /// for schemas that have one. Read-only here: the kernel never writes it and
+    /// has no predicate language (ADR-0022 risk register). It exists so the
+    /// per-row read-only predicate a sidebar needs — imbib gates Rename and New
+    /// Subcollection on it, leaving Delete — is sourced from the payload instead
+    /// of from a second Swift read of a legacy row shape.
+    pub smart_field: Option<&'static str>,
 }
 
 /// imbib publication collections (`imbib/collection`): payload `parent_id`
 /// tree, `Contains` membership, envelope parent = owning library.
+///
+/// The one binding with all three optional axes populated: it is per-library
+/// (`container_field`), it has smart rows (`smart_field`), and its tree parent
+/// is a payload ref while its envelope is the library.
 pub const IMBIB_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
     schema_ref: "imbib/collection",
     parent_field: ParentField::Payload("parent_id"),
@@ -162,6 +230,8 @@ pub const IMBIB_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
     kind_scope_field: None,
     envelope_parent: EnvelopeParent::OwningLibrary,
     unified_kind_scope: Some("publication"),
+    container_field: Some(ContainerField::Envelope),
+    smart_field: Some("is_smart"),
 };
 
 /// imprint manuscript folders (`manuscript-collection@1.0.0`, stored bare as
@@ -173,6 +243,13 @@ pub const MANUSCRIPT_COLLECTION: CollectionSchemaBinding = CollectionSchemaBindi
     kind_scope_field: None,
     envelope_parent: EnvelopeParent::OwningLibrary,
     unified_kind_scope: Some("manuscript"),
+    // No container axis: imprint's folders are global, not per-library. Every
+    // container-taking verb therefore behaves exactly as it did before C2.
+    container_field: None,
+    // `manuscript-collection` declares `is_smart` (imbib-core `schemas.rs`), and
+    // the sidebar already renders the badged glyph off it. Reporting it costs
+    // nothing and no verb branches on it.
+    smart_field: Some("is_smart"),
 };
 
 /// implore figure folders (`figure-collection@1.0.0`). The odd one out: the
@@ -185,6 +262,12 @@ pub const FIGURE_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding {
     kind_scope_field: None,
     envelope_parent: EnvelopeParent::TreeParent,
     unified_kind_scope: Some("figure"),
+    // The envelope is already spoken for — it IS the tree parent — so a figure
+    // folder could not carry a container even if implore wanted one.
+    container_field: None,
+    // `figure-collection` has no such field (`FigureCollectionPayload` is
+    // name + sort_order), so rows report `is_smart: false`.
+    smart_field: None,
 };
 
 /// The generic `collection@1.0.0` kernel schema (ADR-0022 D1).
@@ -195,6 +278,12 @@ pub const GENERIC_COLLECTION: CollectionSchemaBinding = CollectionSchemaBinding 
     kind_scope_field: Some("kind_scope"),
     envelope_parent: EnvelopeParent::OwningLibrary,
     unified_kind_scope: None,
+    // The generic binding is the DESTINATION and must see every collection row
+    // whatever container it sits in, exactly as it is unscoped by `kind_scope`.
+    // A container-scoped generic read is the caller's filter, not the binding's.
+    container_field: None,
+    // `collection@1.0.0` schema'd `is_smart` from the start (D1), inert.
+    smart_field: Some("is_smart"),
 };
 
 /// Every binding the kernel fronts, in stable order.
@@ -228,6 +317,13 @@ pub struct ResolvedBinding {
     pub kind_scope: Option<&'static str>,
     /// What to write to the envelope `item.parent`.
     pub envelope_parent: EnvelopeParent,
+    /// Unchanged by the flip, always: WP G7 rewrites the schema and the payload
+    /// and leaves the envelope alone, so the container axis is the one axis that
+    /// is provably identical on both sides.
+    pub container_field: Option<ContainerField>,
+    /// Unchanged by the flip: `collection@1.0.0` spells its smart flag
+    /// `is_smart` too, which is the name every legacy binding that has one uses.
+    pub smart_field: Option<&'static str>,
     /// The marker's state when this was resolved. Reported for diagnostics;
     /// no verb branches on it directly.
     pub unified: bool,
@@ -250,6 +346,8 @@ impl CollectionSchemaBinding {
                 kind_scope_field: self.kind_scope_field,
                 kind_scope: Some(kind_scope),
                 envelope_parent: self.envelope_parent,
+                container_field: self.container_field,
+                smart_field: self.smart_field,
                 unified: true,
             },
             _ => ResolvedBinding {
@@ -259,6 +357,8 @@ impl CollectionSchemaBinding {
                 kind_scope_field: self.kind_scope_field,
                 kind_scope: None,
                 envelope_parent: self.envelope_parent,
+                container_field: self.container_field,
+                smart_field: self.smart_field,
                 unified,
             },
         }
@@ -288,6 +388,15 @@ pub struct CollectionRow {
     pub sort_order: i64,
     /// Record-kind scope, for bindings whose schema carries one.
     pub kind_scope: Option<String>,
+    /// Lowercase UUID string of the OWNING CONTAINER (imbib: the library), or
+    /// `None` for a binding with no container axis. Never the tree parent —
+    /// that is `parent_id`, and conflating the two is the c902a22f regression.
+    pub container_id: Option<String>,
+    /// Is this a smart (query-defined) collection? `false` for every binding
+    /// whose schema has no such field. The kernel has no predicate language, so
+    /// this is a REPORTED fact a caller may gate its own verbs on — which is
+    /// what imbib's sidebar does (smart rows offer Delete only).
+    pub is_smart: bool,
 }
 
 /// The value the mutated field held BEFORE a single-field structural verb ran.
@@ -303,6 +412,16 @@ pub enum CollectionPrior {
     SortOrder(i64),
     /// Prior tree parent, from [`reparent`]. `None` = it was a root.
     Parent(Option<String>),
+    /// Prior tree parent AND prior owning container, from [`reparent_in`] when
+    /// the move crossed containers. A separate variant rather than a wider
+    /// `Parent`, so every existing caller's `Parent` match keeps compiling and
+    /// keeps meaning exactly what it meant: a same-container move.
+    ParentInContainer {
+        /// The tree parent before the move. `None` = it was a root.
+        parent: Option<String>,
+        /// The owning container before the move. `None` = it had none.
+        container: Option<String>,
+    },
 }
 
 impl CollectionPrior {
@@ -322,11 +441,23 @@ impl CollectionPrior {
         }
     }
 
-    /// The prior tree parent, if this came from [`reparent`]. The outer
-    /// `Option` is "wrong variant", the inner one is "was a root".
+    /// The prior tree parent, if this came from [`reparent`] or [`reparent_in`].
+    /// The outer `Option` is "wrong variant", the inner one is "was a root".
     pub fn parent_id(&self) -> Option<Option<&str>> {
         match self {
             CollectionPrior::Parent(parent) => Some(parent.as_deref()),
+            CollectionPrior::ParentInContainer { parent, .. } => Some(parent.as_deref()),
+            _ => None,
+        }
+    }
+
+    /// The prior owning container, if this came from a [`reparent_in`] that
+    /// crossed containers. `None` for every other variant — including
+    /// [`CollectionPrior::Parent`], whose whole point is that the container did
+    /// not move and must not be rewritten by the inverse.
+    pub fn container_id(&self) -> Option<Option<&str>> {
+        match self {
+            CollectionPrior::ParentInContainer { container, .. } => Some(container.as_deref()),
             _ => None,
         }
     }
@@ -376,16 +507,42 @@ pub fn list_tree(
     binding: &CollectionSchemaBinding,
 ) -> Result<Vec<CollectionRow>, StoreError> {
     let b = resolve(store, binding)?;
-    list_tree_resolved(store, &b)
+    list_tree_resolved(store, &b, None)
+}
+
+/// The collections of one OWNING CONTAINER, ordered by `sort_order`.
+///
+/// `container` is ignored by a binding with no container axis, which then
+/// answers exactly as [`list_tree`] does — so a caller may pass the container it
+/// has without asking whether the binding cares.
+///
+/// This is the migration-safe replacement for imbib-core's
+/// `list_collections(library_id)`: that export hard-codes
+/// `schema_ref = "imbib/collection"` and returns nothing once WP G7 has run,
+/// while this resolves the binding against the `collections.unified` marker and
+/// filters on the envelope, which the migration does not touch.
+pub fn list_tree_in(
+    store: &SqliteItemStore,
+    binding: &CollectionSchemaBinding,
+    container: Option<&str>,
+) -> Result<Vec<CollectionRow>, StoreError> {
+    let b = resolve(store, binding)?;
+    let container = container.map(parse_id).transpose()?;
+    list_tree_resolved(store, &b, container)
 }
 
 fn list_tree_resolved(
     store: &SqliteItemStore,
     b: &ResolvedBinding,
+    container: Option<ItemId>,
 ) -> Result<Vec<CollectionRow>, StoreError> {
+    let mut predicates = scope_predicates(b);
+    if let (Some(ContainerField::Envelope), Some(container)) = (b.container_field, container) {
+        predicates.push(Predicate::HasParent(container));
+    }
     let q = ItemQuery {
         schema: Some(b.schema_ref.into()),
-        predicates: scope_predicates(b),
+        predicates,
         sort: vec![SortDescriptor {
             field: "payload.sort_order".into(),
             ascending: true,
@@ -472,8 +629,37 @@ pub fn create(
     kind_scope: Option<&str>,
     sort_order: Option<i64>,
 ) -> Result<CollectionRow, StoreError> {
+    create_in(store, binding, name, parent, kind_scope, sort_order, None)
+}
+
+/// Create a collection in an explicit OWNING CONTAINER (ADR-0022 C2).
+///
+/// `container` is what makes per-library creation expressible: imbib's "New
+/// Collection" on a library row creates a ROOT collection whose owning library
+/// is that row, and there is no parent collection to inherit the library from.
+/// The historical inherit-from-parent rule is what `None` still means, so
+/// [`create`] is this function with `None` and every pre-C2 caller is unchanged.
+///
+/// A binding with no container axis ignores `container` outright rather than
+/// writing an envelope parent its tree semantics would then misread.
+///
+/// **Undo:** `delete(row.id)`.
+#[allow(clippy::too_many_arguments)]
+pub fn create_in(
+    store: &SqliteItemStore,
+    binding: &CollectionSchemaBinding,
+    name: &str,
+    parent: Option<&str>,
+    kind_scope: Option<&str>,
+    sort_order: Option<i64>,
+    container: Option<&str>,
+) -> Result<CollectionRow, StoreError> {
     let b = resolve(store, binding)?;
     let parent_id = parent.map(parse_id).transpose()?;
+    let container_id = match b.container_field {
+        Some(ContainerField::Envelope) => container.map(parse_id).transpose()?,
+        None => None,
+    };
     let parent_item = match parent_id {
         Some(pid) => Some(load_collection(store, &b, pid)?),
         None => None,
@@ -489,7 +675,12 @@ pub fn create(
 
     let mut item = new_item(store, b.schema_ref, payload);
     item.parent = match b.envelope_parent {
-        EnvelopeParent::OwningLibrary => parent_item.as_ref().and_then(|p| p.parent),
+        // An EXPLICIT container wins over the inherit: a root collection has no
+        // parent to inherit from, and a sub-collection created with a stated
+        // library must land in that library rather than in its parent's.
+        EnvelopeParent::OwningLibrary => {
+            container_id.or_else(|| parent_item.as_ref().and_then(|p| p.parent))
+        }
         // Figure folders keep nesting through the envelope even once their
         // tree parent also lives in the payload, so envelope-filed membership
         // (`item.parent` of a figure → this folder) keeps working unchanged.
@@ -541,10 +732,50 @@ pub fn reparent(
     id: &str,
     new_parent: Option<&str>,
 ) -> Result<CollectionMutation, StoreError> {
+    reparent_in(store, binding, id, new_parent, None)
+}
+
+/// Move a collection under `new_parent` AND into `new_container` (ADR-0022 C2).
+///
+/// `new_container: None` means "leave the owning container alone", which is what
+/// [`reparent`] passes and what a same-library move wants: the legacy Swift path
+/// skipped its `reparentItem` write entirely when the library did not change, and
+/// so does this — one write, not two.
+///
+/// `new_container: Some(c)` is the CROSS-container move imbib performs as two
+/// writes today (payload `parent_id` plus `reparentItem`). Both land in one
+/// `store.update`, which is also what makes the pair atomic and the inverse
+/// exact.
+///
+/// A binding with no container axis ignores `new_container`.
+///
+/// **Undo:** `reparent_in(id, prior.parent_id(), prior.container_id())`. When
+/// the container did not move the prior is a plain
+/// [`CollectionPrior::Parent`] and `container_id()` is `None`, so the inverse
+/// leaves the container alone — undoing a same-library move must not start
+/// writing an envelope the forward move never touched.
+pub fn reparent_in(
+    store: &SqliteItemStore,
+    binding: &CollectionSchemaBinding,
+    id: &str,
+    new_parent: Option<&str>,
+    new_container: Option<&str>,
+) -> Result<CollectionMutation, StoreError> {
     let b = resolve(store, binding)?;
     let id = parse_id(id)?;
     let before = load_collection(store, &b, id)?;
-    let prior = CollectionPrior::Parent(tree_parent(&b, &before).map(|p| p.to_string()));
+    let new_container_id = match b.container_field {
+        Some(ContainerField::Envelope) => new_container.map(parse_id).transpose()?,
+        None => None,
+    };
+    let prior_parent = tree_parent(&b, &before).map(|p| p.to_string());
+    let prior = match new_container_id {
+        Some(_) => CollectionPrior::ParentInContainer {
+            parent: prior_parent,
+            container: container_of(&b, &before).map(|c| c.to_string()),
+        },
+        None => CollectionPrior::Parent(prior_parent),
+    };
     let new_parent_id = new_parent.map(parse_id).transpose()?;
 
     if let Some(target) = new_parent_id {
@@ -587,6 +818,12 @@ pub fn reparent(
     // would leave the folder's figures filed under the OLD parent's subtree.
     if mirrors_tree_parent_onto_envelope(&b) {
         mutations.push(FieldMutation::SetParent(new_parent_id));
+    }
+    // The second half of a cross-container move. Mutually exclusive with the
+    // mirror above by construction: a binding whose envelope IS the tree parent
+    // has no container axis, so `new_container_id` is always `None` there.
+    if let Some(container) = new_container_id {
+        mutations.push(FieldMutation::SetParent(Some(container)));
     }
     store.update(id, mutations)?;
     Ok(CollectionMutation {
@@ -659,7 +896,7 @@ pub fn delete(
     // Direct children, whose parent pointer the delete invalidates (cleared by
     // the FK for envelope bindings, left dangling for payload bindings).
     let parent_ref = row.id.as_str();
-    let child_collection_ids: Vec<String> = list_tree_resolved(store, &b)?
+    let child_collection_ids: Vec<String> = list_tree_resolved(store, &b, None)?
         .into_iter()
         .filter(|r| r.parent_id.as_deref() == Some(parent_ref))
         .map(|r| r.id)
@@ -705,6 +942,17 @@ pub fn restore(
     payload.insert("name".into(), Value::String(snapshot.row.name.clone()));
     payload.insert("sort_order".into(), Value::Int(snapshot.row.sort_order));
     write_kind_scope(&b, &mut payload, snapshot.row.kind_scope.as_deref());
+    // A restored SMART collection must come back smart. The flag was invisible
+    // to this function before C2 gave `CollectionRow` an `is_smart`, so undoing
+    // the delete of a smart publication collection silently demoted it to a
+    // manual one — the row reappeared with the wrong glyph and the full menu.
+    // Written only when the binding HAS the field, so a figure folder's payload
+    // is byte-identical to what it was.
+    if let Some(field) = b.smart_field {
+        if snapshot.row.is_smart {
+            payload.insert(field.into(), Value::Bool(true));
+        }
+    }
     if let (ParentField::Payload(field), Some(parent)) =
         (b.parent_field, snapshot.row.parent_id.as_deref())
     {
@@ -986,6 +1234,23 @@ fn row_of(b: &ResolvedBinding, item: &Item) -> CollectionRow {
         kind_scope: b
             .kind_scope_field
             .and_then(|field| string_field(item, field)),
+        container_id: container_of(b, item).map(|c| c.to_string()),
+        is_smart: b
+            .smart_field
+            .and_then(|field| bool_field(item, field))
+            .unwrap_or(false),
+    }
+}
+
+/// The collection's owning container, or `None` for a binding with no container
+/// axis. Deliberately a separate reader from [`tree_parent`] even though both
+/// can name the envelope: they answer different questions, and the one time they
+/// were conflated (c902a22f) every collection's parent became its library and
+/// the sidebar tree flattened.
+fn container_of(b: &ResolvedBinding, item: &Item) -> Option<ItemId> {
+    match b.container_field {
+        Some(ContainerField::Envelope) => item.parent,
+        None => None,
     }
 }
 
@@ -1062,6 +1327,13 @@ fn string_field(item: &Item, field: &str) -> Option<String> {
 fn int_field(item: &Item, field: &str) -> Option<i64> {
     match item.payload.get(field) {
         Some(Value::Int(i)) => Some(*i),
+        _ => None,
+    }
+}
+
+fn bool_field(item: &Item, field: &str) -> Option<bool> {
+    match item.payload.get(field) {
+        Some(Value::Bool(b)) => Some(*b),
         _ => None,
     }
 }
@@ -2045,5 +2317,411 @@ mod tests {
             item.author_kind,
             ActorKind::System | ActorKind::Human | ActorKind::Agent
         ));
+    }
+
+    // ─── The optional axes (ADR-0022 C2) ─────────────────────────────────
+    //
+    // Every test below pairs the binding that DECLARES the axis with one that
+    // declines it, because the contract is not just "the axis works" — it is
+    // "the axis is invisible to a binding that has none". The manuscript and
+    // figure bindings are the oracle for that half (wave-3's imprint parity
+    // tests run through these same seams).
+
+    /// A stand-in owning container: any item will do, the kernel only ever
+    /// writes its id to the envelope.
+    fn make_container(store: &SqliteItemStore, name: &str) -> String {
+        make_item(store, "imbib/library", name)
+    }
+
+    #[test]
+    fn only_the_imbib_binding_declares_a_container_axis() {
+        assert_eq!(
+            IMBIB_COLLECTION.container_field,
+            Some(ContainerField::Envelope)
+        );
+        for binding in [MANUSCRIPT_COLLECTION, FIGURE_COLLECTION, GENERIC_COLLECTION] {
+            assert_eq!(
+                binding.container_field, None,
+                "{}: folders are global; a container argument must be ignored",
+                binding.schema_ref
+            );
+        }
+    }
+
+    #[test]
+    fn create_in_files_a_root_collection_under_its_container() {
+        let store = open();
+        let library = make_container(&store, "Main");
+        let row = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "Reading",
+            None,
+            None,
+            None,
+            Some(&library),
+        )
+        .unwrap();
+
+        assert_eq!(row.container_id.as_deref(), Some(library.as_str()));
+        assert_eq!(
+            row.parent_id, None,
+            "the container is NOT the tree parent — that conflation is c902a22f"
+        );
+        let item = store.get(parse_id(&row.id).unwrap()).unwrap().unwrap();
+        assert_eq!(item.parent.map(|p| p.to_string()), Some(library));
+    }
+
+    #[test]
+    fn create_in_inherits_the_container_when_none_is_named() {
+        let store = open();
+        let library = make_container(&store, "Main");
+        let parent = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "Parent",
+            None,
+            None,
+            None,
+            Some(&library),
+        )
+        .unwrap();
+        // `create` is `create_in(.., None)`: the historical inherit-from-parent
+        // rule, unchanged.
+        let child = create(
+            &store,
+            &IMBIB_COLLECTION,
+            "Child",
+            Some(&parent.id),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(child.container_id.as_deref(), Some(library.as_str()));
+        assert_eq!(child.parent_id.as_deref(), Some(parent.id.as_str()));
+    }
+
+    #[test]
+    fn create_in_is_ignored_by_a_binding_with_no_container_axis() {
+        let store = open();
+        let library = make_container(&store, "Main");
+        for binding in [MANUSCRIPT_COLLECTION, GENERIC_COLLECTION] {
+            let row =
+                create_in(&store, &binding, "Folder", None, None, None, Some(&library)).unwrap();
+            assert_eq!(
+                row.container_id, None,
+                "{}: reports no container",
+                binding.schema_ref
+            );
+            let item = store.get(parse_id(&row.id).unwrap()).unwrap().unwrap();
+            assert_eq!(
+                item.parent, None,
+                "{}: and writes no envelope parent — behaviour is pre-C2 verbatim",
+                binding.schema_ref
+            );
+        }
+    }
+
+    #[test]
+    fn list_tree_in_scopes_to_one_container_and_list_tree_still_sees_all() {
+        let store = open();
+        let main = make_container(&store, "Main");
+        let other = make_container(&store, "Other");
+        create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "A",
+            None,
+            None,
+            Some(0),
+            Some(&main),
+        )
+        .unwrap();
+        create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "B",
+            None,
+            None,
+            Some(1),
+            Some(&main),
+        )
+        .unwrap();
+        create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "Z",
+            None,
+            None,
+            Some(0),
+            Some(&other),
+        )
+        .unwrap();
+
+        assert_eq!(
+            names(&list_tree_in(&store, &IMBIB_COLLECTION, Some(&main)).unwrap()),
+            vec!["A", "B"]
+        );
+        assert_eq!(
+            names(&list_tree_in(&store, &IMBIB_COLLECTION, Some(&other)).unwrap()),
+            vec!["Z"]
+        );
+        // Unscoped reads are untouched, and `list_tree` IS the unscoped read.
+        assert_eq!(
+            list_tree(&store, &IMBIB_COLLECTION).unwrap().len(),
+            3,
+            "list_tree is container-blind, as it always was"
+        );
+        assert_eq!(
+            list_tree_in(&store, &IMBIB_COLLECTION, None).unwrap().len(),
+            3
+        );
+    }
+
+    #[test]
+    fn list_tree_in_ignores_the_container_for_a_binding_without_one() {
+        let store = open();
+        let library = make_container(&store, "Main");
+        create(&store, &MANUSCRIPT_COLLECTION, "Drafts", None, None, None).unwrap();
+        assert_eq!(
+            names(&list_tree_in(&store, &MANUSCRIPT_COLLECTION, Some(&library)).unwrap()),
+            vec!["Drafts"],
+            "a manuscript folder is not hidden by a container it never had"
+        );
+    }
+
+    #[test]
+    fn reparent_in_moves_tree_and_container_together_and_inverts_exactly() {
+        let store = open();
+        let main = make_container(&store, "Main");
+        let other = make_container(&store, "Other");
+        let source = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "Src",
+            None,
+            None,
+            None,
+            Some(&main),
+        )
+        .unwrap();
+        let target = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "Dst",
+            None,
+            None,
+            None,
+            Some(&other),
+        )
+        .unwrap();
+
+        let moved = reparent_in(
+            &store,
+            &IMBIB_COLLECTION,
+            &source.id,
+            Some(&target.id),
+            Some(&other),
+        )
+        .unwrap();
+        assert_eq!(moved.row.parent_id.as_deref(), Some(target.id.as_str()));
+        assert_eq!(moved.row.container_id.as_deref(), Some(other.as_str()));
+        assert_eq!(
+            moved.prior,
+            CollectionPrior::ParentInContainer {
+                parent: None,
+                container: Some(main.clone()),
+            }
+        );
+
+        // The documented inverse, verbatim.
+        let back = reparent_in(
+            &store,
+            &IMBIB_COLLECTION,
+            &source.id,
+            moved.prior.parent_id().unwrap(),
+            moved.prior.container_id().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(back.row.parent_id, None);
+        assert_eq!(back.row.container_id.as_deref(), Some(main.as_str()));
+    }
+
+    #[test]
+    fn a_same_container_reparent_leaves_the_container_alone() {
+        let store = open();
+        let main = make_container(&store, "Main");
+        let a = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "A",
+            None,
+            None,
+            None,
+            Some(&main),
+        )
+        .unwrap();
+        let b = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "B",
+            None,
+            None,
+            None,
+            Some(&main),
+        )
+        .unwrap();
+
+        // `reparent` is `reparent_in(.., None)`: one write, and a prior that
+        // says "container untouched" so the inverse cannot start writing one.
+        let moved = reparent(&store, &IMBIB_COLLECTION, &b.id, Some(&a.id)).unwrap();
+        assert_eq!(moved.prior, CollectionPrior::Parent(None));
+        assert_eq!(moved.prior.container_id(), None);
+        assert_eq!(moved.row.container_id.as_deref(), Some(main.as_str()));
+    }
+
+    #[test]
+    fn reparent_in_is_ignored_by_a_binding_with_no_container_axis() {
+        let store = open();
+        let library = make_container(&store, "Main");
+        let parent = create(&store, &MANUSCRIPT_COLLECTION, "P", None, None, None).unwrap();
+        let child = create(&store, &MANUSCRIPT_COLLECTION, "C", None, None, None).unwrap();
+        let moved = reparent_in(
+            &store,
+            &MANUSCRIPT_COLLECTION,
+            &child.id,
+            Some(&parent.id),
+            Some(&library),
+        )
+        .unwrap();
+        assert_eq!(
+            moved.prior,
+            CollectionPrior::Parent(None),
+            "no container axis ⇒ the plain prior, so imprint's undo is unchanged"
+        );
+        let item = store.get(parse_id(&child.id).unwrap()).unwrap().unwrap();
+        assert_eq!(item.parent, None, "and no envelope write happened at all");
+    }
+
+    #[test]
+    fn is_smart_is_reported_per_row_and_only_where_the_schema_has_the_field() {
+        let store = open();
+        let library = make_container(&store, "Main");
+        let manual = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "Manual",
+            None,
+            None,
+            None,
+            Some(&library),
+        )
+        .unwrap();
+        assert!(!manual.is_smart, "the kernel never writes the flag");
+
+        // Written the way imbib-core's `create_collection(is_smart: true)` does.
+        store
+            .update(
+                parse_id(&manual.id).unwrap(),
+                vec![FieldMutation::SetPayload(
+                    "is_smart".into(),
+                    Value::Bool(true),
+                )],
+            )
+            .unwrap();
+        let listed = row(&list_tree(&store, &IMBIB_COLLECTION).unwrap(), &manual.id);
+        assert!(listed.is_smart);
+
+        // A binding whose schema has no such field reports false even if a
+        // stray payload key exists — the axis is the BINDING's declaration.
+        let folder = create(&store, &FIGURE_COLLECTION, "Figures", None, None, None).unwrap();
+        store
+            .update(
+                parse_id(&folder.id).unwrap(),
+                vec![FieldMutation::SetPayload(
+                    "is_smart".into(),
+                    Value::Bool(true),
+                )],
+            )
+            .unwrap();
+        assert!(
+            !row(&list_tree(&store, &FIGURE_COLLECTION).unwrap(), &folder.id).is_smart,
+            "figure-collection declares no smart_field"
+        );
+    }
+
+    #[test]
+    fn restore_puts_a_smart_collection_back_smart() {
+        let store = open();
+        let library = make_container(&store, "Main");
+        let smart = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "Recent",
+            None,
+            None,
+            None,
+            Some(&library),
+        )
+        .unwrap();
+        store
+            .update(
+                parse_id(&smart.id).unwrap(),
+                vec![FieldMutation::SetPayload(
+                    "is_smart".into(),
+                    Value::Bool(true),
+                )],
+            )
+            .unwrap();
+
+        let snapshot = delete(&store, &IMBIB_COLLECTION, &smart.id).unwrap();
+        assert!(snapshot.row.is_smart, "the snapshot carries the flag");
+        let restored = restore(&store, &IMBIB_COLLECTION, &snapshot).unwrap();
+        assert!(
+            restored.is_smart,
+            "undoing the delete of a smart collection must not demote it"
+        );
+        assert_eq!(restored.container_id.as_deref(), Some(library.as_str()));
+    }
+
+    #[test]
+    fn the_container_axis_survives_the_unified_flip_untouched() {
+        let store = open();
+        let library = make_container(&store, "Main");
+        let root = create_in(
+            &store,
+            &IMBIB_COLLECTION,
+            "A",
+            None,
+            None,
+            None,
+            Some(&library),
+        )
+        .unwrap();
+        let child = create(&store, &IMBIB_COLLECTION, "B", Some(&root.id), None, None).unwrap();
+
+        crate::collection_migration::migrate_collections(&store, false).unwrap();
+        assert!(crate::collection_migration::is_migrated(&store).unwrap());
+
+        // The migration rewrites schema_ref and payload and never touches the
+        // envelope, so the container filter answers identically after the flip.
+        // This is the property that makes `list_tree_in` a safe replacement for
+        // imbib-core's `list_collections(library_id)`.
+        let rows = list_tree_in(&store, &IMBIB_COLLECTION, Some(&library)).unwrap();
+        assert_eq!(names(&rows), vec!["A", "B"]);
+        assert_eq!(
+            row(&rows, &root.id).container_id.as_deref(),
+            Some(library.as_str())
+        );
+        assert_eq!(
+            row(&rows, &child.id).parent_id.as_deref(),
+            Some(root.id.as_str())
+        );
+        assert!(
+            list_tree_in(&store, &IMBIB_COLLECTION, Some(&child.id))
+                .unwrap()
+                .is_empty(),
+            "and a wrong container still selects nothing"
+        );
     }
 }

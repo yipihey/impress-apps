@@ -13,7 +13,6 @@ pub mod manuscript_collection;
 pub mod manuscript_revision;
 pub mod manuscript_section;
 pub mod manuscript_submission;
-pub mod operation;
 pub mod plot_spec;
 pub mod task;
 pub mod throughline;
@@ -33,9 +32,10 @@ pub use manuscript_collection::register_manuscript_collection_schema;
 pub use manuscript_revision::register_manuscript_revision_schema;
 pub use manuscript_section::register_imprint_schemas;
 pub use manuscript_submission::register_manuscript_submission_schema;
-pub use operation::register_operation_schema;
 pub use plot_spec::register_plot_spec_schema;
-pub use task::register_task_schemas;
+pub use task::{
+    register_task_schemas, register_task_schemas_if_absent, AGENT_RUN_SCHEMA, TASK_SCHEMA,
+};
 pub use throughline::register_throughline_schema;
 pub use veusz_plot::register_veusz_plot_schema;
 
@@ -51,7 +51,13 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_document_schemas(registry);
     register_git_project_schemas(registry);
     register_artifact_schemas(registry);
-    register_operation_schema(registry);
+    // NO operation schema here. `sqlite_store` writes the operation journal as
+    // `core/operation`, whose ONE definition lives in imbib-core
+    // (`unified::schemas::core_operation_schema`). This function used to
+    // register a SECOND, differently-shaped `impress/operation` that nothing
+    // has ever written or read — retired in WP C4 along with its
+    // `registeredButUnwritten` manifest entry. See schema-refs.json's note on
+    // `core/operation`.
     register_implore_schemas(registry);
     register_imprint_schemas(registry);
     register_citation_usage_schema(registry);
@@ -94,10 +100,16 @@ mod tests {
             registry.get("email-message").is_some(),
             "email-message not registered"
         );
-        assert!(registry.get("task").is_some(), "task not registered");
+        // VERSIONED (WP C4): the ids are the refs the kernel writes and
+        // `ready_tasks` selects. `registry.get("task")` is now correctly None.
+        assert!(registry.get(TASK_SCHEMA).is_some(), "task not registered");
         assert!(
-            registry.get("agent-run").is_some(),
+            registry.get(AGENT_RUN_SCHEMA).is_some(),
             "agent-run not registered"
+        );
+        assert!(
+            registry.get("task").is_none() && registry.get("agent-run").is_none(),
+            "the bare spellings are retired — nothing writes them"
         );
         assert!(
             registry.get("annotation").is_some(),

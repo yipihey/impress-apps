@@ -5,6 +5,7 @@
 //  Tests for Command type and related functionality.
 //
 
+import ImpressKit
 import XCTest
 @testable import ImpressCommandPalette
 
@@ -321,6 +322,10 @@ final class CommandTests: XCTestCase {
 
     // MARK: - AppEndpoint
 
+    /// The ports the suite actually publishes — see `SiblingApp.descriptors` in
+    /// ImpressKit, which is THE table. impel is 23124 and implore is 23123;
+    /// this test asserted them the other way round for as long as the palette
+    /// carried its own copy of the table.
     func testAppEndpointDefaults() {
         XCTAssertEqual(AppEndpoint.imbib.app, "imbib")
         XCTAssertEqual(AppEndpoint.imbib.port, 23120)
@@ -331,11 +336,25 @@ final class CommandTests: XCTestCase {
         XCTAssertEqual(AppEndpoint.impart.app, "impart")
         XCTAssertEqual(AppEndpoint.impart.port, 23122)
 
-        XCTAssertEqual(AppEndpoint.impel.app, "impel")
-        XCTAssertEqual(AppEndpoint.impel.port, 23123)
-
         XCTAssertEqual(AppEndpoint.implore.app, "implore")
-        XCTAssertEqual(AppEndpoint.implore.port, 23124)
+        XCTAssertEqual(AppEndpoint.implore.port, 23123)
+
+        XCTAssertEqual(AppEndpoint.impel.app, "impel")
+        XCTAssertEqual(AppEndpoint.impel.port, 23124)
+    }
+
+    /// The structural half of the fix: the presets are not merely EQUAL to the
+    /// sibling-app table, they are DERIVED from it. If someone reintroduces a
+    /// literal here, this fails the moment it disagrees.
+    func testAppEndpointsAreDerivedFromSiblingAppTable() {
+        XCTAssertEqual(AppEndpoint.all.count, SiblingApp.allCases.count)
+        for app in SiblingApp.allCases {
+            guard let endpoint = AppEndpoint.all.first(where: { $0.app == app.rawValue }) else {
+                XCTFail("AppEndpoint.all has no row for \(app.rawValue)")
+                continue
+            }
+            XCTAssertEqual(endpoint.port, app.httpPort, "port drift for \(app.rawValue)")
+        }
     }
 
     func testAppEndpointURLs() {

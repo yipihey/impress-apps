@@ -2,35 +2,28 @@
 //  IOSMessageListColumn.swift
 //  impart-iOS
 //
-//  The mail list column (Stage 5c) — and a REPORTED SHARED-SURFACE GAP.
+//  The mail list column (Stage 5c) — and, since C1 (2026-07-30), THE SHARED
+//  HOST rather than impart's own `List`.
 //
-//  There is no shared iOS list host in the chassis. macOS has one per kind
-//  (`MessageListWrapper`, `ManuscriptListWrapper`, `FigureListWrapper`,
-//  `AgentRecordListWrapper`, `UnifiedPublicationListWrapper`) and every one of
-//  them is `#if os(macOS)`; on iOS each app writes its own list:
-//  imprint-iOS's is a `List` inside `IOSManuscriptLibraryView`, imbib-iOS's is
-//  `IOSUnifiedPublicationListWrapper`, and this is impart's. Three app-side
-//  lists is the point at which "each app writes its own" stops being a
-//  coincidence, so it is flagged in the Stage 5c report as the next shared
-//  surface to build rather than built unilaterally here.
+//  Stage 5c reported the gap this file used to be evidence of: "there is no
+//  shared iOS list host", so imprint-iOS, imbib-iOS and impart each wrote their
+//  own `List` + search field + reload triggers. That plumbing is now
+//  `PublicationManagerCore.RecordListHost` (Chassis/RecordKind/
+//  RecordListHostView.swift + its cross-platform model half), and this file is
+//  what genuinely belongs to MAIL:
 //
-//  What that gap does NOT cost, because Stage 5c closed the parts that mattered:
-//
-//    * WHICH ROWS a scope contains — `MailStoreReader.messages(in:)`, lifted out
-//      of `MessageListWrapper.reload()` so All Inboxes / an account / a folder /
-//      a flag colour fan out identically on both platforms, thread-collapsed with
-//      the same "(n)" badge rule.
+//    * WHICH ROWS a scope contains — `MailStoreReader.messages(in:)`, shared
+//      with macOS since Stage 5c (thread-collapsed, same "(n)" badge rule).
+//    * WHAT A QUERY MATCHES — the three fields macOS's filter bar matches on,
+//      applied in memory to the loaded page. The host owns the search FIELD; it
+//      has no opinion about the predicate, because imprint's is a store search.
 //    * WHAT A ROW LOOKS LIKE — `ImpressMailStyle.MailStyleRow` over
-//      `MessageRowData`, the same row chrome and the same value snapshot macOS
-//      renders. Unread dot, star, flag stripe, relative date, thread badge: all
-//      of it is shared, none of it is re-authored here.
-//    * WHAT A ROW CAN DO — `.recordTriageRow(...)` builds the swipe actions and
-//      the long-press menu from `MessageRecordKind.descriptor.triage`, so the
-//      absence of dismiss/archive/delete is the DECLARATION speaking, not this
-//      file forgetting.
-//
-//  So what is genuinely local is the SwiftUI plumbing: a `List`, a search field,
-//  and the reload triggers. That is the honest size of the gap.
+//      `MessageRowData`, the same row chrome macOS renders.
+//    * WHAT A ROW CAN DO — `MessageRecordKind.descriptor.triage`, so the absence
+//      of dismiss/archive/delete is the DECLARATION speaking.
+//    * The honest EMPTY STATE, as a `ChassisEmptyState` value.
+//    * Keeping the selection valid, which is per-app policy: impart CLEARS a
+//      selection whose row left the scope, imprint keeps the open manuscript.
 //
 
 import ImpressMailStyle
@@ -59,13 +52,15 @@ struct IOSMessageListColumn: View {
 
     @State private var rows: [MessageRowData] = []
     @State private var searchText = ""
-    @State private var searchPresented = false
     @State private var isLoading = false
 
+    /// The same three fields macOS's filter bar matches on. Mail's query is a
+    /// predicate over the loaded page; imprint's is a store search with a scope
+    /// intersection. Two capabilities, one text field — which is why the shared
+    /// host takes rows and a `Binding<String>` and never filters.
     private var visibleRows: [MessageRowData] {
         guard !searchText.isEmpty else { return rows }
         let query = searchText.lowercased()
-        // The same three fields macOS's filter bar matches on.
         return rows.filter {
             $0.subject.lowercased().contains(query)
                 || $0.from.lowercased().contains(query)
@@ -74,88 +69,63 @@ struct IOSMessageListColumn: View {
     }
 
     var body: some View {
-        Group {
-            if isLoading && rows.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if visibleRows.isEmpty {
-                emptyState
-            } else {
-                messageList
-            }
-        }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(
-            text: $searchText,
-            isPresented: $searchPresented,
-            placement: .navigationBarDrawer(displayMode: .automatic),
-            prompt: "Search messages")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    searchPresented = true
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                }
-                // ⌘F for hardware keyboards — the iOS half of the chassis's
-                // Find in List command.
-                .keyboardShortcut("f", modifiers: .command)
-                .accessibilityIdentifier("toolbar.find")
-            }
-        }
-        .task(id: scope) { reload() }
-        .onChange(of: dataVersion) { _, _ in reload() }
-        .refreshable { reload() }
+        RecordListHost(
+            rows: visibleRows,
+            selection: $selectedID,
+            searchText: $searchText,
+            title: title,
+            searchPrompt: "Search messages",
+            emptyState: emptyState,
+            rowIdentifierPrefix: "messageRow.",
+            listIdentifier: "messageList",
+            isLoading: isLoading,
+            triage: MessageRecordKind.descriptor.triage,
+            actions: actions,
+            rowState: { row in
+                TriageRowState(
+                    isStarred: row.isStarredState,
+                    // Mail has no dismissal or archive status (`dismissal:
+                    // .none`, `archiveStatus: nil`), so neither state can be
+                    // true and the grammar omits both verbs. Same values macOS's
+                    // list passes.
+                    isDismissed: false,
+                    isArchived: false)
+            },
+            rowTagPaths: { Set($0.tagPaths) },
+            // This column owns its own read, so it opts into all three reload
+            // triggers: scope change, store version, pull-to-refresh.
+            scopeToken: scope,
+            dataVersion: dataVersion,
+            onReload: { reload() },
+            rowContent: { MailStyleRow(item: $0) })
     }
 
-    // MARK: - List
+    // MARK: - Empty state
 
-    private var messageList: some View {
-        List(selection: $selectedID) {
-            ForEach(visibleRows) { row in
-                MailStyleRow(item: row)
-                    .tag(row.id)
-                    .recordTriageRow(
-                        triage: MessageRecordKind.descriptor.triage,
-                        row: TriageRowState(
-                            isStarred: row.isStarredState,
-                            // Mail has no dismissal or archive status
-                            // (`dismissal: .none`, `archiveStatus: nil`), so
-                            // neither state can be true and the grammar omits
-                            // both verbs. Same values macOS's list passes.
-                            isDismissed: false,
-                            isArchived: false),
-                        targets: [row.id],
-                        actions: actions,
-                        rowTagPaths: Set(row.tagPaths))
-                    .accessibilityIdentifier("messageRow.\(row.id.uuidString)")
-            }
+    /// No create affordance in either state: `MessageRecordKind.descriptor`
+    /// declares one and the chassis would offer it, but only when a host
+    /// registers `RecordHostVerbs.onCreate`. This target registers none (no SMTP
+    /// path), so the button is absent rather than dead — which is why this host
+    /// passes no `emptyActions` builder at all.
+    private var emptyState: ChassisEmptyState {
+        if searchText.isEmpty {
+            return ChassisEmptyState(
+                id: "mail-empty",
+                title: "No Messages",
+                systemImage: "envelope",
+                // The honest empty state. impart-iOS reads mail the Mac mirrored
+                // into the shared store; it runs no IMAP sync of its own (there
+                // is none to run — `RustMailProvider` is a stub on both
+                // platforms), so "empty" means "nothing has been mirrored into
+                // this device's app group yet", not "you have no mail".
+                message:
+                    "Messages appear here once impart has mirrored mail into the shared store.")
         }
-        .listStyle(.plain)
-        .accessibilityIdentifier("messageList")
-    }
-
-    private var emptyState: some View {
-        ContentUnavailableView(
-            searchText.isEmpty ? "No Messages" : "No Matches",
+        return ChassisEmptyState(
+            id: "mail-no-matches",
+            title: "No Matches",
             systemImage: "envelope",
-            description: Text(
-                searchText.isEmpty
-                    // The honest empty state. impart-iOS reads mail the Mac
-                    // mirrored into the shared store; it runs no IMAP sync of
-                    // its own (there is none to run — `RustMailProvider` is a
-                    // stub on both platforms), so "empty" means "nothing has
-                    // been mirrored into this device's app group yet", not
-                    // "you have no mail".
-                    ? "Messages appear here once impart has mirrored mail into the shared store."
-                    : "No message in this mailbox matches “\(searchText)”.")
-        )
-        // No create affordance: `MessageRecordKind.descriptor` declares one, and
-        // the chassis would offer it, but only when a host registers
-        // `RecordHostVerbs.onCreate`. This target registers none (no SMTP path),
-        // so the button is absent rather than dead — the same rule the chassis's
-        // own empty state applies.
+            message: "No message in this mailbox matches \u{201C}\(searchText)\u{201D}.")
     }
 
     // MARK: - Data

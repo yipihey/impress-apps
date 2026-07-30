@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 
 private let resolverLogger = Logger(subsystem: "com.impart", category: "artifact-resolver")
@@ -198,11 +199,18 @@ public actor ArtifactResolver {
     /// Last cache cleanup time.
     private var lastCacheCleanup: Date = Date()
 
-    /// Port for imbib HTTP API.
-    private let imbibPort: Int = 23121
+    /// Port for imbib HTTP API — read from THE sibling-app table
+    /// (`SiblingApp.descriptors`, ImpressKit).
+    ///
+    /// Both of these were hand-written literals and both were WRONG: 23121 is
+    /// imprint's port and 23123 is implore's, so `resolvePaperReference` asked
+    /// imprint for `/api/publications/…` and `resolveDocumentReference` asked
+    /// implore for `/api/documents/…`. Both 404 forever, which reads exactly
+    /// like "the artifact doesn't exist".
+    private let imbibPort = Int(SiblingApp.imbib.httpPort)
 
-    /// Port for imprint HTTP API.
-    private let imprintPort: Int = 23123
+    /// Port for imprint HTTP API — see the note on `imbibPort`.
+    private let imprintPort = Int(SiblingApp.imprint.httpPort)
 
     // MARK: - Initialization
 

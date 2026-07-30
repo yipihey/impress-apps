@@ -94,21 +94,13 @@ targets:
           - imprint
           - impel
           - impart
-        UTExportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Figure Reference
-            UTTypeIdentifier: com.impress.figure-reference
-            UTTypeTagSpecification: {}
-          # The chassis drag types come from the ChassisUTIs template
-          # (apps/chassis-utis.yml) and are appended to this list at generate
-          # time. Only implore-specific types belong here.
-        UTImportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Veusz Plot Reference
-            UTTypeIdentifier: com.impress.veusz-plot-reference
-            UTTypeTagSpecification: {}
+        # implore declares no types of its own — its whole exported set is the
+        # chassis one, supplied by the ChassisUTIs template
+        # (apps/chassis-utis.yml). figure-reference used to be EXPORTED here and
+        # veusz-plot-reference IMPORTED; both graduated into the template on
+        # 2026-07-30. Note implore was the only app exporting figure-reference
+        # while never reaching it — imbib and imprint reach it, through
+        # PMC's shared `SourceEditorView.onDrop`, and only imported it.
     entitlements:
       path: Implore/implore.entitlements
       properties:

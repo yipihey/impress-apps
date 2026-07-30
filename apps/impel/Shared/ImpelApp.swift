@@ -25,7 +25,8 @@ struct ImpelApp: App {
         // Register default settings (HTTP automation enabled by default for MCP)
         UserDefaults.standard.register(defaults: [
             "httpAutomationEnabled": true,
-            "httpAutomationPort": 23124
+            // THE sibling-app table (ImpressKit) — never a second literal.
+            "httpAutomationPort": Int(ImpelHTTPServer.defaultPort)
         ])
     }
 

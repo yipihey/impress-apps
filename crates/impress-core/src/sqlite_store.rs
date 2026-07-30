@@ -954,12 +954,43 @@ impl SqliteItemStore {
     /// executor-side semantics: an unreadable prerequisite is not done).
     /// `'completed'` is accepted alongside `'done'` for bridge-written
     /// items (`TaskState::parse_compat`). Oldest tasks first.
+    ///
+    /// # Ready means DISPATCHABLE (WP C4)
+    ///
+    /// A row also needs a non-empty payload `task_kind` — the scheduler's
+    /// executor dispatch key ([`impel_core::Scheduler::register`]). This is not
+    /// a nicety: `Scheduler::execute_and_finalize` treats "acquired a task I
+    /// have no executor for" as a permanent, escalated FAILURE, and
+    /// `task_kind` absent it falls back to the row's `title`, which never
+    /// matches a registered kind. So a task with no `task_kind` was never
+    /// runnable — it could only be acquired (state → `running`), then failed
+    /// with `error = "no executor registered for '<its title>'"`.
+    ///
+    /// That mattered the moment C4 converged the spellings. impel's
+    /// `SharedTaskBridge` MIRRORS impel's GRDB tasks into this store for
+    /// cross-app visibility; GRDB stays authoritative and impel's own
+    /// orchestrator runs them. Those rows carry `title`/`state`/`external_id`
+    /// and no `task_kind`. Before C4 they were spelled `impel/task` and this
+    /// query could not see them; after C4 they are `task@1.0.0` like every
+    /// other task. Without this clause the first post-migration `impel-taskd`
+    /// pass would have walked a user's entire counsel history, flipped each
+    /// row to `running` and then to `failed`, and written ~5 operation-journal
+    /// rows per task doing it. `external_id` is the honest marker of "another
+    /// system owns this task's lifecycle"; `task_kind` is the honest marker of
+    /// "this store's scheduler can actually run it". This gate is the second,
+    /// because it is the property the scheduler needs and it holds for
+    /// hand-written and imported rows too, not just for impel's mirror.
+    ///
+    /// Everything `create_task_dag` writes sets `task_kind` (to the same value
+    /// as `title`), so no task that was schedulable before C4 stopped being
+    /// schedulable.
     pub fn ready_tasks(&self, limit: usize) -> Result<Vec<Item>, StoreError> {
         self.with_read(|conn| {
             let sql = format!(
                 "SELECT {ITEM_COLUMNS} FROM items t
                  WHERE t.schema_ref = 'task@1.0.0'
                    AND json_extract(t.payload, '$.state') IN ('pending', 'queued')
+                   AND COALESCE(json_extract(t.payload, '$.task_kind'), '') != ''
                    AND NOT EXISTS (
                        SELECT 1 FROM item_references r
                        LEFT JOIN items dep ON dep.id = r.target_id

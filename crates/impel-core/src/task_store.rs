@@ -17,10 +17,16 @@ use impress_core::store::{ItemStore, StoreError};
 use impress_core::task::{transition_op, TaskState, TaskTransitionError};
 use uuid::Uuid;
 
-/// Schema refs the kernel reads/writes. Canonical per ADR-0005; the
-/// `impel/…` mirrors in `schemas.rs` are deprecated (ADR-0015 D5).
-pub const TASK_SCHEMA: &str = "task@1.0.0";
-pub const AGENT_RUN_SCHEMA: &str = "agent-run@1.0.0";
+/// Schema refs the kernel reads/writes. Canonical per ADR-0005, and since WP
+/// C4 the ONLY spellings of these two kinds in the suite: the `impel/…`
+/// mirrors ADR-0015 D5 deprecated are deleted, the bare forms impress-core
+/// registered are gone, and both constants are re-exported from the single
+/// definition next to `ready_tasks` rather than re-typed here. A literal copy
+/// is exactly how the spellings diverged in the first place.
+pub use impress_core::schemas::task::{AGENT_RUN_SCHEMA, TASK_SCHEMA};
+
+/// Still local: `review-request@1.0.0` is written and read only by impel and
+/// is registered nowhere (see `tests/schema_ref_manifest.rs`).
 pub const REVIEW_REQUEST_SCHEMA: &str = "review-request@1.0.0";
 
 /// Errors crossing the store boundary.

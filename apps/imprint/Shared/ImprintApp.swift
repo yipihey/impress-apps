@@ -349,7 +349,8 @@ struct ImprintApp: App {
         // Register default settings (HTTP automation enabled by default for MCP)
         UserDefaults.standard.register(defaults: [
             "httpAutomationEnabled": true,
-            "httpAutomationPort": 23121
+            // THE sibling-app table (ImpressKit) — never a second literal.
+            "httpAutomationPort": Int(ImprintHTTPServer.defaultPort)
         ])
 
         // Configure app for testing if needed

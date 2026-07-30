@@ -23,12 +23,20 @@
 //      CounselEngine -> PMC edge; it only lints PMC's own manifest for what PMC
 //      itself depends on.
 //
-//   2. The set is not expressible as any single existing descriptor predicate.
-//      `isTerminal` yields {published, archived, dismissed}: it wrongly
-//      includes `dismissed` and wrongly excludes `submitted`, which is the
-//      PRIMARY snapshot trigger and is declared `isTerminal: false`. Even with
-//      PMC linked into production, the derivation would still be written by
-//      hand.
+//   2. The set is not expressible as any single PRE-EXISTING descriptor
+//      predicate. `isTerminal` yields {published, archived, dismissed}: it
+//      wrongly includes `dismissed` and wrongly excludes `submitted`, which is
+//      the PRIMARY snapshot trigger and is declared `isTerminal: false`.
+//
+//      RESOLVED 2026-07-30: the recommended follow-up below LANDED.
+//      `StatusSpec.freezesSource` now declares the facet at the declaration
+//      (additively, defaulted `false`), and `TriageCapabilities`
+//      `.freezingStatusValues` is the set. So reason 2 no longer applies to the
+//      TEST side — `theDeclaredFreezeFacetReproducesThePolicy` below compares
+//      the pipeline's literal against a DECLARATION rather than against a
+//      second hand-written list. Reason 1 still applies to the PRODUCTION side:
+//      the pipeline keeps its literal because linking PMC into two headless
+//      CLIs to read three strings is still the wrong trade.
 //
 //  So PMC is a TEST-TARGET-ONLY dependency and this file is the interlock: the
 //  literal may live in the pipeline, but it may not disagree with the
@@ -39,11 +47,12 @@
 //  `testManuscriptIsActiveMatchesTheFormerSwitch` (freeze the shipped table
 //  independently of the derivation).
 //
-//  RECOMMENDED FOLLOW-UP: declare this facet on `StatusSpec` itself (e.g.
-//  `freezesSource: Bool`), which would put the rule at the declaration and let
-//  the pipeline derive the set with one `filter`. `Chassis/**` is outside this
-//  wave's boundary, so it is deliberately not done here — and until it is, this
-//  test is the only thing keeping the two in step.
+//  DONE (2026-07-30): the recommended `freezesSource: Bool` facet is declared on
+//  `StatusSpec`. The pipeline still holds the literal (reason 1), but this file
+//  no longer holds a second one: the primary interlock is now literal ↔
+//  declaration. `PublicationManagerCoreTests/RecordKindStatusSpecTests` owns the
+//  declaration half (`testManuscriptDeclaresTheFreezingStatuses`,
+//  `testFreezesSourceIsNotDerivableFromIsTerminal`).
 //
 //  NOT DUPLICATED HERE: that the dispatched revision tag is the RAW status
 //  (i.e. that deleting `JournalPipeline.revisionTag(for:)` — an identity switch
@@ -191,10 +200,52 @@ import PublicationManagerCore
         #expect(policy == frozen, Comment(rawValue: message))
     }
 
+    // MARK: - e. The declared facet IS the policy
+
+    /// The load-bearing assertion of this file, post-`freezesSource`.
+    ///
+    /// `JournalPipeline.autoSnapshotStatuses` is a literal in a headless
+    /// package; `ManuscriptRecordKind.descriptor` declares which statuses freeze
+    /// the source. This compares the two directly, so neither side can move
+    /// without the other. It supersedes nothing above — the rename detector (a)
+    /// and the frozen table (d) still earn their keep — but it is the one that
+    /// makes the pipeline's literal a MIRROR of a declaration rather than an
+    /// independent opinion.
+    @Test func theDeclaredFreezeFacetReproducesThePolicy() async {
+        let policy = await autoSnapshotStatuses()
+        let declared = triage.freezingStatusValues
+        let message = """
+            JournalPipeline.autoSnapshotStatuses is \(policy.sorted()) but the \
+            manuscript descriptor declares freezesSource on \(declared.sorted()). \
+            These are two spellings of ADR-0011 D5's freeze rule and they have \
+            drifted. The DECLARATION wins: change the pipeline's literal to match \
+            it, or change the declaration deliberately (and update the frozen table \
+            in `autoSnapshotStatusesMatchTheFrozenShippedSet` in the same commit).
+            """
+        #expect(policy == declared, Comment(rawValue: message))
+    }
+
+    /// `freezesSource` must not have been "derived" into the descriptor as a
+    /// synonym for something else. If it ever equals the `isTerminal` set, the
+    /// facet has stopped carrying information and this whole interlock could be
+    /// replaced by `filter(\.isTerminal)` — which is the mistake the facet
+    /// exists to prevent, so it should be a visible, deliberate change.
+    @Test func theFreezeFacetIsNotASynonymForIsTerminal() {
+        let terminal = Set(triage.statuses.filter(\.isTerminal).map(\.rawValue))
+        let message = """
+            The manuscript kind's freezesSource set now equals its isTerminal set \
+            (\(terminal.sorted())). That combination is what makes the declared facet \
+            redundant — either the lifecycle changed shape, or someone derived the \
+            facet from isTerminal. Check the declaration in BuiltinRecordKinds.swift.
+            """
+        #expect(terminal != triage.freezingStatusValues, Comment(rawValue: message))
+    }
+
     /// The derivation stated in prose above, executed. Documents that the rule
     /// is "non-dismissal terminal, plus `submitted`" and that `submitted` is the
-    /// part no descriptor predicate supplies — it is deliberately
-    /// `isTerminal: false`.
+    /// part no PRE-`freezesSource` descriptor predicate supplied — it is
+    /// deliberately `isTerminal: false`. Kept as the historical statement of the
+    /// rule the facet now encodes.
     @Test func theDerivationRuleReproducesThePolicy() async {
         let policy = await autoSnapshotStatuses()
         let dismissed = triage.dismissedStatus
@@ -216,7 +267,8 @@ import PublicationManagerCore
             `submitted` is expected to be a NON-terminal status that nonetheless \
             triggers the primary snapshot. That combination is the reason this policy \
             cannot be replaced by `statuses.filter(\\.isTerminal)`, and the reason the \
-            recommended fix is a declared `freezesSource` facet on StatusSpec.
+            fix was a declared `freezesSource` facet on StatusSpec (now shipped — see \
+            `theDeclaredFreezeFacetReproducesThePolicy`).
             """
         let submittedIsNonTerminal = triage.status("submitted")?.isTerminal == false
         #expect(submittedIsNonTerminal, Comment(rawValue: submittedMessage))

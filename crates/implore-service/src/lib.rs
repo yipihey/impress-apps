@@ -5,7 +5,8 @@
 //! default worth writing: implore's datasets and figures live in the running
 //! app's memory, not in the shared SQLite store. So the default implementation
 //! refuses and explains, and `implore-service-http` does the real work against
-//! the app on port 23124.
+//! the app on port 23123 (`SiblingApp.descriptors` in packages/ImpressKit is
+//! the authority; this was 23124 until the 2026-07-30 collision fix).
 //!
 //! # The `rg_*` family
 //!

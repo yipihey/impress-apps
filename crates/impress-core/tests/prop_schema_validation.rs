@@ -10,7 +10,7 @@ use chrono::Utc;
 use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
 use impress_core::registry::SchemaRegistry;
 use impress_core::schema::FieldType;
-use impress_core::schemas::task::{register_task_schemas, task_schema};
+use impress_core::schemas::task::{register_task_schemas, task_schema, TASK_SCHEMA};
 use proptest::prelude::*;
 use uuid::Uuid;
 
@@ -157,7 +157,7 @@ proptest! {
     #[test]
     fn validation_never_panics_on_arbitrary_payload(payload in arb_task_payload()) {
         let reg = task_registry();
-        let item = make_item("task", payload);
+        let item = make_item(TASK_SCHEMA, payload);
         let _ = reg.validate(&item); // must not panic
     }
 
@@ -168,7 +168,7 @@ proptest! {
     #[test]
     fn validation_matches_adr_oracle(payload in arb_task_payload()) {
         let reg = task_registry();
-        let item = make_item("task", payload.clone());
+        let item = make_item(TASK_SCHEMA, payload.clone());
         let got = reg.validate(&item).is_ok();
         let want = oracle_is_valid(&payload);
         prop_assert_eq!(
@@ -190,11 +190,11 @@ proptest! {
         let mut payload = BTreeMap::new();
         payload.insert("title".to_string(), Value::String(title));
         payload.insert("state".to_string(), Value::String(state.to_string()));
-        prop_assert!(reg.validate(&make_item("task", payload.clone())).is_ok());
+        prop_assert!(reg.validate(&make_item(TASK_SCHEMA, payload.clone())).is_ok());
 
         let dropped = if drop_title { "title" } else { "state" };
         payload.remove(dropped);
-        let errs = reg.validate(&make_item("task", payload)).unwrap_err();
+        let errs = reg.validate(&make_item(TASK_SCHEMA, payload)).unwrap_err();
         prop_assert_eq!(errs.len(), 1);
         prop_assert_eq!(errs[0].field.as_str(), dropped);
     }
@@ -213,8 +213,11 @@ proptest! {
     /// Property: an item with an unregistered schema ref is always rejected
     /// (never panics, never silently passes).
     #[test]
+    /// The generator cannot produce a registered id: since WP C4 both
+    /// registered ids carry an `@1.0.0` suffix and this alphabet has no `@`,
+    /// so the `prop_assume!(schema != "task" && …)` this test used to need is
+    /// gone — the versioned spelling made the exclusion structural.
     fn unknown_schema_always_rejected(schema in "[a-z-]{1,16}", payload in arb_task_payload()) {
-        prop_assume!(schema != "task" && schema != "agent-run");
         let reg = task_registry();
         let errs = reg.validate(&make_item(&schema, payload)).unwrap_err();
         prop_assert_eq!(errs.len(), 1);
@@ -256,28 +259,62 @@ fn required_field_explicit_null_is_rejected() {
     let mut payload = BTreeMap::new();
     payload.insert("title".to_string(), Value::String("t".into()));
     payload.insert("state".to_string(), Value::Null);
-    let result = reg.validate(&make_item("task", payload));
+    let result = reg.validate(&make_item(TASK_SCHEMA, payload));
     assert!(
         result.is_err(),
         "required field `state` set to explicit null should be rejected"
     );
 }
 
+/// Sanity anchor for the oracle: the schema declares exactly these fields, in
+/// this order.
+///
+/// The ADR-0005 §1 table is the first seven. The last four arrived in WP C4,
+/// when impel-core's SECOND, richer definition of this same kind was deleted
+/// and folded in here — `task_kind` and `attempts` from the kernel scheduler,
+/// `source_app` and `external_id` from impel's Swift bridge. They were being
+/// written the whole time; the schema just didn't know, because the writers
+/// were validating against a registry entry spelled `impel/task` while they
+/// wrote `task@1.0.0`.
+///
+/// The oracle below is unaffected: every added field is OPTIONAL, and
+/// `validate` never rejects an item for extra or absent optional fields — only
+/// `title` and `state` are required, which is what `validation_matches_adr_oracle`
+/// pins.
 #[test]
 fn task_schema_matches_adr_field_table() {
-    // Sanity anchor for the oracle: the schema declares exactly the ADR fields.
     let s = task_schema();
     let names: Vec<&str> = s.fields.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(
         names,
         vec![
+            // ADR-0005 §1.
             "title",
             "state",
             "description",
+            // WP C4: the kernel's executor dispatch key. `ready_tasks` requires
+            // it, so a task without one is not schedulable.
+            "task_kind",
             "assigned_to",
+            "attempts",
             "due_at",
             "output_schema",
-            "error"
+            "error",
+            // WP C4: impel's SharedTaskBridge mirror provenance.
+            "source_app",
+            "external_id",
         ]
+    );
+    let required: Vec<&str> = s
+        .fields
+        .iter()
+        .filter(|f| f.required)
+        .map(|f| f.name.as_str())
+        .collect();
+    assert_eq!(
+        required,
+        vec!["title", "state"],
+        "the union must not have promoted any writer's field to required — a \
+         mirrored row carries only title/state plus optionals and must validate"
     );
 }

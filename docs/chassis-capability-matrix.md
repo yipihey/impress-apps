@@ -29,7 +29,7 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 | `section(.search)` | ✅ Show Hidden Forms | ➖ | ➖ | ✅ reorder | ➖ | ➖ | imbib only |
 | `section(.flagged)` | ➖ | ➖ | ➖ | ✅ reorder | ➖ | ✅ | counts = pubs (imbib) / manuscripts (imprint) |
 | `library` | ✅ full | ✅ | ✅ confirm | ✅ | ✅ pubs, collections | ✅ | |
-| `libraryCollection` | ✅ Rename/Subcoll/Delete | ✅ | ✅ (no confirm, single) | ✅ | ✅ pubs, reparent | ✅ | parent_id regression fixed 2026-07 |
+| `libraryCollection` | ✅ Rename/Subcoll/Delete | ✅ | ✅ (no confirm, single) | ✅ | ✅ pubs, reparent | ✅ | parent_id regression fixed 2026-07. **C2 (ADR-0022, 2026-07-30): the VERBS converged onto the generic folder path.** `folderNode(_:)` resolves `.libraryCollection`, so rename / reorder / reparent / delete / membership / menu all run through `CollectionStoreAdapter` on the publication binding — `buildCollectionContextMenu` is DELETED and the labels are the capability's (`containerNoun: "Collection"`, `deleteTitleOverride: "Delete"`). Cross-library reparent is now ONE atomic kernel `reparent_in` carrying the owning library as the CONTAINER (it was two hand-ordered Swift writes) and gained a complete "Move Folder" Undo; the smart guard reads the kernel row's `is_smart`. The node CASE deliberately stays `.libraryCollection`: it maps to `.collection(id)`, a `PublicationSource` feeding the publication-only multi-select union, where `.recordFolder` maps to `.record(.folder(...))` — converging the ROUTE is `UnifiedPublicationListWrapper`'s remit. NOT converged: creation (kernel's create undo says "New Folder", imbib's says "Create Collection" — relabelling a live Edit-menu entry is a UX decision) and the node READS (still `store.listCollections`, which is the G7 flip blocker) |
 | `recordFolder(binding: manuscript)` | ✅ Rename/Subfolder/Delete | ✅ (needs `makeIfNecessary: true` + ancestor expand in `beginEditingNode`) | ✅ (⌫ + menu) | ✅ reorder+reparent | ✅ manuscripts, folders | ✅ | G2 (ADR-0022): served by the generic capability-driven folder block over `CollectionStoreAdapter` → Rust `collection_ops` (manuscript binding: payload `parent_collection_ref` + Contains membership); cycle check now Rust-side. **Stage 3: `manuscriptFolder` and `figureFolder` collapsed into ONE node case `recordFolder(bindingID:folderID:)`** — the node carries its kernel BINDING and all eight sites that handle it are total over `CollectionCapability` (`migratedFolderBindings` retired) |
 | `recordFolder(binding: figure)` | ✅ Rename/Subfolder/Delete | ✅ | ✅ (⌫ + menu; delete unfiles children via FK `ON DELETE SET NULL`, undo re-files) | ✅ reorder+reparent | ✅ figures, folders | ✅ | G2 (ADR-0022): same generic block, figure binding (ENVELOPE parent + envelope membership); reparent gained Undo it never had. Same single node case as the row above |
 | `figuresAll` | ❌ none | ➖ | ➖ | ➖ | ➖ | ✅ total | fixed row |
@@ -45,12 +45,12 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 | `mailFolder` vs `recordFolder` | — | — | — | — | — | — | **Not converged, deliberately:** `mail-folder` rows are IMAP-owned mailboxes with no kernel collection binding (the message descriptor declares no `collection`), so they keep their own read-only node case. Converging them would mean claiming folder VERBS the store must never perform on mail (Stage-2-A2) |
 | `customSurface("store-search")` (G4) | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ | CHASSIS-builtin (only builtin surface tier so far; every preset, appended after app surfaces); select → full-pane grouped mixed-kind search over `search_all` FTS; Return/double-click opens kinds with real routes (publication, manuscript), metadata footer otherwise; ⌘⇧F routes here in implore/impel only (imbib/imprint keep their bindings; impart's ⌘⇧F = Forward Message, node is click/menu-only) |
 | `inboxFeed` / `libraryFeed` | ✅ | ✅ | ✅ | ➖ | ➖ | ✅ | |
-| `inboxCollection` | ✅ | ✅ | ✅ | ➖ | ✅ pubs | ✅ | |
+| `inboxCollection` | ✅ | ✅ | ✅ | ➖ | ✅ pubs | ✅ | C2: DECLARED as the `inbox` tier on the publication `CollectionCapability` (`allowsRename: true, allowsSubcontainers: true`) but NOT yet routed — its nodes are still built from `store.listCollections(inboxLib.id)`, so moving the writes alone would give one tree two writers. Converts with its reads |
 | `searchForm` | ✅ Hide | ➖ | ➖ | ✅ reorder | ➖ | ➖ | |
 | `flagColor` | ❌ none | ➖ | ➖ | ✅ reorder | ➖ | ✅ | |
 | `scixLibrary` | ✅ full | ➖ (Edit sheet) | ✅ confirm | ✅ reorder | ✅ pubs | ✅ | |
 | `explorationSearch` | ✅ Delete | ➖ | ✅ | ✅ (→Inbox = feed) | ➖ | ✅ | |
-| `explorationCollection` | ✅ Delete | ➖ | ✅ | ✅ | ➖ | ✅ | |
+| `explorationCollection` | ✅ Delete | ➖ | ✅ | ✅ | ➖ | ✅ | C2: DECLARED as the `exploration` tier (`allowsRename: false, allowsSubcontainers: false`) — the "Delete only" in this row, in code and pinned by `testPublicationTiersMatchTheFrozenMatrixRows`. Not routed: same two-writers reason as `inboxCollection`, plus the `ExplorationService.currentExplorationCollectionID` selection side effect, which is app state and stays app-side |
 | `journalAll` / `journalByStatus` | ❌ none | ➖ | ➖ | ➖ | ➖ | ❌ deferred (async counts) | fixed rows |
 | `journalSubmissions` | ❌ none | ➖ | ➖ | ➖ | ➖ | ➖ | hidden in imprint |
 | `manuscript` (deep-link node) | ❌ none | ➖ | ➖ | ➖ | ➖ | ➖ | search results |
@@ -669,7 +669,7 @@ so this is a SPLIT that also closes bugs rather than a tidy-up.
 | Scope derivations | **ONE SURFACE — collapsed outright.** | `PublicationScope`: `listViewID`, `isInboxScope`, `isFeedScope`, `smartSearchID`, and the two owning-library policies | Nothing. The iOS `Source` enum survives as the SIDEBAR ROUTE (it carries a display name `PublicationSource` cannot express) but derives nothing — it maps to a `PublicationSource` and asks |
 | Visual order + selection advance | **ONE SURFACE — collapsed outright.** | `PublicationListOrder.visualOrder` / `primaryComparison` / `nextSelection`, macOS's implementations moved without edits | Nothing |
 | Triage verbs | **SPLIT — one sequence, two selection policies.** | `PublicationListMutations`: the COMPOSITES (delete, dismiss, dismissFromFeed, save, saveFromFeed, trackInboxDismissals, removeFromAllCollections) | The selection policy. macOS ADVANCES to the next paper; iOS CLEARS, because on a phone the split view is a stack and writing a selection pushes the detail pane over the list being triaged in (matrix line ~271, the rule that has now bitten twice) |
-| Reload / scope→rows / network refresh | **SPLIT — iOS adopts, macOS names its price.** | `PublicationListCore`: `PaginatedDataSource` ownership, `reload`, `applySort`, pagination, the store-event subscription, the smart-search + SciX refresh | macOS keeps its own `refreshPublicationsList`: around the same reload it runs store-version dedup, the Apple-Mail unread snapshot, `LocalFilter` + debounced FTS, and two change-detected caches. iOS has none of them and every one is observable behaviour on the frozen pane |
+| Reload / scope→rows / network refresh | **SPLIT — iOS adopts, macOS names its price.** | `PublicationListCore`: `PaginatedDataSource` ownership, `reload`, `applySort`, pagination, the store-event subscription, the smart-search + SciX refresh | macOS keeps its own `refreshPublicationsList`: around the same reload it runs store-version dedup, the Apple-Mail unread snapshot, `LocalFilter` + debounced FTS, and two change-detected caches. iOS has none of them and every one is observable behaviour on the frozen pane. The REMOTE half is now shared even though macOS still holds no core: `PublicationListCore.pullSmartSearch` is a static and the macOS chrome calls it directly — the one part of the core the gated wrapper consumes |
 | Empty-state + title copy | **TWO DESIGNS — kept, with reasons.** | Nothing | Different product copy per platform (macOS "No new papers in your inbox."; iOS "Add feeds to start discovering papers."), and iOS guards an empty smart-search query where macOS renders `No Results for ""`. Unifying words changes the frozen pane — a product decision. Same rule as `InfoTab.macExplorationKinds` |
 | macOS list chrome | **TWO DESIGNS.** | Nothing | Vim keys, the flag/tag/filter input overlays, drag-and-drop + preview sheet, the import toast. Stays `#if os(macOS)` and is asserted so |
 
@@ -717,7 +717,7 @@ the duplication).
 | `Chassis/Shared/PublicationScope.swift` | ✅ both | scope → persisted list key, inbox/feed classification, smart-search id, the two owning-library policies. Derivations only — ADR-0018 D3, no new cases |
 | `Chassis/Shared/PublicationListOrder.swift` | ✅ both | the visual order (SQL-sorted passthrough; total order for `.recommended`) and the selection-advance rule |
 | `Chassis/Shared/PublicationListMutations.swift` | ✅ both | the composite triage sequences with their invariant steps (dismissal tracking, feed delinking, batching, soft delete) |
-| `Chassis/Shared/PublicationListCore.swift` | iOS (macOS pending, price stated in its header) | `@Observable` scope→rows: paginated read, sort→`ORDER BY`, store-event subscription, smart-search + SciX network refresh |
+| `Chassis/Shared/PublicationListCore.swift` | iOS (macOS pending for the reload, price stated in its header; macOS calls `pullSmartSearch`) | `@Observable` scope→rows: paginated read, sort→`ORDER BY`, store-event subscription, smart-search + SciX network refresh |
 | `Chassis/Shared/UnifiedPublicationListWrapper.swift` | macOS | the chrome: vim keys, input overlays, drag-and-drop, import toast, the unread-snapshot + FTS filter pipeline |
 | `imbib-iOS/Views/IOSUnifiedPublicationListWrapper.swift` | iOS | the chrome: navigation title, Select/Done + per-scope refresh + SciX glyph toolbar, bottom bar, library picker, share / open-in-browser, the BibTeX sheet |
 
@@ -729,10 +729,13 @@ not "the URL for this destination", so there is nothing to read. Single-call
 verbs (`setFlag`, `clearFlag`, `toggleRead`, `addToLibrary`, `addToCollection`):
 they are already one line into the shared `RustStoreAdapter` and were never
 implemented twice — wrapping them would add a hop and remove no duplication.
-macOS's `onRemoveFromAllCollections`, still an empty `// TODO` closure that
-silently does nothing when the user picks the menu item: the working body is now
-in `PublicationListMutations` and adopting it is one line, but it is a BEHAVIOUR
-change to the frozen pane. And **the tracked triage-builder exception below
+macOS's `onRemoveFromAllCollections` — **wired 2026-07-30.** It was an empty
+`// TODO` closure that silently did nothing when the user picked the menu item;
+it now calls `PublicationListMutations.removeFromAllCollections`, so the verb
+finally runs on both platforms. Like `onAddToCollection` it does not refresh:
+`removeFromCollection` posts `.structural` and the wrapper's subscription owns
+the reload, so a manual refresh would double-refresh (which is exactly what
+`lastRefreshedStoreVersion` exists to suppress). And **the tracked triage-builder exception below
 stands** — this pass did not touch `MailStylePublicationRow`'s swipes, keys or
 menu styling.
 
@@ -769,11 +772,49 @@ evaluated the builder while the id was still nil — so "View/Edit BibTeX" opene
 Now one `@State` (`bibTeXTarget`) and `.sheet(item:)`, which derives presentation
 FROM the id so there is no order to get wrong. The same shape is worth checking
 anywhere `.sheet(isPresented:)` sits beside a separately-written payload — this is
-the `@State`-capture rule (root CLAUDE.md) in its presentation form. Note the
+the `@State`-capture rule (root CLAUDE.md) in its presentation form.
+
+That sweep ran on 2026-07-30 across `PublicationManagerCore` and the five macOS
+targets: 38 `.sheet(isPresented:)` sites. Two more instances of the exact shape
+were found and converted — `ArXivCategoryBrowser`'s follow sheet
+(`selectedCategory` + `showingFollowSheet` → one `followTarget`) and
+`RemarkableDocumentBrowserView`'s import sheet (`selectedDocument` +
+`showImportSheet` → one `importTarget`); in both, the row action wrote payload and
+flag in the same runloop turn. Three sites KEEP an `isPresented` whose boolean is
+a *derived* binding over the payload (`SectionContentView`'s feed settings,
+`EInkSettingsView`'s device config, and the drop-preview sheet, which
+additionally has a three-deep library fallback so a nil payload cannot blank it):
+presentation already follows the payload there, so there is no order to get
+wrong, and `.sheet(item:)` would delete the drop preview's fallbacks. The rest
+carry no payload at all and are correct as they stand. **One site is flagged
+rather than fixed:** impart's `MailChassisHost` compose sheet takes an OPTIONAL
+draft where nil legitimately means "blank new message" (⌘N, and `handleCompose`
+with no selected account), so `.sheet(item:)` would delete the blank-compose
+path. If reply/forward ever loses its quoted body, that is where to look — but
+the fix is not this modifier.
+
+Note the
 test that catches it must anchor on `app.navigationBars["BibTeX"]`:
 `app.staticTexts["BibTeX"]` is a false positive, because the app publishes a
 zero-size keyboard-shortcut element with exactly that label, and it let the empty
 sheet pass.
+
+**macOS smart-search refresh now actually refreshes (a sanctioned behaviour
+change, 2026-07-30).** The wrapper's `.smartSearch` case was
+`// TODO: implement smart search refresh with Rust store` followed by
+`try? await Task.sleep(for: .milliseconds(100))` — Refresh on a feed slept,
+re-read the store and fetched NOTHING, so a macOS smart-search section could only
+ever show what a background service had already landed, while iOS had implemented
+the real thing all along. The sequence (group feeds →
+`GroupFeedRefreshService.refreshGroupFeedByID`, everything else →
+`SmartSearchProviderCache` + `SmartSearchProvider.refresh()`) now lives in
+`PublicationListCore.pullSmartSearch` and both hosts call it. This is a
+deliberate change to the frozen pane: macOS smart-search and group-feed sections
+issue a real network fetch on demand (group feeds will now stagger per-author
+searches), and a failed fetch replaces the list with the retry
+`ContentUnavailableView` instead of silently succeeding. The static returns
+`Error?` rather than `String?` because each host PRESENTS the failure its own way
+— macOS stores an `Error` for its retry view, iOS wants a string for its alert.
 
 Regression oracles: `PublicationListSharedSurfaceTests` (15 tests, `swift test` —
 the frozen `.flagged` scope keys and the amber fallback, virtual-scope key
@@ -787,6 +828,182 @@ selection); the four new rows in
 row for the macOS wrapper; and `imbib-iOSUITests/IOSPublicationListUITests`
 (booted simulator — selection updates the detail pane, pull-to-refresh, and the
 BibTeX sheet opening the shared editor).
+
+### The shared iOS list host (`RecordListHost`, C1, 2026-07-30)
+
+Stage 5c REPORTED the gap ("there is no shared iOS LIST host — three apps each
+write their own"), and Stage 5d NARROWED it and rejected the imbib-shaped
+version: imbib-iOS does not hand-write a list at all, so a host generalized from
+imbib would be generalized from a file imbib would not use. C1 built the version
+generalized from the two hosts that were actually asking — the `listColumn`
+middle of imprint-iOS's `IOSManuscriptLibraryView` and impart-iOS's
+`IOSMessageListColumn` — and left imbib-iOS on `PublicationListView` +
+`PublicationListCore` untouched.
+
+| Half | Verdict | What moved cross-platform | What stayed per app, and why |
+|---|---|---|---|
+| The `List` + rows | **ONE SURFACE.** | `List(selection:)`, `ForEach`, `.tag`, `.listStyle(.plain)`, and the `.recordTriageRow(...)` wiring (triage capabilities + row state + tag paths + extra menu items) | The ROW ITSELF is a builder. imprint draws a flag dot + title + status badge + authors + format; impart draws `MailStyleRow` over `MessageRowData` (already shared with macOS). Collapsing them would change one app's pixels — a product decision |
+| The search field | **SPLIT — one field, two meanings.** | `.searchable(text:isPresented:placement:prompt:)` in a `navigationBarDrawer`, plus the ⌘F toolbar button (same glyph, same `toolbar.find` identifier, same shortcut) that is a hardware keyboard's only route to it | WHAT A QUERY MATCHES. imprint asks the STORE (`searchManuscripts` + the adapter's scope intersection + the dismissed rule); impart filters the loaded page over subject/from/preview, the three fields macOS's filter bar matches. The host takes a `Binding<String>` and never reads it |
+| The three-state branch | **ONE SURFACE — `RecordListPhase`.** | "spinner / empty state / rows", with the rule that `isLoading` only wins when there is nothing on screen | Nothing. imprint had no loading state at all, so this existed once and a half |
+| Empty state | **ONE RENDERER, per-app copy.** | `ChassisEmptyState.view(actions:)` — the state's own renderer, now with a recovery-affordance slot | The WORDS, as a `ChassisEmptyState` value built by the app, and whether there is a button: imprint offers New Manuscript, impart offers nothing because it registers no `onCreate` verb (the `RecordTriageNewTagPrompt` rule — omit the affordance, never show a dead one) |
+| Reload triggers | **ONE SET, opt-in.** | `.refreshable`, `.task(id: scopeToken)`, `.onChange(of: dataVersion)` | WHICH of them an app wants. impart's column owns its read and takes all three; imprint keeps its triggers at the split-view root because the same `refresh()` feeds the SIDEBAR counts, and takes only pull-to-refresh (which its list did not have before) |
+| Selection | **NEITHER — the host writes none.** | Nothing | No landing selection, no advance after triage: in compact width a `NavigationSplitView` is a stack, so writing a selection pushes the detail pane over the list being worked in (the rule at ~line 271, now confirmed for the third time). Keeping a selection VALID when rows leave is the app's reload — impart clears, imprint keeps the open manuscript |
+| Row identifiers | **ONE CONVENTION.** | `RecordListRowIdentity.identifier(prefix:id:)` | The prefix (`manuscriptRow.` / `messageRow.`). Both UI suites match these BY PREFIX, and the strings previously lived only as literals in two view files and two test files |
+
+| File | Reach | Role |
+|---|---|---|
+| `Chassis/RecordKind/RecordListHostModel.swift` | ✅ both | the DATA half: `RecordListPhase.resolve` and the row-identifier convention |
+| `Chassis/RecordKind/RecordListHostView.swift` | iOS | the renderer. Gated because `navigationBarTitleDisplayMode` and `.topBarTrailing` are iOS-only — the same data/view split as `RecordSidebarModel` / `RecordSidebarView` |
+| `Chassis/Shared/ChassisEmptyState.swift` | ✅ both | ADDITIVE: `view(actions:)`, the same state with a recovery button under it |
+
+**Why `.searchable` and not `ImpressFTUI.FilterInput`.** `FilterInput` is the
+macOS list's inline filter BAR — 12 pt monospaced, a `FILTER` mode indicator, `?`
+syntax help, ESC-to-clear — designed to be overlaid on a pointer-driven list.
+The iOS idiom is the navigation-bar search field: it is what both adopters ship,
+what `app.searchFields` in both UI suites drives, and what gives keyboard
+dismissal and Cancel for free. Adopting `FilterInput` here would have replaced a
+native control with a desktop one in two apps at once.
+
+**Why this is not `AnyRecordListWrapper`.** The Stage 5d note named
+`AnyRecordListWrapper`'s iOS half as the target; building it out was the wrong
+move on inspection. That wrapper is the MIXED-kind list: rows are
+`KindTaggedRow`s rendered through `RecordViewerRegistry` factories, with per-kind
+sections, double-click and Return-to-open. The registry is EMPTY on iOS by
+construction, so every row would fall back to `MailStyleRow` — which is already
+what impart renders, and which for imprint would mean replacing its manuscript
+row (flag dot, status badge, format) with mail chrome. That is a product change,
+not a de-duplication. `AnyRecordListWrapper` still has no consumer; sharing this
+host's chrome with it (grouped sections over a mixed list) is the follow-up.
+
+Net: **imprint-iOS −22 code lines** (446 → 424 in `IOSManuscriptLibraryView`, and
+the deleted part is the whole `manuscriptList` + the searchable/⌘F block + the
+empty-state VIEW), **impart-iOS −24** (95 → 71, a quarter of the file), against
+**235 shared code lines** added (15 model + 220 renderer). The line arithmetic is
+not the point and is honestly reported as such: two adopters is where a shared
+host breaks even, and the third (a figures or tasks list on iOS) costs a call
+site instead of a file.
+
+**imbib-iOS was deliberately NOT rewired.** Its list is `PublicationListView`
+(2,021 cross-platform lines) over `PublicationListCore`, it just stabilized in
+Stage 5d, and it needs a sort menu, a multi-select edit mode, a bottom bar and
+pagination that this host has no opinion about. Convergence is a follow-up:
+`RecordListHost` could host `PublicationListView`'s ROWS if the sort menu and
+selection mode became parameters, and that is the shape to check next time
+someone reaches for a fourth iOS list.
+
+### Throughline on iOS (C1, 2026-07-30) — an original user-reported gap
+
+`ThroughlineCoordinator` and `ThroughlineModel` were de-gated in wave 2 and have
+been compiled into `imprint-iOS` ever since; only the VIEW stayed behind, in a
+macOS-target directory. So the engine shipped on iPad with no way to look at it.
+
+`apps/imprint/macOS/Views/ThroughlinePaneView.swift` → **`apps/imprint/Shared/Views/ThroughlinePaneView.swift`**
+(both targets glob `Shared`, so this is a move plus `xcodegen generate`, not a
+port). Nothing in the body was AppKit-adjacent. Three `#if` islands, no second
+copy:
+
+| Island | Why |
+|---|---|
+| `throughlineMenuChrome(width:)` | `BorderlessButtonMenuStyle` is macOS-only, and iOS's menu-from-a-glyph is already borderless. The fixed widths are pointer hit targets |
+| `throughlinePaneWidth()` | `minWidth: 260, idealWidth: 340, maxWidth: 480` is the macOS inspector COLUMN's sizing; on iOS the pane is a sheet and takes its size from the detent |
+| `throughlineLongPressLegend(state:help:)` | THE adaptation. `.help(_:)` compiles on iOS but only reaches VoiceOver, and the badge legend is where this pane keeps its meaning — so on iOS every badge answers a LONG PRESS with the same sentence. The `CitationPaperSheet` / `onCiteKeyLongPress` substitute for hover, applied to the one affordance that depended on it |
+
+**Entry point: a toolbar button raising a sheet** (`toolbar.throughlineButton` →
+`NavigationStack { ThroughlinePaneView } .presentationDetents([.medium, .large])`),
+not a third `EditorPane` case. The throughline is an INSPECTOR — macOS mounts it
+beside the source, not instead of it — and a third pane case would have to fight
+two things that are already load bearing: the two-state Source↔Preview swipe
+(`paneSwipe` derives its destination from the drag direction) and the persisted
+`imprint.editor.compactPane` choice, which strands a user in a hidden pane for a
+plain-text document.
+
+**Sidecar hydrate was needed, and is now in `IOSManuscriptEditorHost`.** A
+store-backed manuscript has no `.imprint` file bundle, so `document.throughlineSource`
+was always nil on iOS and the pane would have opened on "No throughline yet" for
+a document that has one. `loadFromStore()` now reads
+`ImprintStoreAdapter.loadThroughline(documentID:)` — the same call the macOS side
+panel's `PanelManuscriptBridge` makes. Persistence is unchanged: the pane's own
+mutations go through `ThroughlineCoordinator`, whose debounced mirror already
+worked on iOS.
+
+Scope shipped: READ + anchor/mark parity with macOS — badges and their derived
+states, the Story/Edit toggle with the raw Typst editor, the anchor menu
+(`setAnchor` baselines the ledger), the coverage footer's "mark as supporting",
+sync-proposal Accept/Discard, Remove Throughline, and the create affordance.
+Adapted, not dropped: hover help (long press). Not present on iOS because the
+seam itself is macOS-only: `ManuscriptSidePanel` registration — the iOS host has
+a sheet instead. Section navigation IS wired: macOS jumps by character offset,
+iOS resolves the chip's section key against the source's headings (the same
+`ThroughlineText.sectionKey` slug the anchors use) and pulses `goToLine`.
+
+### Cited papers on iOS (C1, 2026-07-30)
+
+**(a) SHIPPED — imbib-iOS's Info tab renders `CitedInManuscriptsSection`.** The
+wave-4 report called this "one line"; it was one line plus an access modifier —
+the view was cross-platform but INTERNAL, so the only module that could name it
+was PMC itself. It is `public` now (init included, snapshot injectable) and sits
+in the same position as macOS's: after Flag & Tags, before the abstract, with its
+own trailing `Divider()` and its own "render nothing when this paper is uncited"
+rule.
+
+One structural quirk found while wiring it, recorded rather than papered over:
+the section's `.task(id:)` sits INSIDE its non-empty branch, and `EmptyView` runs
+no lifecycle modifiers — so the section cannot bootstrap its own first load, on
+either platform. Something already on screen has to warm
+`CitedInManuscriptsSnapshot` (macOS: the sidebar's Cited in Manuscripts row;
+iOS: `IOSInfoTab`'s own load task, which now does). The fix inside the section
+would put a zero-size view in a `VStack(spacing: 20)` and add 20 pt of blank
+space to every uncited paper's Info tab on both platforms, so it stays a
+follow-up.
+
+**(b) NOT SHIPPED — imprint-iOS keeps `presenting([.manuscript])`, and here is
+the concrete gap.** Widening to `[.manuscript, .publication]` needs a publication
+LIST and a publication DETAIL on imprint-iOS. The list half is now cheap: rows
+are `PublicationRowData`, the scope is `PublicationSource.citedInManuscripts`,
+the model is `PublicationListCore`, and the chrome is the new `RecordListHost` —
+perhaps 40 lines. **The detail half is the blocker, and it is a shared-surface
+gap, not an effort estimate:** there is no public, environment-free, read-only
+publication detail in the chassis. `DetailView` and `InfoTab` are `#if
+os(macOS)`, internal, and require `LibraryViewModel` + `LibraryManager` in the
+environment; imbib-iOS's `IOSInfoTab` is app-target code in another project.
+What IS public and reusable is the Stage-5b `Chassis/Detail/Shared/` set
+(identifier links, Flag & Tags, exploration, notes document, PDF availability)
+plus `BibTeXTab` — enough to ASSEMBLE a third publication Info surface in
+imprint-iOS, which is exactly the outcome Stage 5b's verdict table says not to
+produce without a pass dedicated to it. Shipping (b) would also mean a
+two-kind selection route in imprint-iOS's split view (its detail column is
+`IOSManuscriptEditorHost(manuscriptID:)` today). Recorded as: **the next
+publication-detail pass should extract an iOS-capable read-only Info pane;
+imprint-iOS's suppressed section is its first consumer, and the sidebar section
+stays declaratively absent until then** (`SeededLibraryShellUITests` still
+asserts that absence for the declared reason).
+
+**The lane a cross-app fixture actually lives in (found while verifying (a)).**
+`CitationUsageReader` has no `--ui-testing` in-memory redirect — it always opens
+the on-disk workspace — and the records are written by imprint, which imbib links
+no writer for. So the fixture has to be planted by the OTHER app:
+`ImprintIOSApp.seedUITestDataIfNeeded` now writes one through imprint's own
+`upsertCitationUsage`, and takes the SEED flag alone (impart's shape) so it can
+reach the on-disk lane at all. One more thing that only shows up on a device:
+**an unsigned simulator build has no app-group entitlement, so `SharedWorkspace`
+falls back to a PER-APP `tmp/com.impress.suite-dev/workspace/impress.sqlite`** —
+i.e. under `CODE_SIGNING_ALLOWED=NO` the suite does not share a store at all, and
+the "one app group, one database" claim this document makes (verified with a
+SIGNED build) is a signed-build property. `imbib-iOSUITests`'s new
+`test_infoTab_showsCitedInManuscripts_whenImprintCitesThePaper` therefore reads
+the real store and SKIPS when the fixture is absent, rather than pretending an
+unsigned CI run can see imprint's rows.
+
+Regression oracles for C1: `RecordListHostTests` (7 tests, `swift test` — the
+three-state rule in both directions, the identifier convention, the model half
+un-gated, the renderer iOS-gated, and both adopters free of a hand-written
+`List` / `.searchable` / `.recordTriageRow`); one new row in
+`ChassisCrossPlatformContractTests.crossPlatformContractFiles`;
+`imprint-iOSUITests/ThroughlinePaneUITests` (booted simulator — the toolbar
+entry point, the seeded throughline hydrated out of the store, both derived
+badges, the Story/Edit toggle, and the long-press legend); and the extended
+`ImprintIOSApp` seed, which now writes a throughline, a `citation-usage` record
+through imprint's own writer, the folder tree and a dismissed manuscript.
 
 ## MCP surface
 
@@ -1039,19 +1256,203 @@ tool name above is enumerable and that this file documents each one;
 tools and both resources. Resource listing is additionally unit-tested
 in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
 
+## Cross-app plumbing (hardening C3, 2026-07-30)
+
+### The store mirror is one kernel now (`packages/ImpressStoreKit`)
+
+Three apps keep their OWN source of truth and MIRROR it into the shared item
+store so the others can see it — impart (Core Data is the truth), implore (the
+JSON figure library is), impel (impel-taskd's rows are). Each had grown the same
+plumbing independently, and the row mapping — the only genuinely app-specific
+part — was the smallest piece of it.
+
+`ImpressStoreKit/StoreMirrorKernel.swift` now owns the generic half. It lives in
+`packages/ImpressStoreKit` because that is the one place all three can link:
+none of them depends on PMC, and the package was already the home of
+`StoreEvent`/`MutationKind` (the event bus the old plans mentioned) plus
+`ListSnapshot` and `BackgroundOperationQueue` — the mirror kernel is the same
+layer, not a new one.
+
+| Piece | What it replaces | Who uses it |
+|---|---|---|
+| `StoreMirrorUpsert` | impart's `MailItemUpsert` (now a typealias to it), implore's inline FFI row construction | impart, implore |
+| `StoreMirrorOp` + `StoreMirrorWriteGate` | impart's `PendingStoreOp` / `dispatch` / `buffer` / `flushPendingOps` / `apply` — the startup embargo, the ordered drain, the ≤500-row batching | impart today; available to implore/impel |
+| `StoreMirrorBackend` | nothing — the NEW seam. Four verbs (`upsertBatch`, `upsertOne`, `setRead`, `setParent`) | impart, implore |
+| `LazyStoreHandle` | three hand-rolled lazy lock-guarded opens | all three |
+| `StoreMirrorPayload` | impart's `encodeJSON`, implore's two inline `JSONSerialization` blocks | impart, implore |
+| `StoreMutationSignal` | `didMutate()` — bump a version, fan out a typed `StoreEvent` | impart, implore |
+
+**`StoreMirrorBackend` is a protocol on purpose, and the reason is testability
+plus a build fact.** `ImpressRustCore`'s XCFramework is a local build artefact
+(gitignored — `crates/impress-store-ffi/frameworks/` is 171 MB of `cargo`
+output), which is exactly why all three adapters guard their FFI use with
+`#if canImport(ImpressRustCore)`. If the kernel named `SharedStore`,
+ImpressStoreKit would inherit that requirement and the kernel's own tests would
+stop running without a Rust build. Keeping the store behind four verbs means
+`StoreMirrorKernelTests` exercises the embargo, the ordering guarantee, the batch
+split and the failure policy against an in-memory fake — **logic that had ZERO
+tests in its previous home**, because reaching it needed a real UniFFI handle and
+a real 90-second wall clock. The price is a ~12-line mechanical conformance next
+to each app's own guarded FFI import (impart's and implore's; impel writes
+nothing and needs none). Collapsing those two would take a shim target that
+depends on both packages, which is the right move the moment a third writer
+appears.
+
+**Three latent defects the extraction surfaced**, all of them consequences of the
+same logic existing three times:
+
+1. **impel's store handle retried a failed open forever.** `ImpelStoreAdapter.handle()`
+   cached success but had no `openAttempted` flag, so with no database on disk
+   every `fetchThreads` / `fetchAgentRuns` paid a full open-and-throw, for the
+   life of the process. `LazyStoreHandle` attempts once and remembers.
+2. **`encodeJSON` could trap the process.**
+   `JSONSerialization.data(withJSONObject:)` raises an **NSException**, not a
+   Swift error, for an object graph containing a non-JSON value (a `Date`, a
+   `URL`) — `try?` does not catch it. Every hand-rolled copy had the same latent
+   crash. `StoreMirrorPayload` pre-checks with `isValidJSONObject`.
+3. **implore's payloads were not key-sorted.** impart's were. Since a mirror
+   re-upserts the same logical row whenever its source changes, unsorted output
+   made byte-identical payloads look different and churned `modified` on every
+   sync. Both now sort.
+
+**Behaviour deliberately NOT changed:** implore's and impel's writes still land
+IMMEDIATELY. They do not go through the startup embargo, which they arguably
+should — CLAUDE.md's 90-second invariant is not impart-specific — but adopting
+the gate would defer a user's figure save for up to 90 s after launch, and that
+is a product decision, not a refactor. The gate is now sitting there for them.
+Also unchanged: `encodeJSON`'s two failure policies are distinct on purpose —
+`encodeJSON` returns `"{}"`, `encodeJSONIfValid` returns `nil`, and implore's
+figure/dataset writes use the latter so a bad payload SKIPS the write rather than
+replacing a figure's metadata with silence.
+
+Regression oracles: `StoreMirrorKernelTests` (26 tests in ImpressStoreKit),
+plus the three packages' own suites unchanged — MessageManagerCore 25, ImpelCore
+9, ImploreCore (no adapter tests; implore's real coverage is UI tests, so its
+oracle is the macOS build).
+
+### One authoritative port table — the implore/impel collision, resolved
+
+`SiblingApp.descriptors` in `packages/ImpressKit/Sources/ImpressKit/SiblingApp.swift`
+is THE port table, and the rule is now explicit in its doc comment: **servers
+align TO the table; the table does not move to match a server.** The reasoning is
+that siblings dial `SiblingApp.<app>.httpPort`, so whatever the table says is
+what the rest of the suite believes, and a server binding anything else is simply
+unreachable.
+
+Four separate disagreements with it existed, and every one was a live bug:
+
+| Site | Was | Now |
+|---|---|---|
+| `apps/implore/.../HTTPAutomationServer.swift` + `ImploreHTTPRouter.swift` | bound **23124** — impel's port | `SiblingApp.implore.httpPort` (23123) |
+| `ImpressCommandPalette.AppEndpoint` | a second port table with impel and implore **transposed** | derived from `SiblingApp.descriptors` |
+| `MessageManagerCore.ArtifactResolver` | dialled **23121** for imbib and **23123** for imprint | descriptor lookups (23120 / 23121) |
+| `ImpelCore.ImpelClient.defaultPort` | **23123** — implore's port | `SiblingApp.impel.httpPort` (23124) |
+
+implore's and impel's servers both binding 23124 meant whichever app launched
+first won the socket and the loser's automation API silently never came up. The
+palette asked each of the two for the other's commands. `ArtifactResolver` asked
+imprint for `/api/publications/…` and implore for `/api/documents/…` — both 404
+forever, which reads exactly like "the artifact doesn't exist".
+
+Every binding site and every cross-app dial in the five apps is now a lookup
+rather than a literal (imbib's server was already the precedent), including
+`ImpelHTTPServer`, `ImpartHTTPRouter`, `ImprintHTTPServer`, the four
+`UserDefaults.register` defaults, the two Settings `@AppStorage` defaults, and
+imprint's `InlineCompletionService` imbib dial. The Rust side follows:
+`crates/implore-service-http`'s `DEFAULT_BASE_URL` is 23123. `CLAUDE.md` /
+`AGENTS.md` carry the full five-row table with an explicit note that it is a
+TRANSCRIPTION and is wrong if it disagrees with the Swift.
+
+> **USER-FACING: implore's automation port moved, 23124 → 23123.** Anyone with
+> saved automations, scripts, browser-extension config or MCP wiring pointing at
+> `localhost:23124` for implore must repoint to 23123. 23124 is impel. Users who
+> ran implore and impel together were already only getting one of them.
+
+Regression oracles: `SiblingApp` port uniqueness and accessor-vs-table agreement
+in `ImpressKitTests` (29 tests), and the new
+`testAppEndpointsAreDerivedFromSiblingAppTable` in `ImpressCommandPaletteTests`,
+which asserts the palette's presets are DERIVED from the table rather than merely
+equal to it.
+
+**Judgment call: `ImpressCommandPalette` gained an `ImpressKit` dependency.** The
+package was declared `dependencies: []` — zero-dependency by design — and the
+alternative was to keep two correct literals with a cross-reference comment and a
+parity test against a fixture. The edge is better, for four reasons. (1)
+ImpressKit is itself a LEAF package with no package dependencies of its own, so
+the edge adds no transitive weight. (2) Every app that would host the palette
+already links ImpressKit, so it adds nothing at link time either. (3) A parity
+test can only REPORT drift after it happens; deriving from one table makes drift
+unrepresentable — and this exact drift had already shipped, transposed, with a
+test that froze the wrong values. (4) The palette's entire job is dialling the
+sibling apps, so the sibling-app table is its domain model, not foreign weight; a
+client of the suite that refuses to know the suite's address book is not
+decoupled, it is uninformed. Cost of being wrong is near zero today: no target
+links `ImpressCommandPalette` at all — it is written but not yet activated.
+
 ## Known gaps (tracked)
 
-- **Ten `UTType(exportedAs:)` identifiers in shared code are declared per app,
-  not in `apps/chassis-utis.yml`** (`com.impress.paper-reference`,
-  `citation-key`, `conversation-ref`, `document-reference`, `figure-reference`,
+- **~~Ten `UTType(exportedAs:)` identifiers in shared code are declared per app,
+  not in `apps/chassis-utis.yml`~~** — **CLOSED 2026-07-30.** Nine graduated;
+  one (`com.impress.bibtex-entry`) stays per app, deliberately. The original
+  entry: the ten were `com.impress.paper-reference`, `citation-key`,
+  `conversation-ref`, `document-reference`, `figure-reference`,
   `research-artifact-reference`, `veusz-plot-reference`, `com.imbib.bibtex`,
-  `com.imbib.bundle`, `com.impress.bibtex-entry`). Their call sites are in
-  PMC/ImpressKit — code every app compiles — so each is only safe while every
-  app that reaches its call site declares it; that property is unaudited.
-  `ChassisUTIDeclarationTests.appDeclaredExceptions` pins the list (a NEW
-  exported type cannot join it silently) and names the follow-up: audit
-  reachability per linking app, then graduate each identifier into the shared
-  template or move its call site out of shared code.
+  `com.imbib.bundle`, `com.impress.bibtex-entry`. Their call sites are in
+  PMC/ImpressKit — code every app compiles — so each was only safe while every
+  app that reaches its call site declared it, and that property was unaudited.
+
+  **Audit result: the premise was wrong for four of the ten.**
+  `veusz-plot-reference` and `research-artifact-reference` were exported by NO
+  app — four apps merely *imported* the first, which does not satisfy
+  `UTType(exportedAs:)`, and nothing declared the second — and
+  `com.imbib.bibtex` / `com.imbib.bundle` appeared in no `project.yml` and no
+  `Info.plist` anywhere. They were not "declared per app"; they were
+  UNDECLARED, and safe only because nothing reaches them. Two more were actively
+  faulty: imprint reaches `paper-reference` (shared
+  `MailStylePublicationRow.swift:411`, through the `.citedInManuscripts`
+  publication list its `AppShellConfiguration` makes visible) and
+  `figure-reference` (shared `SourceEditorView.swift:81`, through
+  `ManuscriptDetailPane` and `FocusModeView`), but exported NEITHER — imbib
+  exported the first, and implore, the one app that never reaches it, exported
+  the second. The other four (`document-reference`, `conversation-ref`,
+  `citation-key`, `bibtex-entry`) are reached by ZERO apps: the `Transferable`
+  conformances in `ImpressKit/DataModels` are never used in a transfer
+  position, and `isBibTeX` / `isImbibBundle` / `UTType.from(extension:)` have no
+  callers at all.
+
+  **What landed.** Nine identifiers moved into `apps/chassis-utis.yml` (12 → 21
+  entries) and the per-app `UTExportedTypeDeclarations` /
+  `UTImportedTypeDeclarations` entries they replaced were deleted from all five
+  `project.yml`s — including every `UTImportedTypeDeclarations` entry for a
+  chassis type, which was never doing anything (ADR-0022 settled that: exported,
+  not imported, in every host). All eight template-bearing targets now export
+  all 21, verified from the BUILT bundles: `imprint.app` exports
+  `com.impress.paper-reference` and `com.impress.figure-reference` where it
+  previously only imported them, and no target lost an exported identifier.
+  `appDeclaredExceptions` is down to one entry and carries the per-identifier
+  reachability evidence in a doc comment, so the list cannot silently grow back.
+
+  **The rule this establishes: graduate drag payloads, keep documents.**
+  `com.impress.bibtex-entry` is the sole survivor because it is the only one of
+  the ten carrying app-specific LaunchServices metadata — imbib declares it with
+  `public.filename-extension: [bib]`. Hoisting that would change what
+  `UTType(filenameExtension: "bib")` resolves to in the four other apps, and
+  shared code reads exactly that at `DragDropCoordinator.swift:86`. Nothing in
+  any app reaches `UTType.impressBibTeXEntry`, so there is no fault to buy that
+  risk with; if it ever acquires a real call site, move the call site out of
+  ImpressKit rather than hoisting the `.bib` claim.
+
+  Two smaller gaps the audit surfaced, NOT closed by it:
+  (a) four imbib targets link PMC WITHOUT `templates: [ChassisUTIs]` —
+  `imbib-ShareExtension`, `imbib-iOS-ShareExtension`, `imbib-FileProvider`,
+  `imbib-iOS-FileProvider`. They declare no exported types at all, so any
+  chassis `UTType(exportedAs:)` they touch would fault; none does today. Noted
+  in the `chassis-utis.yml` header.
+  (b) `ImpressArtifact` (`packages/ImpressKit/.../DataModels/ImpressArtifact.swift`)
+  has zero references outside its own declaration, and it is the sole consumer of
+  `ImpressDocumentRef` / `ImpressResearchArtifactRef` / `ImpressVeuszPlotRef`.
+  That is *why* six of the ten were unreachable: the cross-app artifact drag
+  story is declared but not wired.
 
 - **iOS shell — things that are still literals and should be declarations.**
   (a), (c) and (d) below were CLOSED on 2026-07-29 — kept with their outcome
@@ -1214,6 +1615,16 @@ in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
   be a second surface with zero callers. Recorded as still-open, with the target
   named: give `AnyRecordListWrapper` its first consumer, then de-gate it.
 
+  **CLOSED by C1 (2026-07-30) — and the named target turned out to be the wrong
+  one.** The host is `RecordListHost` (`Chassis/RecordKind/RecordListHostView`
+  + its cross-platform `…Model` half), adopted by imprint-iOS and impart-iOS;
+  imbib-iOS stays on `PublicationListView` deliberately. Building
+  `AnyRecordListWrapper`'s iOS twin instead would have meant rendering every row
+  as a `MailStyleRow` (its `RecordViewerRegistry` is empty on iOS by
+  construction), i.e. replacing imprint's manuscript row with mail chrome — a
+  product change wearing a de-duplication hat. See "The shared iOS list host"
+  above for what each app parameterizes and for the imbib convergence follow-up.
+
   **FIVE pre-existing breaks were in the way, all found by being the first person
   to build and run impart's targets** (there is NO `impart-*.yml` CI workflow —
   impart is the one app with no Swift CI at all, which is why none of these had
@@ -1341,9 +1752,18 @@ in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
   "Move Folder" — asserted by `CollectionStoreAdapterTests`); `removeMembers`
   gained an undo it never had. `create` takes the kernel's new `sort_order`
   argument, so the figure append-to-end second `collectionReorder` is gone.
-  Still open: the `migratedFolderBindings`
-  gate in `ImbibSidebarViewModel` still names which kinds route through the
-  adapter; publication collections stay on the legacy path until G7. Known
+  **CLOSED by C2 (2026-07-30):** publication collections no longer "stay on the
+  legacy path". `folderNode(_:)` resolves `.libraryCollection`, and the kernel
+  grew the three axes that were missing — an optional owning-CONTAINER
+  (`container_field`, giving `list_tree_in` / `create_in` / `reparent_in` and
+  `CollectionRow.container_id`), a payload-sourced per-row `is_smart`, and a
+  capability-side `CollectionTier` table. The fourth surveyed axis,
+  "library-ensuring membership", was a PHANTOM: `ImbibStore::add_to_collection`
+  is `AddReference(Contains)` and nothing else, and the claim came from a Swift
+  call-site comment. The fifth (`PublicationSource` multi-select unions) stays
+  app-side, as judged. Reduced remainder: creation (undo action name), the node
+  READS, and the inbox/exploration tiers — all three enumerated in ADR-0022's
+  C2 section. Known
   wart, NOT introduced here: `UndoCoordinator.registerUndoClosure`
   re-registers the opposite half from inside a `Task { @MainActor }`, i.e.
   after the manager finished undoing, so a closure-based redo lands on the
@@ -1420,9 +1840,37 @@ produced `manuscript-section@1.0.0`. **Copy the spelling from
 `schema-refs.json`, never from a sibling call site.**
 
 `knownDivergences` in the manifest records the splits that are real and
-unfixed (three live spellings of `task`, the dead `impress/operation`
-registration, the enrichment trigger, `ArtifactRecordKind`'s unwritten
-`artifact` ref). It is a **ratchet**: it may shrink as splits are fixed, never
-grow. Adding an entry requires editing a file called `knownDivergences` and
-tripping the budget assertion — the point is that making a new mismatch legal
-should be conspicuous.
+unfixed. It is a **ratchet**: it may shrink as splits are fixed, never grow.
+Adding an entry requires editing a file called `knownDivergences` and tripping
+the budget assertion — the point is that making a new mismatch legal should be
+conspicuous.
+
+**It is now empty, and the budget is 0** (WP C4). The three entries it held —
+three live spellings of `task`, three of `agent-run`, and the dead
+`impress/operation` registration — were the ones deliberately deferred because
+resolving them touches live scheduling and rows in user databases. What C4 did:
+
+- **`task@1.0.0` / `agent-run@1.0.0` won.** They are what
+  `sqlite_store.ready_tasks` selects (the only spelling with a live queue behind
+  it, so nothing scheduled today stopped being scheduled) and what the kernel,
+  the descriptors, the sidebar counts and `ImpelStoreAdapter` already used.
+  `impel/task` / `impel/agent-run` are deleted; the bare forms are unregistered;
+  the two schema definitions of each kind collapsed into one, in
+  `impress-core/src/schemas/task.rs`, with the union of both writers' fields.
+- **The bug this closed was live in two directions.** impel's Swift
+  `SharedTaskBridge` wrote `impel/task`, so the mirrored counsel history was
+  invisible to the scheduler *and* to impel's own window
+  (`ImpelStoreAdapter.fetchThreads` queries `task@1.0.0`) *and* to imbib's
+  Agents section. Meanwhile no registry held the id the kernel wrote, so
+  `SchemaRegistry::validate` was a no-op for every task impel ever created.
+- **Existing rows** are converged by `impress_core::task_schema_migration` —
+  flagged OFF in `store_metadata` (`tasks.canonical-spelling`), dry-run first,
+  reversible from a changed-id ledger, payloads and timestamps untouched. Same
+  gating shape as G7's `collections.unified`.
+- **`ready_tasks` gained a `task_kind` clause** so the convergence cannot turn
+  impel's mirror rows into work the impress scheduler acquires and then fails.
+  See its doc comment; the burst analysis is in the migration module's.
+
+`impress/operation` is gone: `crates/impress-core/src/schemas/operation.rs`
+registered an id nothing has ever written or read. `core/operation` — what
+`sqlite_store` actually writes — stays canonical.

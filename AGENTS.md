@@ -392,12 +392,28 @@ measureTime("rebuild row data", count: rows.count) { ... }
 
 ### Live Log Access
 
-Each app runs a local HTTP server exposing `GET /api/logs`:
+Each app runs a local HTTP server exposing `GET /api/logs`.
+
+**There is exactly ONE authoritative port table: `SiblingApp.descriptors` in
+[`packages/ImpressKit/Sources/ImpressKit/SiblingApp.swift`](packages/ImpressKit/Sources/ImpressKit/SiblingApp.swift).**
+Every server default and every cross-app dial in the suite is a lookup into it,
+never a literal — including the table below, which is a transcription for
+convenience and is wrong if it ever disagrees with the Swift. Servers align TO
+the table; the table does not move to match a server.
 
 | App | Port | Endpoint |
 |-----|------|----------|
 | imbib | 23120 | `curl 'http://localhost:23120/api/logs?limit=20&level=info,warning,error'` |
+| imprint | 23121 | `curl 'http://localhost:23121/api/logs?limit=20'` |
 | impart | 23122 | `curl 'http://localhost:23122/api/logs?limit=20'` |
+| implore | 23123 | `curl 'http://localhost:23123/api/logs?limit=20'` |
+| impel | 23124 | `curl 'http://localhost:23124/api/logs?limit=20'` |
+
+> **implore moved.** Its server bound 23124 — impel's port — until 2026-07-30,
+> so the two collided and whichever launched first won the socket. implore now
+> binds 23123, the address the rest of the suite has always dialled. Saved
+> automations pointing at `localhost:23124` for implore must be repointed to
+> 23123 (23124 is impel).
 
 Query parameters: `limit`, `offset`, `level` (comma-separated), `category`, `search`, `after` (ISO8601).
 

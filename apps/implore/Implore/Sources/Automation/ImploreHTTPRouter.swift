@@ -11,6 +11,7 @@ import Foundation
 import ImploreCore
 import ImploreRustCore
 import ImpressAutomation
+import ImpressKit
 import ImpressLogging
 
 // MARK: - HTTP Automation Router
@@ -43,8 +44,9 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
     // MARK: - Configuration
 
-    /// Default HTTP server port
-    public static let defaultPort: UInt16 = 23124
+    /// Default HTTP server port — THE sibling-app table's row for implore
+    /// (`SiblingApp.descriptors`, ImpressKit), not a second declaration of it.
+    public static let defaultPort: UInt16 = SiblingApp.implore.httpPort
 
     // MARK: - Initialization
 

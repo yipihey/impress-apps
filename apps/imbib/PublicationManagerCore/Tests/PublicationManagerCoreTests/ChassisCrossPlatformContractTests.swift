@@ -239,6 +239,15 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
         "Chassis/Shared/PublicationListOrder.swift",
         "Chassis/Shared/PublicationListMutations.swift",
         "Chassis/Shared/PublicationListCore.swift",
+
+        // MARK: C1 — the shared iOS list host's DATA half
+        //
+        // The three-state rule (spinner only when there is nothing to show) and
+        // the row-identifier convention both UI suites match by prefix. The
+        // RENDERER (`Chassis/RecordKind/RecordListHostView.swift`) is iOS-gated
+        // and asserted so in `RecordListHostTests`, the same data/view split
+        // `RecordSidebarModel` / `RecordSidebarView` uses.
+        "Chassis/RecordKind/RecordListHostModel.swift",
     ]
 
     func testContractFilesAreNotWrappedInAMacOSGate() throws {

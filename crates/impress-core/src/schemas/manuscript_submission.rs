@@ -140,8 +140,12 @@ pub fn manuscript_submission_schema() -> Schema {
             },
         ],
         expected_edges: vec![EdgeType::DependsOn, EdgeType::OperatesOn],
-        // manuscript-submission inherits from task@1.0.0 (state machine, assigned_to, etc.)
-        inherits: Some("task".into()),
+        // manuscript-submission inherits from task@1.0.0 (state machine,
+        // assigned_to, etc.). The comment said `task@1.0.0` and the code said
+        // `task` from the day it was written — an inherits link to an id that
+        // register_core_schemas did not produce would resolve to nothing.
+        // Corrected in WP C4 when the bare spelling was retired.
+        inherits: Some(crate::schemas::task::TASK_SCHEMA.into()),
     }
 }
 
@@ -171,7 +175,12 @@ mod tests {
     #[test]
     fn manuscript_submission_inherits_task() {
         let s = manuscript_submission_schema();
-        assert_eq!(s.inherits, Some("task".into()));
+        assert_eq!(s.inherits, Some("task@1.0.0".into()));
+        // …and the parent really is registered under that id, so the link
+        // resolves. A bare `task` inherits target resolved to nothing.
+        let mut reg = SchemaRegistry::new();
+        register_task_schemas(&mut reg);
+        assert!(reg.get(&s.inherits.unwrap()).is_some());
     }
 
     #[test]

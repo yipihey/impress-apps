@@ -99,26 +99,14 @@ targets:
           - imprint
           - implore
           - impel
-        UTExportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Conversation Reference
-            UTTypeIdentifier: com.impress.conversation-ref
-            UTTypeTagSpecification: {}
-          # The chassis drag types come from the ChassisUTIs template
-          # (apps/chassis-utis.yml) and are appended to this list at generate
-          # time. Only impart-specific types belong here.
-        UTImportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Paper Reference
-            UTTypeIdentifier: com.impress.paper-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Veusz Plot Reference
-            UTTypeIdentifier: com.impress.veusz-plot-reference
-            UTTypeTagSpecification: {}
+        # impart exports no types of its own — its whole exported set is the
+        # chassis one, supplied by the ChassisUTIs template
+        # (apps/chassis-utis.yml). conversation-ref graduated into that template
+        # on 2026-07-30, and the paper-reference / veusz-plot-reference
+        # UTImportedTypeDeclarations that used to sit here went with it: an
+        # imported entry never satisfied `UTType(exportedAs:)` anyway (see the
+        # chassis-utis.yml header), so keeping them alongside the template's
+        # exported entry would only have been a contradictory duplicate.
     entitlements:
       path: macOS/Resources/impart.entitlements
       properties:
@@ -219,23 +207,9 @@ targets:
           - imprint
           - implore
           - impel
-        UTExportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Conversation Reference
-            UTTypeIdentifier: com.impress.conversation-ref
-            UTTypeTagSpecification: {}
-        UTImportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Paper Reference
-            UTTypeIdentifier: com.impress.paper-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Veusz Plot Reference
-            UTTypeIdentifier: com.impress.veusz-plot-reference
-            UTTypeTagSpecification: {}
+        # No impart-specific types: conversation-ref, paper-reference and
+        # veusz-plot-reference all come from the ChassisUTIs template now
+        # (graduated 2026-07-30) — same reasoning as the macOS target above.
     entitlements:
       path: impart-iOS/Resources/impart-iOS.entitlements
       properties:

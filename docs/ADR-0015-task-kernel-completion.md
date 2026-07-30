@@ -128,6 +128,26 @@ The duplicate `impel/agent-run` and `impel/task` schemas are deprecated in
 favor of the core ones; `SharedTaskBridge`'s vocabulary is mapped via D1's
 compat parse (Swift-side migration is follow-up work, not this change).
 
+> **Executed 2026-07-30 (WP C4).** The deprecation above sat unexecuted long
+> enough to become three live spellings per kind, so `ready_tasks` (which
+> selects `task@1.0.0`) never saw a single bridge-written task and no registry
+> held the id the kernel wrote. C4 deleted the `impel/…` definitions outright —
+> `impel_core::schemas::register_impel_schemas` now delegates to
+> `impress_core::schemas::task`, which holds the ONE definition of each kind,
+> with the union of both writers' fields — and retired impress-core's bare
+> `task` / `agent-run` registrations at the same time.
+> `SharedTaskBridge` writes the canonical refs; existing rows are converged by
+> the flagged, reversible `impress_core::task_schema_migration`. The
+> "Swift-side migration is follow-up work" clause is what this closes.
+>
+> One consequence worth stating here because it constrains D5's loop:
+> `ready_tasks` now also requires a non-empty payload `task_kind`. Bridge rows
+> are a MIRROR of tasks impel's own orchestrator runs from GRDB and carry none,
+> so converging their spelling makes them visible everywhere without making them
+> work this scheduler acquires — which it would otherwise have acquired,
+> transitioned to `running`, and then failed with "no executor registered for
+> '<the row's title>'", since `task_kind(task)` falls back to `title`.
+
 ### D6. Reference implementation: two executors + one spawn rule
 
 Per ADR-0005 §9, in a new crate `crates/impel-enrichment`:

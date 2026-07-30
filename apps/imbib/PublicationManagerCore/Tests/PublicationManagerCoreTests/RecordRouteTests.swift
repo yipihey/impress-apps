@@ -169,12 +169,17 @@ final class RecordRouteTests: XCTestCase {
                 forBindingID: CollectionBindingID.figure)?.bindingID,
             CollectionBindingID.figure)
 
-        // Publications' collections are NOT a kernel folder binding the sidebar
-        // drives (see the note in ImbibSidebarViewModel): the publication
-        // descriptor declares no `collection`, so this must stay nil rather
-        // than half-converge.
-        XCTAssertNil(
-            BuiltinRecordKinds.kind(forCollectionBindingID: CollectionBindingID.publication))
+        // ADR-0022 C2: publications ARE a kernel binding the sidebar drives
+        // now. The verbs (rename, reorder, reparent, delete, membership) run
+        // through `CollectionStoreAdapter` on the publication binding, with
+        // the owning library carried as the kernel's container argument.
+        XCTAssertEqual(
+            BuiltinRecordKinds.kind(forCollectionBindingID: CollectionBindingID.publication),
+            .publication)
+        XCTAssertEqual(
+            BuiltinRecordKinds.collectionCapability(
+                forBindingID: CollectionBindingID.publication)?.bindingID,
+            CollectionBindingID.publication)
         XCTAssertNil(BuiltinRecordKinds.kind(forCollectionBindingID: "nonesuch"))
     }
 

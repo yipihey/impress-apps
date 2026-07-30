@@ -258,7 +258,9 @@ struct GeneralSettingsTab: View {
                         .onChange(of: automationSettings.httpServerPort) { _, _ in
                             saveAutomationSettings()
                         }
-                    Text("(default: 23120)")
+                    // From THE sibling-app table, so the hint cannot outlive
+                    // the port it describes.
+                    Text("(default: \(HTTPAutomationServer.defaultPort))")
                         .foregroundStyle(.secondary)
                 }
                 .disabled(!automationSettings.isEnabled)

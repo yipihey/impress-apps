@@ -20,22 +20,50 @@
 //  For Phase 1 we refresh on view-appear and when the publication id
 //  changes, which covers every user-driven navigation.
 //
+//  ## PUBLIC since C1 (2026-07-30) — imbib-iOS's Info tab renders it
+//
+//  The view was cross-platform from wave 2 but INTERNAL, so the only module
+//  that could name it was PMC itself — i.e. the macOS `InfoTab`. imbib-iOS's
+//  Info tab is app-target code, so "adding the section to iOS is one line"
+//  (the wave-4 report) was one line plus an access modifier. Nothing else
+//  changed: same rows, same copy, same self-owned refresh.
+//
+//  One structural caveat the host has to know, and it is why `IOSInfoTab` warms
+//  the snapshot itself: the `.task(id:)` below sits INSIDE the non-empty
+//  branch, and `EmptyView` does not run attached lifecycle modifiers — so this
+//  section cannot bootstrap its own first load. Something that is on screen
+//  regardless (the sidebar's cited row on macOS, the Info tab's own load task on
+//  iOS) has to call `CitedInManuscriptsSnapshot.refresh()` at least once.
+//  Recorded as a follow-up rather than fixed here, because every fix that lets
+//  the empty branch run a task also puts a zero-size VIEW in a `VStack(spacing:
+//  20)` — which adds 20 pt of blank space to every uncited paper's Info tab on
+//  both platforms.
+//
 
 import SwiftUI
 
-struct CitedInManuscriptsSection: View {
-    let publicationID: UUID
+public struct CitedInManuscriptsSection: View {
+    public let publicationID: UUID
 
     /// Observable singleton; view-body reads trigger redraws when the
-    /// snapshot's `records` change.
-    var snapshot: CitedInManuscriptsSnapshot = .shared
+    /// snapshot's `records` change. Injectable so a host (or a test) can render
+    /// a known record set without the store.
+    public var snapshot: CitedInManuscriptsSnapshot
+
+    public init(
+        publicationID: UUID,
+        snapshot: CitedInManuscriptsSnapshot = .shared
+    ) {
+        self.publicationID = publicationID
+        self.snapshot = snapshot
+    }
 
     /// The subset of records that resolve to this publication.
     private var matchingRecords: [CitationUsageRecord] {
         snapshot.records.filter { $0.paperID == publicationID }
     }
 
-    var body: some View {
+    public var body: some View {
         if matchingRecords.isEmpty {
             // Nothing to show for this publication — avoid rendering
             // an empty section.

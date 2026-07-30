@@ -15,6 +15,7 @@
 import Foundation
 import ImpressKit
 import ImpressRustCore
+import ImpressStoreKit
 
 public final class ImpelStoreAdapter: @unchecked Sendable {
 
@@ -25,25 +26,30 @@ public final class ImpelStoreAdapter: @unchecked Sendable {
     public static let taskSchema = "task@1.0.0"
     public static let agentRunSchema = "agent-run@1.0.0"
 
-    private let lock = NSLock()
-    private var store: SharedStore?
+    /// The store handle — `ImpressStoreKit`'s `LazyStoreHandle`, shared with
+    /// impart's and implore's mirrors.
+    ///
+    /// This adapter's hand-rolled version had no `openAttempted` flag, so a
+    /// failed open was RETRIED on every call: with no database on disk, every
+    /// `fetchThreads` / `fetchAgentRuns` paid a full open-and-throw, forever.
+    /// The shared handle attempts once and remembers the answer.
+    private let storeHandle = LazyStoreHandle<SharedStore> {
+        try SharedWorkspace.ensureDirectoryExists()
+        return try SharedStore.open(path: SharedWorkspace.databasePath)
+    }
+
+    /// Why the store is unavailable, if it is. Set once, by the one open
+    /// attempt, or by a failing query.
     public private(set) var lastError: String?
 
     private init() {}
 
     private func handle() -> SharedStore? {
-        lock.lock()
-        defer { lock.unlock() }
-        if let store { return store }
-        do {
-            try SharedWorkspace.ensureDirectoryExists()
-            let s = try SharedStore.open(path: SharedWorkspace.databasePath)
-            store = s
-            return s
-        } catch {
-            lastError = "SharedStore open failed: \(error.localizedDescription)"
-            return nil
+        if let store = storeHandle.get() { return store }
+        if let openError = storeHandle.lastError {
+            lastError = "SharedStore open failed: \(openError)"
         }
+        return nil
     }
 
     /// All task records, newest-modified first, mapped into the GUI's

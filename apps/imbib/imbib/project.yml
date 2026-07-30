@@ -159,12 +159,16 @@ targets:
           # The chassis drag types (publication-id, sidebar-section-id,
           # manuscript-id, figure-id and the rest) come from the ChassisUTIs
           # template (apps/chassis-utis.yml) and are appended to this list at
-          # generate time. Only imbib-specific types belong here.
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Paper Reference
-            UTTypeIdentifier: com.impress.paper-reference
-            UTTypeTagSpecification: {}
+          # generate time — as do paper-reference and citation-key, graduated
+          # out of here on 2026-07-30 by the reachability audit.
+          #
+          # bibtex-entry deliberately STAYS: it is the only one of the ten
+          # audited identifiers that carries app-specific LaunchServices
+          # metadata — the `public.filename-extension: [bib]` claim below.
+          # Hoisting it would change what `UTType(filenameExtension: "bib")`
+          # resolves to in imprint/implore/impel/impart, which shared code
+          # reads (`DragDropCoordinator.bibTypes`), and no code path in any app
+          # reaches `UTType.impressBibTeXEntry` to justify the risk.
           - UTTypeConformsTo:
               - public.plain-text
             UTTypeDescription: BibTeX Entry
@@ -172,11 +176,6 @@ targets:
             UTTypeTagSpecification:
               public.filename-extension:
                 - bib
-          - UTTypeConformsTo:
-              - public.plain-text
-            UTTypeDescription: Citation Key
-            UTTypeIdentifier: com.impress.citation-key
-            UTTypeTagSpecification: {}
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "26.0"
@@ -339,12 +338,9 @@ targets:
           - remote-notification
         UTExportedTypeDeclarations:
           # Chassis drag types come from the ChassisUTIs template
-          # (apps/chassis-utis.yml); only imbib-specific types belong here.
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Paper Reference
-            UTTypeIdentifier: com.impress.paper-reference
-            UTTypeTagSpecification: {}
+          # (apps/chassis-utis.yml), including paper-reference and citation-key
+          # (graduated 2026-07-30). Only bibtex-entry stays, for its `.bib`
+          # filename-extension claim — see the macOS target above.
           - UTTypeConformsTo:
               - public.plain-text
             UTTypeDescription: BibTeX Entry
@@ -352,11 +348,6 @@ targets:
             UTTypeTagSpecification:
               public.filename-extension:
                 - bib
-          - UTTypeConformsTo:
-              - public.plain-text
-            UTTypeDescription: Citation Key
-            UTTypeIdentifier: com.impress.citation-key
-            UTTypeTagSpecification: {}
     settings:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"

@@ -162,6 +162,108 @@ final class IOSDetailTabsUITests: XCTestCase {
         capture(app, name: "console")
     }
 
+    // MARK: - Cited in Manuscripts (C1)
+
+    /// The Info tab shows `CitedInManuscriptsSection` for a paper an imprint
+    /// manuscript cites — the imbib end of the T6 bidirectional citation story,
+    /// which the iOS Info tab did not render until C1.
+    ///
+    /// **This case runs against the ON-DISK app-group store and skips when the
+    /// fixture is absent, and that is not laziness — it is the only lane the
+    /// feature exists in.** `CitationUsageReader` has no `--ui-testing`
+    /// in-memory redirect: it always opens the shared workspace database. The
+    /// records are written by imprint (`ImprintStoreAdapter.upsertCitationUsage`
+    /// — imbib links no writer for them at all), so a fixture has to be planted
+    /// by the OTHER app:
+    ///
+    ///     xcrun simctl launch <device> com.imbib.imprint --uitesting-seed
+    ///
+    /// which seeds a library, `@Einstein1905`, a manuscript that cites it, and
+    /// the citation-usage row linking them. Launching imprint from inside this
+    /// test would make imbib's CI depend on imprint being installed, so the
+    /// dependency is declared and skipped instead.
+    func test_infoTab_showsCitedInManuscripts_whenImprintCitesThePaper() throws {
+        // Landscape: in portrait an iPad `NavigationSplitView` keeps the sidebar
+        // as an OVERLAY, so every tap after opening it lands on the overlay
+        // rather than the list. Same reason imprint's suites pin landscape.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        let app = XCUIApplication()
+        app.launchArguments = []  // the real store — see the doc comment
+        app.launch()
+
+        // First launch on a clean simulator shows the three-step setup wizard,
+        // which is only suppressed under `--ui-testing`. Its Skip advances ONE
+        // step, so dismissing it is a loop, not a tap.
+        for _ in 0..<8 {
+            let dismiss = ["Skip", "Start Using imbib", "Done", "Get Started", "Finish", "Continue"]
+                .map { app.buttons[$0] }
+                .first { $0.exists && $0.isHittable }
+            guard let dismiss else { break }
+            dismiss.tap()
+            usleep(500_000)
+        }
+
+        // On iPad the split view hides the sidebar column behind the toolbar
+        // toggle; the seeded suites never notice because they land differently.
+        let sidebar = IOSSidebarPage(app: app)
+        if !sidebar.seededLibraryRow.waitForExistence(timeout: 8) {
+            for label in ["Show Sidebar", "ToggleSidebar", "Sidebar"] {
+                let toggle = app.buttons[label].firstMatch
+                if toggle.exists, toggle.isHittable { toggle.tap(); break }
+            }
+            if !sidebar.seededLibraryRow.waitForExistence(timeout: 8),
+               app.navigationBars.buttons.count > 0 {
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+            }
+        }
+
+        // `.firstMatch`: the library name is both a sidebar row and, once
+        // selected, the list column's navigation title.
+        let library = app.staticTexts[IOSSeed.libraryName].firstMatch
+        guard library.waitForExistence(timeout: 20) else {
+            capture(app, name: "cited-in-no-fixture")
+            throw XCTSkip(
+                "no on-disk fixture — seed it with `simctl launch com.imbib.imprint "
+                    + "--uitesting-seed` (see this test's doc comment)")
+        }
+        library.tap()
+
+        let paper = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Elektrodynamik"))
+            .firstMatch
+        guard paper.waitForExistence(timeout: 15) else {
+            throw XCTSkip("fixture library present but the cited paper is not")
+        }
+        // The row's title label reports as not hittable inside the list cell
+        // (`MailStyleRow` lays it out under the flag stripe); tapping its centre
+        // by coordinate hits the cell, which is what a finger does.
+        if paper.isHittable {
+            paper.tap()
+        } else {
+            paper.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+
+        let detail = IOSDetailPage(app: app)
+        detail.select(.info)
+
+        // The section's own header text, derived from the record count. The
+        // snapshot refresh is async (`CitationUsageReader` is an actor over a
+        // second store handle) and the section sits below Flag & Tags, so this
+        // waits and then scrolls rather than asserting on the first frame.
+        let header = app.staticTexts["Cited in 1 manuscript section"]
+        _ = header.waitForExistence(timeout: 20)
+        capture(app, name: "cited-in-manuscripts")
+        XCTAssertTrue(
+            header.exists,
+            "the Info tab should render CitedInManuscriptsSection for a cited paper")
+        // And the row: the cite key the manuscript uses.
+        XCTAssertTrue(
+            app.staticTexts["@Einstein1905"].exists,
+            "the section lists the citing manuscript's cite key")
+    }
+
     // MARK: - Screenshot capture
 
     /// Attach a screenshot AND write it to the runner's temp directory, where a

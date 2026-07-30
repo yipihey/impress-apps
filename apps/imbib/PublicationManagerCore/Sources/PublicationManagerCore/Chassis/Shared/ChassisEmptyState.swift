@@ -124,6 +124,25 @@ public extension ChassisEmptyState {
             systemImage: systemImage,
             description: Text(message))
     }
+
+    /// The same state with a RECOVERY affordance under it.
+    ///
+    /// Added by C1 for `RecordListHost`: imprint's empty manuscript list offers
+    /// "New Manuscript" and impart's empty mailbox offers nothing (it registers
+    /// no create verb — there is no SMTP path anywhere in that target, so a
+    /// button would be a dead control). Both are the same state with a different
+    /// answer to "can the user fix this from here", which is a builder, not two
+    /// empty-state types.
+    @ViewBuilder
+    func view<Actions: View>(@ViewBuilder actions: () -> Actions) -> some View {
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
+            Text(message)
+        } actions: {
+            actions()
+        }
+    }
 }
 
 public extension View {

@@ -15,6 +15,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 
 private let clientLog = Logger(subsystem: "com.impress.impel", category: "imprint-compile-client")
@@ -139,9 +140,11 @@ public actor ImprintCompileClient {
     private let session: URLSession
     private let requestTimeout: TimeInterval
 
-    /// Default init: production. imprint is expected at 127.0.0.1:23121.
+    /// Default init: production. imprint's address comes from THE sibling-app
+    /// table (`SiblingApp.descriptors`, ImpressKit) — dialling a sibling is
+    /// never a local literal.
     public init() {
-        self.baseURL = URL(string: "http://127.0.0.1:23121")!
+        self.baseURL = URL(string: "http://127.0.0.1:\(SiblingApp.imprint.httpPort)")!
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60

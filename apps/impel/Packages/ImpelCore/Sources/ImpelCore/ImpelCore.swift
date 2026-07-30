@@ -4,6 +4,7 @@
 // agent orchestration system for autonomous research teams.
 
 import Foundation
+import ImpressKit
 
 // MARK: - Thread Types
 
@@ -340,8 +341,11 @@ public class ImpelClient: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private let suggestionEngine = SuggestionEngine()
 
-    /// Default impel server port
-    public static let defaultPort = 23123
+    /// Default impel server port — THE sibling-app table's row for impel
+    /// (`SiblingApp.descriptors`, ImpressKit), not a third declaration of it.
+    /// This was the literal 23123 (implore's port), so `connectToLocalhost()`
+    /// dialled the wrong app whenever implore happened to be running.
+    public static let defaultPort = Int(SiblingApp.impel.httpPort)
 
     public init() {
         self.state = SystemState()

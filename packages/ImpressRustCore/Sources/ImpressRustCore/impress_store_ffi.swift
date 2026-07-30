@@ -613,6 +613,19 @@ public protocol SharedStoreProtocol : AnyObject {
     func collectionCreate(binding: SharedCollectionBinding, name: String, parentId: String?, kindScope: String?, sortOrder: Int64?) throws  -> SharedCollectionRow
     
     /**
+     * Create a collection in an explicit OWNING CONTAINER (ADR-0022 C2).
+     *
+     * `container_id` is what makes per-library creation expressible: imbib's
+     * "New Collection" on a library row creates a ROOT collection whose owning
+     * library is that row, and there is no parent collection to inherit the
+     * library from. `nil` keeps the historical inherit-from-parent rule, so
+     * `collection_create` is this call with `nil`.
+     *
+     * **Undo:** `collection_delete(row.id)`.
+     */
+    func collectionCreateIn(binding: SharedCollectionBinding, name: String, parentId: String?, kindScope: String?, sortOrder: Int64?, containerId: String?) throws  -> SharedCollectionRow
+    
+    /**
      * Delete a collection. Members are never deleted — only the membership.
      *
      * Returns the snapshot needed to put it back. **Undo:**
@@ -662,6 +675,21 @@ public protocol SharedStoreProtocol : AnyObject {
     func collectionReparent(binding: SharedCollectionBinding, id: String, newParentId: String?) throws  -> SharedCollectionMutation
     
     /**
+     * Move a collection under `new_parent_id` AND into `new_container_id`
+     * (ADR-0022 C2) — imbib's cross-library collection move, atomically.
+     *
+     * `new_container_id: nil` means "leave the owning container alone", which
+     * is what `collection_reparent` passes and what a same-library move wants:
+     * the Swift path it replaces skipped its `reparentItem` write entirely when
+     * the library did not change, and so does this.
+     *
+     * **Undo:** `collection_reparent_in(id, prior.parentId, prior.containerId)`
+     * — the returned prior is `ParentInContainer` exactly when the container
+     * moved, and a plain `Parent` otherwise.
+     */
+    func collectionReparentIn(binding: SharedCollectionBinding, id: String, newParentId: String?, newContainerId: String?) throws  -> SharedCollectionMutation
+    
+    /**
      * Put a deleted collection back under its ORIGINAL id, with its members
      * re-filed and its child collections re-attached — the inverse of
      * `collection_delete`.
@@ -678,6 +706,19 @@ public protocol SharedStoreProtocol : AnyObject {
      * The caller assembles the tree from `parent_id`.
      */
     func collectionTree(binding: SharedCollectionBinding) throws  -> [SharedCollectionRow]
+    
+    /**
+     * The collections of ONE owning container (ADR-0022 C2), flat and ordered
+     * by `sort_order`. `container_id: nil`, or a binding with no container
+     * axis, answers exactly as `collection_tree` does.
+     *
+     * This is the migration-safe read imbib's sidebar needs: imbib-core's
+     * `list_collections(library_id)` hard-codes `schema_ref =
+     * "imbib/collection"` and returns nothing once WP G7 has run, while this
+     * resolves the binding against the `collections.unified` marker and filters
+     * on the envelope, which the migration never touches.
+     */
+    func collectionTreeIn(binding: SharedCollectionBinding, containerId: String?) throws  -> [SharedCollectionRow]
     
     /**
      * Count items with the given schema (e.g. for sidebar badges).
@@ -1124,6 +1165,30 @@ open func collectionCreate(binding: SharedCollectionBinding, name: String, paren
 }
     
     /**
+     * Create a collection in an explicit OWNING CONTAINER (ADR-0022 C2).
+     *
+     * `container_id` is what makes per-library creation expressible: imbib's
+     * "New Collection" on a library row creates a ROOT collection whose owning
+     * library is that row, and there is no parent collection to inherit the
+     * library from. `nil` keeps the historical inherit-from-parent rule, so
+     * `collection_create` is this call with `nil`.
+     *
+     * **Undo:** `collection_delete(row.id)`.
+     */
+open func collectionCreateIn(binding: SharedCollectionBinding, name: String, parentId: String?, kindScope: String?, sortOrder: Int64?, containerId: String?)throws  -> SharedCollectionRow {
+    return try  FfiConverterTypeSharedCollectionRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_collection_create_in(self.uniffiClonePointer(),
+        FfiConverterTypeSharedCollectionBinding.lower(binding),
+        FfiConverterString.lower(name),
+        FfiConverterOptionString.lower(parentId),
+        FfiConverterOptionString.lower(kindScope),
+        FfiConverterOptionInt64.lower(sortOrder),
+        FfiConverterOptionString.lower(containerId),$0
+    )
+})
+}
+    
+    /**
      * Delete a collection. Members are never deleted — only the membership.
      *
      * Returns the snapshot needed to put it back. **Undo:**
@@ -1219,6 +1284,30 @@ open func collectionReparent(binding: SharedCollectionBinding, id: String, newPa
 }
     
     /**
+     * Move a collection under `new_parent_id` AND into `new_container_id`
+     * (ADR-0022 C2) — imbib's cross-library collection move, atomically.
+     *
+     * `new_container_id: nil` means "leave the owning container alone", which
+     * is what `collection_reparent` passes and what a same-library move wants:
+     * the Swift path it replaces skipped its `reparentItem` write entirely when
+     * the library did not change, and so does this.
+     *
+     * **Undo:** `collection_reparent_in(id, prior.parentId, prior.containerId)`
+     * — the returned prior is `ParentInContainer` exactly when the container
+     * moved, and a plain `Parent` otherwise.
+     */
+open func collectionReparentIn(binding: SharedCollectionBinding, id: String, newParentId: String?, newContainerId: String?)throws  -> SharedCollectionMutation {
+    return try  FfiConverterTypeSharedCollectionMutation.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_collection_reparent_in(self.uniffiClonePointer(),
+        FfiConverterTypeSharedCollectionBinding.lower(binding),
+        FfiConverterString.lower(id),
+        FfiConverterOptionString.lower(newParentId),
+        FfiConverterOptionString.lower(newContainerId),$0
+    )
+})
+}
+    
+    /**
      * Put a deleted collection back under its ORIGINAL id, with its members
      * re-filed and its child collections re-attached — the inverse of
      * `collection_delete`.
@@ -1245,6 +1334,26 @@ open func collectionTree(binding: SharedCollectionBinding)throws  -> [SharedColl
     return try  FfiConverterSequenceTypeSharedCollectionRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_collection_tree(self.uniffiClonePointer(),
         FfiConverterTypeSharedCollectionBinding.lower(binding),$0
+    )
+})
+}
+    
+    /**
+     * The collections of ONE owning container (ADR-0022 C2), flat and ordered
+     * by `sort_order`. `container_id: nil`, or a binding with no container
+     * axis, answers exactly as `collection_tree` does.
+     *
+     * This is the migration-safe read imbib's sidebar needs: imbib-core's
+     * `list_collections(library_id)` hard-codes `schema_ref =
+     * "imbib/collection"` and returns nothing once WP G7 has run, while this
+     * resolves the binding against the `collections.unified` marker and filters
+     * on the envelope, which the migration never touches.
+     */
+open func collectionTreeIn(binding: SharedCollectionBinding, containerId: String?)throws  -> [SharedCollectionRow] {
+    return try  FfiConverterSequenceTypeSharedCollectionRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_collection_tree_in(self.uniffiClonePointer(),
+        FfiConverterTypeSharedCollectionBinding.lower(binding),
+        FfiConverterOptionString.lower(containerId),$0
     )
 })
 }
@@ -2092,6 +2201,19 @@ public struct SharedCollectionRow {
      * that carry one; `nil` for the per-kind legacy schemas.
      */
     public var kindScope: String?
+    /**
+     * Lowercase UUID string of the OWNING CONTAINER — imbib's library — for
+     * bindings that have a container axis (ADR-0022 C2); `nil` for manuscript
+     * folders, figure folders and the generic binding, whose collections are
+     * global. NEVER the tree parent: that is `parent_id`.
+     */
+    public var containerId: String?
+    /**
+     * Is this a SMART (query-defined) collection? The per-row read-only
+     * predicate imbib's sidebar gates Rename / New Subcollection on, leaving
+     * Delete. `false` for bindings whose schema has no such field.
+     */
+    public var isSmart: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2105,12 +2227,25 @@ public struct SharedCollectionRow {
         /**
          * Record-kind scope ("publication", "manuscript", "any", …) for schemas
          * that carry one; `nil` for the per-kind legacy schemas.
-         */kindScope: String?) {
+         */kindScope: String?, 
+        /**
+         * Lowercase UUID string of the OWNING CONTAINER — imbib's library — for
+         * bindings that have a container axis (ADR-0022 C2); `nil` for manuscript
+         * folders, figure folders and the generic binding, whose collections are
+         * global. NEVER the tree parent: that is `parent_id`.
+         */containerId: String?, 
+        /**
+         * Is this a SMART (query-defined) collection? The per-row read-only
+         * predicate imbib's sidebar gates Rename / New Subcollection on, leaving
+         * Delete. `false` for bindings whose schema has no such field.
+         */isSmart: Bool) {
         self.id = id
         self.name = name
         self.parentId = parentId
         self.sortOrder = sortOrder
         self.kindScope = kindScope
+        self.containerId = containerId
+        self.isSmart = isSmart
     }
 }
 
@@ -2133,6 +2268,12 @@ extension SharedCollectionRow: Equatable, Hashable {
         if lhs.kindScope != rhs.kindScope {
             return false
         }
+        if lhs.containerId != rhs.containerId {
+            return false
+        }
+        if lhs.isSmart != rhs.isSmart {
+            return false
+        }
         return true
     }
 
@@ -2142,6 +2283,8 @@ extension SharedCollectionRow: Equatable, Hashable {
         hasher.combine(parentId)
         hasher.combine(sortOrder)
         hasher.combine(kindScope)
+        hasher.combine(containerId)
+        hasher.combine(isSmart)
     }
 }
 
@@ -2157,7 +2300,9 @@ public struct FfiConverterTypeSharedCollectionRow: FfiConverterRustBuffer {
                 name: FfiConverterString.read(from: &buf), 
                 parentId: FfiConverterOptionString.read(from: &buf), 
                 sortOrder: FfiConverterInt64.read(from: &buf), 
-                kindScope: FfiConverterOptionString.read(from: &buf)
+                kindScope: FfiConverterOptionString.read(from: &buf), 
+                containerId: FfiConverterOptionString.read(from: &buf), 
+                isSmart: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2167,6 +2312,8 @@ public struct FfiConverterTypeSharedCollectionRow: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.parentId, into: &buf)
         FfiConverterInt64.write(value.sortOrder, into: &buf)
         FfiConverterOptionString.write(value.kindScope, into: &buf)
+        FfiConverterOptionString.write(value.containerId, into: &buf)
+        FfiConverterBool.write(value.isSmart, into: &buf)
     }
 }
 
@@ -4350,8 +4497,20 @@ public enum SharedCollectionPrior {
     /**
      * Prior tree parent, from `collection_reparent`; `nil` = it was a root.
      * Undo: reparent back to it.
+     *
+     * Means "the owning container did NOT move", so its inverse must leave the
+     * container alone — a same-library reparent writes one field, and undoing
+     * it must not start writing an envelope the forward move never touched.
      */
     case parent(parentId: String?
+    )
+    /**
+     * Prior tree parent AND prior owning container, from a
+     * `collection_reparent_in` that CROSSED containers (ADR-0022 C2 — imbib's
+     * cross-library collection move, which was two hand-written Swift writes).
+     * Undo: `collection_reparent_in(id, parent_id, container_id)`.
+     */
+    case parentInContainer(parentId: String?, containerId: String?
     )
 }
 
@@ -4375,6 +4534,9 @@ public struct FfiConverterTypeSharedCollectionPrior: FfiConverterRustBuffer {
         case 3: return .parent(parentId: try FfiConverterOptionString.read(from: &buf)
         )
         
+        case 4: return .parentInContainer(parentId: try FfiConverterOptionString.read(from: &buf), containerId: try FfiConverterOptionString.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -4396,6 +4558,12 @@ public struct FfiConverterTypeSharedCollectionPrior: FfiConverterRustBuffer {
         case let .parent(parentId):
             writeInt(&buf, Int32(3))
             FfiConverterOptionString.write(parentId, into: &buf)
+            
+        
+        case let .parentInContainer(parentId,containerId):
+            writeInt(&buf, Int32(4))
+            FfiConverterOptionString.write(parentId, into: &buf)
+            FfiConverterOptionString.write(containerId, into: &buf)
             
         }
     }
@@ -5169,6 +5337,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_create() != 54293) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_create_in() != 59360) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_delete() != 62668) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5187,10 +5358,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_reparent() != 28938) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_reparent_in() != 43834) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_restore() != 35230) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_tree() != 31736) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_tree_in() != 8828) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_by_schema() != 21485) {

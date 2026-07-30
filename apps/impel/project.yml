@@ -100,30 +100,14 @@ targets:
           - imprint
           - implore
           - impart
-        # impel exports no types of its own — its whole exported set is the
+        # impel declares no types of its own — its whole exported set is the
         # chassis one, supplied by the ChassisUTIs template
-        # (apps/chassis-utis.yml).
-        UTImportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Paper Reference
-            UTTypeIdentifier: com.impress.paper-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Document Reference
-            UTTypeIdentifier: com.impress.document-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Figure Reference
-            UTTypeIdentifier: com.impress.figure-reference
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Veusz Plot Reference
-            UTTypeIdentifier: com.impress.veusz-plot-reference
-            UTTypeTagSpecification: {}
+        # (apps/chassis-utis.yml). The paper-reference / document-reference /
+        # figure-reference / veusz-plot-reference UTImportedTypeDeclarations
+        # that used to sit here were removed on 2026-07-30: all four graduated
+        # into that template as EXPORTED entries, which is what
+        # `UTType(exportedAs:)` in ImpressKit actually requires — an imported
+        # entry never satisfied it (see the chassis-utis.yml header).
     entitlements:
       path: macOS/impel.entitlements
       properties:

@@ -13,6 +13,14 @@ on:
     paths:
       - 'apps/impel/**'
       - 'packages/**'
+      # CounselEngine's test target takes a TEST-ONLY dependency on
+      # PublicationManagerCore, and `JournalStatusPolicyParityTests` is the
+      # interlock between `JournalPipeline.autoSnapshotStatuses` and
+      # `ManuscriptRecordKind.descriptor`'s `freezesSource` statuses. Without
+      # this path the interlock never runs on the change most likely to break
+      # it — a descriptor-only edit in PMC. (The `build-app` job also links PMC,
+      # so it was already under-triggered.)
+      - 'apps/imbib/PublicationManagerCore/**'
       - 'crates/impress-core/**'
       - 'crates/impress-store-ffi/**'
       - '.github/workflows/impel-swift.yml'

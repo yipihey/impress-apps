@@ -58,6 +58,15 @@ struct IOSInfoTab: View {
                     flagAndTagsSection(pub)
                     Divider()
 
+                    // Cited in Manuscripts (C1) — THE chassis section macOS's
+                    // InfoTab renders, in the same position (after Flag & Tags,
+                    // before the abstract). It was cross-platform from wave 2 and
+                    // internal to PMC until C1 made it public, which is why "one
+                    // line" had never been one line. Renders nothing for a paper
+                    // no manuscript cites, and supplies its own trailing
+                    // `Divider()` — do not add one here.
+                    CitedInManuscriptsSection(publicationID: publicationID)
+
                     // Abstract
                     if let abstract = pub.abstract, !abstract.isEmpty {
                         abstractSection(abstract)
@@ -126,6 +135,14 @@ struct IOSInfoTab: View {
         }
         .task(id: publicationID) {
             loadPublication()
+            // Warm the citation-usage snapshot the cited-in section reads.
+            // The section owns a refresh of its own, but that `.task` sits
+            // inside its non-empty branch and `EmptyView` runs no lifecycle
+            // modifiers — so on a cold snapshot it would render nothing and
+            // never ask. This is the "something already on screen has to warm
+            // it" the section's header names; on macOS that something is the
+            // sidebar's Cited in Manuscripts row.
+            await CitedInManuscriptsSnapshot.shared.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .publicationEnrichmentDidComplete)) { notification in
             if let enrichedID = notification.userInfo?["publicationID"] as? UUID,

@@ -8,6 +8,7 @@
 
 import Foundation
 import ImpressAutomation
+import ImpressKit
 import OSLog
 
 private let httpLogger = Logger(subsystem: "com.impress.impel", category: "httpServer")
@@ -32,8 +33,10 @@ public actor ImpelHTTPServer {
 
     // MARK: - Configuration
 
-    /// Default port (after imbib:23120, imprint:23121, impart:23122, implore:23123)
-    public static let defaultPort: UInt16 = 23124
+    /// Default port — THE sibling-app table's row for impel
+    /// (`SiblingApp.descriptors`, ImpressKit). The value is unchanged (23124);
+    /// it is now a lookup so it cannot drift from what siblings dial.
+    public static let defaultPort: UInt16 = SiblingApp.impel.httpPort
 
     // MARK: - Settings
 

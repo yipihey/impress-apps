@@ -28,23 +28,52 @@ final class ChassisUTIDeclarationTests: XCTestCase {
     /// Exported types that are DECLARED PER APP rather than in the shared
     /// template. Their call sites are in shared code too, so each of these is
     /// only safe while every app that actually reaches its code path declares
-    /// it — a weaker guarantee than the template gives, kept for now because
-    /// the declarations pre-date the template and carry per-app document-type
-    /// metadata. Follow-up (recorded in the capability matrix): audit which
-    /// linking apps reach each call site, then either move the identifier
-    /// into the template or move its call site out of shared code. Do NOT add
-    /// new identifiers here — new exported types go in the template.
+    /// it — a weaker guarantee than the template gives. Do NOT add new
+    /// identifiers here: new exported types go in the template.
+    ///
+    /// This list was TEN entries until the 2026-07-30 reachability audit, which
+    /// found that none of the other nine had any business being per-app —
+    /// several were not even per-app, just undeclared — and graduated them into
+    /// `apps/chassis-utis.yml`. What the audit found, for the record:
+    ///
+    /// * `com.impress.paper-reference` — reached by imbib AND imprint, via two
+    ///   shared PMC call sites: `MailStylePublicationRow`'s `.itemProvider`
+    ///   (SharedViews/MailStylePublicationRow.swift:411, rendered through
+    ///   `PublicationListView` → `UnifiedPublicationListWrapper` →
+    ///   `SectionContentView`'s `.publicationList` route, which imprint hits on
+    ///   its `.citedInManuscripts` section) and `SourceEditorView`'s `.onDrop`
+    ///   (Manuscript/Editor/SourceEditorView.swift:81). It was EXPORTED only by
+    ///   imbib; imprint/impel/impart merely IMPORTED it, which does not satisfy
+    ///   `UTType(exportedAs:)`. A live latent fault, now fixed.
+    /// * `com.impress.figure-reference` — same shared `.onDrop` array at
+    ///   SourceEditorView.swift:81, so imbib and imprint both reach it. It was
+    ///   EXPORTED only by implore, the one app that never reaches it.
+    /// * `com.impress.document-reference`, `com.impress.conversation-ref`,
+    ///   `com.impress.research-artifact-reference`,
+    ///   `com.impress.veusz-plot-reference`, `com.impress.citation-key`,
+    ///   `com.imbib.bibtex`, `com.imbib.bundle` — reached by ZERO apps today
+    ///   (the `Transferable` conformances in ImpressKit/DataModels are never
+    ///   used in a transfer position; `isBibTeX` / `isImbibBundle` /
+    ///   `UTType.from(extension:)` have no callers). But their declaration
+    ///   sites are ungated shared code every app compiles, and the per-app
+    ///   state was arbitrary — veusz-plot-reference and
+    ///   research-artifact-reference were exported by no app at all, and
+    ///   `com.imbib.bibtex`/`com.imbib.bundle` appeared in no project.yml or
+    ///   Info.plist anywhere. One `.draggable` would have faulted five apps.
+    ///
+    /// `com.impress.bibtex-entry` is the sole survivor because it is the only
+    /// one that carries app-specific LaunchServices metadata: imbib declares it
+    /// with `public.filename-extension: [bib]`
+    /// (apps/imbib/imbib/project.yml). Hoisting it would change what
+    /// `UTType(filenameExtension: "bib")` resolves to in the four other apps —
+    /// and shared code reads exactly that, at
+    /// `PublicationManagerCore/DragDrop/DragDropCoordinator.swift:86`. Nothing
+    /// in any app reaches `UTType.impressBibTeXEntry` (zero uses beyond its
+    /// declaration at ImpressUTTypes.swift:61), so there is no fault to fix and
+    /// no reason to take that risk. If it ever acquires a real call site, move
+    /// the call site out of ImpressKit rather than hoisting the `.bib` claim.
     private static let appDeclaredExceptions: Set<String> = [
-        "com.imbib.bibtex",
-        "com.imbib.bundle",
         "com.impress.bibtex-entry",
-        "com.impress.citation-key",
-        "com.impress.conversation-ref",
-        "com.impress.document-reference",
-        "com.impress.figure-reference",
-        "com.impress.paper-reference",
-        "com.impress.research-artifact-reference",
-        "com.impress.veusz-plot-reference",
     ]
 
     func testEveryExportedChassisUTTypeIsDeclaredInTheSharedTemplate() throws {

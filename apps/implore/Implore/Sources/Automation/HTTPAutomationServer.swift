@@ -8,13 +8,14 @@
 
 import Foundation
 import ImpressAutomation
+import ImpressKit
 import ImpressLogging
 
 // MARK: - HTTP Automation Server
 
 /// Local HTTP server for automation and integration.
 ///
-/// Runs on `127.0.0.1:23124` (localhost only for security).
+/// Runs on `127.0.0.1:23123` (localhost only for security).
 /// Provides endpoints for:
 /// - `GET /api/status` - Server health and app stats
 /// - `GET /api/figures` - List figures
@@ -35,8 +36,13 @@ public actor HTTPAutomationServer {
 
     // MARK: - Configuration
 
-    /// Default port (after impel's 23123)
-    public static let defaultPort: UInt16 = 23124
+    /// Default port. Read from THE sibling-app table
+    /// (`SiblingApp.descriptors` in ImpressKit), not declared here: siblings
+    /// dial implore at `SiblingApp.implore.httpPort`, so the server has to bind
+    /// what the published address says. It used to declare 23124 — impel's
+    /// port — which meant whichever app launched first won the socket and the
+    /// loser's automation API silently never came up.
+    public static let defaultPort: UInt16 = SiblingApp.implore.httpPort
 
     // MARK: - State
 

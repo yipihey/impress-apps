@@ -75,13 +75,15 @@ struct CommandModelTests {
         #expect(endpoint.statusURL.absoluteString.contains("/api/status"))
     }
 
+    /// implore is 23123 and impel is 23124 — `SiblingApp.descriptors`
+    /// (ImpressKit) is the authority, and the palette now derives from it.
     @Test("AppEndpoint presets have correct ports")
     func presetPorts() {
         #expect(AppEndpoint.imbib.port == 23120)
         #expect(AppEndpoint.imprint.port == 23121)
         #expect(AppEndpoint.impart.port == 23122)
-        #expect(AppEndpoint.impel.port == 23123)
-        #expect(AppEndpoint.implore.port == 23124)
+        #expect(AppEndpoint.implore.port == 23123)
+        #expect(AppEndpoint.impel.port == 23124)
     }
 
     @Test("AppEndpoint.all contains all 5 apps")

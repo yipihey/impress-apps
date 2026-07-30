@@ -14,6 +14,7 @@
 
 import Foundation
 import ImpressAutomation
+import ImpressKit
 import ImpressLogging
 import OSLog
 
@@ -43,8 +44,9 @@ public actor ImprintHTTPServer {
 
     // MARK: - Configuration
 
-    /// Default port (after imbib's 23120)
-    public static let defaultPort: UInt16 = 23121
+    /// Default port — read from the one sibling-app table
+    /// (`SiblingApp.descriptors`) rather than re-declared here.
+    public static let defaultPort: UInt16 = SiblingApp.imprint.httpPort
 
     // MARK: - Settings
 

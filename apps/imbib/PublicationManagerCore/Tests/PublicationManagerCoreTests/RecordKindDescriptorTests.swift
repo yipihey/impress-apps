@@ -140,8 +140,27 @@ final class RecordKindDescriptorTests: XCTestCase {
             FigureRecordKind.descriptor.collection?.bindingID,
             CollectionBindingID.figure
         )
+        // ADR-0022 C2: publications joined the declared bindings. Their
+        // capability is the one that exercises all three optional axes, so it
+        // is pinned in full rather than merely asserted non-nil.
+        let publication = try! XCTUnwrap(PublicationRecordKind.descriptor.collection)
+        XCTAssertEqual(publication.bindingID, CollectionBindingID.publication)
+        XCTAssertEqual(
+            publication.organizePolicy, .unlessSmart,
+            "smart collections offer Delete only — the per-row predicate (axis 2)")
+        XCTAssertEqual(
+            publication.container?.noun, "Library",
+            "publication collections are per-library (axis 1)")
+        XCTAssertEqual(
+            publication.tiers.map(\.id),
+            [CollectionTierID.libraries, CollectionTierID.inbox, CollectionTierID.exploration],
+            "the three tiers the same binding appears in (axis 4)")
+        XCTAssertEqual(
+            publication.deleteContainerTitle, "Delete",
+            "imbib's frozen menu says a bare 'Delete', not 'Delete Collection'")
+        XCTAssertEqual(publication.newSubContainerTitle, "New Subcollection")
+
         for descriptor in [
-            PublicationRecordKind.descriptor,
             ArtifactRecordKind.descriptor,
             MessageRecordKind.descriptor,
             TaskRecordKind.descriptor,
@@ -152,6 +171,63 @@ final class RecordKindDescriptorTests: XCTestCase {
                 "\(descriptor.displayName) has no sidebar folders yet (message/agent "
                     + "folders are a later work package — ADR-0022 D2/G2)"
             )
+        }
+    }
+
+    /// ADR-0022 C2 axis 1: exactly ONE kind is container-scoped, and only that
+    /// kind's containers are excluded from section-level folder hosting.
+    ///
+    /// This is the interlock behind the third gate in
+    /// `ImbibSidebarViewModel.folderCapability(ofSection:)`. `.inbox`,
+    /// `.libraries` and `.exploration` are all `.primary` sections bound to
+    /// `.publication`, so without that gate declaring this capability would
+    /// have handed three section headers a "New Collection" item, folder drop
+    /// acceptance and `reorderFolders` — none of which imbib has ever done.
+    func testOnlyPublicationsAreContainerScoped() {
+        XCTAssertNotNil(PublicationRecordKind.descriptor.collection?.container)
+        XCTAssertNil(
+            ManuscriptRecordKind.descriptor.collection?.container,
+            "manuscript folders are global and genuinely section-rooted")
+        XCTAssertNil(
+            FigureRecordKind.descriptor.collection?.container,
+            "figure folders are global and genuinely section-rooted")
+    }
+
+    /// The tier table is the matrix rows, in code. Pinned so a tier cannot
+    /// drift from the behaviour it claims (ADR-0022 C2 axis 4).
+    func testPublicationTiersMatchTheFrozenMatrixRows() throws {
+        let capability = try XCTUnwrap(PublicationRecordKind.descriptor.collection)
+        // Matrix `libraryCollection`: ✅ Rename / Subcoll / Delete.
+        let libraries = try XCTUnwrap(capability.tier(CollectionTierID.libraries))
+        XCTAssertTrue(libraries.allowsRename)
+        XCTAssertTrue(libraries.allowsSubcontainers)
+        // Matrix `inboxCollection`: rename ✅, delete ✅.
+        let inbox = try XCTUnwrap(capability.tier(CollectionTierID.inbox))
+        XCTAssertTrue(inbox.allowsRename)
+        // Matrix `explorationCollection`: "✅ Delete" ONLY — named by the
+        // search that produced it.
+        let exploration = try XCTUnwrap(capability.tier(CollectionTierID.exploration))
+        XCTAssertFalse(exploration.allowsRename)
+        XCTAssertFalse(exploration.allowsSubcontainers)
+        XCTAssertFalse(
+            capability.allowsOrganize(isSmart: false, tier: exploration),
+            "an exploration collection offers neither rename nor sub-collections")
+    }
+
+    /// Axis 2 evaluated where it belongs: on the ROW, from the kernel's flag.
+    func testSmartRowsLoseTheOrganiseVerbsAndOtherKindsDoNot() throws {
+        let publication = try XCTUnwrap(PublicationRecordKind.descriptor.collection)
+        XCTAssertTrue(publication.allowsOrganize(isSmart: false))
+        XCTAssertFalse(
+            publication.allowsOrganize(isSmart: true),
+            "a smart publication collection is defined by its query — Delete only")
+
+        // Manuscript/figure schemas have no smart rows; their menus are
+        // unchanged whatever a stray flag might say.
+        for descriptor in [ManuscriptRecordKind.descriptor, FigureRecordKind.descriptor] {
+            let capability = try XCTUnwrap(descriptor.collection)
+            XCTAssertEqual(capability.organizePolicy, .always)
+            XCTAssertTrue(capability.allowsOrganize(isSmart: true))
         }
     }
 
@@ -170,7 +246,18 @@ final class RecordKindDescriptorTests: XCTestCase {
                 CollectionStoreAdapter.binding(for: capability.bindingID),
                 "\(descriptor.displayName)'s binding has no SharedCollectionBinding"
             )
-            if capability.canOrganize {
+            // A kind whose rows are filed by the GENERIC record-drop path must
+            // declare the pasteboard type those rows drag, or records could
+            // never be filed into its containers.
+            //
+            // Publications are the documented exception (ADR-0022 C2): their
+            // rows are dropped by `handlePublicationDrop` on imbib's own
+            // `UTType.publicationID`, because filing a publication carries
+            // library-membership semantics and feeds the publication-only
+            // multi-select union — see the C2 matrix note. `dragUTTypeIdentifier`
+            // is therefore deliberately nil, which is exactly what keeps
+            // `handleRecordDrop` from claiming that path.
+            if capability.canOrganize, capability.container == nil {
                 XCTAssertNotNil(
                     capability.dragUTTypeIdentifier,
                     "\(descriptor.displayName) folders accept drops but the kind "

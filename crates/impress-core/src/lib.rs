@@ -30,6 +30,11 @@ pub mod sql_query;
 pub mod sqlite_store;
 #[cfg(feature = "sqlite")]
 pub mod sync;
+/// Task / agent-run schema-ref convergence (WP C4) — the flagged, reversible
+/// data migration off the losing spellings. Gated by a `store_metadata` marker,
+/// like `collection_migration`'s.
+#[cfg(feature = "sqlite")]
+pub mod task_schema_migration;
 #[cfg(feature = "sqlite")]
 pub mod triage_ops;
 

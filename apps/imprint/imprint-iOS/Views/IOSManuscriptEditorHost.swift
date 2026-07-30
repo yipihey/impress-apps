@@ -14,6 +14,7 @@
 import SwiftUI
 import OSLog
 import ImpressLogging
+import ImprintCore
 
 /// Editor host for a single store-backed manuscript, opened by ID from the
 /// library list. Reuses `IOSContentView` unchanged — the bridge is the only
@@ -107,6 +108,25 @@ struct IOSManuscriptEditorHost: View {
         doc.source = m.body
         doc.createdAt = m.createdAt
         doc.modifiedAt = m.bodyModifiedAt ?? Date()
+        // Hydrate the throughline sidecars from the store (C1). There is no
+        // `.imprint` file bundle behind a store-backed manuscript, so the pane
+        // would open on "No throughline yet" for a document that HAS one —
+        // exactly what `PanelManuscriptBridge` does for the macOS side panel,
+        // and the reason `ImprintStoreAdapter.loadThroughline` exists.
+        //
+        // Absence is not an error: a manuscript without a throughline hydrates
+        // to nil and the pane offers its create affordance (ADR-0016 D1, opt-in).
+        if let tl = ImprintStoreAdapter.shared.loadThroughline(
+            documentID: manuscriptID.uuidString) {
+            doc.throughlineSource = tl.source
+            doc.throughlineAnchorsJSON =
+                tl.anchorMapJSON.isEmpty ? nil : tl.anchorMapJSON
+            Logger.sharedStore.infoCapture(
+                "IOSManuscriptEditorHost: hydrated throughline for \(manuscriptID) "
+                    + "(\(tl.source.count) bytes)",
+                category: "throughline"
+            )
+        }
         bridge = doc
         hasLoaded = true
 

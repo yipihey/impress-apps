@@ -1,9 +1,59 @@
 import CryptoKit
 import Foundation
 import ImpressKit
+import ImpressStoreKit
 import OSLog
 #if canImport(ImpressRustCore)
 import ImpressRustCore
+#endif
+
+#if canImport(ImpressRustCore)
+// MARK: - SharedStore backend
+
+/// The mechanical bridge from the generic mirror kernel to the UniFFI store.
+/// Field-for-field; no logic. (impart has the same twelve lines next to its own
+/// guarded FFI import — see the note in `StoreMirrorKernel.swift` for why this
+/// cannot live in ImpressStoreKit: the XCFramework is a local build artefact and
+/// the kernel's own tests must run without it.)
+private struct SharedStoreMirrorBackend: StoreMirrorBackend, @unchecked Sendable {
+    let store: SharedStore
+
+    func upsertBatch(_ rows: [StoreMirrorUpsert]) throws -> StoreMirrorBatchOutcome {
+        let result = try store.upsertItems(rows: rows.map(\.sharedItemUpsert))
+        return StoreMirrorBatchOutcome(
+            inserted: Int(result.inserted),
+            updated: Int(result.updated)
+        )
+    }
+
+    func upsertOne(_ row: StoreMirrorUpsert) throws {
+        try store.upsertItemV2(row: row.sharedItemUpsert)
+    }
+
+    func setRead(id: String, isRead: Bool) throws {
+        try store.setRead(id: id, isRead: isRead)
+    }
+
+    func setParent(id: String, parentId: String?) throws {
+        try store.setParent(id: id, parentId: parentId)
+    }
+}
+
+extension StoreMirrorUpsert {
+    /// Convert to the FFI row type at the write site.
+    var sharedItemUpsert: SharedItemUpsert {
+        SharedItemUpsert(
+            id: id,
+            schemaRef: schemaRef,
+            payloadJson: payloadJson,
+            parentId: parentId,
+            tags: tags,
+            createdMs: createdMs,
+            isRead: isRead,
+            isStarred: isStarred
+        )
+    }
+}
 #endif
 
 /// Stores implore figures and datasets in the shared impress-core store.
@@ -22,8 +72,18 @@ public final class ImploreStoreAdapter {
     /// Shared singleton instance.
     public static let shared = ImploreStoreAdapter()
 
+    /// The shared mutation signal (`ImpressStoreKit`) — one copy of "bump a
+    /// version, fan out a typed event" instead of one per store adapter.
+    /// implore has no store gateway to fan out to yet, so it uses the counter
+    /// half only; wiring `emit:` is all it takes when it grows one.
+    private let signal = StoreMutationSignal()
+
     /// Bumped on every mutation. Views can observe this to trigger updates.
-    public private(set) var dataVersion: Int = 0
+    ///
+    /// Reads through to `signal.version`. `StoreMutationSignal` is itself
+    /// `@Observable`, so a SwiftUI `body` touching `dataVersion` registers the
+    /// same dependency it did when the counter was stored here.
+    public var dataVersion: Int { signal.version }
 
     /// Whether the adapter has successfully initialised its storage directories.
     public private(set) var isReady = false
@@ -44,7 +104,18 @@ public final class ImploreStoreAdapter {
     // MARK: - Shared Store
 
     #if canImport(ImpressRustCore)
-    private var store: SharedStore?
+    /// The store handle: `ImpressStoreKit`'s `LazyStoreHandle` — opened at most
+    /// once, under a lock, failure remembered rather than retried. `setup()`
+    /// forces the open eagerly so `isReady` keeps meaning what it always meant
+    /// (the adapter is usable *now*), which the `guard isReady` at the head of
+    /// every write depends on.
+    private let handle = LazyStoreHandle<SharedStore> {
+        try SharedWorkspace.ensureDirectoryExists()
+        return try SharedStore.open(path: SharedWorkspace.databasePath)
+    }
+
+    /// The current store handle, or `nil` if it never opened.
+    private var store: SharedStore? { handle.get() }
     #endif
 
     private init() {
@@ -61,9 +132,12 @@ public final class ImploreStoreAdapter {
                 withIntermediateDirectories: true
             )
             #if canImport(ImpressRustCore)
-            store = try SharedStore.open(path: databasePath)
-            #endif
+            // Force the lazy open here: `isReady` promises the store is
+            // available, not merely openable.
+            isReady = handle.isReady
+            #else
             isReady = true
+            #endif
         } catch {
             isReady = false
         }
@@ -73,7 +147,7 @@ public final class ImploreStoreAdapter {
 
     /// Call after every successful mutation to bump `dataVersion`.
     public func didMutate() {
-        dataVersion += 1
+        signal.didMutate()
     }
 
     // MARK: - Figure Storage
@@ -102,16 +176,16 @@ public final class ImploreStoreAdapter {
 
         let dataHash: String? = assetData.map { storeContentAddressed(data: $0) }
 
-        let figurePayload: [String: Any?] = [
+        // `StoreMirrorPayload` drops the nil entries and sorts the keys —
+        // sorted keys keep a re-upsert of an unchanged figure byte-identical,
+        // so it does not churn the row's `modified` timestamp.
+        if let payloadString = StoreMirrorPayload.encodeJSONIfValid([
             "format": format,
             "title": title,
             "caption": caption,
             "data_hash": dataHash,
             "script_hash": scriptHash
-        ]
-        let compactedFigure = figurePayload.compactMapValues { $0 }
-        if let payloadJSON = try? JSONSerialization.data(withJSONObject: compactedFigure),
-           let payloadString = String(data: payloadJSON, encoding: .utf8) {
+        ] as [String: Any?]) {
             #if canImport(ImpressRustCore)
             try? store?.upsertItem(id: figureID, schemaRef: "figure", payloadJson: payloadString)
             #endif
@@ -147,17 +221,14 @@ public final class ImploreStoreAdapter {
 
         let dataHash: String? = data.map { storeContentAddressed(data: $0) }
 
-        let datasetPayload: [String: Any?] = [
+        if let payloadString = StoreMirrorPayload.encodeJSONIfValid([
             "name": name,
             "format": format,
             "row_count": rowCount,
             "column_count": columnCount,
             "data_hash": dataHash,
             "description": description
-        ]
-        let compactedDataset = datasetPayload.compactMapValues { $0 }
-        if let payloadJSON = try? JSONSerialization.data(withJSONObject: compactedDataset),
-           let payloadString = String(data: payloadJSON, encoding: .utf8) {
+        ] as [String: Any?]) {
             #if canImport(ImpressRustCore)
             try? store?.upsertItem(id: datasetID, schemaRef: "dataset", payloadJson: payloadString)
             #endif
@@ -213,30 +284,30 @@ public final class ImploreStoreAdapter {
         if (try? store.syncMetadataGet(key: Self.backfillKey)) ?? nil != nil {
             return false
         }
-        var rows: [SharedItemUpsert] = []
+        // Rows are the shared mirror-kernel row type; the folder rows come
+        // first so every figure's envelope parent already exists.
+        var rows: [StoreMirrorUpsert] = []
         for f in folders {
-            let payload: [String: Any] = [
+            guard let jsonString = StoreMirrorPayload.encodeJSONIfValid([
                 "name": f.name, "sort_order": f.sortOrder, "is_collapsed": f.isCollapsed,
-            ]
-            guard let json = try? JSONSerialization.data(withJSONObject: payload),
-                  let jsonString = String(data: json, encoding: .utf8) else { continue }
-            rows.append(SharedItemUpsert(
-                id: f.id.lowercased(), schemaRef: "figure-collection",
-                payloadJson: jsonString, parentId: nil, tags: [],
-                createdMs: nil, isRead: nil, isStarred: nil))
+            ]) else { continue }
+            rows.append(StoreMirrorUpsert(
+                id: f.id.lowercased(),
+                schemaRef: "figure-collection",
+                payloadJson: jsonString))
         }
         for f in figures {
-            let payload: [String: Any] = ["title": f.title, "format": f.format]
-            guard let json = try? JSONSerialization.data(withJSONObject: payload),
-                  let jsonString = String(data: json, encoding: .utf8) else { continue }
-            rows.append(SharedItemUpsert(
-                id: f.id.lowercased(), schemaRef: "figure",
+            guard let jsonString = StoreMirrorPayload.encodeJSONIfValid([
+                "title": f.title, "format": f.format,
+            ]) else { continue }
+            rows.append(StoreMirrorUpsert(
+                id: f.id.lowercased(),
+                schemaRef: "figure",
                 payloadJson: jsonString,
-                parentId: f.folderID?.lowercased(), tags: [],
-                createdMs: nil, isRead: nil, isStarred: nil))
+                parentId: f.folderID?.lowercased()))
         }
         do {
-            let result = try store.upsertItems(rows: rows)
+            let result = try SharedStoreMirrorBackend(store: store).upsertBatch(rows)
             try store.syncMetadataSet(
                 key: Self.backfillKey,
                 value: ISO8601DateFormatter().string(from: Date()))
@@ -276,9 +347,15 @@ public final class ImploreStoreAdapter {
 
     /// Folder moves on the store mirror (Stage 0 keeps JSON authoritative for
     /// the GUI; this keeps the mirror consistent for other apps).
+    ///
+    /// The envelope write goes through the shared `StoreMirrorBackend` verb, so
+    /// implore reparents rows through the same seam as every other mirror.
     public func setFigureFolder(figureID: String, folderID: String?) {
         guard isReady, let store else { return }
-        try? store.setParent(id: figureID.lowercased(), parentId: folderID?.lowercased())
+        try? SharedStoreMirrorBackend(store: store).setParent(
+            id: figureID.lowercased(),
+            parentId: folderID?.lowercased()
+        )
         didMutate()
     }
     #endif

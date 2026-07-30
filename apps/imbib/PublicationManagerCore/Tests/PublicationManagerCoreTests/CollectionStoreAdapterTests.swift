@@ -388,6 +388,106 @@ final class CollectionStoreAdapterTests: XCTestCase {
         XCTAssertEqual(row(binding, id: c.id)?.parentID, a.id, "⌘Z moves it back under a")
     }
 
+    // MARK: - Container axis (ADR-0022 C2)
+
+    /// A CROSS-container move is one verb and one Undo entry that restores
+    /// BOTH fields — the tree parent and the owning library.
+    ///
+    /// This is the undo-parity evidence for the publication reparent: the
+    /// legacy Swift path registered only the `updateField("parent_id")` half,
+    /// so undoing a cross-library move put the collection back under the right
+    /// parent and left it in the WRONG library. The action name is unchanged,
+    /// so the Edit menu still reads "Move Folder".
+    func testCrossContainerReparentUndoRestoresParentAndContainer() async throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.publication
+        // REAL items: `items.parent_id` carries a foreign key, so a collection
+        // whose envelope parent does not exist cannot be inserted. The generic
+        // binding is the cheapest way to mint a stand-in owning container.
+        let libraryA = try XCTUnwrap(
+            adapter.create(CollectionBindingID.generic, name: uniqueName("cc-libA"))).id
+        let libraryB = try XCTUnwrap(
+            adapter.create(CollectionBindingID.generic, name: uniqueName("cc-libB"))).id
+
+        let moving = try XCTUnwrap(
+            adapter.create(binding, name: uniqueName("cc-move"), containerID: libraryA))
+        let target = try XCTUnwrap(
+            adapter.create(binding, name: uniqueName("cc-target"), containerID: libraryB))
+        XCTAssertEqual(row(binding, id: moving.id)?.containerID, libraryA)
+
+        let manager = withUndoManager()
+        defer { clearUndoManager() }
+
+        XCTAssertTrue(
+            adapter.reparent(
+                binding, id: moving.id, newParentID: target.id, newContainerID: libraryB))
+        XCTAssertEqual(row(binding, id: moving.id)?.parentID, target.id)
+        XCTAssertEqual(row(binding, id: moving.id)?.containerID, libraryB)
+        XCTAssertEqual(
+            manager.undoActionName, CollectionStoreAdapter.UndoActionName.reparent,
+            "the Edit menu still says 'Move Folder'")
+
+        manager.undo()
+        await settle()
+        XCTAssertNil(row(binding, id: moving.id)?.parentID, "⌘Z restores the tree parent")
+        XCTAssertEqual(
+            row(binding, id: moving.id)?.containerID, libraryA,
+            "AND the owning library — the half the legacy path could not undo")
+    }
+
+    /// A SAME-container move must not write a container at all, so undoing it
+    /// cannot disturb one. This is the frozen `if sourceLibraryID != targetLibID`
+    /// guard, now expressed as "pass nil and the kernel leaves it alone".
+    func testSameContainerReparentLeavesTheContainerUntouched() async throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.publication
+        let library = try XCTUnwrap(
+            adapter.create(CollectionBindingID.generic, name: uniqueName("sc-lib"))).id
+        let a = try XCTUnwrap(
+            adapter.create(binding, name: uniqueName("sc-a"), containerID: library))
+        let b = try XCTUnwrap(
+            adapter.create(binding, name: uniqueName("sc-b"), containerID: library))
+
+        let manager = withUndoManager()
+        defer { clearUndoManager() }
+
+        XCTAssertTrue(adapter.reparent(binding, id: b.id, newParentID: a.id))
+        XCTAssertEqual(row(binding, id: b.id)?.containerID, library)
+
+        manager.undo()
+        await settle()
+        XCTAssertNil(row(binding, id: b.id)?.parentID)
+        XCTAssertEqual(
+            row(binding, id: b.id)?.containerID, library,
+            "the container was never written, so undo never restored one")
+    }
+
+    /// The container-scoped read: `tree(_:in:)` is what replaces
+    /// `store.listCollections(libraryId:)` and is the migration-safe form.
+    func testContainerScopedTreeSeesOnlyItsOwnContainer() throws {
+        try XCTSkipIf(!adapter.isReady, "shared store unavailable")
+        let binding = CollectionBindingID.publication
+        let libraryA = try XCTUnwrap(
+            adapter.create(CollectionBindingID.generic, name: uniqueName("sp-libA"))).id
+        let libraryB = try XCTUnwrap(
+            adapter.create(CollectionBindingID.generic, name: uniqueName("sp-libB"))).id
+        let inA = try XCTUnwrap(
+            adapter.create(binding, name: uniqueName("scope-a"), containerID: libraryA))
+        let inB = try XCTUnwrap(
+            adapter.create(binding, name: uniqueName("scope-b"), containerID: libraryB))
+
+        let idsInA = adapter.tree(binding, in: libraryA).map(\.id)
+        XCTAssertTrue(idsInA.contains(inA.id))
+        XCTAssertFalse(idsInA.contains(inB.id))
+
+        // Bindings with no container axis ignore the argument entirely.
+        let manuscripts = CollectionBindingID.manuscript
+        let folder = try XCTUnwrap(adapter.create(manuscripts, name: uniqueName("no-axis")))
+        XCTAssertTrue(
+            adapter.tree(manuscripts, in: libraryA).map(\.id).contains(folder.id),
+            "a manuscript folder is not hidden by a container it never had")
+    }
+
     /// Undo action names are the ones the delegated path registered — the
     /// Edit menu must read identically now that the delegation is gone.
     func testUndoActionNamesMatchTheDelegatedPath() {

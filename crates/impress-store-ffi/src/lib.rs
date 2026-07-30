@@ -241,6 +241,15 @@ pub struct SharedCollectionRow {
     /// Record-kind scope ("publication", "manuscript", "any", …) for schemas
     /// that carry one; `nil` for the per-kind legacy schemas.
     pub kind_scope: Option<String>,
+    /// Lowercase UUID string of the OWNING CONTAINER — imbib's library — for
+    /// bindings that have a container axis (ADR-0022 C2); `nil` for manuscript
+    /// folders, figure folders and the generic binding, whose collections are
+    /// global. NEVER the tree parent: that is `parent_id`.
+    pub container_id: Option<String>,
+    /// Is this a SMART (query-defined) collection? The per-row read-only
+    /// predicate imbib's sidebar gates Rename / New Subcollection on, leaving
+    /// Delete. `false` for bindings whose schema has no such field.
+    pub is_smart: bool,
 }
 
 /// The value the mutated field held BEFORE a single-field structural verb ran
@@ -258,7 +267,19 @@ pub enum SharedCollectionPrior {
     SortOrder { sort_order: i64 },
     /// Prior tree parent, from `collection_reparent`; `nil` = it was a root.
     /// Undo: reparent back to it.
+    ///
+    /// Means "the owning container did NOT move", so its inverse must leave the
+    /// container alone — a same-library reparent writes one field, and undoing
+    /// it must not start writing an envelope the forward move never touched.
     Parent { parent_id: Option<String> },
+    /// Prior tree parent AND prior owning container, from a
+    /// `collection_reparent_in` that CROSSED containers (ADR-0022 C2 — imbib's
+    /// cross-library collection move, which was two hand-written Swift writes).
+    /// Undo: `collection_reparent_in(id, parent_id, container_id)`.
+    ParentInContainer {
+        parent_id: Option<String>,
+        container_id: Option<String>,
+    },
 }
 
 /// The result of `collection_rename` / `collection_reorder` /
@@ -1033,6 +1054,25 @@ impl SharedStore {
         Ok(rows.into_iter().map(collection_row_to_ffi).collect())
     }
 
+    /// The collections of ONE owning container (ADR-0022 C2), flat and ordered
+    /// by `sort_order`. `container_id: nil`, or a binding with no container
+    /// axis, answers exactly as `collection_tree` does.
+    ///
+    /// This is the migration-safe read imbib's sidebar needs: imbib-core's
+    /// `list_collections(library_id)` hard-codes `schema_ref =
+    /// "imbib/collection"` and returns nothing once WP G7 has run, while this
+    /// resolves the binding against the `collections.unified` marker and filters
+    /// on the envelope, which the migration never touches.
+    pub fn collection_tree_in(
+        &self,
+        binding: SharedCollectionBinding,
+        container_id: Option<String>,
+    ) -> Result<Vec<SharedCollectionRow>, SharedStoreError> {
+        let rows =
+            collection_ops::list_tree_in(&self.inner, &binding.binding(), container_id.as_deref())?;
+        Ok(rows.into_iter().map(collection_row_to_ffi).collect())
+    }
+
     /// Create a collection under `parent_id` (`nil` = root). `kind_scope` is
     /// honoured only by the `Generic` binding, which defaults it to `"any"`.
     ///
@@ -1057,6 +1097,36 @@ impl SharedStore {
             parent_id.as_deref(),
             kind_scope.as_deref(),
             sort_order,
+        )?;
+        Ok(collection_row_to_ffi(row))
+    }
+
+    /// Create a collection in an explicit OWNING CONTAINER (ADR-0022 C2).
+    ///
+    /// `container_id` is what makes per-library creation expressible: imbib's
+    /// "New Collection" on a library row creates a ROOT collection whose owning
+    /// library is that row, and there is no parent collection to inherit the
+    /// library from. `nil` keeps the historical inherit-from-parent rule, so
+    /// `collection_create` is this call with `nil`.
+    ///
+    /// **Undo:** `collection_delete(row.id)`.
+    pub fn collection_create_in(
+        &self,
+        binding: SharedCollectionBinding,
+        name: String,
+        parent_id: Option<String>,
+        kind_scope: Option<String>,
+        sort_order: Option<i64>,
+        container_id: Option<String>,
+    ) -> Result<SharedCollectionRow, SharedStoreError> {
+        let row = collection_ops::create_in(
+            &self.inner,
+            &binding.binding(),
+            &name,
+            parent_id.as_deref(),
+            kind_scope.as_deref(),
+            sort_order,
+            container_id.as_deref(),
         )?;
         Ok(collection_row_to_ffi(row))
     }
@@ -1093,6 +1163,34 @@ impl SharedStore {
             &binding.binding(),
             &id,
             new_parent_id.as_deref(),
+        )?;
+        Ok(collection_mutation_to_ffi(mutation))
+    }
+
+    /// Move a collection under `new_parent_id` AND into `new_container_id`
+    /// (ADR-0022 C2) — imbib's cross-library collection move, atomically.
+    ///
+    /// `new_container_id: nil` means "leave the owning container alone", which
+    /// is what `collection_reparent` passes and what a same-library move wants:
+    /// the Swift path it replaces skipped its `reparentItem` write entirely when
+    /// the library did not change, and so does this.
+    ///
+    /// **Undo:** `collection_reparent_in(id, prior.parentId, prior.containerId)`
+    /// — the returned prior is `ParentInContainer` exactly when the container
+    /// moved, and a plain `Parent` otherwise.
+    pub fn collection_reparent_in(
+        &self,
+        binding: SharedCollectionBinding,
+        id: String,
+        new_parent_id: Option<String>,
+        new_container_id: Option<String>,
+    ) -> Result<SharedCollectionMutation, SharedStoreError> {
+        let mutation = collection_ops::reparent_in(
+            &self.inner,
+            &binding.binding(),
+            &id,
+            new_parent_id.as_deref(),
+            new_container_id.as_deref(),
         )?;
         Ok(collection_mutation_to_ffi(mutation))
     }
@@ -1386,6 +1484,8 @@ fn collection_row_to_ffi(row: collection_ops::CollectionRow) -> SharedCollection
         parent_id: row.parent_id,
         sort_order: row.sort_order,
         kind_scope: row.kind_scope,
+        container_id: row.container_id,
+        is_smart: row.is_smart,
     }
 }
 
@@ -1397,6 +1497,8 @@ fn collection_row_from_ffi(row: SharedCollectionRow) -> collection_ops::Collecti
         parent_id: row.parent_id,
         sort_order: row.sort_order,
         kind_scope: row.kind_scope,
+        container_id: row.container_id,
+        is_smart: row.is_smart,
     }
 }
 
@@ -1412,6 +1514,12 @@ fn collection_mutation_to_ffi(
             }
             collection_ops::CollectionPrior::Parent(parent_id) => {
                 SharedCollectionPrior::Parent { parent_id }
+            }
+            collection_ops::CollectionPrior::ParentInContainer { parent, container } => {
+                SharedCollectionPrior::ParentInContainer {
+                    parent_id: parent,
+                    container_id: container,
+                }
             }
         },
     }
@@ -2581,7 +2689,7 @@ mod tests {
         store
             .upsert_item(
                 uuid::Uuid::new_v4().to_string(),
-                "task".into(),
+                "task@1.0.0".into(),
                 r#"{"title": "t"}"#.into(),
             )
             .expect("upsert task");
@@ -2592,7 +2700,10 @@ mod tests {
                 .expect("count"),
             3
         );
-        assert_eq!(store.count_by_schema("task".into()).expect("count"), 1);
+        assert_eq!(
+            store.count_by_schema("task@1.0.0".into()).expect("count"),
+            1
+        );
         assert_eq!(store.count_by_schema("nothing".into()).expect("count"), 0);
     }
 
@@ -2614,7 +2725,7 @@ mod tests {
         store
             .upsert_item(
                 task_id.clone(),
-                "task".into(),
+                "task@1.0.0".into(),
                 r#"{"title": "Review paper", "state": "pending"}"#.into(),
             )
             .expect("upsert task");
@@ -2634,7 +2745,7 @@ mod tests {
         assert_eq!(pubs[0].id, pub_id);
 
         let tasks = store
-            .query_by_schema("task".into(), 10, 0)
+            .query_by_schema("task@1.0.0".into(), 10, 0)
             .expect("query tasks");
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, task_id);

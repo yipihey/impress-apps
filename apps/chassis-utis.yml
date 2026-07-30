@@ -24,6 +24,7 @@
 #
 # SOURCE OF TRUTH for this list:
 #   apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/SharedViews/MailStylePublicationRow.swift
+#   apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Sharing/ShareableUTTypes.swift
 #   packages/ImpressKit/Sources/ImpressKit/ImpressUTTypes.swift
 # Adding a `UTType(exportedAs:)` there means adding it here.
 # `ChassisUTIDeclarationTests` fails the build if you forget.
@@ -38,13 +39,29 @@
 #     include:
 #       - path: ../chassis-utis.yml      # ../../ from apps/imbib/imbib
 #
-# and every target that links PublicationManagerCore does:
+# and each APP target does:
 #
 #     templates: [ChassisUTIs]
 #
-# App-specific types (paper-reference, document-reference, conversation-ref,
-# veusz-plot-reference, bibtex-entry, citation-key, the .imprint package type)
-# stay in their own project.yml — they differ per app and are not chassis-wide.
+# That is eight targets: the five macOS apps plus imbib-iOS, imprint-iOS and
+# impart-iOS. NOT every PMC-linking target — `imbib-ShareExtension`,
+# `imbib-iOS-ShareExtension`, `imbib-FileProvider` and `imbib-iOS-FileProvider`
+# link PublicationManagerCore without the template and declare no exported
+# types at all, so any chassis `UTType(exportedAs:)` they touch would fault.
+# None does today; adding one means adding `templates: [ChassisUTIs]` there too.
+#
+# WHAT STILL STAYS PER APP
+#
+# Only types that carry app-specific LaunchServices metadata — a
+# `UTTypeTagSpecification` claiming a filename extension, i.e. a DOCUMENT the
+# app owns rather than a drag payload:
+#
+#   com.imbib.imprint.document  (imprint, `.imprint` package)
+#   com.impress.bibtex-entry    (imbib, `public.filename-extension: [bib]`)
+#   org.veusz.document          (imprint, imported, `.vsz`)
+#
+# The 2026-07-30 reachability audit graduated the other nine formerly per-app
+# identifiers into the block below; see the comment on that section.
 
 targetTemplates:
   ChassisUTIs:
@@ -113,4 +130,99 @@ targetTemplates:
               - public.data
             UTTypeDescription: Impress Figure ID
             UTTypeIdentifier: com.impress.figure-id
+            UTTypeTagSpecification: {}
+
+          # --- ImpressKit cross-app artifact references (ImpressUTTypes.swift) ---
+          #
+          # GRADUATED here on 2026-07-30 by the reachability audit the old
+          # `ChassisUTIDeclarationTests.appDeclaredExceptions` comment asked
+          # for. Every one is built by an ungated `UTType(exportedAs:)` in
+          # ImpressUTTypes.swift — shared code all five apps compile — and none
+          # carries app-specific document metadata (all tag specs are empty), so
+          # there was never anything per-app about them. The per-app state they
+          # replaced was actively broken:
+          #
+          #   * paper-reference was EXPORTED only by imbib, yet imprint reaches
+          #     it (MailStylePublicationRow's drag provider via the Cited in
+          #     Manuscripts publication list, and SourceEditorView's .onDrop).
+          #     imprint/impel/impart only IMPORTED it — which, per the header
+          #     above, does NOT satisfy `UTType(exportedAs:)`. Same for
+          #     figure-reference, exported only by implore (which never reaches
+          #     it) while imbib and imprint both do, via SourceEditorView.
+          #   * veusz-plot-reference and research-artifact-reference were
+          #     exported by NO app at all — four apps imported the first, none
+          #     declared the second.
+          #   * document-reference / conversation-ref / citation-key are
+          #     currently unreached by any app, but their declaration site is
+          #     the same shared, ungated file, so one `.draggable` anywhere
+          #     would have faulted every app that had not pasted them in.
+          #
+          # `UTTypeConformsTo: public.data` is carried over verbatim from the
+          # declarations these replace. The code says `conformingTo:
+          # .impressArtifact`; the plists have always flattened that to
+          # public.data, and this change deliberately moves declarations
+          # WITHOUT editing them.
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Paper Reference
+            UTTypeIdentifier: com.impress.paper-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Document Reference
+            UTTypeIdentifier: com.impress.document-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Figure Reference
+            UTTypeIdentifier: com.impress.figure-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Conversation Reference
+            UTTypeIdentifier: com.impress.conversation-ref
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Research Artifact Reference
+            UTTypeIdentifier: com.impress.research-artifact-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Veusz Plot Reference
+            UTTypeIdentifier: com.impress.veusz-plot-reference
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.plain-text
+            UTTypeDescription: Citation Key
+            UTTypeIdentifier: com.impress.citation-key
+            UTTypeTagSpecification: {}
+
+          # --- PublicationManagerCore sharing payloads (ShareableUTTypes.swift) ---
+          #
+          # Also graduated on 2026-07-30, and these two were the worst case: no
+          # app declared them ANYWHERE, so they were not "declared per app" as
+          # the old exception list claimed — they were simply undeclared, and
+          # only safe because nothing reaches them (`isBibTeX`,
+          # `isImbibBundle` and `UTType.from(extension:)` have zero callers;
+          # `UTType.bibtex`'s only uses are in imprint-iOS's
+          # CitationDropDelegate, which is itself only wired up from a
+          # `#Preview`).
+          #
+          # Tag specs are deliberately EMPTY even though the code conforms
+          # com.imbib.bibtex to plain text and com.imbib.bundle to a package.
+          # Claiming `public.filename-extension: [bib]` / `[imbib]` here would
+          # change what `UTType(filenameExtension: "bib")` resolves to in four
+          # apps that never claimed it — and shared code reads exactly that
+          # (`DragDropCoordinator.bibTypes`). Declare the type; do not claim
+          # the document.
+          - UTTypeConformsTo:
+              - public.plain-text
+            UTTypeDescription: imbib BibTeX Bibliography
+            UTTypeIdentifier: com.imbib.bibtex
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - com.apple.package
+            UTTypeDescription: imbib Bundle
+            UTTypeIdentifier: com.imbib.bundle
             UTTypeTagSpecification: {}

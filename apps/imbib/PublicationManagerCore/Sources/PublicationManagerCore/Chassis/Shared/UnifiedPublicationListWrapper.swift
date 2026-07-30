@@ -848,7 +848,13 @@ struct UnifiedPublicationListWrapper: View {
                 try? await self.libraryViewModel.pasteFromClipboard()
             }
             a.onRemoveFromAllCollections = { ids in
-                // TODO: implement removeFromAllCollections with Rust store
+                // Stage 5d SPLIT: the body lives in
+                // `PublicationListMutations.removeFromAllCollections`. This
+                // closure was empty, so the menu item silently did nothing on
+                // macOS. Like `onAddToCollection`, the store's
+                // `removeFromCollection` posts a `.structural` event, so the
+                // list refresh is the subscription's — not this closure's.
+                PublicationListMutations.removeFromAllCollections(ids: ids)
             }
             a.onFileDrop = { id, providers in
                 // TODO: implement file drop with Rust store (FileDropHandler needs UUID-based API)
@@ -1062,10 +1068,16 @@ struct UnifiedPublicationListWrapper: View {
             let name = ss?.name ?? "unknown"
             logger.info("Smart search refresh requested for: \(name)")
 
-            // TODO: implement smart search refresh with Rust store
-            // Route group feeds to GroupFeedRefreshService for staggered per-author searches
-            // Regular smart search - use provider
-            try? await Task.sleep(for: .milliseconds(100))
+            // Group feeds route to GroupFeedRefreshService (staggered per-author
+            // searches), everything else to the smart search's provider. This
+            // used to be a TODO plus a 100 ms sleep — Refresh re-read the store
+            // and fetched nothing. The sequence lives in
+            // `PublicationListCore.pullSmartSearch` so both hosts run it.
+            if let failure = await PublicationListCore.pullSmartSearch(
+                id, sourceManager: searchViewModel.sourceManager)
+            {
+                self.error = failure
+            }
             await MainActor.run {
                 refreshPublicationsList(force: true)
             }

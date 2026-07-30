@@ -1,11 +1,14 @@
 //! Registry ↔ manifest parity for impel-core. See
 //! `crates/impress-core/tests/schema_ref_manifest.rs` for the rationale.
 //!
-//! impel is the worst case in the suite: its registry says `impel/task`, its
-//! kernel writes `task@1.0.0`, its Swift bridge writes `impel/task`, and
-//! impress-core registers a bare `task` nobody writes. This test does not
-//! pretend that is fine — it pins the split so it stays visible and cannot
-//! grow, via `knownDivergences` in schema-refs.json.
+//! impel WAS the worst case in the suite: its registry said `impel/task`, its
+//! kernel wrote `task@1.0.0`, its Swift bridge wrote `impel/task`, and
+//! impress-core registered a bare `task` nobody wrote — three spellings per
+//! kind, tracked as `knownDivergences` because fixing them needed a data
+//! migration over live user stores. WP C4 did that migration
+//! (`impress_core::task_schema_migration`) and this test now pins the
+//! CONVERGED state: one spelling per kind, and the registry's ids equal the
+//! refs the writers emit.
 
 use std::collections::BTreeSet;
 
@@ -57,6 +60,45 @@ fn task_store_constants_are_declared_refs() {
             "impel-core writes rows with schema_ref {constant:?}, which \
              schema-refs.json does not declare. Every ref a writer emits must \
              be declared, or readers have nothing authoritative to copy."
+        );
+    }
+}
+
+/// The C4 invariant, in one assertion: what impel REGISTERS is exactly what
+/// impel WRITES. This is the equality whose absence made
+/// `SchemaRegistry::validate` a no-op for every task the kernel ever created,
+/// and it is cheap enough to assert forever.
+#[test]
+fn the_registry_and_the_writers_agree() {
+    let mut registry = impress_core::registry::SchemaRegistry::new();
+    impel_core::schemas::register_impel_schemas(&mut registry);
+    let registered: BTreeSet<String> = registry.list().iter().map(|s| s.id.clone()).collect();
+
+    let written: BTreeSet<String> = [impel_core::TASK_SCHEMA, impel_core::AGENT_RUN_SCHEMA]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    assert_eq!(
+        registered, written,
+        "impel registers {registered:?} but writes {written:?}. A registered id \
+         nothing writes is a query that returns zero rows forever; a written \
+         ref nothing registers is a row nothing can validate."
+    );
+}
+
+/// The retired spellings stay retired. A resurrected `impel/task` would
+/// silently re-open the scheduler gap C4 closed, since `ready_tasks` selects
+/// `task@1.0.0` only.
+#[test]
+fn the_retired_spellings_are_not_registered_again() {
+    let mut registry = impress_core::registry::SchemaRegistry::new();
+    impel_core::schemas::register_impel_schemas(&mut registry);
+    for retired in ["impel/task", "impel/agent-run", "task", "agent-run"] {
+        assert!(
+            registry.get(retired).is_none(),
+            "{retired:?} is back. It was converged onto the versioned ref by WP \
+             C4; re-registering it needs a knownDivergences entry and a reason."
         );
     }
 }

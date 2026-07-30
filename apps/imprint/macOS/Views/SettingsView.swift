@@ -125,7 +125,8 @@ struct ExportSettingsView: View {
 /// component. Unchanged from the version that shipped.
 struct AutomationSettingsView: View {
     @AppStorage("httpAutomationEnabled") private var httpAutomationEnabled = true
-    @AppStorage("httpAutomationPort") private var httpAutomationPort = 23121
+    // Default from THE sibling-app table (ImpressKit), not a literal.
+    @AppStorage("httpAutomationPort") private var httpAutomationPort = Int(ImprintHTTPServer.defaultPort)
     @State private var isServerRunning = false
     @State private var showCopiedFeedback = false
 

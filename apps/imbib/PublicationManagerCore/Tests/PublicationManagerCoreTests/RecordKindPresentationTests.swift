@@ -136,12 +136,23 @@ final class RecordKindPresentationTests: XCTestCase {
             guard let collection = descriptor.collection else { continue }
             XCTAssertFalse(collection.folderSymbolName.isEmpty)
             XCTAssertFalse(collection.containerNoun.isEmpty)
-            // The three AppKit menu titles that used to be inline literals in
-            // ImbibSidebarViewModel, frozen for the shipped kinds.
-            XCTAssertEqual(collection.newContainerTitle, "New Folder")
-            XCTAssertEqual(collection.newSubContainerTitle, "New Subfolder")
-            XCTAssertEqual(collection.deleteContainerTitle, "Delete Folder")
             XCTAssertEqual(collection.folderSymbolName, "folder")
+
+            // The AppKit menu titles that used to be inline literals in
+            // ImbibSidebarViewModel, frozen PER KIND. Publications call their
+            // containers Collections and say a bare "Delete" — which is the
+            // whole reason the noun and the delete title are data (ADR-0022
+            // C2): routing imbib's collection menu through the generic builder
+            // had to leave every label byte-identical.
+            if collection.bindingID == CollectionBindingID.publication {
+                XCTAssertEqual(collection.newContainerTitle, "New Collection")
+                XCTAssertEqual(collection.newSubContainerTitle, "New Subcollection")
+                XCTAssertEqual(collection.deleteContainerTitle, "Delete")
+            } else {
+                XCTAssertEqual(collection.newContainerTitle, "New Folder")
+                XCTAssertEqual(collection.newSubContainerTitle, "New Subfolder")
+                XCTAssertEqual(collection.deleteContainerTitle, "Delete Folder")
+            }
         }
     }
 
