@@ -17,10 +17,12 @@
 //  CANNOT drift from the scanner, because it does not contain a second copy of
 //  the grammar to drift from.
 //
-//  (The macOS hover still uses the hand-rolled `CiteKeyAtLocation` scanner in
-//  `CiteKeyHoverPreview.swift`, which predates the Rust one and already
-//  disagrees with it about Typst's excluded `@`-annotations. Migrating it is a
-//  separate, behaviour-visible change; this file is what it should migrate to.)
+//  BOTH platform affordances now come through here: the macOS hover
+//  (`SourceEditorNSTextView.handleHover`, strict `atUTF16Offset` — a pointer is
+//  exactly where the user put it) and the iOS long press
+//  (`IOSSourceEditorView`, `nearUTF16Offset` — a finger is not). The hover's
+//  hand-rolled `CiteKeyAtLocation` scanner was deleted when it migrated;
+//  `CiteKeyDetectionParityTests` asserts no second grammar comes back.
 //
 
 import Foundation

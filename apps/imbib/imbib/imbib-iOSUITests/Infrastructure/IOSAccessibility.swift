@@ -48,4 +48,12 @@ enum IOSSeed {
     static let libraryName = "Test Library"
     /// A distinctive fragment of the first seeded publication's title.
     static let firstPublicationTitleFragment = "Electrodynamics"
+    /// The seeded root collection; it holds ONLY the first publication, so a
+    /// scoped list can be told apart from the whole library.
+    static let collectionName = "Relativity"
+    /// The seeded nested child of `collectionName` — the tree, not just a row.
+    static let nestedCollectionName = "Special"
+    /// A fragment of the publication that is NOT filed in `collectionName`
+    /// (and is the flagged one).
+    static let unfiledPublicationTitleFragment = "Radial Velocity"
 }

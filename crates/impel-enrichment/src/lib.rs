@@ -9,7 +9,7 @@
 //! - [`KeywordTagExecutor`] — classification behind the [`Classifier`]
 //!   trait; low-confidence results open an `AwaitHumanResponse` review
 //!   checkpoint instead of silently skipping.
-//! - [`EnrichmentSpawnRule`] — reacts to new `bibliography-entry@1.0.0`
+//! - [`EnrichmentSpawnRule`] — reacts to new `imbib/bibliography-entry`
 //!   items with the task DAG.
 //!
 //! ADR-0005's verdict standard applies: this crate's integration test is
@@ -28,7 +28,18 @@ pub use metadata_resolve::MetadataResolveExecutor;
 pub use spawn::EnrichmentSpawnRule;
 
 /// Schema of the items that trigger enrichment.
-pub const BIBLIOGRAPHY_ENTRY_SCHEMA: &str = "bibliography-entry@1.0.0";
+///
+/// This MUST be the ref imbib actually writes — `imbib-core`'s
+/// `unified::conversion::publication_to_item` emits `imbib/bibliography-entry`,
+/// and the store matches `items.schema_ref` by EXACT EQUALITY. Until
+/// 2026-07-29 this constant read `bibliography-entry@1.0.0`, a spelling
+/// nothing has ever written, so `EnrichmentSpawnRule::trigger_schema` matched
+/// zero rows and the entire enrichment pipeline never spawned a single task —
+/// silently, with no error and no log line, looking exactly like "no new
+/// papers yet". `enrichment_trigger_matches_the_ref_imbib_actually_writes`
+/// in tests/enrichment_pipeline.rs pins this against imbib's real writer;
+/// see schema-refs.json for the canonical spelling of every ref.
+pub const BIBLIOGRAPHY_ENTRY_SCHEMA: &str = "imbib/bibliography-entry";
 
 /// Task kinds (dispatch keys) of the pipeline.
 pub const KIND_METADATA_RESOLVE: &str = "metadata-resolve";

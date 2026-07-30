@@ -1,5 +1,12 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Persistence SEAM file — CROSS-PLATFORM (macOS + iOS).
+//
+// De-gated from `#if os(macOS)` in Stage 4b. Nothing in this file was ever
+// AppKit: it is Foundation + the `SharedStore` FFI, and the two things that
+// pinned it to imbib's macOS chassis — `RustStoreAdapter.shared` for the
+// mutation fan-out and `UndoCoordinator.shared` for undo — are now injected as a
+// `StoreKernelScope`. That is what lets imprint (macOS AND iOS) run its
+// manuscript folders through this file instead of the ~350-line hand-rolled
+// second client it carried in `ManuscriptStoreAdapter`.
 //
 //  CollectionStoreAdapter.swift
 //  PublicationManagerCore
@@ -82,19 +89,48 @@ public final class CollectionStoreAdapter {
 
     private static let logger = Logger(subsystem: "com.imbib.app", category: "collections")
 
-    /// Handle on the shared impress store. Opened exactly like
-    /// `FigureStoreReader` (same database as `RustStoreAdapter`'s
-    /// `ImbibStore` — `SharedWorkspace.databasePath`; WAL permits concurrent
-    /// handles in-process and across processes).
-    private var store: SharedStore?
+    /// The host hooks every verb runs on: store handle, mutation fan-out, undo.
+    /// `shared`'s scope is imbib's historical behaviour verbatim (own
+    /// `SharedStore` handle, `RustStoreAdapter.noteExternalMutation`,
+    /// `UndoCoordinator`); a sibling app hands its own.
+    public private(set) var scope: StoreKernelScope
 
+    /// Handle on the shared impress store.
+    private var store: SharedStore? { scope.store }
+
+    /// imbib's adapter. Opens its own handle exactly like `FigureStoreReader`
+    /// (same database as `RustStoreAdapter`'s `ImbibStore` —
+    /// `SharedWorkspace.databasePath`; WAL permits concurrent handles
+    /// in-process and across processes).
     private init() {
+        var opened: SharedStore?
         do {
             try SharedWorkspace.ensureDirectoryExists()
-            store = try SharedStore.open(path: SharedWorkspace.databasePath)
+            opened = try SharedStore.open(path: SharedWorkspace.databasePath)
         } catch {
             Self.logger.error("CollectionStoreAdapter failed to open shared store: \(error)")
         }
+        self.scope = StoreKernelScope(
+            store: opened,
+            undoTarget: nil,
+            defaultUndo: .coordinator,
+            noteMutation: { structural, affectedIDs, kind in
+                RustStoreAdapter.shared.noteExternalMutation(
+                    structural: structural, affectedIDs: affectedIDs, kind: kind)
+            }
+        )
+        self.scope.undoTarget = self
+    }
+
+    /// A sibling app's adapter, on ITS store handle, ITS mutation fan-out and
+    /// ITS undo plumbing. `undoTarget` defaults to this adapter, which is what
+    /// `UndoManager.removeAllActions(withTarget:)` keys on; a host that
+    /// registered against a different object before adopting this file (imprint
+    /// registered against `ManuscriptStoreAdapter`) passes that object so its
+    /// undo stack stays keyed the way it always was.
+    public init(scope: StoreKernelScope) {
+        self.scope = scope
+        if self.scope.undoTarget == nil { self.scope.undoTarget = self }
     }
 
     public var isReady: Bool { store != nil }
@@ -140,23 +176,27 @@ public final class CollectionStoreAdapter {
     // folder prose is a deliberate UX change for another pass, not a
     // side effect of moving onto the kernel.
 
-    enum UndoActionName {
+    public enum UndoActionName {
+        /// The folder-creation inverse. imbib's sidebar has never registered
+        /// one (its `create` defaults to `.disabled`, preserving that); imprint
+        /// has, under this exact string, since it hand-rolled the kernel.
+        public static let create = StoreKernelUndoAction.createCollection
         /// `RustStoreAdapter.updateField(field: "name")` → `undo_description`
         /// of `SetPayload("name")`.
-        static let rename = "Edit name"
+        public static let rename = StoreKernelUndoAction.renameCollection
         /// `RustStoreAdapter.updateIntField(field: "sort_order")`, once per
         /// moved sibling.
-        static let reorder = "Edit sort_order"
+        public static let reorder = StoreKernelUndoAction.reorderCollection
         /// `RustStoreAdapter.deleteItem(id:)`.
-        static let delete = "Delete"
+        public static let delete = StoreKernelUndoAction.deleteCollection
         /// `RustStoreAdapter.addToCollection` (`ImbibStore` hard-codes it).
-        static let addMembers = "Add to Collection"
+        public static let addMembers = StoreKernelUndoAction.addMembers
         /// NEW — the removal path was never undoable before the kernel
         /// returned the ids it actually removed. Named for its
         /// `RustStoreAdapter.removeFromCollection` twin.
-        static let removeMembers = "Remove from Collection"
+        public static let removeMembers = StoreKernelUndoAction.removeMembers
         /// Unchanged: this file has registered reparent undo since G2.
-        static let reparent = "Move Folder"
+        public static let reparent = StoreKernelUndoAction.reparentCollection
     }
 
     // MARK: - Reads
@@ -218,11 +258,17 @@ public final class CollectionStoreAdapter {
     /// Posts a structural mutation, matching both paths this replaces
     /// (`RustStoreAdapter.createManuscriptCollection` → `didMutate()`,
     /// `FigureStoreReader.createFolder` → `postMutation(structural: true)`).
+    /// - Parameter undo: defaults to `.disabled`, NOT to the scope default —
+    ///   imbib's sidebar has never made "New Folder" undoable, and adopting a
+    ///   shared verb must not silently add an Edit-menu entry. imprint passes
+    ///   its `UndoManager` and gets the "New Folder" inverse it always had.
     @discardableResult
     public func create(
         _ bindingID: String,
         name: String,
-        parentID: String? = nil
+        parentID: String? = nil,
+        kindScope: String? = nil,
+        undo: StoreUndoScope = .disabled
     ) -> CollectionKernelRow? {
         guard let store, let binding = Self.binding(for: bindingID) else { return nil }
         do {
@@ -234,20 +280,51 @@ public final class CollectionStoreAdapter {
                 binding: binding,
                 name: name,
                 parentId: parentID?.lowercased(),
-                kindScope: nil,
+                kindScope: kindScope,
                 sortOrder: sortOrder
             )
-            RustStoreAdapter.shared.noteExternalMutation(structural: true)
+            scope.noteMutation(true, nil, nil)
             Self.logger.infoCapture(
                 "created \(bindingID) collection '\(row.name)' (\(row.id)) "
                     + "parent=\(parentID ?? "root")",
                 category: "collections")
+            registerExistenceUndo(bindingID, id: row.id, deletedSnapshot: nil, undo: undo)
             return CollectionKernelRow(row)
         } catch {
             Self.logger.errorCapture(
                 "collectionCreate(\(bindingID)) failed: \(error)", category: "collections")
             return nil
         }
+    }
+
+    /// The create/delete inverse, as ONE alternating registration.
+    ///
+    /// Delete and restore cannot use a symmetric closure pair: the snapshot only
+    /// exists after a delete has run, so the two directions are mutually
+    /// recursive rather than closures over one captured value.
+    /// `StoreKernelScope.registerAlternating` carries the produced snapshot in a
+    /// box, which is `ManuscriptStoreAdapter`'s mutually-recursive
+    /// `registerCollection{Exists,Deleted}Undo` pair generalised.
+    ///
+    /// - Parameter deletedSnapshot: `nil` when the row currently EXISTS (⌘Z must
+    ///   delete it), the delete snapshot when it has just been removed (⌘Z must
+    ///   restore it).
+    private func registerExistenceUndo(
+        _ bindingID: String,
+        id: String,
+        deletedSnapshot: SharedDeletedCollection?,
+        undo: StoreUndoScope?
+    ) {
+        scope.registerAlternating(
+            undo,
+            actionName: deletedSnapshot == nil
+                ? UndoActionName.create : UndoActionName.delete,
+            capturedValue: deletedSnapshot,
+            produce: { [weak self] in self?.applyDelete(bindingID, id: id) },
+            consume: { [weak self] snapshot in
+                _ = self?.applyRestore(bindingID, snapshot: snapshot)
+            }
+        )
     }
 
     /// Rename a collection.
@@ -257,11 +334,21 @@ public final class CollectionStoreAdapter {
     /// racy re-read the delegated path needed. Posts the SAME event the
     /// delegated `RustStoreAdapter.updateField` posted (non-structural, this
     /// id, `.otherField`) and registers the same Undo action name.
-    public func rename(_ bindingID: String, id: String, to name: String) {
-        guard let mutation = applyRename(bindingID, id: id, to: name) else { return }
-        guard case .name(let priorName) = mutation.prior else { return }
-        registerRenameUndo(
-            bindingID, id: mutation.row.id, from: priorName, to: mutation.row.name)
+    @discardableResult
+    public func rename(
+        _ bindingID: String, id: String, to name: String, undo: StoreUndoScope? = nil
+    ) -> Bool {
+        guard let mutation = applyRename(bindingID, id: id, to: name) else { return false }
+        guard case .name(let priorName) = mutation.prior else { return true }
+        let rowID = mutation.row.id
+        let newName = mutation.row.name
+        scope.registerReversible(
+            undo,
+            actionName: UndoActionName.rename,
+            undo: { [weak self] in _ = self?.applyRename(bindingID, id: rowID, to: priorName) },
+            redo: { [weak self] in _ = self?.applyRename(bindingID, id: rowID, to: newName) }
+        )
+        return true
     }
 
     /// Assign `ids` positions 0…n-1 among their siblings.
@@ -270,12 +357,22 @@ public final class CollectionStoreAdapter {
     /// `sort_order` and its own Undo entry — matching the delegated loop,
     /// which registered one `updateIntField` undo per id and posted one
     /// non-structural event per id.
-    public func reorder(_ bindingID: String, ids: [String]) {
+    public func reorder(_ bindingID: String, ids: [String], undo: StoreUndoScope? = nil) {
         for (index, id) in ids.enumerated() {
             guard let mutation = applyReorder(bindingID, id: id, sortOrder: Int64(index)),
                   case .sortOrder(let priorOrder) = mutation.prior else { continue }
-            registerReorderUndo(
-                bindingID, id: mutation.row.id, from: priorOrder, to: Int64(index))
+            let rowID = mutation.row.id
+            let newOrder = Int64(index)
+            scope.registerReversible(
+                undo,
+                actionName: UndoActionName.reorder,
+                undo: { [weak self] in
+                    _ = self?.applyReorder(bindingID, id: rowID, sortOrder: priorOrder)
+                },
+                redo: { [weak self] in
+                    _ = self?.applyReorder(bindingID, id: rowID, sortOrder: newOrder)
+                }
+            )
         }
     }
 
@@ -286,56 +383,26 @@ public final class CollectionStoreAdapter {
     /// a warning and returns `false`; it must never crash the sidebar.
     /// Registers an Undo entry that moves the collection back.
     @discardableResult
-    public func reparent(_ bindingID: String, id: String, newParentID: String?) -> Bool {
+    public func reparent(
+        _ bindingID: String, id: String, newParentID: String?, undo: StoreUndoScope? = nil
+    ) -> Bool {
         guard let mutation = applyReparent(bindingID, id: id, newParentID: newParentID) else {
             return false
         }
         guard case .parent(let previousParent) = mutation.prior else { return true }
-        registerReparentUndo(
-            bindingID, id: mutation.row.id, from: previousParent, to: newParentID?.lowercased())
-        return true
-    }
-
-    private func registerReparentUndo(
-        _ bindingID: String, id: String, from previousParent: String?, to newParent: String?
-    ) {
-        UndoCoordinator.shared.registerUndoClosure(
+        let rowID = mutation.row.id
+        let newParent = newParentID?.lowercased()
+        scope.registerReversible(
+            undo,
             actionName: UndoActionName.reparent,
             undo: { [weak self] in
-                _ = self?.applyReparent(bindingID, id: id, newParentID: previousParent)
+                _ = self?.applyReparent(bindingID, id: rowID, newParentID: previousParent)
             },
             redo: { [weak self] in
-                _ = self?.applyReparent(bindingID, id: id, newParentID: newParent)
+                _ = self?.applyReparent(bindingID, id: rowID, newParentID: newParent)
             }
         )
-    }
-
-    private func registerRenameUndo(
-        _ bindingID: String, id: String, from previousName: String, to newName: String
-    ) {
-        UndoCoordinator.shared.registerUndoClosure(
-            actionName: UndoActionName.rename,
-            undo: { [weak self] in
-                _ = self?.applyRename(bindingID, id: id, to: previousName)
-            },
-            redo: { [weak self] in
-                _ = self?.applyRename(bindingID, id: id, to: newName)
-            }
-        )
-    }
-
-    private func registerReorderUndo(
-        _ bindingID: String, id: String, from previousOrder: Int64, to newOrder: Int64
-    ) {
-        UndoCoordinator.shared.registerUndoClosure(
-            actionName: UndoActionName.reorder,
-            undo: { [weak self] in
-                _ = self?.applyReorder(bindingID, id: id, sortOrder: previousOrder)
-            },
-            redo: { [weak self] in
-                _ = self?.applyReorder(bindingID, id: id, sortOrder: newOrder)
-            }
-        )
+        return true
     }
 
     /// Delete a collection. Members are NEVER deleted — `Contains` edges
@@ -349,21 +416,12 @@ public final class CollectionStoreAdapter {
     /// is strictly MORE than the delegated `RustStoreAdapter.deleteItem`
     /// restored (an item snapshot, no membership, no re-attached children),
     /// under the same "Delete" action name.
-    public func delete(_ bindingID: String, id: String) {
-        guard let snapshot = applyDelete(bindingID, id: id) else { return }
-        registerDeleteUndo(bindingID, snapshot: snapshot)
-    }
-
-    private func registerDeleteUndo(_ bindingID: String, snapshot: SharedDeletedCollection) {
-        UndoCoordinator.shared.registerUndoClosure(
-            actionName: UndoActionName.delete,
-            undo: { [weak self] in
-                _ = self?.applyRestore(bindingID, snapshot: snapshot)
-            },
-            redo: { [weak self] in
-                _ = self?.applyDelete(bindingID, id: snapshot.row.id)
-            }
-        )
+    @discardableResult
+    public func delete(_ bindingID: String, id: String, undo: StoreUndoScope? = nil) -> Bool {
+        guard let snapshot = applyDelete(bindingID, id: id) else { return false }
+        registerExistenceUndo(
+            bindingID, id: snapshot.row.id, deletedSnapshot: snapshot, undo: undo)
+        return true
     }
 
     // MARK: - Membership
@@ -377,19 +435,57 @@ public final class CollectionStoreAdapter {
     /// The undo removes only what was actually added, so an item that was
     /// already a member is never unfiled by undoing someone else's drop.
     @discardableResult
-    public func addMembers(_ bindingID: String, collectionID: String, itemIDs: [String]) -> Bool {
+    public func addMembers(
+        _ bindingID: String, collectionID: String, itemIDs: [String],
+        undo: StoreUndoScope? = nil
+    ) -> Bool {
         guard let changed = applyAddMembers(
             bindingID, collectionID: collectionID, itemIDs: itemIDs) else { return false }
         if !changed.isEmpty {
             registerMembershipUndo(
                 bindingID, collectionID: collectionID.lowercased(),
-                itemIDs: changed, wasAdd: true)
+                itemIDs: changed, wasAdd: true, undo: undo)
         }
         return true
     }
 
+    /// Ids that ACTUALLY became members, so an item already filed is never
+    /// unfiled by undoing someone else's drop. Returns `nil` when the verb
+    /// failed or was refused before it ran.
+    @discardableResult
+    public func addMembersReportingChanges(
+        _ bindingID: String, collectionID: String, itemIDs: [String],
+        undo: StoreUndoScope? = nil
+    ) -> [String]? {
+        guard let changed = applyAddMembers(
+            bindingID, collectionID: collectionID, itemIDs: itemIDs) else { return nil }
+        if !changed.isEmpty {
+            registerMembershipUndo(
+                bindingID, collectionID: collectionID.lowercased(),
+                itemIDs: changed, wasAdd: true, undo: undo)
+        }
+        return changed
+    }
+
+    /// Ids that were ACTUALLY removed (`nil` = the verb failed).
+    @discardableResult
+    public func removeMembersReportingChanges(
+        _ bindingID: String, collectionID: String, itemIDs: [String],
+        undo: StoreUndoScope? = nil
+    ) -> [String]? {
+        guard let changed = applyRemoveMembers(
+            bindingID, collectionID: collectionID, itemIDs: itemIDs) else { return nil }
+        if !changed.isEmpty {
+            registerMembershipUndo(
+                bindingID, collectionID: collectionID.lowercased(),
+                itemIDs: changed, wasAdd: false, undo: undo)
+        }
+        return changed
+    }
+
     private func registerMembershipUndo(
-        _ bindingID: String, collectionID: String, itemIDs: [String], wasAdd: Bool
+        _ bindingID: String, collectionID: String, itemIDs: [String], wasAdd: Bool,
+        undo: StoreUndoScope?
     ) {
         let add: @MainActor () -> Void = { [weak self] in
             _ = self?.applyAddMembers(bindingID, collectionID: collectionID, itemIDs: itemIDs)
@@ -397,7 +493,8 @@ public final class CollectionStoreAdapter {
         let remove: @MainActor () -> Void = { [weak self] in
             _ = self?.applyRemoveMembers(bindingID, collectionID: collectionID, itemIDs: itemIDs)
         }
-        UndoCoordinator.shared.registerUndoClosure(
+        scope.registerReversible(
+            undo,
             actionName: wasAdd ? UndoActionName.addMembers : UndoActionName.removeMembers,
             undo: wasAdd ? remove : add,
             redo: wasAdd ? add : remove
@@ -421,7 +518,7 @@ public final class CollectionStoreAdapter {
                     "unfile(\(bindingID), \(itemID)) failed: \(error)", category: "collections")
             }
         }
-        if moved { RustStoreAdapter.shared.noteExternalMutation(structural: true) }
+        if moved { scope.noteMutation(true, nil, nil) }
         return moved
     }
 
@@ -431,13 +528,16 @@ public final class CollectionStoreAdapter {
     /// removed — re-filing a non-member was the reason this path had no undo
     /// before.
     @discardableResult
-    public func removeMembers(_ bindingID: String, collectionID: String, itemIDs: [String]) -> Bool {
+    public func removeMembers(
+        _ bindingID: String, collectionID: String, itemIDs: [String],
+        undo: StoreUndoScope? = nil
+    ) -> Bool {
         guard let changed = applyRemoveMembers(
             bindingID, collectionID: collectionID, itemIDs: itemIDs) else { return false }
         if !changed.isEmpty {
             registerMembershipUndo(
                 bindingID, collectionID: collectionID.lowercased(),
-                itemIDs: changed, wasAdd: false)
+                itemIDs: changed, wasAdd: false, undo: undo)
         }
         return true
     }
@@ -506,7 +606,7 @@ public final class CollectionStoreAdapter {
         do {
             let mutation = try store.collectionReparent(
                 binding: binding, id: lowerID, newParentId: newParentID?.lowercased())
-            RustStoreAdapter.shared.noteExternalMutation(structural: true)
+            scope.noteMutation(true, nil, nil)
             Self.logger.infoCapture(
                 "reparented \(bindingID) collection \(lowerID) → \(newParentID ?? "root")",
                 category: "collections")
@@ -529,7 +629,7 @@ public final class CollectionStoreAdapter {
         let lowerID = id.lowercased()
         do {
             let snapshot = try store.collectionDelete(binding: binding, id: lowerID)
-            RustStoreAdapter.shared.noteExternalMutation(structural: true)
+            scope.noteMutation(true, nil, nil)
             Self.logger.infoCapture(
                 "deleted \(bindingID) collection \(lowerID) "
                     + "(members unfiled: \(snapshot.memberIds.count), "
@@ -551,7 +651,7 @@ public final class CollectionStoreAdapter {
         guard let store, let binding = Self.binding(for: bindingID) else { return nil }
         do {
             let row = try store.collectionRestore(binding: binding, snapshot: snapshot)
-            RustStoreAdapter.shared.noteExternalMutation(structural: true)
+            scope.noteMutation(true, nil, nil)
             Self.logger.infoCapture(
                 "restored \(bindingID) collection '\(row.name)' (\(row.id))",
                 category: "collections")
@@ -578,7 +678,7 @@ public final class CollectionStoreAdapter {
                 binding: binding,
                 collectionId: collectionID.lowercased(),
                 itemIds: itemIDs.map { $0.lowercased() })
-            RustStoreAdapter.shared.noteExternalMutation(structural: true)
+            scope.noteMutation(true, nil, nil)
             Self.logger.infoCapture(
                 "filed \(changed.count)/\(itemIDs.count) item(s) into "
                     + "\(bindingID) collection \(collectionID.lowercased())",
@@ -604,7 +704,7 @@ public final class CollectionStoreAdapter {
                 binding: binding,
                 collectionId: collectionID.lowercased(),
                 itemIds: itemIDs.map { $0.lowercased() })
-            RustStoreAdapter.shared.noteExternalMutation(structural: true)
+            scope.noteMutation(true, nil, nil)
             Self.logger.infoCapture(
                 "unfiled \(changed.count)/\(itemIDs.count) item(s) from "
                     + "\(bindingID) collection \(collectionID.lowercased())",
@@ -622,11 +722,6 @@ public final class CollectionStoreAdapter {
     /// affected id, `.otherField`. A non-UUID id (never produced by the
     /// kernel) degrades to the id-less form rather than dropping the event.
     private func noteFieldMutation(_ lowercasedID: String) {
-        RustStoreAdapter.shared.noteExternalMutation(
-            structural: false,
-            affectedIDs: UUID(uuidString: lowercasedID).map { [$0] },
-            kind: .otherField
-        )
+        scope.noteMutation(false, UUID(uuidString: lowercasedID).map { [$0] }, .otherField)
     }
 }
-#endif

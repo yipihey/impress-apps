@@ -122,11 +122,11 @@ public struct ManuscriptCollection: Identifiable, Hashable, Sendable {
     public let parentID: UUID?
     public let sortOrder: Int64
 
-    init?(_ row: SharedCollectionRow) {
+    init?(_ row: CollectionKernelRow) {
         guard let id = UUID(uuidString: row.id) else { return nil }
         self.id = id
         self.name = row.name
-        self.parentID = row.parentId.flatMap(UUID.init(uuidString:))
+        self.parentID = row.parentID.flatMap(UUID.init(uuidString:))
         self.sortOrder = row.sortOrder
     }
 }
@@ -191,6 +191,54 @@ public final class ManuscriptStoreAdapter {
     /// Bumped on every mutation. Views observe this to trigger
     /// `@Observable` re-evaluation.
     public private(set) var dataVersion: Int = 0
+
+    /// `listTags()`'s memo, invalidated by `dataVersion`. Not `@Observable`
+    /// state: it is a cache OF observable state, and publishing it would make
+    /// reading the tag list re-render every view that reads the adapter.
+    @ObservationIgnored private var cachedTagPaths: [String]?
+    @ObservationIgnored private var cachedTagPathsVersion: Int = -1
+
+    // MARK: - The generic store kernels
+
+    @ObservationIgnored private var cachedCollectionKernel: CollectionStoreAdapter?
+
+    /// PMC's collection kernel (`CollectionStoreAdapter`), bound to THIS
+    /// adapter's store handle, mutation fan-out and undo target. Built once and
+    /// held, because `UndoManager.removeAllActions(withTarget:)` keys on the
+    /// target and the kernel's `apply*` closures capture it weakly.
+    var collectionKernel: CollectionStoreAdapter {
+        if let cachedCollectionKernel { return cachedCollectionKernel }
+        let kernel = CollectionStoreAdapter(scope: kernelScope())
+        cachedCollectionKernel = kernel
+        return kernel
+    }
+
+    /// PMC's triage kernel, on the same scope. A struct, so it is built per call
+    /// rather than held.
+    var triageKernel: RecordTriageStoreKernel {
+        RecordTriageStoreKernel(
+            descriptor: Self.descriptor,
+            scope: kernelScope(),
+            schemaRef: Self.manuscriptSchemaRef)
+    }
+
+    /// The three host hooks PMC's generic kernels run on inside imprint: this
+    /// adapter's own `SharedStore` handle (never imbib's `RustStoreAdapter`,
+    /// which would boot a SECOND store facade in-process), its `didMutate` fan-out
+    /// (so batching, `dataVersion` and `ImprintImpressStore.postMutation` keep
+    /// working unchanged), and this adapter as the undo target — which is what
+    /// the hand-rolled `registerReversible` registered against, and what
+    /// `removeAllActions(withTarget:)` keys on.
+    private func kernelScope() -> StoreKernelScope {
+        StoreKernelScope(
+            store: sharedStore,
+            undoTarget: self,
+            defaultUndo: .disabled,
+            noteMutation: { [weak self] structural, affectedIDs, kind in
+                self?.didMutate(structural: structural, affectedIDs: affectedIDs, kind: kind)
+            }
+        )
+    }
 
     // MARK: - Batch mutation API
 
@@ -564,12 +612,14 @@ public final class ManuscriptStoreAdapter {
         return wanted == .max ? kept : Array(kept.prefix(wanted))
     }
 
-    /// `"manuscript@1.2.0"` → `"manuscript"`. The store hands out versioned
-    /// refs; the descriptor declares the bare one (PMC's
-    /// `RecordKindSchemaRef.baseName`, kept local so this file needs no PMC
-    /// import).
+    /// `"manuscript@1.2.0"` → `"manuscript"`, via PMC's ONE implementation
+    /// (`RecordKindSchemaRef.baseName`, re-exported in
+    /// PMCManuscriptReexports.swift). This used to be a local copy "so this
+    /// file needs no PMC import" — a justification that expired the moment the
+    /// adapter started reading `ManuscriptRecordKind.descriptor` for its schema
+    /// ref and status lifecycle.
     static func baseSchemaRef(_ schemaRef: String) -> String {
-        String(schemaRef.prefix { $0 != "@" })
+        RecordKindSchemaRef.baseName(schemaRef)
     }
 
     /// `SharedFieldEq.valueJson` is a JSON *value*, so a string predicate must
@@ -795,141 +845,97 @@ extension ManuscriptStoreAdapter {
         descriptor.collection?.bindingID ?? CollectionBindingID.manuscript
     }
 
-    /// Map a descriptor binding id onto the kernel binding. Mirrors
-    /// `CollectionStoreAdapter.binding(for:)` — the only two places in Swift
-    /// that know a `SharedCollectionBinding` exists.
-    nonisolated static func kernelBinding(_ bindingID: String) -> SharedCollectionBinding? {
-        switch bindingID {
-        case CollectionBindingID.publication: return .publication
-        case CollectionBindingID.manuscript: return .manuscript
-        case CollectionBindingID.figure: return .figure
-        case CollectionBindingID.generic: return .generic
-        default: return nil
-        }
-    }
-
-    nonisolated static var binding: SharedCollectionBinding {
-        kernelBinding(collectionBindingID) ?? .manuscript
-    }
+    // The descriptor-binding-id → `SharedCollectionBinding` map used to be
+    // duplicated here, next to a comment calling itself "the only two places in
+    // Swift that know a `SharedCollectionBinding` exists". Stage 4b made that
+    // one place: `CollectionStoreAdapter.binding(for:)`, which this adapter now
+    // reaches through `collectionKernel` by passing `collectionBindingID`.
 }
 
-// MARK: - Undo plumbing
+// MARK: - The generic store kernels, READ (not retyped)
 //
-// Mirrors `CollectionStoreAdapter`'s three rules (ADR-0022 G2), adapted from
-// PMC's macOS `UndoCoordinator` to a plain Foundation `UndoManager` the
-// CALLER supplies — an iOS view passes the responder chain's manager
-// (`SceneUndoManager`), a macOS view can pass `UndoCoordinator`'s, and a test
-// passes its own. The adapter deliberately owns none: reaching for a macOS
-// singleton is exactly what would have kept this code macOS-only.
+// Stage 4b. Everything between here and the search section used to be a
+// hand-rolled second implementation of two PMC kernels — `CollectionStoreAdapter`
+// (already kind-generic over `CollectionBindingID`) and the store half of the
+// shared triage grammar. This file's own comments admitted it: "Mirrors
+// `CollectionStoreAdapter`'s three rules (ADR-0022 G2)", "This is imprint's
+// cross-platform twin of that".
 //
-// Rule 3 verbatim: `apply*` performs the kernel verb and posts the mutation
-// event but registers nothing; the PUBLIC verb wraps it and registers the
-// inverse. Undo/redo closures therefore call `apply*`, never the public verb.
+// The SOLE reason the copy existed was that both kernels named imbib's
+// singletons: `RustStoreAdapter.shared` for the mutation fan-out (reaching it
+// from imprint boots a SECOND store facade in-process) and `UndoCoordinator.shared`
+// for undo (which re-pins the code to macOS). `StoreKernelScope` makes those two
+// facts plus the store handle injectable, so what survives here is only the
+// imprint-SHAPED surface over the shared verbs:
+//
+//   * `UUID` in, `UUID` out, instead of the kernel's lowercase id strings;
+//   * `ManuscriptCollection` instead of `CollectionKernelRow`;
+//   * a per-call `UndoManager?` instead of a `StoreUndoScope`, because that is
+//     what imprint's views pass (iOS: `SceneUndoManager.shared.manager`).
+//
+// Rule 3 of `CollectionStoreAdapter`'s header still holds, it just holds inside
+// the kernel now: the raw verbs post the mutation event and register nothing,
+// the public verbs register the inverse, and undo/redo closures call the raw
+// verbs — so one ⌘Z never needs two ⌘⇧Z.
 
 extension ManuscriptStoreAdapter {
 
-    /// Undo action names. Folder verbs reuse the strings PMC's
-    /// `CollectionStoreAdapter.UndoActionName` registers so the two GUIs
-    /// describe the same operation identically.
+    /// Undo action names, READ from the kernels that register them rather than
+    /// restated. Same strings as before Stage 4b, so imprint's Edit menu reads
+    /// identically; `StoreKernelUndoActionNamesTests` pins them.
     public enum UndoActionName {
-        public static let createCollection = "New Folder"
-        public static let renameCollection = "Edit name"
-        public static let reparentCollection = "Move Folder"
-        public static let deleteCollection = "Delete"
-        public static let addMembers = "Add to Collection"
-        public static let removeMembers = "Remove from Collection"
-        public static let star = "Star"
-        public static let flag = "Flag"
-        public static let addTag = "Add Tag"
-        public static let removeTag = "Remove Tag"
-        public static let dismiss = "Dismiss"
-        public static let restore = "Restore"
-        public static let archive = "Archive"
+        public static let createCollection = StoreKernelUndoAction.createCollection
+        public static let renameCollection = StoreKernelUndoAction.renameCollection
+        public static let reparentCollection = StoreKernelUndoAction.reparentCollection
+        public static let deleteCollection = StoreKernelUndoAction.deleteCollection
+        public static let addMembers = StoreKernelUndoAction.addMembers
+        public static let removeMembers = StoreKernelUndoAction.removeMembers
+        public static let star = StoreKernelUndoAction.star
+        public static let flag = StoreKernelUndoAction.flag
+        public static let addTag = StoreKernelUndoAction.addTag
+        public static let removeTag = StoreKernelUndoAction.removeTag
+        public static let dismiss = StoreKernelUndoAction.dismiss
+        public static let restore = StoreKernelUndoAction.restore
+        public static let archive = StoreKernelUndoAction.archive
     }
 
-    /// Register a self-inverting pair. Undoing runs `undo` and re-registers
-    /// the mirror; because that registration happens WHILE the manager is
-    /// undoing, `UndoManager` puts it on the redo stack — so ⌘Z/⌘⇧Z alternate
-    /// indefinitely from a single call here.
-    func registerReversible(
-        _ undoManager: UndoManager?,
-        actionName: String,
-        undo: @escaping @MainActor (ManuscriptStoreAdapter) -> Void,
-        redo: @escaping @MainActor (ManuscriptStoreAdapter) -> Void
-    ) {
-        guard let undoManager else { return }
-        undoManager.registerUndo(withTarget: self) { [weak undoManager] target in
-            MainActor.assumeIsolated {
-                undo(target)
-                target.registerReversible(
-                    undoManager, actionName: actionName, undo: redo, redo: undo)
-            }
-        }
-        undoManager.setActionName(actionName)
+    /// A caller-supplied `UndoManager` as the kernels' undo scope.
+    private static func undoScope(_ undoManager: UndoManager?) -> StoreUndoScope {
+        .manager(undoManager)
     }
 }
 
 // MARK: - Collections, through the ADR-0022 kernel
-//
-// Every verb here is `SharedStore.collection*` — the Rust kernel that owns
-// the tree (including the reparent cycle check) and RETURNS the inverse
-// information each undo needs: `SharedCollectionMutation.prior` for
-// rename/reparent, `SharedDeletedCollection` for delete, and the
-// actually-changed id lists for add/remove members.
-//
-// Before this, `createCollection` hand-rolled a raw `upsertItem` of a
-// `manuscript-collection` payload while every other collection path in the
-// suite went through the kernel. Two writers to one tree is the inconsistency
-// ADR-0022 D1 exists to remove.
 
 extension ManuscriptStoreAdapter {
 
-    /// Ids crossing the FFI are lowercased: the Rust store's canonical id form
-    /// is lowercase and payload parent refs are matched by string equality,
-    /// while `UUID().uuidString` is uppercase (imbib CLAUDE.md invariant).
-    private static func lower(_ id: UUID) -> String { id.uuidString.lowercased() }
+    /// The kernel binding id this kind organises through — the descriptor's.
+    private var bindingID: String { Self.collectionBindingID }
 
     // MARK: Reads
 
     /// Every manuscript folder, flat and ordered by `sort_order`. Callers
     /// assemble the tree from `parentID`.
     public func listCollections() -> [ManuscriptCollection] {
-        do {
-            return try sharedStore.collectionTree(binding: Self.binding)
-                .compactMap(ManuscriptCollection.init)
-        } catch {
-            Logger.sharedStore.error("listCollections failed: \(error.localizedDescription)")
-            return []
-        }
+        collectionKernel.tree(bindingID).compactMap(ManuscriptCollection.init)
     }
 
     /// Member counts aligned index-for-index with `collectionIDs`.
     public func collectionMemberCounts(collectionIDs: [UUID]) -> [Int] {
-        guard !collectionIDs.isEmpty else { return [] }
-        do {
-            return try sharedStore.collectionMemberCounts(
-                binding: Self.binding,
-                collectionIds: collectionIDs.map(Self.lower)
-            ).map(Int.init)
-        } catch {
-            Logger.sharedStore.error(
-                "collectionMemberCounts failed: \(error.localizedDescription)")
-            return []
-        }
+        collectionKernel.memberCounts(
+            bindingID, collectionIDs: collectionIDs.map { $0.uuidString.lowercased() })
     }
 
     // MARK: Structure
 
     /// Create a manuscript folder under `parentID` (nil = root).
     ///
-    /// Routed through `collection_create`, which also gives the new row its
-    /// parent's ENVELOPE parent (the owning library) — something the previous
-    /// hand-rolled `upsertItem` never did, so kernel-created folders stay
-    /// visible to the legacy `HasParent` listings.
-    ///
     /// `isWorkspace` is not a kernel concept; when set it is written as an
     /// additive follow-up field, so the flag survives without the structure
-    /// leaving the kernel.
+    /// leaving the kernel. The schema is read back off the row the KERNEL just
+    /// wrote rather than naming `manuscript-collection`: WP G7 converges this
+    /// binding onto `collection@1.0.0`, and a literal here would start writing a
+    /// second item under the old schema the day it flips.
     @discardableResult
     public func createCollection(
         name: String,
@@ -937,18 +943,17 @@ extension ManuscriptStoreAdapter {
         isWorkspace: Bool = false,
         undoManager: UndoManager? = nil
     ) throws -> UUID {
-        let row = try sharedStore.collectionCreate(
-            binding: Self.binding,
+        guard let row = collectionKernel.create(
+            bindingID,
             name: name,
-            parentId: parentID.map(Self.lower),
-            kindScope: nil,
-            sortOrder: nil
-        )
+            parentID: parentID?.uuidString.lowercased(),
+            undo: Self.undoScope(undoManager)
+        ) else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "collection_create failed for '\(name)'")
+            )
+        }
         if isWorkspace {
-            // Read the schema back off the row the KERNEL just wrote rather
-            // than naming `manuscript-collection`: WP G7 converges this
-            // binding onto `collection@1.0.0`, and a literal here would start
-            // writing a second item under the old schema the day it flips.
             let schemaRef = (try? sharedStore.getItem(id: row.id))??.schemaRef
                 ?? "manuscript-collection"
             try sharedStore.upsertItem(
@@ -957,19 +962,11 @@ extension ManuscriptStoreAdapter {
                 payloadJson: Self.encodeJSON(["is_workspace": true])
             )
         }
-        didMutate(structural: true)
-        Logger.sharedStore.infoCapture(
-            "Created manuscript collection '\(row.name)' (\(row.id)) "
-                + "parent=\(parentID?.uuidString.lowercased() ?? "root")",
-            category: "manuscript-store"
-        )
         guard let id = UUID(uuidString: row.id) else {
             throw DecodingError.dataCorrupted(
                 .init(codingPath: [], debugDescription: "kernel returned invalid id \(row.id)")
             )
         }
-        registerCollectionExistsUndo(
-            undoManager, actionName: UndoActionName.createCollection, id: row.id)
         return id
     }
 
@@ -979,19 +976,9 @@ extension ManuscriptStoreAdapter {
     public func renameCollection(
         id: UUID, to name: String, undoManager: UndoManager? = nil
     ) -> Bool {
-        guard let mutation = applyRenameCollection(id: Self.lower(id), to: name) else {
-            return false
-        }
-        guard case .name(let priorName) = mutation.prior else { return true }
-        let rowID = mutation.row.id
-        let newName = mutation.row.name
-        registerReversible(
-            undoManager,
-            actionName: UndoActionName.renameCollection,
-            undo: { _ = $0.applyRenameCollection(id: rowID, to: priorName) },
-            redo: { _ = $0.applyRenameCollection(id: rowID, to: newName) }
-        )
-        return true
+        collectionKernel.rename(
+            bindingID, id: id.uuidString.lowercased(), to: name,
+            undo: Self.undoScope(undoManager))
     }
 
     /// Move a folder under `newParentID` (nil = make it a root). The cycle
@@ -1000,19 +987,11 @@ extension ManuscriptStoreAdapter {
     public func reparentCollection(
         id: UUID, newParentID: UUID?, undoManager: UndoManager? = nil
     ) -> Bool {
-        let lowerID = Self.lower(id)
-        let newParent = newParentID.map(Self.lower)
-        guard let mutation = applyReparentCollection(id: lowerID, newParentID: newParent) else {
-            return false
-        }
-        guard case .parent(let priorParent) = mutation.prior else { return true }
-        registerReversible(
-            undoManager,
-            actionName: UndoActionName.reparentCollection,
-            undo: { _ = $0.applyReparentCollection(id: lowerID, newParentID: priorParent) },
-            redo: { _ = $0.applyReparentCollection(id: lowerID, newParentID: newParent) }
-        )
-        return true
+        collectionKernel.reparent(
+            bindingID,
+            id: id.uuidString.lowercased(),
+            newParentID: newParentID?.uuidString.lowercased(),
+            undo: Self.undoScope(undoManager))
     }
 
     /// Delete a folder. Members are never deleted — `Contains` edges vanish
@@ -1021,44 +1000,8 @@ extension ManuscriptStoreAdapter {
     /// `collection_restore` puts all of it back, so undo is lossless.
     @discardableResult
     public func deleteCollection(id: UUID, undoManager: UndoManager? = nil) -> Bool {
-        guard let snapshot = applyDeleteCollection(id: Self.lower(id)) else { return false }
-        registerCollectionDeletedUndo(
-            undoManager, actionName: UndoActionName.deleteCollection, snapshot: snapshot)
-        return true
-    }
-
-    // Delete/restore cannot use `registerReversible`: the snapshot only exists
-    // after a delete has run, so the two directions are mutually recursive
-    // rather than symmetric closures over one captured value.
-
-    /// The collection currently EXISTS; its inverse is delete-then-restore.
-    private func registerCollectionExistsUndo(
-        _ undoManager: UndoManager?, actionName: String, id: String
-    ) {
-        guard let undoManager else { return }
-        undoManager.registerUndo(withTarget: self) { [weak undoManager] target in
-            MainActor.assumeIsolated {
-                guard let snapshot = target.applyDeleteCollection(id: id) else { return }
-                target.registerCollectionDeletedUndo(
-                    undoManager, actionName: actionName, snapshot: snapshot)
-            }
-        }
-        undoManager.setActionName(actionName)
-    }
-
-    /// The collection is currently DELETED; its inverse is restore-then-delete.
-    private func registerCollectionDeletedUndo(
-        _ undoManager: UndoManager?, actionName: String, snapshot: SharedDeletedCollection
-    ) {
-        guard let undoManager else { return }
-        undoManager.registerUndo(withTarget: self) { [weak undoManager] target in
-            MainActor.assumeIsolated {
-                guard let row = target.applyRestoreCollection(snapshot: snapshot) else { return }
-                target.registerCollectionExistsUndo(
-                    undoManager, actionName: actionName, id: row.id)
-            }
-        }
-        undoManager.setActionName(actionName)
+        collectionKernel.delete(
+            bindingID, id: id.uuidString.lowercased(), undo: Self.undoScope(undoManager))
     }
 
     // MARK: Membership
@@ -1069,13 +1012,11 @@ extension ManuscriptStoreAdapter {
     public func addToCollection(
         manuscriptIDs: [UUID], collectionID: UUID, undoManager: UndoManager? = nil
     ) -> [UUID] {
-        let collection = Self.lower(collectionID)
-        let ids = manuscriptIDs.map(Self.lower)
-        guard let changed = applyAddMembers(collectionID: collection, itemIDs: ids),
-              !changed.isEmpty
-        else { return [] }
-        registerMembershipUndo(
-            undoManager, collectionID: collection, itemIDs: changed, wasAdd: true)
+        let changed = collectionKernel.addMembersReportingChanges(
+            bindingID,
+            collectionID: collectionID.uuidString.lowercased(),
+            itemIDs: manuscriptIDs.map { $0.uuidString.lowercased() },
+            undo: Self.undoScope(undoManager)) ?? []
         return changed.compactMap(UUID.init(uuidString:))
     }
 
@@ -1085,218 +1026,56 @@ extension ManuscriptStoreAdapter {
     public func removeFromCollection(
         manuscriptIDs: [UUID], collectionID: UUID, undoManager: UndoManager? = nil
     ) -> [UUID] {
-        let collection = Self.lower(collectionID)
-        let ids = manuscriptIDs.map(Self.lower)
-        guard let changed = applyRemoveMembers(collectionID: collection, itemIDs: ids),
-              !changed.isEmpty
-        else { return [] }
-        registerMembershipUndo(
-            undoManager, collectionID: collection, itemIDs: changed, wasAdd: false)
+        let changed = collectionKernel.removeMembersReportingChanges(
+            bindingID,
+            collectionID: collectionID.uuidString.lowercased(),
+            itemIDs: manuscriptIDs.map { $0.uuidString.lowercased() },
+            undo: Self.undoScope(undoManager)) ?? []
         return changed.compactMap(UUID.init(uuidString:))
-    }
-
-    private func registerMembershipUndo(
-        _ undoManager: UndoManager?, collectionID: String, itemIDs: [String], wasAdd: Bool
-    ) {
-        let add: @MainActor (ManuscriptStoreAdapter) -> Void = {
-            _ = $0.applyAddMembers(collectionID: collectionID, itemIDs: itemIDs)
-        }
-        let remove: @MainActor (ManuscriptStoreAdapter) -> Void = {
-            _ = $0.applyRemoveMembers(collectionID: collectionID, itemIDs: itemIDs)
-        }
-        registerReversible(
-            undoManager,
-            actionName: wasAdd ? UndoActionName.addMembers : UndoActionName.removeMembers,
-            undo: wasAdd ? remove : add,
-            redo: wasAdd ? add : remove
-        )
-    }
-
-    // MARK: Raw kernel verbs (event-posting, NOT undo-registering)
-
-    @discardableResult
-    fileprivate func applyRenameCollection(
-        id: String, to name: String
-    ) -> SharedCollectionMutation? {
-        do {
-            let mutation = try sharedStore.collectionRename(
-                binding: Self.binding, id: id, name: name)
-            didMutate(
-                structural: false,
-                affectedIDs: UUID(uuidString: id).map { [$0] },
-                kind: .otherField)
-            return mutation
-        } catch {
-            Logger.sharedStore.error(
-                "collectionRename(\(id)) failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    @discardableResult
-    fileprivate func applyReparentCollection(
-        id: String, newParentID: String?
-    ) -> SharedCollectionMutation? {
-        do {
-            let mutation = try sharedStore.collectionReparent(
-                binding: Self.binding, id: id, newParentId: newParentID)
-            didMutate(structural: true)
-            return mutation
-        } catch {
-            // The kernel's cycle check is the backstop behind any Swift-side
-            // drag pre-check; a rejection means the two disagreed.
-            let target = newParentID ?? "root"
-            Logger.sharedStore.error(
-                "collectionReparent(\(id) → \(target)) rejected: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    @discardableResult
-    fileprivate func applyDeleteCollection(id: String) -> SharedDeletedCollection? {
-        do {
-            let snapshot = try sharedStore.collectionDelete(binding: Self.binding, id: id)
-            didMutate(structural: true)
-            Logger.sharedStore.infoCapture(
-                "Deleted manuscript collection \(id) "
-                    + "(members unfiled: \(snapshot.memberIds.count), "
-                    + "children re-rooted: \(snapshot.childCollectionIds.count))",
-                category: "manuscript-store")
-            return snapshot
-        } catch {
-            Logger.sharedStore.error(
-                "collectionDelete(\(id)) failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    @discardableResult
-    fileprivate func applyRestoreCollection(
-        snapshot: SharedDeletedCollection
-    ) -> SharedCollectionRow? {
-        do {
-            let row = try sharedStore.collectionRestore(
-                binding: Self.binding, snapshot: snapshot)
-            didMutate(structural: true)
-            return row
-        } catch {
-            Logger.sharedStore.error(
-                "collectionRestore(\(snapshot.row.id)) failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Ids that ACTUALLY became members (`nil` = the verb failed / was refused).
-    @discardableResult
-    fileprivate func applyAddMembers(collectionID: String, itemIDs: [String]) -> [String]? {
-        guard !itemIDs.isEmpty else { return nil }
-        do {
-            let changed = try sharedStore.collectionAddMembers(
-                binding: Self.binding, collectionId: collectionID, itemIds: itemIDs)
-            didMutate(structural: true)
-            return changed
-        } catch {
-            Logger.sharedStore.error(
-                "collectionAddMembers failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Ids that were ACTUALLY removed (`nil` = the verb failed).
-    @discardableResult
-    fileprivate func applyRemoveMembers(collectionID: String, itemIDs: [String]) -> [String]? {
-        guard !itemIDs.isEmpty else { return nil }
-        do {
-            let changed = try sharedStore.collectionRemoveMembers(
-                binding: Self.binding, collectionId: collectionID, itemIds: itemIDs)
-            didMutate(structural: true)
-            return changed
-        } catch {
-            Logger.sharedStore.error(
-                "collectionRemoveMembers failed: \(error.localizedDescription)")
-            return nil
-        }
     }
 }
 
-// MARK: - Triage
-//
-// The store side is schema-agnostic (star/flag/tag live on the item
-// envelope; dismiss/restore/archive are payload `status` writes), which is
-// why PMC can serve every kind from one `RecordTriageActions.storeBacked`.
-// This is imprint's cross-platform twin of that, with two differences: the
-// undo manager is injected rather than a macOS singleton, and every status
-// string comes from the descriptor.
+// MARK: - Triage, through the shared kernel
 
 extension ManuscriptStoreAdapter {
 
     /// Star / unstar. The inverse restores each item's PRIOR value, so
     /// undoing a mixed selection does not flatten it.
-    public func setStarred(
-        ids: [UUID], starred: Bool, undoManager: UndoManager? = nil
-    ) {
-        let priors = ids.reduce(into: [UUID: Bool]()) { acc, id in
-            acc[id] = (try? sharedStore.getItem(id: Self.lower(id)))??.isStarred ?? !starred
-        }
-        let next = ids.reduce(into: [UUID: Bool]()) { $0[$1] = starred }
-        applyStarred(next)
-        registerReversible(
-            undoManager,
-            actionName: UndoActionName.star,
-            undo: { $0.applyStarred(priors) },
-            redo: { $0.applyStarred(next) }
-        )
+    public func setStarred(ids: [UUID], starred: Bool, undoManager: UndoManager? = nil) {
+        triageKernel.setStarred(
+            ids: ids, starred: starred, undo: Self.undoScope(undoManager))
     }
 
     /// Set (or clear, with `nil`) the flag colour.
-    public func setFlag(
-        ids: [UUID], color: String?, undoManager: UndoManager? = nil
-    ) {
-        var priors: [UUID: String?] = [:]
-        for id in ids {
-            priors[id] = (try? sharedStore.getItem(id: Self.lower(id)))??.flagColor
+    public func setFlag(ids: [UUID], color: String?, undoManager: UndoManager? = nil) {
+        triageKernel.setFlag(ids: ids, color: color, undo: Self.undoScope(undoManager))
+    }
+
+    /// Every tag path in use on a manuscript, sorted, de-duplicated.
+    ///
+    /// The derivation is the kernel's (`tagPathsInUse`, which walks the kind's
+    /// own rows because there is no tag-listing FFI verb — see its doc comment);
+    /// the memo is imprint's, keyed on `dataVersion` so opening a context menu
+    /// does not re-walk the store on every render pass.
+    public func listTags() -> [String] {
+        if let cached = cachedTagPaths, cachedTagPathsVersion == dataVersion {
+            return cached
         }
-        let next = ids.reduce(into: [UUID: String?]()) { $0[$1] = color }
-        applyFlag(next)
-        registerReversible(
-            undoManager,
-            actionName: UndoActionName.flag,
-            undo: { $0.applyFlag(priors) },
-            redo: { $0.applyFlag(next) }
-        )
+        let paths = triageKernel.tagPathsInUse(pageSize: Self.defaultPageLimit)
+        cachedTagPaths = paths
+        cachedTagPathsVersion = dataVersion
+        return paths
     }
 
     /// Add a tag path. The inverse removes it only from the items that did
     /// not already carry it.
     public func addTag(ids: [UUID], tagPath: String, undoManager: UndoManager? = nil) {
-        let changed = ids.filter { id in
-            let tags = (try? sharedStore.getItem(id: Self.lower(id)))??.tags ?? []
-            return !tags.contains(tagPath)
-        }
-        guard !changed.isEmpty else { return }
-        applyTag(changed, tagPath: tagPath, add: true)
-        registerReversible(
-            undoManager,
-            actionName: UndoActionName.addTag,
-            undo: { $0.applyTag(changed, tagPath: tagPath, add: false) },
-            redo: { $0.applyTag(changed, tagPath: tagPath, add: true) }
-        )
+        triageKernel.addTag(ids: ids, tagPath: tagPath, undo: Self.undoScope(undoManager))
     }
 
     /// Remove a tag path, inverse-adding it back only where it was present.
     public func removeTag(ids: [UUID], tagPath: String, undoManager: UndoManager? = nil) {
-        let changed = ids.filter { id in
-            let tags = (try? sharedStore.getItem(id: Self.lower(id)))??.tags ?? []
-            return tags.contains(tagPath)
-        }
-        guard !changed.isEmpty else { return }
-        applyTag(changed, tagPath: tagPath, add: false)
-        registerReversible(
-            undoManager,
-            actionName: UndoActionName.removeTag,
-            undo: { $0.applyTag(changed, tagPath: tagPath, add: true) },
-            redo: { $0.applyTag(changed, tagPath: tagPath, add: false) }
-        )
+        triageKernel.removeTag(ids: ids, tagPath: tagPath, undo: Self.undoScope(undoManager))
     }
 
     /// Sweep manuscripts out of the working set. The status value and the
@@ -1304,10 +1083,7 @@ extension ManuscriptStoreAdapter {
     /// that declares `.none` is a no-op here rather than a silent wrong write.
     @discardableResult
     public func dismiss(ids: [UUID], undoManager: UndoManager? = nil) -> Bool {
-        guard let dismissed = Self.dismissedStatus else { return false }
-        return setStatus(
-            ids: ids, to: dismissed,
-            actionName: UndoActionName.dismiss, undoManager: undoManager)
+        triageKernel.dismiss(ids: ids, undo: Self.undoScope(undoManager))
     }
 
     /// Return dismissed manuscripts to the descriptor's restore status
@@ -1315,20 +1091,14 @@ extension ManuscriptStoreAdapter {
     /// declared contract says and what the macOS grammar does.
     @discardableResult
     public func restore(ids: [UUID], undoManager: UndoManager? = nil) -> Bool {
-        guard let restoreTo = Self.restoreStatus else { return false }
-        return setStatus(
-            ids: ids, to: restoreTo,
-            actionName: UndoActionName.restore, undoManager: undoManager)
+        triageKernel.restore(ids: ids, undo: Self.undoScope(undoManager))
     }
 
     /// Move to the deliberate end-state (`archived`), when the kind declares
     /// an `archiveStatus`.
     @discardableResult
     public func archive(ids: [UUID], undoManager: UndoManager? = nil) -> Bool {
-        guard let archived = Self.archivedStatus else { return false }
-        return setStatus(
-            ids: ids, to: archived,
-            actionName: UndoActionName.archive, undoManager: undoManager)
+        triageKernel.archive(ids: ids, undo: Self.undoScope(undoManager))
     }
 
     /// Free-form status write, validated against the descriptor's declared
@@ -1340,70 +1110,9 @@ extension ManuscriptStoreAdapter {
         actionName: String? = nil,
         undoManager: UndoManager? = nil
     ) -> Bool {
-        let declared = Self.descriptor.triage.statuses
-        guard declared.isEmpty || declared.contains(status) else {
-            Logger.sharedStore.error(
-                "setStatus refused undeclared status '\(status)' for manuscript")
-            return false
-        }
-        var priors: [UUID: String] = [:]
-        for id in ids {
-            priors[id] = manuscript(id: id)?.status ?? Self.restoreStatus ?? status
-        }
-        let next = ids.reduce(into: [UUID: String]()) { $0[$1] = status }
-        applyStatus(next)
-        Logger.sharedStore.infoCapture(
-            "status → '\(status)' for \(ids.count) manuscript(s)",
-            category: "manuscript-store")
-        registerReversible(
-            undoManager,
-            actionName: actionName ?? "Change Status",
-            undo: { $0.applyStatus(priors) },
-            redo: { $0.applyStatus(next) }
-        )
-        return true
-    }
-
-    // MARK: Raw triage verbs (event-posting, NOT undo-registering)
-
-    fileprivate func applyStarred(_ states: [UUID: Bool]) {
-        for (id, value) in states {
-            try? sharedStore.setStarred(id: Self.lower(id), isStarred: value)
-        }
-        didMutate(structural: false, affectedIDs: Set(states.keys), kind: .otherField)
-    }
-
-    fileprivate func applyFlag(_ states: [UUID: String?]) {
-        for (id, value) in states {
-            try? sharedStore.setFlag(
-                id: Self.lower(id), color: value, style: nil, length: nil)
-        }
-        didMutate(structural: false, affectedIDs: Set(states.keys), kind: .otherField)
-    }
-
-    fileprivate func applyTag(_ ids: [UUID], tagPath: String, add: Bool) {
-        for id in ids {
-            if add {
-                try? sharedStore.addTag(id: Self.lower(id), tag: tagPath)
-            } else {
-                try? sharedStore.removeTag(id: Self.lower(id), tag: tagPath)
-            }
-        }
-        didMutate(structural: false, affectedIDs: Set(ids), kind: .otherField)
-    }
-
-    fileprivate func applyStatus(_ states: [UUID: String]) {
-        for (id, status) in states {
-            guard let json = try? Self.encodeJSON(["status": status]) else { continue }
-            try? sharedStore.upsertItem(
-                id: id.uuidString,
-                schemaRef: Self.manuscriptSchemaRef,
-                payloadJson: json
-            )
-        }
-        // Structural: a dismissed manuscript LEAVES every unscoped list, so a
-        // field-only refresh would leave a stale row on screen.
-        didMutate(structural: true, affectedIDs: Set(states.keys), kind: .otherField)
+        triageKernel.setStatus(
+            ids: ids, to: status, actionName: actionName,
+            undo: Self.undoScope(undoManager))
     }
 }
 

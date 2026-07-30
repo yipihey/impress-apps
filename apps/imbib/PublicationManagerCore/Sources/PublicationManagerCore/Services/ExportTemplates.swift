@@ -134,7 +134,7 @@ public final class TemplateEngine {
         case .ris:
             // Export BibTeX from Rust store, parse, then convert to RIS
             let bibtex = RustStoreAdapter.shared.exportBibTeX(ids: publications.map(\.id))
-            let parser = BibTeXParser()
+            let parser = BibTeXParserFactory.createParser()
             let items = (try? parser.parse(bibtex)) ?? []
             let entries = items.compactMap { item -> BibTeXEntry? in
                 if case .entry(let entry) = item { return entry }

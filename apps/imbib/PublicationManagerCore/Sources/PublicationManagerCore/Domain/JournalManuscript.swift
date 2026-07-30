@@ -61,11 +61,16 @@ public enum JournalManuscriptStatus: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// Whether the manuscript is still moving through the pipeline.
+    ///
+    /// Derived from the DESCRIPTOR's `StatusSpec.isTerminal` rather than a
+    /// second switch: `published`/`archived`/`dismissed` are the terminal
+    /// states, and they were spelled out both here and (as the set of statuses
+    /// that get no further verbs) in the chassis. `true` for a status the
+    /// descriptor does not declare — an unknown state is more usefully treated
+    /// as live than as finished.
     public var isActive: Bool {
-        switch self {
-        case .draft, .internalReview, .submitted, .inRevision: return true
-        case .published, .archived, .dismissed:                return false
-        }
+        !(ManuscriptRecordKind.descriptor.triage.status(rawValue)?.isTerminal ?? false)
     }
 }
 

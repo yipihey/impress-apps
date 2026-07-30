@@ -233,8 +233,9 @@ public actor ImprintImpressStore {
         StoreTimings.shared.measure("ImprintImpressStore.listAllSections") {
             guard let store = handle() else { return [] }
             do {
+                // Bare `manuscript-section` — see ManuscriptSection.init(row:).
                 let rows = try store.queryBySchema(
-                    schemaRef: "manuscript-section@1.0.0",
+                    schemaRef: "manuscript-section",
                     limit: limit,
                     offset: offset
                 )
@@ -251,7 +252,7 @@ public actor ImprintImpressStore {
 
     // MARK: - Citation Usage reads
 
-    /// List every `citation-usage@1.0.0` record currently in the store.
+    /// List every `citation-usage` record currently in the store.
     /// Each record links a manuscript section to the paper it cites.
     /// Imbib can call this (via the shared SQLite) to build a
     /// "papers cited in my manuscripts" view without touching imprint's
@@ -260,8 +261,10 @@ public actor ImprintImpressStore {
         StoreTimings.shared.measure("ImprintImpressStore.listCitationUsages") {
             guard let store = handle() else { return [] }
             do {
+                // Bare `citation-usage` — ImprintStoreAdapter.recordCitationUsage
+                // writes it bare; the versioned spelling matched nothing.
                 let rows = try store.queryBySchema(
-                    schemaRef: "citation-usage@1.0.0",
+                    schemaRef: "citation-usage",
                     limit: limit,
                     offset: offset
                 )
@@ -288,7 +291,7 @@ public actor ImprintImpressStore {
         guard let store = handle() else { return [] }
         do {
             let rows = try store.queryBySchema(
-                schemaRef: "manuscript-section@1.0.0",
+                schemaRef: "manuscript-section",
                 limit: 10_000,
                 offset: 0
             )

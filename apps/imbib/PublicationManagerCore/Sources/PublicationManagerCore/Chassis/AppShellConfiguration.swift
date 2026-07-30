@@ -69,6 +69,40 @@ public struct AppShellConfiguration: Sendable {
     /// today; implore/impart/impel register canvas/transcript/dashboard here.
     public let customSurfaces: CustomSurfaceRegistry
 
+    /// Record kinds this HOST actually has a surface for. `nil` = every kind
+    /// in `recordKinds` (what every preset says, so this changes nothing until
+    /// a host opts in).
+    ///
+    /// This is the fourth, orthogonal visibility axis, and it exists because a
+    /// preset is shared by MORE THAN ONE HOST. `AppShellConfiguration.imprint`
+    /// permits `.citedInManuscripts`, whose rows are PUBLICATIONS: macOS
+    /// imprint renders them through `UnifiedPublicationListWrapper`, and
+    /// imprint-iOS has no publication list surface at all. imprint-iOS used to
+    /// suppress that one section with a literal `section != .citedInManuscripts`
+    /// in app code — an honest gate, but a hardcoded section name at a call
+    /// site, and one that says nothing about WHY.
+    ///
+    /// Declaring the KIND instead says why, and generalises: a host that
+    /// cannot present publications drops every publication-bound section,
+    /// whatever it is called, and gains nothing to edit when a new one lands.
+    /// Set it with `presenting(_:)` at the app root, next to
+    /// `withCustomSurfaces(_:)` — the same "host augments the preset" seam.
+    ///
+    /// Relationship to the other three gates (all four must pass):
+    /// - `permits(_:)` — the PRESET's section list; app identity, both platforms.
+    /// - `passesFacetGate(_:)` — suite POLICY about which app owns a facet
+    ///   section (`facetOwnerAppIDs`); also both platforms, and it fires even
+    ///   for kinds the shell does register.
+    /// - the host's CONTENT gate (`RecordSidebarDataSource.sectionIsAvailable`
+    ///   on iOS, `shouldShowSection`'s arms on macOS) — "is there anything in
+    ///   it right now".
+    /// - this — "does this BUILD have a pane for the kind at all", which is
+    ///   neither policy nor content but capability. It complements the facet
+    ///   gate rather than replacing it: `facetOwnerAppIDs` is a deliberate
+    ///   suite-wide statement, and folding it in here would scatter it across
+    ///   per-host wiring.
+    public let presentableKinds: Set<RecordKindID>?
+
     public init(
         appID: String,
         visibleSections: Set<SidebarSectionType>?,
@@ -82,7 +116,8 @@ public struct AppShellConfiguration: Sendable {
         sectionBindings: [SidebarSectionType: RecordKindID] = [:],
         auxiliaryRoutes: Set<AuxiliaryRoute> = [],
         openOverrides: [RecordKindID: OpenBehavior] = [:],
-        customSurfaces: CustomSurfaceRegistry = CustomSurfaceRegistry()
+        customSurfaces: CustomSurfaceRegistry = CustomSurfaceRegistry(),
+        presentableKinds: Set<RecordKindID>? = nil
     ) {
         self.appID = appID
         self.visibleSections = visibleSections
@@ -93,12 +128,36 @@ public struct AppShellConfiguration: Sendable {
         self.auxiliaryRoutes = auxiliaryRoutes
         self.openOverrides = openOverrides
         self.customSurfaces = customSurfaces
+        self.presentableKinds = presentableKinds
     }
 
     /// Does the configuration permit this section (before content gating)?
     public func permits(_ section: SidebarSectionType) -> Bool {
         guard let visibleSections else { return true }
         return visibleSections.contains(section)
+    }
+
+    /// Does this host have a surface for records of `kind`?
+    public func canPresent(_ kind: RecordKindID) -> Bool {
+        guard let presentableKinds else { return true }
+        return presentableKinds.contains(kind)
+    }
+
+    /// Copy of this configuration restricted to the kinds this host can
+    /// actually render. Hosts apply it at their root, like
+    /// `withCustomSurfaces(_:)`.
+    public func presenting(_ kinds: Set<RecordKindID>) -> AppShellConfiguration {
+        AppShellConfiguration(
+            appID: appID,
+            visibleSections: visibleSections,
+            defaultSection: defaultSection,
+            defaultDetailTab: defaultDetailTab,
+            recordKinds: recordKinds,
+            sectionBindings: sectionBindings,
+            auxiliaryRoutes: auxiliaryRoutes,
+            openOverrides: openOverrides,
+            customSurfaces: customSurfaces,
+            presentableKinds: kinds)
     }
 
     /// The record kind a section serves in this shell (nil = shell default).
@@ -390,7 +449,8 @@ public struct AppShellConfiguration: Sendable {
             sectionBindings: sectionBindings,
             auxiliaryRoutes: auxiliaryRoutes,
             openOverrides: openOverrides,
-            customSurfaces: CustomSurfaceRegistry(surfaces)
+            customSurfaces: CustomSurfaceRegistry(surfaces),
+            presentableKinds: presentableKinds
         )
     }
 }
@@ -409,6 +469,7 @@ extension AppShellConfiguration: Equatable {
             && lhs.auxiliaryRoutes == rhs.auxiliaryRoutes
             && lhs.openOverrides == rhs.openOverrides
             && lhs.customSurfaces.surfaces.map(\.id) == rhs.customSurfaces.surfaces.map(\.id)
+            && lhs.presentableKinds == rhs.presentableKinds
     }
 }
 

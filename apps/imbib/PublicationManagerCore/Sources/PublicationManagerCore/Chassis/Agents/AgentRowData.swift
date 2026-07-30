@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): display-ready value
+// snapshots of task / agent-run rows. No view, no AppKit.
 //
 //  AgentRowData.swift
 //  PublicationManagerCore
@@ -193,4 +193,3 @@ extension AgentRunRowData: MailStyleItem {
     public var hasSecondaryAttachment: Bool { false }
     public var yearText: String? { nil }
 }
-#endif

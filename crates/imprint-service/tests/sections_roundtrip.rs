@@ -131,3 +131,71 @@ fn delete_then_get_returns_none() {
     // Repeated delete must not error.
     store.delete_section(doc, "k").unwrap();
 }
+
+/// The writer/reader spelling contract, asserted against the REAL writer.
+///
+/// `SectionStore::put_section` writes `SECTION_SCHEMA_REF`, and the Swift
+/// readers (`ImprintImpressStore.listAllSections` /
+/// `allManuscriptSections`, `ManuscriptSection.init(row:)`) query by a
+/// hard-coded string. Those two lived in different languages with no shared
+/// type, and they disagreed: the writer wrote `manuscript-section`, every
+/// reader asked for `manuscript-section@1.0.0`. Because the store matches
+/// `schema_ref` by EXACT EQUALITY, the readers returned zero rows forever —
+/// silently, so the outline, `/api/manuscripts/{id}/sections` and
+/// cross-document search were structurally empty regardless of data.
+///
+/// This test pins BOTH halves of that: the ref the writer emits, and the fact
+/// that the versioned spelling matches nothing. `schema-refs.json` is the
+/// cross-language source of truth; `scripts/check-schema-refs.sh` enforces it
+/// at every call site. This is the Rust-side proof that the truth it records
+/// is the truth the store actually holds.
+#[test]
+fn sections_are_written_under_the_bare_ref_the_swift_readers_query() {
+    let workspace = TempDir::new().unwrap();
+    let store = SectionStore::open(workspace.path()).unwrap();
+    let doc = Uuid::new_v4();
+
+    for (key, title) in [("intro", "Introduction"), ("methods", "Methods")] {
+        store
+            .put_section(
+                doc,
+                key,
+                "Body text.",
+                SectionMetadata {
+                    title: Some(title.into()),
+                    section_type: Some(key.into()),
+                    order_index: Some(0),
+                },
+            )
+            .unwrap();
+    }
+
+    let shared = store.shared_store();
+
+    // What the Swift readers ask for TODAY. Must be non-empty.
+    let live = shared
+        .query_by_schema("manuscript-section".to_string(), 100, 0)
+        .unwrap();
+    assert_eq!(
+        live.len(),
+        2,
+        "the bare ref must find the rows put_section just wrote"
+    );
+
+    // What they asked for BEFORE the fix. Must find nothing — this is the
+    // assertion that would have failed loudly instead of the feature failing
+    // quietly.
+    let dead = shared
+        // schema-ref-lint:allow — naming the dead spelling is the point.
+        .query_by_schema("manuscript-section@1.0.0".to_string(), 100, 0)
+        .unwrap();
+    assert!(
+        dead.is_empty(),
+        "a versioned ref must match nothing; if this ever returns rows, some \
+         writer started emitting `@1.0.0` and schema-refs.json is now wrong"
+    );
+
+    // And the constant the writer exports is exactly the canonical spelling,
+    // so the manifest, the lint and the Swift readers all name one string.
+    assert_eq!(imprint_service::SECTION_SCHEMA_REF, "manuscript-section");
+}

@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): plain SwiftUI over
+// the manuscript activity feed.
 //
 //  ManuscriptHistorySection.swift
 //  PublicationManagerCore
@@ -144,4 +144,3 @@ public struct ManuscriptHistorySection: View {
         return "\(a.formatted(.dateTime.month().day())) – \(b.formatted(.dateTime.month().day().year()))"
     }
 }
-#endif

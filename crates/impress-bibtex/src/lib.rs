@@ -29,6 +29,36 @@ pub fn parse_ffi(input: String) -> Result<BibTeXParseResult, ParseError> {
     parse(input)
 }
 
+/// Parse a BibTeX string, choosing whether macros and `crossref` are resolved.
+///
+/// Both default to on; the flags exist so callers that want the raw file
+/// contents (a byte-faithful editor round trip) can opt out.
+pub fn parse_with_options(
+    input: String,
+    expand_macros: bool,
+    resolve_crossrefs: bool,
+) -> Result<BibTeXParseResult, ParseError> {
+    im_bibtex::parse_with_options(
+        input,
+        im_bibtex::ParseOptions {
+            expand_macros,
+            resolve_crossrefs,
+        },
+    )
+    .map(Into::into)
+    .map_err(Into::into)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn parse_with_options_ffi(
+    input: String,
+    expand_macros: bool,
+    resolve_crossrefs: bool,
+) -> Result<BibTeXParseResult, ParseError> {
+    parse_with_options(input, expand_macros, resolve_crossrefs)
+}
+
 /// Parse a single BibTeX entry
 pub fn parse_entry(input: String) -> Result<BibTeXEntry, ParseError> {
     im_bibtex::parse_entry(input)

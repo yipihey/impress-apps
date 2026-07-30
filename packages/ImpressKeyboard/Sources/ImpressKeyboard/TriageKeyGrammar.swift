@@ -30,6 +30,13 @@ public enum TriageCommand: String, CaseIterable, Sendable {
     case open
     /// Focus the list's filter field.
     case focusFilter
+    /// Move window focus one pane to the left / right (h / l — vim pane cycling).
+    ///
+    /// Unlike the other commands these are *window*-scoped, not row-scoped: a
+    /// surface that does not own pane focus returns `.ignored` and lets the
+    /// event bubble to the shell that does (see `PaneFocusCycler`).
+    case focusPaneLeft
+    case focusPaneRight
 }
 
 /// The canonical key → command table. One place; no per-app copies.
@@ -43,6 +50,8 @@ public enum TriageKeyGrammar {
         "d": .dismissOrRestore,
         "o": .open,
         "/": .focusFilter,
+        "h": .focusPaneLeft,
+        "l": .focusPaneRight,
     ]
 
     /// Command for a key press's character string, if any.

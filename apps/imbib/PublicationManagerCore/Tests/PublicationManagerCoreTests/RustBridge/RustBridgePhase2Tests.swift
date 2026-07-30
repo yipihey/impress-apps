@@ -35,9 +35,9 @@ struct RustBridgePhase2Tests {
         ER  -
         """
 
-        @Test("Swift RIS parser parses entries correctly")
-        func swiftRISParser() throws {
-            let parser = RISParser()
+        @Test("RIS parser parses entries correctly")
+        func risParser() throws {
+            let parser = RISParserFactory.createParser()
             let entries = try parser.parse(Self.sampleRIS)
 
             #expect(entries.count == 1)
@@ -50,24 +50,15 @@ struct RustBridgePhase2Tests {
             #expect(entry.doi == "10.1038/nature12345")
         }
 
-        @Test("RIS parser factory creates correct parser")
+        @Test("RIS parser factory creates the Rust parser")
         func parserFactory() {
-            // Test Swift backend
-            RISParserFactory.currentBackend = .swift
-            let swiftParser = RISParserFactory.createParser()
-            #expect(swiftParser is RISParser)
-
-            // Rust backend will fall back to Swift if not available
-            RISParserFactory.currentBackend = .rust
-            _ = RISParserFactory.createParser()
-
-            // Reset to Swift
-            RISParserFactory.currentBackend = .swift
+            #expect(RISParserFactory.backend == .rust)
+            #expect(RISParserFactory.createParser() is RustRISParser)
         }
 
         @Test("RIS to BibTeX conversion works")
         func risToBibTeX() throws {
-            let parser = RISParser()
+            let parser = RISParserFactory.createParser()
             let entries = try parser.parse(Self.sampleRIS)
             let risEntry = entries[0]
 
@@ -86,9 +77,9 @@ struct RustBridgePhase2Tests {
     @Suite("Identifier Extractor Bridge")
     struct IdentifierExtractorBridgeTests {
 
-        @Test("Swift identifier extractor extracts DOIs")
-        func swiftExtractDOIs() {
-            let extractor = SwiftIdentifierExtractor()
+        @Test("Identifier extractor extracts DOIs")
+        func extractDOIs() {
+            let extractor = IdentifierExtractorFactory.createExtractor()
             let text = "Check this paper: 10.1038/nature12345 for more info"
             let dois = extractor.extractDOIs(from: text)
 
@@ -98,23 +89,19 @@ struct RustBridgePhase2Tests {
             }
         }
 
-        @Test("Swift identifier extractor extracts arXiv IDs")
-        func swiftExtractArXiv() {
-            let extractor = SwiftIdentifierExtractor()
+        @Test("Identifier extractor extracts arXiv IDs")
+        func extractArXiv() {
+            let extractor = IdentifierExtractorFactory.createExtractor()
             let text = "See arXiv:2301.12345 for the preprint"
             let arxivs = extractor.extractArXivIDs(from: text)
 
             #expect(!arxivs.isEmpty)
         }
 
-        @Test("Identifier extractor factory creates correct extractor")
+        @Test("Identifier extractor factory creates the Rust extractor")
         func extractorFactory() {
-            IdentifierExtractorFactory.currentBackend = .swift
-            let swiftExtractor = IdentifierExtractorFactory.createExtractor()
-            #expect(swiftExtractor is SwiftIdentifierExtractor)
-
-            // Reset
-            IdentifierExtractorFactory.currentBackend = .swift
+            #expect(IdentifierExtractorFactory.backend == .rust)
+            #expect(IdentifierExtractorFactory.createExtractor() is RustIdentifierExtractor)
         }
 
         @Test("Extracted identifier result equality")

@@ -14,6 +14,7 @@
 mod cite_key;
 pub mod cite_key_format;
 mod extractors;
+mod fields;
 mod resolver;
 mod validators;
 
@@ -33,6 +34,13 @@ pub use extractors::{
     extract_all, extract_arxiv_ids, extract_dois, extract_isbns, ExtractedIdentifier,
 };
 
+// Re-export BibTeX-field / ADS-URL / single-value text extraction
+pub use fields::{
+    all_identifiers_from_fields, arxiv_id_from_fields, bibcode_from_ads_url, bibcode_from_fields,
+    doi_from_fields, extract_arxiv_from_text, extract_bibcode_from_text, extract_doi_from_text,
+    extract_pmid_from_text, pmcid_from_fields, pmid_from_fields,
+};
+
 // Re-export resolver types and functions
 pub use resolver::{
     can_resolve_to_source, enrichment_source_display_name, identifier_display_name, identifier_url,
@@ -42,4 +50,7 @@ pub use resolver::{
 };
 
 // Re-export validator functions
-pub use validators::{is_valid_arxiv_id, is_valid_doi, is_valid_isbn, normalize_doi};
+pub use validators::{
+    is_valid_arxiv_id, is_valid_arxiv_id_format, is_valid_doi, is_valid_isbn, normalize_arxiv_id,
+    normalize_doi,
+};

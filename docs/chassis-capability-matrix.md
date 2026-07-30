@@ -30,8 +30,8 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 | `section(.flagged)` | ➖ | ➖ | ➖ | ✅ reorder | ➖ | ✅ | counts = pubs (imbib) / manuscripts (imprint) |
 | `library` | ✅ full | ✅ | ✅ confirm | ✅ | ✅ pubs, collections | ✅ | |
 | `libraryCollection` | ✅ Rename/Subcoll/Delete | ✅ | ✅ (no confirm, single) | ✅ | ✅ pubs, reparent | ✅ | parent_id regression fixed 2026-07 |
-| `manuscriptFolder` | ✅ Rename/Subfolder/Delete | ✅ (needs `makeIfNecessary: true` + ancestor expand in `beginEditingNode`) | ✅ (⌫ + menu) | ✅ reorder+reparent | ✅ manuscripts, folders | ✅ | G2 (ADR-0022): served by the generic capability-driven folder block over `CollectionStoreAdapter` → Rust `collection_ops` (manuscript binding: payload `parent_collection_ref` + Contains membership); cycle check now Rust-side |
-| `figureFolder` | ✅ Rename/Subfolder/Delete | ✅ | ✅ (⌫ + menu; delete unfiles children via FK `ON DELETE SET NULL`, undo re-files) | ✅ reorder+reparent | ✅ figures, folders | ✅ | G2 (ADR-0022): same generic block, figure binding (ENVELOPE parent + envelope membership); reparent gained Undo it never had |
+| `recordFolder(binding: manuscript)` | ✅ Rename/Subfolder/Delete | ✅ (needs `makeIfNecessary: true` + ancestor expand in `beginEditingNode`) | ✅ (⌫ + menu) | ✅ reorder+reparent | ✅ manuscripts, folders | ✅ | G2 (ADR-0022): served by the generic capability-driven folder block over `CollectionStoreAdapter` → Rust `collection_ops` (manuscript binding: payload `parent_collection_ref` + Contains membership); cycle check now Rust-side. **Stage 3: `manuscriptFolder` and `figureFolder` collapsed into ONE node case `recordFolder(bindingID:folderID:)`** — the node carries its kernel BINDING and all eight sites that handle it are total over `CollectionCapability` (`migratedFolderBindings` retired) |
+| `recordFolder(binding: figure)` | ✅ Rename/Subfolder/Delete | ✅ | ✅ (⌫ + menu; delete unfiles children via FK `ON DELETE SET NULL`, undo re-files) | ✅ reorder+reparent | ✅ figures, folders | ✅ | G2 (ADR-0022): same generic block, figure binding (ENVELOPE parent + envelope membership); reparent gained Undo it never had. Same single node case as the row above |
 | `figuresAll` | ❌ none | ➖ | ➖ | ➖ | ➖ | ✅ total | fixed row |
 | `figuresUnfiled` | ❌ none | ➖ | ➖ | ➖ | ✅ figures (clears folder) | ✅ | fixed row |
 | `mailAllInboxes` | ❌ none | ➖ | ➖ | ➖ | ➖ | ✅ sum of inbox-role folder counts (`countItems` per folder) | Stage 2-A fixed row; capabilities `.readOnly` |
@@ -42,6 +42,7 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 | `agentRunsAll` | ❌ none | ➖ runs are immutable provenance | ➖ | ➖ | ➖ | ✅ `countItems` agent-run@1.0.0 total | Stage 2-C fixed row; capabilities `.readOnly` |
 | `dismissed` (imprint) | ❌ none | ➖ | ➖ | ➖ | ➖ | ✅ | lists status=dismissed manuscripts; restore/delete from rows. The section is bound per shell: imprint = manuscripts, **imbib = publications** (the Dismissed library, where the publication dismiss gesture lands) — which is why `.dismissed` stayed in imbib's explicit `visibleSections` |
 | `customSurface` (WP-X0) | ➖ by design | ➖ | ➖ | ➖ | ➖ | ➖ | app-owned whole-pane view; rendered full-pane (no split/toolbar). Design note: implemented as top-level sidebar NODES + `ImbibTab.customSurface`/`ImbibContentRoute.customSurface`, NOT as `SidebarSectionType` cases — the section enum's String rawValue backs persisted order state and widening it would ripple every section switch. |
+| `mailFolder` vs `recordFolder` | — | — | — | — | — | — | **Not converged, deliberately:** `mail-folder` rows are IMAP-owned mailboxes with no kernel collection binding (the message descriptor declares no `collection`), so they keep their own read-only node case. Converging them would mean claiming folder VERBS the store must never perform on mail (Stage-2-A2) |
 | `customSurface("store-search")` (G4) | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ | CHASSIS-builtin (only builtin surface tier so far; every preset, appended after app surfaces); select → full-pane grouped mixed-kind search over `search_all` FTS; Return/double-click opens kinds with real routes (publication, manuscript), metadata footer otherwise; ⌘⇧F routes here in implore/impel only (imbib/imprint keep their bindings; impart's ⌘⇧F = Forward Message, node is click/menu-only) |
 | `inboxFeed` / `libraryFeed` | ✅ | ✅ | ✅ | ➖ | ➖ | ✅ | |
 | `inboxCollection` | ✅ | ✅ | ✅ | ➖ | ✅ pubs | ✅ | |
@@ -161,9 +162,9 @@ instead of reading `ManuscriptRecordKind.descriptor.triage`.
 | `Chassis/RecordKind/RecordKindDescriptor.swift` | ✅ both | pure data + closures; SwiftUI only |
 | `Chassis/RecordKind/BuiltinRecordKinds.swift` | ✅ both | the single declaration of every kind's status lifecycle |
 | `Chassis/RecordKind/RecordScopeKey.swift` | ✅ both | protocol + `UUID.deterministic` + `PublicationSource` conformance |
-| `Chassis/RecordKind/RecordScopeKey+MacScopes.swift` | macOS | SPLIT out: the four list scopes live inside gated list wrappers |
+| `Chassis/RecordKind/RecordScopeKey+ListScopes.swift` | ✅ both | Stage 2a: renamed from `+MacScopes`. The four list-scope ENUMS moved here OUT of their gated wrappers — a scope is a Foundation value (UUID / FlagColor / status), only the wrapper is AppKit-adjacent |
 | `Chassis/RecordKind/KindTaggedRow.swift` | ✅ both | row type + the one generic `init(kind:item:)` |
-| `Chassis/RecordKind/KindTaggedRow+RowData.swift` | macOS | SPLIT out: names the gated per-kind row structs |
+| `Chassis/RecordKind/KindTaggedRow+RowData.swift` | ✅ both | Stage 2a: the per-kind row structs it names went cross-platform, so the initializers followed |
 | `Chassis/AppShellConfiguration.swift` | ✅ both | presets are the app's declarative identity |
 | `Chassis/CustomSurface.swift` | ✅ both | registry is data; only `builtin` (StoreSearchSurface, AppKit) is gated inside |
 | `Chassis/Shared/SchemaRefKindLookup.swift` | ✅ both | tolerant schema-ref → kind lookup |
@@ -171,13 +172,58 @@ instead of reading `ManuscriptRecordKind.descriptor.triage`.
 | `Chassis/Shared/RecordTriageNewTagPrompt.swift` | both, gated body | SPLIT out: the NSAlert prompt; iOS omits the affordance rather than showing a dead button |
 | `Files/SidebarSectionOrderStore.swift`, `SharedViews/DetailTab.swift` | ✅ both | never gated |
 
+**Stage 2a (2026-07-29) — 26 more files un-gated, no AppKit removed from any of
+them.** The `#if os(macOS)` on each was the GUI-meld Phase 1 header copied
+verbatim; none of these files imported AppKit, and the two that named a
+genuinely macOS-only symbol were SPLIT (the two `macOS` rows below), never
+re-gated. `MarkdownPreviewTab*` landed in the same wave from the markdown
+split and is listed here so the reach table stays complete.
+
+| File | Reach | Note |
+|---|---|---|
+| `Chassis/RecordKind/RecordViewerRegistry.swift` | ✅ both | the registry, `RecordViewerFactory` and `RecordSectionContext`. iOS previously had no registry TYPE at all, so a kind's viewer could not be named there. `builtin` is now the `CustomSurfaceRegistry.builtin` shape: an `#if` island that resolves to the gated factory list on macOS and an EMPTY registry on iOS |
+| `Chassis/RecordKind/RecordViewerRegistry+Builtin.swift` | macOS | SPLIT out: the four builtin factories, each constructing an AppKit-adjacent section view (`FigureSectionView` / `MessageSectionView` / `AgentSectionView`) |
+| `Chassis/RecordKind/AnyRecordListWrapper.swift` | ✅ both | the mixed-kind list over `KindTaggedRow` — plain SwiftUI `List` |
+| `Chassis/TabSidebar/TabSidebarTypes.swift` | ✅ both | 345 lines of route enums (`ImbibTab`, `ImbibContentRoute`, journal/figure/mail/agent routes) + notification names. The chassis's ROUTE vocabulary, which iOS had to re-encode as literals |
+| `Chassis/TabSidebar/FocusedPane.swift` | ✅ both | the focus twin of the never-gated `DetailTab` |
+| `Chassis/Manuscripts/FocusedManuscript.swift` | ✅ both | a `FocusedValueKey` — pure SwiftUI focus plumbing |
+| `Chassis/Shared/FindCoordinator.swift` | ✅ both | ⌘F / ⌘⇧F `Commands`, the `listFilterFocusAction` focused value, and the store-search notification names. `Commands` is SwiftUI, not AppKit. ISLAND: `ImpressStoreSearchCommands` contributes nothing on iOS — the surface it opens (`StoreSearchSurface`) is the one AppKit-linking builtin, so the chord would open nothing (the `RecordTriageNewTagPrompt` "omit the affordance" rule) |
+| `Chassis/Manuscripts/ManuscriptRowData.swift` | ✅ both | display-ready row snapshot (Foundation + ImpressFTUI/ImpressMailStyle value types) |
+| `Chassis/Messages/MessageRowData.swift` | ✅ both | as above, mail |
+| `Chassis/Figures/FigureRowData.swift` | ✅ both | as above, figures |
+| `Chassis/Agents/AgentRowData.swift` | ✅ both | as above, tasks + agent runs |
+| `Chassis/Messages/MailStoreReader.swift` | ✅ both | read-only `SharedStore` reader. **While gated, iOS could not read mail from the shared store at all** |
+| `Chassis/Figures/FigureStoreReader.swift` | ✅ both | same, figures |
+| `Chassis/Agents/AgentStoreReader.swift` | ✅ both | same, tasks + runs |
+| `Chassis/Services/JournalEventBridge.swift` | ✅ both | Darwin → NotificationCenter bridging (a Foundation/CF capability). Now also the home of `.manuscriptDidChange`, moved off the bottom of the still-gated `ManuscriptDetailView.swift`: the view is AppKit-adjacent, the NAME is contract data |
+| `Chassis/Shared/RelatedItemsSection.swift` | ✅ both | the ONE generic Related section — model, off-main reader actor, plain-SwiftUI view |
+| `Chassis/Detail/Tabs/CitedInManuscriptsSection.swift` | ✅ both | plain SwiftUI over store rows |
+| `Chassis/Detail/JournalManuscriptsListView.swift` | ✅ both | plain SwiftUI list + `NavigationStack`. ISLAND: the push DESTINATION is `ManuscriptDetailView` (AppKit-adjacent), so iOS renders the rows without the link rather than offering a dead one |
+| `Chassis/Detail/SubmissionsInboxView.swift` | ✅ both | plain SwiftUI; owns `.submissionsDidChange` |
+| `Chassis/Manuscripts/ManuscriptVersionsSection.swift` | ✅ both | plain SwiftUI over the revision list |
+| `Chassis/Manuscripts/ManuscriptHistorySection.swift` | ✅ both | plain SwiftUI over the manuscript activity feed |
+| `Chassis/SciX/SciXLibraryListView.swift` | ✅ both | plain SwiftUI header chrome |
+| `Chassis/SciX/SciXLibraryInfoSheet.swift` | ✅ both | plain SwiftUI sheet; the platform differences it already had were `#if` islands inside |
+| `Chassis/SciX/SciXEditLibrarySheet.swift` | ✅ both | as above |
+| `Manuscript/Editor/ManuscriptEditorSession.swift` | ✅ both | the editor lifecycle seam: buffer, cursor, debounced compare-and-set save, external-conflict resolution, and `ManuscriptSessionRegistry` (LRU + cross-process Darwin refresh). No split was needed — the audit expected one AppKit reference and found only `NSRange`, which is Foundation. **imprint-iOS's `IOSManuscriptEditorHost` re-implements this state machine (format detection, debounce, preview-kind logic) and can now adopt it; that adoption is Stage 2b, deliberately not done here** |
+| `Chassis/Manuscripts/MarkdownPreviewTab.swift` | ✅ both | the markdown preview renderer |
+| `Chassis/Manuscripts/MarkdownPreviewTab+Session.swift` | macOS | SPLIT out: the `ManuscriptEditorSession` entry point, which reads `session.source` inside its own body so the `@Observable` dependency stays scoped to the preview |
+
+Files the audit reached for and Stage 2a left **gated**, with the reason:
+
+| File | Why it stays gated |
+|---|---|
+| `Chassis/Manuscripts/ManuscriptDetailPane.swift` | audit said "plain SwiftUI"; it is not. Its `content` switch names six macOS-only views — `ManuscriptDetailView`, `ManuscriptSourceTab`, `MarkdownPreviewTab(session:)`, `ManuscriptLaTeXImprintPrompt`, `ManuscriptPDFPreview`, `ManuscriptInverseSync`. Un-gating would leave a shell whose every branch is an island, which is a re-gate wearing a different hat |
+| `Chassis/Detail/DetailView.swift` | genuinely AppKit-adjacent (stays). A dead `#if os(iOS) .navigationTitle` branch inside it — unreachable, since the whole file is `#if os(macOS)` — was deleted in passing |
+
 Enforcement is automated, not conventional: `ChassisCrossPlatformContractTests`
 asserts (a) descriptors, presets, schema-ref lookup and `KindTaggedRow`
 resolve, (b) the manuscript kind still declares the reserved lifecycle iOS
 reads, and (c) **the contract files do not start with `#if os(macOS)`** — the
 guard against a future chassis file copying the historical header verbatim.
-The imprint-iOS build (`-scheme imprint-iOS -destination
-'generic/platform=iOS Simulator'`) is the compile-level gate.
+Both iOS builds (`-scheme imprint-iOS` and `-scheme imbib-iOS`, `-destination
+'generic/platform=iOS Simulator'`) are the compile-level gate — after Stage 2a
+they compile 26 more chassis files each.
 
 **Rule when a macOS-only symbol lands in a contract file: SPLIT the file**
 (data here, AppKit companion gated) — never re-gate the contract.
@@ -191,36 +237,292 @@ that iOS actually does:
 
 | File | Reach | Role |
 |---|---|---|
-| `RecordSidebar/RecordSidebarModel.swift` | ✅ both | `RecordFolder`, `RecordSidebarScope` (+ `RecordScopeKey`), `RecordSidebarNode`, `RecordSidebarSectionModel`, `RecordSidebarSectionRole`, `RecordStatusPresentation` |
+| `RecordSidebar/RecordSidebarModel.swift` | ✅ both | `RecordFolder`, `RecordSidebarScope` (+ `RecordScopeKey`), `RecordSidebarNode`, `RecordSidebarSectionModel`, `RecordSidebarSectionRole`, `RecordStatusPresentation` (a resolver over the descriptors since 2026-07-29, not a table) |
+| `Shared/ChassisEmptyState.swift` | ✅ both | the chassis's empty/unavailable states as data + one `ContentUnavailableView` renderer |
 | `RecordSidebar/RecordSidebarBuilder.swift` | ✅ both | `AppShellConfiguration` × `RecordKindDescriptor` × `RecordSidebarDataSource` → `[RecordSidebarSectionModel]`; `AppShellConfiguration.effectiveRecordKind(for:)` |
 | `RecordSidebar/RecordCollectionActions.swift` | ✅ both | organise verbs as an action bag + `RecordFolderMenu.moveTo` / `.organize` (SwiftUI menus, usable on macOS too) |
 | `RecordSidebar/RecordTriageListRow.swift` | ✅ both | `.recordTriageRow(...)` — one modifier attaching `TriageSwipe` + `TriageMenu` to a list row |
-| `RecordSidebar/RecordSidebarView.swift` | iOS | the renderer (List + sections + folder tree + name sheet) |
+| `RecordSidebar/RecordSidebarView.swift` | iOS | the renderer (List + sections + folder tree + name sheet) + `RecordSidebarHostChrome` (2026-07-30) |
 
 Rules the builder applies, all read from declarations rather than written per
 app:
 
 | Question | Answered by |
 |---|---|
-| which sections | `visibleSections` ∩ `passesFacetGate` ∩ host content gate (`RecordSidebarDataSource.sectionIsAvailable`) |
+| which sections | `visibleSections` ∩ `passesFacetGate` ∩ **`canPresent(kind)`** ∩ host content gate (`RecordSidebarDataSource.sectionIsAvailable`) — four orthogonal gates, all must pass |
+| which kinds this HOST can render | `AppShellConfiguration.presentableKinds`, set by the host with `presenting(_:)` at its root (nil = every registered kind, which is what every PRESET says). This is a per-BUILD capability, not app identity: macOS imprint renders publications for `.citedInManuscripts`, imprint-iOS has no publication surface, and both run `.imprint`. It replaced a literal `section != .citedInManuscripts` in app code (2026-07-29). It does NOT subsume `passesFacetGate` (suite policy keyed on appID, fires even for kinds the shell registers) or the content gate ("is there anything in it right now") |
 | which kind a section serves | `sectionBindings[section]`, falling back to the canonical table = `AppShellConfiguration.impress.sectionBindings` |
-| section behaviour | `RecordSidebarSectionRole.role(for:)` — `.flagged` → per-`FlagColor` rows, `.dismissed` → the kind's dismissal semantics, otherwise `.primary` |
-| flag row colour + label | `FlagColor.displayColor` / `.displayName` (ImpressFTUI) — the ONE cross-platform mapping. The node carries `RecordSidebarNode.flagColor` and each renderer asks it for the colour: macOS `ImbibSidebarNode.iconColor`, iOS `RecordSidebarView.nodeIcon`, imbib-iOS `IOSSidebarView.flaggedSectionContent`, imprint-iOS list dots. A per-view switch here is the bug, not the fix (2026-07-29: the iOS sidebar shipped with no mapping at all and every flag rendered in the default tint) |
-| status smart-children | `descriptor.triage.statuses`, minus the dismissed status (which owns the Dismissed section) |
+| section behaviour | `SidebarSectionType.role` — declared beside `displayName`/`icon`, so a new section is ONE edit. `RecordSidebarSectionRole.role(for:)` forwards to it (it used to be a 15-arm switch in the chassis) |
+| flag row colour + label | `FlagColor.displayColor` / `.displayName` (ImpressFTUI) — the ONE cross-platform mapping. The node carries `RecordSidebarNode.flagColor` and each renderer asks it for the colour: macOS `ImbibSidebarNode.iconColor`, iOS `RecordSidebarView.nodeIcon` (which both iOS shells now go through — imbib-iOS's own `flaggedSectionContent` was deleted with `IOSSidebarView` on 2026-07-30), imprint-iOS list dots. A per-view switch here is the bug, not the fix (2026-07-29: the iOS sidebar shipped with no mapping at all and every flag rendered in the default tint) |
+| status smart-children | `descriptor.triage.statuses` — `[StatusSpec]` since 2026-07-29, so each status carries its own `label` + `systemImage` + `isTerminal` + `hiddenByDefault`. Rows minus the `hiddenByDefault` ones (the dismissed status sets it: it owns the Dismissed section). Presentation used to live in a private table in `RecordStatusPresentation` and, for four of them, a third time as macOS literals |
+| status row label + icon | the `StatusSpec` itself. `RecordStatusPresentation` is now a RESOLVER over the shipped descriptors (with a title-cased/`circle` fallback for an undeclared value), read by iOS sidebar rows, the iOS status badge and macOS's `journalChildren` alike |
+| kernel-owned lifecycles (impel tasks) | `descriptor.lifecycle` (`RecordLifecycleSpec`: payload field + `[StatusSpec]` + `isKernelOwned`). SEPARATE from `triage.statuses` on purpose — `statuses` is "values the generic status writer may set", and `TaskStoreApi.transition` is the sole legal mutation for a task state (ADR-0015 D1). Retired `AgentStoreReader.stateIcon`'s six-arm switch + its parallel `taskStates` array |
+| record kind icon | `descriptor.symbolName`. Retired `RecordKindIconography.symbolName(for:)`'s seven-arm switch — the ONE per-kind chassis edit the ADR-0021 litmus still admitted to |
+| "All …" row title | `descriptor.pluralDisplayName` (was `displayName + "s"`) |
 | folder tree + organise verbs | `descriptor.collection` / `CollectionCapability.canOrganize` |
+| folder row glyph + menu titles | `CollectionCapability.folderSymbolName` / `.containerNoun` → `newContainerTitle` / `newSubContainerTitle` / `deleteContainerTitle`. Replaced a hardcoded `"folder"` in the builder and three inline `NSMenuItem` titles in `ImbibSidebarViewModel` |
+| empty / unavailable states | `ChassisEmptyState` — one table, copy preserved verbatim from the six inline `ContentUnavailableView`s in `SectionContentView` |
 | section order + collapse | `SidebarSectionOrderStore` / `SidebarCollapsedStateStore` (the same persisted stores macOS uses) |
+| rows a section's ROLE cannot express | `RecordSidebarDataSource.sectionContent` → `RecordSidebarSectionContent` (2026-07-30, Stage 5a). The four roles cover sections whose rows are a slice of ONE kind; imbib's are not (Search = 9 search forms, SciX = one row per remote shelf, Inbox = Recent + feeds + collections, Libraries = a tree of LIBRARIES each owning its own collections). The host answers "which rows"; the preset still owns which sections, their order, titles, icons and gates |
+| a row only the HOST can name | `RecordSidebarScope.host(kind, key:)` (2026-07-30). The five chassis scopes are statuses / folders / flags / whole sections; a library, a saved search, a remote shelf and a search form are none of those, and enumerating imbib's taxonomy in the chassis would be the ADR-0022 mistake. Hosts build keys through ONE typed route enum (`ImbibSidebarRoute`) so the round trip (row → selection → content route → row) is single-sourced |
+| a section header that is a DESTINATION | `RecordSidebarSectionContent.headerScope` → `RecordSidebarSectionModel.headerScope` (2026-07-30). macOS has always mapped the Inbox *section node* to `.inbox`; imbib-iOS's Flagged header selects any flag. Modelling it as a synthetic first row would add a row neither shell shows |
+| organise verbs on a host-resolved tree | `RecordSidebarSectionContent.canOrganizeFolders` (overrides the descriptor gate) + `.offersRootFolderCreation` (split out: imbib's collections are rooted PER LIBRARY, so "new folder at the section root" has no answer, but the tree is still organisable). `RecordSidebarView.rebuild()` reads `dataSource.folders` for such sections too — gating that on the descriptor alone left imbib's organise menu permanently empty |
+| per-row verbs that are not folder verbs | `RecordSidebarHostChrome` (2026-07-30): `nodeAccessory` / `nodeMenu` / `nodeSwipeActions` / `sectionAccessory` / `onMoveNodes`, all defaulted nil. imbib needs Delete Library, Open on SciX, Refresh, Hide a search form, Edit/Delete a saved search, and a per-library `+`. None is a capability of a record kind |
+| default landing selection | regular width only (2026-07-30). In COMPACT width a `NavigationSplitView` is a stack: writing a selection PUSHES and the sidebar the user launched into disappears. Caught on the first iPhone run of the second adopter; it affected imprint-iOS identically |
 
 Adopters: imprint-iOS (`IOSManuscriptSidebarBindings.swift` — data source,
 collection actions, triage actions, `RecordSidebarScope` →
-`ManuscriptStoreScope`). imbib-iOS's hand-written `IOSSidebarView` is NOT
-migrated yet; it remains the reference for iOS idiom and the obvious second
-adopter.
+`ManuscriptStoreScope`) and, since 2026-07-30 (Stage 5a), imbib-iOS
+(`ImbibSidebarBindings.swift` — rows, route vocabulary, collection actions,
+`RecordSidebarScope` ⇄ `SidebarSection` **both ways**, because imbib navigates
+by notification too; `IOSSidebarHost.swift` — sheets, toolbar, chrome).
+`IOSSidebarView.swift` (1,357 lines, 15-arm hand-written section switch, read
+no preset, rendered `.sharedWithMe`/`.artifacts`/`.reviewQueue`/`.dismissed` as
+`EmptyView()`) and its stub are DELETED.
+
+What the second adopter changed in the shared surface is the six rows added to
+the table above; what it changed in imbib is that the sidebar now honours the
+preset, Dismissed papers are reachable on iOS for the first time, flag rows
+have counts, and nested subcollection creation works instead of logging
+`iOS: … not yet supported by RustStoreAdapter — creating at root`.
+
+Host capability gaps declared rather than hidden: `.reviewQueue`
+(`sectionIsAvailable → false` — unbound section, so `presentableKinds` cannot
+speak for it, and this build has no review pane) and `.artifacts`
+(`presenting([.publication])`).
 
 Regression oracles: `RecordSidebarBuilderTests` (15 tests, `swift test` —
-same builder + different presets ⇒ different sidebars) and
+same builder + different presets ⇒ different sidebars),
 `imprint-iOSUITests/LibraryShellUITests` (5 tests, booted simulator — sidebar
 tree, search, long-press menu, trailing swipe says Dismiss/Archive, dismissed
-manuscript visible ONLY in the Dismissed scope).
+manuscript visible ONLY in the Dismissed scope) and
+`imbib-iOSUITests/IOSSidebarUITests` (2 tests, booted simulator — the section
+list IS the `.imbib` preset with each absent section absent for a *different*
+declared reason, and a collection selection produces a SCOPED list).
+
+### Settings surface (`Chassis/Settings/`, Stage 6 phase 1, 2026-07-29)
+
+Settings were the last big surface authored per app AND per platform: ~7.9k
+lines across the suite (imbib 3,998 macOS + 3,185 iOS; imprint 1,367; implore
+226; impel 156; impart ~330) with no shared frame at all. imprint-iOS shipped
+NO settings — an original user report — and the reason was structural, not
+technical: "which panes does imprint have, in what order" existed only as the
+body of a macOS `TabView`, so a platform that could not run that `TabView`
+could not even NAME a pane.
+
+Phase 1 is the registry + both renderers + the imprint migration. The other
+apps are phase 2 and are deliberately untouched.
+
+| File | Reach | Role |
+|---|---|---|
+| `Chassis/Settings/SettingsSectionDescriptor.swift` | ✅ both | `SettingsSectionID` (string-backed, additive), `SettingsSectionDescriptor` (id, title, SF Symbol, subtitle, availability, order — Sendable DATA, no closures), `SettingsPlatform`, `SettingsRequirement`, `SettingsSectionAvailability`, `SettingsHostCapabilities` |
+| `Chassis/Settings/SettingsSectionRegistry.swift` | ✅ both | `SettingsSectionFactory` (the `@MainActor @Sendable → AnyView` builder), the registry (`register` / `subscript` / `composing` / `unresolvedSections`), the environment key, the two BUILTIN panes, and `SettingsForm` (the one `#if` island — macOS tabs want `.padding()`, iOS pushed screens must not have it) |
+| `Chassis/Settings/AppSettingsConfiguration.swift` | ✅ both | the per-app ordered section list. A SIBLING of `AppShellConfiguration.swift`, not part of it: different consumers (two renderers vs. the whole sidebar), and `Chassis/Settings/` stays a clean folder move for the deferred `ImpressSettings` extraction (ADR-0021 D5) |
+| `Chassis/Settings/MacSettingsSceneContent.swift` | macOS | the tabbed renderer (`TabView` + `.tabItem`), sized to imprint's shipped Settings-window metrics |
+| `Chassis/Settings/IOSSettingsScreen.swift` | iOS | the grouped-list renderer (`NavigationStack` + `List` of `NavigationLink`s), iOS idiom rather than a ported `TabView` |
+
+**No gated `+Builtin.swift` split was needed, and that is a finding rather than
+an omission.** Both builtin panes are plain SwiftUI over packages PMC already
+links on both platforms (ImpressTheme, ImpressSpotlight), so nothing
+AppKit-adjacent reached the builtin tier — unlike
+`RecordViewerRegistry+Builtin.swift`, whose factories construct AppKit-adjacent
+section views. Where a settings section IS platform-bound, the mechanism is the
+descriptor's `availability`: data, readable and testable from either platform,
+rather than an `#if` that would make the section unnameable again.
+
+Availability is answered by declaration, never by an `#if` at the call site:
+
+| Question | Answered by |
+|---|---|
+| which panes exist, in what order | `AppSettingsConfiguration.<app>.sections` (sorted by `descriptor.order`; a test pins declaration order == sort order) |
+| which panes this platform shows | `SettingsSectionAvailability.platforms` ∩ (`requirements` ⊆ host capabilities) |
+| why a pane is macOS-only | `SettingsRequirement` — `.httpAutomation` (no `com.apple.security.network.server` on iOS), `.localToolchain` (TeX / latexmk / impress-toolbox / git), `.siblingAppDiscovery` (NSWorkspace app probing), `.spotlightIndex` (a host-installed CoreSpotlight coordinator). An empty requirement set with `platforms: [.macOS]` means "the implementation lives in the app's macOS target", which is a different and weaker claim — stated as such |
+| what a pane looks like | `SettingsSectionRegistry[id]` → the factory. Chassis builtins first, app registrations layered over (last wins), so an app REPLACES a builtin rather than the chassis growing a flag |
+| tab / row accessibility identifier | `SettingsSectionID.accessibilityIdentifier` = `settings.tabs.<id>`. FROZEN — imprint's `SettingsPage` and UI tests address panes by it, and an iOS row carries the same identifier as its macOS tab |
+
+**imprint migration — the 13-tab mapping (macOS visually equivalent: same
+tabs, same order, same controls).** "Chassis builtin" = the chassis ships the
+pane; "imprint-registered" = descriptor in the preset, factory in imprint code,
+pane file untouched.
+
+| # | Old macOS tab | New section id | Where the CONTENT lives now | iOS |
+|---|---|---|---|---|
+| 1 | Appearance | `appearance` | **chassis builtin** — `AppearanceSettingsPane` over `ImpressTheme.AppearanceSettingsSection`; imprint's hand-rolled `AppearanceSettingsView` deleted | ✅ |
+| 2 | General | `general` | imprint-registered, pane MOVED to `Shared/Settings/ImprintSettingsPanes.swift` | ✅ |
+| 3 | Editor | `editor` | imprint-registered, pane MOVED to `Shared/Settings/` | ✅ |
+| 4 | AI | `ai` | imprint-registered, stays in `macOS/Views/SettingsView.swift` (`AIAssistantService`) | — |
+| 5 | AI Tasks | `aiTasks` | imprint-registered, `macOS/Views/AITasksSettingsView.swift` UNTOUCHED | — |
+| 6 | Citations | `imbib` | imprint-registered, `macOS/Views/ImbibSettingsView.swift` UNTOUCHED. Id is `imbib`, label is "Citations" — both shipped, both frozen | — |
+| 7 | LaTeX | `latex` | imprint-registered, `macOS/Views/LaTeXSettingsView.swift` UNTOUCHED | — |
+| 8 | Documents | `documents` | imprint-registered, pane MOVED to `Shared/Settings/` | ✅ |
+| 9 | Export | `export` | imprint-registered, stays in `macOS/Views/SettingsView.swift` (`TemplateService`) | — |
+| 10 | Account | `account` | imprint-registered, pane MOVED to `Shared/Settings/` | ✅ |
+| 11 | Automation | `automation` | imprint-registered, stays macOS (drives `ImprintHTTPServer`, MCP config, NSPasteboard) | — |
+| 12 | Git | `git` | imprint-registered, factory WRAPS `ImpressGit.GitSettingsSection` without editing it (PMC does not depend on ImpressGit) | — |
+| 13 | Spotlight | `spotlight` | **chassis builtin** — `Form { SpotlightSettingsSection() }`, the wrapper every adopter was writing | — |
+
+Not in the preset: **keyboard shortcuts.** imprint surfaces them as a separate
+⌘/ window (`ShortcutsHelpView`), not a Settings tab, and macOS must stay
+visually equivalent — so adding a 14th tab would be a redesign. `PMC/Settings/
+KeyboardShortcutsSettings.swift` is data with no view of its own; when a
+keyboard pane is wanted, it registers a descriptor whose factory wraps the
+existing view rather than editing it.
+
+iOS entry point: a gear (`toolbar.settings`) on the SIDEBAR column of
+`IOSManuscriptLibraryView` — the sidebar, not the list, because that is the
+column iOS lands on when the split view collapses on iPhone. It presents
+`IOSSettingsScreen(configuration: .imprint)` at the navigation ROOT (the
+`citationInspection` rule: a sheet raised from a column is dismissed by that
+column's own navigation). The screen shows the five capability-free panes and a
+footer stating how many more are Mac-only and why — a count read from the
+declaration, so it cannot go stale.
+
+Persistence: EVERY `@AppStorage` key is unchanged, including across the target
+boundary the four portable panes crossed. `appearanceMode` in particular is now
+written by the chassis builtin as an `ImpressTheme.AppearanceMode`, whose
+`String` rawValues are exactly the `system`/`light`/`dark` tags imprint's picker
+wrote — and iOS now APPLIES it (`ImprintIOSApp.preferredColorScheme`), which it
+never did, so the Appearance row is not a dead control.
+
+Regression oracles: `SettingsSurfaceContractTests` (15 tests, `swift test` —
+the frozen 13-tab inventory, the accessibility identifiers, ordering,
+availability filtering driven from either platform, registry composition
+semantics, and the "declarative half must not get re-gated" structural guard),
+`ImprintSettingsPersistenceTests` (5 tests, `swift test` — the frozen
+`@AppStorage` key inventory by source scan; a renamed key silently resets every
+user's preference and reads as "settings were lost"), and
+`imprint-iOSUITests/SettingsScreenUITests` (4 tests, booted simulator — the
+gear opens the sheet, the five declared sections render and the gated four do
+not, the builtin appearance pane resolves, and a toggle survives `terminate()`
++ `launch()`).
+
+### Settings surface — phase 2 (imbib, implore, impel, impart, 2026-07-30)
+
+Phase 2 put the remaining four apps on the registry. All five apps' settings
+surfaces are now declarations; **every macOS surface is visually equivalent to
+what it shipped** (same panes, order, titles, symbols, tooltips, window metrics,
+accessibility identifiers) and every `@AppStorage` key is byte-identical.
+
+**Three additive chassis changes, each forced by an adopter phase 1 had not
+seen:**
+
+| Addition | Forced by | Why the alternative was worse |
+|---|---|---|
+| `SettingsSectionGroup` + `descriptor.group` (optional, nil default) | imbib's macOS Settings scene is a `NavigationSplitView` source list of **16 panes under 6 headers**, not a `TabView` | A `TabView` has no grouping to declare, so phase 1 had no reason to model it. Without the field the declaration cannot describe imbib's shipped surface at all |
+| `Chassis/Settings/MacSettingsSidebarSceneContent.swift` — a THIRD renderer (grouped source list + detail) | same | 16 tabs is not visual equivalence, it is a redesign. A `style:` flag on `MacSettingsSceneContent` would be one file with two disjoint bodies, and would put imbib layout changes inside the file imprint's Settings window renders from |
+| Frozen-identifier and fixed-size parameters (`containerIdentifier`, `doneIdentifier`, `maxWidth`/`maxHeight`, `MacSettingsSceneContent.fixed`) | imbib ships `settings.tabView` + `settings.doneButton`; implore/impel/impart ship `.frame(width:height:)` | imprint-iOS had no prior settings and imprint's window is resizable, so phase 1's hardcoded values were right for imprint and wrong for four apps that shipped earlier. Defaults are imprint's, so imprint is untouched |
+
+`IOSSettingsScreen` also learned to honour `group` (one headerless band when a
+preset declares none ⇒ phase 1 output unchanged). Group ORDER is never declared —
+it is the order of each group's first member, so a group cannot sort against its
+own contents. The one failure mode of that derivation (non-contiguous members ⇒ a
+duplicated header) is pinned per platform by
+`testEveryGroupedPresetKeepsItsGroupsContiguousOnEveryPlatform`, which caught it
+for real while imbib's preset was being written.
+
+**imbib — 16 macOS panes + 7 iOS-shaped sections, one preset.** macOS renders
+through the sidebar renderer, iOS through the grouped list.
+
+| Group | Panes (macOS order) | iOS |
+|---|---|---|
+| General | general, appearance, viewing | appearance, viewing (+ `smartSearch`, iOS-only) |
+| Content | flagsAndTags, notes, pdf, sources, enrichment, searchAI | notes, pdf, sources, enrichment (+ `pdfStorage`, iOS-only) |
+| Inbox & Feeds | inbox, recommendations | both |
+| Sync & Backup | sync, eink | sync (+ `backup`, iOS-only) |
+| Import & Export | importExport | ✅ |
+| System | shortcuts, advanced | both (+ `automation`, iOS-only) |
+| Developer / Help & Support / About (iOS only) | — | console, help, about |
+
+- **Shared (chassis builtin):** none. imbib is the app that shows a builtin is
+  only shareable where it is the SAME pane — its Appearance pane is a 530-line
+  theme editor over `ThemeSettingsStore` (named themes, accent colours, font
+  scale), not the builtin's three-way `appearanceMode` picker, so imbib
+  **registers over** the `appearance` builtin on both platforms. That is the
+  documented `register` replacement semantics used for the reason they exist.
+  `testImbibPanesDoNotDeclareTheBuiltinAppearanceKey` stops the two owners of the
+  light/dark choice from forking.
+- **Shared across imbib's own platforms:** `enrichment` only —
+  `PMC/Settings/ImbibPortableSettingsSections.swift`. macOS's `EnrichmentSettingsTab`
+  and iOS's `IOSEnrichmentSettingsView` were the same four lines around the same
+  `EnrichmentSettingsView`, differing by one `.padding(.horizontal)`, now read
+  from `SettingsSectionContext.presentation`. Both deleted.
+- **Keyboard pane WRAPPED, not edited:** `KeyboardShortcutsSettingsTab` (macOS) /
+  `IOSKeyboardShortcutsSettingsView` (iOS) are named by factories.
+  `PMC/Settings/KeyboardShortcutsSettings.swift` is untouched.
+- **iOS entry point untouched.** `IOSSettingsView` keeps its type name, so
+  `IOSContentView`'s gear and ⌘, still present it with no edit to that file
+  (which the sidebar work is rewriting concurrently).
+- **iOS row structure changed on purpose in one place:** Exploration and "Reset to
+  First Run" were two rows; they are now one `advanced` pane, which is how macOS
+  has always had them.
+
+**The expected 3.1k-line duplication kill did not exist, and that is the main
+finding of phase 2.** imbib's macOS and iOS settings are not one surface written
+twice — they are two designs for two input models. `AppearanceSettingsTab` (530)
+vs `IOSAppearanceSettingsView` (304); macOS `SourcesSettingsTab` is a
+`DisclosureGroup` list with `SecureField`s and hover help, iOS's is a pushed
+`List`; macOS `InboxSettingsTab` edits mute rules inline, iOS raises a sheet.
+Collapsing those pairs is a rewrite, not a reframe — and since macOS must stay
+visually equivalent, the surviving pane would have to be macOS's: `NSOpenPanel`,
+`NSColorPanel` and hover tooltips on a phone. **What phase 2 actually removed is
+the duplication that was STRUCTURAL** — two unreadable hand-written lists of which
+panes exist, in what order, under what headings (four parallel `switch`es on
+macOS, 23 rows on iOS). Those lists had already drifted in BOTH directions and
+silently: iOS had grown PDF Storage, a top-level Backup row and a standalone
+Automation pane; macOS had grown Flags & Tags, E-Ink and Search & AI; neither
+knew. Those differences now survive as `availability` with stated reasons.
+
+**implore / impel / impart** — small, and each teaches one thing:
+
+| App | Tabs | Became shared | Stayed app-registered |
+|---|---|---|---|
+| implore | 5 | `spotlight` → **chassis builtin** (its tab body was `Form { SpotlightSettingsSection() }` verbatim) | general, rendering, colormaps, keyboard |
+| impel | 3 | **nothing** | general, ai, counsel |
+| impart | 6 | `spotlight` → **chassis builtin** (same verbatim wrapper) | accounts, ai, general, keyboard, automation |
+
+- **impel adopts no builtin, deliberately.** It has no Appearance or Spotlight
+  tab; growing an app's settings surface is a product change, not a reframe. What
+  it gains is that the absence is now visible in data.
+- **Two shared-component clones left in place on purpose, and recorded:** impart's
+  `GeneralSettingsView` appearance `Picker` duplicates
+  `ImpressTheme.AppearanceSettingsSection` over the same `appearanceMode` key
+  (it is one of two pickers inside General, so promoting it would move a control
+  between tabs), and impart's `AutomationSettingsView` duplicates
+  `ImpressAutomation.AutomationSettingsSection` but drops `logRequests` (swapping
+  it in would ADD a control). Both are phase-3 alignments; the reframe's value is
+  that they are stated next to the declaration.
+- **`impart-iOS` is NOT migrated, and cannot be:** that target does not link
+  PublicationManagerCore (absent from `apps/impart/project.yml`), so no chassis
+  renderer can run there. Its `IOSAppearanceSettingsView` is a second clone of the
+  shared appearance section over the same key;
+  `testImpartIOSStillReadsTheSameAppearanceKeyAsMacOS` keeps the preference from
+  forking until the target links the package.
+- Two ids that look like duplicates are not: `keyboard` (implore, impart —
+  shipped `settings.tabs.keyboard`) and `shortcuts` (imbib — shipped
+  `settings.tabs.shortcuts`, even though its Swift case was `keyboardShortcuts`).
+  Unifying them would silently rename one app's identifier. Same for
+  `account` (imprint, iCloud) vs `accounts` (impart, email).
+
+Regression oracles added: `SettingsSurfacePhase2ContractTests` (19 tests — frozen
+inventories for all four apps, imbib's six sidebar bands and its 18 iOS sections,
+tooltips, identifiers against `AccessibilityID.Settings.Tabs`, group contiguity
+per platform, and a SOURCE SCAN asserting every declared pane has a factory and
+every factory a declared pane, since the factories live in app targets PMC's test
+bundle cannot link); `Phase2SettingsPersistenceTests` (8 tests — frozen
+`@AppStorage` inventories per app: imbib macOS 6, imbib iOS 5, implore 5, impel 9,
+impart 4 — and for implore and impart this is the ONLY place such a test can live,
+implore having no unit-test target and impart no UI-test target); two new cases in
+`imbib-iOSUITests/IOSSmokeUITests` (booted simulator — the declared sections
+render and the four macOS-gated ones do not, and a `helixModeEnabled` toggle
+survives `terminate()` + `launch()`). `SettingsSurfaceContractTests.testRenderersStayPlatformGated`
+gained the third renderer.
+
+Phase 3 candidates, all recorded above rather than done: link
+PublicationManagerCore into `impart-iOS`; align impart's two hand-rolled clones;
+give impel an `automation` pane (its `ImpelHTTPServer` reads
+`httpAutomationEnabled`/`httpAutomationPort` that **no impel pane writes** — the
+server is unconfigurable from the GUI); reconcile impel's `counselModel`, which has
+two conflicting `@AppStorage` defaults in two files.
 
 ## MCP surface
 
@@ -358,22 +660,64 @@ in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
 
 ## Known gaps (tracked)
 
-- **iOS shell — things that are still literals and should be declarations:**
-  (a) `TriageCapabilities.statuses` is `[String]`, so a status has no declared
-  label or icon; `RecordStatusPresentation` carries a chassis-level table for
-  the reserved lifecycle values and title-cases anything else. Widening
-  `statuses` to `[StatusSpec]` (raw + label + symbol) is the principled fix.
+- **Ten `UTType(exportedAs:)` identifiers in shared code are declared per app,
+  not in `apps/chassis-utis.yml`** (`com.impress.paper-reference`,
+  `citation-key`, `conversation-ref`, `document-reference`, `figure-reference`,
+  `research-artifact-reference`, `veusz-plot-reference`, `com.imbib.bibtex`,
+  `com.imbib.bundle`, `com.impress.bibtex-entry`). Their call sites are in
+  PMC/ImpressKit — code every app compiles — so each is only safe while every
+  app that reaches its call site declares it; that property is unaudited.
+  `ChassisUTIDeclarationTests.appDeclaredExceptions` pins the list (a NEW
+  exported type cannot join it silently) and names the follow-up: audit
+  reachability per linking app, then graduate each identifier into the shared
+  template or move its call site out of shared code.
+
+- **iOS shell — things that are still literals and should be declarations.**
+  (a), (c) and (d) below were CLOSED on 2026-07-29 — kept with their outcome
+  rather than deleted, because the shape of each fix is the precedent for the
+  next one:
+  (a) ~~`TriageCapabilities.statuses` is `[String]`~~ — **closed.** It is
+  `[StatusSpec]` (raw + label + symbol + `isTerminal` + `hiddenByDefault`);
+  `RecordStatusPresentation` became a resolver over the descriptors and macOS's
+  four sidebar literals now read the same specs. `RecordKindStatusSpecTests`
+  freezes the presentation both platforms shipped.
   (b) `AppShellConfiguration` declares no per-section ICON beyond
   `SidebarSectionType.icon`, and the "All <Kind>s" node borrows the section's
-  icon. (c) `ManuscriptStoreAdapter` has no `listTags()`, so imprint-iOS
-  passes `RecordTriageActions.availableTagPaths = { [] }` and the Tags submenu
-  hides itself; tag triage on iOS is unavailable until that verb exists.
-  (d) imprint-iOS suppresses the preset-permitted `.citedInManuscripts`
-  section through the host content gate because it has no publication list
-  surface — honest, but it is an app-side `!=` on a section name.
+  icon. (Its TITLE is now `descriptor.pluralDisplayName`; the icon is not.)
+  (c) ~~`ManuscriptStoreAdapter` has no `listTags()`~~ — **closed.**
+  `listTags()` derives the distinct paths from the manuscript items' own `tags`
+  and imprint-iOS's `availableTagPaths` reads it, so the Tags submenu is
+  populated. NOTE the derivation: there is no tag-listing verb in the
+  `SharedStore` FFI (only `add_tag`/`remove_tag`), so this is a scan, not an
+  index — a `distinct_tags(schema_ref)` service verb would be strictly better.
+  (d) ~~imprint-iOS suppresses `.citedInManuscripts` with an app-side `!=` on a
+  section name~~ — **closed.** The host declares
+  `presenting([.manuscript])` and the builder drops every section bound to a
+  kind the host cannot render. See the `canPresent` row in the rules table for
+  how it relates to the appID facet gate (it complements it).
   (e) There is no iOS drag-to-folder: moving a record is the
   "Move to Folder ▸" menu (`RecordFolderMenu.moveTo`), and folder reparenting
   is "Move Folder ▸"; the kind's `dragUTTypeIdentifier` is unused on iOS.
+
+- **macOS shows four of the manuscript kind's seven statuses; iOS shows six.**
+  `ImbibSidebarViewModel.journalChildren` surfaces Drafts / Submitted /
+  Published / Archive and has never shown Internal Review or In Revision;
+  `RecordSidebarBuilder` shows every status that is not `hiddenByDefault`.
+  Since 2026-07-29 both read their LABELS and ICONS from the same `StatusSpec`s,
+  so they cannot disagree about what a status looks like — but they still
+  disagree about which ones appear, and macOS's set is a literal list of four
+  `JournalManuscriptStatus` cases. Closing it is a product decision (add two
+  rows to macOS, or mark those two `hiddenByDefault` and remove two from iOS),
+  not a refactor; `hiddenByDefault` is the seam it would use.
+
+- **`JournalManuscriptStatus.displayName` / `.systemImage` is a second status
+  vocabulary.** It is singular and badge-shaped ("Draft", "Archived", `eye`,
+  `xmark.bin`) where `StatusSpec.label` is navigational ("Drafts", "Archive",
+  `person.2`, `xmark.circle`), and macOS's `ManuscriptDetailView` badge and
+  `JournalManuscriptsListView` read it. Folding it into the descriptor would
+  change macOS pixels, so it was left alone; if a `StatusSpec` ever needs a
+  second, singular label, this is the caller that wants it. `isActive` HAS been
+  folded in (it derives from `StatusSpec.isTerminal`).
 
 - **Mail (Stage 2-A) IMAP-owned gaps — Stage-2-A2 follow-ups:** no message
   drag (move = IMAP move), no folder CRUD (IMAP owns folder lifecycle), no
@@ -400,14 +744,36 @@ in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
   `getItemReferences`, not parentId.
 
 - **Registry-resolved viewers (WP G3, ADR-0022 D4) — partial by design:**
-  only the `.figures` / `.mail` / `.agents` routes resolve their section view
-  through `RecordViewerRegistry`. Publications keep the legacy path (it owns
-  the fragile HSplitView + toolbar cluster) and manuscripts keep theirs (the
-  section view owns the editor session, which must stay host-owned).
-  `RecordViewerRegistryTests` asserts that absence, so registering either is
-  a conscious edit. `AnyRecordListWrapper` has no consumer yet — grouped
-  global search (G4/D6) is the first, and triage grammar (TriageKeyGrammar,
-  swipe/context builders, drag) lands with it.
+  every kind's section view resolves through `RecordViewerRegistry` EXCEPT
+  publications (their path owns the fragile HSplitView + toolbar cluster) and
+  manuscripts (their section view owns the editor session, which must stay
+  host-owned). `RecordViewerRegistryTests` asserts that absence, so registering
+  either is a conscious edit. `AnyRecordListWrapper` has no consumer yet —
+  grouped global search (G4/D6) is the first, and triage grammar
+  (TriageKeyGrammar, swipe/context builders, drag) lands with it.
+
+- **Navigation enums are ADDITIVE (Stage 3, 2026-07-30) — the ADR-0021 litmus
+  step 6 wart is CLOSED for routes.** `ImbibJournalRoute`, `FigureRoute`,
+  `MailRoute` and `AgentRoute` (18 cases, each enum's own doc comment calling
+  itself "the mirror of" the previous one) plus their four `ImbibContentRoute`
+  wrapper cases, twelve `ImbibTab` cases and four `SectionContentView`
+  dispatchers collapsed into ONE `RecordRoute` = `RecordKindID` +
+  `RecordSidebarScope`, dispatched by ONE sink
+  (`SectionContentView.recordSection`). Adding a record kind now costs a
+  viewer-registry factory line, a `RecordRouteScope` conformance next to the
+  kind's own list scope, and its sidebar node-building lines — no case in any
+  chassis route enum. `RecordRouteTests` pins both the round trip (kind+scope
+  in → the kind's parallel list scope out) and the ABSENCE of the collapsed
+  declarations. STILL NOT additive: `SidebarSectionType` (its String rawValue
+  backs persisted order/collapse state) and the per-kind sidebar node cases
+  that BUILD rows from per-kind readers (`figuresAll`, `mailAccount`, …) — a
+  kind's rows come from its own store reader, so those lines are per-kind code,
+  not a chassis switch. Two subsets the chassis scope vocabulary has no word
+  for ride `RecordSidebarScope.host` (its declared escape hatch) with the key
+  spelled once next to the kind's scope: implore's "Unfiled"
+  (`FigureListScope.unfiledRouteScope`) and impart's mail ACCOUNTS
+  (`MessageListScope.accountRouteScope`). Promoting either to a first-class
+  case is a follow-up, not a requirement.
 
 - **Related section (WP G5, ADR-0022 D8) — additive, two deferrals:**
   adopted in the figure / message / task / agent-run Info tabs and the
@@ -484,3 +850,41 @@ in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
   (create → appears in list → three-point trace via `/api/logs/stream`).
   Tier A coverage exists today (`store.manuscript_formats` + imbib-core
   `manuscript_unification` tests).
+
+## Schema refs (store `schema_ref`)
+
+**Source of truth: [`schema-refs.json`](../schema-refs.json) at the repo root.**
+Enforced by `scripts/check-schema-refs.sh` (every call site, Rust *and* Swift),
+`crates/*/tests/schema_ref_manifest.rs` (registry parity, both directions,
+per crate), and `SchemaRefManifestParityTests` (record-kind descriptors).
+
+The impress store matches `items.schema_ref` by **exact equality**
+(`crates/impress-core/src/sql_query.rs`). There is no version tolerance, no
+namespace fallback, no fuzzy match. A reader that spells a ref differently from
+its writer returns **zero rows, forever, silently** — no error, no log line.
+That is indistinguishable from "the user has no data yet", which is why this
+class of bug survives both code review and CI, and why it has shipped five
+times:
+
+| Where | Written | Read | Effect |
+|---|---|---|---|
+| iOS citation picker | `imbib/bibliography-entry` | `bibliography-entry` | empty library, 100% of the time |
+| `/api/manuscripts` | — | `manuscript-section` items | reported `count: 0` while the UI listed manuscripts |
+| imprint sections | `manuscript-section` | `manuscript-section@1.0.0` | outline, `/api/manuscripts/{id}/sections`, cross-document search structurally empty |
+| citation usage | `citation-usage` | `citation-usage@1.0.0` (×4, imprint + imbib) | "papers cited in my manuscripts" always empty |
+| impel enrichment | `imbib/bibliography-entry` | `bibliography-entry@1.0.0` | enrichment spawn rule never fired — no task ever spawned. Fixed 2026-07-29; the trigger now reads the canonical ref and `enrichment_trigger_matches_the_ref_imbib_actually_writes` seeds through imbib's real writer so it cannot drift back |
+
+**There is no naming convention to infer.** Bare (`manuscript`), namespaced
+(`imbib/library`, `core/operation`) and versioned (`task@1.0.0`) spellings all
+exist and are all correct *for their kind*. Do not regularise a ref by
+pattern-matching on its neighbours — that is precisely the reasoning that
+produced `manuscript-section@1.0.0`. **Copy the spelling from
+`schema-refs.json`, never from a sibling call site.**
+
+`knownDivergences` in the manifest records the splits that are real and
+unfixed (three live spellings of `task`, the dead `impress/operation`
+registration, the enrichment trigger, `ArtifactRecordKind`'s unwritten
+`artifact` ref). It is a **ratchet**: it may shrink as splits are fixed, never
+grow. Adding an entry requires editing a file called `knownDivergences` and
+tripping the budget assertion — the point is that making a new mismatch legal
+should be conspicuous.

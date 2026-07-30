@@ -90,6 +90,52 @@ public enum DeletionSemantics: Sendable, Equatable {
     case none
 }
 
+/// One status value in a kind's lifecycle, WITH its presentation.
+///
+/// `statuses` used to be `[String]`, which declared *which* statuses a kind
+/// has but not how to name or picture them — so the chassis carried a private
+/// label/icon table (`RecordStatusPresentation.known`) that lived a folder
+/// away from the declaration, and macOS's sidebar spelled the same four
+/// labels a third time as literals. Presentation now travels WITH the
+/// declaration: one place to add a status, one place to read it.
+///
+/// Deliberately NOT here: whether a status is the DISMISSAL or the ARCHIVE
+/// status. `DismissalSemantics.statusChange(dismissed:restoreTo:)` and
+/// `archiveStatus` already say that, and a second spelling of the same fact is
+/// how the two drift apart. `RecordKindStatusSpecTests` cross-checks them
+/// instead.
+public struct StatusSpec: Sendable, Equatable, Hashable, Identifiable {
+    /// The payload `status` value, exactly as the store holds it.
+    public let rawValue: String
+    /// Sidebar row / badge text.
+    public let label: String
+    /// SF Symbol for the sidebar row.
+    public let systemImage: String
+    /// A lifecycle END state — nothing leaves it without an explicit user
+    /// verb. Drives `JournalManuscriptStatus.isActive`.
+    public let isTerminal: Bool
+    /// Not offered as a primary-section smart child. The dismissal status
+    /// sets this: it owns the Dismissed SECTION, and listing it in both
+    /// places would give the same rows two homes.
+    public let hiddenByDefault: Bool
+
+    public var id: String { rawValue }
+
+    public init(
+        _ rawValue: String,
+        label: String,
+        systemImage: String,
+        isTerminal: Bool = false,
+        hiddenByDefault: Bool = false
+    ) {
+        self.rawValue = rawValue
+        self.label = label
+        self.systemImage = systemImage
+        self.isTerminal = isTerminal
+        self.hiddenByDefault = hiddenByDefault
+    }
+}
+
 /// Triage surface of a record kind — drives keyboard grammar gating, swipe
 /// builders, and menu builders.
 public struct TriageCapabilities: Sendable, Equatable {
@@ -100,8 +146,9 @@ public struct TriageCapabilities: Sendable, Equatable {
     /// Status value for Archive, or nil when the kind has no archive.
     public var archiveStatus: String?
     public var deletion: DeletionSemantics
-    /// Status values this kind's lifecycle uses (parity-checked vs schema).
-    public var statuses: [String]
+    /// Status values this kind's lifecycle uses, with their presentation
+    /// (parity-checked vs schema).
+    public var statuses: [StatusSpec]
 
     public init(
         canStar: Bool = true,
@@ -110,7 +157,7 @@ public struct TriageCapabilities: Sendable, Equatable {
         dismissal: DismissalSemantics = .none,
         archiveStatus: String? = nil,
         deletion: DeletionSemantics = .none,
-        statuses: [String] = []
+        statuses: [StatusSpec] = []
     ) {
         self.canStar = canStar
         self.canFlag = canFlag
@@ -119,6 +166,20 @@ public struct TriageCapabilities: Sendable, Equatable {
         self.archiveStatus = archiveStatus
         self.deletion = deletion
         self.statuses = statuses
+    }
+
+    /// The raw `status` values, for store predicates and validation gates.
+    public var statusValues: [String] { statuses.map(\.rawValue) }
+
+    /// The spec for a raw status value, if this kind declares it.
+    public func status(_ rawValue: String) -> StatusSpec? {
+        statuses.first { $0.rawValue == rawValue }
+    }
+
+    /// The dismissal status value, when dismissal is a status change.
+    public var dismissedStatus: String? {
+        if case .statusChange(let dismissed, _) = dismissal { return dismissed }
+        return nil
     }
 }
 
@@ -158,15 +219,70 @@ public struct CollectionCapability: Sendable, Equatable {
     /// UTType identifier of the kind's list-row drag payload, or nil when
     /// records of this kind cannot be dropped into a folder.
     public let dragUTTypeIdentifier: String?
+    /// SF Symbol for this kind's folder rows. Declared rather than hardcoded
+    /// in the sidebar builder so a kind whose containers are not "folders"
+    /// (mail's server-mirrored mailboxes, a future smart collection) can say
+    /// so without the builder growing a `switch`.
+    public let folderSymbolName: String
+    /// What this kind calls its containers, singular and capitalised. Drives
+    /// the organise MENU TITLES ("New \(noun)", "New Sub\(noun)",
+    /// "Delete \(noun)") which were three inline literals in
+    /// `ImbibSidebarViewModel`'s AppKit menu builders. `mail-folder` rows are
+    /// mailboxes, not folders, and that is the kind of thing a capability
+    /// should be able to say without an app-side `if`.
+    public let containerNoun: String
 
     public init(
         bindingID: String,
         canOrganize: Bool = true,
-        dragUTTypeIdentifier: String? = nil
+        dragUTTypeIdentifier: String? = nil,
+        folderSymbolName: String = "folder",
+        containerNoun: String = "Folder"
     ) {
         self.bindingID = bindingID
         self.canOrganize = canOrganize
         self.dragUTTypeIdentifier = dragUTTypeIdentifier
+        self.folderSymbolName = folderSymbolName
+        self.containerNoun = containerNoun
+    }
+
+    /// Menu title for creating a container at root ("New Folder").
+    public var newContainerTitle: String { "New \(containerNoun)" }
+    /// Menu title for creating a nested container ("New Subfolder").
+    public var newSubContainerTitle: String { "New Sub\(containerNoun.lowercased())" }
+    /// Menu title for deleting a container ("Delete Folder").
+    public var deleteContainerTitle: String { "Delete \(containerNoun)" }
+}
+
+/// A lifecycle a kind owns in a payload field OTHER than `status`, which the
+/// chassis may READ but must never write.
+///
+/// impel's tasks are the case that forced this to be declared rather than
+/// hardcoded. Their states (`queued`, `running`, `waiting_review`, …) live in
+/// payload `state`, and `TaskStoreApi.transition` is the sole legal mutation
+/// (ADR-0015 D1) — so they cannot go in `TriageCapabilities.statuses`, whose
+/// whole contract is "values the chassis's generic status writer may set".
+/// Declaring them separately keeps that distinction honest while still moving
+/// their labels and icons out of `AgentStoreReader`'s `switch`.
+public struct RecordLifecycleSpec: Sendable, Equatable {
+    /// The payload field holding the state (`"state"` for impel's kernel).
+    public let payloadField: String
+    /// The states, in canonical pipeline order.
+    public let states: [StatusSpec]
+    /// `true` = a kernel service owns every transition; the chassis renders
+    /// these and offers no verb that writes them.
+    public let isKernelOwned: Bool
+
+    public init(payloadField: String, states: [StatusSpec], isKernelOwned: Bool = true) {
+        self.payloadField = payloadField
+        self.states = states
+        self.isKernelOwned = isKernelOwned
+    }
+
+    public var stateValues: [String] { states.map(\.rawValue) }
+
+    public func state(_ rawValue: String) -> StatusSpec? {
+        states.first { $0.rawValue == rawValue }
     }
 }
 
@@ -202,6 +318,18 @@ public struct RecordKindDescriptor: Identifiable, Sendable {
     /// schema registry).
     public let schemaRefs: [String]
     public let displayName: String
+    /// Plural of `displayName`, for "All Publications"-style rows. Declared
+    /// because English pluralization is not `displayName + "s"` in general
+    /// ("Analysis", "Entry", "Series"), and the sidebar builder used to do
+    /// exactly that concatenation — a latent wrong label for the first kind
+    /// whose name does not take a bare `s`.
+    public let pluralDisplayName: String
+    /// SF Symbol for records of this kind. Lives on the descriptor so
+    /// mixed-kind surfaces (grouped search, Related items) resolve an icon
+    /// from the DECLARATION instead of a central `switch` that has to be
+    /// edited for every new kind — the one edit ADR-0021's litmus called out
+    /// as the last per-kind chassis change.
+    public let symbolName: String
     public let detailTabs: [DetailTabSpec]
     /// Today's text-tab coercion (source ↔ bibtex) generalized: where a
     /// persisted-but-unavailable tab should land.
@@ -213,28 +341,60 @@ public struct RecordKindDescriptor: Identifiable, Sendable {
     /// Sidebar folder behavior (ADR-0022 D3). Nil for kinds with no folder
     /// tree — message/task/agent-run/artifact folders are later work packages.
     public let collection: CollectionCapability?
+    /// A kernel-owned lifecycle in a payload field other than `status`
+    /// (impel's tasks). Nil for every kind whose lifecycle is `status`, or
+    /// which has none.
+    public let lifecycle: RecordLifecycleSpec?
 
     public init(
         id: RecordKindID,
         schemaRefs: [String],
         displayName: String,
+        pluralDisplayName: String? = nil,
+        symbolName: String = RecordKindDescriptor.unknownSymbolName,
         detailTabs: [DetailTabSpec],
         fallbackTab: @escaping @Sendable (DetailTab, RecordTabContext) -> DetailTab = { _, _ in .info },
         triage: TriageCapabilities,
         creation: [CreationAffordance] = [],
         defaultOpenBehavior: OpenBehavior = .detailPane,
-        collection: CollectionCapability? = nil
+        collection: CollectionCapability? = nil,
+        lifecycle: RecordLifecycleSpec? = nil
     ) {
+        // A kind with no schema ref resolves for zero rows, forever, silently
+        // — the exact failure mode schema-refs.json exists to prevent. Trap at
+        // construction (descriptors are compile-time constants, so this fires
+        // on the first launch after the mistake, not in a user's store).
+        precondition(
+            !schemaRefs.isEmpty,
+            "RecordKindDescriptor '\(id.rawValue)' declares no schemaRefs")
         self.id = id
         self.schemaRefs = schemaRefs
         self.displayName = displayName
+        self.pluralDisplayName = pluralDisplayName ?? "\(displayName)s"
+        self.symbolName = symbolName
         self.detailTabs = detailTabs
         self.fallbackTab = fallbackTab
         self.triage = triage
         self.creation = creation
         self.defaultOpenBehavior = defaultOpenBehavior
         self.collection = collection
+        self.lifecycle = lifecycle
     }
+
+    /// The ref this kind's own readers query. Non-optional by construction
+    /// (`schemaRefs` is asserted non-empty), so a reader does not need a
+    /// `?? "literal"` fallback that re-states the ref the descriptor already
+    /// declares — which is how a reader and its writer drift apart.
+    ///
+    /// Kinds that span SEVERAL refs (a message is `email-message` OR
+    /// `chat-message`) must iterate `schemaRefs` instead; this is the
+    /// single-ref convenience, not a claim that one ref is enough.
+    public var primarySchemaRef: String { schemaRefs[0] }
+
+    /// Shown for a schema no descriptor claims — honest about not knowing,
+    /// rather than mislabelling the row as some other kind. Also the default
+    /// for a descriptor that forgets to declare one.
+    public static let unknownSymbolName = "questionmark.square.dashed"
 
     /// Tabs available for a given record context, in display order.
     public func availableTabs(for context: RecordTabContext) -> [DetailTab] {

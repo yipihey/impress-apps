@@ -1,5 +1,6 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a display-ready value
+// snapshot of a manuscript row (Foundation + the cross-platform ImpressFTUI /
+// ImpressMailStyle value types). No view, no AppKit.
 //
 //  ManuscriptRowData.swift
 //  PublicationManagerCore
@@ -114,4 +115,3 @@ extension ManuscriptRowData: MailStyleItem {
     public var hasSecondaryAttachment: Bool { false }
     public var yearText: String? { nil }
 }
-#endif

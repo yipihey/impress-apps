@@ -1,0 +1,116 @@
+# Chassis uniform type identifiers — declared once, included by every app.
+#
+# WHY THIS FILE EXISTS
+#
+# PublicationManagerCore and ImpressKit build these types with
+# `UTType(exportedAs:)`. A type built that way MUST be declared as an EXPORTED
+# type in the Info.plist of the app that links the code, or the first access
+# faults at runtime:
+#
+#     "com.imbib.publication-id was expected to be exported in the Info.plist
+#      of <app>, but it was imported instead"
+#
+# Note "exported ... but it was imported instead": an `UTImportedTypeDeclarations`
+# entry does NOT satisfy this. Every host app that links the chassis exports
+# them, which is correct — they are drag payload identifiers, not documents
+# with a single owning application.
+#
+# These were previously pasted per app, so each app declared a different subset
+# and the set drifted: `manuscript-id`/`figure-id` were in all five,
+# `publication-id`/`sidebar-section-id` in imbib only, and six more
+# (`collection-id`, `library-id`, `inbox-feed-id`, `search-form-id`,
+# `scix-library-id`, `exploration-search-id`, `flag-color-id`,
+# `com.impress.artifact`) in none — so every app faulted on something.
+#
+# SOURCE OF TRUTH for this list:
+#   apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/SharedViews/MailStylePublicationRow.swift
+#   packages/ImpressKit/Sources/ImpressKit/ImpressUTTypes.swift
+# Adding a `UTType(exportedAs:)` there means adding it here.
+# `ChassisUTIDeclarationTests` fails the build if you forget.
+#
+# HOW IT IS APPLIED
+#
+# XcodeGen `include:` merges specs and CONCATENATES arrays, and target
+# templates merge the same way — so the block below appends to whatever
+# app-specific `UTExportedTypeDeclarations` a target already declares rather
+# than replacing it. Each project.yml does:
+#
+#     include:
+#       - path: ../chassis-utis.yml      # ../../ from apps/imbib/imbib
+#
+# and every target that links PublicationManagerCore does:
+#
+#     templates: [ChassisUTIs]
+#
+# App-specific types (paper-reference, document-reference, conversation-ref,
+# veusz-plot-reference, bibtex-entry, citation-key, the .imprint package type)
+# stay in their own project.yml — they differ per app and are not chassis-wide.
+
+targetTemplates:
+  ChassisUTIs:
+    info:
+      properties:
+        UTExportedTypeDeclarations:
+          # --- ImpressKit: the base type every impress artifact conforms to ---
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Artifact
+            UTTypeIdentifier: com.impress.artifact
+            UTTypeTagSpecification: {}
+
+          # --- PublicationManagerCore drag payloads (MailStylePublicationRow) ---
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Publication ID
+            UTTypeIdentifier: com.imbib.publication-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Collection ID
+            UTTypeIdentifier: com.imbib.collection-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Library ID
+            UTTypeIdentifier: com.imbib.library-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Inbox Feed ID
+            UTTypeIdentifier: com.imbib.inbox-feed-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Search Form ID
+            UTTypeIdentifier: com.imbib.search-form-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib SciX Library ID
+            UTTypeIdentifier: com.imbib.scix-library-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Sidebar Section ID
+            UTTypeIdentifier: com.imbib.sidebar-section-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Exploration Search ID
+            UTTypeIdentifier: com.imbib.exploration-search-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Flag Color ID
+            UTTypeIdentifier: com.imbib.flag-color-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: imbib Manuscript ID
+            UTTypeIdentifier: com.imbib.manuscript-id
+            UTTypeTagSpecification: {}
+          - UTTypeConformsTo:
+              - public.data
+            UTTypeDescription: Impress Figure ID
+            UTTypeIdentifier: com.impress.figure-id
+            UTTypeTagSpecification: {}

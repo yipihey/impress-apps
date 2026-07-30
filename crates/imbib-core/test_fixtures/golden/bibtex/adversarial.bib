@@ -1,0 +1,97 @@
+% Adversarial BibTeX corpus for the Swift->Rust parser port (Stage 7 item 2).
+% Every construct here was chosen because the Swift BibTeXParser handled it
+% explicitly. Captured Swift output lives in golden/bibtex_golden.json.
+
+@string{aap = "Astronomy \& Astrophysics"}
+@string{mnras = {Monthly Notices of the Royal Astronomical Society}}
+
+@preamble{"\newcommand{\noopsort}[1]{}"}
+
+@comment{This whole line is a comment and must not become an entry}
+
+@article{braces:title,
+  author = {Smith, John and Doe, Jane},
+  title = {The {DNA} of {{Very}} Deep {N}esting {and} {\LaTeX} braces},
+  journal = aap,
+  year = 2024,
+  pages = {1--10}
+}
+
+@article{quoted:with:braces,
+  author = "Ay{\c{c}}oberry, Emma",
+  title = "{A theoretical view of {inner} quotes}",
+  journal = mnras,
+  year = "2023"
+}
+
+@article{concat:macros,
+  title = aap # " and " # mnras,
+  month = jan # " 15",
+  year = 1999
+}
+
+@article{unicode:latex,
+  author = {M{\"u}ller, J{\"o}rg and {\'A}lvarez, Jos{\'e}},
+  title = {Na{\"\i}ve caf{\'e}s, {\ss}chnaps and 30\% na{\"\i}vet{\'e}},
+  note = {Straight unicode: Müller, Ångström, α β γ, 日本語},
+  year = {2020}
+}
+
+@article{bdsk:files,
+  author = {Reader, Ann},
+  title = {Entry with BibDesk file references},
+  year = {2021},
+  Bdsk-File-1 = {YnBsaXN0MDDUAQIDBAUGJCVYJHZlcnNpb25YJG9iamVjdHM=},
+  Bdsk-File-2 = {YnBsaXN0MDDUAQIDBAUGJCVYJHZlcnNpb25YJG9iamVjdHMy},
+  Bdsk-Url-1 = {https://example.org/paper.pdf},
+  date-added = {2021-03-04 11:22:33 +0000},
+  date-modified = {2021-03-05 09:10:11 +0000}
+}
+
+@proceedings{proc:parent,
+  title = {Proceedings of the Nth Conference},
+  booktitle = {Proceedings of the Nth Conference},
+  year = {2019},
+  publisher = {ACM},
+  editor = {Chair, Program}
+}
+
+@inproceedings{child:crossref,
+  author = {Junior, A.},
+  title = {A paper inheriting from its proceedings},
+  crossref = {proc:parent},
+  pages = {77--88}
+}
+
+@article{escapes:and:percent,
+  title = {Escaped \{braces\} and a literal 50\% and \$math\$},
+  note = {Backslash pair \\ then text},
+  year = {2018}
+}
+
+@misc{no:fields:trailing:comma,
+  title = {Trailing comma before close},
+}
+
+@ARTICLE{2024A&A...686A.276A,
+  author = {{Ay{\c{c}}oberry}, Emma and {Barthelemy}, Alexandre},
+  title = "{ADS cite key containing an ampersand}",
+  journal = {\aap},
+  year = 2024,
+  doi = {10.1051/0004-6361/202348170},
+  eprint = {2310.03548},
+  adsurl = {https://ui.adsabs.harvard.edu/abs/2024A&A...686A.276A}
+}
+
+@article(paren:delimited,
+  author = {Paren, Delim},
+  title = {Entry delimited by parentheses},
+  year = {2001}
+)
+
+@book{numeric:and:bare,
+  title = {Bare word and numeric values},
+  year = 2005,
+  edition = second,
+  volume = 12
+}

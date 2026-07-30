@@ -71,33 +71,44 @@ struct SectionContentView: View {
     /// Reading `viewModel.selectedTab` here establishes a direct @Observable
     /// dependency, so this view re-evaluates when the tab changes.
     private var resolvedRoute: ImbibContentRoute? {
-        // In manuscript-flag shells (imprint), the Flagged sidebar nodes list
-        // flagged MANUSCRIPTS — route them into the journal path before the
-        // publication-source resolution below can claim them.
+        // The two cross-kind sections. Their rows belong to whichever kind the
+        // PRESET binds them to (imprint's Flagged/Dismissed list manuscripts,
+        // imbib's list papers), so they resolve before the publication-source
+        // path below can claim them.
+        //
+        // Stage 3: the binding is read as a KIND rather than compared against
+        // `.manuscript`, so a shell that binds Flagged to figures or mail
+        // routes correctly with no edit here. Behaviour is identical for every
+        // shipped preset — only imprint binds these to a non-publication kind.
         if case .flagged(let colorRaw) = viewModel.selectedTab,
-           shellConfiguration.recordKind(for: .flagged) == .manuscript {
-            let color = colorRaw.flatMap { FlagColor(rawValue: $0) }
-            return .journal(.flagged(color))
+           let kind = shellConfiguration.recordKind(for: .flagged),
+           kind != .publication {
+            return .record(.flagged(kind, colorRaw))
         }
-        // Dismissed manuscripts (imprint) rather than imbib's dismissed papers.
         if case .dismissed = viewModel.selectedTab,
-           shellConfiguration.recordKind(for: .dismissed) == .manuscript {
-            return .journal(.status(.dismissed))
+           let kind = shellConfiguration.recordKind(for: .dismissed),
+           kind != .publication,
+           // The kind's OWN dismissed status, declared once in its descriptor
+           // (`.statusChange(dismissed:restoreTo:)`) — this was the literal
+           // `.journal(.status(.dismissed))`.
+           let dismissed = BuiltinRecordKinds.registry[kind]?.triage.dismissedStatus {
+            return .record(.status(kind, dismissed))
         }
         if case .customSurface(let surfaceID) = viewModel.selectedTab {
             return .customSurface(surfaceID)
         }
-        if let journalRoute = viewModel.selectedTab?.journalRoute {
-            return .journal(journalRoute)
-        }
-        if let figureRoute = viewModel.selectedTab?.figureRoute {
-            return .figures(figureRoute)
-        }
-        if let mailRoute = viewModel.selectedTab?.mailRoute {
-            return .mail(mailRoute)
-        }
-        if let agentRoute = viewModel.selectedTab?.agentRoute {
-            return .agents(agentRoute)
+        // Record-kind tabs pass straight through: the tab already carries the
+        // kind and the scope, so there is nothing per-kind left to unwrap.
+        // This replaced four `if let xxxRoute = selectedTab?.xxxRoute` probes.
+        switch viewModel.selectedTab {
+        case .record(let route):
+            return .record(route)
+        case .recordDetail(let kind, let recordID):
+            return .recordDetail(kind, recordID)
+        case .auxiliary(let auxiliaryRoute):
+            return .auxiliary(auxiliaryRoute)
+        default:
+            break
         }
 
         switch viewModel.selectedTab {
@@ -225,22 +236,10 @@ struct SectionContentView: View {
             return nil
         case .customSurface:
             return nil
-        case .journalAll, .journalByStatus, .journalSubmissions, .manuscript, .manuscriptFolder:
-            // Journal pipeline tabs are NOT publication sources. They route
-            // to ManuscriptDetailView / SubmissionsInboxView via a separate
-            // dispatch path (added in Track 5/6 of Phase 2).
-            return nil
-        case .figuresAll, .figuresUnfiled, .figureFolder:
-            // Figures tabs route to FigureSectionView (Stage 2-B) — not
-            // publication sources.
-            return nil
-        case .mailAllInboxes, .mailAccount, .mailFolder:
-            // Mail tabs route to MessageSectionView (Stage 2-A) — not
-            // publication sources.
-            return nil
-        case .agentTasks, .agentRuns, .agentTasksByState:
-            // Agents tabs route to AgentSectionView (Stage 2-C) — not
-            // publication sources.
+        case .record, .recordDetail, .auxiliary:
+            // Record-kind tabs are NOT publication sources — they route
+            // through `recordSection` / `recordDetailView` / `auxiliaryView`.
+            // (Four per-kind arms before Stage 3.)
             return nil
         case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
@@ -275,13 +274,8 @@ struct SectionContentView: View {
             return nil
         case .customSurface:
             return nil
-        case .journalAll, .journalByStatus, .journalSubmissions, .manuscript, .manuscriptFolder:
-            return nil
-        case .figuresAll, .figuresUnfiled, .figureFolder:
-            return nil
-        case .mailAllInboxes, .mailAccount, .mailFolder:
-            return nil
-        case .agentTasks, .agentRuns, .agentTasksByState:
+        case .record, .recordDetail, .auxiliary:
+            // Record-kind tabs have no owning publication library.
             return nil
         case .searchForm, .scixLibrary, .addFeed, .addLibraryFeed, .editFeed, nil:
             return nil
@@ -349,18 +343,19 @@ struct SectionContentView: View {
     // MARK: - Body
 
     var body: some View {
-        // Journal pipeline tabs (per ADR-0011 D8) bypass the publication
-        // HSplitView and render full-bleed in the content area.
+        // Record-kind routes bypass the publication HSplitView and render
+        // full-bleed in the content area (they own their own list|detail
+        // split). Stage 3: ONE arm for every kind — this switch had four
+        // (.journal/.figures/.mail/.agents) that differed only in which
+        // per-kind dispatcher they called.
         if let route = resolvedRoute {
             switch route {
-            case .journal(let journalRoute):
-                journalView(journalRoute)
-            case .figures(let figureRoute):
-                figuresView(figureRoute)
-            case .mail(let mailRoute):
-                mailView(mailRoute)
-            case .agents(let agentRoute):
-                agentsView(agentRoute)
+            case .record(let recordRoute):
+                recordSection(recordRoute)
+            case .recordDetail(let kind, let recordID):
+                recordDetailView(kind: kind, recordID: recordID)
+            case .auxiliary(let auxiliaryRoute):
+                auxiliaryView(auxiliaryRoute)
             case .customSurface(let surfaceID):
                 // WP-X0: app-owned surface, FULL-PANE — no list/detail split,
                 // no detail toolbar cluster; only the sidebar toggle applies.
@@ -374,138 +369,63 @@ struct SectionContentView: View {
         }
     }
 
-    /// Dispatch journal-pipeline sidebar selections to the right detail view.
+    /// THE record-kind sink (Stage 3). Every kind's list|detail section is
+    /// resolved here, from a kind id and a chassis scope — replacing
+    /// `journalView`/`figuresView`/`mailView`/`agentsView` (four near-identical
+    /// per-kind dispatchers, 18 arms) and their four one-line
+    /// `xxxSection(scope:)` helpers.
+    ///
+    /// ONE deliberate exception, matrix-tracked and unchanged: MANUSCRIPTS are
+    /// constructed directly rather than registry-resolved, because
+    /// `ManuscriptSectionView` owns the editor session and that must stay
+    /// host-owned (imbib CLAUDE.md invariant; asserted by
+    /// `RecordViewerRegistryTests`, which pins manuscripts as unregistered).
+    /// It is an exception about ONE kind's view ownership, not a per-kind
+    /// routing arm — a NEW kind still needs no edit here.
+    ///
+    /// `.id(scope)` on both paths is the mandated `.id(source.id)` rule: without
+    /// it, switching between two routes of the same shape (Drafts → Submitted,
+    /// folder → folder) reuses the cached view and its stale `@State`
+    /// selection. The registry factories carry their own, verbatim.
     @ViewBuilder
-    private func journalView(_ route: ImbibJournalRoute) -> some View {
+    private func recordSection(_ route: RecordRoute) -> some View {
+        if route.kind == .manuscript {
+            if let scope = ManuscriptListScope(routeScope: route.scope) {
+                ManuscriptSectionView(scope: scope).id(scope)
+            } else {
+                ChassisEmptyState.viewerUnavailable(kind: route.kind).view
+            }
+        } else if let factory = viewerRegistry[route.kind] {
+            // An unregistered kind degrades quietly the way an unknown custom
+            // surface does, rather than rendering nothing.
+            factory.makeSectionView(RecordSectionContext(scope: route.scope))
+        } else {
+            ChassisEmptyState.viewerUnavailable(kind: route.kind).view
+        }
+    }
+
+    /// One record, full-pane, no list — the deep-link shape (⌘F palette hit).
+    /// Manuscripts are the only kind with such a view today; the same
+    /// host-ownership exception as `recordSection` applies.
+    @ViewBuilder
+    private func recordDetailView(kind: RecordKindID, recordID: String) -> some View {
+        if kind == .manuscript {
+            ManuscriptDetailView(manuscriptID: recordID)
+                .ignoresSafeArea(.container, edges: .top)
+        } else {
+            ChassisEmptyState.viewerUnavailable(kind: kind).view
+        }
+    }
+
+    /// A non-record route the shell preset declares (`AuxiliaryRoute`).
+    @ViewBuilder
+    private func auxiliaryView(_ route: AuxiliaryRoute) -> some View {
         switch route {
-        case .submissions:
+        case .submissionsInbox:
             // Submissions stays full-bleed — it's a triage board, not an
             // item list (GUI-meld plan §5).
             SubmissionsInboxView()
-        case .all:
-            manuscriptSection(.all)
-        case .status(let status):
-            manuscriptSection(.status(status))
-        case .folder(let id):
-            if let uuid = UUID(uuidString: id) {
-                manuscriptSection(.folder(uuid))
-            } else {
-                manuscriptSection(.all)
-            }
-        case .flagged(let color):
-            manuscriptSection(.flagged(color))
-        case .manuscript(let id):
-            // Direct deep-link to one manuscript (e.g. from search): show it
-            // in the standard detail pane without a list.
-            ManuscriptDetailView(manuscriptID: id)
-                .ignoresSafeArea(.container, edges: .top)
         }
-    }
-
-    /// One construction site for the manuscript list|detail split, with the
-    /// mandated `.id(scope)` (see imbib CLAUDE.md "The `.id(source.id)` rule"):
-    /// without it, switching between two journal routes of the same shape
-    /// (Drafts → Submitted, folder → folder) reuses the cached view and its
-    /// stale `@State` selection.
-    ///
-    /// Manuscripts stay on this legacy path deliberately (WP G3): the section
-    /// view owns the editor session, so it is NOT registry-resolved like the
-    /// newer kinds below (see RecordViewerRegistry's builtin comment).
-    private func manuscriptSection(_ scope: ManuscriptListScope) -> some View {
-        ManuscriptSectionView(scope: scope).id(scope)
-    }
-
-    /// Resolve a kind's section view through the registry (ADR-0022 D4).
-    /// The factory reproduces the former construction site verbatim,
-    /// `.id(scope)` included; an unregistered kind degrades quietly the way
-    /// an unknown custom surface does, rather than rendering nothing.
-    @ViewBuilder
-    private func registrySection(_ kind: RecordKindID, scope: some RecordScopeKey) -> some View {
-        if let factory = viewerRegistry[kind] {
-            factory.makeSectionView(RecordSectionContext(scope: scope))
-        } else {
-            ContentUnavailableView(
-                "Viewer Unavailable",
-                systemImage: "questionmark.square.dashed",
-                description: Text("No registered viewer for \u{201C}\(kind.rawValue)\u{201D}.")
-            )
-        }
-    }
-
-    /// Dispatch Figures-section sidebar selections (Stage 2-B) — follows the
-    /// journalView/manuscriptSection pattern exactly.
-    @ViewBuilder
-    private func figuresView(_ route: FigureRoute) -> some View {
-        switch route {
-        case .all:
-            figureSection(.all)
-        case .unfiled:
-            figureSection(.unfiled)
-        case .folder(let id):
-            if let uuid = UUID(uuidString: id) {
-                figureSection(.folder(uuid))
-            } else {
-                figureSection(.all)
-            }
-        case .flagged(let color):
-            figureSection(.flagged(color))
-        }
-    }
-
-    /// One construction site for the figure list|detail split — resolved
-    /// through the RecordViewerRegistry (ADR-0022 D4).
-    private func figureSection(_ scope: FigureListScope) -> some View {
-        registrySection(.figure, scope: scope)
-    }
-
-    /// Dispatch Mail-section sidebar selections (Stage 2-A) — follows the
-    /// figuresView/figureSection pattern exactly.
-    @ViewBuilder
-    private func mailView(_ route: MailRoute) -> some View {
-        switch route {
-        case .allInboxes:
-            messageSection(.allInboxes)
-        case .account(let id):
-            if let uuid = UUID(uuidString: id) {
-                messageSection(.account(uuid))
-            } else {
-                messageSection(.allInboxes)
-            }
-        case .folder(let id):
-            if let uuid = UUID(uuidString: id) {
-                messageSection(.folder(uuid))
-            } else {
-                messageSection(.allInboxes)
-            }
-        }
-    }
-
-    /// One construction site for the mail list|detail split — resolved
-    /// through the RecordViewerRegistry (ADR-0022 D4).
-    private func messageSection(_ scope: MessageListScope) -> some View {
-        registrySection(.message, scope: scope)
-    }
-
-    /// Dispatch Agents-section sidebar selections (Stage 2-C) — follows the
-    /// mailView/messageSection pattern exactly.
-    @ViewBuilder
-    private func agentsView(_ route: AgentRoute) -> some View {
-        switch route {
-        case .tasks:
-            agentSection(.tasks)
-        case .runs:
-            agentSection(.runs)
-        case .tasksByState(let state):
-            agentSection(.tasksByState(state))
-        }
-    }
-
-    /// One construction site for the agents list|detail split — resolved
-    /// through the RecordViewerRegistry (ADR-0022 D4). Tasks and runs are
-    /// separate record kinds sharing one section view, so the scope picks the
-    /// registry key.
-    private func agentSection(_ scope: AgentListScope) -> some View {
-        registrySection(scope.isRunScope ? .agentRun : .task, scope: scope)
     }
 
     @ViewBuilder
@@ -645,7 +565,7 @@ struct SectionContentView: View {
             // ⌘F palette manuscript hit (GUI-meld §Search): select the
             // Manuscripts section and deep-link to the manuscript detail.
             guard let idString = notification.userInfo?["manuscriptID"] as? String else { return }
-            viewModel.selectedTab = .manuscript(idString)
+            viewModel.selectedTab = .recordDetail(.manuscript, idString)
         }
         .onReceive(NotificationCenter.default.publisher(for: .smartSearchAddDidComplete)) { notification in
             // After Cmd+S → "Add Selected" lands papers, navigate to the
@@ -717,11 +637,7 @@ struct SectionContentView: View {
             surface.makeView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ContentUnavailableView(
-                "Surface Unavailable",
-                systemImage: "questionmark.square.dashed",
-                description: Text("No registered surface named \u{201C}\(surfaceID)\u{201D}.")
-            )
+            ChassisEmptyState.surfaceUnavailable(id: surfaceID).view
         }
     }
 
@@ -767,19 +683,9 @@ struct SectionContentView: View {
             // Unreachable: the body dispatch renders custom surfaces
             // full-pane before the split is ever constructed.
             EmptyView()
-        case .journal:
-            EmptyView()
-        case .figures:
-            // Unreachable: the body dispatch renders the figure section
-            // before the split is ever constructed.
-            EmptyView()
-        case .mail:
-            // Unreachable: the body dispatch renders the mail section
-            // before the split is ever constructed.
-            EmptyView()
-        case .agents:
-            // Unreachable: the body dispatch renders the agents section
-            // before the split is ever constructed.
+        case .record, .recordDetail, .auxiliary:
+            // Unreachable: the body dispatch renders record-kind sections
+            // (which own their own split) before this split is constructed.
             EmptyView()
         }
     }
@@ -789,17 +695,9 @@ struct SectionContentView: View {
     @ViewBuilder
     private var placeholderView: some View {
         if viewModel.selectedTab == .inbox {
-            ContentUnavailableView(
-                "Inbox Empty",
-                systemImage: "tray",
-                description: Text("Add feeds to start discovering papers")
-            )
+            ChassisEmptyState.inboxEmpty.view
         } else {
-            ContentUnavailableView(
-                "No Selection",
-                systemImage: "sidebar.left",
-                description: Text("Select an item from the sidebar")
-            )
+            ChassisEmptyState.noSidebarSelection.view
         }
     }
 
@@ -856,11 +754,7 @@ struct SectionContentView: View {
 
     @ViewBuilder
     private var searchResultsView: some View {
-        ContentUnavailableView(
-            "Search Results",
-            systemImage: "magnifyingglass",
-            description: Text("Results appear in the Exploration section of the sidebar.")
-        )
+        ChassisEmptyState.searchResultsElsewhere.view
     }
 
     // MARK: - Detail View
@@ -886,12 +780,8 @@ struct SectionContentView: View {
                   ) {
             detail
         } else {
-            ContentUnavailableView(
-                "No Selection",
-                systemImage: isArtifactContent ? "archivebox" : "doc.text",
-                description: Text(isArtifactContent ? "Select an artifact to view details" : "Select a publication to view details")
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ChassisEmptyState.noRowSelection(isArtifact: isArtifactContent).view
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

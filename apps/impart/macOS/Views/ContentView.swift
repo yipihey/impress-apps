@@ -10,6 +10,7 @@ import ImpressKeyboard
 import ImpressKit
 import ImpressSpotlight
 import MessageManagerCore
+import PublicationManagerCore
 import SwiftUI
 
 // MARK: - Content View
@@ -201,25 +202,40 @@ struct ContentView: View {
             }
         }
 
-        // Handle vim-style navigation (no modifiers)
+        // Handle the shared single-key grammar (ImpressKeyboard's TriageKeyGrammar
+        // — the one catalog) plus impart's app-local single keys.
         // Skip when composing; text field focus is handled by .keyboardGuarded
         if press.modifiers.isEmpty && !appState.isComposing {
-            switch press.characters {
-            case "j":
+            switch TriageKeyGrammar.command(forCharacters: press.characters) {
+            case .navigateDown:
                 navigateToNextMessage()
                 return .handled
-            case "k":
+            case .navigateUp:
                 navigateToPreviousMessage()
                 return .handled
-            case "h":
+            case .focusPaneLeft:
                 cycleFocusLeft()
                 return .handled
-            case "l":
+            case .focusPaneRight:
                 cycleFocusRight()
                 return .handled
-            case "d":
+            case .dismissOrRestore:
                 dismissSelectedMessages()
                 return .handled
+            case .toggleStar:
+                // Divergence, deliberately NOT remapped here: the shared catalog
+                // binds `s` to toggleStar, but impart has always bound `s` to
+                // Save and ⇧S to Star. Fall through to the app-local switch so
+                // the keystroke keeps its impart meaning; reconciling the two is
+                // a product remap, not a vocabulary move.
+                break
+            case .create, .open, .focusFilter, nil:
+                // Not in impart's single-key vocabulary — fall through.
+                break
+            }
+
+            // impart-local single keys (no shared-catalog command for these yet).
+            switch press.characters {
             case "s":
                 saveSelectedMessages()
                 return .handled
@@ -826,44 +842,57 @@ struct ComposeView: View {
 // MARK: - Settings View
 
 /// Application settings.
+///
+/// Stage 6 phase 2 (declarative chassis): the six tabs are declared as
+/// `AppSettingsConfiguration.impart` in PublicationManagerCore; this struct is the
+/// scene host and `ImpartSettingsSections` below holds the factories. The panes
+/// themselves are untouched.
 struct SettingsView: View {
     var body: some View {
-        TabView {
-            AccountsSettingsView()
-                .tabItem {
-                    Label("Accounts", systemImage: "person.crop.circle")
-                }
-
-            AISettingsTab()
-                .tabItem {
-                    Label("AI", systemImage: "brain.head.profile")
-                }
-
-            GeneralSettingsView()
-                .tabItem {
-                    Label("General", systemImage: "gearshape")
-                }
-
-            KeyboardSettingsView()
-                .tabItem {
-                    Label("Keyboard", systemImage: "keyboard")
-                }
-
-            AutomationSettingsView()
-                .tabItem {
-                    Label("Automation", systemImage: "terminal")
-                }
-
-            Form {
-                SpotlightSettingsSection()
-            }
-            .formStyle(.grouped)
-            .tabItem {
-                Label("Spotlight", systemImage: "magnifyingglass")
-            }
-        }
-        .frame(width: 550, height: 500)
+        // `.fixed`: impart shipped `.frame(width: 550, height: 500)`, a pinned
+        // size rather than a floor.
+        MacSettingsSceneContent.fixed(
+            configuration: .impart, width: 550, height: 500)
+            .environment(\.settingsSectionRegistry, ImpartSettingsSections.registry)
     }
+}
+
+// MARK: - Settings factories
+
+/// impart's settings registrations.
+///
+/// **Spotlight becomes the chassis builtin** — impart's tab body was the same
+/// `Form { SpotlightSettingsSection() }.formStyle(.grouped)` wrapper implore and
+/// imprint had each written independently, which is precisely the "no app should
+/// author this for itself" bar a builtin has to clear.
+///
+/// **Two hand-rolled clones of shared components are left in place on purpose,
+/// and both are recorded rather than silently migrated:**
+///
+///  * `GeneralSettingsView`'s appearance `Picker` duplicates
+///    `ImpressTheme.AppearanceSettingsSection` over the same `appearanceMode` key
+///    with the same three `system`/`light`/`dark` tags. It is not swapped for the
+///    `appearance` BUILTIN because it is not a whole tab — it is one of two
+///    pickers inside General, and promoting it would move a control between tabs.
+///  * `AutomationSettingsView` duplicates `ImpressAutomation.AutomationSettingsSection`
+///    but has NO `logRequests` row. Swapping in the shared section would ADD a
+///    control to a surface the migration promises not to change.
+///
+/// Both are real alignments and both are phase-3 product decisions. The value of
+/// the reframe here is that they are now stated next to the declaration instead of
+/// being invisible in a `TabView` body.
+enum ImpartSettingsSections {
+
+    static let factories: [SettingsSectionFactory] = [
+        SettingsSectionFactory(section: .accounts) { AccountsSettingsView() },
+        SettingsSectionFactory(section: .ai) { AISettingsTab() },
+        SettingsSectionFactory(section: .general) { GeneralSettingsView() },
+        SettingsSectionFactory(section: .keyboard) { KeyboardSettingsView() },
+        SettingsSectionFactory(section: .automation) { AutomationSettingsView() },
+    ]
+
+    static let registry: SettingsSectionRegistry =
+        SettingsSectionRegistry.builtin.composing(factories)
 }
 
 struct AccountsSettingsView: View {

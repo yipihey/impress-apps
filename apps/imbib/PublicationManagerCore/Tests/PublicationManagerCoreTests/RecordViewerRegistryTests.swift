@@ -78,13 +78,19 @@ final class RecordViewerRegistryTests: XCTestCase {
         XCTAssertNotNil(registry[kind])
     }
 
-    /// A factory handed a scope it doesn't own degrades instead of trapping
-    /// (the type-erased scope is the registry's only unchecked edge).
+    /// A factory handed a scope it doesn't own degrades instead of trapping.
+    ///
+    /// Stage 3: the context carries the CHASSIS scope (`RecordSidebarScope`)
+    /// and each kind rebuilds its own, so "a scope it doesn't own" is now a
+    /// scope naming a different KIND — which is what the sink actually hands
+    /// over. The nil half is the load-bearing half.
     @MainActor
     func testSectionContextTypedScopeAccessor() {
-        let context = RecordSectionContext(scope: FigureListScope.all)
+        let context = RecordSectionContext(scope: .all(.figure))
         XCTAssertEqual(context.scope(as: FigureListScope.self), .all)
         XCTAssertNil(context.scope(as: MessageListScope.self))
+        XCTAssertNil(context.scope(as: ManuscriptListScope.self))
+        XCTAssertNil(context.scope(as: AgentListScope.self))
     }
 
     // MARK: - KindTaggedRow projections

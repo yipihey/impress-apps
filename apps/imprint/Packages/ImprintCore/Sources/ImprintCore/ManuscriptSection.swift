@@ -107,7 +107,16 @@ extension ManuscriptSection {
     /// the payload. Downstream code must check `contentHash` and
     /// replace `body` with the on-disk contents when needed.
     public init?(row: SharedItemRow) {
-        guard row.schemaRef == "manuscript-section@1.0.0" else { return nil }
+        // `manuscript-section`, NOT `manuscript-section@1.0.0`: the store
+        // matches `schema_ref` by EXACT EQUALITY (impress-core sql_query.rs)
+        // and every writer spells it bare — ImprintStoreAdapter.syncSections
+        // and Rust `SectionStore::put_section` (SECTION_SCHEMA_REF). The
+        // versioned spelling made this initialiser reject every real row, so
+        // the outline, /api/manuscripts/{id}/sections and cross-document
+        // search were structurally empty regardless of data. The `@1.0.0` in
+        // the schema's *documentation* is the schema's version field, never
+        // part of the ref. See schema-refs.json.
+        guard row.schemaRef == "manuscript-section" else { return nil }
         guard let itemID = UUID(uuidString: row.id) else { return nil }
 
         guard let payloadData = row.payloadJson.data(using: .utf8),

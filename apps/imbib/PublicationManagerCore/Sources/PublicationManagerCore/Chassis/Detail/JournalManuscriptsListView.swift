@@ -1,5 +1,7 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): plain SwiftUI list +
+// NavigationStack. The one macOS-only reference is the push DESTINATION
+// (`ManuscriptDetailView`, AppKit-adjacent), which is a small `#if` island
+// below — iOS omits the affordance rather than offering a dead row.
 //
 //  JournalManuscriptsListView.swift
 //  imbib
@@ -51,9 +53,15 @@ struct JournalManuscriptsListView: View {
                 content
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // macOS-only ISLAND: the push destination is `ManuscriptDetailView`,
+            // an AppKit-adjacent chassis view (NSWorkspace reveal/open). iOS
+            // gets the list without the push — the same "omit the affordance
+            // rather than offer a dead one" rule `RecordTriageNewTagPrompt` set.
+            #if os(macOS)
             .navigationDestination(for: String.self) { manuscriptID in
                 ManuscriptDetailView(manuscriptID: manuscriptID)
             }
+            #endif
         }
         .task(id: statusFilter) { await reload() }
         .onReceive(NotificationCenter.default.publisher(for: .manuscriptDidChange)) { _ in
@@ -108,9 +116,15 @@ struct JournalManuscriptsListView: View {
                     }
                 }
                 ForEach(manuscripts) { m in
+                    // Paired with the `.navigationDestination` island above: no
+                    // destination on iOS, so no link either.
+                    #if os(macOS)
                     NavigationLink(value: m.id) {
                         manuscriptRow(m)
                     }
+                    #else
+                    manuscriptRow(m)
+                    #endif
                 }
             }
             .listStyle(.inset)
@@ -203,4 +217,3 @@ struct JournalManuscriptsListView: View {
         }
     }
 }
-#endif

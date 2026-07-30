@@ -47,7 +47,9 @@ public struct CitationUsageRecord: Sendable, Equatable, Identifiable {
 #if canImport(ImpressRustCore)
 extension CitationUsageRecord {
     public init?(row: SharedItemRow) {
-        guard row.schemaRef == "citation-usage@1.0.0" else { return nil }
+        // Bare `citation-usage`: the store matches `schema_ref` by exact
+        // equality and ImprintStoreAdapter writes it bare. See schema-refs.json.
+        guard row.schemaRef == "citation-usage" else { return nil }
         guard let itemID = UUID(uuidString: row.id) else { return nil }
         guard let data = row.payloadJson.data(using: .utf8),
               let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]

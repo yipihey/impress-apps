@@ -113,7 +113,7 @@ final class RecordKindDescriptorTests: XCTestCase {
     }
 
     func testManuscriptStatusesMatchSwiftEnumPlusConventions() {
-        let declared = Set(ManuscriptRecordKind.descriptor.triage.statuses)
+        let declared = Set(ManuscriptRecordKind.descriptor.triage.statusValues)
         let fromEnum = Set(JournalManuscriptStatus.allCases.map(\.rawValue))
         XCTAssertEqual(
             declared, fromEnum,

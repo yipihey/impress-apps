@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a display-ready value
+// snapshot of a figure row. No view, no AppKit.
 //
 //  FigureRowData.swift
 //  PublicationManagerCore
@@ -94,4 +94,3 @@ extension FigureRowData: MailStyleItem {
     public var hasSecondaryAttachment: Bool { false }
     public var yearText: String? { nil }
 }
-#endif

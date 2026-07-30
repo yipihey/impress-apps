@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a `FocusedValueKey`
+// declaration — pure SwiftUI focus plumbing.
 //
 //  FocusedManuscript.swift
 //  PublicationManagerCore
@@ -23,4 +23,3 @@ public extension FocusedValues {
         set { self[FocusedManuscriptIDKey.self] = newValue }
     }
 }
-#endif

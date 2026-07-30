@@ -19,6 +19,24 @@ struct ImprintIOSApp: App {
     /// State for handling incoming URLs
     @State private var pendingURL: URL?
 
+    /// The appearance preference the (Stage 6) settings screen writes.
+    ///
+    /// macOS applies this through `AppearanceModifier` in
+    /// `Shared/ImprintApp.swift`, which is `#if os(macOS)` end to end — so iOS
+    /// had no application of the key at all. Reading it here is what keeps the
+    /// new Appearance pane from being a control that does nothing: the key,
+    /// `appearanceMode`, and its three values (`system`/`light`/`dark`) are the
+    /// ones macOS has always used, so the preference is shared, not parallel.
+    @AppStorage("appearanceMode") private var appearanceMode = "system"
+
+    private var preferredColorScheme: ColorScheme? {
+        switch appearanceMode {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
+
     init() {
         // Citation seam. WITHOUT THIS, `ManuscriptCompileController`
         // .assembleBibliography finds no `citationSearch` and returns nil, so
@@ -64,13 +82,30 @@ struct ImprintIOSApp: App {
             _ = RustStoreAdapter.shared.importBibTeX(Self.seedBibTeX, libraryId: library.id)
         }
 
-        try? ManuscriptStoreAdapter.shared.createManuscript(
+        let adapter = ManuscriptStoreAdapter.shared
+        try? adapter.createManuscript(
             title: "Citation Long Press Fixture",
             format: .typst,
             body: Self.seedManuscriptBody,
             authors: ["Test Author"]
         )
+
+        // TAGS. `RecordTriageActions.availableTagPaths` offers the paths
+        // already in use, so an untagged store shows no Tags submenu at all —
+        // the seed has to put some there or the submenu is untestable and its
+        // absence is indistinguishable from the bug it used to have (a hard
+        // `{ [] }` provider). Two paths, one nested, because the submenu
+        // renders full paths and nesting is the case worth seeing.
+        let tagged = adapter.allManuscripts(limit: 0).map(\.id)
+        if !tagged.isEmpty {
+            for path in Self.seedTagPaths {
+                adapter.addTag(ids: tagged, tagPath: path)
+            }
+        }
     }
+
+    /// Tag paths for the seeded store — see `seedUITestDataIfNeeded`.
+    private static let seedTagPaths = ["methods/simulations", "reading/priority"]
 
     /// One resolvable key (`Einstein1905`) — long-pressing it must show the
     /// paper — and one that is deliberately absent (`Missing2099`), so the
@@ -116,6 +151,7 @@ struct ImprintIOSApp: App {
             // shake-to-undo needs.
             IOSManuscriptLibraryView()
                 .undoEnabled()
+                .preferredColorScheme(preferredColorScheme)
         }
     }
 }

@@ -7,6 +7,7 @@
 
 import Foundation
 import ImpressAutomation
+import ImpressKit
 import OSLog
 
 private let automationLogger = Logger(subsystem: "com.imbib.app", category: "automation")
@@ -26,7 +27,7 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
     /// Whether the HTTP server is enabled for browser extension integration
     public var isHTTPServerEnabled: Bool
 
-    /// Port number for the HTTP server (default: 23120)
+    /// Port number for the HTTP server (default: `SiblingApp.imbib.httpPort`)
     public var httpServerPort: UInt16
 
     /// Opt-in: accept non-loopback peers (the user's tailnet) on the HTTP
@@ -43,14 +44,14 @@ public struct AutomationSettings: Codable, Equatable, Sendable {
         isEnabled: true,
         logRequests: true,
         isHTTPServerEnabled: true,
-        httpServerPort: 23120
+        httpServerPort: SiblingApp.imbib.httpPort
     )
 
     public init(
         isEnabled: Bool = true,
         logRequests: Bool = true,
         isHTTPServerEnabled: Bool = true,
-        httpServerPort: UInt16 = 23120,
+        httpServerPort: UInt16 = SiblingApp.imbib.httpPort,
         allowNetworkAccess: Bool = false,
         networkAuthToken: String? = nil
     ) {

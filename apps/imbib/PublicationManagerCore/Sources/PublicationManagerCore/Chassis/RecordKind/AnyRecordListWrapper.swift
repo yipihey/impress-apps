@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): the mixed-kind list
+// wrapper over `KindTaggedRow` — plain SwiftUI `List`, no AppKit.
 //
 //  AnyRecordListWrapper.swift
 //  PublicationManagerCore
@@ -217,4 +217,3 @@ public struct AnyRecordListWrapper: View {
         })
     }
 }
-#endif

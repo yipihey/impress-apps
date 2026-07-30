@@ -251,7 +251,15 @@ The `AwaitHumanResponse` hint integrates the task system with the attention rout
 
 The imbib enrichment pipeline is the concrete forcing function for the task infrastructure. It exercises every mechanism in this ADR and serves as the integration test for the impress-core / impel boundary.
 
-**Trigger:** A new item with `schema_ref: "bibliography-entry@1.0.0"` appears in the item store.
+**Trigger:** A new item with `schema_ref: "imbib/bibliography-entry"` appears in the item store.
+
+> **Correction (2026-07-29).** This ADR originally specified the trigger as
+> `bibliography-entry@1.0.0`, and the implementation copied it verbatim. No
+> writer has ever emitted that spelling — imbib writes
+> `imbib/bibliography-entry` — and because the store matches `schema_ref` by
+> exact equality, the spawn rule matched zero rows and the enrichment pipeline
+> never spawned a single task. The spelling above is now the one imbib actually
+> writes; `schema-refs.json` is the source of truth for every ref.
 
 **Task DAG created by impel:**
 
@@ -322,7 +330,7 @@ pub trait SpawnRule: Send + Sync {
 }
 ```
 
-The imbib enrichment spawn rule implements `SpawnRule` with `trigger_schema() = "bibliography-entry@1.0.0"` and `spawn()` returning the five-task DAG described in Section 9, with appropriate `DependsOn` edges.
+The imbib enrichment spawn rule implements `SpawnRule` with `trigger_schema() = "imbib/bibliography-entry"` (see the §9 correction note) and `spawn()` returning the five-task DAG described in Section 9, with appropriate `DependsOn` edges.
 
 **Why not declarative items in Phase 3.** ADR-0003 Decision 4 argued for declarative spawn rules to make pipelines inspectable and editable without code changes. This is the right long-term goal. However, the imbib enrichment pipeline has non-trivial conditional logic: whether `abstract-extract` is needed depends on whether metadata-resolve succeeded and found an abstract; whether `keyword-tag` emits low-confidence tags depends on a runtime LLM score. Expressing this in a declarative format requires a query or rule language that does not yet exist in the codebase. Writing Rust now and migrating to declarative items in Phase 4+ is a smaller risk than designing a rule language whose expressiveness requirements are not yet fully known.
 

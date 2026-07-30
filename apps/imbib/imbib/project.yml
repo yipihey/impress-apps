@@ -1,4 +1,11 @@
 name: imbib
+
+# Chassis UTIs (`ChassisUTIs` target template) — the types
+# PublicationManagerCore/ImpressKit build with `UTType(exportedAs:)`. Declared
+# once for the whole suite; see the header of that file.
+include:
+  - path: ../../chassis-utis.yml
+
 options:
   bundleIdPrefix: com.impress
   deploymentTarget:
@@ -63,6 +70,7 @@ targets:
   imbib:
     type: application
     platform: macOS
+    templates: [ChassisUTIs]
     postBuildScripts:
       # Debug macOS builds install a fresh copy into ~/Applications so Spotlight
       # always launches the latest build (not a stale DerivedData/Archive copy).
@@ -148,16 +156,10 @@ targets:
           - impel
           - impart
         UTExportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: imbib Publication ID
-            UTTypeIdentifier: com.imbib.publication-id
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: imbib Sidebar Section ID
-            UTTypeIdentifier: com.imbib.sidebar-section-id
-            UTTypeTagSpecification: {}
+          # The chassis drag types (publication-id, sidebar-section-id,
+          # manuscript-id, figure-id and the rest) come from the ChassisUTIs
+          # template (apps/chassis-utis.yml) and are appended to this list at
+          # generate time. Only imbib-specific types belong here.
           - UTTypeConformsTo:
               - public.data
             UTTypeDescription: Impress Paper Reference
@@ -174,21 +176,6 @@ targets:
               - public.plain-text
             UTTypeDescription: Citation Key
             UTTypeIdentifier: com.impress.citation-key
-            UTTypeTagSpecification: {}
-          # Chassis drag types (PublicationManagerCore, MailStylePublicationRow).
-          # EXPORTED in every host app that links the chassis, not imported:
-          # the chassis builds them with UTType(exportedAs:), and an imported
-          # declaration still faults ("was expected to be exported in the
-          # Info.plist of <app>, but it was imported instead").
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: imbib Manuscript ID
-            UTTypeIdentifier: com.imbib.manuscript-id
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Figure ID
-            UTTypeIdentifier: com.impress.figure-id
             UTTypeTagSpecification: {}
     settings:
       base:
@@ -227,6 +214,7 @@ targets:
   imbib-iOS:
     type: application
     platform: iOS
+    templates: [ChassisUTIs]
     sources:
       - path: imbib-iOS
         excludes:
@@ -237,13 +225,11 @@ targets:
           # and APIs removed during the Rust migration. Excluded until
           # they're rewritten to the value-type + RustStoreAdapter world.
           # Stub replacements live alongside as `*Stub.swift`.
-          # IOSSidebarView.swift REVIVED 2026-07-20 — full navigation ported
-          # to id-based SidebarSection + RustStoreAdapter value types
-          # (listLibraries/listCollections/listSmartSearches/getInboxLibrary/
-          # getScixLibrary). Edit ops lacking a store API (delete/rename/
-          # reorder collection, nested-collection create, delete smart search)
-          # degrade to logged no-ops. Its stub is excluded so the type is unique.
-          - "Views/IOSSidebarViewStub.swift"
+          # IOSSidebarView.swift + its stub DELETED 2026-07-30 (Stage 5a): the
+          # iOS sidebar is now PMC's shared `RecordSidebarView`, driven by
+          # `AppShellConfiguration.imbib`. See imbib-iOS/Views/IOSSidebarHost.swift
+          # (chrome) + ImbibSidebarBindings.swift (rows) — no exclude needed,
+          # because there is no second implementation left to exclude.
           # IOSPDFBrowserView.swift REVIVED — ported to id-based init +
           # RustStoreAdapter/PublicationModel (getPublicationDetail,
           # BrowserURLProviderRegistry, AttachmentManager keyed by UUIDs).
@@ -349,16 +335,8 @@ targets:
         UIBackgroundModes:
           - remote-notification
         UTExportedTypeDeclarations:
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: imbib Publication ID
-            UTTypeIdentifier: com.imbib.publication-id
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: imbib Sidebar Section ID
-            UTTypeIdentifier: com.imbib.sidebar-section-id
-            UTTypeTagSpecification: {}
+          # Chassis drag types come from the ChassisUTIs template
+          # (apps/chassis-utis.yml); only imbib-specific types belong here.
           - UTTypeConformsTo:
               - public.data
             UTTypeDescription: Impress Paper Reference

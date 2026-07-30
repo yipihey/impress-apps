@@ -17,7 +17,9 @@ pub mod parser;
 pub use entry::{BibTeXEntry, BibTeXEntryType, BibTeXField};
 
 // Re-export parser types and functions
-pub use parser::{parse, parse_entry, BibTeXParseError, BibTeXParseResult, ParseError};
+pub use parser::{
+    parse, parse_entry, parse_with_options, BibTeXParseError, BibTeXParseResult, ParseError,
+};
 
 // Re-export formatter functions
 pub use formatter::{format_entries, format_entry};

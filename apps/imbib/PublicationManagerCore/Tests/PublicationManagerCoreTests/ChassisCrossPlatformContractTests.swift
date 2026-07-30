@@ -90,9 +90,9 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
         XCTAssertEqual(restoreTo, "draft")
         XCTAssertEqual(triage.archiveStatus, "archived")
         XCTAssertEqual(triage.deletion, .confirmHard)
-        XCTAssertTrue(triage.statuses.contains("dismissed"))
-        XCTAssertTrue(triage.statuses.contains("archived"))
-        XCTAssertTrue(triage.statuses.contains("draft"))
+        XCTAssertTrue(triage.statusValues.contains("dismissed"))
+        XCTAssertTrue(triage.statusValues.contains("archived"))
+        XCTAssertTrue(triage.statusValues.contains("draft"))
     }
 
     func testManuscriptDescriptorDeclaresItsCollectionBinding() {
@@ -124,6 +124,68 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
         "Chassis/Shared/RecordSidebar/RecordTriageListRow.swift",
         "Files/SidebarSectionOrderStore.swift",
         "SharedViews/DetailTab.swift",
+
+        // MARK: Stage 2a — the declarative chassis goes cross-platform
+        //
+        // None of these ever imported AppKit; the gate was the historical
+        // GUI-meld Phase 1 header copied verbatim. Where a genuinely
+        // macOS-only symbol lived in one, it was SPLIT out (see the gated
+        // companions below) rather than the contract being re-gated.
+
+        // Record-kind machinery: the registry itself (iOS previously had NO
+        // registry type at all), the row-struct initializers, and the four
+        // per-kind list scopes.
+        "Chassis/RecordKind/RecordViewerRegistry.swift",
+        "Chassis/RecordKind/KindTaggedRow+RowData.swift",
+        "Chassis/RecordKind/RecordScopeKey+ListScopes.swift",
+        "Chassis/RecordKind/AnyRecordListWrapper.swift",
+
+        // Route / focus vocabulary.
+        "Chassis/TabSidebar/TabSidebarTypes.swift",
+        "Chassis/TabSidebar/FocusedPane.swift",
+        "Chassis/Manuscripts/FocusedManuscript.swift",
+        "Chassis/Shared/FindCoordinator.swift",
+
+        // Row snapshots — pure value types over store rows.
+        "Chassis/Manuscripts/ManuscriptRowData.swift",
+        "Chassis/Messages/MessageRowData.swift",
+        "Chassis/Figures/FigureRowData.swift",
+        "Chassis/Agents/AgentRowData.swift",
+
+        // Store readers. While these were gated iOS could not read mail,
+        // figures, tasks or agent runs from the shared store AT ALL.
+        "Chassis/Messages/MailStoreReader.swift",
+        "Chassis/Figures/FigureStoreReader.swift",
+        "Chassis/Agents/AgentStoreReader.swift",
+        "Chassis/Services/JournalEventBridge.swift",
+
+        // Plain-SwiftUI sections and sheets.
+        "Chassis/Shared/RelatedItemsSection.swift",
+        "Chassis/Detail/Tabs/CitedInManuscriptsSection.swift",
+        "Chassis/Detail/JournalManuscriptsListView.swift",
+        "Chassis/Detail/SubmissionsInboxView.swift",
+        "Chassis/Manuscripts/ManuscriptVersionsSection.swift",
+        "Chassis/Manuscripts/ManuscriptHistorySection.swift",
+        "Chassis/Manuscripts/MarkdownPreviewTab.swift",
+        "Chassis/SciX/SciXLibraryListView.swift",
+        "Chassis/SciX/SciXLibraryInfoSheet.swift",
+        "Chassis/SciX/SciXEditLibrarySheet.swift",
+
+        // The editor lifecycle seam. Buffer + cursor + debounced CAS save +
+        // conflict resolution + the session LRU; the AppKit lives in the
+        // editor VIEWS that consume a session, never here.
+        "Manuscript/Editor/ManuscriptEditorSession.swift",
+
+        // MARK: Stage 6 phase 1 — the shared settings surface
+        //
+        // Settings were authored per app AND per platform, with no shared
+        // frame; imprint-iOS shipped none at all, because "which panes does
+        // this app have" existed only as a macOS `TabView` body. These three
+        // are the declarative half — descriptor, registry, preset. The two
+        // RENDERERS are gated, one per platform (see the companion test).
+        "Chassis/Settings/SettingsSectionDescriptor.swift",
+        "Chassis/Settings/SettingsSectionRegistry.swift",
+        "Chassis/Settings/AppSettingsConfiguration.swift",
     ]
 
     func testContractFilesAreNotWrappedInAMacOSGate() throws {
@@ -151,8 +213,17 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
     /// is only worth anything if the macOS half really is separate.
     func testSplitOutPlatformFilesStayGated() throws {
         let gated = [
-            "Chassis/RecordKind/RecordScopeKey+MacScopes.swift",
-            "Chassis/RecordKind/KindTaggedRow+RowData.swift",
+            // The builtin viewer factories: each constructs an AppKit-adjacent
+            // chassis section view. The REGISTRY above is cross-platform.
+            "Chassis/RecordKind/RecordViewerRegistry+Builtin.swift",
+            // The markdown preview's `ManuscriptEditorSession` entry point.
+            "Chassis/Manuscripts/MarkdownPreviewTab+Session.swift",
+            // Stage 6 phase 1: the macOS settings RENDERER (tabbed
+            // `TabView`). Its iOS twin has its own gate, asserted in
+            // `SettingsSurfaceContractTests.testRenderersStayPlatformGated`
+            // along with this one — the declaration they both read is in the
+            // cross-platform list above.
+            "Chassis/Settings/MacSettingsSceneContent.swift",
         ]
         for relativePath in gated {
             let url = Self.sourcesRoot.appendingPathComponent(relativePath)

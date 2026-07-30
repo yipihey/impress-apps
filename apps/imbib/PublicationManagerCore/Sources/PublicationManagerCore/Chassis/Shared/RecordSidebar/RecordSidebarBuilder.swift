@@ -8,10 +8,12 @@
 //  Inputs are entirely declarative:
 //    * `AppShellConfiguration` — which sections exist in this shell, which
 //      record kind each one serves (`visibleSections`, `sectionBindings`,
-//      `passesFacetGate`), and which auxiliary routes it carries.
+//      `passesFacetGate`), which KINDS this host can present at all
+//      (`presentableKinds`), and which auxiliary routes it carries.
 //    * `RecordKindDescriptor` — whether the kind has a status lifecycle
-//      (`triage.statuses`), a dismissal status, flags, and a folder tree
-//      (`collection`).
+//      (`triage.statuses`, each carrying its own label + symbol), a dismissal
+//      status, flags, a plural name, and a folder tree (`collection`, carrying
+//      its own folder glyph).
 //    * `RecordSidebarDataSource` — the app's store, behind closures, because
 //      this folder must not import store types (ADR-0021 D3).
 //
@@ -22,6 +24,71 @@
 
 import Foundation
 import ImpressFTUI
+
+// MARK: - Host-resolved section content
+
+/// What a HOST contributes to one section, on top of what the section's role
+/// derives from the declarations.
+///
+/// The four roles (`primary`/`flagged`/`dismissed`/`opaque`) cover every
+/// section whose rows are a slice of ONE record kind. imbib is the shell that
+/// showed where that stops:
+///
+///   * `.opaque` yields exactly one row titled after the section. imbib's
+///     Search section is NINE rows (the search forms), SciX Libraries is one
+///     row per remote shelf, and Cited in Manuscripts' single row is titled
+///     "All Cited Papers", not "Cited in Manuscripts".
+///   * `.primary` yields "All <plural>" + status children + the kind's folder
+///     tree. imbib's Inbox is Recent + feeds + inbox collections, and its
+///     Libraries section is a tree of LIBRARIES each owning its own
+///     collections — the publication kind deliberately declares no
+///     `CollectionCapability`, because "the folder tree of publications" is
+///     not a thing that exists once collections are per-library.
+///
+/// The alternative was a second sidebar view, which is the drift ADR-0021
+/// exists to prevent, or app-id/section-name literals inside the builder,
+/// which is the drift ADR-0022 exists to prevent. So the SHAPE stays
+/// declarative — which sections exist, in what order, with what title, icon
+/// and gates, all from the preset — and the ROWS of a section the host
+/// resolves come from the host, through the same closure seam its folders and
+/// counts already do.
+///
+/// Every field is optional-shaped: returning `RecordSidebarSectionContent()`
+/// changes nothing.
+public struct RecordSidebarSectionContent: Sendable {
+
+    /// Rows for the section. nil = keep the role-derived rows (imbib returns
+    /// nil for Flagged and Dismissed, which the declarations already get right).
+    public var nodes: [RecordSidebarNode]?
+
+    /// Make the section HEADER a selectable destination (see
+    /// `RecordSidebarSectionModel.headerScope`).
+    public var headerScope: RecordSidebarScope?
+
+    /// Override the descriptor-derived organise gate. nil = the kind's
+    /// `CollectionCapability.canOrganize`.
+    ///
+    /// A host that resolves its own folder rows also owns the answer to
+    /// "are these organisable", because the kind may declare no collection
+    /// binding at all (imbib's publications) and still have real folders.
+    public var canOrganizeFolders: Bool?
+
+    /// Whether the header offers root-folder creation. nil = follow
+    /// `canOrganizeFolders`.
+    public var offersRootFolderCreation: Bool?
+
+    public init(
+        nodes: [RecordSidebarNode]? = nil,
+        headerScope: RecordSidebarScope? = nil,
+        canOrganizeFolders: Bool? = nil,
+        offersRootFolderCreation: Bool? = nil
+    ) {
+        self.nodes = nodes
+        self.headerScope = headerScope
+        self.canOrganizeFolders = canOrganizeFolders
+        self.offersRootFolderCreation = offersRootFolderCreation
+    }
+}
 
 // MARK: - Data source
 
@@ -49,18 +116,27 @@ public struct RecordSidebarDataSource {
     /// section returns false here rather than the preset lying about it.
     public var sectionIsAvailable: (SidebarSectionType) -> Bool
 
+    /// The host's contribution to a section (rows it resolves itself, a
+    /// selectable header, its own organise gate). nil = the section is fully
+    /// derived from the declarations, which is what imprint returns for every
+    /// section it shows.
+    public var sectionContent: (SidebarSectionType, RecordKindID?) -> RecordSidebarSectionContent?
+
     public init(
         folders: @escaping (RecordKindID) -> [RecordFolder] = { _ in [] },
         folderCounts: @escaping (RecordKindID, [UUID]) -> [Int] = { _, ids in
             ids.map { _ in 0 }
         },
         count: @escaping (RecordSidebarScope) -> Int? = { _ in nil },
-        sectionIsAvailable: @escaping (SidebarSectionType) -> Bool = { _ in true }
+        sectionIsAvailable: @escaping (SidebarSectionType) -> Bool = { _ in true },
+        sectionContent: @escaping (SidebarSectionType, RecordKindID?)
+            -> RecordSidebarSectionContent? = { _, _ in nil }
     ) {
         self.folders = folders
         self.folderCounts = folderCounts
         self.count = count
         self.sectionIsAvailable = sectionIsAvailable
+        self.sectionContent = sectionContent
     }
 }
 
@@ -128,20 +204,49 @@ public enum RecordSidebarBuilder {
         let kindID = configuration.effectiveRecordKind(for: section)
         let descriptor = kindID.flatMap { configuration.recordKinds[$0] }
 
+        // The host's KIND capability. A shell whose build has no surface for
+        // this kind drops the section entirely — the declarative replacement
+        // for imprint-iOS's former `section != .citedInManuscripts` literal.
+        // Unbound sections fall through: they have no kind to be incapable of.
+        if let kindID, !configuration.canPresent(kindID) { return nil }
+
+        // What the HOST resolves for this section, if anything.
+        let hostContent = dataSource.sectionContent(section, kindID)
+
         guard let kindID, let descriptor else {
             // Unbound section (imbib's Review Queue: its rows have no
             // descriptor by design). One opaque row, host-rendered.
+            let nodes = hostContent?.nodes ?? [
+                RecordSidebarNode(
+                    scope: .section(section, nil),
+                    title: section.displayName,
+                    systemImage: section.icon)
+            ]
+            guard !nodes.isEmpty || hostContent?.headerScope != nil else { return nil }
             return RecordSidebarSectionModel(
                 section: section,
                 kind: nil,
                 role: .opaque,
-                nodes: [
-                    RecordSidebarNode(
-                        scope: .section(section, nil),
-                        title: section.displayName,
-                        systemImage: section.icon)
-                ],
-                canOrganizeFolders: false)
+                nodes: nodes,
+                canOrganizeFolders: hostContent?.canOrganizeFolders ?? false,
+                headerScope: hostContent?.headerScope,
+                offersRootFolderCreation: hostContent?.offersRootFolderCreation)
+        }
+
+        // Host rows WIN over the role-derived ones when supplied: the role
+        // still decides the section's chrome and semantics, the host only
+        // answers "which rows", which is the half a preset cannot know.
+        if let nodes = hostContent?.nodes {
+            guard !nodes.isEmpty || hostContent?.headerScope != nil else { return nil }
+            return RecordSidebarSectionModel(
+                section: section,
+                kind: kindID,
+                role: role,
+                nodes: nodes,
+                canOrganizeFolders: hostContent?.canOrganizeFolders
+                    ?? (descriptor.collection?.canOrganize ?? false),
+                headerScope: hostContent?.headerScope,
+                offersRootFolderCreation: hostContent?.offersRootFolderCreation)
         }
 
         let nodes: [RecordSidebarNode]
@@ -168,13 +273,16 @@ public enum RecordSidebarBuilder {
             ]
         }
 
-        guard !nodes.isEmpty else { return nil }
+        guard !nodes.isEmpty || hostContent?.headerScope != nil else { return nil }
         return RecordSidebarSectionModel(
             section: section,
             kind: kindID,
             role: role,
             nodes: nodes,
-            canOrganizeFolders: descriptor.collection?.canOrganize ?? false)
+            canOrganizeFolders: hostContent?.canOrganizeFolders
+                ?? (descriptor.collection?.canOrganize ?? false),
+            headerScope: hostContent?.headerScope,
+            offersRootFolderCreation: hostContent?.offersRootFolderCreation)
     }
 
     // MARK: Primary section
@@ -192,27 +300,29 @@ public enum RecordSidebarBuilder {
         var nodes: [RecordSidebarNode] = [
             RecordSidebarNode(
                 scope: .all(kind),
-                title: "All \(descriptor.displayName)s",
+                // DECLARED plural, not `displayName + "s"`: the concatenation
+                // was a latent wrong label for the first kind whose name does
+                // not take a bare `s`.
+                title: "All \(descriptor.pluralDisplayName)",
                 systemImage: section.icon,
                 count: dataSource.count(.all(kind)))
         ]
 
-        // Status smart-children, minus the dismissed one: that status owns
-        // the `.dismissed` SECTION, and listing it twice would give the same
-        // rows two homes.
-        let dismissedStatus: String? = {
-            if case .statusChange(let dismissed, _) = descriptor.triage.dismissal {
-                return dismissed
-            }
-            return nil
-        }()
-        for status in descriptor.triage.statuses where status != dismissedStatus {
-            let scope = RecordSidebarScope.status(kind, status)
+        // Status smart-children. `hiddenByDefault` is the declaration that
+        // keeps a status out of here; the dismissal status sets it, because it
+        // owns the `.dismissed` SECTION and listing it twice would give the
+        // same rows two homes. The dismissal semantics are ALSO consulted, so
+        // the two statements of that fact cannot silently disagree —
+        // `RecordKindStatusSpecTests` asserts they never do.
+        let dismissedStatus = descriptor.triage.dismissedStatus
+        for spec in descriptor.triage.statuses
+        where !spec.hiddenByDefault && spec.rawValue != dismissedStatus {
+            let scope = RecordSidebarScope.status(kind, spec.rawValue)
             nodes.append(
                 RecordSidebarNode(
                     scope: scope,
-                    title: RecordStatusPresentation.label(for: status),
-                    systemImage: RecordStatusPresentation.systemImage(for: status),
+                    title: spec.label,
+                    systemImage: spec.systemImage,
                     count: dataSource.count(scope)))
         }
 
@@ -228,7 +338,7 @@ public enum RecordSidebarBuilder {
         descriptor: RecordKindDescriptor,
         dataSource: RecordSidebarDataSource
     ) -> [RecordSidebarNode] {
-        guard descriptor.collection != nil else { return [] }
+        guard let collection = descriptor.collection else { return [] }
         let folders = dataSource.folders(kind)
         guard !folders.isEmpty else { return [] }
 
@@ -244,7 +354,10 @@ public enum RecordSidebarBuilder {
             return RecordSidebarNode(
                 scope: .folder(kind, folder.id),
                 title: folder.name,
-                systemImage: "folder",
+                // The kind's DECLARED folder glyph — a kind whose containers
+                // are not "folders" (mail's server mailboxes) says so in its
+                // `CollectionCapability` instead of this line growing a check.
+                systemImage: collection.folderSymbolName,
                 count: count > 0 ? count : nil,
                 children: folders.children(of: folder.id).map(build),
                 isFolder: true)

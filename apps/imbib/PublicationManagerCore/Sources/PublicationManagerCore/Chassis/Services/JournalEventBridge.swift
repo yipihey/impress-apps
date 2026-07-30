@@ -1,5 +1,6 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): Darwin-notification →
+// NotificationCenter bridging over ImpressKit. Darwin notifications are a
+// Foundation/CF capability, not an AppKit one.
 //
 //  JournalEventBridge.swift
 //  imbib
@@ -106,8 +107,17 @@ final class JournalEventBridge {
 // MARK: - Notification Names
 
 extension Notification.Name {
+    /// Posted by code paths that mutate journal manuscripts so detail views
+    /// can refresh without polling. Bridges Darwin notifications from
+    /// ImpressNotification.manuscriptStatusChanged into local NotificationCenter.
+    ///
+    /// Moved here from `ManuscriptDetailView.swift` (Stage 2a): the view is
+    /// AppKit-adjacent and stays gated, but the NAME is contract data that
+    /// cross-platform observers (this bridge, JournalManuscriptsListView)
+    /// need.
+    static let manuscriptDidChange = Notification.Name("imbib.manuscriptDidChange")
+
     /// Posted when ImpressNotification.manuscriptSnapshotCreated fires.
     /// userInfo includes ["resourceIDs"] = [manuscriptID, revisionID].
     static let manuscriptSnapshotDidLand = Notification.Name("imbib.manuscriptSnapshotDidLand")
 }
-#endif

@@ -18,6 +18,7 @@ public enum PublicationRecordKind {
         id: .publication,
         schemaRefs: ["imbib/bibliography-entry"],
         displayName: "Publication",
+        symbolName: "doc.text",
         detailTabs: [
             DetailTabSpec(.info),
             DetailTabSpec(.pdf),
@@ -44,6 +45,7 @@ public enum ManuscriptRecordKind {
         id: .manuscript,
         schemaRefs: ["manuscript"],
         displayName: "Manuscript",
+        symbolName: "doc.richtext",
         detailTabs: [
             DetailTabSpec(.info),
             DetailTabSpec(.source),
@@ -59,9 +61,31 @@ public enum ManuscriptRecordKind {
             dismissal: .statusChange(dismissed: "dismissed", restoreTo: "draft"),
             archiveStatus: "archived",
             deletion: .confirmHard,
+            // The lifecycle AND its presentation, transcribed exactly from the
+            // chassis's former private table (`RecordStatusPresentation.known`)
+            // and macOS's former sidebar literals — the labels are
+            // navigational ("Drafts", "Archive"), which is why they are not
+            // `JournalManuscriptStatus.displayName`'s singular badge spellings.
             statuses: [
-                "draft", "internal-review", "submitted", "in-revision",
-                "published", "archived", "dismissed",
+                StatusSpec("draft", label: "Drafts", systemImage: "pencil"),
+                StatusSpec(
+                    "internal-review", label: "Internal Review",
+                    systemImage: "person.2"),
+                StatusSpec("submitted", label: "Submitted", systemImage: "paperplane"),
+                StatusSpec(
+                    "in-revision", label: "In Revision",
+                    systemImage: "arrow.triangle.2.circlepath"),
+                StatusSpec(
+                    "published", label: "Published",
+                    systemImage: "checkmark.seal", isTerminal: true),
+                StatusSpec(
+                    "archived", label: "Archive",
+                    systemImage: "archivebox", isTerminal: true),
+                // Owns the Dismissed SECTION, so it is not also a smart child
+                // of the primary section.
+                StatusSpec(
+                    "dismissed", label: "Dismissed", systemImage: "xmark.circle",
+                    isTerminal: true, hiddenByDefault: true),
             ]
         ),
         creation: DocumentFormat.allCases.map {
@@ -85,6 +109,7 @@ public enum FigureRecordKind {
         id: .figure,
         schemaRefs: ["figure"],
         displayName: "Figure",
+        symbolName: "photo",
         detailTabs: [
             DetailTabSpec(.info),
             // The View tab (DetailTab.pdf relabeled) renders the CAS artifact.
@@ -125,6 +150,7 @@ public enum MessageRecordKind {
         id: .message,
         schemaRefs: ["email-message", "chat-message"],
         displayName: "Message",
+        symbolName: "envelope",
         detailTabs: [
             DetailTabSpec(.info),
             // The raw plain-text body (payload body is text after Stage 0).
@@ -161,6 +187,7 @@ public enum TaskRecordKind {
         // version suffix (task_store.rs TASK_SCHEMA).
         schemaRefs: ["task@1.0.0"],
         displayName: "Task",
+        symbolName: "checklist",
         detailTabs: [
             DetailTabSpec(.info),
             // The task description/prompt text, monospaced.
@@ -184,11 +211,37 @@ public enum TaskRecordKind {
             archiveStatus: nil,
             deletion: .none,
             // The kernel lifecycle lives in payload `state`, not the
-            // chassis's `status` machinery — declared empty on purpose.
+            // chassis's `status` machinery — declared empty on purpose, and
+            // declared for real below as a `lifecycle`.
             statuses: []
         ),
         creation: [],   // tasks are scheduled by impel-taskd/counsel, not `n`
-        defaultOpenBehavior: .detailPane
+        defaultOpenBehavior: .detailPane,
+        // The kernel task lifecycle (ADR-0015 D1): payload `state`, mutated
+        // ONLY by `TaskStoreApi.transition`. Declared here — with the labels
+        // and icons that used to be a `switch` plus a parallel array in
+        // `AgentStoreReader` — so the sidebar's per-state smart children, the
+        // list row's header and the detail pane's State row all read one
+        // declaration. Order is canonical pipeline order and IS the sidebar
+        // order.
+        lifecycle: RecordLifecycleSpec(
+            payloadField: "state",
+            states: [
+                StatusSpec("queued", label: "Queued", systemImage: "clock"),
+                StatusSpec("running", label: "Running", systemImage: "play.circle"),
+                StatusSpec(
+                    "waiting_review", label: "Waiting Review",
+                    systemImage: "person.crop.circle.badge.questionmark"),
+                StatusSpec(
+                    "completed", label: "Completed",
+                    systemImage: "checkmark.circle", isTerminal: true),
+                StatusSpec(
+                    "failed", label: "Failed",
+                    systemImage: "xmark.circle", isTerminal: true),
+                StatusSpec(
+                    "cancelled", label: "Cancelled",
+                    systemImage: "slash.circle", isTerminal: true),
+            ])
     )
 }
 
@@ -197,6 +250,7 @@ public enum AgentRunRecordKind {
         id: .agentRun,
         schemaRefs: ["agent-run@1.0.0"],
         displayName: "Agent Run",
+        symbolName: "bolt",
         detailTabs: [
             DetailTabSpec(.info),
             // The raw result_summary, monospaced.
@@ -218,14 +272,36 @@ public enum AgentRunRecordKind {
         ),
         creation: [],   // runs are recorded by the kernel, never by hand
         defaultOpenBehavior: .detailPane
+        // No `lifecycle` either: unlike a task, a run has no `state` field.
+        // `AgentRunPayload` is model/prompt_hash/result_summary/token_count —
+        // a run is a record OF a completed action, not a thing in progress.
     )
 }
 
 public enum ArtifactRecordKind {
+    /// The artifact DOMAIN, not one schema: impress-core registers eight
+    /// sibling schemas under an `impress/artifact/…` namespace (one per
+    /// artifact medium) and there is no umbrella `artifact` id.
+    ///
+    /// This descriptor declared `["artifact"]` from Stage 1 until 2026-07-29.
+    /// Nothing has ever written that ref, so the exact-equality lookups in
+    /// `RecordKindRegistry.descriptor(forSchemaRef:)` and the tolerant
+    /// `kind(forStoreSchemaRef:)` both missed EVERY artifact row: grouped
+    /// global search and the Related-items section bucketed all of them as
+    /// "unknown kind" with the `questionmark.square.dashed` glyph. The
+    /// schema-ref lint (`scripts/check-schema-refs.sh`) surfaced it as the
+    /// `artifact-descriptor-ref` divergence; this is the fix, so that
+    /// divergence entry is retired in the same change.
+    ///
+    /// Spellings copied from `schema-refs.json`, never from a sibling call
+    /// site (root CLAUDE.md, "Definition of done — schema refs"), and kept on
+    /// ONE line because the lint's `schemaRefs:` extraction is line-local — a
+    /// wrapped array would silently stop being validated.
     public static let descriptor = RecordKindDescriptor(
         id: .artifact,
-        schemaRefs: ["artifact"],
+        schemaRefs: ["impress/artifact/code", "impress/artifact/dataset", "impress/artifact/general", "impress/artifact/media", "impress/artifact/note", "impress/artifact/poster", "impress/artifact/presentation", "impress/artifact/webpage"],
         displayName: "Artifact",
+        symbolName: "archivebox",
         detailTabs: [DetailTabSpec(.info)],
         triage: TriageCapabilities(
             canStar: false,
@@ -261,5 +337,23 @@ public enum BuiltinRecordKinds {
     /// Descriptors that organise their records into sidebar folders.
     public static var collectionCapable: [RecordKindDescriptor] {
         all.filter { $0.collection != nil }
+    }
+
+    /// The kind whose folders a kernel binding organises — the reverse of
+    /// `CollectionCapability.bindingID`.
+    ///
+    /// Stage 3: sidebar folder nodes carry their BINDING (one node case for
+    /// every kind) rather than being one case per kind, so the two directions
+    /// of that mapping have to be resolvable from the declarations. A binding
+    /// no shipped kind claims resolves to nil, which is the honest answer.
+    public static func kind(forCollectionBindingID bindingID: String) -> RecordKindID? {
+        collectionCapable.first { $0.collection?.bindingID == bindingID }?.id
+    }
+
+    /// The capability behind a kernel binding id.
+    public static func collectionCapability(
+        forBindingID bindingID: String
+    ) -> CollectionCapability? {
+        collectionCapable.first { $0.collection?.bindingID == bindingID }?.collection
     }
 }

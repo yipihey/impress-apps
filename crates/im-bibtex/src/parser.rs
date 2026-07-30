@@ -35,6 +35,11 @@ pub struct BibTeXParseResult {
     pub entries: Vec<BibTeXEntry>,
     pub preambles: Vec<String>,
     pub strings: HashMap<String, String>,
+    /// `@comment{…}` bodies, in source order.
+    ///
+    /// Kept because a parse → serialise round trip must not silently delete a
+    /// user's comment blocks; the exporter re-emits them.
+    pub comments: Vec<String>,
     pub errors: Vec<BibTeXParseError>,
 }
 
@@ -53,14 +58,83 @@ pub enum ParseError {
     EncodingError,
 }
 
-/// Parse a BibTeX string
+/// Parser options.
+///
+/// The defaults mirror the behaviour of the Swift `BibTeXParser` this parser
+/// replaced (`expandMacros: true, resolveCrossrefs: true`), so the editor
+/// round-trip path and the import path cannot disagree. See
+/// `crates/imbib-core/tests/golden_parity.rs`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParseOptions {
+    /// Expand `@string` macros and the built-in month macros in field values.
+    pub expand_macros: bool,
+    /// Merge fields inherited through `crossref` into the referring entry.
+    pub resolve_crossrefs: bool,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self {
+            expand_macros: true,
+            resolve_crossrefs: true,
+        }
+    }
+}
+
+/// Built-in month macros, always available even without a `@string` definition.
+///
+/// BibTeX styles emit `month = sep` unquoted; without this table the value
+/// survives as the bare token `sep` and readers see a different month spelling
+/// than the one shown in the editor.
+const MONTH_MACROS: [(&str, &str); 12] = [
+    ("jan", "January"),
+    ("feb", "February"),
+    ("mar", "March"),
+    ("apr", "April"),
+    ("may", "May"),
+    ("jun", "June"),
+    ("jul", "July"),
+    ("aug", "August"),
+    ("sep", "September"),
+    ("oct", "October"),
+    ("nov", "November"),
+    ("dec", "December"),
+];
+
+/// Resolve a bare token to a macro value.
+///
+/// `@string` definitions win over the built-in months, and lookup is
+/// case-insensitive (`@string{Nature = ...}` is referenced as `nature`).
+fn lookup_macro(strings: &HashMap<String, String>, name: &str) -> Option<String> {
+    if let Some(value) = strings.get(name) {
+        return Some(value.clone());
+    }
+    let lowered = name.to_lowercase();
+    if let Some((_, value)) = strings.iter().find(|(k, _)| k.to_lowercase() == lowered) {
+        return Some(value.clone());
+    }
+    MONTH_MACROS
+        .iter()
+        .find(|(macro_name, _)| *macro_name == lowered)
+        .map(|(_, value)| (*value).to_string())
+}
+
+/// Parse a BibTeX string with the default options.
 pub fn parse(input: String) -> Result<BibTeXParseResult, ParseError> {
-    parse_bibtex(&input)
+    parse_bibtex(&input, ParseOptions::default())
+}
+
+/// Parse a BibTeX string with explicit options.
+pub fn parse_with_options(
+    input: String,
+    options: ParseOptions,
+) -> Result<BibTeXParseResult, ParseError> {
+    parse_bibtex(&input, options)
 }
 
 /// Parse a single BibTeX entry
 pub fn parse_entry(input: String) -> Result<BibTeXEntry, ParseError> {
-    let result = parse_bibtex(&input)?;
+    let result = parse_bibtex(&input, ParseOptions::default())?;
     result
         .entries
         .into_iter()
@@ -68,12 +142,39 @@ pub fn parse_entry(input: String) -> Result<BibTeXEntry, ParseError> {
         .ok_or(ParseError::InvalidSyntax)
 }
 
+/// Merge `crossref` parents into their children.
+///
+/// The child's own fields win and keep their original order; inherited fields
+/// are appended so round-trip serialisation stays stable.
+fn resolve_crossrefs(entries: &mut [BibTeXEntry]) {
+    let lookup: HashMap<String, Vec<crate::entry::BibTeXField>> = entries
+        .iter()
+        .map(|e| (e.cite_key.to_lowercase(), e.fields.clone()))
+        .collect();
+
+    for entry in entries.iter_mut() {
+        let Some(parent_key) = entry.get_field("crossref").map(|s| s.to_lowercase()) else {
+            continue;
+        };
+        let Some(parent_fields) = lookup.get(&parent_key) else {
+            continue;
+        };
+        let own: Vec<String> = entry.fields.iter().map(|f| f.key.to_lowercase()).collect();
+        for field in parent_fields {
+            if !own.contains(&field.key.to_lowercase()) {
+                entry.fields.push(field.clone());
+            }
+        }
+    }
+}
+
 /// Internal parsing function
-fn parse_bibtex(input: &str) -> Result<BibTeXParseResult, ParseError> {
+fn parse_bibtex(input: &str, options: ParseOptions) -> Result<BibTeXParseResult, ParseError> {
     let mut result = BibTeXParseResult {
         entries: Vec::new(),
         preambles: Vec::new(),
         strings: HashMap::new(),
+        comments: Vec::new(),
         errors: Vec::new(),
     };
 
@@ -92,7 +193,7 @@ fn parse_bibtex(input: &str) -> Result<BibTeXParseResult, ParseError> {
 
         // Try to parse an entry
         if remaining.starts_with('@') {
-            match parse_at_entry(remaining, &result.strings) {
+            match parse_at_entry(remaining, &result.strings, options) {
                 Ok((rest, entry_result)) => {
                     match entry_result {
                         AtEntry::Entry(mut entry) => {
@@ -107,7 +208,9 @@ fn parse_bibtex(input: &str) -> Result<BibTeXParseResult, ParseError> {
                         AtEntry::Preamble(text) => {
                             result.preambles.push(text);
                         }
-                        AtEntry::Comment => {}
+                        AtEntry::Comment(text) => {
+                            result.comments.push(text);
+                        }
                     }
                     remaining = rest;
                 }
@@ -136,6 +239,10 @@ fn parse_bibtex(input: &str) -> Result<BibTeXParseResult, ParseError> {
         }
     }
 
+    if options.resolve_crossrefs {
+        resolve_crossrefs(&mut result.entries);
+    }
+
     Ok(result)
 }
 
@@ -144,7 +251,7 @@ enum AtEntry {
     Entry(BibTeXEntry),
     String(String, String),
     Preamble(String),
-    Comment,
+    Comment(String),
 }
 
 /// Skip whitespace and comments, return remaining input and skipped text
@@ -172,6 +279,7 @@ fn skip_whitespace_and_comments(input: &str) -> (&str, &str) {
 fn parse_at_entry<'a>(
     input: &'a str,
     strings: &HashMap<String, String>,
+    options: ParseOptions,
 ) -> IResult<&'a str, AtEntry> {
     let (rest, _) = char('@')(input)?;
     let (rest, _) = multispace0(rest)?;
@@ -179,40 +287,49 @@ fn parse_at_entry<'a>(
 
     match entry_type.to_lowercase().as_str() {
         "string" => {
-            let (rest, (key, value)) = parse_string_definition(rest, strings)?;
+            let (rest, (key, value)) = parse_string_definition(rest, strings, options)?;
             Ok((rest, AtEntry::String(key, value)))
         }
         "preamble" => {
-            let (rest, text) = parse_preamble(rest, strings)?;
+            let (rest, text) = parse_preamble(rest, strings, options)?;
             Ok((rest, AtEntry::Preamble(text)))
         }
         "comment" => {
-            let (rest, _) = parse_comment_body(rest)?;
-            Ok((rest, AtEntry::Comment))
+            let (rest, text) = parse_comment_body(rest)?;
+            Ok((rest, AtEntry::Comment(text)))
         }
         _ => {
-            let (rest, entry) = parse_entry_body(rest, entry_type, strings)?;
+            let (rest, entry) = parse_entry_body(rest, entry_type, strings, options)?;
             Ok((rest, AtEntry::Entry(entry)))
         }
     }
+}
+
+/// Consume the opening delimiter of an `@…` body, returning the matching closer.
+///
+/// BibTeX allows `@article{…}` and `@article(…)` interchangeably; BibDesk and
+/// several reference managers emit the parenthesised form.
+fn open_delimiter(input: &str) -> IResult<&str, char> {
+    alt((map(char('{'), |_| '}'), map(char('('), |_| ')')))(input)
 }
 
 /// Parse a @string definition
 fn parse_string_definition<'a>(
     input: &'a str,
     strings: &HashMap<String, String>,
+    options: ParseOptions,
 ) -> IResult<&'a str, (String, String)> {
     let (rest, _) = multispace0(input)?;
-    let (rest, _) = char('{')(rest)?;
+    let (rest, closer) = open_delimiter(rest)?;
     let (rest, _) = multispace0(rest)?;
     let (rest, key) =
         take_while1(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-')(rest)?;
     let (rest, _) = multispace0(rest)?;
     let (rest, _) = char('=')(rest)?;
     let (rest, _) = multispace0(rest)?;
-    let (rest, value) = parse_field_value(rest, strings)?;
+    let (rest, value) = parse_field_value(rest, strings, options)?;
     let (rest, _) = multispace0(rest)?;
-    let (rest, _) = char('}')(rest)?;
+    let (rest, _) = char(closer)(rest)?;
 
     Ok((rest, (key.to_string(), value)))
 }
@@ -221,27 +338,28 @@ fn parse_string_definition<'a>(
 fn parse_preamble<'a>(
     input: &'a str,
     strings: &HashMap<String, String>,
+    options: ParseOptions,
 ) -> IResult<&'a str, String> {
     let (rest, _) = multispace0(input)?;
-    let (rest, _) = char('{')(rest)?;
+    let (rest, closer) = open_delimiter(rest)?;
     let (rest, _) = multispace0(rest)?;
-    let (rest, value) = parse_field_value(rest, strings)?;
+    let (rest, value) = parse_field_value(rest, strings, options)?;
     let (rest, _) = multispace0(rest)?;
-    let (rest, _) = char('}')(rest)?;
+    let (rest, _) = char(closer)(rest)?;
 
     Ok((rest, value))
 }
 
-/// Parse a @comment body (skip everything in braces or to end of line)
-fn parse_comment_body(input: &str) -> IResult<&str, ()> {
+/// Parse a @comment body — braced content, or the rest of the line.
+fn parse_comment_body(input: &str) -> IResult<&str, String> {
     let (rest, _) = multispace0(input)?;
     if rest.starts_with('{') {
-        let (rest, _) = parse_braced_content(rest)?;
-        Ok((rest, ()))
+        let (rest, content) = parse_braced_content(rest)?;
+        // Strip the outer braces, keeping the body verbatim.
+        Ok((rest, content[1..content.len() - 1].to_string()))
     } else {
-        // Skip to end of line
         let pos = rest.find('\n').unwrap_or(rest.len());
-        Ok((&rest[pos..], ()))
+        Ok((&rest[pos..], rest[..pos].to_string()))
     }
 }
 
@@ -250,25 +368,33 @@ fn parse_entry_body<'a>(
     input: &'a str,
     entry_type: &str,
     strings: &HashMap<String, String>,
+    options: ParseOptions,
 ) -> IResult<&'a str, BibTeXEntry> {
     let (rest, _) = multispace0(input)?;
-    let (rest, _) = char('{')(rest)?;
+    let (rest, closer) = open_delimiter(rest)?;
     let (rest, _) = multispace0(rest)?;
 
-    // Parse cite key — any non-whitespace character except comma and braces
-    // (ADS uses & in keys like "2024A&A...686A.276A")
+    // Parse cite key — any non-whitespace character except the field/entry
+    // punctuation (ADS uses & in keys like "2024A&A...686A.276A")
     let (rest, cite_key) =
-        take_while1(|c: char| !c.is_ascii_whitespace() && !",{}".contains(c))(rest)?;
+        take_while1(|c: char| !c.is_ascii_whitespace() && !",{}()=".contains(c))(rest)?;
     let (rest, _) = multispace0(rest)?;
+
+    let mut entry = BibTeXEntry::new(cite_key.to_string(), BibTeXEntryType::from_str(entry_type));
+
+    // An entry may legitimately carry no fields at all: `@misc{key}`.
+    if let Some(after) = rest.strip_prefix(closer) {
+        return Ok((after, entry));
+    }
+
     let (rest, _) = char(',')(rest)?;
 
     // Parse fields
-    let (rest, fields) = parse_fields(rest, strings)?;
+    let (rest, fields) = parse_fields(rest, strings, closer, options)?;
 
     let (rest, _) = multispace0(rest)?;
-    let (rest, _) = char('}')(rest)?;
+    let (rest, _) = char(closer)(rest)?;
 
-    let mut entry = BibTeXEntry::new(cite_key.to_string(), BibTeXEntryType::from_str(entry_type));
     for (key, value) in fields {
         entry.add_field(key, value);
     }
@@ -280,6 +406,8 @@ fn parse_entry_body<'a>(
 fn parse_fields<'a>(
     input: &'a str,
     strings: &HashMap<String, String>,
+    closer: char,
+    options: ParseOptions,
 ) -> IResult<&'a str, Vec<(String, String)>> {
     let mut fields = Vec::new();
     let mut remaining = input;
@@ -288,12 +416,12 @@ fn parse_fields<'a>(
         let (rest, _) = multispace0(remaining)?;
 
         // Check for end of entry
-        if rest.starts_with('}') {
+        if rest.starts_with(closer) {
             return Ok((rest, fields));
         }
 
         // Try to parse a field
-        match parse_single_field(rest, strings) {
+        match parse_single_field(rest, strings, options) {
             Ok((rest, (key, value))) => {
                 fields.push((key, value));
                 remaining = rest;
@@ -314,6 +442,7 @@ fn parse_fields<'a>(
 fn parse_single_field<'a>(
     input: &'a str,
     strings: &HashMap<String, String>,
+    options: ParseOptions,
 ) -> IResult<&'a str, (String, String)> {
     let (rest, _) = multispace0(input)?;
     let (rest, key) =
@@ -321,7 +450,7 @@ fn parse_single_field<'a>(
     let (rest, _) = multispace0(rest)?;
     let (rest, _) = char('=')(rest)?;
     let (rest, _) = multispace0(rest)?;
-    let (rest, value) = parse_field_value(rest, strings)?;
+    let (rest, value) = parse_field_value(rest, strings, options)?;
 
     Ok((rest, (key.to_string(), value)))
 }
@@ -330,6 +459,7 @@ fn parse_single_field<'a>(
 fn parse_field_value<'a>(
     input: &'a str,
     strings: &HashMap<String, String>,
+    options: ParseOptions,
 ) -> IResult<&'a str, String> {
     let mut result = String::new();
     let mut remaining = input;
@@ -346,8 +476,12 @@ fn parse_field_value<'a>(
             map(
                 take_while1(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
                 |s: &str| {
-                    // String reference
-                    strings.get(s).cloned().unwrap_or_else(|| s.to_string())
+                    // Bare token: a `@string` or built-in month macro reference.
+                    if options.expand_macros {
+                        lookup_macro(strings, s).unwrap_or_else(|| s.to_string())
+                    } else {
+                        s.to_string()
+                    }
                 },
             ),
         ))(rest)?;
@@ -395,10 +529,7 @@ fn parse_braced_content(input: &str) -> IResult<&str, &str> {
                     return Ok((&input[pos + 1..], &input[..pos + 1]));
                 }
             }
-            b'\\' => {
-                // Skip escaped character
-                pos += 1;
-            }
+            b'\\' => pos += skip_escape(bytes, pos),
             _ => {}
         }
         pos += 1;
@@ -410,6 +541,24 @@ fn parse_braced_content(input: &str) -> IResult<&str, &str> {
     )))
 }
 
+/// Extra bytes to consume for the escape sequence starting at `pos`.
+///
+/// `\{` escapes one brace. Real-world `.bib` files (and BibDesk exports) also
+/// contain `\\{ … \\}` where the brace is *still* meant literally — treating it
+/// as structural leaves the entry permanently unbalanced and the whole record
+/// is dropped. One such value (`N\\{z\}` in an abstract) silently cost an entry
+/// out of a 374-entry bibliography before this was handled.
+fn skip_escape(bytes: &[u8], pos: usize) -> usize {
+    debug_assert_eq!(bytes[pos], b'\\');
+    // Always consume the escaped character.
+    let mut extra = 1;
+    if bytes.get(pos + 1) == Some(&b'\\') && matches!(bytes.get(pos + 2), Some(&b'{') | Some(&b'}'))
+    {
+        extra += 1;
+    }
+    extra
+}
+
 /// Parse a quoted value "content"
 fn parse_quoted_value(input: &str) -> IResult<&str, String> {
     if !input.starts_with('"') {
@@ -419,37 +568,25 @@ fn parse_quoted_value(input: &str) -> IResult<&str, String> {
         )));
     }
 
-    let mut result = String::new();
-    let mut brace_depth = 0;
-    let mut chars = input.char_indices();
-    chars.next(); // Skip opening quote
+    let bytes = input.as_bytes();
+    let mut brace_depth: i32 = 0;
+    let mut pos = 1; // skip the opening quote
 
-    while let Some((pos, c)) = chars.next() {
-        match c {
-            '"' if brace_depth == 0 => {
-                return Ok((&input[pos + 1..], result));
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b'"' if brace_depth == 0 => {
+                return Ok((&input[pos + 1..], input[1..pos].to_string()));
             }
-            '{' => {
-                brace_depth += 1;
-                result.push('{');
-            }
-            '}' => {
+            b'{' => brace_depth += 1,
+            b'}' => {
                 if brace_depth > 0 {
                     brace_depth -= 1;
                 }
-                result.push('}');
             }
-            '\\' => {
-                // Handle escape sequences
-                result.push('\\');
-                if let Some((_, escaped)) = chars.next() {
-                    result.push(escaped);
-                }
-            }
-            c => {
-                result.push(c);
-            }
+            b'\\' => pos += skip_escape(bytes, pos),
+            _ => {}
         }
+        pos += 1;
     }
 
     Err(nom::Err::Error(nom::error::Error::new(

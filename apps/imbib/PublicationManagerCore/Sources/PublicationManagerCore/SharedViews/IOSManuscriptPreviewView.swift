@@ -17,7 +17,6 @@
 
 #if os(iOS)
 import SwiftUI
-import MarkdownUI
 
 public struct IOSManuscriptPreviewView: View {
 
@@ -55,7 +54,9 @@ public struct IOSManuscriptPreviewView: View {
                 compilationError: compilationError
             )
         case .renderedMarkdown:
-            IOSMarkdownPreviewView(source: source)
+            // The chassis's markdown preview, unmodified — the same view macOS
+            // shows in its Preview tab. There is no iOS-specific copy.
+            MarkdownSourcePreview(source: source)
         case .none:
             ContentUnavailableView(
                 "No Preview",
@@ -68,26 +69,9 @@ public struct IOSManuscriptPreviewView: View {
     }
 }
 
-/// Live Markdown render of the editor buffer — the iOS twin of the chassis's
-/// (macOS-only) `MarkdownPreviewTab`. No compile step, no artifact: the source
-/// is the input, so it re-renders as the user types.
-public struct IOSMarkdownPreviewView: View {
-    let source: String
-
-    public init(source: String) {
-        self.source = source
-    }
-
-    public var body: some View {
-        ScrollView {
-            Markdown(source)
-                .markdownTheme(.gitHub)
-                .textSelection(.enabled)
-                .frame(maxWidth: 720, alignment: .leading)
-                .padding(20)
-                .frame(maxWidth: .infinity)
-        }
-        .background(Color(.systemBackground))
-    }
-}
+// `IOSMarkdownPreviewView` used to live here: a copy of the chassis markdown
+// preview that differed only in its background colour and 4pt of padding. The
+// colour became `Color.platformTextBackground` (ImpressTheme) and the chassis
+// view lost its `#if os(macOS)` gate, so the copy was deleted — this file now
+// calls `MarkdownSourcePreview` directly. One markdown renderer, two platforms.
 #endif

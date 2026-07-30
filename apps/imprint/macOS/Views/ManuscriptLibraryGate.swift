@@ -2,6 +2,18 @@
 //  ManuscriptLibraryGate.swift
 //  imprint
 //
+//  Stage 4a (declarative-chassis campaign): the `ManuscriptLibraryGate` view
+//  that named this file was deleted. It was the `#else` arm of the
+//  `project-browser` scene in Shared/ImprintApp.swift — but that whole file is
+//  `#if os(macOS)` end-to-end, and the iOS target compiles `Shared` +
+//  `imprint-iOS` only (never `macOS/`), so the arm was compiled by no target.
+//  iOS ships `IOSManuscriptLibraryView` from its own `@main`
+//  (imprint-iOS/ImprintIOSApp.swift); macOS lands on `ImprintChassisRoot`.
+//
+//  `ManuscriptWorkspaceLoader` below is LIVE and stays — ImprintApp's launch
+//  sequence gates four store-touching tasks on it. The filename is now a
+//  misnomer; renaming it is left to a follow-up so this stays a pure deletion.
+//
 //  Opens the shared manuscript store OFF the main thread so app launch never
 //  blocks on it. `ManuscriptStoreAdapter.shared` opens the App Group store,
 //  which on macOS can raise a "wants to access data from other apps" TCC prompt
@@ -54,39 +66,5 @@ final class ManuscriptWorkspaceLoader {
         let pending = continuations
         continuations.removeAll()
         pending.forEach { $0.resume() }
-    }
-}
-
-/// Gate for the project-browser window: shows a lightweight loading state until
-/// the shared store is open, then the real library. `ManuscriptLibraryView` is
-/// only constructed once ready, so its `= ManuscriptStoreAdapter.shared` stored
-/// property never blocks the main thread.
-struct ManuscriptLibraryGate: View {
-    private let loader = ManuscriptWorkspaceLoader.shared
-
-    var body: some View {
-        Group {
-            if loader.isReady {
-                ManuscriptLibraryView()
-            } else {
-                loadingView
-                    .onAppear { loader.begin() }
-            }
-        }
-    }
-
-    private var loadingView: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Opening workspace…")
-                .font(.headline)
-            Text("If macOS asks to allow access to data from other apps, click Allow.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

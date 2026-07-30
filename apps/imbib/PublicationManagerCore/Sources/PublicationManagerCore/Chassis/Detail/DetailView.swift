@@ -158,11 +158,9 @@ struct DetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        #if os(iOS)
-        // iOS: Show paper title in navigation bar
-        .navigationTitle(paper.title)
-        #endif
-        // macOS: No navigation title - clean Apple Mail/Notes style
+        // macOS: No navigation title - clean Apple Mail/Notes style.
+        // (A dead `#if os(iOS)` .navigationTitle branch lived here — unreachable
+        // since the whole file is `#if os(macOS)`. Removed Stage 2a.)
         .task(id: publicationID) {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
@@ -217,20 +215,22 @@ struct DetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showNextDetailTab)) { _ in
             cycleTab(direction: 1)
         }
-        // Vim-style h/l for global pane focus cycling
+        // Vim-style h/l for global pane focus cycling — routed through the one
+        // shared single-key catalog (TriageKeyGrammar) rather than hardcoded here.
         .focusable()
         .keyboardGuarded { press in
-            // h key: cycle pane focus left
-            if press.characters == "h" {
+            switch TriageKeyGrammar.command(forCharacters: press.characters) {
+            case .focusPaneLeft:
                 NotificationCenter.default.post(name: .cycleFocusLeft, object: nil)
                 return .handled
-            }
-            // l key: cycle pane focus right
-            if press.characters == "l" {
+            case .focusPaneRight:
                 NotificationCenter.default.post(name: .cycleFocusRight, object: nil)
                 return .handled
+            default:
+                // Every other catalog command is row-scoped and belongs to the
+                // list pane, not the detail pane: let it bubble.
+                return .ignored
             }
-            return .ignored
         }
         // File drop support - allows dropping files to attach them to the publication
         .modifier(FileDropModifier(
@@ -266,30 +266,43 @@ struct DetailView: View {
 
     // MARK: - Tab Cycling
 
-    /// Cycle through detail tabs (h/l vim keys)
-    /// Order: info → pdf → notes → bibtex → info...
+    /// The publication kind's tabs, for THIS paper.
+    ///
+    /// `PublicationRecordKind.descriptor` declares the order
+    /// (info → pdf → notes → bibtex) and the availability rule for Notes
+    /// (`isEditable`), which is the same pair of facts this file used to state
+    /// as a literal array plus a hand-written skip. The descriptor's
+    /// `DetailTabSpec`/`coercedTab` machinery had view-side consumers for
+    /// manuscripts, messages, figures and agent runs — publications, the kind
+    /// it was modelled on, were the ones still hardcoding it.
+    private var availableTabs: [DetailTab] {
+        PublicationRecordKind.descriptor.availableTabs(for: tabContext)
+    }
+
+    private var tabContext: RecordTabContext {
+        RecordTabContext(isEditable: canEdit)
+    }
+
+    /// Cycle through detail tabs (h/l vim keys).
+    ///
+    /// Order and membership come from the descriptor, so a tab that is not
+    /// available for this paper is simply not in the ring — the old code
+    /// carried Notes in the array and then stepped over it with a second copy
+    /// of the wrap-around arithmetic, which is where an "unreachable" tab or a
+    /// double-skip hides.
     private func cycleTab(direction: Int) {
-        let tabs: [DetailTab] = [.info, .pdf, .notes, .bibtex]
-        guard let currentIndex = tabs.firstIndex(of: selectedTab) else { return }
-
-        var newIndex = currentIndex + direction
-        if newIndex < 0 {
-            newIndex = tabs.count - 1
-        } else if newIndex >= tabs.count {
-            newIndex = 0
+        let tabs = availableTabs
+        guard !tabs.isEmpty else { return }
+        guard let currentIndex = tabs.firstIndex(of: selectedTab) else {
+            // The selected tab is not valid for this paper (a persisted tab, a
+            // paper that just lost editability): land on the descriptor's
+            // coercion instead of doing nothing.
+            selectedTab = PublicationRecordKind.descriptor.coercedTab(
+                selectedTab, for: tabContext)
+            return
         }
-
-        // Skip notes tab if not editable (non-library papers)
-        if tabs[newIndex] == .notes && !canEdit {
-            newIndex = newIndex + direction
-            if newIndex < 0 {
-                newIndex = tabs.count - 1
-            } else if newIndex >= tabs.count {
-                newIndex = 0
-            }
-        }
-
-        selectedTab = tabs[newIndex]
+        let count = tabs.count
+        selectedTab = tabs[((currentIndex + direction) % count + count) % count]
     }
 
     // MARK: - Navigation Subtitle

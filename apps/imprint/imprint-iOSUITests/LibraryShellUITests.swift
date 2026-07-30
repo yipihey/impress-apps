@@ -176,3 +176,102 @@ final class LibraryShellUITests: XCTestCase {
         capture("context-menu")
     }
 }
+
+// MARK: - Seeded shell
+
+/// The descriptor-driven shell against a HERMETIC store.
+///
+/// `LibraryShellUITests` above runs on whatever is already on the device, which
+/// is why half its assertions can skip. This class launches with
+/// `--ui-testing --uitesting-seed`, so both adapters are in-memory and
+/// `ImprintIOSApp.seedUITestDataIfNeeded` has put a tagged manuscript there —
+/// which makes two things testable that were not:
+///
+///  * the sidebar's STATUS ROWS, whose labels and symbols moved from three
+///    hardcoded places onto `StatusSpec`. They come from the DESCRIPTOR, not
+///    from data, so they must appear in full on an almost-empty store.
+///  * the TAGS SUBMENU, which `ManuscriptStoreAdapter.listTags()` now
+///    populates. It was structurally absent before (`availableTagPaths` was a
+///    hard `{ [] }`), and an empty store cannot tell the difference between
+///    "hidden because empty" and "hidden because unimplemented".
+final class SeededLibraryShellUITests: XCTestCase {
+
+    private var app: XCUIApplication!
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--uitesting-seed"]
+        app.launch()
+    }
+
+    override func tearDown() {
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    @discardableResult
+    private func capture(_ name: String) -> XCUIScreenshot {
+        let shot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("imprint-shot-\(name).png")
+        try? shot.pngRepresentation.write(to: url)
+        return shot
+    }
+
+    private var firstRowTitle: XCUIElement? {
+        let titles = app.staticTexts
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'manuscriptRow.'"))
+        guard titles.count > 0 else { return nil }
+        return titles.element(boundBy: 0)
+    }
+
+    /// The status rows are the DESCRIPTOR's, so they exist on a fresh store.
+    /// Their labels are the frozen `StatusSpec` labels — the same strings
+    /// `RecordKindStatusSpecTests` pins on the unit side, seen by a user.
+    func testSidebarStatusRowsComeFromTheDescriptor() throws {
+        XCTAssertTrue(app.staticTexts["Manuscripts"].waitForExistence(timeout: 30),
+                      "the Manuscripts section header comes from AppShellConfiguration")
+        // iOS shows every declared status except the dismissed one, which owns
+        // the Dismissed section (`StatusSpec.hiddenByDefault`).
+        for label in ["All Manuscripts", "Drafts", "Internal Review", "Submitted",
+                      "In Revision", "Published", "Archive"] {
+            XCTAssertTrue(app.staticTexts[label].exists,
+                          "sidebar is missing the declared status row “\(label)”")
+        }
+        XCTAssertTrue(app.staticTexts["Flagged"].exists)
+        // The host capability's visible effect: `.citedInManuscripts` lists
+        // PUBLICATIONS and imprint-iOS declares `presenting([.manuscript])`,
+        // so the section must be absent — the assertion that replaced a
+        // hardcoded `section != .citedInManuscripts`.
+        XCTAssertFalse(
+            app.staticTexts["Cited in Manuscripts"].exists,
+            "a host that cannot present publications must not offer a "
+                + "publication-bound section")
+        capture("seeded-sidebar-status-rows")
+    }
+
+    /// The Tags submenu, populated from `listTags()`.
+    func testLongPressOffersPopulatedTagsSubmenu() throws {
+        guard let row = firstRowTitle, row.waitForExistence(timeout: 30) else {
+            throw XCTSkip("seeding failed — no manuscript rows, so this proves nothing")
+        }
+        row.press(forDuration: 1.5)
+        let tags = app.buttons["Tags"].firstMatch
+        let tagsMenu = tags.exists ? tags : app.otherElements["Tags"].firstMatch
+        XCTAssertTrue(tagsMenu.waitForExistence(timeout: 5),
+                      "the Tags submenu must exist once availableTagPaths is non-empty")
+        capture("seeded-context-menu")
+        tagsMenu.tap()
+        sleep(1)
+        capture("seeded-tags-submenu")
+        for path in ["methods/simulations", "reading/priority"] {
+            XCTAssertTrue(app.buttons[path].waitForExistence(timeout: 5),
+                          "the Tags submenu must offer the seeded tag path “\(path)”")
+        }
+    }
+}

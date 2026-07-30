@@ -49,8 +49,10 @@ public actor CitationUsageReader {
         StoreTimings.shared.measure("CitationUsageReader.listAll") {
             guard let store = handle() else { return [] }
             do {
+                // Bare `citation-usage`: exact-equality match against what
+                // imprint's ImprintStoreAdapter writes. See schema-refs.json.
                 let rows = try store.queryBySchema(
-                    schemaRef: "citation-usage@1.0.0",
+                    schemaRef: "citation-usage",
                     limit: limit,
                     offset: offset
                 )

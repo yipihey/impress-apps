@@ -63,6 +63,131 @@ pub fn extract_all_ffi(text: String) -> Vec<ExtractedIdentifier> {
     extract_all(text)
 }
 
+// ── Single-value scanners ────────────────────────────────────────────────────
+
+/// Extract the first DOI from free-form text (PDF scrape, dropped URL, …)
+pub fn extract_doi_from_text(text: String) -> Option<String> {
+    im_identifiers::extract_doi_from_text(text)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn extract_doi_from_text_ffi(text: String) -> Option<String> {
+    extract_doi_from_text(text)
+}
+
+/// Extract the first arXiv ID from free-form text, normalised for lookups
+pub fn extract_arxiv_from_text(text: String) -> Option<String> {
+    im_identifiers::extract_arxiv_from_text(text)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn extract_arxiv_from_text_ffi(text: String) -> Option<String> {
+    extract_arxiv_from_text(text)
+}
+
+/// Extract the first ADS bibcode from free-form text
+pub fn extract_bibcode_from_text(text: String) -> Option<String> {
+    im_identifiers::extract_bibcode_from_text(text)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn extract_bibcode_from_text_ffi(text: String) -> Option<String> {
+    extract_bibcode_from_text(text)
+}
+
+/// Extract the first PubMed ID from free-form text
+pub fn extract_pmid_from_text(text: String) -> Option<String> {
+    im_identifiers::extract_pmid_from_text(text)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn extract_pmid_from_text_ffi(text: String) -> Option<String> {
+    extract_pmid_from_text(text)
+}
+
+// ── BibTeX field extraction ──────────────────────────────────────────────────
+
+/// Extract the arXiv ID from a BibTeX field map (eprint → arxivid → arxiv)
+pub fn arxiv_id_from_fields(fields: HashMap<String, String>) -> Option<String> {
+    im_identifiers::arxiv_id_from_fields(&fields)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn arxiv_id_from_fields_ffi(fields: HashMap<String, String>) -> Option<String> {
+    arxiv_id_from_fields(fields)
+}
+
+/// Extract the DOI from a BibTeX field map
+pub fn doi_from_fields(fields: HashMap<String, String>) -> Option<String> {
+    im_identifiers::doi_from_fields(&fields)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn doi_from_fields_ffi(fields: HashMap<String, String>) -> Option<String> {
+    doi_from_fields(fields)
+}
+
+/// Extract the ADS bibcode from a BibTeX field map (`bibcode`, else `adsurl`)
+pub fn bibcode_from_fields(fields: HashMap<String, String>) -> Option<String> {
+    im_identifiers::bibcode_from_fields(&fields)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn bibcode_from_fields_ffi(fields: HashMap<String, String>) -> Option<String> {
+    bibcode_from_fields(fields)
+}
+
+/// Extract the PubMed ID from a BibTeX field map
+pub fn pmid_from_fields(fields: HashMap<String, String>) -> Option<String> {
+    im_identifiers::pmid_from_fields(&fields)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn pmid_from_fields_ffi(fields: HashMap<String, String>) -> Option<String> {
+    pmid_from_fields(fields)
+}
+
+/// Extract the PubMed Central ID from a BibTeX field map
+pub fn pmcid_from_fields(fields: HashMap<String, String>) -> Option<String> {
+    im_identifiers::pmcid_from_fields(&fields)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn pmcid_from_fields_ffi(fields: HashMap<String, String>) -> Option<String> {
+    pmcid_from_fields(fields)
+}
+
+/// Extract every supported identifier from a BibTeX field map in one call
+pub fn all_identifiers_from_fields(fields: HashMap<String, String>) -> HashMap<String, String> {
+    im_identifiers::all_identifiers_from_fields(&fields)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn all_identifiers_from_fields_ffi(fields: HashMap<String, String>) -> HashMap<String, String> {
+    all_identifiers_from_fields(fields)
+}
+
+/// Extract an ADS bibcode from an ADS abstract URL
+pub fn bibcode_from_ads_url(url: String) -> Option<String> {
+    im_identifiers::bibcode_from_ads_url(&url)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn bibcode_from_ads_url_ffi(url: String) -> Option<String> {
+    bibcode_from_ads_url(url)
+}
+
 // ── Validators ───────────────────────────────────────────────────────────────
 
 /// Validate a DOI
@@ -98,6 +223,17 @@ pub fn is_valid_isbn_ffi(isbn: String) -> bool {
     is_valid_isbn(isbn)
 }
 
+/// Check whether a string has the shape of an arXiv ID
+pub fn is_valid_arxiv_id_format(value: String) -> bool {
+    im_identifiers::is_valid_arxiv_id_format(value)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn is_valid_arxiv_id_format_ffi(value: String) -> bool {
+    is_valid_arxiv_id_format(value)
+}
+
 /// Normalize a DOI by removing common prefixes and trailing punctuation
 pub fn normalize_doi(doi: String) -> String {
     im_identifiers::normalize_doi(doi)
@@ -107,6 +243,17 @@ pub fn normalize_doi(doi: String) -> String {
 #[uniffi::export]
 pub fn normalize_doi_ffi(doi: String) -> String {
     normalize_doi(doi)
+}
+
+/// Normalize an arXiv ID (drop `arXiv:` prefix and version suffix, lowercase)
+pub fn normalize_arxiv_id(arxiv_id: String) -> String {
+    im_identifiers::normalize_arxiv_id(arxiv_id)
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn normalize_arxiv_id_ffi(arxiv_id: String) -> String {
+    normalize_arxiv_id(arxiv_id)
 }
 
 // ── Cite key generation ──────────────────────────────────────────────────────

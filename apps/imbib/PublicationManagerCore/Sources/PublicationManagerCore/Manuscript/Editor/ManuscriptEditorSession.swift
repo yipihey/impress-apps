@@ -1,5 +1,9 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// CONTRACT file — CROSS-PLATFORM (macOS + iOS): the editor lifecycle
+// seam. Buffer, cursor, debounced compare-and-set save, conflict resolution
+// and the session LRU are Foundation + the (cross-platform) compile
+// controller; the AppKit lives in the EDITOR VIEWS that consume a session,
+// never here. iOS's IOSManuscriptEditorHost re-implements this state machine
+// today — adopting this type is now possible (Stage 2b).
 //
 //  ManuscriptEditorSession.swift
 //  PublicationManagerCore
@@ -490,4 +494,3 @@ public final class ManuscriptSessionRegistry {
         }
     }
 }
-#endif

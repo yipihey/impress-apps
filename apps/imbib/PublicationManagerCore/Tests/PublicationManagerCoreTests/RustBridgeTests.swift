@@ -10,42 +10,26 @@ import Testing
 
 // MARK: - Parser Factory Tests
 
-// .serialized: "Swift parser works through factory" mutates the GLOBAL
-// BibTeXParserFactory.currentBackend (with a defer-restore); under parallel
-// execution the availability-dependent tests read that global mid-mutation
-// and flap run-to-run.
-@Suite("BibTeX Parser Factory", .serialized)
+// There is one BibTeX parser (the Rust one); the Swift parser and the mutable
+// backend global were deleted in Stage 7, so nothing here is order-dependent
+// any more.
+@Suite("BibTeX Parser Factory")
 struct BibTeXParserFactoryTests {
 
-    @Test("Default backend matches Rust availability")
-    func defaultBackendMatchesAvailability() {
-        // Backend is Rust when available, Swift otherwise (e.g., CI without xcframework)
-        if RustLibraryInfo.isAvailable {
-            #expect(BibTeXParserFactory.currentBackend == .rust)
-        } else {
-            #expect(BibTeXParserFactory.currentBackend == .swift)
-        }
+    @Test("Backend is Rust")
+    func backendIsRust() {
+        #expect(BibTeXParserFactory.backend == .rust)
+        #expect(RustLibraryInfo.isAvailable)
     }
 
     @Test("Can create parser with default settings")
     func createDefaultParser() {
         let parser = BibTeXParserFactory.createParser()
-        // Parser type depends on whether Rust library is available
-        if RustLibraryInfo.isAvailable {
-            #expect(parser is RustBibTeXParser)
-        } else {
-            // Falls back to Swift parser when Rust isn't available (e.g., CI)
-            #expect(parser is BibTeXParser)
-        }
+        #expect(parser is RustBibTeXParser)
     }
 
-    @Test("Swift parser works through factory")
-    func swiftParserThroughFactory() throws {
-        // Save original backend to restore later
-        let originalBackend = BibTeXParserFactory.currentBackend
-        defer { BibTeXParserFactory.currentBackend = originalBackend }
-
-        BibTeXParserFactory.currentBackend = .swift
+    @Test("Parser works through factory")
+    func parserThroughFactory() throws {
         let parser = BibTeXParserFactory.createParser()
 
         let content = """
@@ -96,15 +80,15 @@ struct RustLibraryInfoTests {
 @Suite("BibTeX Parsing Protocol")
 struct BibTeXParsingProtocolTests {
 
-    @Test("Swift parser conforms to protocol")
-    func swiftParserConformance() {
-        let parser: any BibTeXParsing = BibTeXParser()
-        #expect(parser is BibTeXParser)
+    @Test("Rust parser conforms to protocol")
+    func rustParserConformance() {
+        let parser: any BibTeXParsing = BibTeXParserFactory.createParser()
+        #expect(parser is RustBibTeXParser)
     }
 
     @Test("Protocol methods work correctly")
     func protocolMethods() throws {
-        let parser: any BibTeXParsing = BibTeXParser()
+        let parser: any BibTeXParsing = BibTeXParserFactory.createParser()
 
         let content = """
         @book{Knuth1984,
@@ -128,31 +112,13 @@ struct BibTeXParsingProtocolTests {
     }
 }
 
-// MARK: - Backend Switching Tests
+// MARK: - Backend Tests
 
-@Suite("Backend Switching")
+@Suite("Backend")
 struct BackendSwitchingTests {
-
-    @Test("Can switch backends")
-    func switchBackends() {
-        let originalBackend = BibTeXParserFactory.currentBackend
-
-        BibTeXParserFactory.currentBackend = .swift
-        #expect(BibTeXParserFactory.currentBackend == .swift)
-
-        BibTeXParserFactory.currentBackend = .rust
-        #expect(BibTeXParserFactory.currentBackend == .rust)
-
-        // Restore original
-        BibTeXParserFactory.currentBackend = originalBackend
-    }
 
     @Test("Rust backend works correctly")
     func rustBackendWorks() throws {
-        let originalBackend = BibTeXParserFactory.currentBackend
-        defer { BibTeXParserFactory.currentBackend = originalBackend }
-        BibTeXParserFactory.currentBackend = .rust
-
         let parser = BibTeXParserFactory.createParser()
         #expect(parser is RustBibTeXParser)
 
@@ -162,9 +128,9 @@ struct BackendSwitchingTests {
     }
 }
 
-// MARK: - Consistency Tests (Swift vs Rust)
+// MARK: - Dialect Coverage
 
-@Suite("Parser Consistency")
+@Suite("Parser Dialect Coverage")
 struct ParserConsistencyTests {
 
     let testCases: [(String, String)] = [
@@ -189,16 +155,6 @@ struct ParserConsistencyTests {
             @article{Test, journal = nature}
             """),
     ]
-
-    @Test("Swift parser handles test cases")
-    func swiftParserTestCases() throws {
-        let parser = BibTeXParser()
-
-        for (name, content) in testCases {
-            let entries = try parser.parseEntries(content)
-            #expect(entries.count >= 1, "Failed on: \(name)")
-        }
-    }
 
     @Test("Rust parser handles test cases")
     func rustParserTestCases() throws {

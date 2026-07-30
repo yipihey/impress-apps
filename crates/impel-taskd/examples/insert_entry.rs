@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
+use impel_enrichment::BIBLIOGRAPHY_ENTRY_SCHEMA;
 use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
 use impress_core::sqlite_store::{SqliteItemStore, StoreConfig};
 use impress_core::store::ItemStore;
@@ -32,7 +33,12 @@ fn main() {
     payload.insert("doi".into(), Value::String(doi.clone()));
     let item = Item {
         id: Uuid::new_v4(),
-        schema: "bibliography-entry@1.0.0".into(),
+        // The daemon's trigger constant, not a hand-copied literal: this
+        // example existed to smoke-test the spawn path and wrote a ref
+        // (`bibliography-entry@1.0.0`) that the trigger no longer uses and
+        // imbib never wrote, so it proved nothing. Sharing the constant makes
+        // the example structurally incapable of drifting from the daemon.
+        schema: BIBLIOGRAPHY_ENTRY_SCHEMA.into(),
         payload,
         created: Utc::now(),
         modified: Utc::now(),

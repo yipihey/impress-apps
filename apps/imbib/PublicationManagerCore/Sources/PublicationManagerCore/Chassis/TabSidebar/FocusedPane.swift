@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a plain enum plus its
+// `DetailTab` mapping. `DetailTab` was never gated; this is its focus twin.
 //
 //  FocusedPane.swift
 //  Moved from the imbib app target's ContentView.swift (GUI-meld Phase 1) —
@@ -53,4 +53,3 @@ public enum FocusedPane: String, Hashable, CaseIterable {
         }
     }
 }
-#endif

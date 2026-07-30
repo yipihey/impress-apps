@@ -1,4 +1,7 @@
-#if os(macOS)
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): the per-kind row
+// structs these initializers name (FigureRowData, MessageRowData, TaskRowData,
+// AgentRunRowData, ManuscriptRowData) went cross-platform in Stage 2a, so the
+// convenience initializers travel with them.
 // Chassis file — macOS-only: the per-kind row structs these initializers name
 // (FigureRowData, MessageRowData, TaskRowData, AgentRunRowData,
 // ManuscriptRowData) are each declared in a macOS-gated chassis file.
@@ -31,4 +34,3 @@ public extension KindTaggedRow {
     @MainActor
     init(manuscript: ManuscriptRowData) { self.init(kind: .manuscript, item: manuscript) }
 }
-#endif

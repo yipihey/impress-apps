@@ -663,8 +663,9 @@ final class ImbibSidebarViewModel {
                 .filter { $0.parentID == folder.id }
                 .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
             var node = ImbibSidebarNode(
-                id: ImbibSidebarNodeID.figureFolder(folder.id),
-                nodeType: .figureFolder(folder.id),
+                id: ImbibSidebarNodeID.recordFolder(CollectionBindingID.figure, folder.id),
+                nodeType: .recordFolder(
+                    bindingID: CollectionBindingID.figure, folderID: folder.id),
                 displayName: folder.name,
                 iconName: "folder"
             )
@@ -696,38 +697,39 @@ final class ImbibSidebarViewModel {
     /// (mirroring `CitedInManuscriptsSnapshot`) can layer counts on later
     /// without changing this structure.
     private func journalChildren() -> [ImbibSidebarNode] {
+        let descriptor = ManuscriptRecordKind.descriptor
         var nodes: [ImbibSidebarNode] = [
             ImbibSidebarNode(
                 id: ImbibSidebarNodeID.journalAll,
                 nodeType: .journalAll,
-                displayName: "All Manuscripts",
-                iconName: "doc.text.image"
-            ),
-            ImbibSidebarNode(
-                id: ImbibSidebarNodeID.journalByStatus(.draft),
-                nodeType: .journalByStatus(.draft),
-                displayName: "Drafts",
-                iconName: "pencil"
-            ),
-            ImbibSidebarNode(
-                id: ImbibSidebarNodeID.journalByStatus(.submitted),
-                nodeType: .journalByStatus(.submitted),
-                displayName: "Submitted",
-                iconName: "paperplane"
-            ),
-            ImbibSidebarNode(
-                id: ImbibSidebarNodeID.journalByStatus(.published),
-                nodeType: .journalByStatus(.published),
-                displayName: "Published",
-                iconName: "checkmark.seal"
-            ),
-            ImbibSidebarNode(
-                id: ImbibSidebarNodeID.journalByStatus(.archived),
-                nodeType: .journalByStatus(.archived),
-                displayName: "Archive",
-                iconName: "archivebox"
-            ),
+                displayName: "All \(descriptor.pluralDisplayName)",
+                iconName: SidebarSectionType.manuscripts.icon
+            )
         ]
+        // The four statuses this section has surfaced since ADR-0011 D8.
+        //
+        // Their LABELS and ICONS are now the descriptor's `StatusSpec`s — the
+        // same declaration the iOS sidebar and the status badge read, so the
+        // three copies of "Drafts"/pencil that used to exist cannot drift.
+        //
+        // Which four is still a LITERAL, and deliberately so: the descriptor
+        // declares seven statuses and iOS's `RecordSidebarBuilder` shows six
+        // (all but the dismissed one, which owns the Dismissed section).
+        // macOS has never shown Internal Review or In Revision here.
+        // Reconciling that is a product decision — it either adds two rows to
+        // macOS or removes two from iOS — so it is reported as remaining debt
+        // rather than smuggled into a refactor whose contract is that macOS
+        // does not change. `hiddenByDefault` is the seam it would use.
+        for status in [
+            JournalManuscriptStatus.draft, .submitted, .published, .archived,
+        ] {
+            nodes.append(ImbibSidebarNode(
+                id: ImbibSidebarNodeID.journalByStatus(status),
+                nodeType: .journalByStatus(status),
+                displayName: RecordStatusPresentation.label(for: status.rawValue),
+                iconName: RecordStatusPresentation.systemImage(for: status.rawValue)
+            ))
+        }
         // Reviewer-facing inbox — hidden in the authoring-only imprint shell.
         if shellConfiguration.auxiliaryRoutes.contains(.submissionsInbox) {
             nodes.append(ImbibSidebarNode(
@@ -753,8 +755,9 @@ final class ImbibSidebarViewModel {
                 .filter { $0.parentId == folder.id }
                 .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
             var node = ImbibSidebarNode(
-                id: ImbibSidebarNodeID.manuscriptFolder(folder.id),
-                nodeType: .manuscriptFolder(folder.id),
+                id: ImbibSidebarNodeID.recordFolder(CollectionBindingID.manuscript, folder.id),
+                nodeType: .recordFolder(
+                    bindingID: CollectionBindingID.manuscript, folderID: folder.id),
                 displayName: folder.name,
                 iconName: folder.isSmart ? "folder.badge.gearshape" : "folder"
             )
@@ -1179,84 +1182,86 @@ final class ImbibSidebarViewModel {
 
     // MARK: - Collection Folders (ADR-0022 D3)
     //
-    // ONE folder pattern for every record kind that has one. The sidebar's
-    // node types are an enum, so a small map still turns `.manuscriptFolder`
-    // / `.figureFolder` into a record kind; from there everything —
-    // capabilities, menus, rename, reparent, reorder, delete, drops — is
-    // driven by the kind's `CollectionCapability` and executed through
-    // `CollectionStoreAdapter` (the Rust collection kernel). Adding a kind's
-    // folders means adding a descriptor capability and two lines here, not a
-    // ninth near-copy of the pattern.
-
-    /// Bindings already strangled onto the kernel path. ADR-0022 G2 runs one
-    /// kind at a time (manuscripts, verify, then figures); a binding not
-    /// listed here keeps its legacy per-kind branch below.
-    ///
-    /// G2-strangler TODO: delete this gate once every folder-capable kind is
-    /// on the kernel — `folderNode` should then be total over the capability.
-    private static let migratedFolderBindings: Set<String> = [
-        CollectionBindingID.manuscript,
-        CollectionBindingID.figure,
-    ]
+    // ONE folder pattern for every record kind that has one, and — since the
+    // Stage-3 collapse — one NODE case too (`.recordFolder(bindingID:
+    // folderID:)`). Everything else follows from the kind's
+    // `CollectionCapability` and runs through `CollectionStoreAdapter` (the
+    // Rust collection kernel): capabilities, menus, rename, reparent, reorder,
+    // delete, drops. Adding a kind's folders is now a descriptor capability
+    // plus the lines that BUILD its nodes; no site below gains an arm.
 
     /// The collection capability + folder id behind a sidebar folder node,
-    /// or nil when the node is not a (migrated) collection folder.
+    /// or nil when the node is not a collection folder.
+    ///
+    /// Total over `CollectionCapability` (ADR-0022 G2's strangler goal): the
+    /// `migratedFolderBindings` gate this used to consult is gone. It listed
+    /// `{manuscript, figure}`, which is exactly the set of bindings a shipped
+    /// descriptor declares, so it had become a no-op — and while it existed, a
+    /// newly declared capability would have been silently read-only.
+    ///
+    /// The lookup is kind-INTRINSIC (`BuiltinRecordKinds`, not
+    /// `shellConfiguration.recordKinds`): imbib's preset does not register the
+    /// figure kind, yet the chassis it shares renders the Figures section.
     private func folderNode(
         _ node: ImbibSidebarNode
     ) -> (capability: CollectionCapability, folderID: String)? {
-        let kind: RecordKindID
-        let folderID: String
-        switch node.nodeType {
-        case .manuscriptFolder(let id):
-            kind = .manuscript
-            folderID = id
-        case .figureFolder(let id):
-            kind = .figure
-            folderID = id
-        default:
-            return nil
-        }
-        // Kind-intrinsic lookup: imbib's shell registry does NOT contain the
-        // figure kind, but imbib shows the Figures section.
-        guard let capability = BuiltinRecordKinds.registry[kind]?.collection,
-              Self.migratedFolderBindings.contains(capability.bindingID) else { return nil }
+        guard case .recordFolder(let bindingID, let folderID) = node.nodeType,
+              let capability = BuiltinRecordKinds.collectionCapability(forBindingID: bindingID)
+        else { return nil }
         return (capability, folderID)
     }
 
     /// The capability whose folder tree a section header hosts. The header is
     /// the "move to root" drop target and the "New Folder" menu host.
+    ///
+    /// Stage 3: the `case .manuscripts / case .figures` switch is gone. A
+    /// section hosts a folder tree when it is a kind's HOME section
+    /// (`SidebarSectionType.role == .primary` — the declaration
+    /// `RecordSidebarSectionRole` already reads) and that kind declares a
+    /// collection capability.
+    ///
+    /// The section→kind table is `AppShellConfiguration.impress`'s: it is the
+    /// canonical one (ADR-0022 D9 — the unifying preset names a kind for every
+    /// section), and it is deliberately NOT the running shell's. imprint binds
+    /// `.flagged: .manuscript`; if this consulted the live shell, imprint's
+    /// Flagged header would sprout "New Folder" and accept folder drops. The
+    /// `.primary` gate guards that independently, so both halves have to
+    /// agree before a header hosts folders.
+    ///
+    /// Stays `static` (its callers are instance methods, but nothing here
+    /// depends on instance state) — the descriptor agent's report noted the
+    /// 2-arm switch survived BECAUSE it was static; it turns out it did not
+    /// need the shell, only the canonical table.
+    private static let canonicalSectionKinds = AppShellConfiguration.impress.sectionBindings
+
     private static func folderCapability(
         ofSection section: SidebarSectionType
     ) -> CollectionCapability? {
-        let kind: RecordKindID
-        switch section {
-        case .manuscripts: kind = .manuscript
-        case .figures: kind = .figure
-        default: return nil
-        }
+        guard section.role == .primary,
+              let kind = canonicalSectionKinds[section] else { return nil }
         return BuiltinRecordKinds.registry[kind]?.collection
     }
 
     /// Sidebar node id for a folder of `bindingID` (node ids are DERIVED for
     /// folders — unlike collections, node id != item id).
-    private static func folderNodeID(_ bindingID: String, _ folderID: String) -> UUID? {
-        switch bindingID {
-        case CollectionBindingID.manuscript:
-            return ImbibSidebarNodeID.manuscriptFolder(folderID)
-        case CollectionBindingID.figure:
-            return ImbibSidebarNodeID.figureFolder(folderID)
-        default:
-            return nil
-        }
+    private static func folderNodeID(_ bindingID: String, _ folderID: String) -> UUID {
+        ImbibSidebarNodeID.recordFolder(bindingID, folderID)
     }
 
     /// The folder of `bindingID` the content pane currently shows, if any.
-    private func selectedFolderID(_ bindingID: String) -> String? {
-        switch (bindingID, selectedTab) {
-        case (CollectionBindingID.manuscript, .manuscriptFolder(let id)): return id
-        case (CollectionBindingID.figure, .figureFolder(let id)): return id
-        default: return nil
-        }
+    ///
+    /// Returns a `UUID` rather than the node's raw string: the route carries
+    /// the folder as a UUID, and callers compare against store id STRINGS,
+    /// whose case the store does not guarantee (`UUID().uuidString` is
+    /// uppercase, the store's canonical form is lowercase — see the imbib
+    /// CLAUDE.md invariant). Comparing UUIDs removes that trap instead of
+    /// re-creating it at the boundary.
+    private func selectedFolderID(_ bindingID: String) -> UUID? {
+        guard case .record(let route) = selectedTab,
+              let folderID = route.scope.folderID,
+              BuiltinRecordKinds.registry[route.kind]?.collection?.bindingID == bindingID
+        else { return nil }
+        return folderID
     }
 
     /// The in-process drag record backing a kind's list rows.
@@ -1322,7 +1327,7 @@ final class ImbibSidebarViewModel {
             return [.draggable, .deletable]
         case .allArtifacts, .artifactType:
             return .droppable
-        case .manuscriptFolder, .figureFolder:
+        case .recordFolder:
             // ADR-0022 D3: the folder verbs are the kind's capability, not a
             // per-kind literal. `canOrganize == false` = read-only rows.
             return folderNode(node)?.capability.canOrganize == true
@@ -1481,12 +1486,19 @@ final class ImbibSidebarViewModel {
         case .section(.exploration):
             reorderExplorationChildren(siblings)
 
-        case .section(.manuscripts), .manuscriptFolder,
-             .section(.figures), .figureFolder:
-            // Collection folders (ADR-0022 D3) reorder among the section's
-            // fixed rows or within a parent folder; only the folder rows
-            // carry sort_order, so the fixed rows are filtered out first and
-            // positions are indexes into the filtered list (unchanged).
+        case .recordFolder:
+            // Collection folders (ADR-0022 D3) reorder within a parent folder;
+            // only the folder rows carry sort_order, so the fixed rows are
+            // filtered out first and positions are indexes into the filtered
+            // list (unchanged).
+            reorderFolders(siblings)
+
+        case .section(let section) where Self.folderCapability(ofSection: section) != nil:
+            // …or among the hosting section's fixed rows. Stage 3: resolved
+            // from the capability, so this arm covers every folder-capable
+            // kind (it named `.manuscripts` and `.figures` explicitly). It
+            // sits after the specific `.section(...)` arms above, which Swift
+            // matches first.
             reorderFolders(siblings)
 
         default:
@@ -1654,7 +1666,6 @@ final class ImbibSidebarViewModel {
         for descriptor in BuiltinRecordKinds.collectionCapable {
             guard let capability = descriptor.collection,
                   capability.canOrganize,
-                  Self.migratedFolderBindings.contains(capability.bindingID),
                   let identifier = capability.dragUTTypeIdentifier else { continue }
             let pasteboardType = NSPasteboard.PasteboardType(identifier)
             guard pasteboard.types?.contains(pasteboardType) == true else { continue }
@@ -1986,7 +1997,7 @@ final class ImbibSidebarViewModel {
             store.updateField(id: feedID, field: "name", value: trimmed)
             bumpDataVersion()
 
-        case .manuscriptFolder, .figureFolder:
+        case .recordFolder:
             // Collection folders (ADR-0022 D3): one rename for every binding.
             // The payload field is `name` for all of them; where the folder
             // NESTS (payload ref vs. envelope parent) is irrelevant here.
@@ -2046,7 +2057,7 @@ final class ImbibSidebarViewModel {
         case .scixLibrary(let libraryID):
             buildSciXLibraryContextMenu(menu, libraryID: libraryID)
 
-        case .manuscriptFolder, .figureFolder:
+        case .recordFolder:
             guard let folder = folderNode(node) else { return nil }
             buildFolderContextMenu(
                 menu, capability: folder.capability, folderID: folder.folderID, nodeID: node.id)
@@ -2230,17 +2241,6 @@ final class ImbibSidebarViewModel {
             newLibItem.target = ContextMenuActions.shared
             menu.addItem(newLibItem)
 
-        case .manuscripts, .figures:
-            // ADR-0022 D3: the section that hosts a binding's folder tree
-            // offers "New Folder" at root.
-            guard let capability = Self.folderCapability(ofSection: section),
-                  capability.canOrganize else { break }
-            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
-            newFolderItem.target = ContextMenuActions.shared
-            newFolderItem.representedObject = FolderMenuTarget(
-                bindingID: capability.bindingID, folderID: nil)
-            menu.addItem(newFolderItem)
-
         case .search:
             if !hiddenSearchForms.isEmpty {
                 let showHiddenMenu = NSMenu()
@@ -2261,7 +2261,18 @@ final class ImbibSidebarViewModel {
             }
 
         default:
-            break
+            // ADR-0022 D3: the section that hosts a binding's folder tree
+            // offers "New Folder" at root. Stage 3: resolved from the
+            // capability (this was `case .manuscripts, .figures:`), so a new
+            // folder-capable kind's section gets the item with no arm here.
+            // Every section handled above returns before reaching this.
+            guard let capability = Self.folderCapability(ofSection: section),
+                  capability.canOrganize else { break }
+            let newFolderItem = NSMenuItem(title: capability.newContainerTitle, action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
+            newFolderItem.target = ContextMenuActions.shared
+            newFolderItem.representedObject = FolderMenuTarget(
+                bindingID: capability.bindingID, folderID: nil)
+            menu.addItem(newFolderItem)
         }
 
     }
@@ -2374,7 +2385,7 @@ final class ImbibSidebarViewModel {
         renameItem.representedObject = nodeID
         menu.addItem(renameItem)
 
-        let newSubItem = NSMenuItem(title: "New Subfolder", action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
+        let newSubItem = NSMenuItem(title: capability.newSubContainerTitle, action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
         newSubItem.target = ContextMenuActions.shared
         newSubItem.representedObject = FolderMenuTarget(
             bindingID: capability.bindingID, folderID: folderID)
@@ -2382,7 +2393,7 @@ final class ImbibSidebarViewModel {
 
         menu.addItem(.separator())
 
-        let deleteItem = NSMenuItem(title: "Delete Folder", action: #selector(ContextMenuActions.deleteFolder(_:)), keyEquivalent: "")
+        let deleteItem = NSMenuItem(title: capability.deleteContainerTitle, action: #selector(ContextMenuActions.deleteFolder(_:)), keyEquivalent: "")
         deleteItem.target = ContextMenuActions.shared
         deleteItem.representedObject = FolderMenuTarget(
             bindingID: capability.bindingID, folderID: folderID)
@@ -2780,14 +2791,14 @@ final class ImbibSidebarViewModel {
             name: parentID != nil ? "New Subfolder" : "New Folder",
             parentID: parentID
         ) else { return }
-        if let parentID, let parentNodeID = Self.folderNodeID(bindingID, parentID) {
-            expansionState.expand(parentNodeID)
+        if let parentID {
+            expansionState.expand(Self.folderNodeID(bindingID, parentID))
         }
         bumpDataVersion()
         Self.logger.infoCapture(
             "created \(bindingID) folder '\(row.name)' (\(row.id)) parent=\(parentID ?? "root")",
             category: "sidebar")
-        guard let newNodeID = Self.folderNodeID(bindingID, row.id) else { return }
+        let newNodeID = Self.folderNodeID(bindingID, row.id)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.editingNodeID = newNodeID
         }
@@ -2797,7 +2808,7 @@ final class ImbibSidebarViewModel {
     /// membership goes away with the row (`Contains` edges cascade; envelope-
     /// filed members are unfiled by `ON DELETE SET NULL`).
     func deleteFolder(bindingID: String, folderID: String) {
-        if selectedFolderID(bindingID) == folderID {
+        if let selected = selectedFolderID(bindingID), selected == UUID(uuidString: folderID) {
             selectedNodeID = nil
         }
         CollectionStoreAdapter.shared.delete(bindingID, id: folderID)
@@ -2882,7 +2893,7 @@ final class ImbibSidebarViewModel {
                 deleteExplorationCollection(id)
             case .explorationSearch(let id):
                 deleteExplorationSearches([id])
-            case .manuscriptFolder, .figureFolder:
+            case .recordFolder:
                 // ADR-0022 D3: one delete for every folder binding.
                 guard let folder = folderNode(nodes[0]), folder.capability.canOrganize else {
                     break

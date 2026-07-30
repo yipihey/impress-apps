@@ -132,15 +132,33 @@ drop in).
 AUTOMATIC: `SectionContentView` resolves the pane from the registry — no
 `switch` gains a case for the *view*.
 
-**6. Section wiring.** HAND-WRITTEN, and this is the honest remaining cost:
-a `SidebarSectionType` case, a node kind + route case
+**6. Section wiring.** HAND-WRITTEN, and this used to be the honest remaining
+cost: a `SidebarSectionType` case, a node kind + route case
 (`ImbibSidebarNodeType`, `ImbibContentRoute`, `ImbibTab`), the node→route
-resolution, and a `shouldShowSection` arm. The chassis calls this the
-"node/tab/route case-addition pattern" and it is what the Agents section paid
-too. **The G8 gate "zero chassis edits" holds for BEHAVIOUR — tabs, triage,
-menus, folders, drag, search, related, MCP — and does NOT hold for these
-navigation enums.** Making them additive means a registry-driven route type;
-that is a real work package, not a doc footnote, and it is not scheduled.
+resolution, and a `shouldShowSection` arm. The chassis called this the
+"node/tab/route case-addition pattern".
+
+*Updated 2026-07-30 (Stage 3 — the ROUTE half is closed).* The four parallel
+per-kind route enums (`ImbibJournalRoute`, `FigureRoute`, `MailRoute`,
+`AgentRoute`), their four `ImbibContentRoute` wrapper cases, twelve `ImbibTab`
+cases and four `SectionContentView` dispatchers collapsed into ONE
+`RecordRoute` = `RecordKindID` + `RecordSidebarScope`, dispatched by ONE sink.
+The registry-driven route type this paragraph called unscheduled is what
+landed, and the vocabulary it routes in is the CROSS-PLATFORM one iOS's
+sidebar already selects with — so macOS and iOS cannot disagree about what a
+row means. A new kind now owes: a `RecordRouteScope` conformance next to its
+own list scope, a viewer-registry factory line, and the lines that BUILD its
+sidebar rows from its own store reader.
+
+Still hand-written, and correctly so: a `SidebarSectionType` case (its String
+rawValue backs persisted sidebar order/collapse state), the per-kind node cases
+that read from the kind's own store reader, and a `shouldShowSection` arm.
+**The G8 gate "zero chassis edits" now holds for BEHAVIOUR *and* for
+routing**; what remains is per-kind CODE (a reader, a scope, rows), not a
+chassis switch that has to learn the kind's name. Two subsets the chassis scope
+vocabulary has no word for — implore's "Unfiled", impart's mail ACCOUNTS — ride
+`RecordSidebarScope.host`, its declared escape hatch, with the key spelled once
+next to the kind's own scope.
 
 **7. Shell presets.** HAND-WRITTEN: one `sectionBindings` line per shell that
 wants the section, one `visibleSections` entry, and — because `nil` is
@@ -179,12 +197,15 @@ declared ref must resolve back to its own kind, both spellings, and must not
 collide with a `*-collection` schema), and `AppShellConfigurationParityTests`
 iterates the section enum.
 
-**Honest scorecard.** Automatic: FFI, search, related, triage, MCP/CLI/agent
-tools, collections + folder UI + undo, tab/coercion/keyboard behaviour, row
-chrome. Hand-written: the Rust schema, the payload decode + row struct, the
-descriptor (data), the per-kind views, the registry factory line, the
-navigation enum cases, preset lines, matrix rows. Two known warts: the
-navigation enums are not additive (step 6), and ADR-0021 D3 above names a
+**Honest scorecard** *(rescored 2026-07-30 for Stage 3)*. Automatic: FFI,
+search, related, triage, MCP/CLI/agent tools, collections + folder UI + undo
+(and now the folder NODE — one `recordFolder(bindingID:folderID:)` case for
+every binding), tab/coercion/keyboard behaviour, row chrome, and ROUTING (one
+`RecordRoute`, one sink). Hand-written: the Rust schema, the payload decode +
+row struct, the descriptor (data), the per-kind views, the registry factory
+line, the scope + its `RecordRouteScope` conformance, the section/node lines,
+preset lines, matrix rows. One wart left of the two: ADR-0021 D3 above names a
 `RecordKindParityTests` that never landed under that name — descriptor↔store
 schema-ref coverage lives in `StoreSearchSurfaceTests`, and a cross-check
-against Rust's `register_core_schemas` is still owed.
+against Rust's `register_core_schemas` is still owed. (The other, "the
+navigation enums are not additive", is closed — see step 6.)

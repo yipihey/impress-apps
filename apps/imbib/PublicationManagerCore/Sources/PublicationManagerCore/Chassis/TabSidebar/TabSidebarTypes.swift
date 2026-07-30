@@ -1,5 +1,16 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): route enums, tab
+// identity and notification names. Pure Foundation/SwiftUI value types — the
+// ROUTE vocabulary of the chassis, which iOS had to re-encode as its own
+// literals while this was gated.
+//
+// Stage 3 (declarative chassis) collapsed the FOUR parallel per-kind route
+// enums that used to live here — `ImbibJournalRoute`, `FigureRoute`,
+// `MailRoute`, `AgentRoute`, 18 cases between them, each a near-transcription
+// of the next — plus their twelve `ImbibContentRoute`/`ImbibTab` wrapper
+// cases, into ONE `RecordRoute` (kind + `RecordSidebarScope`). Adding a
+// record kind no longer adds a case to any enum in this file; that was the
+// one wart ADR-0021's litmus re-run (step 6) admitted the G8 gate did not
+// cover.
 //
 //  TabSidebarTypes.swift
 //  imbib
@@ -45,27 +56,23 @@ public enum ImbibTab: Hashable {
     case recent               // papers the user viewed or added by hand (never automated ingest)
     case reviewQueue          // pending agent review-requests from the shared impress store
 
-    // Journal pipeline (per ADR-0011 D8)
-    case journalAll                                  // root: all manuscripts in any status
-    case journalByStatus(JournalManuscriptStatus)    // smart-collection-style filter
-    case journalSubmissions                          // pending submissions inbox
-    case manuscript(String)                          // detail view for a manuscript by ID
-    case manuscriptFolder(String)                    // user folder (manuscript-collection UUID)
+    // MARK: Record-kind tabs (Stage 3 — ONE case for every kind)
+    //
+    // These three replaced fourteen: journalAll, journalByStatus,
+    // journalSubmissions, manuscript, manuscriptFolder, figuresAll,
+    // figuresUnfiled, figureFolder, mailAllInboxes, mailAccount, mailFolder,
+    // agentTasks, agentRuns, agentTasksByState. Every one of them differed
+    // from a sibling only in which record kind it named, which is exactly the
+    // "node/tab/route case-addition pattern" ADR-0021 called the honest
+    // remaining cost of adding a kind.
 
-    // Figures section (Stage 2-B — implore's Library facet)
-    case figuresAll
-    case figuresUnfiled
-    case figureFolder(String)                        // user folder (figure-collection UUID)
-
-    // Mail section (Stage 2-A — impart's mail-browsing facet)
-    case mailAllInboxes
-    case mailAccount(String)                         // mail-account item UUID
-    case mailFolder(String)                          // mail-folder item UUID
-
-    // Agents section (Stage 2-C — impel's task/run-browsing facet)
-    case agentTasks
-    case agentRuns
-    case agentTasksByState(String)                   // kernel task state raw value
+    /// A record kind's list|detail surface — which kind, which subset.
+    case record(RecordRoute)
+    /// ONE record, full-pane, with no list — the deep-link shape (⌘F palette
+    /// hit, `.navigateToManuscript`). The id is the store's string id.
+    case recordDetail(RecordKindID, String)
+    /// A non-record route the shell preset declares (`AuxiliaryRoute`).
+    case auxiliary(AuxiliaryRoute)
 
     case addFeed               // Navigate to search form picker for feed creation
     case addLibraryFeed(UUID)    // Navigate to feed creation for a specific library
@@ -86,18 +93,25 @@ public enum ImbibContentRoute: Equatable {
     case artifacts(ArtifactType?)
     case reviewQueue
     case feedFormPicker
-    case journal(ImbibJournalRoute)
-    /// Figures section routes (Stage 2-B) — FigureSectionView list|detail.
-    case figures(FigureRoute)
-    /// Mail section routes (Stage 2-A) — MessageSectionView list|detail.
-    case mail(MailRoute)
-    /// Agents section routes (Stage 2-C) — AgentSectionView list|detail.
-    case agents(AgentRoute)
+    /// ANY record kind's list|detail section (Stage 3). Replaces the four
+    /// per-kind wrapper cases `.journal`/`.figures`/`.mail`/`.agents`, which
+    /// wrapped four enums that said the same four things.
+    case record(RecordRoute)
+    /// One record, full-pane, no list — the deep-link shape.
+    case recordDetail(RecordKindID, String)
+    /// A non-record route the shell preset declares (Submissions inbox).
+    case auxiliary(AuxiliaryRoute)
     /// App-owned whole-pane surface (WP-X0) — rendered full-pane, no
     /// list/detail split, no detail toolbar cluster.
     case customSurface(String)
 
     /// Stable key for selection clearing and SwiftUI cache boundaries.
+    ///
+    /// In-memory only: `SectionContentView.tabKey` compares it across body
+    /// evaluations. Nothing persists it (sidebar persistence is section ORDER
+    /// and collapse state, `SidebarSectionOrderStore`), which is why the
+    /// record arms could adopt the scope's canonical `scopeKey` spelling
+    /// instead of preserving the old `journal-`/`figures-` prefixes.
     public var stableID: String {
         switch self {
         case .publicationList(let source):
@@ -110,14 +124,12 @@ public enum ImbibContentRoute: Equatable {
             return "reviewQueue"
         case .feedFormPicker:
             return "feedFormPicker"
-        case .journal(let route):
-            return "journal-\(route.stableID)"
-        case .figures(let route):
-            return "figures-\(route.stableID)"
-        case .mail(let route):
-            return "mail-\(route.stableID)"
-        case .agents(let route):
-            return "agents-\(route.stableID)"
+        case .record(let route):
+            return "record-\(route.stableID)"
+        case .recordDetail(let kind, let id):
+            return "record-detail-\(kind.rawValue)-\(id)"
+        case .auxiliary(let route):
+            return "aux-\(route.rawValue)"
         case .customSurface(let id):
             return "custom-\(id)"
         }
@@ -163,158 +175,85 @@ public struct ImbibSearchFormRoute: Equatable {
     }
 }
 
-public enum ImbibJournalRoute: Equatable {
-    case submissions
-    case all
-    case status(JournalManuscriptStatus)
-    case manuscript(String)
-    case folder(String)
-    /// Flagged MANUSCRIPTS — only produced when the shell configuration sets
-    /// `flagsShowManuscripts` (imprint); imbib keeps publication flags.
-    case flagged(FlagColor?)
+// MARK: - Record Routes
 
-    public var stableID: String {
-        switch self {
-        case .submissions:
-            return "submissions"
-        case .all:
-            return "all"
-        case .status(let status):
-            return "status-\(status.rawValue)"
-        case .manuscript(let id):
-            return "manuscript-\(id)"
-        case .folder(let id):
-            return "folder-\(id)"
-        case .flagged(let color):
-            return "flagged-\(color?.rawValue ?? "any")"
-        }
+/// A record-kind destination: WHICH kind's surface, and WHAT SUBSET of it.
+///
+/// This one value replaced `ImbibJournalRoute`, `FigureRoute`, `MailRoute` and
+/// `AgentRoute`. Those four were parallel by construction — each one's doc
+/// comment said so ("the FigureRoute mirror of ImbibJournalRoute", "the
+/// MailRoute mirror of FigureRoute", "the AgentRoute mirror of MailRoute") —
+/// and each new record kind owed a fifth, plus a wrapper case in
+/// `ImbibContentRoute`, a case in `ImbibTab`, and a dispatcher in
+/// `SectionContentView`. Now it owes a viewer-registry factory line and
+/// nothing else.
+///
+/// The subset is expressed in `RecordSidebarScope`, the CROSS-PLATFORM sidebar
+/// vocabulary iOS's `RecordSidebarView` already produces and selects with —
+/// deliberately reused rather than mirrored, so the two shells cannot disagree
+/// about what a sidebar row means. Subsets the chassis vocabulary has no word
+/// for (implore's "Unfiled", impart's mail ACCOUNTS) ride
+/// `RecordSidebarScope.host`, its declared escape hatch, with the key spelled
+/// once next to the kind's own scope rather than at call sites
+/// (`RecordScopeKey+ListScopes.swift`).
+///
+/// Equality and hashing are the scope's: routes are SELECTION STATE, and
+/// `ImbibSidebarViewModel.tabToNodeID` keys a dictionary on the tab that
+/// carries them.
+public struct RecordRoute: Hashable, Sendable {
+
+    /// The kind whose viewer renders this route — the `RecordViewerRegistry`
+    /// key. Carried explicitly rather than read back off the scope because
+    /// `RecordSidebarScope.kind` is optional (`.section`/`.host` may name no
+    /// kind) and a route always has one.
+    public let kind: RecordKindID
+
+    /// What subset of the kind, in chassis sidebar vocabulary.
+    public let scope: RecordSidebarScope
+
+    public init(kind: RecordKindID, scope: RecordSidebarScope) {
+        self.kind = kind
+        self.scope = scope
     }
+
+    /// Every record of the kind (its dismissal rule still applies).
+    public static func all(_ kind: RecordKindID) -> RecordRoute {
+        RecordRoute(kind: kind, scope: .all(kind))
+    }
+
+    /// One declared `status` value of the kind.
+    public static func status(_ kind: RecordKindID, _ status: String) -> RecordRoute {
+        RecordRoute(kind: kind, scope: .status(kind, status))
+    }
+
+    /// One folder of the kind's collection binding.
+    public static func folder(_ kind: RecordKindID, _ folderID: UUID) -> RecordRoute {
+        RecordRoute(kind: kind, scope: .folder(kind, folderID))
+    }
+
+    /// Flagged records of the kind; nil colour = any flag.
+    public static func flagged(_ kind: RecordKindID, _ colorRawValue: String?) -> RecordRoute {
+        RecordRoute(kind: kind, scope: .flagged(kind, colorRawValue))
+    }
+
+    /// Stable key for SwiftUI cache boundaries — the scope's canonical key,
+    /// the same string `stableViewID` is derived from.
+    public var stableID: String { scope.scopeKey }
 }
 
-/// Figures-section routes (Stage 2-B) — the FigureRoute mirror of
-/// ImbibJournalRoute. `flagged` is only produced when a shell binds the
-/// Flagged section to figures (not used by implore v1, kept for parity with
-/// FigureListScope).
-public enum FigureRoute: Equatable {
-    case all
-    case unfiled
-    case folder(String)
-    case flagged(FlagColor?)
-
-    public var stableID: String {
-        switch self {
-        case .all:
-            return "all"
-        case .unfiled:
-            return "unfiled"
-        case .folder(let id):
-            return "folder-\(id)"
-        case .flagged(let color):
-            return "flagged-\(color?.rawValue ?? "any")"
-        }
-    }
-}
-
-/// Mail-section routes (Stage 2-A) — the MailRoute mirror of FigureRoute.
-/// Account/folder ids are lowercase store id strings (deterministic UUIDv5,
-/// Stage 0-WP3).
-public enum MailRoute: Equatable {
-    case allInboxes
-    case account(String)
-    case folder(String)
-
-    public var stableID: String {
-        switch self {
-        case .allInboxes:
-            return "all-inboxes"
-        case .account(let id):
-            return "account-\(id)"
-        case .folder(let id):
-            return "folder-\(id)"
-        }
-    }
-}
-
-/// Agents-section routes (Stage 2-C) — the AgentRoute mirror of MailRoute.
-public enum AgentRoute: Equatable {
-    case tasks
-    case runs
-    case tasksByState(String)
-
-    public var stableID: String {
-        switch self {
-        case .tasks:
-            return "tasks"
-        case .runs:
-            return "runs"
-        case .tasksByState(let state):
-            return "tasks-state-\(state)"
-        }
-    }
-}
-
-extension ImbibTab {
-    public var agentRoute: AgentRoute? {
-        switch self {
-        case .agentTasks:
-            return .tasks
-        case .agentRuns:
-            return .runs
-        case .agentTasksByState(let state):
-            return .tasksByState(state)
-        default:
-            return nil
-        }
-    }
-}
-
-extension ImbibTab {
-    public var mailRoute: MailRoute? {
-        switch self {
-        case .mailAllInboxes:
-            return .allInboxes
-        case .mailAccount(let id):
-            return .account(id)
-        case .mailFolder(let id):
-            return .folder(id)
-        default:
-            return nil
-        }
-    }
-}
-
-extension ImbibTab {
-    public var figureRoute: FigureRoute? {
-        switch self {
-        case .figuresAll:
-            return .all
-        case .figuresUnfiled:
-            return .unfiled
-        case .figureFolder(let id):
-            return .folder(id)
-        default:
-            return nil
-        }
-    }
-}
-
-extension ImbibTab {
-    public var journalRoute: ImbibJournalRoute? {
-        switch self {
-        case .journalSubmissions:
-            return .submissions
-        case .journalAll:
-            return .all
-        case .journalByStatus(let status):
-            return .status(status)
-        case .manuscript(let id):
-            return .manuscript(id)
-        case .manuscriptFolder(let id):
-            return .folder(id)
-        default:
-            return nil
-        }
-    }
+/// A per-kind list scope that can be rebuilt from the chassis sidebar
+/// vocabulary.
+///
+/// ADR-0021 D2 keeps the list scopes PARALLEL per kind (`FigureListScope` is
+/// figure-only), so one generic route has to land in the right one. This is
+/// that hinge, and it is per-KIND code — the conformances live next to the
+/// scopes in `RecordScopeKey+ListScopes.swift`, not in the chassis, so a new
+/// kind adds its own translation with its own scope and the sink learns
+/// nothing new.
+public protocol RecordRouteScope: RecordScopeKey {
+    /// This kind's scope for a chassis scope, or nil when the chassis scope
+    /// names a different kind, or a subset this kind does not have.
+    init?(routeScope: RecordSidebarScope)
 }
 
 extension SearchFormMode {
@@ -342,4 +281,3 @@ struct FlagCounts {
     static let empty = FlagCounts()
 }
 
-#endif

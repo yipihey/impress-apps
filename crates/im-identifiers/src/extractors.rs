@@ -29,6 +29,105 @@ lazy_static! {
     static ref ISBN_REGEX: Regex = Regex::new(
         r"(?i)(?:isbn[:\s-]*)?(?P<isbn>(?:97[89][- ]?)?(?:\d[- ]?){9}[\dxX])"
     ).unwrap();
+
+    // ── Single-value scanners (ported from Swift `IdentifierExtractor`) ──
+    //
+    // These differ from the `extract_*` family above: they return the *first*
+    // hit and post-process it the way the imbib PDF/metadata scanners always
+    // have. Behaviour is pinned by the golden corpus.
+
+    // Stops at whitespace and the punctuation that usually closes a citation,
+    // and refuses to end on a '.' so a sentence-final period is not swallowed.
+    static ref FIRST_DOI_REGEX: Regex = Regex::new(
+        r#"(?i)(?:doi[:\s]*)?(?:https?://(?:dx\.)?doi\.org/)?10\.\d{4,}/[^\s,;"\]>)]+[^\s,;"\]>).]"#
+    ).unwrap();
+
+    static ref FIRST_ARXIV_NEW_REGEX: Regex =
+        Regex::new(r"(?i)(?:arXiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)").unwrap();
+    static ref FIRST_ARXIV_OLD_REGEX: Regex =
+        Regex::new(r"(?i)(?:arXiv:)?([a-z-]+/\d{7}(?:v\d+)?)").unwrap();
+
+    // Bibcodes are exactly 19 characters: YYYYJJJJJVVVVMPPPPA.
+    static ref FIRST_BIBCODE_REGEX: Regex =
+        Regex::new(r"\b((?:19|20)\d{2}[A-Za-z&.]{5}[.\d]{4}[A-Za-z.][.\d]{4}[A-Za-z.])\b").unwrap();
+
+    static ref FIRST_PMID_REGEX: Regex =
+        Regex::new(r"(?i)(?:PMID|PubMed(?:\s*ID)?)[:\s]+(\d{6,9})").unwrap();
+    static ref FIRST_PMID_URL_REGEX: Regex =
+        Regex::new(r"(?i)pubmed\.ncbi\.nlm\.nih\.gov/(\d{6,9})").unwrap();
+}
+
+/// Extract the first DOI from free-form text (e.g. text scraped out of a PDF).
+///
+/// Unlike [`extract_dois`] this strips a `doi:` / `doi.org/` prefix and trailing
+/// sentence punctuation from the hit.
+pub fn extract_doi_from_text(text: String) -> Option<String> {
+    let matched = FIRST_DOI_REGEX.find(&text)?;
+    let mut doi = matched.as_str().to_string();
+
+    let lowered = doi.to_lowercase();
+    if lowered.starts_with("doi:") || lowered.starts_with("doi ") {
+        doi = doi[4..].trim().to_string();
+    } else if lowered.starts_with("doi")
+        && doi.len() > 3
+        && doi[3..].chars().next().is_some_and(char::is_whitespace)
+    {
+        doi = doi[3..].trim().to_string();
+    }
+
+    if let Some(position) = doi.to_lowercase().find("doi.org/") {
+        doi = doi[position + "doi.org/".len()..].to_string();
+    }
+
+    while matches!(doi.chars().last(), Some('.') | Some(',') | Some(';')) {
+        doi.pop();
+    }
+
+    if doi.is_empty() {
+        None
+    } else {
+        Some(doi)
+    }
+}
+
+/// Extract the first arXiv ID from free-form text, normalised for lookups.
+///
+/// The new (`2401.12345`) format is tried before the old (`astro-ph/0612345`)
+/// one because it is far more common in modern PDFs.
+pub fn extract_arxiv_from_text(text: String) -> Option<String> {
+    for regex in [&*FIRST_ARXIV_NEW_REGEX, &*FIRST_ARXIV_OLD_REGEX] {
+        if let Some(captures) = regex.captures(&text) {
+            if let Some(id) = captures.get(1) {
+                return Some(crate::validators::normalize_arxiv_id(
+                    id.as_str().to_string(),
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// Extract the first ADS bibcode from free-form text.
+pub fn extract_bibcode_from_text(text: String) -> Option<String> {
+    let captures = FIRST_BIBCODE_REGEX.captures(&text)?;
+    let bibcode = captures.get(1)?.as_str();
+    if bibcode.chars().count() == 19 {
+        Some(bibcode.to_string())
+    } else {
+        None
+    }
+}
+
+/// Extract the first PubMed ID from free-form text, including PubMed URLs.
+pub fn extract_pmid_from_text(text: String) -> Option<String> {
+    for regex in [&*FIRST_PMID_REGEX, &*FIRST_PMID_URL_REGEX] {
+        if let Some(captures) = regex.captures(&text) {
+            if let Some(pmid) = captures.get(1) {
+                return Some(pmid.as_str().to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Extract DOIs from text

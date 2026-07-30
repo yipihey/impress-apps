@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): the ONE generic
+// Related section — model, off-main reader actor and a plain-SwiftUI view.
 //
 //  RelatedItemsSection.swift
 //  PublicationManagerCore
@@ -316,4 +316,3 @@ public struct RelatedItemsSection: View {
         .padding(.leading, 4)
     }
 }
-#endif

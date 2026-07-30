@@ -57,7 +57,7 @@ fn parse_ris(input: &str) -> Result<Vec<RISEntry>, ParseError> {
                     // Regular tag
                     raw_lines.push(line.to_string());
                     if let Some(ref mut entry) = current_entry {
-                        entry.add_tag(tag.clone(), value);
+                        entry.add_tag(tag.clone(), trim_ris_value(&value));
                         last_tag = Some(tag);
                     }
                 }
@@ -69,7 +69,10 @@ fn parse_ris(input: &str) -> Result<Vec<RISEntry>, ParseError> {
                 let trimmed = line.trim();
                 if !trimmed.is_empty() {
                     if let Some(last) = entry.tags.iter_mut().rev().find(|t| t.tag == *tag) {
-                        last.value.push(' ');
+                        // Wrapped RIS values keep their line breaks: an abstract
+                        // that arrived as three source lines must render as three
+                        // lines, not as one reflowed paragraph.
+                        last.value.push('\n');
                         last.value.push_str(trimmed);
                     }
                 }
@@ -84,6 +87,14 @@ fn parse_ris(input: &str) -> Result<Vec<RISEntry>, ParseError> {
     }
 
     Ok(entries)
+}
+
+/// Trim horizontal whitespace from a tag value, leaving embedded line breaks
+/// from continuation lines intact.
+fn trim_ris_value(value: &str) -> String {
+    value
+        .trim_matches(|c: char| c.is_whitespace() && c != '\n' && c != '\r')
+        .to_string()
 }
 
 /// Parse a single RIS line into tag and value
@@ -190,13 +201,15 @@ ER  -
         assert_eq!(entries.len(), 1);
 
         let entry = &entries[0];
+        // Continuation lines keep their line breaks — a wrapped abstract is
+        // rendered as the source wrote it, not reflowed into one paragraph.
         assert_eq!(
             entry.title(),
-            Some("A Very Long Title That Continues on the Next Line")
+            Some("A Very Long Title That\nContinues on the Next Line")
         );
         assert_eq!(
             entry.abstract_text(),
-            Some("This abstract spans multiple lines and should be concatenated together.")
+            Some("This abstract spans\nmultiple lines and should\nbe concatenated together.")
         );
         assert_eq!(entry.authors(), vec!["Smith, John"]);
     }

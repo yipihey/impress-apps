@@ -72,9 +72,9 @@ struct ImploreApp: App {
     var body: some Scene {
         // Stage 2-B: the app launches into the shared chassis (implore =
         // imbib filtered to Figures; Generate/Analyze ride along as custom
-        // surfaces). The pre-chassis ContentView file is kept but no longer
-        // reachable from here — its mode functionality lives in the surfaces
-        // (ImploreChassisRoot) and the canvas window below.
+        // surfaces). Stage 4a deleted the unreachable pre-chassis shell that
+        // used to sit in ContentView.swift; its mode functionality lives in
+        // the surfaces (ImploreChassisRoot) and the canvas window below.
         WindowGroup {
             ImploreChassisRoot()
                 .environment(appState)

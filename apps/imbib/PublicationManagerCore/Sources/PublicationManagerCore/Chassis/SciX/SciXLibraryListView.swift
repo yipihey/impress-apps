@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): plain SwiftUI header
+// chrome for a SciX library source.
 //
 //  SciXLibraryListView.swift
 //  imbib
@@ -147,4 +147,3 @@ struct SciXLibraryHeader: View {
         }
     }
 }
-#endif

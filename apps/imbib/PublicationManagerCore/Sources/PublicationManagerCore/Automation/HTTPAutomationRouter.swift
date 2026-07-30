@@ -142,9 +142,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
     /// Route a request to the appropriate handler.
     public func route(_ request: HTTPRequest) async -> HTTPResponse {
-        // Handle CORS preflight
+        // CORS preflight, from the shared group (ImpressAutomation's
+        // `SharedAutomationRoutes`) — this was the fifth private copy of the same
+        // 204. It now advertises PATCH alongside GET/POST/PUT/DELETE, which imbib
+        // has no route for; a preflight naming a method the server does not
+        // implement costs a 400 on the follow-up, never a wrong answer.
         if request.method == "OPTIONS" {
-            return handleCORSPreflight()
+            return SharedAutomationRoutes.corsPreflight()
         }
 
         let path = request.path.lowercased()
@@ -568,20 +572,15 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleListTags(request)
         }
 
-        if path == "/api/logs" {
-            return await LogEndpointHandler.handle(request)
-        }
-
-        if path == "/api/store-timings" {
-            return handleStoreTimings(request)
-        }
-
-        if path == "/api/store-timings/reset" {
-            return handleResetStoreTimings()
-        }
-
-        if path == "/api/performance" {
-            return handlePerformance()
+        // The GENERIC route group, mounted once: `/api/logs`,
+        // `/api/logs/stream` (which imbib did not have before, though the handler
+        // has always been in the shared package), `/api/performance{,/reset}` and
+        // `/api/store-timings{,/reset}`. Mounted HERE rather than in `route(_:)`
+        // so these requests still land in the `http` PerfMetrics bucket, exactly
+        // as they did when they were hand-pasted below.
+        if let shared = await SharedAutomationRoutes.route(
+            request, includeCORSPreflight: false) {
+            return shared
         }
 
         if path == "/api/sync/status" {
@@ -809,9 +808,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await Self.compileManuscript(id: manuscriptID, includePDF: includePDF)
         }
 
-        if path == "/api/performance/reset" {
-            PerfMetrics.shared.reset()
-            return .json(["status": "ok"])
+        // `/api/performance/reset` + `/api/store-timings/reset` — shared group.
+        // Both now accept GET or POST (imbib registered reset under GET, imprint
+        // under POST) and both answer `{"status":"ok","reset":true}`; imbib's
+        // performance reset used to omit the `reset` key. No consumer reads it.
+        if let shared = await SharedAutomationRoutes.route(
+            request, includeCORSPreflight: false) {
+            return shared
         }
 
         if path == "/api/sync/nudge" {
@@ -1330,16 +1333,21 @@ public actor HTTPAutomationRouter: HTTPRouter {
             )
         }
 
-        let response: [String: Any] = [
-            "status": "ok",
-            "version": "1.0.0",
-            "libraryCount": libraryCount,
-            "collectionCount": collectionCount,
-            "publicationCount": publicationCount,
-            "serverPort": await AutomationSettingsStore.shared.settings.httpServerPort
-        ]
-
-        return .json(response)
+        // Envelope from the shared group; the three counts are imbib's.
+        // `serverPort` is preserved BYTE-FOR-BYTE (it is what
+        // `crates/impress-app-client`'s `ServerInfo.server_port` decodes) and
+        // `port` is now emitted alongside it with the same value. `version` stays
+        // the literal "1.0.0" this route has always reported rather than the
+        // bundle's, so no consumer sees a changed string.
+        return SharedAutomationRoutes.status(
+            app: "imbib",
+            port: Int(await AutomationSettingsStore.shared.settings.httpServerPort),
+            version: "1.0.0",
+            domain: [
+                "libraryCount": libraryCount,
+                "collectionCount": collectionCount,
+                "publicationCount": publicationCount,
+            ])
     }
 
     /// GET /api/search?q=...&limit=...&offset=...&tag=...&flag=...&read=...&collection=...&library=...
@@ -1543,20 +1551,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
-    /// CORS preflight response.
-    private func handleCORSPreflight() -> HTTPResponse {
-        HTTPResponse(
-            status: 204,
-            statusText: "No Content",
-            headers: [
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Max-Age": "86400"
-            ]
-        )
-    }
-
     /// GET /api/commands
     /// Returns available commands for the universal command palette.
     private func handleCommands() -> HTTPResponse {
@@ -1587,49 +1581,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
         return .json(response)
     }
 
-    // MARK: - Store Timings (Phase 0 measurement endpoint)
-
-    /// Returns a JSON snapshot of store call counters.
-    /// Query parameter: `?top=N` limits the per-caller list (default 20).
-    private func handleStoreTimings(_ request: HTTPRequest) -> HTTPResponse {
-        let top = Int(request.queryParams["top"] ?? "20") ?? 20
-        let snap = StoreTimings.shared.snapshot(topCallerCount: top)
-
-        let callers: [[String: Any]] = snap.topCallers.map { stat in
-            [
-                "caller": stat.caller,
-                "count": stat.count,
-                "mainThreadCount": stat.mainThreadCount,
-                "meanMillis": round(stat.meanMillis * 1000) / 1000,
-                "maxMillis": round(stat.maxMillis * 1000) / 1000,
-                "totalNanos": stat.totalNanos
-            ]
-        }
-
-        let payload: [String: Any] = [
-            "status": "ok",
-            "capturedAt": ISO8601DateFormatter().string(from: snap.capturedAt),
-            "totalCalls": snap.totalCalls,
-            "mainThreadCalls": snap.mainThreadCalls,
-            "backgroundCalls": snap.backgroundCalls,
-            "mainThreadShare": round(snap.mainThreadShare * 10000) / 10000,
-            "totalMainThreadMillis": round(snap.totalMainThreadMillis * 1000) / 1000,
-            "slowestMainThreadCaller": snap.slowestMainThreadCaller,
-            "slowestMainThreadMillis": round(snap.slowestMainThreadMillis * 1000) / 1000,
-            "topCallers": callers
-        ]
-        return .json(payload)
-    }
-
-    /// Resets all store timing counters. Useful to measure a specific interaction in isolation.
-    private func handleResetStoreTimings() -> HTTPResponse {
-        StoreTimings.shared.reset()
-        return .json(["status": "ok", "reset": true])
-    }
-
-    // MARK: - Performance (PerfMetrics)
-
-    /// GET /api/performance — PerfMetrics snapshot (same shape as imprint's).
     // MARK: - Sync (ADR-0007 Phase 3)
 
     /// GET /api/sync/status — the sync engine's state, identical to what the
@@ -1655,35 +1606,6 @@ public actor HTTPAutomationRouter: HTTPRouter {
             "status": "ok",
             "accepted": outcome.accepted,
             "reason": outcome.reason
-        ])
-    }
-
-    private func handlePerformance() -> HTTPResponse {
-        let snap = PerfMetrics.shared.snapshot()
-        let buckets: [[String: Any]] = snap.buckets.map { b in
-            var dict: [String: Any] = [
-                "name": b.name,
-                "count": b.count,
-                "mainThreadCount": b.mainThreadCount,
-                "mainThreadShare": round(b.mainThreadShare * 10000) / 10000,
-                "minMillis": round(b.minMillis * 1000) / 1000,
-                "meanMillis": round(b.meanMillis * 1000) / 1000,
-                "p50Millis": round(b.p50Millis * 1000) / 1000,
-                "p95Millis": round(b.p95Millis * 1000) / 1000,
-                "maxMillis": round(b.maxMillis * 1000) / 1000,
-                "breachCount": b.breachCount,
-                "totalNanos": b.totalNanos
-            ]
-            if let budget = b.budgetMillis {
-                dict["budgetMillis"] = round(budget * 1000) / 1000
-            }
-            return dict
-        }
-        return .json([
-            "status": "ok",
-            "capturedAt": ISO8601DateFormatter().string(from: snap.capturedAt),
-            "bucketCount": snap.buckets.count,
-            "buckets": buckets
         ])
     }
 
@@ -1830,6 +1752,9 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "GET /api/tags": "List tags (params: prefix, limit)",
                 "GET /api/tags/tree": "Get formatted tag tree",
                 "GET /api/logs": "Query in-app log entries (params: limit, level, category, search, after)",
+                "GET /api/logs/stream": "Cursor-based incremental log feed (params: after, limit, level, category, search)",
+                "POST /api/performance/reset": "Clear PerfMetrics samples (budgets preserved)",
+                "POST /api/store-timings/reset": "Reset StoreTimings counters",
                 "GET /api/commands": "List available commands for universal command palette",
                 // Manuscripts & templates (the manuscript surface reachable from iOS)
                 "GET /api/manuscripts": "List manuscripts (id, title, format, status)",

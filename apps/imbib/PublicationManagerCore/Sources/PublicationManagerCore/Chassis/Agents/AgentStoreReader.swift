@@ -1,5 +1,6 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a read-only
+// `SharedStore` reader (Foundation + ImpressRustCore). While it was gated iOS
+// could not read tasks or agent runs from the shared store AT ALL.
 //
 //  AgentStoreReader.swift
 //  PublicationManagerCore
@@ -65,13 +66,23 @@ public final class AgentStoreReader {
 
     /// Schema refs as impel-core's TaskStoreApi writes them — VERSIONED
     /// (crates/impel-core/src/task_store.rs TASK_SCHEMA / AGENT_RUN_SCHEMA).
-    public static let taskSchema = "task@1.0.0"
-    public static let agentRunSchema = "agent-run@1.0.0"
+    ///
+    /// Read from the DESCRIPTORS rather than re-typed: these were two string
+    /// literals duplicating what `TaskRecordKind`/`AgentRunRecordKind` already
+    /// declare, and a reader with its own copy of a ref is precisely the
+    /// silent-empty-query bug schema-refs.json exists to prevent. There are
+    /// three live spellings of each of these kinds
+    /// (knownDivergences/impel-task-spelling), which makes having exactly one
+    /// Swift-side statement of the one this reader wants worth more here than
+    /// anywhere else.
+    public static let taskSchema = TaskRecordKind.descriptor.primarySchemaRef
+    public static let agentRunSchema = AgentRunRecordKind.descriptor.primarySchemaRef
 
-    /// The kernel task lifecycle, in canonical pipeline order.
-    public static let taskStates = [
-        "queued", "running", "waiting_review", "completed", "failed", "cancelled",
-    ]
+    /// The kernel task lifecycle, in canonical pipeline order — the
+    /// descriptor's declared `lifecycle`, not a parallel array. Empty only if
+    /// the descriptor stops declaring one, which `AgentRecordKindTests` fails on.
+    public static let taskStates: [String] =
+        TaskRecordKind.descriptor.lifecycle?.stateValues ?? []
 
     private var store: SharedStore?
 
@@ -114,7 +125,11 @@ public final class AgentStoreReader {
     public func fetchTask(id: String) -> SharedItemRow? {
         guard let store else { return nil }
         guard let row = try? store.getItem(id: id.lowercased()) else { return nil }
-        guard row.schemaRef.hasPrefix("task") else { return nil }
+        // Registry lookup, not `hasPrefix("task")`: the tolerant lookup
+        // compares BASE NAMES on both sides, so a future `task-template` row
+        // cannot pass as a task the way a prefix check would let it.
+        guard BuiltinRecordKinds.registry.kind(forStoreSchemaRef: row.schemaRef) == .task
+        else { return nil }
         return row
     }
 
@@ -183,23 +198,24 @@ public final class AgentStoreReader {
         return try? JSONDecoder().decode(AgentRunPayload.self, from: data)
     }
 
+    /// The declared spec for a kernel task state, if the descriptor knows it.
+    nonisolated static func stateSpec(_ state: String) -> StatusSpec? {
+        TaskRecordKind.descriptor.lifecycle?.state(state)
+    }
+
     /// Human-readable label for a kernel task state ("waiting_review" →
-    /// "Waiting Review").
+    /// "Waiting Review"). The DECLARED label, falling back to a title-cased
+    /// spelling for a state this build does not know — a kernel newer than the
+    /// GUI must render as something honest rather than blank.
     nonisolated static func stateDisplayName(_ state: String) -> String {
-        state.split(separator: "_").map(\.capitalized).joined(separator: " ")
+        stateSpec(state)?.label
+            ?? state.split(separator: "_").map(\.capitalized).joined(separator: " ")
     }
 
     /// SF Symbol for a kernel task state (sidebar smart children + rows).
+    /// Was a six-arm `switch`; now the declaration on `TaskRecordKind`.
     nonisolated static func stateIcon(_ state: String) -> String {
-        switch state {
-        case "queued": return "clock"
-        case "running": return "play.circle"
-        case "waiting_review": return "person.crop.circle.badge.questionmark"
-        case "completed": return "checkmark.circle"
-        case "failed": return "xmark.circle"
-        case "cancelled": return "slash.circle"
-        default: return "circle"
-        }
+        stateSpec(state)?.systemImage ?? "circle"
     }
 
     /// Encode a Swift string as a JSON scalar for `SharedFieldEq.valueJson`
@@ -213,4 +229,3 @@ public final class AgentStoreReader {
         return "\"\(value)\""
     }
 }
-#endif

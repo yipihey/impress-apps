@@ -781,12 +781,28 @@ class TypstTextView: HelixTextView {
     private func handleHover(event: NSEvent) {
         let pointInView = convert(event.locationInWindow, from: nil)
         let charIndex = characterIndexForInsertion(at: pointInView)
-        guard charIndex != NSNotFound, charIndex >= 0, charIndex < string.count else {
+        // `characterIndexForInsertion` answers in UTF-16 code units, so the
+        // bound must be the NSString length. `string.count` is a *Character*
+        // count and is smaller than the buffer for any emoji/astral text —
+        // hovering the tail of such a document silently stopped working.
+        guard charIndex != NSNotFound, charIndex >= 0,
+              charIndex < (string as NSString).length else {
             hoverController?.scheduleDismiss()
             return
         }
-        if let match = CiteKeyAtLocation.find(in: string, at: charIndex, format: currentFormat) {
-            hoverController?.show(in: self, citeKey: match.key, range: match.range)
+        // Detection is the canonical Rust scanner (see ManuscriptCiteKeyLocator)
+        // — the same one iOS long-press, the compile-time bibliography and the
+        // usage index use. The strict (half-open) probe is deliberate: it is
+        // what the hand-rolled scanner this replaced did, so the hover target
+        // is unchanged. `nearUTF16Offset` is touch tolerance for iOS and would
+        // widen the mouse hit area.
+        if let hit = ManuscriptCiteKeyLocator.citeKey(
+            in: string, atUTF16Offset: charIndex, format: currentFormat
+        ) {
+            // `hitRange`, not `keyRange`: the span the reader sees as "the
+            // citation" — it includes Typst's `@` sigil and equals the key for
+            // LaTeX, so the popover anchors to the whole token on both.
+            hoverController?.show(in: self, citeKey: hit.key, range: hit.hitRange)
         } else {
             hoverController?.scheduleDismiss()
         }

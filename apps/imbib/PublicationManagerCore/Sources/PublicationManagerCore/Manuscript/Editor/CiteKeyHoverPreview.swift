@@ -274,121 +274,18 @@ final class CiteKeyHoverController {
     }
 }
 
-// MARK: - Cite-key detection at a character index
-
-/// Utilities for finding whether a character index falls inside a `\cite{key}`
-/// or `@key` pattern, and returning the key + its range.
-enum CiteKeyAtLocation {
-    /// Scan the source for a cite key that covers `location`. Returns (key, range) or nil.
-    static func find(in source: String, at location: Int, format: DocumentFormat) -> (key: String, range: NSRange)? {
-        switch format {
-        case .latex: return findLatex(in: source, at: location)
-        case .typst, .markdown: return findTypst(in: source, at: location)
-        case .plaintext: return nil
-        }
-    }
-
-    private static func findLatex(in source: String, at location: Int) -> (key: String, range: NSRange)? {
-        let ns = source as NSString
-        guard location >= 0, location < ns.length else { return nil }
-
-        // Walk backwards for `{`, then ensure it's after a cite* command, then scan forward for `}`.
-        var i = location
-        // Move into the braces region if we're sitting on them
-        while i >= 0 {
-            let u = ns.character(at: i)
-            if u == 125 /* } */ { return nil }
-            if u == 123 /* { */ {
-                // Check the command before this brace
-                guard i > 0 else { return nil }
-                var j = i - 1
-                while j >= 0 {
-                    let cu = ns.character(at: j)
-                    if (cu >= 97 && cu <= 122) || (cu >= 65 && cu <= 90) || cu == 42 {
-                        j -= 1
-                    } else { break }
-                }
-                guard j >= 0, ns.character(at: j) == 92 /* \ */ else { return nil }
-                let commandName = ns.substring(with: NSRange(location: j + 1, length: i - (j + 1))).lowercased()
-                let isCite = commandName.hasPrefix("cite")
-                    || commandName.hasPrefix("parencite")
-                    || commandName.hasPrefix("textcite")
-                    || commandName.hasPrefix("autocite")
-                    || commandName.hasPrefix("footcite")
-                    || commandName.hasPrefix("smartcite")
-                    || commandName.hasPrefix("supercite")
-                    || commandName.hasPrefix("nocite")
-                guard isCite else { return nil }
-                // Scan forward from i+1 to find the closing `}`, tracking commas
-                var k = i + 1
-                var keyStart = k
-                var keyRange: NSRange? = nil
-                while k < ns.length {
-                    let kc = ns.character(at: k)
-                    if kc == 125 /* } */ {
-                        if location >= keyStart && location <= k {
-                            let key = ns.substring(with: NSRange(location: keyStart, length: k - keyStart)).trimmingCharacters(in: .whitespaces)
-                            if !key.isEmpty {
-                                keyRange = NSRange(location: keyStart, length: k - keyStart)
-                                return (key, keyRange!)
-                            }
-                        }
-                        return nil
-                    }
-                    if kc == 44 /* , */ {
-                        if location >= keyStart && location < k {
-                            let key = ns.substring(with: NSRange(location: keyStart, length: k - keyStart)).trimmingCharacters(in: .whitespaces)
-                            if !key.isEmpty { return (key, NSRange(location: keyStart, length: k - keyStart)) }
-                        }
-                        keyStart = k + 1
-                        while keyStart < ns.length, ns.character(at: keyStart) == 32 || ns.character(at: keyStart) == 9 {
-                            keyStart += 1
-                        }
-                    }
-                    k += 1
-                }
-                return nil
-            }
-            i -= 1
-            // Don't scan too far back — limit to 200 chars for performance
-            if location - i > 200 { return nil }
-        }
-        return nil
-    }
-
-    private static func findTypst(in source: String, at location: Int) -> (key: String, range: NSRange)? {
-        let ns = source as NSString
-        guard location >= 0, location < ns.length else { return nil }
-
-        // Walk backwards to find `@`, ensuring we stay on valid cite-key chars
-        var i = location
-        while i >= 0 {
-            let u = ns.character(at: i)
-            if u == 64 /* @ */ {
-                // Scan forward for end of key
-                var k = i + 1
-                while k < ns.length {
-                    let kc = ns.character(at: k)
-                    let isKey = (kc >= 97 && kc <= 122) || (kc >= 65 && kc <= 90) || (kc >= 48 && kc <= 57) || kc == 45 || kc == 95
-                    if !isKey { break }
-                    k += 1
-                }
-                if k <= i + 1 { return nil }
-                let keyRange = NSRange(location: i + 1, length: k - (i + 1))
-                // Check location falls within @keyrange (inclusive of @)
-                if location >= i && location < k {
-                    let key = ns.substring(with: keyRange)
-                    return (key, keyRange)
-                }
-                return nil
-            }
-            let isKeyChar = (u >= 97 && u <= 122) || (u >= 65 && u <= 90) || (u >= 48 && u <= 57) || u == 45 || u == 95
-            if !isKeyChar { return nil }
-            i -= 1
-            if location - i > 80 { return nil }
-        }
-        return nil
-    }
-}
+// MARK: - Cite-key detection
+//
+// There is deliberately NO detection code in this file. It used to hold
+// `CiteKeyAtLocation`, a hand-rolled Swift copy of the cite-key grammar, and
+// that copy had already drifted: it previewed Typst's `@param` / `@available`
+// annotations and the domain half of `ada@example.org` as citations, because it
+// only knew "an `@` followed by key characters".
+//
+// Hit-testing now goes through `ManuscriptCiteKeyLocator`, which forwards to
+// `imprint_core::citations::hit` — derived from `citations::extract`, the one
+// scanner that also backs the compile-time bibliography, the usage index and
+// the iOS long-press. Detection cannot drift from the scanner because there is
+// no second copy of the grammar to drift from. See `CiteKeyDetectionParityTests`.
 
 #endif // os(macOS)

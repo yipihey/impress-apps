@@ -27,6 +27,9 @@ private let routerLogger = Logger(subsystem: "com.imbib.impart", category: "http
 /// - `GET /api/artifacts/{encodedUri}` - Resolve artifact reference
 /// - `GET /api/provenance/trace/{messageId}` - Trace provenance chain
 /// - `GET /api/logs` - Query in-app log entries
+/// - `GET /api/logs/stream` - Cursor-based incremental log feed
+/// - `GET /api/performance` - PerfMetrics snapshot (+ `POST /api/performance/reset`)
+/// - `GET /api/store-timings` - StoreTimings snapshot (+ `POST /api/store-timings/reset`)
 ///
 /// API Endpoints (POST):
 /// - `POST /api/messages/send` - Send message
@@ -83,9 +86,16 @@ public actor ImpartHTTPRouter: HTTPRouter {
 
     /// Route a request to the appropriate handler.
     public func route(_ request: HTTPRequest) async -> HTTPResponse {
-        // Handle CORS preflight
-        if request.method == "OPTIONS" {
-            return handleCORSPreflight()
+        // The GENERIC route group, mounted once (ImpressAutomation's
+        // `SharedAutomationRoutes`): CORS preflight, `/api/logs`, and — newly,
+        // for free — `/api/logs/stream`, `/api/performance{,/reset}` and
+        // `/api/store-timings{,/reset}`. All five app routers used to hand-paste
+        // the `/api/logs` line and its private CORS twin; only imprint ever
+        // registered the stream route, though the handler has always lived in the
+        // shared package. Returns nil for everything else, so the domain table
+        // below is untouched.
+        if let shared = await SharedAutomationRoutes.route(request) {
+            return shared
         }
 
         // Route based on path
@@ -134,9 +144,6 @@ public actor ImpartHTTPRouter: HTTPRouter {
                 return await handleProvenanceTrace(messageId: messageId)
             }
 
-            if path == "/api/logs" {
-                return await LogEndpointHandler.handle(request)
-            }
         }
 
         // POST endpoints
@@ -234,15 +241,12 @@ public actor ImpartHTTPRouter: HTTPRouter {
             }
         }
 
-        let response: [String: Any] = [
-            "status": "ok",
-            "app": "impart",
-            "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0",
-            "port": ImpartHTTPServer.defaultPort,
-            "accounts": accountCount
-        ]
-
-        return .json(response)
+        // Envelope (`status` / `app` / `version` / `port` + `serverPort`) from the
+        // shared group; `accounts` is impart's.
+        return SharedAutomationRoutes.status(
+            app: "impart",
+            port: Int(ImpartHTTPServer.defaultPort),
+            domain: ["accounts": accountCount])
     }
 
     /// GET /api/accounts
@@ -1043,20 +1047,6 @@ public actor ImpartHTTPRouter: HTTPRouter {
 
     // MARK: - Helpers
 
-    /// CORS preflight response.
-    private func handleCORSPreflight() -> HTTPResponse {
-        HTTPResponse(
-            status: 204,
-            statusText: "No Content",
-            headers: [
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Max-Age": "86400"
-            ]
-        )
-    }
-
     /// Root API info response.
     private func handleAPIInfo() -> HTTPResponse {
         let info: [String: Any] = [
@@ -1065,6 +1055,11 @@ public actor ImpartHTTPRouter: HTTPRouter {
             "endpoints": [
                 // GET endpoints
                 "GET /api/status": "Server health and info",
+                "GET /api/logs/stream": "Cursor-based incremental log feed (params: after, limit, level, category, search)",
+                "GET /api/performance": "PerfMetrics snapshot — per-operation latency buckets, percentiles, budget breaches",
+                "POST /api/performance/reset": "Clear PerfMetrics samples (budgets preserved)",
+                "GET /api/store-timings": "StoreTimings snapshot (params: top)",
+                "POST /api/store-timings/reset": "Reset StoreTimings counters",
                 "GET /api/accounts": "List configured accounts",
                 "GET /api/mailboxes?account={id}": "List mailboxes for account",
                 "GET /api/messages?mailbox={id}&limit={n}&offset={n}": "List messages in mailbox",

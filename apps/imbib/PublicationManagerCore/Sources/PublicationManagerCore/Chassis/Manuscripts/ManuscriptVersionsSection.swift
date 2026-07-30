@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): plain SwiftUI over
+// the revision list.
 //
 //  ManuscriptVersionsSection.swift
 //  PublicationManagerCore
@@ -128,4 +128,3 @@ public struct ManuscriptVersionsSection: View {
         reload()
     }
 }
-#endif

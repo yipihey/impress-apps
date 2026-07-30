@@ -1,4 +1,10 @@
 name: impel
+
+# Chassis UTIs (`ChassisUTIs` target template) — the types
+# PublicationManagerCore/ImpressKit build with `UTType(exportedAs:)`. Declared
+# once for the whole suite; see the header of that file.
+include:
+  - path: ../chassis-utis.yml
 options:
   bundleIdPrefix: com.impress
   deploymentTarget:
@@ -50,6 +56,7 @@ targets:
   impel:
     type: application
     platform: macOS
+    templates: [ChassisUTIs]
     deploymentTarget: "26.0"
     sources:
       - path: Shared
@@ -93,22 +100,9 @@ targets:
           - imprint
           - implore
           - impart
-        UTExportedTypeDeclarations:
-          # Chassis drag types (PublicationManagerCore, MailStylePublicationRow).
-          # EXPORTED in every host app that links the chassis, not imported:
-          # the chassis builds them with UTType(exportedAs:), and an imported
-          # declaration still faults ("was expected to be exported in the
-          # Info.plist of <app>, but it was imported instead").
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: imbib Manuscript ID
-            UTTypeIdentifier: com.imbib.manuscript-id
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Figure ID
-            UTTypeIdentifier: com.impress.figure-id
-            UTTypeTagSpecification: {}
+        # impel exports no types of its own — its whole exported set is the
+        # chassis one, supplied by the ChassisUTIs template
+        # (apps/chassis-utis.yml).
         UTImportedTypeDeclarations:
           - UTTypeConformsTo:
               - public.data

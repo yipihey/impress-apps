@@ -45,7 +45,10 @@ pub mod python;
 
 pub use entry::{BibTeXEntry, BibTeXEntryType, BibTeXField};
 pub use formatter::{escape_value, format_complete, format_entries, format_entry};
-pub use parser::{parse, parse_entry, BibTeXParseError, BibTeXParseResult, ParseError};
+pub use parser::{
+    parse, parse_entry, parse_with_options, BibTeXParseError, BibTeXParseResult, ParseError,
+    ParseOptions,
+};
 
 // LaTeX and journal macro functions
 pub use journal_macros::{expand_journal_macro, get_all_journal_macro_names, is_journal_macro};

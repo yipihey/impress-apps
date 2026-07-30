@@ -10,46 +10,31 @@
 //  old Generate/Analyze sidebar modes ride along as app-owned CUSTOM
 //  SURFACES (WP-X0) wrapping the EXISTING views — no rewrites.
 //
-//  This root replicates imprint's ImprintChassisRoot exactly: the chassis
-//  reads three `@Environment` view models — PMC's `LibraryManager`,
-//  `LibraryViewModel`, `SearchViewModel` — plus the injected
-//  `\.appShellConfiguration`. Everything else the chassis needs
-//  (`RustStoreAdapter.shared`, `ImbibImpressStore.shared`,
-//  `FigureStoreReader.shared`, …) is a PMC singleton implore gets for free
-//  by linking PublicationManagerCore, reading the SAME shared App Group
-//  store (ADR-0001: same data, different facet).
+//  Stage 4b: the chassis boilerplate this file used to carry — a
+//  `ChassisViewModels` class (declared under that same name in FOUR app
+//  targets), a `warmSharedStore()` and a loading view — now lives once, in PMC's
+//  `ChassisRootView`. It injects the same environment: the chassis reads three
+//  `@Environment` view models — PMC's `LibraryManager`, `LibraryViewModel`,
+//  `SearchViewModel` — plus `\.appShellConfiguration`. Everything else the
+//  chassis needs (`RustStoreAdapter.shared`, `ImbibImpressStore.shared`,
+//  `FigureStoreReader.shared`, …) is a PMC singleton implore gets for free by
+//  linking PublicationManagerCore, reading the SAME shared App Group store
+//  (ADR-0001: same data, different facet). It also keeps the off-main store
+//  warm-up (see ImprintChassisRoot): the first `open()` can block on a TCC
+//  prompt / WAL lock.
 //
-//  Launch TCC hang avoidance (see ImprintChassisRoot): the shared store's
-//  first `open()` can block on a TCC prompt / WAL lock, so it is warmed on a
-//  DETACHED background task before the main-actor view models exist.
+//  The name collision that forced `PublicationManagerCore.LibraryManager`
+//  qualification in the old local `ChassisViewModels` is gone with it — implore
+//  keeps its OWN `LibraryManager` (the JSON figure library), and the surfaces
+//  below still inject that one.
 //
-//  NOTE on names: implore has its OWN `LibraryManager` (the JSON figure
-//  library); the chassis view models below use the PMC types, referenced
-//  fully qualified as `PublicationManagerCore.LibraryManager` etc.
+//  What stays implore's: the two custom surface descriptors, the
+//  `ImploreSurfaceContext` singleton, the surface views, `ImploreCanvasStack`
+//  and `CanvasWindowView`.
 //
 
 import SwiftUI
-import ImpressLogging
 import PublicationManagerCore
-
-/// Holds the three chassis view models. Constructed once, on the main actor,
-/// only AFTER the shared store has been warmed off-main.
-@MainActor
-final class ChassisViewModels {
-    let libraryManager: PublicationManagerCore.LibraryManager
-    let libraryViewModel: PublicationManagerCore.LibraryViewModel
-    let searchViewModel: PublicationManagerCore.SearchViewModel
-
-    init() {
-        let libraryManager = PublicationManagerCore.LibraryManager()
-        let libraryViewModel = PublicationManagerCore.LibraryViewModel()
-        let searchViewModel = PublicationManagerCore.SearchViewModel()
-        searchViewModel.setLibraryManager(libraryManager)
-        self.libraryManager = libraryManager
-        self.libraryViewModel = libraryViewModel
-        self.searchViewModel = searchViewModel
-    }
-}
 
 /// Shared context for the custom surfaces: the generator view model outlives
 /// any single surface view (the chassis constructs surface views lazily per
@@ -66,7 +51,6 @@ final class ImploreSurfaceContext {
 /// Gated behind an off-main store warm-up so launch never blocks on the App
 /// Group store open.
 struct ImploreChassisRoot: View {
-    @State private var models: ChassisViewModels?
 
     /// The implore shell: PMC's `.implore` preset (Figures section, canvas
     /// open behavior) EXTENDED app-side with the custom surfaces — the
@@ -82,46 +66,9 @@ struct ImploreChassisRoot: View {
         ])
 
     var body: some View {
-        Group {
-            if let models {
-                TabContentView()
-                    .environment(models.libraryManager)
-                    .environment(models.libraryViewModel)
-                    .environment(models.searchViewModel)
-                    .environment(\.appShellConfiguration, Self.shellConfiguration)
-            } else {
-                loadingView
-            }
-        }
-        .task {
-            guard models == nil else { return }
-            // Warm the shared store OFF the main thread (see header note).
-            await Self.warmSharedStore()
-            models = ChassisViewModels()
-            logInfo("ImploreChassisRoot: chassis environment ready (Figures facet)", category: "app")
-        }
-    }
-
-    /// Force the shared-store open onto a background thread and await completion.
-    private static func warmSharedStore() async {
-        await Task.detached(priority: .userInitiated) {
-            _ = RustStoreAdapter.shared
-        }.value
-    }
-
-    private var loadingView: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Opening workspace…")
-                .font(.headline)
-            Text("If macOS asks to allow access to data from other apps, click Allow.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ChassisRootView(
+            configuration: Self.shellConfiguration,
+            readyLogMessage: "ImploreChassisRoot: chassis environment ready (Figures facet)")
     }
 }
 

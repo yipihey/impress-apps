@@ -465,28 +465,27 @@ struct ImprintApp: App {
         // for the macOS path (Phase 4b of
         // /Users/tabel/.claude/plans/one-store-the-store-melodic-wreath.md).
         // Project browser window (post-Phase-4b cleanup). Hosts the
-        // ManuscriptLibraryView directly — the legacy CD-backed
+        // shared chassis directly — the legacy CD-backed
         // `ProjectBrowserView` is retired now that the unified store
         // holds all manuscripts. The scene id "project-browser" is
         // preserved so external integrations (URL scheme, openWindow
         // callers) keep working without a transition step.
         WindowGroup("imprint", id: "project-browser") {
-            // GUI-meld Phase 6: the project browser is now the SHARED chassis
+            // GUI-meld Phase 6: the project browser is the SHARED chassis
             // (PMC's TabContentView) filtered to the Manuscripts facet — same
             // GUI as imbib, lands on a manuscript in the Source tab. The root
             // warms the shared store OFF the main thread so launch never blocks
-            // on the App Group store's TCC prompt / slow open. The legacy
-            // `ManuscriptLibraryGate` / `ManuscriptEditorView` path is retained
-            // (View ▸ Open Legacy Editor, manuscript-editor WindowGroup) as a
-            // transition aid until Phase 7 deletes it.
-            Group {
-                #if os(macOS)
-                ImprintChassisRoot()
-                #else
-                ManuscriptLibraryGate()
-                    .withAppearance()
-                #endif
-            }
+            // on the App Group store's TCC prompt / slow open.
+            //
+            // Stage 4a: the `#if os(macOS)` gate that used to wrap this had a
+            // dead `#else` arm (`ManuscriptLibraryGate` + `ManuscriptLibraryView`).
+            // This whole file is `#if os(macOS)`, and the iOS target compiles
+            // `Shared` + `imprint-iOS` but never `macOS/` — so that arm was
+            // compiled by no target. iOS ships `IOSManuscriptLibraryView` from
+            // its own `@main` in imprint-iOS/ImprintIOSApp.swift. Both the arm
+            // and the now-single-armed gate are gone; the standalone
+            // `manuscript-editor` WindowGroup below is untouched and live.
+            ImprintChassisRoot()
                 .onReceive(
                     NotificationCenter.default.publisher(for: .openManuscriptInEditor)
                 ) { notification in

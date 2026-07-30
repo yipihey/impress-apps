@@ -5851,14 +5851,22 @@ public struct BibTeXParseResult {
     public var entries: [BibTeXEntry]
     public var preambles: [String]
     public var strings: [String: String]
+    /**
+     * `@comment{…}` bodies, in source order
+     */
+    public var comments: [String]
     public var errors: [BibTeXParseError]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(entries: [BibTeXEntry], preambles: [String], strings: [String: String], errors: [BibTeXParseError]) {
+    public init(entries: [BibTeXEntry], preambles: [String], strings: [String: String], 
+        /**
+         * `@comment{…}` bodies, in source order
+         */comments: [String], errors: [BibTeXParseError]) {
         self.entries = entries
         self.preambles = preambles
         self.strings = strings
+        self.comments = comments
         self.errors = errors
     }
 }
@@ -5876,6 +5884,9 @@ extension BibTeXParseResult: Equatable, Hashable {
         if lhs.strings != rhs.strings {
             return false
         }
+        if lhs.comments != rhs.comments {
+            return false
+        }
         if lhs.errors != rhs.errors {
             return false
         }
@@ -5886,6 +5897,7 @@ extension BibTeXParseResult: Equatable, Hashable {
         hasher.combine(entries)
         hasher.combine(preambles)
         hasher.combine(strings)
+        hasher.combine(comments)
         hasher.combine(errors)
     }
 }
@@ -5901,6 +5913,7 @@ public struct FfiConverterTypeBibTeXParseResult: FfiConverterRustBuffer {
                 entries: FfiConverterSequenceTypeBibTeXEntry.read(from: &buf), 
                 preambles: FfiConverterSequenceString.read(from: &buf), 
                 strings: FfiConverterDictionaryStringString.read(from: &buf), 
+                comments: FfiConverterSequenceString.read(from: &buf), 
                 errors: FfiConverterSequenceTypeBibTeXParseError.read(from: &buf)
         )
     }
@@ -5909,6 +5922,7 @@ public struct FfiConverterTypeBibTeXParseResult: FfiConverterRustBuffer {
         FfiConverterSequenceTypeBibTeXEntry.write(value.entries, into: &buf)
         FfiConverterSequenceString.write(value.preambles, into: &buf)
         FfiConverterDictionaryStringString.write(value.strings, into: &buf)
+        FfiConverterSequenceString.write(value.comments, into: &buf)
         FfiConverterSequenceTypeBibTeXParseError.write(value.errors, into: &buf)
     }
 }
@@ -23599,6 +23613,18 @@ fileprivate struct FfiConverterDictionaryTypeFeatureTypeDouble: FfiConverterRust
     }
 }
 /**
+ * Extract every supported identifier from BibTeX fields in one FFI call.
+ *
+ * Keys are identifier-type names: `doi`, `arxiv`, `bibcode`, `pmid`, `pmcid`.
+ */
+public func allIdentifiersFromFields(fields: [String: String]) -> [String: String] {
+    return try!  FfiConverterDictionaryStringString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_all_identifiers_from_fields(
+        FfiConverterDictionaryStringString.lower(fields),$0
+    )
+})
+}
+/**
  * Add an embedding to the index
  */
 public func annIndexAdd(handleId: UInt64, publicationId: String, embedding: [Float]) -> Bool {
@@ -23684,6 +23710,16 @@ public func annIndexSize(handleId: UInt64) -> UInt32 {
     )
 })
 }
+/**
+ * Extract the arXiv ID from BibTeX fields (`eprint` → `arxivid` → `arxiv`).
+ */
+public func arxivIdFromFields(fields: [String: String]) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_arxiv_id_from_fields(
+        FfiConverterDictionaryStringString.lower(fields),$0
+    )
+})
+}
 public func authorsOverlap(authors1: String, authors2: String) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_authors_overlap(
@@ -23720,6 +23756,26 @@ public func bdskFileExtractAll(fields: [String: String]) -> [String] {
     )
 })
 }
+/**
+ * Extract an ADS bibcode from an ADS abstract URL.
+ */
+public func bibcodeFromAdsUrl(url: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_bibcode_from_ads_url(
+        FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
+ * Extract the ADS bibcode from BibTeX fields (`bibcode`, else `adsurl`).
+ */
+public func bibcodeFromFields(fields: [String: String]) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_bibcode_from_fields(
+        FfiConverterDictionaryStringString.lower(fields),$0
+    )
+})
+}
 public func bibtexFormatEntries(entries: [BibTeXEntry]) -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_bibtex_format_entries(
@@ -23748,6 +23804,23 @@ public func bibtexParseEntry(input: String)throws  -> BibTeXEntry {
     return try  FfiConverterTypeBibTeXEntry.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
     uniffi_imbib_core_fn_func_bibtex_parse_entry(
         FfiConverterString.lower(input),$0
+    )
+})
+}
+/**
+ * Parse BibTeX with explicit macro / crossref handling.
+ *
+ * `expand_macros` covers `@string` definitions *and* the built-in month
+ * macros; `resolve_crossrefs` merges a `crossref` parent's fields into the
+ * child. Both were re-implemented in Swift before Stage 7 — the Swift copies
+ * are gone, so this is the only definition.
+ */
+public func bibtexParseWithOptions(input: String, expandMacros: Bool, resolveCrossrefs: Bool)throws  -> BibTeXParseResult {
+    return try  FfiConverterTypeBibTeXParseResult.lift(try rustCallWithError(FfiConverterTypeFfiError.lift) {
+    uniffi_imbib_core_fn_func_bibtex_parse_with_options(
+        FfiConverterString.lower(input),
+        FfiConverterBool.lower(expandMacros),
+        FfiConverterBool.lower(resolveCrossrefs),$0
     )
 })
 }
@@ -24102,6 +24175,16 @@ public func detectFormat(content: String) -> ImportFormat {
 })
 }
 /**
+ * Extract the DOI from BibTeX fields.
+ */
+public func doiFromFields(fields: [String: String]) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_doi_from_fields(
+        FfiConverterDictionaryStringString.lower(fields),$0
+    )
+})
+}
+/**
  * Get total chunk count.
  */
 public func embeddingStoreChunkCount(handle: UInt64) -> UInt32 {
@@ -24369,9 +24452,39 @@ public func extractAllIdentifiersBatch(texts: [String]) -> [ExtractedIdentifiers
     )
 })
 }
+/**
+ * Extract the first arXiv ID from free-form text, normalised for lookups.
+ */
+public func extractArxivFromText(text: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_arxiv_from_text(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
 public func extractArxivIds(text: String) -> [String] {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_extract_arxiv_ids(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * Extract the first ADS bibcode from free-form text.
+ */
+public func extractBibcodeFromText(text: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_bibcode_from_text(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * Extract the first DOI from free-form text (e.g. text scraped from a PDF).
+ */
+public func extractDoiFromText(text: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_doi_from_text(
         FfiConverterString.lower(text),$0
     )
 })
@@ -24459,6 +24572,16 @@ public func extractMetadataHeuristicsBatch(firstPageTexts: [String], currentYear
     uniffi_imbib_core_fn_func_extract_metadata_heuristics_batch(
         FfiConverterSequenceString.lower(firstPageTexts),
         FfiConverterInt32.lower(currentYear),$0
+    )
+})
+}
+/**
+ * Extract the first PubMed ID from free-form text.
+ */
+public func extractPmidFromText(text: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_extract_pmid_from_text(
+        FfiConverterString.lower(text),$0
     )
 })
 }
@@ -24810,6 +24933,19 @@ public func isValidArxivId(arxivId: String) -> Bool {
     )
 })
 }
+/**
+ * Stricter shape check for a raw BibTeX `eprint` value.
+ *
+ * Rejects bibcodes and DOIs that some sources put there; unlike
+ * [`is_valid_arxiv_id`] it does not accept a dotted subject class.
+ */
+public func isValidArxivIdFormat(value: String) -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_is_valid_arxiv_id_format(
+        FfiConverterString.lower(value),$0
+    )
+})
+}
 public func isValidDoi(doi: String) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_is_valid_doi(
@@ -24851,6 +24987,17 @@ public func mergePublications(local: Publication, remote: Publication, strategy:
         FfiConverterTypePublication.lower(local),
         FfiConverterTypePublication.lower(remote),
         FfiConverterTypeMergeStrategy.lower(strategy),$0
+    )
+})
+}
+/**
+ * Normalise an arXiv ID for indexed lookups (drop `arXiv:` prefix and version
+ * suffix, lowercase).
+ */
+public func normalizeArxivId(arxivId: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_normalize_arxiv_id(
+        FfiConverterString.lower(arxivId),$0
     )
 })
 }
@@ -25090,6 +25237,26 @@ public func pdfSearch(pdfBytes: Data, query: String, maxResults: UInt32)throws  
         FfiConverterData.lower(pdfBytes),
         FfiConverterString.lower(query),
         FfiConverterUInt32.lower(maxResults),$0
+    )
+})
+}
+/**
+ * Extract the PubMed Central ID from BibTeX fields.
+ */
+public func pmcidFromFields(fields: [String: String]) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_pmcid_from_fields(
+        FfiConverterDictionaryStringString.lower(fields),$0
+    )
+})
+}
+/**
+ * Extract the PubMed ID from BibTeX fields.
+ */
+public func pmidFromFields(fields: [String: String]) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_pmid_from_fields(
+        FfiConverterDictionaryStringString.lower(fields),$0
     )
 })
 }
@@ -25503,6 +25670,9 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_imbib_core_checksum_func_all_identifiers_from_fields() != 55350) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_ann_index_add() != 45084) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25527,6 +25697,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_ann_index_size() != 62570) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_arxiv_id_from_fields() != 58660) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_authors_overlap() != 34149) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25542,6 +25715,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_bdsk_file_extract_all() != 26564) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_bibcode_from_ads_url() != 10750) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_bibcode_from_fields() != 52931) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_bibtex_format_entries() != 41213) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25552,6 +25731,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_bibtex_parse_entry() != 35930) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_bibtex_parse_with_options() != 20094) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_build_api_query() != 24123) {
@@ -25650,6 +25832,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_detect_format() != 52778) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_doi_from_fields() != 51212) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_embedding_store_chunk_count() != 54110) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25731,7 +25916,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_extract_all_identifiers_batch() != 46837) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_extract_arxiv_from_text() != 63039) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_extract_arxiv_ids() != 23986) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_extract_bibcode_from_text() != 56021) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_extract_doi_from_text() != 6074) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_extract_dois() != 1063) {
@@ -25756,6 +25950,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_extract_metadata_heuristics_batch() != 33103) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_extract_pmid_from_text() != 40738) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_extract_snippet() != 18064) {
@@ -25866,6 +26063,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_is_valid_arxiv_id() != 39857) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_is_valid_arxiv_id_format() != 35351) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_is_valid_doi() != 47862) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25879,6 +26079,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_merge_publications() != 39027) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_normalize_arxiv_id() != 51977) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_normalize_author_export() != 63058) {
@@ -25951,6 +26154,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_pdf_search() != 19162) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_pmcid_from_fields() != 9061) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_pmid_from_fields() != 1837) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_preferred_identifier_for_source() != 60356) {

@@ -1,0 +1,671 @@
+{
+  "adsURLCases" : [
+    {
+      "bibcode" : "2023ApJ...123..456A",
+      "input" : "https://ui.adsabs.harvard.edu/abs/2023ApJ...123..456A/abstract"
+    },
+    {
+      "bibcode" : "1996ApJ...468...28K",
+      "input" : "https://adsabs.harvard.edu/abs/1996ApJ...468...28K"
+    },
+    {
+      "bibcode" : "2024A&A...686A.276A",
+      "input" : "https://ui.adsabs.harvard.edu/abs/2024A&A...686A.276A/abstract"
+    },
+    {
+      "bibcode" : "1996ApJ...468...28K",
+      "input" : "http://adsabs.harvard.edu/abs/1996ApJ...468...28K"
+    },
+    {
+      "bibcode" : null,
+      "input" : "https://example.org/abs/2023ApJ...123..456A"
+    },
+    {
+      "bibcode" : null,
+      "input" : "https://ui.adsabs.harvard.edu/"
+    },
+    {
+      "bibcode" : null,
+      "input" : "https://ui.adsabs.harvard.edu/abs/"
+    },
+    {
+      "bibcode" : null,
+      "input" : "not a url"
+    },
+    {
+      "bibcode" : null,
+      "input" : ""
+    }
+  ],
+  "fieldCases" : [
+    {
+      "all" : {
+
+      },
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345"
+      },
+      "arxiv" : "2401.12345",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "2401.12345"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345v2"
+      },
+      "arxiv" : "2401.12345v2",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "2401.12345v2"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345"
+      },
+      "arxiv" : "2401.12345",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "arXiv:2401.12345"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "astro-ph/9412070"
+      },
+      "arxiv" : "astro-ph/9412070",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "astro-ph/9412070"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "hep-th/9901001"
+      },
+      "arxiv" : "hep-th/9901001",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "arXiv:hep-th/9901001"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+
+      },
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "2024A&A...686A.276A"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+
+      },
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "10.1038/nature12373"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345"
+      },
+      "arxiv" : "2401.12345",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "10.48550/arXiv.2401.12345"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+
+      },
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "eprint" : "10.48550/arXiv.not-an-id"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345"
+      },
+      "arxiv" : "2401.12345",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "arxivid" : "2401.12345",
+        "eprint" : ""
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345v2"
+      },
+      "arxiv" : "2401.12345v2",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "arxivid" : "arXiv:2401.12345v2"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "1905.07890"
+      },
+      "arxiv" : "1905.07890",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "arxiv" : "1905.07890"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345"
+      },
+      "arxiv" : "2401.12345",
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "arxiv" : "2401.12345",
+        "arxivid" : "also junk",
+        "eprint" : "junk"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "doi" : "10.1038/nature12373"
+      },
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1038/nature12373",
+      "fields" : {
+        "doi" : "10.1038/nature12373"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345",
+        "bibcode" : "2023ApJ...123..456A",
+        "doi" : "10.1038/nature12373"
+      },
+      "arxiv" : "2401.12345",
+      "bibcode" : "2023ApJ...123..456A",
+      "doi" : "10.1038/nature12373",
+      "fields" : {
+        "bibcode" : "2023ApJ...123..456A",
+        "doi" : "10.1038/nature12373",
+        "eprint" : "2401.12345"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "pmcid" : "PMC1234567",
+        "pmid" : "12345678"
+      },
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "pmcid" : "PMC1234567",
+        "pmid" : "12345678"
+      },
+      "pmcid" : "PMC1234567",
+      "pmid" : "12345678"
+    },
+    {
+      "all" : {
+        "bibcode" : "2023ApJ...123..456A"
+      },
+      "arxiv" : null,
+      "bibcode" : "2023ApJ...123..456A",
+      "doi" : null,
+      "fields" : {
+        "bibcode" : "2023ApJ...123..456A"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "bibcode" : "2023ApJ...123..456A"
+      },
+      "arxiv" : null,
+      "bibcode" : "2023ApJ...123..456A",
+      "doi" : null,
+      "fields" : {
+        "adsurl" : "https://ui.adsabs.harvard.edu/abs/2023ApJ...123..456A/abstract"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "bibcode" : "1996ApJ...468...28K"
+      },
+      "arxiv" : null,
+      "bibcode" : "1996ApJ...468...28K",
+      "doi" : null,
+      "fields" : {
+        "adsurl" : "https://adsabs.harvard.edu/abs/1996ApJ...468...28K"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+
+      },
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "fields" : {
+        "adsurl" : "https://example.org/abs/2023ApJ...123..456A"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "bibcode" : "2023ApJ...123..456A"
+      },
+      "arxiv" : null,
+      "bibcode" : "2023ApJ...123..456A",
+      "doi" : null,
+      "fields" : {
+        "adsurl" : "https://ui.adsabs.harvard.edu/abs/1996ApJ...468...28K",
+        "bibcode" : "2023ApJ...123..456A"
+      },
+      "pmcid" : null,
+      "pmid" : null
+    },
+    {
+      "all" : {
+        "arxiv" : "2401.12345",
+        "bibcode" : "2023ApJ...123..456A",
+        "doi" : "10.1038/nature12373",
+        "pmcid" : "PMC1234567",
+        "pmid" : "12345678"
+      },
+      "arxiv" : "2401.12345",
+      "bibcode" : "2023ApJ...123..456A",
+      "doi" : "10.1038/nature12373",
+      "fields" : {
+        "bibcode" : "2023ApJ...123..456A",
+        "doi" : "10.1038/nature12373",
+        "eprint" : "2401.12345",
+        "pmcid" : "PMC1234567",
+        "pmid" : "12345678"
+      },
+      "pmcid" : "PMC1234567",
+      "pmid" : "12345678"
+    }
+  ],
+  "normalizeCases" : [
+    {
+      "input" : "2401.12345",
+      "isValidFormat" : true,
+      "normalized" : "2401.12345"
+    },
+    {
+      "input" : "2401.12345v2",
+      "isValidFormat" : true,
+      "normalized" : "2401.12345"
+    },
+    {
+      "input" : "arXiv:2401.12345",
+      "isValidFormat" : false,
+      "normalized" : "2401.12345"
+    },
+    {
+      "input" : "arXiv:2401.12345v3",
+      "isValidFormat" : false,
+      "normalized" : "2401.12345"
+    },
+    {
+      "input" : "ARXIV:2401.12345",
+      "isValidFormat" : false,
+      "normalized" : "2401.12345"
+    },
+    {
+      "input" : "  2401.12345  ",
+      "isValidFormat" : true,
+      "normalized" : "2401.12345"
+    },
+    {
+      "input" : "astro-ph/0612345",
+      "isValidFormat" : true,
+      "normalized" : "astro-ph/0612345"
+    },
+    {
+      "input" : "hep-th/9901001v1",
+      "isValidFormat" : true,
+      "normalized" : "hep-th/9901001"
+    },
+    {
+      "input" : "ASTRO-PH/0612345",
+      "isValidFormat" : true,
+      "normalized" : "astro-ph/0612345"
+    },
+    {
+      "input" : "math.CO/0309136",
+      "isValidFormat" : false,
+      "normalized" : "math.co/0309136"
+    },
+    {
+      "input" : "math.co/0309136",
+      "isValidFormat" : false,
+      "normalized" : "math.co/0309136"
+    },
+    {
+      "input" : "cond-mat/9901001",
+      "isValidFormat" : true,
+      "normalized" : "cond-mat/9901001"
+    },
+    {
+      "input" : "2401.1234",
+      "isValidFormat" : true,
+      "normalized" : "2401.1234"
+    },
+    {
+      "input" : "2401.123",
+      "isValidFormat" : false,
+      "normalized" : "2401.123"
+    },
+    {
+      "input" : "1234.567890",
+      "isValidFormat" : false,
+      "normalized" : "1234.567890"
+    },
+    {
+      "input" : "10.48550/arXiv.2401.12345",
+      "isValidFormat" : false,
+      "normalized" : "10.48550/arxiv.2401.12345"
+    },
+    {
+      "input" : "2024A&A...686A.276A",
+      "isValidFormat" : false,
+      "normalized" : "2024a&a...686a.276a"
+    },
+    {
+      "input" : "not-an-id",
+      "isValidFormat" : false,
+      "normalized" : "not-an-id"
+    },
+    {
+      "input" : "",
+      "isValidFormat" : false,
+      "normalized" : ""
+    },
+    {
+      "input" : "v2",
+      "isValidFormat" : false,
+      "normalized" : ""
+    },
+    {
+      "input" : "2401.12345vv2",
+      "isValidFormat" : false,
+      "normalized" : "2401.12345v"
+    }
+  ],
+  "textCases" : [
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1038/nature12373",
+      "input" : "Check out this paper: 10.1038/nature12373 for details",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1126/science.1234567",
+      "input" : "doi:10.1126/science.1234567",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1126/science.1234567",
+      "input" : "DOI: 10.1126/science.1234567",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1038/nature12373",
+      "input" : "See https://doi.org/10.1038/nature12373 for details",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1038/nature12373",
+      "input" : "See http://dx.doi.org/10.1038/nature12373.",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1051/0004-6361/202348170",
+      "input" : "Reference (10.1051/0004-6361/202348170) in parentheses",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1000/182",
+      "input" : "Trailing period 10.1000/182. End of sentence",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1000/182",
+      "input" : "Bracketed [10.1000/182] citation",
+      "pmid" : null
+    },
+    {
+      "arxiv" : "2401.12345",
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "arXiv:2401.12345",
+      "pmid" : null
+    },
+    {
+      "arxiv" : "2401.12345",
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "Preprint 2401.12345v2 available now",
+      "pmid" : null
+    },
+    {
+      "arxiv" : "astro-ph/0612345",
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "Classic paper: astro-ph/0612345",
+      "pmid" : null
+    },
+    {
+      "arxiv" : "hep-th/9901001",
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "Old with version hep-th/9901001v1",
+      "pmid" : null
+    },
+    {
+      "arxiv" : "2301.12345",
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "https://arxiv.org/abs/2301.12345",
+      "pmid" : null
+    },
+    {
+      "arxiv" : "2401.12345",
+      "bibcode" : null,
+      "doi" : "10.48550/arXiv.2401.12345",
+      "input" : "arXiv DOI form 10.48550/arXiv.2401.12345",
+      "pmid" : null
+    },
+    {
+      "arxiv" : "co/0309136",
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "Subject class math.CO/0309136 from 2003",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : "2023ApJ...123..456A",
+      "doi" : null,
+      "input" : "Bibcode 2023ApJ...123..456A in a sentence",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : "1996ApJ...468...28K",
+      "doi" : null,
+      "input" : "ADS record 1996ApJ...468...28K here",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : "2024A&A...686A.276A",
+      "doi" : null,
+      "input" : "A&A bibcode 2024A&A...686A.276A appears",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "PMID: 12345678",
+      "pmid" : "12345678"
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "PubMed ID: 23456789",
+      "pmid" : "23456789"
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "PubMed 34567890",
+      "pmid" : "34567890"
+    },
+    {
+      "arxiv" : "gov/1234567",
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "https://pubmed.ncbi.nlm.nih.gov/12345678",
+      "pmid" : "12345678"
+    },
+    {
+      "arxiv" : "2401.12345",
+      "bibcode" : "2023ApJ...123..456A",
+      "doi" : "10.1038/nature12373",
+      "input" : "Everything at once: doi:10.1038/nature12373 arXiv:2401.12345 bibcode 2023ApJ...123..456A PMID: 12345678",
+      "pmid" : "12345678"
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "Nothing to see here at all.",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : null,
+      "input" : "",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1038/nature12373",
+      "input" : "Unicode: Müller & Ångström discuss 10.1038/nature12373 (2024)",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1000/aaa",
+      "input" : "Multiple DOIs 10.1000/aaa and 10.2000/bbb",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1234/abc-def_ghi:jkl(mno",
+      "input" : "URL-ish 10.1234/abc-def_ghi:jkl(mno)",
+      "pmid" : null
+    },
+    {
+      "arxiv" : null,
+      "bibcode" : null,
+      "doi" : "10.1038/nature12373",
+      "input" : "Line\nbreak\n10.1038/nature12373\nafter",
+      "pmid" : null
+    }
+  ]
+}

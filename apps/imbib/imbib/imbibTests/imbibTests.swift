@@ -50,11 +50,25 @@ final class imbibTests: XCTestCase {
         XCTAssertFalse(route.isArtifactRoute)
     }
 
-    func testJournalTabsMapToJournalRoutes() {
-        XCTAssertEqual(ImbibTab.journalSubmissions.journalRoute, .submissions)
-        XCTAssertEqual(ImbibTab.journalAll.journalRoute, .all)
-        XCTAssertEqual(ImbibTab.journalByStatus(.draft).journalRoute, .status(.draft))
-        XCTAssertEqual(ImbibTab.manuscript("paper-1").journalRoute, .manuscript("paper-1"))
-        XCTAssertNil(ImbibTab.inbox.journalRoute)
+    /// Stage 3 replacement for `testJournalTabsMapToJournalRoutes`. The four
+    /// per-kind route enums are gone, so what there is to assert is that a
+    /// record tab carries the kind and scope straight through to the content
+    /// route (the manuscript pipeline included).
+    func testRecordTabsCarryKindAndScopeThroughToTheContentRoute() {
+        let all = ImbibTab.record(.all(.manuscript))
+        XCTAssertEqual(all, .record(RecordRoute(kind: .manuscript, scope: .all(.manuscript))))
+
+        let drafts = RecordRoute.status(.manuscript, JournalManuscriptStatus.draft.rawValue)
+        XCTAssertEqual(ImbibContentRoute.record(drafts).stableID, "record-\(drafts.stableID)")
+        XCTAssertNotEqual(
+            ImbibContentRoute.record(drafts).stableID,
+            ImbibContentRoute.record(.all(.manuscript)).stableID)
+
+        // The Submissions inbox is an AUXILIARY route now (it is not a record
+        // subset), and a manuscript deep link is a record DETAIL route.
+        XCTAssertEqual(ImbibTab.auxiliary(.submissionsInbox), .auxiliary(.submissionsInbox))
+        XCTAssertEqual(
+            ImbibContentRoute.recordDetail(.manuscript, "paper-1").stableID,
+            "record-detail-manuscript-paper-1")
     }
 }

@@ -45,6 +45,12 @@ public struct ShortcutModifiers: OptionSet, Codable, Equatable, Hashable, Sendab
         return symbols.joined()
     }
 
+    /// Initialize from SwiftUI EventModifiers (unlabelled — the `KeyPress`
+    /// matching idiom: `ShortcutModifiers(press.modifiers)`).
+    public init(_ eventModifiers: EventModifiers) {
+        self.init(from: eventModifiers)
+    }
+
     /// Initialize from SwiftUI EventModifiers
     public init(from eventModifiers: EventModifiers) {
         var result: ShortcutModifiers = []

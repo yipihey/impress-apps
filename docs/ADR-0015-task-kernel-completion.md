@@ -140,7 +140,9 @@ Per ADR-0005 §9, in a new crate `crates/impel-enrichment`:
   (LLM-backed later; deterministic heuristic now). Below the confidence
   threshold it returns output with `DeliveryHint::AwaitHumanResponse`,
   exercising D4 end-to-end instead of today's silent skip.
-- **`EnrichmentSpawnRule`** — `trigger_schema = "bibliography-entry@1.0.0"`,
+- **`EnrichmentSpawnRule`** — `trigger_schema = "imbib/bibliography-entry"`
+  (this ADR said `bibliography-entry@1.0.0`; nothing writes that, so the rule
+  matched nothing until it was corrected 2026-07-29 — see ADR-0005 §9),
   builds the DAG slice (`metadata-resolve ← abstract-extract(keyword-tag)`)
   with `DependsOn` edges.
 - **Integration test** (the ADR-0005 "architecture validated at scale"

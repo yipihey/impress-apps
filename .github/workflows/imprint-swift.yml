@@ -14,6 +14,9 @@ on:
       - 'crates/imprint-core/**'
       - 'crates/impress-core/**'
       - 'crates/impress-store-ffi/**'
+      - 'apps/imprint/Shared/**'
+      - 'schema-refs.json'
+      - 'scripts/check-schema-refs.sh'
       - '.github/workflows/imprint-swift.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
@@ -31,6 +34,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Schema-ref lint
+        # imprint is where the reader/writer split lived longest: sections were
+        # WRITTEN as `manuscript-section` and READ as `manuscript-section@1.0.0`,
+        # so the outline, /api/manuscripts/{id}/sections and cross-document
+        # search were structurally empty. Neither imbib-tests.yml nor
+        # workspace-rust.yml has `apps/imprint/**` in its path filter, so
+        # without this step an imprint-only change is ungated.
+        run: ./scripts/check-schema-refs.sh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

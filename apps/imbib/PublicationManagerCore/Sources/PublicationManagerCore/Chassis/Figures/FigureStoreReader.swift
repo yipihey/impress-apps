@@ -1,5 +1,6 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a `SharedStore`
+// reader (Foundation + ImpressRustCore). While it was gated iOS could not read
+// figures from the shared store AT ALL.
 //
 //  FigureStoreReader.swift
 //  PublicationManagerCore
@@ -63,9 +64,15 @@ public final class FigureStoreReader {
 
     /// Content-addressed storage directory for figure binaries
     /// (`~/.local/share/impress/content/{sha256}`, keyed by payload data_hash).
+    ///
+    /// Delegated to `BlobStore.defaultRootURL()` rather than re-deriving the
+    /// path: `homeDirectoryForCurrentUser` is unavailable on iOS, and BlobStore
+    /// already owns the one per-platform answer for this exact directory
+    /// (macOS `~/.local/share/impress/content`, byte-identical to what this
+    /// property returned before; iOS `<AppSupport>/impress/content`). Two
+    /// derivations of one path is the drift, not the fix.
     public var contentStoreDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/impress/content")
+        BlobStore.defaultRootURL()
     }
 
     private init() {
@@ -104,9 +111,14 @@ public final class FigureStoreReader {
     public func fetchFigure(id: String) -> SharedItemRow? {
         guard let store else { return nil }
         guard let row = try? store.getItem(id: id.lowercased()) else { return nil }
-        // Schema refs may carry a version suffix ("figure@1.0.0").
-        guard row.schemaRef.hasPrefix("figure"),
-              !row.schemaRef.hasPrefix("figure-collection") else { return nil }
+        // The tolerant registry lookup, which is base-name equality on BOTH
+        // sides — not `hasPrefix`. The two prefix checks this replaces were a
+        // hand-rolled version of exactly that, including the special case for
+        // `figure-collection` (a prefix check matches it; base-name equality
+        // never did). `SchemaRefKindLookup` documents that rule as the reason
+        // it exists, so a second copy of it here was the bug waiting to happen.
+        guard BuiltinRecordKinds.registry.kind(forStoreSchemaRef: row.schemaRef) == .figure
+        else { return nil }
         return row
     }
 
@@ -172,4 +184,3 @@ public final class FigureStoreReader {
         return try? JSONDecoder().decode(FigureCollectionPayload.self, from: data)
     }
 }
-#endif

@@ -25,6 +25,9 @@ import ImpressLogging
 /// - `GET /api/figures/{id}` - Get figure details
 /// - `GET /api/figures/{id}/export` - Export figure (params: format, width, height, scale)
 /// - `GET /api/logs` - Query log entries
+/// - `GET /api/logs/stream` - Cursor-based incremental log feed
+/// - `GET /api/performance` - PerfMetrics snapshot (+ `POST /api/performance/reset`)
+/// - `GET /api/store-timings` - StoreTimings snapshot (+ `POST /api/store-timings/reset`)
 ///
 /// API Endpoints (POST):
 /// - `POST /api/figures` - Create a new figure
@@ -51,9 +54,16 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
     /// Route a request to the appropriate handler.
     public func route(_ request: HTTPRequest) async -> HTTPResponse {
-        // Handle CORS preflight
-        if request.method == "OPTIONS" {
-            return handleCORSPreflight()
+        // The GENERIC route group, mounted once (ImpressAutomation's
+        // `SharedAutomationRoutes`): CORS preflight, `/api/logs`, and — newly,
+        // for free — `/api/logs/stream`, `/api/performance{,/reset}` and
+        // `/api/store-timings{,/reset}`. All five app routers used to hand-paste
+        // the `/api/logs` line and its private CORS twin; only imprint ever
+        // registered the stream route, though the handler has always lived in the
+        // shared package. Returns nil for everything else, so the domain table
+        // below is untouched.
+        if let shared = await SharedAutomationRoutes.route(request) {
+            return shared
         }
 
         let path = request.path.lowercased()
@@ -134,10 +144,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
             return await handleRgCascadePlot()
         }
 
-        if path == "/api/logs" {
-            return await LogEndpointHandler.handle(request)
-        }
-
         // Root path - return API info
         if path == "/" || path == "/api" {
             return handleAPIInfo()
@@ -201,15 +207,18 @@ public actor ImploreHTTPRouter: HTTPRouter {
     private func handleStatus() async -> HTTPResponse {
         let library = LibraryManager.shared.library
 
-        var response: [String: Any] = [
-            "status": "ok",
-            "app": "implore",
-            "version": "1.0.0",
-            "port": Int(Self.defaultPort),
-            "openDatasets": 0,
-            "figureCount": library.figures.count,
-            "folderCount": library.folders.count
-        ]
+        // Envelope (`status` / `app` / `version` / `port` + `serverPort`) from the
+        // shared group; the counts are implore's. `version` stays the literal
+        // "1.0.0" this route has always reported rather than the bundle's.
+        var response = SharedAutomationRoutes.statusPayload(
+            app: "implore",
+            port: Int(Self.defaultPort),
+            version: "1.0.0",
+            domain: [
+                "openDatasets": 0,
+                "figureCount": library.figures.count,
+                "folderCount": library.folders.count,
+            ])
 
         // Include RG viewer state if loaded
         if let viewer = AppState.shared?.rgViewerState {
@@ -957,20 +966,6 @@ public actor ImploreHTTPRouter: HTTPRouter {
 
     // MARK: - CORS Handler
 
-    /// CORS preflight response.
-    private func handleCORSPreflight() -> HTTPResponse {
-        HTTPResponse(
-            status: 204,
-            statusText: "No Content",
-            headers: [
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Max-Age": "86400"
-            ]
-        )
-    }
-
     // MARK: - API Info
 
     /// Root API info response.
@@ -995,6 +990,11 @@ public actor ImploreHTTPRouter: HTTPRouter {
                 "GET /api/plot/svg": "Render data series as SVG (?series=a,b&title=...)",
                 "GET /api/plot/histogram": "Render field histogram as SVG (?quantity, ?bins)",
                 "GET /api/logs": "Query log entries (params: limit, level, category, search, after)",
+                "GET /api/logs/stream": "Cursor-based incremental log feed (params: after, limit, level, category, search)",
+                "GET /api/performance": "PerfMetrics snapshot — per-operation latency buckets, percentiles, budget breaches",
+                "POST /api/performance/reset": "Clear PerfMetrics samples (budgets preserved)",
+                "GET /api/store-timings": "StoreTimings snapshot (params: top)",
+                "POST /api/store-timings/reset": "Reset StoreTimings counters",
                 // POST endpoints
                 "POST /api/figures": "Create a figure (body: datasetId, type, xColumn?, yColumn?, ...)",
                 "POST /api/rg/load": "Load .npz file (body: {path})",

@@ -107,7 +107,7 @@ final class RecordSidebarBuilderTests: XCTestCase {
             if case .status(_, let status) = node.scope { return status }
             return nil
         }
-        let declared = ManuscriptRecordKind.descriptor.triage.statuses
+        let declared = ManuscriptRecordKind.descriptor.triage.statusValues
         XCTAssertEqual(Set(statuses), Set(declared.filter { $0 != "dismissed" }),
                        "status children ARE the descriptor's lifecycle, minus the dismissed "
                            + "status which owns the Dismissed section")

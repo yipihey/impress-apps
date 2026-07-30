@@ -39,17 +39,29 @@ enum ImbibSidebarNodeType: Hashable {
     case recent
     case reviewQueue
 
+    /// A user folder of ANY record kind's collection binding (ADR-0022 D3).
+    ///
+    /// Stage 3: `manuscriptFolder(String)` and `figureFolder(String)` collapsed
+    /// into this. They carried the same payload and every one of the seven
+    /// sites that matched them immediately looked the kind's
+    /// `CollectionCapability` up and delegated — so the BINDING is what the
+    /// node actually needs to carry. `bindingID` is a `CollectionBindingID`
+    /// value; `folderID` is the store's lowercase item id string.
+    ///
+    /// Not used for mail folders: `mail-folder` rows are IMAP-owned mailboxes
+    /// with no kernel collection binding (the message descriptor declares no
+    /// `collection`), so they keep their own read-only case below.
+    case recordFolder(bindingID: String, folderID: String)
+
     // Journal pipeline (per ADR-0011 D8)
     case journalAll
     case journalByStatus(JournalManuscriptStatus)
     case journalSubmissions
     case manuscript(String)   // detail node — child of one of the journal sections
-    case manuscriptFolder(String)  // user folder (manuscript-collection item UUID)
 
     // Figures section (Stage 2-B — implore's Library facet)
     case figuresAll
     case figuresUnfiled
-    case figureFolder(String)  // user folder (figure-collection item UUID)
 
     // Mail section (Stage 2-A — impart's mail-browsing facet)
     case mailAllInboxes
@@ -138,37 +150,60 @@ extension ImbibSidebarNode {
             return .recent
         case .reviewQueue:
             return .reviewQueue
+        // Record-kind rows (Stage 3): every one produces the SAME tab case,
+        // differing only in the kind and scope it names. Adding a kind's rows
+        // adds lines here and nowhere downstream.
+        case .recordFolder(let bindingID, let folderID):
+            guard let kind = BuiltinRecordKinds.kind(forCollectionBindingID: bindingID) else {
+                return nil
+            }
+            return Self.recordTab(kind, folderID) { .folder(kind, $0) }
         case .journalAll:
-            return .journalAll
+            return .record(.all(.manuscript))
         case .journalByStatus(let status):
-            return .journalByStatus(status)
+            return .record(.status(.manuscript, status.rawValue))
         case .journalSubmissions:
-            return .journalSubmissions
+            return .auxiliary(.submissionsInbox)
         case .manuscript(let id):
-            return .manuscript(id)
-        case .manuscriptFolder(let id):
-            return .manuscriptFolder(id)
+            return .recordDetail(.manuscript, id)
         case .figuresAll:
-            return .figuresAll
+            return .record(.all(.figure))
         case .figuresUnfiled:
-            return .figuresUnfiled
-        case .figureFolder(let id):
-            return .figureFolder(id)
+            return .record(RecordRoute(kind: .figure, scope: FigureListScope.unfiledRouteScope))
         case .mailAllInboxes:
-            return .mailAllInboxes
+            return .record(.all(.message))
         case .mailAccount(let id):
-            return .mailAccount(id)
+            return Self.recordTab(.message, id) { MessageListScope.accountRouteScope($0) }
         case .mailFolder(let id):
-            return .mailFolder(id)
+            return Self.recordTab(.message, id) { .folder(.message, $0) }
         case .agentTasksAll:
-            return .agentTasks
+            return .record(.all(.task))
         case .agentRunsAll:
-            return .agentRuns
+            return .record(.all(.agentRun))
         case .agentTaskState(let state):
-            return .agentTasksByState(state)
+            return .record(.status(.task, state))
         case .customSurface(let id):
             return .customSurface(id)
         }
+    }
+
+    /// A record tab for a node whose id is a STORE STRING (folders, mail
+    /// accounts and mailboxes all carry lowercase store ids) while the chassis
+    /// scope vocabulary carries a `UUID`.
+    ///
+    /// An unparseable id falls back to the kind's `all` scope — which is
+    /// exactly what the four per-kind dispatchers in `SectionContentView` did
+    /// with `if let uuid = UUID(uuidString: id) … else … .all` before they
+    /// collapsed. Doing it here instead means the FALLBACK is part of the route
+    /// (so selection bookkeeping agrees with what is rendered) rather than
+    /// something only the view knew.
+    private static func recordTab(
+        _ kind: RecordKindID,
+        _ storeID: String,
+        _ scope: (UUID) -> RecordSidebarScope
+    ) -> ImbibTab {
+        guard let uuid = UUID(uuidString: storeID) else { return .record(.all(kind)) }
+        return .record(RecordRoute(kind: kind, scope: scope(uuid)))
     }
 }
 
@@ -242,17 +277,24 @@ enum ImbibSidebarNodeID {
         stable("journal.manuscript.\(manuscriptID)")
     }
 
-    static func manuscriptFolder(_ collectionID: String) -> UUID {
-        stable("journal.folder.\(collectionID)")
+    /// Node id for a collection folder of any binding (Stage 3 — replaces
+    /// `manuscriptFolder(_:)` and `figureFolder(_:)`).
+    ///
+    /// The key SPELLING changed (`journal.folder.X` / `figures.folder.X` →
+    /// `folder.manuscript.X` / `folder.figure.X`) and that is safe: `stable(_:)`
+    /// seeds a per-process `Hasher`, so these UUIDs are documented as stable
+    /// only "within a single app launch" and nothing persists them. The
+    /// persisted sidebar state is section ORDER and COLLAPSE, keyed by
+    /// `SidebarSectionType.rawValue` (`SidebarSectionOrderStore`,
+    /// `SidebarCollapsedStateStore`); folder expansion is in-memory
+    /// (`TreeExpansionState`).
+    static func recordFolder(_ bindingID: String, _ folderID: String) -> UUID {
+        stable("folder.\(bindingID).\(folderID)")
     }
 
     // Figures section IDs (Stage 2-B)
     static let figuresAll = stable("figures.all")
     static let figuresUnfiled = stable("figures.unfiled")
-
-    static func figureFolder(_ collectionID: String) -> UUID {
-        stable("figures.folder.\(collectionID)")
-    }
 
     // Mail section IDs (Stage 2-A)
     static let mailAllInboxes = stable("mail.allInboxes")

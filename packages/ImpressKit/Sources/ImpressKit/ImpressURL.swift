@@ -52,7 +52,7 @@ public struct ImpressURL: Sendable {
     /// - Returns: A parsed `ImpressURL`, or nil if the URL doesn't match any suite app scheme.
     public static func parse(_ url: URL) -> ImpressURL? {
         guard let scheme = url.scheme,
-              let app = SiblingApp.allCases.first(where: { $0.urlScheme == scheme }) else {
+              let app = SiblingApp.app(forURLScheme: scheme) else {
             return nil
         }
 

@@ -53,7 +53,21 @@ final class ManuscriptSidebarCounts {
 enum ImprintSidebarBindings {
 
     /// imprint's declarative identity. The sidebar is whatever this says.
-    static var configuration: AppShellConfiguration { .imprint }
+    ///
+    /// `.presenting([.manuscript])` is this HOST's capability statement: the
+    /// iOS build has one record surface, the manuscript list. The `.imprint`
+    /// preset also permits `.citedInManuscripts`, whose rows are PUBLICATIONS
+    /// — macOS imprint renders those through `UnifiedPublicationListWrapper`,
+    /// and this target has no publication list at all.
+    ///
+    /// That section used to be suppressed by `section != .citedInManuscripts`
+    /// in the content gate below: honest, but a hardcoded section NAME in app
+    /// code, which says what to hide and not why. Naming the KIND says why, and
+    /// covers every publication-bound section this shell might be handed in
+    /// future without another line here.
+    static var configuration: AppShellConfiguration {
+        .imprint.presenting([.manuscript])
+    }
 
     static var descriptor: RecordKindDescriptor { ManuscriptRecordKind.descriptor }
 
@@ -67,7 +81,11 @@ enum ImprintSidebarBindings {
         case .status(_, let status): return .status(status)
         case .folder(_, let id): return .folder(id)
         case .flagged(_, let color): return .flagged(color)
-        case .section, nil: return nil
+        // `.host` is the chassis's seam for rows only the HOST can name
+        // (imbib's libraries, saved searches, search forms — see
+        // `RecordSidebarScope.host`). imprint resolves every one of its rows
+        // from the declarations, so it never emits one and has no list for it.
+        case .section, .host, nil: return nil
         }
     }
 
@@ -105,20 +123,27 @@ enum ImprintSidebarBindings {
                         $0.status != dismissed && $0.flagColor != nil
                             && (color == nil || $0.flagColor == color)
                     }.count
-                case .folder, .section:
+                // `.host` = a row only the host can name (see
+                // `RecordSidebarScope.host`). imprint declares none, and a
+                // badge for a row that does not exist is nil, like `.folder`
+                // (whose counts come from `folderCounts` above).
+                case .folder, .section, .host:
                     return nil
                 }
             },
-            sectionIsAvailable: { section in
-                // The CONTENT gate, on top of the preset (macOS applies the
-                // same intersection in `shouldShowSection`).
+            sectionIsAvailable: { _ in
+                // The CONTENT gate — "is there anything in it right now" —
+                // which imprint-iOS does not need: every section this shell
+                // shows is manuscript-scoped and must exist before it has
+                // content (Dismissed is the destination of the dismiss
+                // gesture, so hiding it while empty would strand the verb).
                 //
-                // `.citedInManuscripts` is permitted by the imprint preset but
-                // lists PUBLICATIONS — imprint-iOS has no publication list
-                // surface, so surfacing it would give the user a row that
-                // opens nothing. Suppressed here rather than removed from the
-                // preset, which macOS relies on.
-                section != .citedInManuscripts
+                // The section that DOES have to go is `.citedInManuscripts`,
+                // and it is gone declaratively: `configuration` above says
+                // this host presents `.manuscript` only, so the builder drops
+                // every publication-bound section. This closure no longer
+                // names a section, which is the point.
+                true
             })
     }
 
@@ -159,10 +184,15 @@ enum ImprintSidebarBindings {
 
     // MARK: Triage actions
 
-    /// The store-backed half of the shared triage grammar, on imprint's
-    /// adapter instead of imbib's `RustStoreAdapter` (which
-    /// `RecordTriageActions.storeBacked` uses) — same verbs, same descriptor,
-    /// plus the injected `UndoManager` every mutation registers against.
+    /// The store-backed half of the shared triage grammar.
+    ///
+    /// This used to be nine hand-written closures onto imprint's adapter,
+    /// because `RecordTriageActions.storeBacked` wrote through imbib's
+    /// `RustStoreAdapter` and took no `UndoManager`. Stage 4b gave it both seams:
+    /// the `undoManager:` overload registers closure-based undo (the
+    /// `SharedStore` FFI has no operation log to derive one from), and `kernel:`
+    /// points it at imprint's OWN store handle so no second store facade is
+    /// booted in-process.
     ///
     /// `onDelete` is deliberately left to the HOST: deletion is
     /// `.confirmHard` for manuscripts, and the confirmation + editor-session
@@ -171,34 +201,16 @@ enum ImprintSidebarBindings {
         adapter: ManuscriptStoreAdapter,
         undoManager: UndoManager?
     ) -> RecordTriageActions {
-        var actions = RecordTriageActions()
-        actions.onToggleStar = { ids, starred in
-            adapter.setStarred(ids: Array(ids), starred: starred, undoManager: undoManager)
-        }
-        actions.onSetFlag = { ids, color in
-            adapter.setFlag(
-                ids: Array(ids), color: color?.rawValue, undoManager: undoManager)
-        }
-        actions.onAddTag = { ids, path in
-            adapter.addTag(ids: Array(ids), tagPath: path, undoManager: undoManager)
-        }
-        actions.onRemoveTag = { ids, path in
-            adapter.removeTag(ids: Array(ids), tagPath: path, undoManager: undoManager)
-        }
-        actions.onDismiss = { ids in
-            _ = adapter.dismiss(ids: Array(ids), undoManager: undoManager)
-        }
-        actions.onRestore = { ids in
-            _ = adapter.restore(ids: Array(ids), undoManager: undoManager)
-        }
-        actions.onArchive = { ids in
-            _ = adapter.archive(ids: Array(ids), undoManager: undoManager)
-        }
-        // GAP (reported, not papered over): `ManuscriptStoreAdapter` has no
-        // `listTags()`, so imprint-iOS can offer no existing tag paths. An
-        // empty provider hides the Tags submenu instead of showing a menu
-        // with nothing in it; wiring a real list is an adapter verb away.
-        actions.availableTagPaths = { [] }
-        return actions
+        RecordTriageActions.storeBacked(
+            descriptor: descriptor,
+            undoManager: undoManager,
+            kernel: adapter.triageKernel,
+            // The tag paths already in use on manuscripts, through the adapter's
+            // `dataVersion`-keyed memo rather than the kernel's raw walk — this
+            // is read on every context-menu render pass. (It was once `{ [] }`,
+            // an empty provider that hid the Tags submenu entirely, so `t` and
+            // the long-press menu could star or flag on iOS but never file a
+            // manuscript under an existing tag.)
+            availableTagPaths: { adapter.listTags() })
     }
 }

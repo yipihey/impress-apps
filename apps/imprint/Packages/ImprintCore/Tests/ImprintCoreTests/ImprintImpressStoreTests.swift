@@ -61,9 +61,14 @@ final class ImprintImpressStoreTests: XCTestCase {
         let json = try JSONSerialization.data(withJSONObject: payload)
         let jsonString = String(data: json, encoding: .utf8)!
 
+        // Bare `manuscript-section` — the spelling BOTH writers use
+        // (ImprintStoreAdapter.syncSections and Rust SectionStore). Seeding
+        // `manuscript-section@1.0.0` here is what let the reader/writer
+        // disagreement pass CI: the fixture and the reader agreed with each
+        // other and with nothing that ever wrote a row.
         try store.upsertItem(
             id: id.uuidString,
-            schemaRef: "manuscript-section@1.0.0",
+            schemaRef: "manuscript-section",
             payloadJson: jsonString
         )
         return id

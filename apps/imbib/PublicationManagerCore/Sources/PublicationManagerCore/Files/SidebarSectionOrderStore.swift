@@ -83,6 +83,31 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .dismissed: return "trash"
         }
     }
+
+    /// How the shared sidebar builder presents this section — the third
+    /// per-section fact, declared beside `displayName` and `icon` so adding a
+    /// section is ONE edit here instead of one here plus an arm in a chassis
+    /// switch (`RecordSidebarSectionRole.role(for:)`, which now just forwards).
+    ///
+    /// Role is a property of the SECTION, not of the app: `.flagged` means
+    /// per-flag-colour rows in every shell, which is exactly why presets only
+    /// have to name the KIND each section serves.
+    public var role: RecordSidebarSectionRole {
+        switch self {
+        case .flagged:
+            return .flagged
+        case .dismissed:
+            return .dismissed
+        // Sections whose rows the HOST resolves: they have no finer
+        // record-kind semantics the builder could express.
+        case .citedInManuscripts, .reviewQueue, .search, .sharedWithMe, .scixLibraries:
+            return .opaque
+        // A kind's home section: All + status smart-children + folder tree.
+        case .inbox, .libraries, .exploration, .artifacts, .manuscripts,
+             .figures, .mail, .agents:
+            return .primary
+        }
+    }
 }
 
 // MARK: - Sidebar Section Order Store

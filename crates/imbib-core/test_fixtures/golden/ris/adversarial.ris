@@ -1,0 +1,39 @@
+TY  - JOUR
+AU  - Smith, John
+AU  - Doe, Jane
+TI  - A Very Long Title That
+Continues on the Next Line
+JF  - Nature
+AB  - This abstract spans
+multiple lines and should
+be joined somehow.
+PY  - 2024
+DO  - 10.1038/nature12345
+KW  - machine learning
+KW  - artificial intelligence
+UR  - https://example.org/a
+ER  -
+
+TY  - BOOK
+AU  - Author, Book
+TI  - A Book With No ER Separator Blank Line
+PB  - University Press
+PY  - 1999
+ER  -
+
+TY  - ZZZZ
+TI  - Unknown reference type falls back
+PY  - 2010
+ER  -
+
+TY  - CHAP
+TI  - Entry with an unknown tag
+XQ  - unknown tag value
+T2  - Containing Book
+PY  - 2011
+ER  -
+
+TY  - CONF
+TI  - Entry that never closes with ER
+AU  - Dangling, Dan
+PY  - 2012

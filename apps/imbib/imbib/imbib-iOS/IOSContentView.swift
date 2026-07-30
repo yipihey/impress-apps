@@ -198,7 +198,11 @@ struct IOSContentView: View {
 
     private var mainSplitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            IOSSidebarView(
+            // The sidebar is PMC's `RecordSidebarView`, driven by
+            // `AppShellConfiguration.imbib` + `PublicationRecordKind.descriptor`
+            // (Stage 5a) — see IOSSidebarHost.swift / ImbibSidebarBindings.swift.
+            // It replaces IOSSidebarView's 15-arm hand-written section switch.
+            IOSSidebarHost(
                 selection: $selectedSection,
                 onNavigateToSmartSearch: { smartSearchID in
                     selectedSection = .smartSearch(smartSearchID)
@@ -408,6 +412,20 @@ struct IOSContentView: View {
         case .manuscripts:
             IOSManuscriptList(selectedManuscriptID: $selectedManuscriptID)
 
+        case .dismissed:
+            if let dismissed = libraryManager.dismissedLibrary {
+                IOSUnifiedPublicationListWrapper(
+                    source: .libraryByID(dismissed.id),
+                    selectedPublicationID: $selectedPublicationID
+                )
+            } else {
+                ContentUnavailableView(
+                    "Nothing Dismissed",
+                    systemImage: "trash",
+                    description: Text("Papers you dismiss land here")
+                )
+            }
+
         case .none:
             ContentUnavailableView(
                 "No Selection",
@@ -461,6 +479,8 @@ struct IOSContentView: View {
             return libID
         case .flagged:
             return RustStoreAdapter.shared.getDefaultLibrary()?.id
+        case .dismissed:
+            return libraryManager.dismissedLibrary?.id
         case .citedInManuscripts, .recent:
             // Cross-library pseudo source — no owning library.
             return nil
@@ -491,6 +511,8 @@ struct IOSContentView: View {
             return .library(UUID(uuidString: "00000000-0000-0000-AAAA-000000000004")!)
         case .recent:
             return .library(UUID(uuidString: "00000000-0000-0000-AAAA-000000000005")!)
+        case .dismissed:
+            return libraryManager.dismissedLibrary.map { .library($0.id) }
         default:
             return nil
         }
@@ -529,7 +551,7 @@ struct IOSContentView: View {
             return .collection(colID, "Collection")
 
         case .inbox, .search, .searchForm, .flagged, .citedInManuscripts, .recent, .manuscripts,
-             .none:
+             .dismissed, .none:
             return .global
         }
     }
@@ -643,6 +665,13 @@ enum SidebarSection: Hashable {
     case citedInManuscripts           // Papers cited in any imprint manuscript
     case recent                       // Papers the user viewed or added by hand
     case manuscripts                  // All manuscripts (manuscript@1.0.0 items)
+    /// The Dismissed library. imbib's dismissal is a LIBRARY MOVE
+    /// (`PublicationRecordKind.descriptor.triage.dismissal == .libraryMove`),
+    /// so the `.dismissed` section resolves to one row — the dismissed library.
+    /// Added in Stage 5a: the section is in `AppShellConfiguration.imbib` and
+    /// on macOS, and the hand-written iOS sidebar rendered it as `EmptyView()`,
+    /// which stranded every dismissed paper on this platform.
+    case dismissed
 }
 
 // MARK: - iOS Search View

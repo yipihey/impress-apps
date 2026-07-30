@@ -16,9 +16,14 @@
 import Foundation
 import ImpressLogging
 
-#if os(macOS)
+// `ImprintStoreAdapter` (and the rest of ImprintCore) is cross-platform: the
+// package declares .iOS(.v26), the imprint-iOS target already links it, and
+// the adapter's only conditional is `#if canImport(ImpressRustCore)` — the
+// same FFI guard the store uses on every platform. The `#if os(macOS)` that
+// used to wrap this import (and three call sites below) gated the store
+// WRITER, not any AppKit dependency, and was pure inertia: it made the
+// throughline mirror silently no-op on iOS. Deleted 2026-07-29.
 import ImprintCore
-#endif
 
 @MainActor
 enum ThroughlineCoordinator {
@@ -46,11 +51,9 @@ enum ThroughlineCoordinator {
         logInfo("Throughline remove requested for doc=\(document.id)", category: "throughline")
         document.throughlineSource = nil
         document.throughlineAnchorsJSON = nil
-        #if os(macOS)
         let itemID = ThroughlineIdentity.itemID(documentID: document.id).uuidString.lowercased()
         ImprintStoreAdapter.shared.deleteThroughline(
             itemID: itemID, documentID: document.id.uuidString)
-        #endif
     }
 
     // MARK: - Derivation for the UI
@@ -203,7 +206,6 @@ enum ThroughlineCoordinator {
     /// captures a VALUE SNAPSHOT of the document (struct copy), never the
     /// live binding (CLAUDE.md: capture before async work).
     private static var pendingThroughlineMirror: Task<Void, Never>?
-    private static var pendingSectionMirror: Task<Void, Never>?
 
     /// Full mirror: throughline row + per-heading section rows. Used by
     /// creation and ledger mutations (rare, deliberate acts). Editor
@@ -219,7 +221,6 @@ enum ThroughlineCoordinator {
         guard let source = document.throughlineSource,
               let anchorsJSON = document.throughlineAnchorsJSON,
               !mirroringDisabled else { return }
-        #if os(macOS)
         let paragraphs = ThroughlineText.extractParagraphs(source)
         let itemID = ThroughlineIdentity.itemID(documentID: document.id).uuidString.lowercased()
         ImprintStoreAdapter.shared.storeThroughline(
@@ -230,7 +231,6 @@ enum ThroughlineCoordinator {
             anchorMapJSON: anchorsJSON,
             paragraphCount: paragraphs.count
         )
-        #endif
     }
 
     /// Mirror the document's heading sections under their slug keys so
@@ -238,7 +238,6 @@ enum ThroughlineCoordinator {
     /// current manuscript state. Opted-in documents only.
     static func mirrorSections(document: ImprintDocument) {
         guard document.hasThroughline, !mirroringDisabled else { return }
-        #if os(macOS)
         let sections = extractSections(of: document)
         for (index, section) in sections.enumerated() {
             ImprintStoreAdapter.shared.storeSection(
@@ -254,7 +253,6 @@ enum ThroughlineCoordinator {
         logInfo(
             "Mirror saved: \(sections.count) sections doc=\(document.id)",
             category: "throughline")
-        #endif
     }
 
     /// Debounced throughline-row mirror for editor keystrokes (single
@@ -270,19 +268,11 @@ enum ThroughlineCoordinator {
         }
     }
 
-    /// Debounced per-heading section mirror for manuscript-source edits of
-    /// opted-in documents (keeps HTTP/agent staleness derivation fresh
-    /// without per-keystroke store writes).
-    static func scheduleSectionMirror(document: ImprintDocument) {
-        guard document.hasThroughline else { return }
-        let snapshot = document
-        pendingSectionMirror?.cancel()
-        pendingSectionMirror = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled else { return }
-            mirrorSections(document: snapshot)
-        }
-    }
+    // `scheduleSectionMirror` (debounced per-heading section mirror) was
+    // deleted 2026-07-29: it had zero callers. Section rows are mirrored by
+    // `mirror(document:)` on creation and ledger mutations, which is the only
+    // path that ever ran. Its presence made the section subsystem look more
+    // live than it is — see schema-refs.json for the surrounding audit.
 
     /// Deterministic mirror id for a (document, slug-key) section — the
     /// same UUID-v5 scheme `SectionStore::item_id` uses in Rust, so both

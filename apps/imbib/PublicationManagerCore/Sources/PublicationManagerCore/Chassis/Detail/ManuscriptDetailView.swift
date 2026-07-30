@@ -24,6 +24,7 @@
 //
 
 import SwiftUI
+import ImpressKit
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -719,9 +720,9 @@ struct ManuscriptDetailView: View {
         }
     }
 
-    /// POST a JSON body to impel's HTTP API on port 23124.
+    /// POST a JSON body to impel's HTTP API (port from the sibling-app table).
     private func postToImpel(path: String, body: [String: Any]) async throws {
-        guard let url = URL(string: "http://127.0.0.1:23124\(path)") else {
+        guard let url = URL(string: "http://127.0.0.1:\(SiblingApp.impel.httpPort)\(path)") else {
             throw URLError(.badURL)
         }
         var req = URLRequest(url: url)
@@ -790,11 +791,9 @@ struct ManuscriptDetailView: View {
 }
 
 // MARK: - Notification
-
-extension Notification.Name {
-    /// Posted by code paths that mutate journal manuscripts so detail views
-    /// can refresh without polling. Bridges Darwin notifications from
-    /// ImpressNotification.manuscriptStatusChanged into local NotificationCenter.
-    static let manuscriptDidChange = Notification.Name("imbib.manuscriptDidChange")
-}
+//
+// `.manuscriptDidChange` moved to Chassis/Services/JournalEventBridge.swift
+// (Stage 2a) — it is contract data (a name), it sits beside the bridge that
+// posts it and beside `.manuscriptSnapshotDidLand`, and its observers are now
+// cross-platform.
 #endif

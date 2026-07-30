@@ -128,6 +128,22 @@ pub fn bibtex_parse(input: String) -> Result<BibTeXParseResult, FfiError> {
     bibtex::parse(input).map_err(FfiError::from)
 }
 
+/// Parse BibTeX with explicit macro / crossref handling.
+///
+/// `expand_macros` covers `@string` definitions *and* the built-in month
+/// macros; `resolve_crossrefs` merges a `crossref` parent's fields into the
+/// child. Both were re-implemented in Swift before Stage 7 — the Swift copies
+/// are gone, so this is the only definition.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn bibtex_parse_with_options(
+    input: String,
+    expand_macros: bool,
+    resolve_crossrefs: bool,
+) -> Result<BibTeXParseResult, FfiError> {
+    bibtex::parse_with_options(input, expand_macros, resolve_crossrefs).map_err(FfiError::from)
+}
+
 #[cfg(feature = "native")]
 #[uniffi::export]
 pub fn bibtex_parse_entry(input: String) -> Result<BibTeXEntry, FfiError> {

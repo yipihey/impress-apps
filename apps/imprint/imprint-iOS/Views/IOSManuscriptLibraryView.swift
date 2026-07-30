@@ -67,6 +67,11 @@ struct IOSManuscriptLibraryView: View {
     @State private var newFormat: ManuscriptFormat = .typst
     @State private var pendingDeleteIDs: Set<UUID> = []
     @State private var showDeleteConfirmation = false
+    /// Stage 6 phase 1: imprint-iOS's FIRST settings surface. Presented from
+    /// the sidebar's gear, rendered by the chassis from
+    /// `AppSettingsConfiguration.imprint` — the same declaration the macOS
+    /// Settings scene's thirteen tabs come from, filtered by availability.
+    @State private var showSettings = false
 
     // MARK: - Declarative inputs
 
@@ -107,6 +112,21 @@ struct IOSManuscriptLibraryView: View {
                 dataVersion: adapter.dataVersion,
                 selection: $scope,
                 title: "imprint")
+            // The gear lives on the SIDEBAR column, not the list: settings are
+            // app-wide, and the sidebar is the column iOS lands on when the
+            // split view collapses on iPhone. Putting it on the list column
+            // would make it unreachable from the root on a phone.
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+                    .accessibilityIdentifier("toolbar.settings")
+                }
+            }
         } content: {
             listColumn
         } detail: {
@@ -139,6 +159,15 @@ struct IOSManuscriptLibraryView: View {
         .sheet(item: $citationInspection) { inspection in
             CitationPaperSheet(resolution: inspection.resolution)
                 .presentationDetents([.medium, .large])
+        }
+        // Settings, like citation inspection, is presented at the navigation
+        // ROOT rather than inside a column — a sheet raised from a column is
+        // dismissed by that column's own navigation on iPhone.
+        .sheet(isPresented: $showSettings) {
+            IOSSettingsScreen(configuration: .imprint) {
+                showSettings = false
+            }
+            .environment(\.settingsSectionRegistry, ImprintSettingsSections.registry)
         }
     }
 
@@ -461,7 +490,10 @@ struct IOSManuscriptLibraryView: View {
             return color.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Flagged"
         case .folder(_, let id):
             return folders.first(where: { $0.id == id })?.name ?? "Folder"
-        case .all, .section, nil:
+        // `.host` = a row only the host can name (see `RecordSidebarScope.host`);
+        // imprint declares none, so it falls in with the other scopes that mean
+        // "the whole list" here.
+        case .all, .section, .host, nil:
             return "All \(descriptor.displayName)s"
         }
     }

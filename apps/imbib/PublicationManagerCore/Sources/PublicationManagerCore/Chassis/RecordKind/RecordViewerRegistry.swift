@@ -1,5 +1,9 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): the registry, the
+// factory value type and the section context are pure data over SwiftUI
+// `AnyView` closures. iOS had no registry at all while this was gated, so a
+// kind's viewer could not even be NAMED there. The one macOS-only piece is the
+// BUILTIN factory list (its section views are AppKit-adjacent) — split out to
+// `RecordViewerRegistry+Builtin.swift`, the CustomSurface.swift precedent.
 //
 //  RecordViewerRegistry.swift
 //  PublicationManagerCore
@@ -29,19 +33,28 @@ import ImpressMailStyle
 /// What a section factory needs to build one kind's list|detail split.
 ///
 /// Per-kind scopes stay PARALLEL (ADR-0021 D2: `FigureListScope` is
-/// figure-only), so the scope crosses the registry boundary type-erased and
-/// each factory downcasts to the one type it owns.
+/// figure-only), so the scope crosses the registry boundary in the CHASSIS
+/// vocabulary (`RecordSidebarScope`, what both platforms' sidebars select
+/// with) and each factory rebuilds the one type it owns.
+///
+/// Stage 3: this used to carry `any RecordScopeKey` and each factory
+/// DOWNCAST — which meant the caller had to know the concrete per-kind type
+/// already, i.e. the chassis had to switch on kind to build it. Carrying the
+/// generic scope and letting the kind rebuild its own (`RecordRouteScope`)
+/// moves that knowledge to the kind, where adding one is additive. Factory
+/// bodies are unchanged: `scope(as:)` still hands back the concrete scope or
+/// nil.
 public struct RecordSectionContext {
-    public let scope: any RecordScopeKey
+    public let scope: RecordSidebarScope
 
-    public init(scope: any RecordScopeKey) {
+    public init(scope: RecordSidebarScope) {
         self.scope = scope
     }
 
     /// The scope as its concrete per-kind type, or nil when a factory is
     /// handed a scope it doesn't own.
-    public func scope<Scope: RecordScopeKey>(as type: Scope.Type) -> Scope? {
-        scope as? Scope
+    public func scope<Scope: RecordRouteScope>(as type: Scope.Type) -> Scope? {
+        Scope(routeScope: scope)
     }
 }
 
@@ -105,50 +118,21 @@ public final class RecordViewerRegistry: @unchecked Sendable {
 
     // MARK: Builtin
 
-    /// The kinds the shared chassis ships section views for. Each factory
-    /// reproduces its former `SectionContentView` construction site verbatim,
-    /// `.id(scope)` included (the imbib CLAUDE.md `.id(source.id)` rule).
-    public static let builtin = RecordViewerRegistry([
-        RecordViewerFactory(
-            kind: .figure,
-            makeSectionView: { context in
-                guard let scope = context.scope(as: FigureListScope.self) else {
-                    return AnyView(EmptyView())
-                }
-                return AnyView(FigureSectionView(scope: scope).id(scope))
-            }
-        ),
-        RecordViewerFactory(
-            kind: .message,
-            makeSectionView: { context in
-                guard let scope = context.scope(as: MessageListScope.self) else {
-                    return AnyView(EmptyView())
-                }
-                return AnyView(MessageSectionView(scope: scope).id(scope))
-            }
-        ),
-        // Tasks and runs share ONE section view — the scope decides which
-        // schema it lists (AgentRecordListWrapper), so both kinds resolve to
-        // the same factory shape rather than the section growing a branch.
-        RecordViewerFactory(
-            kind: .task,
-            makeSectionView: { context in
-                guard let scope = context.scope(as: AgentListScope.self) else {
-                    return AnyView(EmptyView())
-                }
-                return AnyView(AgentSectionView(scope: scope).id(scope))
-            }
-        ),
-        RecordViewerFactory(
-            kind: .agentRun,
-            makeSectionView: { context in
-                guard let scope = context.scope(as: AgentListScope.self) else {
-                    return AnyView(EmptyView())
-                }
-                return AnyView(AgentSectionView(scope: scope).id(scope))
-            }
-        ),
-    ])
+    /// The kinds the shared chassis ships section views for.
+    ///
+    /// macOS-only CONTENT: the factories construct `FigureSectionView` /
+    /// `MessageSectionView` / `AgentSectionView`, chassis views that are
+    /// AppKit-adjacent today. They live in `RecordViewerRegistry+Builtin.swift`
+    /// (gated); iOS gets an EMPTY registry — exactly the shape
+    /// `CustomSurfaceRegistry.builtin` uses, and for the same reason. The
+    /// registry itself is cross-platform, so nothing downstream changes.
+    public static let builtin: RecordViewerRegistry = {
+        #if os(macOS)
+        RecordViewerRegistry(macOSBuiltinFactories)
+        #else
+        RecordViewerRegistry()
+        #endif
+    }()
 }
 
 // MARK: - Environment
@@ -163,4 +147,3 @@ public extension EnvironmentValues {
         set { self[RecordViewerRegistryKey.self] = newValue }
     }
 }
-#endif

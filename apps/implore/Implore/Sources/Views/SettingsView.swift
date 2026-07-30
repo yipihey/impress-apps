@@ -1,47 +1,67 @@
+//
+//  SettingsView.swift
+//  implore
+//
+//  Stage 6 phase 2 (declarative chassis): the five tabs are declared as
+//  `AppSettingsConfiguration.implore` in PublicationManagerCore; this file
+//  contributes the factories and the scene host.
+//
+//  implore is the smallest, cleanest adoption in the suite and worth reading as
+//  the minimal example: five `.tabItem` + `.accessibilityIdentifier` stanzas
+//  became five descriptors, one of the five panes turned out to be a chassis
+//  builtin verbatim, and the four app panes below are untouched.
+//
+//  What implore gains that is not just tidiness: its tab list is now readable
+//  from outside its own macOS target, which is what
+//  `SettingsSurfaceContractTests` uses to freeze the inventory. implore has NO
+//  unit-test target of its own, so before this there was nowhere a test could
+//  assert what implore's settings are — its only settings coverage was an
+//  accessibility audit that opens the window and checks nothing about its
+//  contents, and its UI-test page object was already one tab behind the view
+//  (no Spotlight accessor).
+//
+
 import ImpressHelixCore
 import ImpressSpotlight
+import PublicationManagerCore
 import SwiftUI
 
 /// Settings view for implore preferences
 struct SettingsView: View {
     var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem {
-                    Label("General", systemImage: "gear")
-                }
-                .accessibilityIdentifier("settings.tabs.general")
-
-            RenderingSettingsView()
-                .tabItem {
-                    Label("Rendering", systemImage: "paintbrush")
-                }
-                .accessibilityIdentifier("settings.tabs.rendering")
-
-            ColormapSettingsView()
-                .tabItem {
-                    Label("Colormaps", systemImage: "paintpalette")
-                }
-                .accessibilityIdentifier("settings.tabs.colormaps")
-
-            KeyboardSettingsView()
-                .tabItem {
-                    Label("Keyboard", systemImage: "keyboard")
-                }
-                .accessibilityIdentifier("settings.tabs.keyboard")
-
-            Form {
-                SpotlightSettingsSection()
-            }
-            .formStyle(.grouped)
-            .tabItem {
-                Label("Spotlight", systemImage: "magnifyingglass")
-            }
-            .accessibilityIdentifier("settings.tabs.spotlight")
-        }
-        .frame(width: 500, height: 400)
-        .accessibilityIdentifier("settings.container")
+        // `.fixed`: implore shipped `.frame(width: 500, height: 400)`, a pinned
+        // size rather than a floor, and the renderer honours that exactly.
+        MacSettingsSceneContent.fixed(
+            configuration: .implore, width: 500, height: 400)
+            .environment(\.settingsSectionRegistry, ImploreSettingsSections.registry)
     }
+}
+
+// MARK: - Factories
+
+/// implore's settings registrations.
+///
+/// Four factories for five tabs. **Spotlight is absent because it is a chassis
+/// builtin**, and it is the clearest case in the suite: implore's tab body was
+/// literally `Form { SpotlightSettingsSection() }.formStyle(.grouped)`, which is
+/// `SpotlightSettingsPane` character for character. That pane is exactly what a
+/// builtin is for — "something no app should author for itself" — and implore,
+/// impart and imprint had each written it separately.
+///
+/// implore does NOT adopt the `appearance` builtin, and that is deliberate rather
+/// than an oversight: implore has no appearance tab. Adding one would grow the
+/// app's settings surface, which is a product decision and not part of a reframe.
+enum ImploreSettingsSections {
+
+    static let factories: [SettingsSectionFactory] = [
+        SettingsSectionFactory(section: .general) { GeneralSettingsView() },
+        SettingsSectionFactory(section: .rendering) { RenderingSettingsView() },
+        SettingsSectionFactory(section: .colormaps) { ColormapSettingsView() },
+        SettingsSectionFactory(section: .keyboard) { KeyboardSettingsView() },
+    ]
+
+    static let registry: SettingsSectionRegistry =
+        SettingsSectionRegistry.builtin.composing(factories)
 }
 
 struct GeneralSettingsView: View {

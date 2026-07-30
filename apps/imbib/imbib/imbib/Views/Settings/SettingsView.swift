@@ -4,224 +4,119 @@
 //
 //  Created by Claude on 2026-01-04.
 //
+//  Stage 6 phase 2 (declarative chassis): this file no longer decides WHICH
+//  panes imbib has. It used to — as a `NavigationSplitView` body plus a 16-case
+//  `SettingsTab` enum with three parallel `switch`es (displayName, icon,
+//  helpText) and a fourth for the detail view. Four switches over one list is
+//  four chances to disagree, and the list itself was unreachable from anywhere
+//  else: imbib-iOS could not read it, so it re-typed its own nineteen rows by
+//  hand, and the two surfaces drifted (iOS grew PDF Storage and a top-level
+//  Backup row; macOS grew Flags & Tags and E-Ink; neither knew).
+//
+//  Now the list is `AppSettingsConfiguration.imbib` in PublicationManagerCore —
+//  data both platforms read — and this file contributes only the macOS FACTORIES
+//  plus the Settings scene's host. The panes below are untouched.
+//
+//  Visual equivalence is the constraint: same six sidebar groups, same sixteen
+//  panes in the same order, same titles, symbols and tooltips, same window
+//  metrics, same `settings.tabView` identifier. `MacSettingsSidebarSceneContent`
+//  exists because of that constraint — rendering imbib through phase 1's
+//  `TabView` renderer would have been a redesign.
+//
 
 import ImpressSpotlight
 import ImpressUndoHistory
 import PublicationManagerCore
 import SwiftUI
 
+// MARK: - Settings scene host
+
 struct SettingsView: View {
 
-    // MARK: - State
-
-    @State private var selectedTab: SettingsTab = .general
-
-    // MARK: - Body
+    /// Owned here rather than by the renderer because imbib DEEP LINKS into
+    /// panes: `.showInboxSettings` and `.showExplorationSettings` are posted at
+    /// an already-open Settings window (see the notification handlers below), so
+    /// the selection has to be reachable from outside the renderer.
+    @State private var selectedSection: SettingsSectionID? = .general
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selectedTab) {
-                Section("General") {
-                    SettingsSidebarRow(tab: .general)
-                    SettingsSidebarRow(tab: .appearance)
-                    SettingsSidebarRow(tab: .viewing)
-                }
-
-                Section("Content") {
-                    SettingsSidebarRow(tab: .flagsAndTags)
-                    SettingsSidebarRow(tab: .notes)
-                    SettingsSidebarRow(tab: .pdf)
-                    SettingsSidebarRow(tab: .sources)
-                    SettingsSidebarRow(tab: .enrichment)
-                    SettingsSidebarRow(tab: .searchAI)
-                }
-
-                Section("Inbox & Feeds") {
-                    SettingsSidebarRow(tab: .inbox)
-                    SettingsSidebarRow(tab: .recommendations)
-                }
-
-                Section("Sync & Backup") {
-                    SettingsSidebarRow(tab: .sync)
-                    SettingsSidebarRow(tab: .eink)
-                }
-
-                Section("Import & Export") {
-                    SettingsSidebarRow(tab: .importExport)
-                }
-
-                Section("System") {
-                    SettingsSidebarRow(tab: .keyboardShortcuts)
-                    SettingsSidebarRow(tab: .advanced)
-                }
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 250)
-        } detail: {
-            selectedSettingsView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .accessibilityIdentifier(AccessibilityID.Settings.tabView)
-        .frame(minWidth: 700, idealWidth: 850, maxWidth: 1200,
-               minHeight: 500, idealHeight: 650, maxHeight: 900)
-        // Deep link to specific settings tabs - only switch tab, don't try to open settings window
-        // (these notifications should only fire when settings is already open via deep link)
+        MacSettingsSidebarSceneContent(
+            configuration: .imbib,
+            selection: $selectedSection,
+            // FROZEN: imbib's UI tests address the Settings window by
+            // `settings.tabView`, a string that predates the chassis default of
+            // `settings.container` (imbibUITests/Tests/SettingsTests.swift).
+            containerIdentifier: AccessibilityID.Settings.tabView)
+        .environment(\.settingsSectionRegistry, ImbibSettingsSections.registry)
+        // Deep link to specific settings panes — only switch panes, don't try to
+        // open the settings window (these notifications should only fire when
+        // settings is already open via deep link).
         .onReceive(NotificationCenter.default.publisher(for: .showInboxSettings)) { _ in
-            selectedTab = .inbox
+            selectedSection = .inbox
         }
         .onReceive(NotificationCenter.default.publisher(for: .showExplorationSettings)) { _ in
-            selectedTab = .advanced
-        }
-    }
-
-    // MARK: - Detail View
-
-    @ViewBuilder
-    private var selectedSettingsView: some View {
-        switch selectedTab {
-        case .general:
-            GeneralSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.general)
-        case .appearance:
-            AppearanceSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.appearance)
-        case .viewing:
-            ViewingSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.viewing)
-        case .flagsAndTags:
-            FlagsAndTagsSettingsTab()
-        case .notes:
-            NotesSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.notes)
-        case .sources:
-            SourcesSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sources)
-        case .pdf:
-            PDFSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.pdf)
-        case .enrichment:
-            EnrichmentSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.enrichment)
-        case .searchAI:
-            EmbeddingSettingsView()
-        case .inbox:
-            InboxSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.inbox)
-        case .recommendations:
-            RecommendationSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.recommendations)
-        case .sync:
-            SyncSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sync)
-        case .eink:
-            EInkSettingsTab()
-        case .importExport:
-            ImportExportSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.importExport)
-        case .keyboardShortcuts:
-            KeyboardShortcutsSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.shortcuts)
-        case .advanced:
-            AdvancedSettingsTab()
-                .accessibilityIdentifier(AccessibilityID.Settings.Tabs.advanced)
+            selectedSection = .advanced
         }
     }
 }
 
-// MARK: - Settings Sidebar Row
+// MARK: - macOS factories
 
-private struct SettingsSidebarRow: View {
-    let tab: SettingsTab
+/// imbib's macOS settings REGISTRATIONS — the factory half of the ADR-0021
+/// descriptor/factory split.
+///
+/// The descriptors are `AppSettingsConfiguration.imbib` (PMC, pure data). The
+/// factories are here because a factory names concrete views, and these views
+/// live in imbib's macOS target: `NSOpenPanel`, `NSColorPanel`, `NSEvent`
+/// modifier monitoring, `NSWorkspace`. The chassis must not link them (the
+/// `CustomSurface` rule: "the views live in APP TARGETS").
+///
+/// **Two things imbib does here that imprint did not:**
+///
+///  1. It REGISTERS OVER the chassis `appearance` builtin. `AppearanceSettingsTab`
+///     is a 530-line theme editor over `ThemeSettingsStore`, not the three-way
+///     System/Light/Dark picker the builtin is; the `appearanceMode` key is one
+///     row inside it. Last registration wins (`composing`), which is exactly the
+///     documented reason `register` allows replacement.
+///  2. The keyboard pane is WRAPPED, not authored. `KeyboardShortcutsSettingsTab`
+///     is driven by `PMC/Settings/KeyboardShortcutsSettings.swift`, which was
+///     recently rebuilt over ImpressKeyboard's `ShortcutCatalog` and is not
+///     touched here — a factory that names the existing view is the whole
+///     integration, and that is the point of keeping factories out of the
+///     descriptors.
+enum ImbibSettingsSections {
 
-    var body: some View {
-        Label(tab.displayName, systemImage: tab.icon)
-            .tag(tab)
-            .help(tab.helpText)
-    }
-}
+    /// One factory per macOS-available descriptor in `.imbib`, in preset order.
+    static let macFactories: [SettingsSectionFactory] = [
+        SettingsSectionFactory(section: .general) { GeneralSettingsTab() },
+        // Over the builtin — see the type doc.
+        SettingsSectionFactory(section: .appearance) { AppearanceSettingsTab() },
+        SettingsSectionFactory(section: .viewing) { ViewingSettingsTab() },
+        SettingsSectionFactory(section: .flagsAndTags) { FlagsAndTagsSettingsTab() },
+        SettingsSectionFactory(section: .notes) { NotesSettingsTab() },
+        SettingsSectionFactory(section: .pdf) { PDFSettingsTab() },
+        SettingsSectionFactory(section: .sources) { SourcesSettingsTab() },
+        SettingsSectionFactory(section: .searchAI) { EmbeddingSettingsView() },
+        SettingsSectionFactory(section: .inbox) { InboxSettingsTab() },
+        SettingsSectionFactory(section: .recommendations) { RecommendationSettingsTab() },
+        SettingsSectionFactory(section: .sync) { SyncSettingsTab() },
+        SettingsSectionFactory(section: .eink) { EInkSettingsTab() },
+        SettingsSectionFactory(section: .importExport) { ImportExportSettingsTab() },
+        // WRAPPED, not edited — see the type doc.
+        SettingsSectionFactory(section: .shortcuts) { KeyboardShortcutsSettingsTab() },
+        SettingsSectionFactory(section: .advanced) { AdvancedSettingsTab() },
+    ]
 
-// MARK: - Settings Tab
-
-enum SettingsTab: String, CaseIterable {
-    case general
-    case appearance
-    case viewing
-    case flagsAndTags
-    case notes
-    case sources
-    case pdf
-    case enrichment
-    case searchAI
-    case inbox
-    case recommendations  // ADR-020
-    case sync
-    case eink  // ADR-019: E-Ink device integration
-    case importExport
-    case keyboardShortcuts
-    case advanced
-
-    var displayName: String {
-        switch self {
-        case .general: return "General"
-        case .appearance: return "Appearance"
-        case .viewing: return "Viewing"
-        case .flagsAndTags: return "Flags & Tags"
-        case .notes: return "Notes"
-        case .sources: return "Sources"
-        case .pdf: return "PDF"
-        case .enrichment: return "Enrichment"
-        case .searchAI: return "Search & AI"
-        case .inbox: return "Inbox"
-        case .recommendations: return "Recommendations"
-        case .sync: return "Sync"
-        case .eink: return "E-Ink Devices"
-        case .importExport: return "Import & Export"
-        case .keyboardShortcuts: return "Keyboard Shortcuts"
-        case .advanced: return "Advanced"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .general: return "gear"
-        case .appearance: return "paintbrush"
-        case .viewing: return "eye"
-        case .flagsAndTags: return "flag"
-        case .notes: return "note.text"
-        case .sources: return "globe"
-        case .pdf: return "doc.richtext"
-        case .enrichment: return "arrow.triangle.2.circlepath"
-        case .searchAI: return "brain"
-        case .inbox: return "tray"
-        case .recommendations: return "sparkles"
-        case .sync: return "icloud"
-        case .eink: return "rectangle.portrait"
-        case .importExport: return "arrow.up.arrow.down"
-        case .keyboardShortcuts: return "keyboard"
-        case .advanced: return "gearshape.2"
-        }
-    }
-
-    var helpText: String {
-        switch self {
-        case .general: return "App preferences"
-        case .appearance: return "Theme and colors"
-        case .viewing: return "List display options"
-        case .flagsAndTags: return "Flag colors and tag display settings"
-        case .notes: return "Note editor settings"
-        case .sources: return "API keys for online sources"
-        case .pdf: return "PDF download settings"
-        case .enrichment: return "Citation sources and metadata enrichment"
-        case .searchAI: return "Embedding provider and search intelligence"
-        case .inbox: return "Feed subscriptions and mute rules"
-        case .recommendations: return "Configure transparent recommendation engine"
-        case .sync: return "iCloud sync settings"
-        case .eink: return "reMarkable, Supernote, and Kindle Scribe integration"
-        case .importExport: return "File format options"
-        case .keyboardShortcuts: return "Customize keyboard shortcuts"
-        case .advanced: return "Developer tools and advanced settings"
-        }
-    }
+    /// Chassis builtins, then imbib's cross-platform panes, then macOS's.
+    ///
+    /// `enrichment` is absent from `macFactories` because it comes from
+    /// `ImbibSettingsSections.portableFactories` in PMC: both platforms' panes
+    /// were the same `EnrichmentSettingsView` in the same wrapper, so it is now
+    /// declared once. It is the only one of imbib's sixteen panes for which that
+    /// was true — see the type doc on `ImbibPortableSettingsSections`.
+    static let registry: SettingsSectionRegistry =
+        SettingsSectionRegistry.builtin
+            .composing(ImbibPortableSettingsSections.factories + macFactories)
 }
 
 // MARK: - General Settings
@@ -653,19 +548,14 @@ struct SourceCredentialRow: View {
 }
 
 // MARK: - Enrichment Settings
-
-struct EnrichmentSettingsTab: View {
-
-    @Environment(SettingsViewModel.self) private var viewModel
-
-    var body: some View {
-        EnrichmentSettingsView(viewModel: viewModel)
-            .padding(.horizontal)
-            .task {
-                await viewModel.loadEnrichmentSettings()
-            }
-    }
-}
+//
+// `EnrichmentSettingsTab` was DELETED in Stage 6 phase 2, not moved to a MARK
+// with no body. It and imbib-iOS's `IOSEnrichmentSettingsView` were the same
+// four lines around the same `EnrichmentSettingsView`, so both were replaced by
+// one `ImbibEnrichmentSettingsPane` in PublicationManagerCore, registered from
+// `ImbibPortableSettingsSections.factories`. It is the only one of imbib's
+// sixteen panes for which the two platforms' implementations were genuinely the
+// same view — that file's header explains why the other fifteen are not.
 
 // MARK: - Inbox Settings
 

@@ -86,9 +86,16 @@ public actor ImprintHTTPRouter: HTTPRouter {
 
     /// Route a request to the appropriate handler.
     public func route(_ request: HTTPRequest) async -> HTTPResponse {
-        // Handle CORS preflight
-        if request.method == "OPTIONS" {
-            return handleCORSPreflight()
+        // The GENERIC route group, mounted once (ImpressAutomation's
+        // `SharedAutomationRoutes`): CORS preflight, `/api/logs`,
+        // `/api/logs/stream`, `/api/performance{,/reset}` and
+        // `/api/store-timings{,/reset}`. It returns nil for everything else, so
+        // the domain table below is untouched. These routes were hand-pasted in
+        // five routers, and imprint was the only one that registered
+        // `/api/logs/stream` — even though the handler it calls has always lived
+        // in the shared package.
+        if let shared = await SharedAutomationRoutes.route(request) {
+            return shared
         }
 
         // Route based on path - preserve case for document IDs
@@ -105,28 +112,12 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handleListTasks()
             }
 
-            if pathLower == "/api/logs" {
-                return await handleGetLogs(request)
-            }
-
-            if pathLower == "/api/logs/stream" {
-                return await handleStreamLogs(request)
-            }
-
             if pathLower == "/api/documents" {
                 return await handleListDocuments()
             }
 
             if pathLower == "/api/latex/status" {
                 return await handleLaTeXStatus()
-            }
-
-            if pathLower == "/api/store-timings" {
-                return handleStoreTimings(request)
-            }
-
-            if pathLower == "/api/performance" {
-                return handlePerformance(request)
             }
 
             if pathLower == "/api/plot/specs" {
@@ -376,14 +367,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
                 return await handleCreateDocumentFromTemplate(request)
             }
 
-            if pathLower == "/api/store-timings/reset" {
-                return handleResetStoreTimings()
-            }
-
-            if pathLower == "/api/performance/reset" {
-                return handleResetPerformance()
-            }
-
             // POST /api/documents/{docId}/sections — append a new section
             if pathLower.hasPrefix("/api/documents/") && pathLower.hasSuffix("/sections") {
                 let remainder = String(path.dropFirst("/api/documents/".count))
@@ -617,18 +600,14 @@ public actor ImprintHTTPRouter: HTTPRouter {
             ManuscriptStoreAdapter.shared.allManuscripts(limit: 1)
         }
 
-        let response: [String: Any] = [
-            "status": "ok",
-            "app": "imprint",
-            "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0",
-            "port": ImprintHTTPServer.defaultPort,
-            // Field name kept for backward-compat with existing API
-            // consumers; post-Phase-4b this counts manuscripts in the
-            // unified store, not in-memory FileDocument windows.
-            "openDocuments": manuscripts.count
-        ]
-
-        return .json(response)
+        // Envelope (`status` / `app` / `version` / `port` + `serverPort`) from the
+        // shared group; `openDocuments` is imprint's. That field name is kept for
+        // backward-compat with existing API consumers; post-Phase-4b it counts
+        // manuscripts in the unified store, not in-memory FileDocument windows.
+        return SharedAutomationRoutes.status(
+            app: "imprint",
+            port: Int(ImprintHTTPServer.defaultPort),
+            domain: ["openDocuments": manuscripts.count])
     }
 
     /// GET /api/documents
@@ -958,22 +937,6 @@ public actor ImprintHTTPRouter: HTTPRouter {
         ]
 
         return .json(response)
-    }
-
-    /// GET /api/logs
-    /// Query log entries.
-    private func handleGetLogs(_ request: HTTPRequest) async -> HTTPResponse {
-        await MainActor.run {
-            LogEndpointHandler.handle(request)
-        }
-    }
-
-    /// GET /api/logs/stream
-    /// Cursor-based incremental log feed for agents watching a scenario.
-    private func handleStreamLogs(_ request: HTTPRequest) async -> HTTPResponse {
-        await MainActor.run {
-            LogEndpointHandler.handleStream(request)
-        }
     }
 
     // MARK: - Export Handlers
@@ -2181,11 +2144,23 @@ public actor ImprintHTTPRouter: HTTPRouter {
     /// `count: 0` while the UI listed manuscripts: the snapshot is derived
     /// exclusively from `manuscript-section` items
     /// (`RecentDocumentsSnapshotMaintainer.performRefresh` →
-    /// `listAllSections`), and post-pivot nothing writes sections — a
-    /// manuscript carries its `body_content` inline. The refresh ran, found
-    /// nothing, and published an empty array, so the endpoint answered
-    /// `status: "ok"` with no rows and logged no error. Two sources for one
-    /// question, and only one of them had data.
+    /// `listAllSections`), and only throughline-enabled documents mirror
+    /// sections — an ordinary manuscript carries its `body_content` inline and
+    /// produces no section rows at all. The refresh ran, found nothing, and
+    /// published an empty array, so the endpoint answered `status: "ok"` with
+    /// no rows and logged no error. Two sources for one question, and only one
+    /// of them had data.
+    ///
+    /// CORRECTION (2026-07-29): this comment used to say "post-pivot nothing
+    /// writes sections". That is not true — `ThroughlineCoordinator.mirror`
+    /// (gated on `hasThroughline`) and Rust `SectionStore::put_section` (the
+    /// app-closed / MCP path) both write them. Sections are a NARROW feature,
+    /// not a dead one, and `listAllSections` was additionally reading the wrong
+    /// `schema_ref` (`manuscript-section@1.0.0` vs the written
+    /// `manuscript-section`), so it would have found nothing even for a
+    /// document that had them. That ref is fixed; the "manuscripts are not
+    /// sections" point above still stands and is why this endpoint reads
+    /// manuscripts directly.
     ///
     /// `allManuscripts` rather than `listManuscripts`, matching
     /// `/api/documents`: this is an index read, so dismissed and archived
@@ -3035,105 +3010,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
         return existing.count
     }
 
-    // MARK: - Store Timings Handlers
-
-    /// GET /api/store-timings?top=20
-    /// Returns a JSON snapshot of `StoreTimings.shared` — per-caller counts,
-    /// mean/max latencies, and how much time was spent on the main thread.
-    /// Mirrors imbib's endpoint so `impress-toolbox` can query either app.
-    private func handleStoreTimings(_ request: HTTPRequest) -> HTTPResponse {
-        let top = Int(request.queryParams["top"] ?? "20") ?? 20
-        let snap = StoreTimings.shared.snapshot(topCallerCount: top)
-        let callers: [[String: Any]] = snap.topCallers.map { stat in
-            [
-                "caller": stat.caller,
-                "count": stat.count,
-                "mainThreadCount": stat.mainThreadCount,
-                "meanMillis": round(stat.meanMillis * 1000) / 1000,
-                "maxMillis": round(stat.maxMillis * 1000) / 1000,
-                "totalNanos": stat.totalNanos
-            ]
-        }
-        let payload: [String: Any] = [
-            "status": "ok",
-            "capturedAt": ISO8601DateFormatter().string(from: snap.capturedAt),
-            "totalCalls": snap.totalCalls,
-            "mainThreadCalls": snap.mainThreadCalls,
-            "backgroundCalls": snap.backgroundCalls,
-            "mainThreadShare": round(snap.mainThreadShare * 10000) / 10000,
-            "totalMainThreadMillis": round(snap.totalMainThreadMillis * 1000) / 1000,
-            "slowestMainThreadCaller": snap.slowestMainThreadCaller,
-            "slowestMainThreadMillis": round(snap.slowestMainThreadMillis * 1000) / 1000,
-            "topCallers": callers
-        ]
-        return .json(payload)
-    }
-
-    /// POST /api/store-timings/reset
-    private func handleResetStoreTimings() -> HTTPResponse {
-        StoreTimings.shared.reset()
-        return .json(["status": "ok", "reset": true])
-    }
-
-    // MARK: - Performance Handlers
-
-    /// GET /api/performance
-    /// Returns a JSON snapshot of `PerfMetrics.shared` — per-operation buckets
-    /// (compile, render, search, store, snapshot, http, …) with count, min/max,
-    /// mean, p50/p95, main-thread share, and budget-breach counts. This is the
-    /// machine-readable form of the Console "Performance" tab so an agent can
-    /// spot bottlenecks headlessly.
-    private func handlePerformance(_ request: HTTPRequest) -> HTTPResponse {
-        let snap = PerfMetrics.shared.snapshot()
-        let buckets: [[String: Any]] = snap.buckets.map { b in
-            var dict: [String: Any] = [
-                "name": b.name,
-                "count": b.count,
-                "mainThreadCount": b.mainThreadCount,
-                "mainThreadShare": round(b.mainThreadShare * 10000) / 10000,
-                "minMillis": round(b.minMillis * 1000) / 1000,
-                "meanMillis": round(b.meanMillis * 1000) / 1000,
-                "p50Millis": round(b.p50Millis * 1000) / 1000,
-                "p95Millis": round(b.p95Millis * 1000) / 1000,
-                "maxMillis": round(b.maxMillis * 1000) / 1000,
-                "breachCount": b.breachCount,
-                "totalNanos": b.totalNanos
-            ]
-            if let budget = b.budgetMillis {
-                dict["budgetMillis"] = round(budget * 1000) / 1000
-            }
-            return dict
-        }
-        let payload: [String: Any] = [
-            "status": "ok",
-            "capturedAt": ISO8601DateFormatter().string(from: snap.capturedAt),
-            "bucketCount": snap.buckets.count,
-            "buckets": buckets
-        ]
-        return .json(payload)
-    }
-
-    /// POST /api/performance/reset — clears sample data (budgets are preserved).
-    private func handleResetPerformance() -> HTTPResponse {
-        PerfMetrics.shared.reset()
-        return .json(["status": "ok", "reset": true])
-    }
-
     // MARK: - Helpers
-
-    /// CORS preflight response.
-    private func handleCORSPreflight() -> HTTPResponse {
-        HTTPResponse(
-            status: 204,
-            statusText: "No Content",
-            headers: [
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Max-Age": "86400"
-            ]
-        )
-    }
 
     /// Root API info response.
     private func handleAPIInfo() -> HTTPResponse {

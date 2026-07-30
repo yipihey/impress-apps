@@ -40,6 +40,47 @@ struct DataModelTests {
         #expect(Set(ports).count == SiblingApp.allCases.count)
     }
 
+    // MARK: - SiblingAppDescriptor table
+
+    @Test("SiblingApp descriptor table covers every app exactly once")
+    func descriptorTableCoversEveryApp() {
+        #expect(SiblingApp.descriptors.count == SiblingApp.allCases.count)
+        let ids = SiblingApp.descriptors.map(\.id)
+        #expect(Set(ids).count == SiblingApp.descriptors.count)
+        for app in SiblingApp.allCases {
+            // Would `preconditionFailure` if a row were missing.
+            #expect(app.descriptor.id == app)
+        }
+    }
+
+    @Test("SiblingApp accessors agree with the descriptor table")
+    func accessorsMatchTable() {
+        for row in SiblingApp.descriptors {
+            #expect(row.id.bundleID == row.bundleID)
+            #expect(row.id.urlScheme == row.urlScheme)
+            #expect(row.id.httpPort == row.httpPort)
+            #expect(row.id.displayName == row.displayName)
+        }
+    }
+
+    @Test("SiblingApp reverse lookups round-trip")
+    func reverseLookups() {
+        for app in SiblingApp.allCases {
+            #expect(SiblingApp.app(forBundleID: app.bundleID) == app)
+            #expect(SiblingApp.app(forURLScheme: app.urlScheme) == app)
+            #expect(SiblingApp.app(forHTTPPort: app.httpPort) == app)
+        }
+        #expect(SiblingApp.app(forBundleID: "com.example.nope") == nil)
+        #expect(SiblingApp.app(forURLScheme: "nope") == nil)
+        #expect(SiblingApp.app(forHTTPPort: 1) == nil)
+    }
+
+    @Test("SiblingApp bundle IDs are unique")
+    func uniqueBundleIDs() {
+        let ids = SiblingApp.allCases.map(\.bundleID)
+        #expect(Set(ids).count == SiblingApp.allCases.count)
+    }
+
     @Test("SiblingApp Codable round-trip")
     func siblingAppCodable() throws {
         for app in SiblingApp.allCases {

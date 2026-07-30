@@ -30,7 +30,15 @@ public struct RustBibTeXParser: BibTeXParsing, Sendable {
     // MARK: - BibTeXParsing Protocol
 
     public func parse(_ content: String) throws -> [BibTeXItem] {
-        let result = try bibtexParse(input: content)
+        // Macro expansion and crossref inheritance are resolved in Rust. They
+        // used to be re-implemented on this side of the bridge, which is how
+        // the import path and the editor path ended up disagreeing about
+        // `month = sep`.
+        let result = try bibtexParseWithOptions(
+            input: content,
+            expandMacros: expandMacros,
+            resolveCrossrefs: resolveCrossrefs
+        )
 
         var items: [BibTeXItem] = []
 
@@ -44,15 +52,15 @@ public struct RustBibTeXParser: BibTeXParsing, Sendable {
             items.append(.stringMacro(name: name, value: value))
         }
 
+        // Convert @comment blocks (the exporter re-emits them)
+        for comment in result.comments {
+            items.append(.comment(comment))
+        }
+
         // Convert entries
         for rustEntry in result.entries {
             let swiftEntry = convertEntry(rustEntry, rawContent: content)
             items.append(.entry(swiftEntry))
-        }
-
-        // Apply crossref resolution if enabled
-        if resolveCrossrefs {
-            items = resolveCrossrefInheritance(items)
         }
 
         return items
@@ -77,37 +85,6 @@ public struct RustBibTeXParser: BibTeXParsing, Sendable {
         BibTeXEntryConversions.fromRust(rustEntry, decodeLaTeX: decodeLaTeX)
     }
 
-    // MARK: - Crossref Resolution
-
-    private func resolveCrossrefInheritance(_ items: [BibTeXItem]) -> [BibTeXItem] {
-        var lookup: [String: BibTeXEntry] = [:]
-        for item in items {
-            if case .entry(let entry) = item {
-                lookup[entry.citeKey.lowercased()] = entry
-            }
-        }
-
-        return items.map { item in
-            guard case .entry(let entry) = item else { return item }
-            guard let crossref = entry.fields["crossref"],
-                  let parent = lookup[crossref.lowercased()] else {
-                return item
-            }
-
-            var inheritedFields = parent.fields
-            for (key, value) in entry.fields {
-                inheritedFields[key] = value
-            }
-
-            let newEntry = BibTeXEntry(
-                citeKey: entry.citeKey,
-                entryType: entry.entryType,
-                fields: inheritedFields,
-                rawBibTeX: entry.rawBibTeX
-            )
-            return .entry(newEntry)
-        }
-    }
 }
 
 // MARK: - Rust Library Info

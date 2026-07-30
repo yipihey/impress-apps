@@ -27,26 +27,9 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "mail")
 
-/// What subset of mail the list shows.
-public enum MessageListScope: Hashable, Sendable {
-    /// Union of every account's inbox-role folder.
-    case allInboxes
-    /// One account — v1 keeps it simple: the account's inbox folder.
-    case account(UUID)
-    /// One mail folder (envelope parentId filter).
-    case folder(UUID)
-    case flagged(FlagColor?)
-
-    var title: String {
-        switch self {
-        case .allInboxes: return "All Inboxes"
-        case .account: return "Account"
-        case .folder: return "Folder"
-        case .flagged(let color):
-            return color.map { "\($0.displayName) Flag" } ?? "Flagged"
-        }
-    }
-}
+// `MessageListScope` moved to Chassis/RecordKind/RecordScopeKey+ListScopes.swift
+// (Stage 2a): the scope is a Foundation value type and is now
+// cross-platform; only this wrapper is AppKit-adjacent.
 
 // Actions: the shared RecordTriageActions (ADR-0021). Mail has no
 // kind-specific verbs in v1 — open is the detail pane, and IMAP-owned verbs
@@ -290,6 +273,10 @@ public struct MessageListWrapper: View {
         case .focusFilter:
             filterFocused = true
             return .handled
+        case .focusPaneLeft, .focusPaneRight:
+            // Pane focus is window-scoped, not list-scoped: bubble h/l up to the
+            // shell that owns the split (ContentView / ImpressSplitView).
+            return .ignored
         }
     }
 

@@ -23,31 +23,9 @@ import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "manuscripts")
 
-/// What subset of manuscripts the list shows.
-public enum ManuscriptListScope: Hashable, Sendable {
-    case all
-    case status(JournalManuscriptStatus)
-    case folder(UUID)
-    case flagged(FlagColor?)
-
-    var statusString: String? {
-        if case .status(let s) = self { return s.rawValue }
-        return nil
-    }
-    var folderID: UUID? {
-        if case .folder(let id) = self { return id }
-        return nil
-    }
-    var title: String {
-        switch self {
-        case .all: return "All Manuscripts"
-        case .status(let s): return s.displayName
-        case .folder: return "Folder"
-        case .flagged(let color):
-            return color.map { "\($0.displayName) Flag" } ?? "Flagged"
-        }
-    }
-}
+// `ManuscriptListScope` moved to Chassis/RecordKind/RecordScopeKey+ListScopes.swift
+// (Stage 2a): the scope is a Foundation value type and is now
+// cross-platform; only this wrapper is AppKit-adjacent.
 
 // Actions: the shared RecordTriageActions (ADR-0021). Manuscript-specific
 // verbs (create-with-format, duplicate, open, remove-from-folder) ride the
@@ -333,6 +311,10 @@ public struct ManuscriptListWrapper: View {
         case .focusFilter:
             filterFocused = true
             return .handled
+        case .focusPaneLeft, .focusPaneRight:
+            // Pane focus is window-scoped, not list-scoped: bubble h/l up to the
+            // shell that owns the split (ContentView / ImpressSplitView).
+            return .ignored
         }
     }
 

@@ -13,7 +13,7 @@ final class AutonomousPerformanceSmokeTests: XCTestCase {
     private static let bibTeXThousandEntryBudgetSeconds = 5.0
 
     func testBibTeXParserThousandEntriesStayUnderCatastrophicRegressionBudget() throws {
-        let parser = BibTeXParser()
+        let parser = BibTeXParserFactory.createParser()
         let content = BibTeXBenchmark.generateEntries(count: 1_000)
 
         let warmupEntries = try parser.parseEntries(content)

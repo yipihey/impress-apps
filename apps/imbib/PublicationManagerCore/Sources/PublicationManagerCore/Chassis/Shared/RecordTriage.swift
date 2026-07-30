@@ -109,6 +109,63 @@ public struct RecordTriageActions {
         }
         return a
     }
+
+    /// Store-backed defaults WITH UNDO, for a host on the shared impress store.
+    ///
+    /// `storeBacked(descriptor:)` above needs no undo argument because it never
+    /// registers any: every `RustStoreAdapter` verb it calls returns an
+    /// `UndoInfo` from imbib-core's operation log and hands it to
+    /// `UndoCoordinator` itself. The `SharedStore` FFI has no operation log —
+    /// `SharedStore.setStarred` returns `Void` — so a host on THAT surface needs
+    /// closure-based undo with per-item prior-value capture, which is what
+    /// `RecordTriageStoreKernel` provides.
+    ///
+    /// That missing argument is the whole reason imprint carried a hand-rolled
+    /// twin of the store half of triage. It passes the `UndoManager` its platform
+    /// supplies (the window's on macOS, `SceneUndoManager.shared.manager` on iOS,
+    /// a fresh one in tests) and its OWN adapter's kernel, so no second store
+    /// facade is booted inside it.
+    ///
+    /// - Parameters:
+    ///   - kernel: the host's kernel. Defaults to one on the shared impress
+    ///     store with imbib's mutation fan-out — right for a PMC-internal caller,
+    ///     wrong for a sibling app, which passes its own.
+    ///   - availableTagPaths: defaults to the kernel's own
+    ///     `tagPathsInUse()` (what is USED on this kind), so the Tags submenu is
+    ///     populated without reaching into imbib's tag-definition rows.
+    ///   - onDelete is deliberately NOT set: deletion carries a confirmation and
+    ///     any editor-session teardown, which are the host's business.
+    @MainActor
+    public static func storeBacked(
+        descriptor: RecordKindDescriptor,
+        undoManager: UndoManager?,
+        kernel: RecordTriageStoreKernel? = nil,
+        availableTagPaths: (() -> [String])? = nil
+    ) -> RecordTriageActions {
+        let kernel = kernel ?? RecordTriageStoreKernel(
+            descriptor: descriptor, scope: CollectionStoreAdapter.shared.scope)
+        let undo = StoreUndoScope.manager(undoManager)
+        var a = RecordTriageActions()
+        a.onToggleStar = { ids, starred in
+            kernel.setStarred(ids: Array(ids), starred: starred, undo: undo)
+        }
+        a.onSetFlag = { ids, color in
+            kernel.setFlag(ids: Array(ids), color: color?.rawValue, undo: undo)
+        }
+        a.onAddTag = { ids, path in
+            kernel.addTag(ids: Array(ids), tagPath: path, undo: undo)
+        }
+        a.onRemoveTag = { ids, path in
+            kernel.removeTag(ids: Array(ids), tagPath: path, undo: undo)
+        }
+        // Status-based verbs follow the descriptor: a kind that declares `.none`
+        // gets a no-op rather than a silent wrong write.
+        a.onDismiss = { ids in _ = kernel.dismiss(ids: Array(ids), undo: undo) }
+        a.onRestore = { ids in _ = kernel.restore(ids: Array(ids), undo: undo) }
+        a.onArchive = { ids in _ = kernel.archive(ids: Array(ids), undo: undo) }
+        a.availableTagPaths = availableTagPaths ?? { kernel.tagPathsInUse() }
+        return a
+    }
 }
 
 /// The per-row state the shared builders need to phrase the grammar.

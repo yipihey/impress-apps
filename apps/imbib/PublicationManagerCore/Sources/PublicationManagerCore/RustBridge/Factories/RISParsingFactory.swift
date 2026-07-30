@@ -35,24 +35,17 @@ public extension RISParsing {
 // MARK: - Parser Factory
 
 /// Factory for creating RIS parsers.
-/// Controls which backend (Swift or Rust) is used.
+///
+/// Only the Rust parser (`imbib-core::ris`) remains; the Swift `RISParser` was
+/// deleted in Stage 7 after the golden corpus proved parity. ADR-013 made RIS
+/// first-class, so it gets the same single-implementation treatment as BibTeX.
 public enum RISParserFactory {
 
-    /// Current backend selection.
-    /// Defaults to Rust. Change this to switch between implementations.
-    public static var currentBackend: BibTeXParserFactory.Backend = .rust
+    /// The backend actually used for RIS parsing.
+    public static let backend: BibTeXParserFactory.Backend = .rust
 
-    /// Create a parser using the current backend
+    /// Create a parser.
     public static func createParser() -> any RISParsing {
-        switch currentBackend {
-        case .swift:
-            return RISParser()
-        case .rust:
-            return RustRISParser()
-        }
+        RustRISParser()
     }
 }
-
-// MARK: - Swift Parser Conformance
-
-extension RISParser: RISParsing {}

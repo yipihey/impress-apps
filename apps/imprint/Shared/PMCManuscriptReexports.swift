@@ -52,6 +52,19 @@ typealias SectionExtractor = PublicationManagerCore.SectionExtractor
 typealias SectionFormat = PublicationManagerCore.SectionFormat
 typealias ExtractedSection = PublicationManagerCore.ExtractedSection
 
+// MARK: - Schema-ref base-name helper
+//
+// `ManuscriptStoreAdapter` had its own copy of this one-liner, with a comment
+// explaining it was "kept local so this file needs no PMC import" — but the
+// adapter already imports PMC (it reads `ManuscriptRecordKind.descriptor` for
+// its schema ref and status lifecycle), so the justification had expired. Two
+// implementations of "strip the @version" is one more than the number of
+// version-tolerance rules the suite is allowed to have: schema-refs.json
+// exists because readers and writers disagreeing about a ref's spelling has
+// shipped five times.
+
+typealias RecordKindSchemaRef = PublicationManagerCore.RecordKindSchemaRef
+
 // MARK: - Source editor (macOS only) — consumed by ContentView + FocusModeView
 
 #if os(macOS)
@@ -75,3 +88,20 @@ typealias DismissalSemantics = PublicationManagerCore.DismissalSemantics
 typealias DeletionSemantics = PublicationManagerCore.DeletionSemantics
 typealias CollectionCapability = PublicationManagerCore.CollectionCapability
 typealias CollectionBindingID = PublicationManagerCore.CollectionBindingID
+
+// MARK: - Generic store kernels (Stage 4b) — the collection + triage verbs, once
+//
+// `ManuscriptStoreAdapter` used to carry a hand-rolled twin of both of these
+// (~540 lines), for one reason: the PMC originals named imbib's singletons for
+// their mutation fan-out (`RustStoreAdapter.shared`) and their undo
+// (`UndoCoordinator.shared`, macOS-only). `StoreKernelScope` injects those, so
+// imprint runs the SHARED verbs on ITS store handle, ITS `postMutation` and a
+// caller-supplied `UndoManager` — on macOS and iOS alike.
+
+typealias StoreKernelScope = PublicationManagerCore.StoreKernelScope
+typealias StoreUndoScope = PublicationManagerCore.StoreUndoScope
+typealias StoreKernelUndoAction = PublicationManagerCore.StoreKernelUndoAction
+typealias StoreMutationNotice = PublicationManagerCore.StoreMutationNotice
+typealias CollectionStoreAdapter = PublicationManagerCore.CollectionStoreAdapter
+typealias CollectionKernelRow = PublicationManagerCore.CollectionKernelRow
+typealias RecordTriageStoreKernel = PublicationManagerCore.RecordTriageStoreKernel

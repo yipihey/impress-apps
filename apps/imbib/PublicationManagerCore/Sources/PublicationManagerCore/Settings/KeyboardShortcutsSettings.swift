@@ -6,267 +6,23 @@
 //
 
 import Foundation
+import ImpressKeyboard
 import SwiftUI
 
-// MARK: - Shortcut Category
+// MARK: - Shared Types (moved to ImpressKeyboard, Stage 1b)
 
-/// Categories for organizing keyboard shortcuts in the UI
-public enum ShortcutCategory: String, Codable, CaseIterable, Sendable {
-    case navigation = "Navigation"
-    case views = "Views"
-    case focus = "Focus"
-    case paperActions = "Paper Actions"
-    case clipboard = "Clipboard"
-    case filtering = "Filtering"
-    case inboxTriage = "Inbox Triage"
-    case pdfViewer = "PDF Viewer"
-    case fileOperations = "File Operations"
-    case app = "App"
+// `ShortcutCategory`, `ShortcutKey`, `ShortcutModifiers` and
+// `KeyboardShortcutBinding` were declared here AND, byte-for-byte, in
+// ImpressKeyboard — and a third time, `Impart`-prefixed, in impart's
+// MessageManagerCore. They now live once, in ImpressKeyboard, alongside the
+// shared `ShortcutCatalog`. These typealiases keep every imbib call site
+// (`ShortcutCategory.allCases`, `ShortcutKey.character("j")`, …) unchanged.
 
-    public var displayName: String { rawValue }
-}
+public typealias ShortcutCategory = ImpressKeyboard.ShortcutCategory
+public typealias ShortcutKey = ImpressKeyboard.ShortcutKey
+public typealias ShortcutModifiers = ImpressKeyboard.ShortcutModifiers
+public typealias KeyboardShortcutBinding = ImpressKeyboard.KeyboardShortcutBinding
 
-// MARK: - Shortcut Key
-
-/// Represents a keyboard key (character or special key)
-public enum ShortcutKey: Codable, Equatable, Hashable, Sendable {
-    case character(String)      // Single character like "a", "1", "/"
-    case special(SpecialKey)    // Special keys like return, delete, arrows
-
-    public enum SpecialKey: String, Codable, CaseIterable, Sendable {
-        case `return` = "return"
-        case escape = "escape"
-        case delete = "delete"
-        case tab = "tab"
-        case space = "space"
-        case upArrow = "upArrow"
-        case downArrow = "downArrow"
-        case leftArrow = "leftArrow"
-        case rightArrow = "rightArrow"
-        case home = "home"
-        case end = "end"
-        case pageUp = "pageUp"
-        case pageDown = "pageDown"
-        case plus = "plus"          // For ⌘+ zoom
-        case minus = "minus"        // For ⌘- zoom
-
-        /// SwiftUI KeyEquivalent for this special key
-        public var keyEquivalent: KeyEquivalent {
-            switch self {
-            case .return: return .return
-            case .escape: return .escape
-            case .delete: return .delete
-            case .tab: return .tab
-            case .space: return .space
-            case .upArrow: return .upArrow
-            case .downArrow: return .downArrow
-            case .leftArrow: return .leftArrow
-            case .rightArrow: return .rightArrow
-            case .home: return .home
-            case .end: return .end
-            case .pageUp: return .pageUp
-            case .pageDown: return .pageDown
-            case .plus: return KeyEquivalent("+")
-            case .minus: return KeyEquivalent("-")
-            }
-        }
-
-        /// Display symbol for this special key
-        public var displaySymbol: String {
-            switch self {
-            case .return: return "↩"
-            case .escape: return "⎋"
-            case .delete: return "⌫"
-            case .tab: return "⇥"
-            case .space: return "Space"
-            case .upArrow: return "↑"
-            case .downArrow: return "↓"
-            case .leftArrow: return "←"
-            case .rightArrow: return "→"
-            case .home: return "↖"
-            case .end: return "↘"
-            case .pageUp: return "⇞"
-            case .pageDown: return "⇟"
-            case .plus: return "+"
-            case .minus: return "-"
-            }
-        }
-    }
-
-    /// SwiftUI KeyEquivalent for this key
-    public var keyEquivalent: KeyEquivalent {
-        switch self {
-        case .character(let char):
-            return KeyEquivalent(Character(char))
-        case .special(let special):
-            return special.keyEquivalent
-        }
-    }
-
-    /// Display string for the key (lowercase for clarity)
-    public var displayString: String {
-        switch self {
-        case .character(let char):
-            return char.lowercased()
-        case .special(let special):
-            return special.displaySymbol
-        }
-    }
-
-    /// Create from a string representation
-    public init(from string: String) {
-        if let special = SpecialKey(rawValue: string) {
-            self = .special(special)
-        } else {
-            self = .character(string.lowercased())
-        }
-    }
-
-    /// String representation for storage
-    public var stringValue: String {
-        switch self {
-        case .character(let char): return char
-        case .special(let special): return special.rawValue
-        }
-    }
-}
-
-// MARK: - Shortcut Modifiers
-
-/// Modifier keys for shortcuts
-public struct ShortcutModifiers: OptionSet, Codable, Equatable, Hashable, Sendable {
-    public let rawValue: Int
-
-    public init(rawValue: Int) {
-        self.rawValue = rawValue
-    }
-
-    public static let command = ShortcutModifiers(rawValue: 1 << 0)
-    public static let shift = ShortcutModifiers(rawValue: 1 << 1)
-    public static let option = ShortcutModifiers(rawValue: 1 << 2)
-    public static let control = ShortcutModifiers(rawValue: 1 << 3)
-
-    public static let none: ShortcutModifiers = []
-
-    /// Convert to SwiftUI EventModifiers
-    public var eventModifiers: EventModifiers {
-        var result: EventModifiers = []
-        if contains(.command) { result.insert(.command) }
-        if contains(.shift) { result.insert(.shift) }
-        if contains(.option) { result.insert(.option) }
-        if contains(.control) { result.insert(.control) }
-        return result
-    }
-
-    /// Display string with modifier symbols
-    /// Uses "Shift+" for shift-only shortcuts (clearer), symbols otherwise
-    public var displayString: String {
-        // For shift-only modifier, use readable format "Shift+"
-        if self == .shift {
-            return "Shift+"
-        }
-        // For other combinations, use symbol format
-        var symbols: [String] = []
-        if contains(.control) { symbols.append("⌃") }
-        if contains(.option) { symbols.append("⌥") }
-        if contains(.shift) { symbols.append("⇧") }
-        if contains(.command) { symbols.append("⌘") }
-        return symbols.joined()
-    }
-}
-
-// MARK: - Keyboard Shortcut Binding
-
-/// A single keyboard shortcut binding
-public struct KeyboardShortcutBinding: Codable, Identifiable, Equatable, Hashable, Sendable {
-    /// Unique identifier (notification name without "com.imbib.")
-    public let id: String
-
-    /// Display name shown in settings
-    public let displayName: String
-
-    /// Category for grouping in UI
-    public let category: ShortcutCategory
-
-    /// The key for this shortcut
-    public var key: ShortcutKey
-
-    /// Modifier keys (command, shift, option, control)
-    public var modifiers: ShortcutModifiers
-
-    /// Notification name to post when triggered
-    public let notificationName: String
-
-    /// Whether this shortcut can be customized
-    public let isCustomizable: Bool
-
-    public init(
-        id: String,
-        displayName: String,
-        category: ShortcutCategory,
-        key: ShortcutKey,
-        modifiers: ShortcutModifiers = .none,
-        notificationName: String,
-        isCustomizable: Bool = true
-    ) {
-        self.id = id
-        self.displayName = displayName
-        self.category = category
-        self.key = key
-        self.modifiers = modifiers
-        self.notificationName = notificationName
-        self.isCustomizable = isCustomizable
-    }
-
-    /// Full display string including modifiers and key
-    public var displayShortcut: String {
-        modifiers.displayString + key.displayString
-    }
-
-    /// Apply this shortcut to a SwiftUI Button
-    public func keyboardShortcut() -> KeyboardShortcut {
-        KeyboardShortcut(key.keyEquivalent, modifiers: modifiers.eventModifiers)
-    }
-
-    /// Check if this binding matches a KeyPress event.
-    /// Used for `.onKeyPress` handlers to support customizable shortcuts.
-    public func matches(_ press: KeyPress) -> Bool {
-        let keyMatches: Bool
-        var isShiftedSymbol = false
-        switch key {
-        case .character(let char):
-            keyMatches = press.characters.lowercased() == char.lowercased()
-            // Symbols like *, !, @, # require Shift to type but Shift isn't a
-            // semantic modifier — it's just how the character is produced.
-            // Strip Shift from comparison for non-letter characters.
-            if keyMatches {
-                let scalar = char.unicodeScalars.first
-                let isLetter = scalar.map { CharacterSet.letters.contains($0) } ?? false
-                if !isLetter { isShiftedSymbol = true }
-            }
-        case .special(let special):
-            keyMatches = press.key == special.keyEquivalent
-        }
-        guard keyMatches else { return false }
-        var pressModifiers = ShortcutModifiers(press.modifiers)
-        if isShiftedSymbol { pressModifiers.remove(.shift) }
-        return pressModifiers == modifiers
-    }
-}
-
-// MARK: - ShortcutModifiers + KeyPress
-
-extension ShortcutModifiers {
-    /// Initialize from SwiftUI EventModifiers (used for KeyPress matching)
-    public init(_ modifiers: EventModifiers) {
-        var result: ShortcutModifiers = []
-        if modifiers.contains(.command) { result.insert(.command) }
-        if modifiers.contains(.shift) { result.insert(.shift) }
-        if modifiers.contains(.option) { result.insert(.option) }
-        if modifiers.contains(.control) { result.insert(.control) }
-        self = result
-    }
-}
 
 // MARK: - Keyboard Shortcuts Settings
 
@@ -322,608 +78,307 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
 
     // MARK: - Factory Defaults
 
-    /// Default keyboard shortcuts
-    public static let defaults = KeyboardShortcutsSettings(bindings: [
+    /// imbib's keyboard profile: which of the suite's shared vocabulary
+    /// (`ImpressKeyboard.ShortcutCatalog.shared`) imbib adopts, in settings
+    /// presentation order, with imbib's app-specific bindings spliced in.
+    ///
+    /// `.shared("x")` adopts a shared entry verbatim. `as:` pins imbib's
+    /// persisted identifier where it differs from the suite's semantic one
+    /// (user remaps are stored against the id, so these must never change);
+    /// `displayName:` supplies imbib's domain noun ("Next Paper" for the
+    /// suite's "Next Item"). `.own(...)` is a binding with no sibling
+    /// counterpart — imbib's detail tabs, BibTeX import/export, PDF viewer and
+    /// paper actions. Keys and modifiers for adopted entries live ONLY in the
+    /// shared catalog, which is what stops imbib and impart drifting again.
+    ///
+    /// `KeyboardShortcutCatalogParityTests` pins the resolved list to a
+    /// snapshot taken before the move, so the settings UI is byte-identical.
+    static let profile: [ShortcutProfileItem] = [
         // MARK: Navigation (Vim-style)
-        KeyboardShortcutBinding(
-            id: "navigateDown",
-            displayName: "Down (Vim)",
-            category: .navigation,
-            key: .character("j"),
-            modifiers: .none,
-            notificationName: "navigateNextPaper"
-        ),
-        KeyboardShortcutBinding(
-            id: "navigateUp",
-            displayName: "Up (Vim)",
-            category: .navigation,
-            key: .character("k"),
-            modifiers: .none,
-            notificationName: "navigatePreviousPaper"
-        ),
-        KeyboardShortcutBinding(
-            id: "cycleFocusLeft",
-            displayName: "Focus Left Pane",
-            category: .navigation,
-            key: .character("h"),
-            modifiers: .none,
-            notificationName: "cycleFocusLeft"
-        ),
-        KeyboardShortcutBinding(
-            id: "cycleFocusRight",
-            displayName: "Focus Right Pane",
-            category: .navigation,
-            key: .character("l"),
-            modifiers: .none,
-            notificationName: "cycleFocusRight"
-        ),
-        KeyboardShortcutBinding(
+        .shared("navigateDown", notificationName: "navigateNextPaper"),
+        .shared("navigateUp", notificationName: "navigatePreviousPaper"),
+        .shared("cycleFocusLeft"),
+        .shared("cycleFocusRight"),
+        .own(KeyboardShortcutBinding(
             id: "showInfoTabVim",
             displayName: "Info Tab",
             category: .navigation,
             key: .character("i"),
             modifiers: .none,
             notificationName: "showInfoTab"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "showPDFTabVim",
             displayName: "PDF Tab",
             category: .navigation,
             key: .character("p"),
             modifiers: .none,
             notificationName: "showPDFTab"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "showNotesTabVim",
             displayName: "Notes Tab",
             category: .navigation,
             key: .character("n"),
             modifiers: .none,
             notificationName: "showNotesTab"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "showBibTeXTabVim",
             displayName: "BibTeX Tab",
             category: .navigation,
             key: .character("b"),
             modifiers: .none,
             notificationName: "showBibTeXTab"
-        ),
+        )),
         // MARK: Navigation (Arrow Keys)
-        KeyboardShortcutBinding(
-            id: "navigateNextPaper",
-            displayName: "Next Paper",
-            category: .navigation,
-            key: .special(.downArrow),
-            modifiers: .none,
-            notificationName: "navigateNextPaper"
-        ),
-        KeyboardShortcutBinding(
-            id: "navigatePreviousPaper",
-            displayName: "Previous Paper",
-            category: .navigation,
-            key: .special(.upArrow),
-            modifiers: .none,
-            notificationName: "navigatePreviousPaper"
-        ),
-        KeyboardShortcutBinding(
-            id: "navigateFirstPaper",
-            displayName: "First Paper",
-            category: .navigation,
-            key: .special(.upArrow),
-            modifiers: .command,
-            notificationName: "navigateFirstPaper"
-        ),
-        KeyboardShortcutBinding(
-            id: "navigateLastPaper",
-            displayName: "Last Paper",
-            category: .navigation,
-            key: .special(.downArrow),
-            modifiers: .command,
-            notificationName: "navigateLastPaper"
-        ),
-        KeyboardShortcutBinding(
-            id: "navigateNextUnread",
-            displayName: "Next Unread",
-            category: .navigation,
-            key: .special(.downArrow),
-            modifiers: .option,
-            notificationName: "navigateNextUnread"
-        ),
-        KeyboardShortcutBinding(
-            id: "navigatePreviousUnread",
-            displayName: "Previous Unread",
-            category: .navigation,
-            key: .special(.upArrow),
-            modifiers: .option,
-            notificationName: "navigatePreviousUnread"
-        ),
-        KeyboardShortcutBinding(
-            id: "navigateNextUnreadVim",
-            displayName: "Next Unread (Vim)",
-            category: .navigation,
-            key: .character("j"),
-            modifiers: .option,
-            notificationName: "navigateNextUnread"
-        ),
-        KeyboardShortcutBinding(
-            id: "navigatePreviousUnreadVim",
-            displayName: "Previous Unread (Vim)",
-            category: .navigation,
-            key: .character("k"),
-            modifiers: .option,
-            notificationName: "navigatePreviousUnread"
-        ),
-        KeyboardShortcutBinding(
-            id: "openSelectedPaper",
-            displayName: "Open Paper",
-            category: .navigation,
-            key: .special(.return),
-            modifiers: .none,
-            notificationName: "openSelectedPaper"
-        ),
-
+        .shared("navigateNextItem", as: "navigateNextPaper", displayName: "Next Paper"),
+        .shared("navigatePreviousItem", as: "navigatePreviousPaper", displayName: "Previous Paper"),
+        .shared("navigateFirstItem", as: "navigateFirstPaper", displayName: "First Paper"),
+        .shared("navigateLastItem", as: "navigateLastPaper", displayName: "Last Paper"),
+        .shared("navigateNextUnread"),
+        .shared("navigatePreviousUnread"),
+        .shared("navigateNextUnreadVim"),
+        .shared("navigatePreviousUnreadVim"),
+        .shared("openSelectedItem", as: "openSelectedPaper", displayName: "Open Paper"),
         // MARK: Views
-        KeyboardShortcutBinding(
-            id: "showLibrary",
-            displayName: "Show Library",
-            category: .views,
-            key: .character("1"),
-            modifiers: .command,
-            notificationName: "showLibrary"
-        ),
-        KeyboardShortcutBinding(
-            id: "showSearch",
-            displayName: "Show Search",
-            category: .views,
-            key: .character("2"),
-            modifiers: .command,
-            notificationName: "showSearch"
-        ),
-        KeyboardShortcutBinding(
-            id: "showInbox",
-            displayName: "Show Inbox",
-            category: .views,
-            key: .character("3"),
-            modifiers: .command,
-            notificationName: "showInbox"
-        ),
-        KeyboardShortcutBinding(
+        .shared("primaryView1", as: "showLibrary", displayName: "Show Library"),
+        .shared("primaryView2", as: "showSearch", displayName: "Show Search"),
+        .shared("primaryView3", as: "showInbox", displayName: "Show Inbox"),
+        .own(KeyboardShortcutBinding(
             id: "showPDFTab",
             displayName: "Show PDF Tab",
             category: .views,
             key: .character("4"),
             modifiers: .command,
             notificationName: "showPDFTab"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "showBibTeXTab",
             displayName: "Show BibTeX Tab",
             category: .views,
             key: .character("5"),
             modifiers: .command,
             notificationName: "showBibTeXTab"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "showNotesTab",
             displayName: "Show Notes Tab",
             category: .views,
             key: .character("6"),
             modifiers: .command,
             notificationName: "showNotesTab"
-        ),
-        KeyboardShortcutBinding(
-            id: "toggleDetailPane",
-            displayName: "Toggle Detail Pane",
-            category: .views,
-            key: .character("0"),
-            modifiers: .command,
-            notificationName: "toggleDetailPane"
-        ),
-        KeyboardShortcutBinding(
-            id: "toggleSidebar",
-            displayName: "Toggle Sidebar",
-            category: .views,
-            key: .character("s"),
-            modifiers: [.control, .command],
-            notificationName: "toggleSidebar"
-        ),
-
+        )),
+        .shared("toggleDetailPane"),
+        .shared("toggleSidebar"),
         // MARK: Focus
-        KeyboardShortcutBinding(
-            id: "focusSidebar",
-            displayName: "Focus Sidebar",
-            category: .focus,
-            key: .character("1"),
-            modifiers: [.option, .command],
-            notificationName: "focusSidebar"
-        ),
-        KeyboardShortcutBinding(
-            id: "focusList",
-            displayName: "Focus List",
-            category: .focus,
-            key: .character("2"),
-            modifiers: [.option, .command],
-            notificationName: "focusList"
-        ),
-        KeyboardShortcutBinding(
-            id: "focusDetail",
-            displayName: "Focus Detail",
-            category: .focus,
-            key: .character("3"),
-            modifiers: [.option, .command],
-            notificationName: "focusDetail"
-        ),
-        KeyboardShortcutBinding(
-            id: "focusSearch",
-            displayName: "Focus Search Field",
-            category: .focus,
-            key: .character("f"),
-            modifiers: .command,
-            notificationName: "focusSearch"
-        ),
-
+        .shared("focusSidebar"),
+        .shared("focusList"),
+        .shared("focusDetail"),
+        .shared("focusSearch"),
         // MARK: Paper Actions
-        KeyboardShortcutBinding(
+        .own(KeyboardShortcutBinding(
             id: "showNotesTabR",
             displayName: "Open Notes",
             category: .paperActions,
             key: .character("r"),
             modifiers: .command,
             notificationName: "showNotesTab"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "openReferences",
             displayName: "Open References",
             category: .paperActions,
             key: .character("r"),
             modifiers: [.shift, .command],
             notificationName: "openReferences"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "toggleReadStatus",
             displayName: "Toggle Read/Unread",
             category: .paperActions,
             key: .character("u"),
             modifiers: [.shift, .command],
             notificationName: "toggleReadStatus"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "markAllAsRead",
             displayName: "Mark All as Read",
             category: .paperActions,
             key: .character("u"),
             modifiers: [.option, .command],
             notificationName: "markAllAsRead"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "saveToLibrary",
             displayName: "Save to Library",
             category: .paperActions,
             key: .character("s"),
             modifiers: [.control, .command],
             notificationName: "saveToLibrary"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "dismissFromInbox",
             displayName: "Dismiss from Inbox",
             category: .paperActions,
             key: .character("j"),
             modifiers: [.shift, .command],
             notificationName: "dismissFromInbox"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "addToCollection",
             displayName: "Add to Collection",
             category: .paperActions,
             key: .character("l"),
             modifiers: .command,
             notificationName: "addToCollection"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "removeFromCollection",
             displayName: "Remove from Collection",
             category: .paperActions,
             key: .character("l"),
             modifiers: [.shift, .command],
             notificationName: "removeFromCollection"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "moveToCollection",
             displayName: "Move to Collection",
             category: .paperActions,
             key: .character("m"),
             modifiers: [.control, .command],
             notificationName: "moveToCollection"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "sharePapers",
             displayName: "Share",
             category: .paperActions,
             key: .character("f"),
             modifiers: [.shift, .command],
             notificationName: "sharePapers"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "deleteSelectedPapers",
             displayName: "Delete",
             category: .paperActions,
             key: .special(.delete),
             modifiers: .command,
             notificationName: "deleteSelectedPapers"
-        ),
-
+        )),
         // MARK: Clipboard
-        KeyboardShortcutBinding(
-            id: "copyPublications",
-            displayName: "Copy BibTeX",
-            category: .clipboard,
-            key: .character("c"),
-            modifiers: .command,
-            notificationName: "copyPublications"
-        ),
-        KeyboardShortcutBinding(
-            id: "copyAsCitation",
-            displayName: "Copy as Citation",
-            category: .clipboard,
-            key: .character("c"),
-            modifiers: [.shift, .command],
-            notificationName: "copyAsCitation"
-        ),
-        KeyboardShortcutBinding(
-            id: "copyIdentifier",
-            displayName: "Copy DOI/URL",
-            category: .clipboard,
-            key: .character("c"),
-            modifiers: [.option, .command],
-            notificationName: "copyIdentifier"
-        ),
-        KeyboardShortcutBinding(
-            id: "cutPublications",
-            displayName: "Cut",
-            category: .clipboard,
-            key: .character("x"),
-            modifiers: .command,
-            notificationName: "cutPublications"
-        ),
-        KeyboardShortcutBinding(
-            id: "pastePublications",
-            displayName: "Paste",
-            category: .clipboard,
-            key: .character("v"),
-            modifiers: .command,
-            notificationName: "pastePublications"
-        ),
-        KeyboardShortcutBinding(
-            id: "selectAllPublications",
-            displayName: "Select All",
-            category: .clipboard,
-            key: .character("a"),
-            modifiers: .command,
-            notificationName: "selectAllPublications"
-        ),
-
+        .shared("copyItems", as: "copyPublications", displayName: "Copy BibTeX"),
+        .shared("copyItemsAsCitation", as: "copyAsCitation"),
+        .shared("copyItemIdentifier", as: "copyIdentifier", displayName: "Copy DOI/URL"),
+        .shared("cutItems", as: "cutPublications"),
+        .shared("pasteItems", as: "pastePublications"),
+        .shared("selectAllItems", as: "selectAllPublications"),
         // MARK: Filtering
-        KeyboardShortcutBinding(
+        .own(KeyboardShortcutBinding(
             id: "toggleUnreadFilter",
             displayName: "Toggle Unread Filter",
             category: .filtering,
             key: .character("\\"),
             modifiers: .command,
             notificationName: "toggleUnreadFilter"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "togglePDFFilter",
             displayName: "Toggle PDF Filter",
             category: .filtering,
             key: .character("\\"),
             modifiers: [.shift, .command],
             notificationName: "togglePDFFilter"
-        ),
-
+        )),
         // MARK: Inbox Triage (Single Keys)
-        // Suite keyboard parity (ADR-0021 / Stage 3): `s` = star and `d` =
-        // dismiss in EVERY impress list. imbib's historical s=save moved to
-        // `*` (the old star key) — a one-swap change; both actions stay
-        // single keys, and user-remapped bindings are preserved by the
-        // settings merge.
-        KeyboardShortcutBinding(
-            id: "inboxSave",
-            displayName: "Save",
-            category: .inboxTriage,
-            key: .character("*"),
-            modifiers: .none,
-            notificationName: "inboxSave"
-        ),
-        KeyboardShortcutBinding(
-            id: "inboxSaveAndStar",
-            displayName: "Save and Star",
-            category: .inboxTriage,
-            key: .character("s"),
-            modifiers: .shift,
-            notificationName: "inboxSaveAndStar"
-        ),
-        KeyboardShortcutBinding(
-            id: "inboxToggleStar",
-            displayName: "Toggle Star",
-            category: .inboxTriage,
-            key: .character("s"),
-            modifiers: .none,
-            notificationName: "inboxToggleStar"
-        ),
-        KeyboardShortcutBinding(
-            id: "inboxDismiss",
-            displayName: "Dismiss",
-            category: .inboxTriage,
-            key: .character("d"),
-            modifiers: .none,
-            notificationName: "inboxDismiss"
-        ),
-        KeyboardShortcutBinding(
-            id: "inboxMarkRead",
-            displayName: "Mark as Read",
-            category: .inboxTriage,
-            key: .character("r"),
-            modifiers: .none,
-            notificationName: "inboxMarkRead"
-        ),
-        KeyboardShortcutBinding(
-            id: "inboxMarkUnread",
-            displayName: "Mark as Unread",
-            category: .inboxTriage,
-            key: .character("u"),
-            modifiers: .none,
-            notificationName: "inboxMarkUnread"
-        ),
-        KeyboardShortcutBinding(
-            id: "inboxNextItem",
-            displayName: "Next (Vim)",
-            category: .inboxTriage,
-            key: .character("j"),
-            modifiers: .none,
-            notificationName: "inboxNextItem"
-        ),
-        KeyboardShortcutBinding(
-            id: "inboxPreviousItem",
-            displayName: "Previous (Vim)",
-            category: .inboxTriage,
-            key: .character("k"),
-            modifiers: .none,
-            notificationName: "inboxPreviousItem"
-        ),
-        KeyboardShortcutBinding(
-            id: "inboxOpenItem",
-            displayName: "Open (Vim)",
-            category: .inboxTriage,
-            key: .character("o"),
-            modifiers: .none,
-            notificationName: "inboxOpenItem"
-        ),
-
+        .shared("triageSave", as: "inboxSave"),
+        .shared("triageSaveAndStar", as: "inboxSaveAndStar"),
+        .shared("triageToggleStar", as: "inboxToggleStar"),
+        .shared("triageDismiss", as: "inboxDismiss"),
+        .shared("triageMarkRead", as: "inboxMarkRead"),
+        .shared("triageMarkUnread", as: "inboxMarkUnread"),
+        .shared("triageNextItem", as: "inboxNextItem"),
+        .shared("triagePreviousItem", as: "inboxPreviousItem"),
+        .shared("triageOpenItem", as: "inboxOpenItem"),
         // MARK: Flags & Tags
-        KeyboardShortcutBinding(
-            id: "flagMode",
-            displayName: "Flag Mode",
-            category: .paperActions,
-            key: .character("f"),
-            modifiers: .none,
-            notificationName: "enterFlagMode"
-        ),
-        KeyboardShortcutBinding(
-            id: "tagMode",
-            displayName: "Tag Mode",
-            category: .paperActions,
-            key: .character("t"),
-            modifiers: .none,
-            notificationName: "enterTagMode"
-        ),
-        KeyboardShortcutBinding(
-            id: "tagDeleteMode",
-            displayName: "Tag Delete Mode",
-            category: .paperActions,
-            key: .character("t"),
-            modifiers: .shift,
-            notificationName: "enterTagDeleteMode"
-        ),
-        KeyboardShortcutBinding(
-            id: "filterMode",
-            displayName: "Filter Mode",
-            category: .paperActions,
-            key: .character("/"),
-            modifiers: .none,
-            notificationName: "enterFilterMode"
-        ),
-
+        .shared("flagMode"),
+        .shared("tagMode"),
+        .shared("tagDeleteMode"),
+        .shared("filterMode"),
         // MARK: PDF Viewer
-        KeyboardShortcutBinding(
+        .own(KeyboardShortcutBinding(
             id: "pdfPageDown",
             displayName: "Page Down",
             category: .pdfViewer,
             key: .special(.space),
             modifiers: .none,
             notificationName: "pdfPageDown"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "pdfPageUp",
             displayName: "Page Up",
             category: .pdfViewer,
             key: .special(.space),
             modifiers: .shift,
             notificationName: "pdfPageUp"
-        ),
-        // Note: j/k navigation is context-aware via "navigateDown"/"navigateUp" bindings
-        // - In list/sidebar: navigates papers
-        // - In detail tabs: scrolls content
-        // - In PDF: half-page scroll
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "pdfZoomIn",
             displayName: "Zoom In",
             category: .pdfViewer,
             key: .special(.plus),
             modifiers: [.command, .shift],
             notificationName: "pdfZoomIn"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "pdfZoomOut",
             displayName: "Zoom Out",
             category: .pdfViewer,
             key: .special(.minus),
             modifiers: [.command, .shift],
             notificationName: "pdfZoomOut"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "pdfGoToPage",
             displayName: "Go to Page",
             category: .pdfViewer,
             key: .character("g"),
             modifiers: .command,
             notificationName: "pdfGoToPage"
-        ),
-
+        )),
         // MARK: File Operations
-        KeyboardShortcutBinding(
+        .own(KeyboardShortcutBinding(
             id: "importBibTeX",
             displayName: "Import BibTeX",
             category: .fileOperations,
             key: .character("i"),
             modifiers: .command,
             notificationName: "importBibTeX"
-        ),
-        KeyboardShortcutBinding(
+        )),
+        .own(KeyboardShortcutBinding(
             id: "exportBibTeX",
             displayName: "Export Library",
             category: .fileOperations,
             key: .character("e"),
             modifiers: [.shift, .command],
             notificationName: "exportBibTeX"
-        ),
-        KeyboardShortcutBinding(
-            id: "refreshData",
-            displayName: "Refresh",
-            category: .fileOperations,
-            key: .character("n"),
-            modifiers: [.shift, .command],
-            notificationName: "refreshData"
-        ),
-
+        )),
+        .shared("refreshData"),
         // MARK: App
-        KeyboardShortcutBinding(
-            id: "showKeyboardShortcuts",
-            displayName: "Keyboard Shortcuts",
-            category: .app,
-            key: .character("/"),
-            modifiers: .command,
-            notificationName: "showKeyboardShortcuts"
-        ),
-        KeyboardShortcutBinding(
+        .shared("showKeyboardShortcuts"),
+        .own(KeyboardShortcutBinding(
             id: "showNLSearch",
             displayName: "Smart Search (AI)",
             category: .app,
             key: .character("s"),
             modifiers: .command,
             notificationName: "showNLSearch"
-        ),
-    ])
+        )),
+    ]
+
+    /// Default keyboard shortcuts — resolved from the shared catalog.
+    public static let defaults = KeyboardShortcutsSettings(
+        bindings: ShortcutCatalog.resolve(profile)
+    )
 
     // MARK: - Documentation Export
 

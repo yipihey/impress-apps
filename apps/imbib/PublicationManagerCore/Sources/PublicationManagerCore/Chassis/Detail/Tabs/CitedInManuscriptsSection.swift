@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): plain SwiftUI over
+// store rows.
 //
 //  CitedInManuscriptsSection.swift
 //  imbib
@@ -82,4 +82,3 @@ struct CitedInManuscriptsSection: View {
         return count == 1 ? "Cited in 1 manuscript section" : "Cited in \(count) manuscript sections"
     }
 }
-#endif

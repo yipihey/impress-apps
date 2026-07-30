@@ -4750,6 +4750,8 @@ mod tests {
         let store = SqliteItemStore::open_in_memory().unwrap();
         let tasks_only = store
             .subscribe(ItemQuery {
+                // schema-ref-lint:allow — not a real ref; this asserts the
+                // subscribe filter is EXACT and not a prefix match.
                 schema: Some("task@".into()),
                 ..Default::default()
             })

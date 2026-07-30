@@ -11,6 +11,7 @@
 
 import Foundation
 import ImpressAutomation
+import ImpressKit
 import OSLog
 
 private let httpLogger = Logger(subsystem: "com.imbib.app", category: "httpServer")
@@ -19,7 +20,7 @@ private let httpLogger = Logger(subsystem: "com.imbib.app", category: "httpServe
 
 /// Local HTTP server for browser extension communication.
 ///
-/// Runs on `127.0.0.1:23120` (localhost only for security).
+/// Runs on `127.0.0.1:<SiblingApp.imbib.httpPort>` (localhost only for security).
 /// Provides endpoints for:
 /// - `GET /api/status` - Server health and library stats
 /// - `GET /api/search?q=...` - Search library
@@ -41,8 +42,9 @@ public actor HTTPAutomationServer {
 
     // MARK: - Configuration
 
-    /// Default port (after Zotero's 23119)
-    public static let defaultPort: UInt16 = 23120
+    /// Default port (after Zotero's 23119) — read from the one sibling-app
+    /// table (`SiblingApp.descriptors`) rather than re-declared here.
+    public static let defaultPort: UInt16 = SiblingApp.imbib.httpPort
 
     // MARK: - State
 

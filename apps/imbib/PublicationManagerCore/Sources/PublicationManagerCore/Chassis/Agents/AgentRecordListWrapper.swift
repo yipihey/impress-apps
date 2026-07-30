@@ -29,35 +29,9 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "agents")
 
-/// What subset of agent records the list shows.
-public enum AgentListScope: Hashable, Sendable {
-    /// All `task@1.0.0` rows, newest-modified first.
-    case tasks
-    /// All `agent-run@1.0.0` rows, newest first.
-    case runs
-    /// Tasks in one kernel lifecycle state (raw payload `state` value).
-    case tasksByState(String)
-
-    var title: String {
-        switch self {
-        case .tasks: return "Tasks"
-        case .runs: return "Runs"
-        case .tasksByState(let state):
-            return AgentStoreReader.stateDisplayName(state)
-        }
-    }
-
-    /// Whether this scope lists agent-run rows (else task rows).
-    var isRunScope: Bool {
-        if case .runs = self { return true }
-        return false
-    }
-
-    /// The descriptor whose triage capabilities gate this scope's grammar.
-    var descriptor: RecordKindDescriptor {
-        isRunScope ? AgentRunRecordKind.descriptor : TaskRecordKind.descriptor
-    }
-}
+// `AgentListScope` moved to Chassis/RecordKind/RecordScopeKey+ListScopes.swift
+// (Stage 2a): the scope is a Foundation value type and is now
+// cross-platform; only this wrapper is AppKit-adjacent.
 
 // Actions: the shared RecordTriageActions (ADR-0021). Agents have no
 // kind-specific verbs in v1 — open is the detail pane, and kernel-owned
@@ -341,6 +315,10 @@ public struct AgentRecordListWrapper: View {
         case .focusFilter:
             filterFocused = true
             return .handled
+        case .focusPaneLeft, .focusPaneRight:
+            // Pane focus is window-scoped, not list-scoped: bubble h/l up to the
+            // shell that owns the split (ContentView / ImpressSplitView).
+            return .ignored
         }
     }
 

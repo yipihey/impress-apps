@@ -19,7 +19,9 @@ use impel_enrichment::{
 };
 use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_core::query::ItemQuery;
 use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::store::ItemStore;
 use impress_core::task::TaskState;
 use impress_sources::types::{author_from_names, PaperMetadata, SearchQuery, SearchResult};
 use impress_sources::{SourceError, SourcePlugin};
@@ -264,4 +266,102 @@ async fn low_confidence_suspends_until_human_approves() {
         "approved tags applied: {:?}",
         publication.tags
     );
+}
+
+// ── the trigger-spelling contract ──────────────────────────────────────
+
+/// The spawn trigger must match the ref imbib ACTUALLY WRITES.
+///
+/// Until 2026-07-29 `BIBLIOGRAPHY_ENTRY_SCHEMA` was `bibliography-entry@1.0.0`
+/// — a spelling no writer in this repo has ever emitted. imbib writes
+/// `imbib/bibliography-entry` (imbib-core `unified::conversion`), and the store
+/// matches `items.schema_ref` by EXACT EQUALITY, so the enrichment trigger
+/// selected zero rows and the pipeline never spawned a single task. There was
+/// no error, no log line, and no failing test: `pipeline_enriches_and_...`
+/// above seeds its OWN fixture through the same constant, so writer and reader
+/// agreed with each other while both disagreed with production. That is the
+/// whole bug class — a test can only catch it by seeding through the REAL
+/// writer, which is what this one does.
+///
+/// Precedent: `sections_are_written_under_the_bare_ref_the_swift_readers_query`
+/// in crates/imprint-service/tests/sections_roundtrip.rs.
+#[test]
+fn enrichment_trigger_matches_the_ref_imbib_actually_writes() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+
+    // Seed through imbib's REAL writer — not a literal, not our own constant.
+    // If imbib ever changes the ref it emits, this line changes with it and
+    // the assertions below fail loudly instead of the pipeline going quiet.
+    let publication = imbib_core::domain::Publication::new(
+        "abel2026".into(),
+        "article".into(),
+        "Hydrodynamic simulation of galaxy formation".into(),
+    );
+    let row = imbib_core::unified::conversion::publication_to_item(&publication, None);
+    let seeded_ref = row.schema.clone();
+    let entry_id = TaskStoreApi::create_item(&store, row).unwrap();
+
+    // What the trigger asks for. Must find the row imbib just wrote.
+    let trigger_ref = EnrichmentSpawnRule.trigger_schema().to_string();
+    assert_eq!(
+        trigger_ref, seeded_ref,
+        "the enrichment trigger must name the ref imbib's writer emits; \
+         schema-refs.json records the canonical spelling"
+    );
+    let matched = ItemStore::query(
+        &store,
+        &ItemQuery {
+            schema: Some(trigger_ref.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        matched.len(),
+        1,
+        "trigger_schema() {trigger_ref:?} matched NOTHING against a row written \
+         by imbib's own publication_to_item ({seeded_ref:?}). This is the \
+         silent-zero-rows bug: taskd would scan forever and spawn no tasks."
+    );
+    assert_eq!(matched[0].id, entry_id);
+
+    // The dead spelling must match nothing. If this ever returns rows, some
+    // writer started emitting it and schema-refs.json is now wrong.
+    let dead = ItemStore::query(
+        &store,
+        &ItemQuery {
+            // schema-ref-lint:allow — naming the dead spelling is the point.
+            schema: Some("bibliography-entry@1.0.0".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        dead.is_empty(),
+        "`bibliography-entry@1.0.0` is written by nothing; it must match no rows"
+    );
+}
+
+/// …and the rule actually yields the DAG for such a row, so the fix is proven
+/// end-to-end at the seam and not just at the string level.
+#[tokio::test]
+async fn spawn_rule_yields_the_dag_for_a_real_imbib_row() {
+    let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let publication = imbib_core::domain::Publication::new(
+        "curie2026".into(),
+        "article".into(),
+        "Dark energy constraints".into(),
+    );
+    let row = imbib_core::unified::conversion::publication_to_item(&publication, None);
+    let id = TaskStoreApi::create_item(store.as_ref(), row).unwrap();
+
+    let trigger = TaskStoreApi::get_item(store.as_ref(), id).unwrap().unwrap();
+    assert_eq!(trigger.schema, EnrichmentSpawnRule.trigger_schema());
+
+    let specs = EnrichmentSpawnRule
+        .spawn(&trigger, store.as_ref())
+        .await
+        .unwrap();
+    assert_eq!(specs.len(), 2, "metadata-resolve ← keyword-tag");
+    assert!(specs.iter().all(|s| s.operates_on == Some(id)));
 }

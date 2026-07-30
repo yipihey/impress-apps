@@ -36,6 +36,48 @@ struct DetailView: View {
         self._selectedPublicationID = selectedPublicationID
     }
 
+    // MARK: - Declarative tab set
+
+    /// The publication kind's tabs, for this paper.
+    ///
+    /// iOS used to list four `Tab`s inline — a second truth table beside
+    /// macOS's literal array, which is how the two shells drift about which
+    /// tabs exist and in which order. `isEditable` is `true` because this view
+    /// is only reachable for a LIBRARY publication (it requires a
+    /// `libraryID`), which is the same condition macOS's `canEdit`
+    /// (`publicationID != nil`) expresses.
+    private var tabContext: RecordTabContext { RecordTabContext(isEditable: true) }
+
+    private var availableTabs: [DetailTab] {
+        PublicationRecordKind.descriptor.availableTabs(for: tabContext)
+    }
+
+    /// The pane for one tab. A `switch` here is per-tab VIEW construction —
+    /// the thing ADR-0021 D2 deliberately keeps hand-written — not a second
+    /// statement of which tabs a publication has.
+    @ViewBuilder
+    private func tabContent(_ tab: DetailTab) -> some View {
+        switch tab {
+        case .info:
+            IOSInfoTab(publicationID: publicationID, libraryID: libraryID)
+                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.info)
+        case .pdf:
+            IOSPDFTab(
+                publicationID: publicationID, libraryID: libraryID,
+                isFullscreen: $isPDFFullscreen)
+                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.pdf)
+        case .notes:
+            IOSNotesTab(publicationID: publicationID)
+                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.notes)
+        case .bibtex:
+            IOSBibTeXTab(publicationID: publicationID)
+                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+        case .source:
+            // Manuscript-only tab; the publication descriptor never offers it.
+            EmptyView()
+        }
+    }
+
     var body: some View {
         Group {
             if let pub = publication {
@@ -43,29 +85,24 @@ struct DetailView: View {
                     // Fullscreen PDF - no tab bar, no navigation bar
                     IOSPDFTab(publicationID: publicationID, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
                 } else {
-                    // Normal tabbed view
+                    // Normal tabbed view. WHICH tabs and in WHAT ORDER is
+                    // `PublicationRecordKind.descriptor`, the same declaration
+                    // macOS's DetailView cycles through — see `availableTabs`.
                     TabView(selection: $selectedTab) {
-                        Tab(DetailTab.info.label, systemImage: DetailTab.info.icon, value: .info) {
-                            IOSInfoTab(publicationID: publicationID, libraryID: libraryID)
-                                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.info)
-                        }
-
-                        Tab(DetailTab.pdf.label, systemImage: DetailTab.pdf.icon, value: .pdf) {
-                            IOSPDFTab(publicationID: publicationID, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
-                                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.pdf)
-                        }
-
-                        Tab(DetailTab.notes.label, systemImage: DetailTab.notes.icon, value: .notes) {
-                            IOSNotesTab(publicationID: publicationID)
-                                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.notes)
-                        }
-
-                        Tab(DetailTab.bibtex.label, systemImage: DetailTab.bibtex.icon, value: .bibtex) {
-                            IOSBibTeXTab(publicationID: publicationID)
-                                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+                        ForEach(availableTabs) { tab in
+                            Tab(tab.label, systemImage: tab.icon, value: tab) {
+                                tabContent(tab)
+                            }
                         }
                     }
                     .tabBarMinimizeBehavior(.onScrollDown)
+                    .onChange(of: availableTabs, initial: true) { _, tabs in
+                        // Keep the selection valid if the descriptor's rules
+                        // stop offering it (a paper that loses editability).
+                        guard !tabs.contains(selectedTab) else { return }
+                        selectedTab = PublicationRecordKind.descriptor.coercedTab(
+                            selectedTab, for: tabContext)
+                    }
                 }
             } else {
                 ContentUnavailableView(

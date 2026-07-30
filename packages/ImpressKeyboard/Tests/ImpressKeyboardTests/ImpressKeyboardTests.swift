@@ -1,7 +1,14 @@
 import XCTest
 @testable import ImpressKeyboard
 
-final class ShortcutKeyTests: XCTestCase {
+// NOTE: the swift-testing suites in `ShortcutKeyTests.swift` and
+// `ShortcutModifiersTests.swift` cover the same ground (and more). Both sets
+// declared the SAME class names, so this whole test target failed to compile
+// from 0da87ab1 ("re-add SPM tests previously hidden by gitignore") until
+// Stage 1b — i.e. `swift test` for ImpressKeyboard had never run. Renamed
+// rather than deleted so no assertion is lost.
+
+final class ShortcutKeyXCTests: XCTestCase {
 
     func testCharacterKeyDisplayStringIsLowercase() {
         let key = ShortcutKey.character("J")
@@ -41,7 +48,7 @@ final class ShortcutKeyTests: XCTestCase {
     }
 }
 
-final class ShortcutModifiersTests: XCTestCase {
+final class ShortcutModifiersXCTests: XCTestCase {
 
     func testCommandDisplayString() {
         let mods = ShortcutModifiers.command

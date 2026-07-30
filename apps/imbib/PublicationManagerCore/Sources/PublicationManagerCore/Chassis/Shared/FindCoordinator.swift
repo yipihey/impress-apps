@@ -1,5 +1,6 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): notification names,
+// a `FocusedValueKey` and two `Commands` blocks. `Commands` is SwiftUI, not
+// AppKit — iOS honours the same key equivalents.
 //
 //  FindCoordinator.swift
 //  PublicationManagerCore
@@ -85,11 +86,19 @@ public struct ImpressStoreSearchCommands: Commands {
 
     public var body: some Commands {
         CommandGroup(after: .textEditing) {
+            // macOS-only ISLAND, same reasoning as `CustomSurfaceRegistry.builtin`
+            // and `RecordTriageNewTagPrompt`: the surface this opens
+            // (`StoreSearchSurface`) is the one AppKit-linking builtin, so on iOS
+            // `CustomSurfaceRegistry.builtin` is empty and the chord would open
+            // nothing. Omit the affordance rather than ship a dead menu item;
+            // this un-gates the day a UIKit-clean grouped-search surface exists.
+            #if os(macOS)
             Button(StoreSearchSurface.surfaceTitle) {
                 NotificationCenter.default.post(name: .openStoreSearch, object: nil)
                 NotificationCenter.default.post(name: .focusStoreSearch, object: nil)
             }
             .modifier(StoreSearchShortcut(enabled: bindsShortcut))
+            #endif
         }
     }
 }
@@ -108,4 +117,3 @@ private struct StoreSearchShortcut: ViewModifier {
         }
     }
 }
-#endif

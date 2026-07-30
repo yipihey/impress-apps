@@ -39,8 +39,15 @@ final class StoreSearchSurfaceTests: XCTestCase {
         }
     }
 
-    /// The store spells the same kind with and without a version suffix
-    /// (`manuscript` vs `task@1.0.0`). Both spellings must land on one kind.
+    /// Different subsystems spell their refs differently — bare
+    /// (`manuscript`), versioned (`task@1.0.0`), namespaced
+    /// (`imbib/bibliography-entry`). This lookup is DEFENSIVE display code and
+    /// must tolerate either form for a kind it knows.
+    ///
+    /// Tolerance here is not licence to invent a spelling at a call site: a
+    /// *query* is exact-equality against `schema_ref`, so a reader that guesses
+    /// `@1.0.0` returns zero rows silently. The one canonical spelling per kind
+    /// lives in `schema-refs.json`; `scripts/check-schema-refs.sh` enforces it.
     @MainActor
     func testSchemaRefLookupIsVersionSuffixTolerantBothWays() {
         let registry = BuiltinRecordKinds.registry
@@ -164,6 +171,8 @@ final class StoreSearchSurfaceTests: XCTestCase {
     @MainActor
     func testUnclaimedSchemaKeepsTheRowTaggedByBaseName() {
         let row = StoreSearchReader.kindTaggedRow(
+            // schema-ref-lint:allow — deliberately a ref nothing writes:
+            // this asserts an unclaimed schema still tags the row by base name.
             hit: hit(schemaRef: "figure-collection@1.0.0", title: "Cluster Plots"))
         XCTAssertEqual(row?.kind, RecordKindID("figure-collection"))
         XCTAssertEqual(row?.titleText, "Cluster Plots")

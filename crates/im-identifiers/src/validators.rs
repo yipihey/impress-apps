@@ -10,6 +10,57 @@ lazy_static! {
     // arXiv ID validation regex (new format: YYMM.NNNNN, old format: archive/NNNNNNN)
     static ref ARXIV_NEW_PATTERN: Regex = Regex::new(r"^\d{4}\.\d{4,5}(v\d+)?$").unwrap();
     static ref ARXIV_OLD_PATTERN: Regex = Regex::new(r"^[a-z-]+(\.[a-z-]+)?/\d{7}(v\d+)?$").unwrap();
+
+    // Stricter arXiv shape check used when deciding whether a BibTeX `eprint`
+    // value really is an arXiv ID. Unlike `is_valid_arxiv_id` it rejects the
+    // dotted subject class (`math.CO/0309136`) but accepts the old format in
+    // any case (`ASTRO-PH/0612345`).
+    static ref ARXIV_FORMAT_NEW: Regex = Regex::new(r"^\d{4}\.\d{4,5}(v\d+)?$").unwrap();
+    static ref ARXIV_FORMAT_OLD: Regex = Regex::new(r"(?i)^[a-z-]+/\d{7}(v\d+)?$").unwrap();
+}
+
+/// Trim spaces and tabs but keep line breaks.
+///
+/// Mirrors Swift's `trimmingCharacters(in: .whitespaces)`, which — unlike
+/// `.whitespacesAndNewlines` — leaves `\n` alone.
+pub fn trim_horizontal(value: &str) -> &str {
+    value.trim_matches(|c: char| c.is_whitespace() && c != '\n' && c != '\r')
+}
+
+/// Check whether a string has the shape of an arXiv ID.
+///
+/// Used to reject bibcodes and DOIs that some sources dump into the BibTeX
+/// `eprint` field.
+pub fn is_valid_arxiv_id_format(value: String) -> bool {
+    let trimmed = trim_horizontal(&value);
+    if trimmed.is_empty() {
+        return false;
+    }
+    ARXIV_FORMAT_NEW.is_match(trimmed) || ARXIV_FORMAT_OLD.is_match(trimmed)
+}
+
+/// Normalise an arXiv ID for indexed lookups.
+///
+/// Strips an `arXiv:` prefix and a trailing version suffix, then lowercases —
+/// so `arXiv:2401.12345v2` and `2401.12345` collapse to the same key.
+pub fn normalize_arxiv_id(arxiv_id: String) -> String {
+    let mut id = trim_horizontal(&arxiv_id).to_string();
+
+    if id
+        .get(..6)
+        .is_some_and(|p| p.eq_ignore_ascii_case("arxiv:"))
+    {
+        id = id[6..].to_string();
+    }
+
+    if let Some(v_index) = id.rfind('v') {
+        let suffix = &id[v_index + 1..];
+        if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+            id.truncate(v_index);
+        }
+    }
+
+    id.to_lowercase()
 }
 
 /// Validate a DOI
@@ -181,6 +232,41 @@ mod tests {
         assert!(!is_valid_isbn("0-306-40615-1".to_string())); // Bad checksum
         assert!(!is_valid_isbn("978-0-321-12521-8".to_string())); // Bad checksum
         assert!(!is_valid_isbn("12345".to_string())); // Too short
+    }
+
+    #[test]
+    fn test_is_valid_arxiv_id_format() {
+        assert!(is_valid_arxiv_id_format("2401.12345".into()));
+        assert!(is_valid_arxiv_id_format("2401.12345v2".into()));
+        assert!(is_valid_arxiv_id_format("  2401.12345  ".into()));
+        assert!(is_valid_arxiv_id_format("astro-ph/0612345".into()));
+        assert!(is_valid_arxiv_id_format("ASTRO-PH/0612345".into()));
+        // Prefixed and dotted-subject forms are *not* accepted here — this is
+        // the shape check for a raw `eprint` value.
+        assert!(!is_valid_arxiv_id_format("arXiv:2401.12345".into()));
+        assert!(!is_valid_arxiv_id_format("math.CO/0309136".into()));
+        assert!(!is_valid_arxiv_id_format("2024A&A...686A.276A".into()));
+        assert!(!is_valid_arxiv_id_format("".into()));
+    }
+
+    #[test]
+    fn test_normalize_arxiv_id() {
+        assert_eq!(normalize_arxiv_id("2401.12345v2".into()), "2401.12345");
+        assert_eq!(
+            normalize_arxiv_id("arXiv:2401.12345v3".into()),
+            "2401.12345"
+        );
+        assert_eq!(normalize_arxiv_id("ARXIV:2401.12345".into()), "2401.12345");
+        assert_eq!(
+            normalize_arxiv_id("ASTRO-PH/0612345".into()),
+            "astro-ph/0612345"
+        );
+        assert_eq!(
+            normalize_arxiv_id("hep-th/9901001v1".into()),
+            "hep-th/9901001"
+        );
+        assert_eq!(normalize_arxiv_id("v2".into()), "");
+        assert_eq!(normalize_arxiv_id("2401.12345vv2".into()), "2401.12345v");
     }
 
     #[test]

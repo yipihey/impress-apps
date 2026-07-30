@@ -48,71 +48,18 @@ public struct ExtractedIdentifierResult: Sendable, Equatable {
 // MARK: - Identifier Extractor Factory
 
 /// Factory for creating identifier extractors.
+///
+/// Only the Rust extractor remains — the Swift one was a thin adapter over the
+/// hand-written regexes deleted in Stage 7, and it silently reported at most one
+/// hit per kind and no ISBNs at all.
 public enum IdentifierExtractorFactory {
 
-    /// Current backend selection.
-    /// Defaults to Rust.
-    public static var currentBackend: BibTeXParserFactory.Backend = .rust
+    /// The backend actually used for identifier extraction.
+    public static let backend: BibTeXParserFactory.Backend = .rust
 
-    /// Create an extractor using the current backend
+    /// Create an extractor.
     public static func createExtractor() -> any IdentifierExtracting {
-        switch currentBackend {
-        case .swift:
-            return SwiftIdentifierExtractor()
-        case .rust:
-            return RustIdentifierExtractor()
-        }
-    }
-}
-
-// MARK: - Swift Identifier Extractor
-
-/// Swift implementation using the existing IdentifierExtractor utilities
-public struct SwiftIdentifierExtractor: IdentifierExtracting, Sendable {
-
-    public init() {}
-
-    public func extractDOIs(from text: String) -> [String] {
-        if let doi = IdentifierExtractor.extractDOIFromText(text) {
-            return [doi]
-        }
-        return []
-    }
-
-    public func extractArXivIDs(from text: String) -> [String] {
-        if let arxiv = IdentifierExtractor.extractArXivFromText(text) {
-            return [arxiv]
-        }
-        return []
-    }
-
-    public func extractISBNs(from text: String) -> [String] {
-        // The Swift IdentifierExtractor doesn't have ISBN extraction
-        return []
-    }
-
-    public func extractAll(from text: String) -> [ExtractedIdentifierResult] {
-        var results: [ExtractedIdentifierResult] = []
-
-        if let doi = IdentifierExtractor.extractDOIFromText(text) {
-            results.append(ExtractedIdentifierResult(
-                identifierType: "doi",
-                value: doi,
-                startIndex: 0,
-                endIndex: 0
-            ))
-        }
-
-        if let arxiv = IdentifierExtractor.extractArXivFromText(text) {
-            results.append(ExtractedIdentifierResult(
-                identifierType: "arxiv",
-                value: arxiv,
-                startIndex: 0,
-                endIndex: 0
-            ))
-        }
-
-        return results
+        RustIdentifierExtractor()
     }
 }
 

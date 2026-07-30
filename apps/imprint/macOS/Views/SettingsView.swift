@@ -1,325 +1,74 @@
-import ImpressGit
-import ImpressHelixCore
-import ImpressSpotlight
-import SwiftUI
+//
+//  SettingsView.swift
+//  imprint
+//
+//  Stage 6 phase 1: this file used to BE imprint's settings surface — a
+//  762-line macOS `TabView` whose body was the only place in the codebase that
+//  knew imprint has thirteen preference panes, in that order, with those
+//  labels. That made the list unreadable to iOS (which therefore shipped none)
+//  and unreadable to tests (which therefore asserted nothing about it).
+//
+//  Now the list is DATA (`AppSettingsConfiguration.imprint`, PMC), the frame is
+//  a shared renderer (`MacSettingsSceneContent`), and this file holds what is
+//  genuinely imprint-and-macOS: three panes that name macOS-target services,
+//  and the registration table that maps section ids to every imprint pane.
+//
+//  Four panes LEFT for `Shared/Settings/ImprintSettingsPanes.swift` (General,
+//  Editor, Documents, Account) because nothing in them was macOS-specific;
+//  Appearance and Spotlight left for the chassis builtins, which is where a
+//  segmented System/Light/Dark picker and a `Form { SpotlightSettingsSection() }`
+//  belong. `LaTeXSettingsView`, `AITasksSettingsView` and `ImbibSettingsView`
+//  are UNTOUCHED in their own files — they are registered, not rewritten. That
+//  is the point: an app-specific pane stays app-owned and never gets pasted
+//  into a monolithic view.
+//
 
-/// Application settings view
+import ImpressGit
+import SwiftUI
+import PublicationManagerCore
+
+/// imprint's macOS Settings scene content — the shared renderer over imprint's
+/// declaration. Every tab, its order, label, symbol and accessibility
+/// identifier come from `AppSettingsConfiguration.imprint`.
 struct SettingsView: View {
     var body: some View {
-        TabView {
-            AppearanceSettingsView()
-                .tabItem {
-                    Label("Appearance", systemImage: "paintbrush")
-                }
-                .accessibilityIdentifier("settings.tabs.appearance")
-
-            GeneralSettingsView()
-                .tabItem {
-                    Label("General", systemImage: "gear")
-                }
-                .accessibilityIdentifier("settings.tabs.general")
-
-            EditorSettingsView()
-                .tabItem {
-                    Label("Editor", systemImage: "doc.text")
-                }
-                .accessibilityIdentifier("settings.tabs.editor")
-
-            AIAssistantSettingsView()
-                .tabItem {
-                    Label("AI", systemImage: "sparkles")
-                }
-                .accessibilityIdentifier("settings.tabs.ai")
-
-            AITasksSettingsView()
-                .tabItem {
-                    Label("AI Tasks", systemImage: "sparkles.rectangle.stack")
-                }
-                .accessibilityIdentifier("settings.tabs.aiTasks")
-
-            ImbibSettingsView()
-                .tabItem {
-                    Label("Citations", systemImage: "books.vertical")
-                }
-                .accessibilityIdentifier("settings.tabs.imbib")
-
-            LaTeXSettingsView()
-                .tabItem {
-                    Label("LaTeX", systemImage: "function")
-                }
-                .accessibilityIdentifier("settings.tabs.latex")
-
-            DocumentHealthSettingsView()
-                .tabItem {
-                    Label("Documents", systemImage: "doc.badge.gearshape")
-                }
-                .accessibilityIdentifier("settings.tabs.documents")
-
-            ExportSettingsView()
-                .tabItem {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-                .accessibilityIdentifier("settings.tabs.export")
-
-            AccountSettingsView()
-                .tabItem {
-                    Label("Account", systemImage: "person.circle")
-                }
-                .accessibilityIdentifier("settings.tabs.account")
-
-            AutomationSettingsView()
-                .tabItem {
-                    Label("Automation", systemImage: "gearshape.2")
-                }
-                .accessibilityIdentifier("settings.tabs.automation")
-
-            GitSettingsSection()
-                .tabItem {
-                    Label("Git", systemImage: "arrow.triangle.branch")
-                }
-                .accessibilityIdentifier("settings.tabs.git")
-
-            Form {
-                SpotlightSettingsSection()
-            }
-            .formStyle(.grouped)
-            .tabItem {
-                Label("Spotlight", systemImage: "magnifyingglass")
-            }
-            .accessibilityIdentifier("settings.tabs.spotlight")
-        }
-        .frame(minWidth: 700, idealWidth: 800, minHeight: 450, idealHeight: 550)
-        .accessibilityIdentifier("settings.container")
+        MacSettingsSceneContent(configuration: .imprint)
+            .environment(\.settingsSectionRegistry, ImprintSettingsSections.registry)
     }
 }
 
-// MARK: - Document Health Settings
+// MARK: - Registrations (macOS-only panes)
 
-/// Settings for document health, validation, and backup
-struct DocumentHealthSettingsView: View {
-    @AppStorage("validateCRDTOnOpen") private var validateCRDTOnOpen = true
-    @AppStorage("autoBackupBeforeMigration") private var autoBackupBeforeMigration = true
-    @State private var isValidating = false
-    @State private var validationResult: String?
+extension ImprintSettingsSections {
 
-    var body: some View {
-        Form {
-            Section("Document Validation") {
-                Toggle("Validate CRDT state when opening documents", isOn: $validateCRDTOnOpen)
-                    .help("Check document integrity when opening to detect corruption early")
-
-                Toggle("Create backup before document migration", isOn: $autoBackupBeforeMigration)
-                    .help("Automatically backup documents before schema version upgrades")
-            }
-
-            Section("Schema Version") {
-                HStack {
-                    Text("Current Format Version")
-                    Spacer()
-                    Text("v\(DocumentSchemaVersion.current.displayString)")
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack {
-                    Text("Minimum Readable Version")
-                    Spacer()
-                    Text("v\(DocumentSchemaVersion.minimumReadable.displayString)")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Diagnostics") {
-                Button {
-                    // This would validate the currently open document
-                    isValidating = true
-                    Task {
-                        // Simulated validation
-                        try? await Task.sleep(nanoseconds: 1_000_000_000)
-                        await MainActor.run {
-                            validationResult = "Document is healthy"
-                            isValidating = false
-                        }
-                    }
-                } label: {
-                    if isValidating {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Text("Validate Current Document")
-                    }
-                }
-                .disabled(isValidating)
-
-                if let result = validationResult {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text(result)
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
+    /// The imprint panes that exist only on macOS, mapped to their section ids.
+    ///
+    /// Six of the nine macOS-only sections come from files this refactor never
+    /// opened — `LaTeXSettingsView`, `AITasksSettingsView`, `ImbibSettingsView`
+    /// and `GitSettingsSection` (the last from ImpressGit, already a shared
+    /// COMPONENT, wrapped here rather than edited). A factory is a reference,
+    /// not a rewrite.
+    static let platformFactories: [SettingsSectionFactory] = [
+        SettingsSectionFactory(section: .ai) { AIAssistantSettingsView() },
+        SettingsSectionFactory(section: .aiTasks) { AITasksSettingsView() },
+        SettingsSectionFactory(section: .imbib) { ImbibSettingsView() },
+        SettingsSectionFactory(section: .latex) { LaTeXSettingsView() },
+        SettingsSectionFactory(section: .export) { ExportSettingsView() },
+        SettingsSectionFactory(section: .automation) { AutomationSettingsView() },
+        // ImpressGit ships `GitSettingsSection` as its own `Form`, so it is NOT
+        // wrapped in `SettingsForm` — doing so would nest two Forms. PMC does
+        // not depend on ImpressGit, which is the other reason this stays an
+        // imprint registration rather than a chassis builtin.
+        SettingsSectionFactory(section: .git) { GitSettingsSection() },
+    ]
 }
 
-// MARK: - Appearance Settings
+// MARK: - Export Settings
 
-/// Appearance settings for color scheme
-struct AppearanceSettingsView: View {
-    @AppStorage("appearanceMode") private var appearanceMode = "system"
-
-    private var colorScheme: ColorScheme? {
-        switch appearanceMode {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
-        }
-    }
-
-    var body: some View {
-        Form {
-            Section("Color Scheme") {
-                Picker("Appearance", selection: $appearanceMode) {
-                    Text("System").tag("system")
-                    Text("Light").tag("light")
-                    Text("Dark").tag("dark")
-                }
-                .pickerStyle(.segmented)
-
-                Text("Choose whether to follow system appearance or always use light/dark mode")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-}
-
-/// General application settings
-struct GeneralSettingsView: View {
-    @AppStorage("defaultEditMode") private var defaultEditMode = "split_view"
-    @AppStorage("autoSaveInterval") private var autoSaveInterval = 60
-    @AppStorage("createBackups") private var createBackups = true
-    @AppStorage("imprint.autoCompile") private var autoCompileEnabled = true
-    @AppStorage("imprint.compileDebounceMs") private var compileDebounceMs = 300
-    @AppStorage("imprint.previewFormat") private var previewFormat = "pdf"
-
-    var body: some View {
-        Form {
-            Section("Editing") {
-                Picker("Default Edit Mode", selection: $defaultEditMode) {
-                    Text("Direct PDF").tag("direct_pdf")
-                    Text("Split View").tag("split_view")
-                    Text("Text Only").tag("text_only")
-                }
-
-                Stepper("Auto-save every \(autoSaveInterval) seconds", value: $autoSaveInterval, in: 10...300, step: 10)
-            }
-
-            Section("Live Preview") {
-                Toggle("Live preview", isOn: $autoCompileEnabled)
-                    .help("Automatically recompile as you type")
-
-                if autoCompileEnabled {
-                    Stepper(
-                        "Update delay: \(compileDebounceMs)ms",
-                        value: $compileDebounceMs,
-                        in: 200...2000,
-                        step: 100
-                    )
-                    .help("Milliseconds to wait after typing before recompiling. Lower = more responsive, higher = less CPU usage.")
-                }
-
-                Picker("Preview format", selection: $previewFormat) {
-                    Text("PDF").tag("pdf")
-                    Text("SVG (faster)").tag("svg")
-                }
-                .help("SVG renders individual pages for faster updates on long documents. PDF is used for Direct PDF mode regardless of this setting.")
-            }
-
-            Section("Backup") {
-                Toggle("Create automatic backups", isOn: $createBackups)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-}
-
-/// Editor appearance and behavior settings
-struct EditorSettingsView: View {
-    @AppStorage("editorFontSize") private var editorFontSize = 14
-    @AppStorage("editorFontFamily") private var editorFontFamily = "SF Mono"
-    @AppStorage("showLineNumbers") private var showLineNumbers = true
-    @AppStorage("highlightCurrentLine") private var highlightCurrentLine = true
-    @AppStorage("wrapLines") private var wrapLines = true
-    @Bindable private var modalSettings = ModalEditingSettings.shared
-
-    var body: some View {
-        Form {
-            Section("Font") {
-                Picker("Font Family", selection: $editorFontFamily) {
-                    Text("SF Mono").tag("SF Mono")
-                    Text("Menlo").tag("Menlo")
-                    Text("Monaco").tag("Monaco")
-                    Text("Courier New").tag("Courier New")
-                }
-
-                Stepper("Font Size: \(editorFontSize)", value: $editorFontSize, in: 10...24)
-            }
-
-            Section("Display") {
-                Toggle("Show line numbers", isOn: $showLineNumbers)
-                Toggle("Highlight current line", isOn: $highlightCurrentLine)
-                Toggle("Wrap long lines", isOn: $wrapLines)
-            }
-
-            Section("Modal Editing") {
-                Toggle("Enable modal editing", isOn: $modalSettings.isEnabled)
-                    .accessibilityIdentifier("settings.editor.modalEditing")
-
-                if modalSettings.isEnabled {
-                    Picker("Style", selection: $modalSettings.selectedStyle) {
-                        ForEach(EditorStyleIdentifier.allCases, id: \.self) { style in
-                            Text(style.displayName).tag(style)
-                        }
-                    }
-                    .accessibilityIdentifier("settings.editor.modalStyle")
-
-                    Toggle("Show mode indicator", isOn: $modalSettings.showModeIndicator)
-                        .accessibilityIdentifier("settings.editor.modeIndicator")
-
-                    styleDescription
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-
-    @ViewBuilder
-    private var styleDescription: some View {
-        switch modalSettings.selectedStyle {
-        case .helix:
-            Text("Selection-first editing: select text, then act on it")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        case .vim:
-            Text("Verb-object grammar: type operator (d/c/y), then motion")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        case .emacs:
-            Text("Chorded keys: Control and Meta for commands, always insert mode")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-/// Export and LaTeX settings
+/// Export and LaTeX settings.
+///
+/// macOS-only because `TemplateService` and the `TemplateBrowserView` sheet it
+/// presents live in imprint's macOS target.
 struct ExportSettingsView: View {
     @AppStorage("defaultExportFormat") private var defaultExportFormat = "latex"
     @AppStorage("defaultJournalTemplate") private var defaultJournalTemplate = "generic"
@@ -328,7 +77,7 @@ struct ExportSettingsView: View {
     private var templateService = TemplateService.shared
 
     var body: some View {
-        Form {
+        SettingsForm {
             Section("Default Format") {
                 Picker("Export Format", selection: $defaultExportFormat) {
                     Text("LaTeX").tag("latex")
@@ -355,59 +104,25 @@ struct ExportSettingsView: View {
                 Toggle("Include bibliography file", isOn: $includeBibliography)
             }
         }
-        .formStyle(.grouped)
-        .padding()
         .sheet(isPresented: $showingTemplateBrowser) {
             TemplateBrowserView()
         }
     }
 }
 
-/// Account and sync settings
-struct AccountSettingsView: View {
-    @State private var isSignedIn = false
+// MARK: - Automation Settings
 
-    var body: some View {
-        Form {
-            Section("iCloud") {
-                if isSignedIn {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("Signed in with iCloud")
-                    }
-                } else {
-                    HStack {
-                        Image(systemName: "exclamationmark.circle")
-                            .foregroundStyle(.secondary)
-                        Text("Not signed in to iCloud")
-                    }
-                    Text("Sign in to iCloud in System Settings if you want to sync the impress store across devices.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Sync") {
-                Text("Manuscripts live in the shared impress store. Multi-device sync of that store is a suite-wide setting configured in imbib — imprint has no separate sync of its own.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                Text("Manuscript bodies over 1 MB and PDF attachments are stored outside the synced store and do not travel between devices.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-        .onAppear {
-            // Check iCloud status
-            isSignedIn = FileManager.default.ubiquityIdentityToken != nil
-        }
-    }
-}
-
-/// Automation and API settings
+/// Automation and API settings.
+///
+/// macOS-only, and the descriptor says WHY as a capability rather than a
+/// platform accident: this pane drives an in-process HTTP server
+/// (`SettingsRequirement.httpAutomation`), which needs the
+/// `com.apple.security.network.server` entitlement iOS does not grant. The
+/// chassis's generic `AutomationSettingsSection` (ImpressAutomation) is a
+/// toggle + port and nothing else; imprint's pane additionally owns the server
+/// lifecycle, live status, the MCP config block and the endpoint reference, so
+/// it stays imprint-registered rather than being flattened into the shared
+/// component. Unchanged from the version that shipped.
 struct AutomationSettingsView: View {
     @AppStorage("httpAutomationEnabled") private var httpAutomationEnabled = true
     @AppStorage("httpAutomationPort") private var httpAutomationPort = 23121
@@ -428,7 +143,7 @@ struct AutomationSettingsView: View {
     }
 
     var body: some View {
-        Form {
+        SettingsForm {
             Section("HTTP API Server") {
                 Toggle("Enable HTTP API", isOn: $httpAutomationEnabled)
                     .onChange(of: httpAutomationEnabled) { _, enabled in
@@ -562,8 +277,6 @@ struct AutomationSettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .padding()
         .onAppear {
             Task {
                 isServerRunning = await ImprintHTTPServer.shared.running
@@ -574,7 +287,10 @@ struct AutomationSettingsView: View {
 
 // MARK: - AI Assistant Settings
 
-/// Settings for AI writing assistance features
+/// Settings for AI writing assistance features.
+///
+/// macOS-only: `AIAssistantService` and `InlineCompletionService` live in
+/// imprint's macOS target, and the API-key editor writes to the macOS keychain.
 struct AIAssistantSettingsView: View {
     private let aiService = AIAssistantService.shared
     private let inlineService = InlineCompletionService.shared
@@ -584,7 +300,7 @@ struct AIAssistantSettingsView: View {
     @State private var showingKeys = false
 
     var body: some View {
-        Form {
+        SettingsForm {
             Section("AI Provider") {
                 Picker("Provider", selection: Binding(
                     get: { aiService.provider },
@@ -705,8 +421,6 @@ struct AIAssistantSettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .padding()
         .task {
             claudeKeyInput = await aiService.maskedAPIKey(for: .claude)
             openaiKeyInput = await aiService.maskedAPIKey(for: .openai)

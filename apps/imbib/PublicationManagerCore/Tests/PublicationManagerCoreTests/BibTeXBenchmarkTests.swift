@@ -56,7 +56,7 @@ struct BibTeXBenchmarkTests {
     }
     """
 
-    static func measure(content: String, iterations: Int, parser: BibTeXParser) -> (min: Double, median: Double, max: Double) {
+    static func measure(content: String, iterations: Int, parser: any BibTeXParsing) -> (min: Double, median: Double, max: Double) {
         var times: [Double] = []
 
         // Warmup
@@ -91,15 +91,15 @@ struct BibTeXBenchmarkTests {
         }
     }
 
-    @Test("Swift parser single entry performance")
+    @Test("BibTeX parser single entry performance")
     func swiftSingleEntry() throws {
-        let parser = BibTeXParser()
+        let parser = BibTeXParserFactory.createParser()
 
         let simpleResult = Self.measure(content: Self.simpleEntry, iterations: 1000, parser: parser)
         let complexResult = Self.measure(content: Self.complexEntry, iterations: 1000, parser: parser)
 
         print("")
-        print("Swift Parser - Single Entry Performance:")
+        print("BibTeX Parser (Rust) - Single Entry Performance:")
         print("  Simple:  \(Self.formatTime(simpleResult.median))")
         print("  Complex: \(Self.formatTime(complexResult.median))")
 
@@ -108,12 +108,12 @@ struct BibTeXBenchmarkTests {
         #expect(entries.count == 1)
     }
 
-    @Test("Swift parser multiple entries performance")
+    @Test("BibTeX parser multiple entries performance")
     func swiftMultipleEntries() throws {
-        let parser = BibTeXParser()
+        let parser = BibTeXParserFactory.createParser()
 
         print("")
-        print("Swift Parser - Multiple Entries Performance:")
+        print("BibTeX Parser (Rust) - Multiple Entries Performance:")
 
         for count in [10, 100, 1000] {
             let content = Self.generateEntries(count: count)
@@ -132,17 +132,18 @@ struct BibTeXBenchmarkTests {
     func printComparison() {
         print("")
         print(String(repeating: "=", count: 70))
-        print("BENCHMARK COMPARISON: Rust vs Swift BibTeX Parser")
+        print("BENCHMARK REFERENCE: BibTeX parser, in-process Rust vs over the FFI")
         print(String(repeating: "=", count: 70))
         print("")
-        print("Rust results (from cargo bench):")
+        print("Rust results (from cargo bench -p imbib-core):")
         print("  single_simple:  484.67 ns")
         print("  single_complex: 1.18 µs")
         print("  10 entries:     7.87 µs")
         print("  100 entries:    77.0 µs")
         print("  1000 entries:   803.9 µs")
         print("")
-        print("Run swift test --filter Benchmark to see Swift results")
+        print("The figures above are the same parser measured without the FFI")
+        print("and type-conversion overhead the benchmarks below include.")
         print(String(repeating: "=", count: 70))
     }
 }

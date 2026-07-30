@@ -11,14 +11,18 @@
 //  / development experiences ride along as app-owned CUSTOM SURFACES (WP-X0)
 //  wrapping the EXISTING views — no rewrites.
 //
-//  This root replicates implore's ImploreChassisRoot exactly: the chassis
-//  reads three `@Environment` view models — PMC's `LibraryManager`,
-//  `LibraryViewModel`, `SearchViewModel` — plus the injected
-//  `\.appShellConfiguration`. Everything else the chassis needs
-//  (`RustStoreAdapter.shared`, `MailStoreReader.shared`, …) is a PMC
-//  singleton impart gets for free by linking PublicationManagerCore, reading
-//  the SAME shared store impart's MessageManagerCore mirror writes
-//  (ADR-0001: same data, different facet).
+//  Stage 4b: the chassis boilerplate this file used to carry — a
+//  `ChassisViewModels` class (declared under that same name in FOUR app
+//  targets), a `warmSharedStore()` and a loading view — now lives once, in PMC's
+//  `ChassisRootView`. It injects the same environment: the chassis reads three
+//  `@Environment` view models — PMC's `LibraryManager`, `LibraryViewModel`,
+//  `SearchViewModel` — plus `\.appShellConfiguration`. Everything else the
+//  chassis needs (`RustStoreAdapter.shared`, `MailStoreReader.shared`, …) is a
+//  PMC singleton impart gets for free by linking PublicationManagerCore, reading
+//  the SAME shared store impart's MessageManagerCore mirror writes (ADR-0001:
+//  same data, different facet). It also keeps the off-main store warm-up (see
+//  ImprintChassisRoot / MEMORY fix_imprint_launch_tcc_offmain_store): the first
+//  `open()` can block on a TCC prompt / WAL lock.
 //
 //  DELIBERATE deviation from implore (Stage 2-A plan): this chassis does NOT
 //  replace impart's default window. Mail is a daily driver and
@@ -26,34 +30,13 @@
 //  classic ContentView stays primary behind the "impart.useChassisWindow"
 //  flag (see ImpartApp).
 //
-//  Launch TCC hang avoidance (see ImprintChassisRoot): the shared store's
-//  first `open()` can block on a TCC prompt / WAL lock, so it is warmed on a
-//  DETACHED background task before the main-actor view models exist.
+//  What stays impart's: the three custom surface descriptors, the
+//  `ImpartSurfaceContext` singleton behind them, and the surface views below.
 //
 
 import SwiftUI
-import ImpressLogging
 import MessageManagerCore
 import PublicationManagerCore
-
-/// Holds the three chassis view models. Constructed once, on the main actor,
-/// only AFTER the shared store has been warmed off-main.
-@MainActor
-final class ChassisViewModels {
-    let libraryManager: PublicationManagerCore.LibraryManager
-    let libraryViewModel: PublicationManagerCore.LibraryViewModel
-    let searchViewModel: PublicationManagerCore.SearchViewModel
-
-    init() {
-        let libraryManager = PublicationManagerCore.LibraryManager()
-        let libraryViewModel = PublicationManagerCore.LibraryViewModel()
-        let searchViewModel = PublicationManagerCore.SearchViewModel()
-        searchViewModel.setLibraryManager(libraryManager)
-        self.libraryManager = libraryManager
-        self.libraryViewModel = libraryViewModel
-        self.searchViewModel = searchViewModel
-    }
-}
 
 /// Shared context for the custom surfaces: the view models outlive any
 /// single surface view (the chassis constructs surface views lazily per
@@ -72,7 +55,6 @@ final class ImpartSurfaceContext {
 /// surfaces. Gated behind an off-main store warm-up so the window never
 /// blocks on the shared store open.
 struct ImpartChassisRoot: View {
-    @State private var models: ChassisViewModels?
 
     /// The impart shell: PMC's `.impart` preset (Mail section, detail-pane
     /// open behavior) EXTENDED app-side with the custom surfaces — the
@@ -91,46 +73,9 @@ struct ImpartChassisRoot: View {
         ])
 
     var body: some View {
-        Group {
-            if let models {
-                TabContentView()
-                    .environment(models.libraryManager)
-                    .environment(models.libraryViewModel)
-                    .environment(models.searchViewModel)
-                    .environment(\.appShellConfiguration, Self.shellConfiguration)
-            } else {
-                loadingView
-            }
-        }
-        .task {
-            guard models == nil else { return }
-            // Warm the shared store OFF the main thread (see header note).
-            await Self.warmSharedStore()
-            models = ChassisViewModels()
-            logInfo("ImpartChassisRoot: chassis environment ready (Mail facet)", category: "app")
-        }
-    }
-
-    /// Force the shared-store open onto a background thread and await completion.
-    private static func warmSharedStore() async {
-        await Task.detached(priority: .userInitiated) {
-            _ = RustStoreAdapter.shared
-        }.value
-    }
-
-    private var loadingView: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Opening workspace…")
-                .font(.headline)
-            Text("If macOS asks to allow access to data from other apps, click Allow.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ChassisRootView(
+            configuration: Self.shellConfiguration,
+            readyLogMessage: "ImpartChassisRoot: chassis environment ready (Mail facet)")
     }
 }
 

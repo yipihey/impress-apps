@@ -21,6 +21,8 @@ pub struct BibTeXParseResult {
     pub entries: Vec<BibTeXEntry>,
     pub preambles: Vec<String>,
     pub strings: HashMap<String, String>,
+    /// `@comment{…}` bodies, in source order
+    pub comments: Vec<String>,
     pub errors: Vec<BibTeXParseError>,
 }
 
@@ -57,6 +59,7 @@ impl From<impress_bibtex::BibTeXParseResult> for BibTeXParseResult {
             entries: r.entries.into_iter().map(Into::into).collect(),
             preambles: r.preambles,
             strings: r.strings,
+            comments: r.comments,
             errors: r.errors.into_iter().map(Into::into).collect(),
         }
     }
@@ -86,6 +89,30 @@ pub(crate) fn parse_internal(input: String) -> Result<BibTeXParseResult, ParseEr
 #[uniffi::export]
 pub fn parse(input: String) -> Result<BibTeXParseResult, ParseError> {
     parse_internal(input)
+}
+
+pub(crate) fn parse_with_options_internal(
+    input: String,
+    expand_macros: bool,
+    resolve_crossrefs: bool,
+) -> Result<BibTeXParseResult, ParseError> {
+    impress_bibtex::parse_with_options(input, expand_macros, resolve_crossrefs)
+        .map(Into::into)
+        .map_err(Into::into)
+}
+
+/// Parse BibTeX, choosing whether `@string`/month macros and `crossref`
+/// inheritance are resolved.
+///
+/// Both were previously re-implemented on the Swift side of the bridge; they
+/// live here so the import path and the editor path cannot drift. Exposed over
+/// FFI as `bibtex_parse_with_options` (see `lib.rs`).
+pub fn parse_with_options(
+    input: String,
+    expand_macros: bool,
+    resolve_crossrefs: bool,
+) -> Result<BibTeXParseResult, ParseError> {
+    parse_with_options_internal(input, expand_macros, resolve_crossrefs)
 }
 
 pub(crate) fn parse_entry_internal(input: String) -> Result<BibTeXEntry, ParseError> {

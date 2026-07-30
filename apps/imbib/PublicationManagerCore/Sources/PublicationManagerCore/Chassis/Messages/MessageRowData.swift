@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a display-ready value
+// snapshot of a message row. No view, no AppKit.
 //
 //  MessageRowData.swift
 //  PublicationManagerCore
@@ -139,4 +139,3 @@ extension MessageRowData: MailStyleItem {
     public var hasSecondaryAttachment: Bool { false }
     public var yearText: String? { nil }
 }
-#endif

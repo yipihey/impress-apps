@@ -113,7 +113,7 @@ final class BibTeXExporterTests: XCTestCase {
         }
         """
 
-        let parser = BibTeXParser()
+        let parser = BibTeXParserFactory.createParser()
         let entries = try parser.parseEntries(original)
         let exported = exporter.export(entries)
         let reparsed = try parser.parseEntries(exported)

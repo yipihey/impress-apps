@@ -7,6 +7,8 @@ on:
       - 'apps/imbib/**'
       - 'packages/**'
       - 'crates/**'
+      - 'schema-refs.json'
+      - 'scripts/check-schema-refs.sh'
       - '.github/workflows/imbib-tests.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
@@ -369,3 +371,12 @@ jobs:
         # dependency ships to every impress app — adding one requires editing
         # scripts/check-chassis-deps.sh in the same PR.
         run: ./scripts/check-chassis-deps.sh
+
+      - name: Schema-ref lint
+        # The store matches `schema_ref` by exact equality, so a misspelled ref
+        # returns zero rows silently — no error, no log, just an empty surface.
+        # Repeated here rather than left to workspace-rust.yml because that lane
+        # is gated on `crates/**`: a Swift-only change (which is how the iOS
+        # citation picker asked for `bibliography-entry` instead of
+        # `imbib/bibliography-entry`) never triggers it.
+        run: ./scripts/check-schema-refs.sh

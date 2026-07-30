@@ -1,5 +1,6 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): a read-only
+// `SharedStore` reader (Foundation + ImpressRustCore). While it was gated iOS
+// could not read mail from the shared store AT ALL.
 //
 //  MailStoreReader.swift
 //  PublicationManagerCore
@@ -195,4 +196,3 @@ public final class MailStoreReader {
         return "\"\(value)\""
     }
 }
-#endif

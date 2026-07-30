@@ -1,0 +1,962 @@
+{
+  "files" : [
+    {
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "AU",
+              "Codd, Edgar F."
+            ],
+            [
+              "TI",
+              "A Relational Model of Data for Large Shared Data Banks"
+            ],
+            [
+              "JF",
+              "Communications of the ACM"
+            ],
+            [
+              "PY",
+              "1970"
+            ],
+            [
+              "VL",
+              "13"
+            ],
+            [
+              "IS",
+              "6"
+            ],
+            [
+              "SP",
+              "377"
+            ],
+            [
+              "EP",
+              "387"
+            ],
+            [
+              "DO",
+              "10.1145/362384.362685"
+            ],
+            [
+              "AB",
+              "A relational model of data is proposed as a basis for protecting users of formatted data systems from the potentially disruptive changes in data representation caused by growth in the data base and changes in traffic."
+            ],
+            [
+              "KW",
+              "relational model"
+            ],
+            [
+              "KW",
+              "database"
+            ],
+            [
+              "KW",
+              "data model"
+            ],
+            [
+              "ID",
+              "Codd1970"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "ris/sample.ris"
+    },
+    {
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "AU",
+              "Knuth, Donald E."
+            ],
+            [
+              "TI",
+              "The Art of Computer Programming, Volume 1: Fundamental Algorithms"
+            ],
+            [
+              "PY",
+              "1997"
+            ],
+            [
+              "ET",
+              "3rd"
+            ],
+            [
+              "PB",
+              "Addison-Wesley"
+            ],
+            [
+              "CY",
+              "Reading, MA"
+            ],
+            [
+              "SN",
+              "978-0201896831"
+            ],
+            [
+              "ID",
+              "Knuth1997"
+            ]
+          ],
+          "type" : "BOOK"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "Bishop, Christopher M."
+            ],
+            [
+              "TI",
+              "Neural Networks for Pattern Recognition"
+            ],
+            [
+              "T2",
+              "Pattern Recognition and Machine Learning"
+            ],
+            [
+              "A2",
+              "Jordan, Michael I."
+            ],
+            [
+              "PY",
+              "2006"
+            ],
+            [
+              "PB",
+              "Springer"
+            ],
+            [
+              "CY",
+              "New York"
+            ],
+            [
+              "SP",
+              "225"
+            ],
+            [
+              "EP",
+              "290"
+            ],
+            [
+              "ID",
+              "Bishop2006"
+            ]
+          ],
+          "type" : "CHAP"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "Goodfellow, Ian J."
+            ],
+            [
+              "TI",
+              "Deep Learning of Representations and its Application to Computer Vision"
+            ],
+            [
+              "PY",
+              "2014"
+            ],
+            [
+              "PB",
+              "Université de Montréal"
+            ],
+            [
+              "M3",
+              "Ph.D. thesis"
+            ],
+            [
+              "ID",
+              "Goodfellow2014"
+            ]
+          ],
+          "type" : "THES"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "OpenAI"
+            ],
+            [
+              "TI",
+              "GPT-4 Technical Report"
+            ],
+            [
+              "PY",
+              "2023"
+            ],
+            [
+              "UR",
+              "https://arxiv.org/abs/2303.08774"
+            ],
+            [
+              "ID",
+              "OpenAI2023"
+            ]
+          ],
+          "type" : "RPRT"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "Wikipedia Contributors"
+            ],
+            [
+              "TI",
+              "Machine Learning"
+            ],
+            [
+              "T2",
+              "Wikipedia, The Free Encyclopedia"
+            ],
+            [
+              "PY",
+              "2024"
+            ],
+            [
+              "Y2",
+              "2024/01/15"
+            ],
+            [
+              "UR",
+              "https://en.wikipedia.org/wiki/Machine_learning"
+            ],
+            [
+              "ID",
+              "Wiki2024"
+            ]
+          ],
+          "type" : "ELEC"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "Smith, John"
+            ],
+            [
+              "TI",
+              "AI Advances Continue to Accelerate"
+            ],
+            [
+              "JF",
+              "The New York Times"
+            ],
+            [
+              "PY",
+              "2024"
+            ],
+            [
+              "DA",
+              "2024/01/10"
+            ],
+            [
+              "ID",
+              "Smith2024"
+            ]
+          ],
+          "type" : "NEWS"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "Page, Lawrence"
+            ],
+            [
+              "AU",
+              "Brin, Sergey"
+            ],
+            [
+              "TI",
+              "Method for node ranking in a linked database"
+            ],
+            [
+              "PY",
+              "1998"
+            ],
+            [
+              "M3",
+              "US Patent 6,285,999"
+            ],
+            [
+              "ID",
+              "Page1998"
+            ]
+          ],
+          "type" : "PAT"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "Unknown Author"
+            ],
+            [
+              "TI",
+              "Some Generic Reference"
+            ],
+            [
+              "PY",
+              "2020"
+            ],
+            [
+              "N1",
+              "This is a note about the reference"
+            ],
+            [
+              "ID",
+              "Unknown2020"
+            ]
+          ],
+          "type" : "GEN"
+        }
+      ],
+      "error" : null,
+      "name" : "ris/all_types.ris"
+    },
+    {
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "AU",
+              "Krizhevsky, Alex"
+            ],
+            [
+              "AU",
+              "Sutskever, Ilya"
+            ],
+            [
+              "AU",
+              "Hinton, Geoffrey E."
+            ],
+            [
+              "TI",
+              "ImageNet Classification with Deep Convolutional Neural Networks"
+            ],
+            [
+              "JF",
+              "Advances in Neural Information Processing Systems"
+            ],
+            [
+              "T2",
+              "NIPS"
+            ],
+            [
+              "PY",
+              "2012"
+            ],
+            [
+              "VL",
+              "25"
+            ],
+            [
+              "SP",
+              "1097"
+            ],
+            [
+              "EP",
+              "1105"
+            ],
+            [
+              "AB",
+              "We trained a large, deep convolutional neural network to classify the 1.2 million high-resolution images in the ImageNet LSVRC-2010 contest into the 1000 different classes. On the test data, we achieved top-1 and top-5 error rates of 37.5% and 17.0% which is considerably better than the previous state-of-the-art."
+            ],
+            [
+              "KW",
+              "deep learning"
+            ],
+            [
+              "KW",
+              "convolutional neural networks"
+            ],
+            [
+              "KW",
+              "image classification"
+            ],
+            [
+              "KW",
+              "ImageNet"
+            ],
+            [
+              "UR",
+              "https://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks"
+            ],
+            [
+              "ID",
+              "Krizhevsky2012"
+            ]
+          ],
+          "type" : "JOUR"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "Vaswani, Ashish"
+            ],
+            [
+              "AU",
+              "Shazeer, Noam"
+            ],
+            [
+              "AU",
+              "Parmar, Niki"
+            ],
+            [
+              "AU",
+              "Uszkoreit, Jakob"
+            ],
+            [
+              "AU",
+              "Jones, Llion"
+            ],
+            [
+              "AU",
+              "Gomez, Aidan N."
+            ],
+            [
+              "AU",
+              "Kaiser, Lukasz"
+            ],
+            [
+              "AU",
+              "Polosukhin, Illia"
+            ],
+            [
+              "TI",
+              "Attention Is All You Need"
+            ],
+            [
+              "T2",
+              "Advances in Neural Information Processing Systems"
+            ],
+            [
+              "PY",
+              "2017"
+            ],
+            [
+              "VL",
+              "30"
+            ],
+            [
+              "SP",
+              "5998"
+            ],
+            [
+              "EP",
+              "6008"
+            ],
+            [
+              "AB",
+              "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely."
+            ],
+            [
+              "DO",
+              "10.48550/arXiv.1706.03762"
+            ],
+            [
+              "KW",
+              "transformer"
+            ],
+            [
+              "KW",
+              "attention mechanism"
+            ],
+            [
+              "KW",
+              "neural machine translation"
+            ],
+            [
+              "ID",
+              "Vaswani2017"
+            ]
+          ],
+          "type" : "CONF"
+        }
+      ],
+      "error" : null,
+      "name" : "ris/multiple_authors.ris"
+    },
+    {
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "AU",
+              "Smith, John"
+            ],
+            [
+              "AU",
+              "Doe, Jane"
+            ],
+            [
+              "TI",
+              "A Very Long Title That\nContinues on the Next Line"
+            ],
+            [
+              "JF",
+              "Nature"
+            ],
+            [
+              "AB",
+              "This abstract spans\nmultiple lines and should\nbe joined somehow."
+            ],
+            [
+              "PY",
+              "2024"
+            ],
+            [
+              "DO",
+              "10.1038/nature12345"
+            ],
+            [
+              "KW",
+              "machine learning"
+            ],
+            [
+              "KW",
+              "artificial intelligence"
+            ],
+            [
+              "UR",
+              "https://example.org/a"
+            ]
+          ],
+          "type" : "JOUR"
+        },
+        {
+          "tags" : [
+            [
+              "AU",
+              "Author, Book"
+            ],
+            [
+              "TI",
+              "A Book With No ER Separator Blank Line"
+            ],
+            [
+              "PB",
+              "University Press"
+            ],
+            [
+              "PY",
+              "1999"
+            ]
+          ],
+          "type" : "BOOK"
+        },
+        {
+          "tags" : [
+            [
+              "TI",
+              "Unknown reference type falls back"
+            ],
+            [
+              "PY",
+              "2010"
+            ]
+          ],
+          "type" : "GEN"
+        },
+        {
+          "tags" : [
+            [
+              "TI",
+              "Entry with an unknown tag"
+            ],
+            [
+              "T2",
+              "Containing Book"
+            ],
+            [
+              "PY",
+              "2011"
+            ]
+          ],
+          "type" : "CHAP"
+        },
+        {
+          "tags" : [
+            [
+              "TI",
+              "Entry that never closes with ER"
+            ],
+            [
+              "AU",
+              "Dangling, Dan"
+            ],
+            [
+              "PY",
+              "2012"
+            ]
+          ],
+          "type" : "CONF"
+        }
+      ],
+      "error" : null,
+      "name" : "golden/ris/adversarial.ris"
+    },
+    {
+      "content" : "TY  - JOUR\nTI  - Title\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "Title"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/minimal"
+    },
+    {
+      "content" : "TY  - JOUR\nTI  - Title",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "Title"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/no-er"
+    },
+    {
+      "content" : "TY  - JOUR\nTI  - A\nER  -\nTY  - BOOK\nTI  - B\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "A"
+            ]
+          ],
+          "type" : "JOUR"
+        },
+        {
+          "tags" : [
+            [
+              "TI",
+              "B"
+            ]
+          ],
+          "type" : "BOOK"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/two-entries"
+    },
+    {
+      "content" : "TY  - JOUR\nTI  - A\nER  -\n\n\nTY  - BOOK\nTI  - B\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "A"
+            ]
+          ],
+          "type" : "JOUR"
+        },
+        {
+          "tags" : [
+            [
+              "TI",
+              "B"
+            ]
+          ],
+          "type" : "BOOK"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/blank-lines-between"
+    },
+    {
+      "content" : "TY  - JOUR\nAB  - line one\nline two\nline three\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "AB",
+              "line one\nline two\nline three"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/continuation"
+    },
+    {
+      "content" : "TY  - JOUR\nAU  - A, One\nAU  - B, Two\nKW  - k1\nKW  - k2\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "AU",
+              "A, One"
+            ],
+            [
+              "AU",
+              "B, Two"
+            ],
+            [
+              "KW",
+              "k1"
+            ],
+            [
+              "KW",
+              "k2"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/repeated-tags"
+    },
+    {
+      "content" : "TY  - JOUR\nXQ  - mystery\nTI  - T\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "T"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/unknown-tag"
+    },
+    {
+      "content" : "TY  - ZZZZ\nTI  - T\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "T"
+            ]
+          ],
+          "type" : "GEN"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/unknown-type"
+    },
+    {
+      "content" : "TY - JOUR\nTI - T\nER - ",
+      "entries" : [
+
+      ],
+      "error" : null,
+      "name" : "inline/one-space-separator"
+    },
+    {
+      "content" : "TY  -JOUR\nTI  -T\nER  -",
+      "entries" : [
+
+      ],
+      "error" : null,
+      "name" : "inline/no-space-after-dash"
+    },
+    {
+      "content" : "some junk header\nTY  - JOUR\nTI  - T\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "T"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/leading-junk"
+    },
+    {
+      "content" : "ER  -\nTY  - JOUR\nTI  - T\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "T"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/er-without-ty"
+    },
+    {
+      "content" : "TY  - JOUR\nA1  - Author One\nT1  - Primary\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "A1",
+              "Author One"
+            ],
+            [
+              "T1",
+              "Primary"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/numeric-tag"
+    },
+    {
+      "content" : "TY  - JOUR  \nTI  - Title   \nER  -  ",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "Title"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/trailing-spaces"
+    },
+    {
+      "content" : "TY  - JOUR\r\nTI  - Title\r\nER  -\r\n",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "Title"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/crlf"
+    },
+    {
+      "content" : "TY  - JOUR\nTI  - Ångström & Müller α\nER  -",
+      "entries" : [
+        {
+          "tags" : [
+            [
+              "TI",
+              "Ångström & Müller α"
+            ]
+          ],
+          "type" : "JOUR"
+        }
+      ],
+      "error" : null,
+      "name" : "inline/unicode"
+    }
+  ],
+  "knownTags" : [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "AB",
+    "AD",
+    "AN",
+    "AU",
+    "BT",
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "CA",
+    "CN",
+    "CT",
+    "CY",
+    "DA",
+    "DB",
+    "DO",
+    "DP",
+    "ED",
+    "EP",
+    "ER",
+    "ET",
+    "ID",
+    "IS",
+    "J1",
+    "J2",
+    "JA",
+    "JF",
+    "JO",
+    "KW",
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "LA",
+    "LK",
+    "M1",
+    "M2",
+    "M3",
+    "N1",
+    "N2",
+    "NV",
+    "OP",
+    "PB",
+    "PP",
+    "PY",
+    "RI",
+    "RN",
+    "RP",
+    "SE",
+    "SN",
+    "SP",
+    "ST",
+    "T1",
+    "T2",
+    "T3",
+    "TI",
+    "TY",
+    "U1",
+    "U2",
+    "U3",
+    "U4",
+    "U5",
+    "UR",
+    "VL",
+    "Y1",
+    "Y2"
+  ]
+}

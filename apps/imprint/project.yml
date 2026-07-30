@@ -1,4 +1,11 @@
 name: imprint
+
+# Chassis UTIs (`ChassisUTIs` target template) — the types
+# PublicationManagerCore/ImpressKit build with `UTType(exportedAs:)`. Declared
+# once for the whole suite; see the header of that file.
+include:
+  - path: ../chassis-utis.yml
+
 options:
   bundleIdPrefix: com.imbib
   deploymentTarget:
@@ -72,6 +79,7 @@ targets:
     type: application
     platform: macOS
     deploymentTarget: "26.0"
+    templates: [ChassisUTIs]
     postBuildScripts:
       # Debug macOS builds install a fresh copy into ~/Applications so Spotlight
       # always launches the latest build (not a stale DerivedData/Archive copy).
@@ -186,21 +194,9 @@ targets:
             UTTypeDescription: Impress Document Reference
             UTTypeIdentifier: com.impress.document-reference
             UTTypeTagSpecification: {}
-          # Chassis drag types (PublicationManagerCore, MailStylePublicationRow).
-          # EXPORTED in every host app that links the chassis, not imported:
-          # the chassis builds them with UTType(exportedAs:), and an imported
-          # declaration still faults ("was expected to be exported in the
-          # Info.plist of <app>, but it was imported instead").
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: imbib Manuscript ID
-            UTTypeIdentifier: com.imbib.manuscript-id
-            UTTypeTagSpecification: {}
-          - UTTypeConformsTo:
-              - public.data
-            UTTypeDescription: Impress Figure ID
-            UTTypeIdentifier: com.impress.figure-id
-            UTTypeTagSpecification: {}
+          # The chassis drag types that used to be pasted here now come from the
+          # ChassisUTIs template (apps/chassis-utis.yml) and are appended to
+          # this list at generate time.
         UTImportedTypeDeclarations:
           - UTTypeConformsTo:
               - public.data
@@ -271,12 +267,21 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "26.0"
+    templates: [ChassisUTIs]
     sources:
       - path: Shared
       - path: imprint-iOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint
+        # PRODUCT_NAME stays `imprint` (inherited): the product is imprint.app
+        # and CI installs it by that name. But the DEFAULT module name follows
+        # PRODUCT_NAME, which made this target's module `imprint` — colliding
+        # with the macOS target's module name and with imprint-ShareExtension's
+        # swiftmodule in the simulator products dir (see its PRODUCT_NAME
+        # override below), and leaving `imprint-iOSTests` importing a module
+        # (`imprint_iOS`) that did not exist. Name the module explicitly.
+        PRODUCT_MODULE_NAME: imprint_iOS
         INFOPLIST_FILE: imprint-iOS/Info.plist
         CODE_SIGN_ENTITLEMENTS: imprint-iOS/imprint-iOS.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -459,6 +464,14 @@ targets:
         PRODUCT_NAME: imprint-iOSTests
         PRODUCT_MODULE_NAME: imprintiOSTests
         GENERATE_INFOPLIST_FILE: YES
+        # XcodeGen derives TEST_HOST from the TARGET name
+        # ($(BUILT_PRODUCTS_DIR)/imprint-iOS.app/imprint-iOS), but the host
+        # target inherits PRODUCT_NAME: imprint from the project base settings,
+        # so the product is imprint.app/imprint. Without this override
+        # build-for-testing fails with "Could not find test host for
+        # imprint-iOSTests". Renaming the product instead would break the CI
+        # install-smoke, which finds the bundle by the name `imprint.app`.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/imprint.app/imprint"
 
 schemes:
   imprint:

@@ -45,42 +45,35 @@ public extension BibTeXParsing {
 // MARK: - Parser Factory
 
 /// Factory for creating BibTeX parsers.
-/// Controls which backend (Swift or Rust) is used.
+///
+/// There is exactly one BibTeX parser now: the Rust one in `im-bibtex`. The
+/// hand-written Swift parser was deleted in Stage 7 once
+/// `crates/imbib-core/tests/golden_parity.rs` proved the Rust parser reproduced
+/// its behaviour over the whole fixture corpus. The factory survives because
+/// call sites read better through it, and because it is the seam where parse
+/// options are chosen.
 public enum BibTeXParserFactory {
 
-    /// The backend to use for BibTeX parsing
+    /// Backend identifier, retained for the bridges that still have two
+    /// implementations (e.g. `DeduplicationScorerFactory`).
     public enum Backend: String, CaseIterable, Sendable {
         case swift = "Swift"
         case rust = "Rust"
     }
 
-    /// Current backend selection.
-    /// Defaults to Rust. Change this to switch between implementations.
-    public static var currentBackend: Backend = .rust
+    /// The backend actually used for BibTeX parsing.
+    public static let backend: Backend = .rust
 
-    /// Create a parser using the current backend
+    /// Create a parser.
     public static func createParser(
         expandMacros: Bool = true,
         resolveCrossrefs: Bool = true,
         decodeLaTeX: Bool = true
     ) -> any BibTeXParsing {
-        switch currentBackend {
-        case .swift:
-            return BibTeXParser(
-                expandMacros: expandMacros,
-                resolveCrossrefs: resolveCrossrefs,
-                decodeLaTeX: decodeLaTeX
-            )
-        case .rust:
-            return RustBibTeXParser(
-                expandMacros: expandMacros,
-                resolveCrossrefs: resolveCrossrefs,
-                decodeLaTeX: decodeLaTeX
-            )
-        }
+        RustBibTeXParser(
+            expandMacros: expandMacros,
+            resolveCrossrefs: resolveCrossrefs,
+            decodeLaTeX: decodeLaTeX
+        )
     }
 }
-
-// MARK: - Swift Parser Conformance
-
-extension BibTeXParser: BibTeXParsing {}

@@ -52,6 +52,19 @@ public extension Color {
         #endif
     }
 
+    /// The background a document's TEXT sits on:
+    /// `NSColor.textBackgroundColor` on macOS, `UIColor.systemBackground` on
+    /// iOS. Distinct from `platformWindowBackground` — this is the paper, not
+    /// the chrome around it. Use for editor buffers and rendered document
+    /// previews so a Markdown preview matches the source editor beside it.
+    static var platformTextBackground: Color {
+        #if os(macOS)
+        return Color(nsColor: .textBackgroundColor)
+        #else
+        return Color(uiColor: .systemBackground)
+        #endif
+    }
+
     /// The standard separator line color: `NSColor.separatorColor`
     /// on macOS, `UIColor.separator` on iOS.
     static var platformSeparator: Color {

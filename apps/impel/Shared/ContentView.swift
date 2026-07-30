@@ -52,14 +52,20 @@ struct ContentView: View {
     // MARK: - Keyboard Handling
 
     private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
-        // j/k navigation
-        if press.characters == "j" && press.modifiers.isEmpty {
-            navigateDown()
-            return .handled
-        }
-        if press.characters == "k" && press.modifiers.isEmpty {
-            navigateUp()
-            return .handled
+        // Single-key navigation via the one shared catalog (TriageKeyGrammar).
+        if press.modifiers.isEmpty {
+            switch TriageKeyGrammar.command(forCharacters: press.characters) {
+            case .navigateDown:
+                navigateDown()
+                return .handled
+            case .navigateUp:
+                navigateUp()
+                return .handled
+            default:
+                // impel's dashboard owns no other single-key command; fall
+                // through so number/return/escape handling below still runs.
+                break
+            }
         }
 
         // Number keys for escalation options (1-4)
@@ -96,13 +102,15 @@ struct ContentView: View {
             }
         }
 
-        // Cmd+/ for keyboard help
-        if press.characters == "/" && press.modifiers.contains(.command) {
+        // ⌘/ for keyboard help — key taken from the shared ⌘-layer catalog
+        // (UniversalShortcut.shortcutsHelp) instead of a hardcoded "/".
+        if press.characters == String(UniversalShortcut.shortcutsHelp.key.character),
+           press.modifiers.contains(.command) {
             showKeyboardHelp = true
             return .handled
         }
 
-        // Cmd+R to refresh
+        // Cmd+R to refresh — app-local; no UniversalShortcut for refresh yet.
         if press.characters == "r" && press.modifiers.contains(.command) {
             Task { await client.refresh() }
             return .handled

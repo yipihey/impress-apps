@@ -114,12 +114,47 @@ public enum RecordSidebarScope: Hashable, Sendable {
     /// A section with no finer semantics in this shell (Cited in Manuscripts,
     /// Review Queue, a custom surface): the host decides what to show.
     case section(SidebarSectionType, RecordKindID?)
+    /// A row whose MEANING only the host knows, named in the host's own route
+    /// vocabulary.
+    ///
+    /// The five cases above are the chassis's closed vocabulary: they are the
+    /// scopes any kind's records can be sliced by. imbib's sidebar proved they
+    /// are not the whole sidebar. Half of its rows are neither a status, a
+    /// folder of the kind's collection binding, nor a whole section:
+    ///
+    ///   * LIBRARIES — containers of publications that sit ABOVE the folder
+    ///     tree (each library owns its own collections), so `.folder` is the
+    ///     wrong word and the organise verbs must not attach to them;
+    ///   * SAVED SEARCHES / FEEDS — a stored query, not a stored membership;
+    ///   * REMOTE SHELVES (SciX libraries) — someone else's container, synced;
+    ///   * SEARCH FORMS — not a record scope at all, but a UI route the
+    ///     Search section offers (the row-level twin of `AuxiliaryRoute`).
+    ///
+    /// Enumerating those four here would be inventing imbib's taxonomy inside
+    /// the chassis, and the next adopter's would differ again (mail accounts,
+    /// agent runs, a plotting workspace). So the chassis declares the SHAPE —
+    /// "this row selects something host-defined, of this kind, identified by
+    /// this key" — and the host owns the key space. `scopeKey`/`stableViewID`
+    /// already reduce every scope to a string for view identity, so this adds
+    /// no new mechanism, only an honest name for the gap.
+    ///
+    /// Hosts should build these keys through ONE typed route enum on their
+    /// side (imbib: `ImbibSidebarRoute`), never by spelling literals at call
+    /// sites — that enum is what keeps the round trip (selection → row and
+    /// notification → selection) single-sourced.
+    case host(RecordKindID?, key: String)
 
     public var kind: RecordKindID? {
         switch self {
         case .all(let k), .status(let k, _), .folder(let k, _), .flagged(let k, _): return k
-        case .section(_, let k): return k
+        case .section(_, let k), .host(let k, _): return k
         }
+    }
+
+    /// The host route key this scope carries, if it is a host row.
+    public var hostKey: String? {
+        if case .host(_, let key) = self { return key }
+        return nil
     }
 
     /// The folder this scope is confined to, when it is a folder scope. Hosts
@@ -148,6 +183,8 @@ extension RecordSidebarScope: RecordScopeKey {
         case .flagged(let k, let c): return "\(k.rawValue).flagged.\(c ?? "any")"
         case .section(let section, let k):
             return "section.\(section.rawValue).\(k?.rawValue ?? "none")"
+        case .host(let k, let key):
+            return "host.\(k?.rawValue ?? "none").\(key)"
         }
     }
 
@@ -156,39 +193,50 @@ extension RecordSidebarScope: RecordScopeKey {
 
 // MARK: - Status presentation
 
-/// Label + icon for a raw `status` value.
+/// Label + icon for a raw `status` value, RESOLVED FROM THE DECLARATIONS.
 ///
-/// HONEST LIMITATION: `TriageCapabilities.statuses` is `[String]`, so the
-/// descriptor declares WHICH statuses a kind has but not how to name or
-/// picture them. The table below is the chassis's shared presentation for the
-/// reserved lifecycle values (docs/status-lifecycle.md) and everything else
-/// falls back to a title-cased spelling of the raw value — so a kind that
-/// invents a status still renders sanely, it just renders generically. The
-/// principled fix is to widen `statuses` into `[StatusSpec]` carrying
-/// label/icon; that is a contract change with parity tests attached, tracked
-/// as follow-up rather than smuggled in here.
+/// This used to hold a private `[String: (label, systemImage)]` table — the
+/// honest limitation the previous version of this comment admitted to:
+/// `TriageCapabilities.statuses` was `[String]`, so a status declared no
+/// presentation and the chassis kept one here, a folder away from the
+/// declaration, while macOS's sidebar spelled four of the same labels a third
+/// time as literals. `statuses` is now `[StatusSpec]`, so this is a LOOKUP
+/// over the shipped descriptors rather than a second truth table.
+///
+/// The generic fallback stays and still matters: a status value that no
+/// descriptor declares (a hand-edited row, a kind from a newer build, an
+/// impel state read through the wrong lens) renders as a title-cased spelling
+/// of the raw value with a neutral glyph — sanely, if generically, rather than
+/// blank.
 public enum RecordStatusPresentation {
 
-    private static let known: [String: (label: String, systemImage: String)] = [
-        "draft": ("Drafts", "pencil"),
-        "internal-review": ("Internal Review", "person.2"),
-        "submitted": ("Submitted", "paperplane"),
-        "in-revision": ("In Revision", "arrow.triangle.2.circlepath"),
-        "published": ("Published", "checkmark.seal"),
-        "archived": ("Archive", "archivebox"),
-        "dismissed": ("Dismissed", "xmark.circle"),
-    ]
+    /// The spec for a raw value, searched across every shipped kind. The
+    /// reserved lifecycle values (docs/status-lifecycle.md) are chassis-wide,
+    /// so a caller holding only a string does not need to know the kind; a
+    /// caller that DOES know it should prefer `triage.status(_:)`.
+    public static func spec(for status: String) -> StatusSpec? {
+        for descriptor in BuiltinRecordKinds.all {
+            if let match = descriptor.triage.status(status) { return match }
+        }
+        return nil
+    }
 
     public static func label(for status: String) -> String {
-        if let known = known[status]?.label { return known }
-        return status
-            .split(whereSeparator: { $0 == "-" || $0 == "_" })
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
+        if let declared = spec(for: status)?.label { return declared }
+        return titleCased(status)
     }
 
     public static func systemImage(for status: String) -> String {
-        known[status]?.systemImage ?? "circle"
+        spec(for: status)?.systemImage ?? "circle"
+    }
+
+    /// `"peer-review"` → `"Peer Review"`. The honest generic rendering of an
+    /// undeclared status.
+    static func titleCased(_ status: String) -> String {
+        status
+            .split(whereSeparator: { $0 == "-" || $0 == "_" })
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 }
 
@@ -272,16 +320,14 @@ public enum RecordSidebarSectionRole: Sendable, Equatable {
     /// One opaque selectable row (the host owns what it shows).
     case opaque
 
+    /// The role a section plays. Declared BY the section
+    /// (`SidebarSectionType.role`) rather than switched on here: a new section
+    /// used to compile only after this switch grew an arm, which is the
+    /// case-addition tax ADR-0022's follow-up register calls out. The property
+    /// lives next to `displayName` and `icon`, so one place answers
+    /// "what is this section" in all three respects.
     public static func role(for section: SidebarSectionType) -> RecordSidebarSectionRole {
-        switch section {
-        case .flagged: return .flagged
-        case .dismissed: return .dismissed
-        case .citedInManuscripts, .reviewQueue, .search, .sharedWithMe, .scixLibraries:
-            return .opaque
-        case .inbox, .libraries, .exploration, .artifacts, .manuscripts,
-             .figures, .mail, .agents:
-            return .primary
-        }
+        section.role
     }
 }
 
@@ -297,6 +343,26 @@ public struct RecordSidebarSectionModel: Identifiable, Sendable {
     /// view has to re-derive it.
     public let canOrganizeFolders: Bool
 
+    /// Selecting the section HEADER selects this scope. nil = the header only
+    /// collapses (the imprint case).
+    ///
+    /// macOS has had this since before ADR-0021: `resolveSelectedTab` maps the
+    /// Inbox *section node* straight to `.inbox`, because "Inbox" names a real
+    /// destination (the inbox library) and not just a group of rows, and
+    /// imbib-iOS's hand-written sidebar copied it with an `.onTapGesture` on
+    /// the header. The same is true of Flagged → any flag. Modelling it as a
+    /// synthetic first row instead would have ADDED a row neither shell shows.
+    public let headerScope: RecordSidebarScope?
+
+    /// Whether the header offers "new root folder" (`folder.badge.plus`).
+    ///
+    /// Split from `canOrganizeFolders` by the second adopter: a kind whose
+    /// folder tree has ONE root (imprint's manuscript collections) wants both,
+    /// but imbib's collections are rooted PER LIBRARY, so "create at the root
+    /// of the section" has no answer — the create verb belongs on the library
+    /// row, which is host chrome. The section still organises its folders.
+    public let offersRootFolderCreation: Bool
+
     public var id: String { section.rawValue }
     public var title: String { section.displayName }
     public var systemImage: String { section.icon }
@@ -306,12 +372,16 @@ public struct RecordSidebarSectionModel: Identifiable, Sendable {
         kind: RecordKindID?,
         role: RecordSidebarSectionRole,
         nodes: [RecordSidebarNode],
-        canOrganizeFolders: Bool
+        canOrganizeFolders: Bool,
+        headerScope: RecordSidebarScope? = nil,
+        offersRootFolderCreation: Bool? = nil
     ) {
         self.section = section
         self.kind = kind
         self.role = role
         self.nodes = nodes
         self.canOrganizeFolders = canOrganizeFolders
+        self.headerScope = headerScope
+        self.offersRootFolderCreation = offersRootFolderCreation ?? canOrganizeFolders
     }
 }

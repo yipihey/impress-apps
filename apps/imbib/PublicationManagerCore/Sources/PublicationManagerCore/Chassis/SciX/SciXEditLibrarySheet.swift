@@ -1,5 +1,5 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
+// Chassis CONTRACT file — CROSS-PLATFORM (macOS + iOS): plain SwiftUI sheet;
+// the platform differences it already had are `#if` islands inside.
 //
 //  SciXEditLibrarySheet.swift
 //  imbib
@@ -106,4 +106,3 @@ struct SciXEditLibrarySheet: View {
         }
     }
 }
-#endif

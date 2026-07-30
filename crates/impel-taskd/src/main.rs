@@ -1,6 +1,6 @@
 //! impel-taskd — the live task scheduler daemon (ADR-0015).
 //!
-//! Watches the shared impress-core store for new `bibliography-entry@1.0.0`
+//! Watches the shared impress-core store for new `imbib/bibliography-entry`
 //! items (broadcast event bus, schema-filtered), spawns the enrichment DAG
 //! via `EnrichmentSpawnRule`, and drives the ADR-0005 §6 scheduler loop
 //! with the `impel-enrichment` executors.
@@ -325,6 +325,21 @@ async fn main() {
     // Watermark for the cross-process scan (ms since epoch). A generous
     // slack window guards against clock skew and the insert-vs-startup
     // race; `already_spawned` makes re-scanning the overlap free.
+    //
+    // NO BACKFILL BURST. The enrichment trigger only started matching real
+    // rows on 2026-07-29 (BIBLIOGRAPHY_ENTRY_SCHEMA had been a spelling
+    // nothing wrote), so the obvious worry is that the first run over an
+    // existing library spawns two tasks per entry — thousands of them. It
+    // does not, and the bound is this watermark: with the default
+    // `backfill_hours == 0` it starts at `now - SCAN_SLACK_MS`, and
+    // `scan_new_entries` filters `created >= watermark` against the INTEGER
+    // `items.created` column (ms, same units), so entries created before the
+    // last 60 seconds are never selected. Existing libraries are invisible to
+    // the scan; only genuinely new inserts spawn. Backfilling is opt-in via
+    // `--backfill H`, itself bounded to 64 entries per poll pass by the query
+    // limit and made idempotent by `already_spawned` (once-ever per entry).
+    // Touching the live store additionally requires `--enable`. If you widen
+    // any of those, re-do this arithmetic.
     const SCAN_SLACK_MS: i64 = 60_000;
     let mut watermark_ms = chrono::Utc::now().timestamp_millis()
         - (args.backfill_hours as i64) * 3_600_000

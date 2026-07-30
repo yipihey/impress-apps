@@ -279,6 +279,27 @@ struct imbibApp: App {
         """
         let ids = store.importBibTeX(bibtex, libraryId: library.id)
         appLogger.info("UI-testing seed: imported \(ids.count) papers into '\(library.name)'")
+
+        // Sidebar fixtures (Stage 5a). The seed used to be one flat library,
+        // which is enough to prove a list renders but proves nothing about the
+        // SIDEBAR: a collection TREE (parent + nested child) and a flagged
+        // paper are the two shapes `RecordSidebarView` has to get right, and
+        // `IOSSidebarUITests` now asserts on both. Deterministic and offline,
+        // like the rest of this function.
+        if let relativity = store.createCollection(name: "Relativity", libraryId: library.id) {
+            if let firstID = ids.first {
+                store.addToCollection(publicationIds: [firstID], collectionId: relativity.id)
+            }
+            if let nested = store.createCollection(name: "Special", libraryId: library.id) {
+                // The collection tree parent is the payload `parent_id`, NEVER
+                // the envelope parent (c902a22f postmortem, imbib CLAUDE.md).
+                store.updateField(
+                    id: nested.id, field: "parent_id", value: relativity.id.uuidString)
+            }
+        }
+        if let secondID = ids.dropFirst().first {
+            store.setFlag(ids: [secondID], color: FlagColor.red.rawValue)
+        }
     }
 
     // MARK: - Badge Management

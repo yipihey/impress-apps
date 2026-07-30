@@ -235,6 +235,8 @@ pub struct BibTeXParseResult {
     pub entries: Vec<BibTeXEntry>,
     pub preambles: Vec<String>,
     pub strings: HashMap<String, String>,
+    /// `@comment{…}` bodies, in source order
+    pub comments: Vec<String>,
     pub errors: Vec<BibTeXParseError>,
 }
 
@@ -244,6 +246,7 @@ impl From<im_bibtex::BibTeXParseResult> for BibTeXParseResult {
             entries: r.entries.into_iter().map(Into::into).collect(),
             preambles: r.preambles,
             strings: r.strings,
+            comments: r.comments,
             errors: r.errors.into_iter().map(Into::into).collect(),
         }
     }

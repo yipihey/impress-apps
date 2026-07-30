@@ -11,11 +11,12 @@
 //
 //  SPLIT, not half-gated (iOS foundation pass): the PROTOCOL and the
 //  deterministic-UUID helper are contract, so they live here and compile
-//  everywhere. The conformances of the macOS-only list scopes
-//  (ManuscriptListScope, FigureListScope, MessageListScope, AgentListScope —
-//  each declared inside its gated list wrapper) live in
-//  `RecordScopeKey+MacScopes.swift`. `PublicationSource` is itself
-//  cross-platform, so its conformance stays here.
+//  everywhere. The four per-kind list scopes (ManuscriptListScope,
+//  FigureListScope, MessageListScope, AgentListScope) and their conformances
+//  live in `RecordScopeKey+ListScopes.swift` — cross-platform since Stage 2a,
+//  when the enums moved out of their gated list wrappers.
+//  `PublicationSource` is itself cross-platform, so its conformance stays
+//  here.
 //
 
 import Foundation

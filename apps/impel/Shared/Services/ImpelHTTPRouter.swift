@@ -28,8 +28,16 @@ public actor ImpelHTTPRouter: HTTPRouter {
     // MARK: - Routing
 
     public func route(_ request: HTTPRequest) async -> HTTPResponse {
-        if request.method == "OPTIONS" {
-            return handleCORSPreflight()
+        // The GENERIC route group, mounted once (ImpressAutomation's
+        // `SharedAutomationRoutes`): CORS preflight, `/api/logs`, and — newly,
+        // for free — `/api/logs/stream`, `/api/performance{,/reset}` and
+        // `/api/store-timings{,/reset}`. All five app routers used to hand-paste
+        // the `/api/logs` line and its private CORS twin; only imprint ever
+        // registered the stream route, though the handler has always lived in the
+        // shared package. Returns nil for everything else, so the domain table
+        // below is untouched.
+        if let shared = await SharedAutomationRoutes.route(request) {
+            return shared
         }
 
         let path = request.path
@@ -40,10 +48,6 @@ public actor ImpelHTTPRouter: HTTPRouter {
             if pathLower == "/status" || pathLower == "/api/status" {
                 return await handleStatus()
             }
-            if pathLower == "/api/logs" {
-                return await handleGetLogs(request)
-            }
-
             // Threads
             if pathLower == "/threads" {
                 return await handleListThreads(request)
@@ -266,11 +270,12 @@ public actor ImpelHTTPRouter: HTTPRouter {
     private func handleStatus() async -> HTTPResponse {
         let state = await getState()
 
-        var response: [String: Any] = [
-            "status": "ok",
-            "app": "impel",
-            "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0",
-            "port": ImpelHTTPServer.defaultPort,
+        // Envelope (`status` / `app` / `version` / `port` + `serverPort`) from the
+        // shared group; every count below is impel's.
+        var response = SharedAutomationRoutes.statusPayload(
+            app: "impel",
+            port: Int(ImpelHTTPServer.defaultPort),
+            domain: [
             "threads": state.threads.count,
             "activeThreads": state.activeThreads.count,
             "agents": state.agents.count,
@@ -278,8 +283,8 @@ public actor ImpelHTTPRouter: HTTPRouter {
             "personas": state.personas.count,
             "escalations": state.escalations.count,
             "pendingEscalations": state.pendingEscalations.count,
-            "tasks_api": true
-        ]
+            "tasks_api": true,
+            ])
 
         // Include task counts if orchestrator is available
         if let orchestrator = await getOrchestrator() {
@@ -290,13 +295,6 @@ public actor ImpelHTTPRouter: HTTPRouter {
         }
 
         return .json(response)
-    }
-
-    /// GET /api/logs
-    private func handleGetLogs(_ request: HTTPRequest) async -> HTTPResponse {
-        await MainActor.run {
-            LogEndpointHandler.handle(request)
-        }
     }
 
     // MARK: - Thread Handlers
@@ -989,21 +987,6 @@ public actor ImpelHTTPRouter: HTTPRouter {
         ])
     }
 
-    // MARK: - Helpers
-
-    private func handleCORSPreflight() -> HTTPResponse {
-        HTTPResponse(
-            status: 204,
-            statusText: "No Content",
-            headers: [
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Max-Age": "86400"
-            ]
-        )
-    }
-
     private func handleAPIInfo() -> HTTPResponse {
         .json([
             "name": "impel HTTP API",
@@ -1011,6 +994,11 @@ public actor ImpelHTTPRouter: HTTPRouter {
             "endpoints": [
                 "GET /status": "Server health and system overview",
                 "GET /api/logs": "Query log entries",
+                "GET /api/logs/stream": "Cursor-based incremental log feed (params: after, limit, level, category, search)",
+                "GET /api/performance": "PerfMetrics snapshot — per-operation latency buckets, percentiles, budget breaches",
+                "POST /api/performance/reset": "Clear PerfMetrics samples (budgets preserved)",
+                "GET /api/store-timings": "StoreTimings snapshot (params: top)",
+                "POST /api/store-timings/reset": "Reset StoreTimings counters",
                 "GET /threads": "List threads (params: state, min_temperature, max_temperature)",
                 "GET /threads/available": "List unclaimed non-terminal threads",
                 "GET /threads/{id}": "Get thread detail",

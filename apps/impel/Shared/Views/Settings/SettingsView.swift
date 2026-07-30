@@ -7,46 +7,65 @@
 //  Stage 2-C of the GUI unification) — no renames, no signature changes.
 //
 
+//  Stage 6 phase 2 (declarative chassis): the three tabs are declared as
+//  `AppSettingsConfiguration.impel` in PublicationManagerCore; this file
+//  contributes the factories and the scene host. The three panes below are
+//  untouched.
+//
+//  impel adopts NO chassis builtin, and phase 2 deliberately does not give it
+//  one. It has no Appearance tab and no Spotlight tab, and growing an app's
+//  settings surface is a product change rather than a reframe. What the
+//  declaration does buy impel is that the absence is now VISIBLE: its three panes
+//  are named in data that a test can read, so "impel has no appearance
+//  preference" is a statement in the repo instead of a thing nobody noticed.
+//
+//  Adjacent finding recorded while inventorying, NOT fixed here because it is
+//  outside a settings reframe: `ImpelHTTPServer` reads `httpAutomationEnabled`
+//  and `httpAutomationPort` from `UserDefaults`, and no impel settings pane
+//  writes either — impel's HTTP server is unconfigurable from its GUI. Giving
+//  impel an `automation` descriptor would fix that, but it would also add a
+//  fourth tab, so it belongs to whoever owns that behaviour.
+
 import SwiftUI
 import ImpelCore
 import ImpelMail
 import CounselEngine
 import ImpressKeyboard
 import ImpressKit
+import PublicationManagerCore
 
 // MARK: - Settings View
 
 struct SettingsView: View {
-    private enum SettingsTab: Hashable {
-        case general
-        case ai
-        case counsel
-    }
-
-    @State private var selectedTab: SettingsTab = .general
-
     var body: some View {
-        TabView(selection: $selectedTab) {
-            GeneralSettingsTab()
-                .tabItem {
-                    Label("General", systemImage: "gear")
-                }
-                .tag(SettingsTab.general)
-
-            ImpelAISettingsTab()
-                .tabItem {
-                    Label("AI", systemImage: "brain")
-                }
-                .tag(SettingsTab.ai)
-
-            CounselSettingsTab()
-                .tabItem {
-                    Label("Counsel", systemImage: "envelope")
-                }
-                .tag(SettingsTab.counsel)
-        }
-        .frame(width: 550, height: 560)
+        // `.fixed`: impel shipped `.frame(width: 550, height: 560)`, a pinned
+        // size rather than a floor.
+        MacSettingsSceneContent.fixed(
+            configuration: .impel, width: 550, height: 560)
+            .environment(\.settingsSectionRegistry, ImpelSettingsSections.registry)
     }
+}
+
+// MARK: - Factories
+
+/// impel's settings registrations.
+///
+/// `mailGatewayState` is NOT passed here and must not be: `ImpelAISettingsTab` and
+/// `CounselSettingsTab` take it as an `@EnvironmentObject`, and `ImpelApp` injects
+/// it at the `Settings { }` scene. Factories build their panes inside that scene's
+/// view tree, so the object reaches them through the environment exactly as
+/// before — which is the property that makes a factory a drop-in for a `TabView`
+/// child rather than a call site that has to re-plumb dependencies.
+enum ImpelSettingsSections {
+
+    static let factories: [SettingsSectionFactory] = [
+        SettingsSectionFactory(section: .general) { GeneralSettingsTab() },
+        SettingsSectionFactory(section: .ai) { ImpelAISettingsTab() },
+        SettingsSectionFactory(section: .counsel) { CounselSettingsTab() },
+    ]
+
+    static let registry: SettingsSectionRegistry =
+        SettingsSectionRegistry.builtin.composing(factories)
 }
 
 struct GeneralSettingsTab: View {

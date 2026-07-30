@@ -26,6 +26,8 @@ on:
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'schema-refs.json'
+      - 'scripts/check-schema-refs.sh'
       - '.github/workflows/workspace-rust.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
@@ -42,6 +44,13 @@ jobs:
     runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
+
+      # Before the toolchain install: this is bash + python3 only, takes under a
+      # second, and a schema-ref mismatch is a silently-empty query rather than
+      # a compile error — so failing fast on it costs nothing and saves a full
+      # clippy cycle on a change that is already wrong.
+      - name: Schema-ref lint
+        run: ./scripts/check-schema-refs.sh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

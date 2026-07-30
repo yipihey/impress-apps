@@ -24,27 +24,9 @@ import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "figures")
 
-/// What subset of figures the list shows.
-public enum FigureListScope: Hashable, Sendable {
-    case all
-    case unfiled
-    case folder(UUID)
-    case flagged(FlagColor?)
-
-    var folderID: UUID? {
-        if case .folder(let id) = self { return id }
-        return nil
-    }
-    var title: String {
-        switch self {
-        case .all: return "All Figures"
-        case .unfiled: return "Unfiled"
-        case .folder: return "Folder"
-        case .flagged(let color):
-            return color.map { "\($0.displayName) Flag" } ?? "Flagged"
-        }
-    }
-}
+// `FigureListScope` moved to Chassis/RecordKind/RecordScopeKey+ListScopes.swift
+// (Stage 2a): the scope is a Foundation value type and is now
+// cross-platform; only this wrapper is AppKit-adjacent.
 
 // Actions: the shared RecordTriageActions (ADR-0021). Figure-specific verbs
 // (open-in-canvas, remove-from-folder) ride the same bag via
@@ -310,6 +292,10 @@ public struct FigureListWrapper: View {
         case .focusFilter:
             filterFocused = true
             return .handled
+        case .focusPaneLeft, .focusPaneRight:
+            // Pane focus is window-scoped, not list-scoped: bubble h/l up to the
+            // shell that owns the split (ContentView / ImpressSplitView).
+            return .ignored
         }
     }
 

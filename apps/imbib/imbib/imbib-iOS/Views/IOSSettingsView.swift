@@ -4,279 +4,220 @@
 //
 //  Created by Claude on 2026-01-07.
 //
+//  Stage 6 phase 2 (declarative chassis): this file no longer decides which rows
+//  imbib-iOS's settings sheet has.
+//
+//  It used to, and imbib was the ONLY app in the suite where that mattered in
+//  both directions: imprint-iOS had no settings at all, so phase 1's iOS work was
+//  pure addition. imbib-iOS had shipped a hand-written `NavigationStack { List }`
+//  of nineteen `NavigationLink`s, two `Link`s, two `Button`s and two static rows —
+//  a second, independent answer to "what are imbib's settings" that no macOS code
+//  could read. The two answers had already drifted, in both directions and
+//  silently: iOS grew PDF Storage, a top-level Library Backup row and an
+//  Automation pane that macOS keeps as sections of General; macOS grew Flags &
+//  Tags, E-Ink Devices and Search & AI that iOS never heard about. Nobody had done
+//  anything wrong — there was simply no artifact that could disagree with itself.
+//
+//  Now there is one: `AppSettingsConfiguration.imbib` in PublicationManagerCore.
+//  This file contributes the iOS FACTORIES and the sheet's host, nothing more, and
+//  the differences above survive as `availability` on descriptors that BOTH
+//  platforms can read — which is the point. They are stated, in one place, with
+//  reasons.
+//
+//  THE TYPE NAME IS DELIBERATELY UNCHANGED. `IOSContentView` presents
+//  `IOSSettingsView()` from its sidebar-column gear and from a ⌘, shortcut, and
+//  that file is being rewritten concurrently by the sidebar work — so the entry
+//  point keeps working with no edit to it at all.
+//
 
 import SwiftUI
 import PublicationManagerCore
 import os
 import UniformTypeIdentifiers
 
-/// iOS settings view presented as a sheet.
+/// imbib-iOS's settings sheet — a RENDERER over `AppSettingsConfiguration.imbib`.
+///
+/// Everything that used to be in this struct's body is now either a descriptor
+/// (in PMC) or a factory (below). What remains is the sheet's two frozen
+/// accessibility identifiers and the dismissal.
 struct IOSSettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(SettingsViewModel.self) private var viewModel
 
-    @State private var showConsole = false
+    var body: some View {
+        IOSSettingsScreen(
+            configuration: .imbib,
+            // FROZEN: `imbib-iOSUITests/Pages/IOSSettingsPage.swift` taps
+            // `settings.doneButton`. The chassis default is `settings.done`
+            // (imprint-iOS had no prior identifier to preserve); imbib does, so
+            // the renderer takes it as a parameter rather than renaming it.
+            doneIdentifier: AccessibilityID.Settings.doneButton,
+            onDone: { dismiss() })
+        .environment(\.settingsSectionRegistry, IOSImbibSettingsSections.registry)
+    }
+}
+
+// MARK: - iOS factories
+
+/// imbib's iOS settings REGISTRATIONS.
+///
+/// The descriptors are `AppSettingsConfiguration.imbib` (PMC, pure data, shared
+/// with macOS). The factories are here because these views are imbib-iOS's:
+/// `UIPasteboard`, `ShareLink`, `.fileImporter`, `UIDevice`, the File Provider's
+/// on-demand PDF surface.
+///
+/// **Eleven of imbib's sixteen macOS panes reach iOS, plus seven sections that are
+/// iOS-shaped.** Note what is NOT here: `general`, `flagsAndTags`, `searchAI` and
+/// `eink` have no iOS factory because their descriptors are `.macOSOnly` — the
+/// registry is never asked for them on this platform, so their absence is
+/// declared rather than discovered as a blank screen.
+///
+/// Like macOS, imbib-iOS registers OVER the chassis `appearance` builtin:
+/// `IOSAppearanceSettingsView` is a theme editor over `ThemeSettingsStore`, not
+/// the builtin's three-way System/Light/Dark picker.
+enum IOSImbibSettingsSections {
+
+    /// One factory per iOS-available descriptor in `.imbib`, in preset order.
+    static let iosFactories: [SettingsSectionFactory] = [
+        // Over the builtin — see the type doc.
+        SettingsSectionFactory(section: .appearance) { IOSAppearanceSettingsView() },
+        SettingsSectionFactory(section: .viewing) { ListViewSettingsView() },
+        SettingsSectionFactory(section: .smartSearch) { SearchSettingsView() },
+        SettingsSectionFactory(section: .notes) { IOSNotesSettingsView() },
+        SettingsSectionFactory(section: .pdf) { PDFSettingsView() },
+        SettingsSectionFactory(section: .pdfStorage) { IOSPDFStorageSettingsView() },
+        SettingsSectionFactory(section: .sources) { SourcesSettingsView() },
+        SettingsSectionFactory(section: .inbox) { IOSInboxSettingsView() },
+        SettingsSectionFactory(section: .recommendations) { IOSRecommendationSettingsView() },
+        SettingsSectionFactory(section: .sync) { IOSSyncSettingsView() },
+        SettingsSectionFactory(section: .backup) { IOSBackupSettingsView() },
+        SettingsSectionFactory(section: .importExport) { IOSImportExportSettingsView() },
+        SettingsSectionFactory(section: .shortcuts) { IOSKeyboardShortcutsSettingsView() },
+        SettingsSectionFactory(section: .automation) { IOSAutomationSettingsView() },
+        SettingsSectionFactory(section: .advanced) { IOSAdvancedSettingsView() },
+        SettingsSectionFactory(section: .console) { IOSConsoleView() },
+        SettingsSectionFactory(section: .help) { IOSHelpSettingsPane() },
+        SettingsSectionFactory(section: .about) { IOSAboutSettingsPane() },
+    ]
+
+    /// Chassis builtins, then imbib's cross-platform panes, then iOS's — the
+    /// phase-1 tier order, so a later tier replaces an earlier one.
+    static let registry: SettingsSectionRegistry =
+        SettingsSectionRegistry.builtin
+            .composing(ImbibPortableSettingsSections.factories + iosFactories)
+}
+
+// MARK: - Advanced (iOS)
+
+/// Exploration retention plus the developer reset — imbib-iOS's `advanced` pane.
+///
+/// A CONSOLIDATION, and the only place phase 2 changed imbib-iOS's row structure
+/// on purpose. The sheet used to have an "Exploration" row under "Library" and a
+/// separate "Reset to First Run" button under "Developer"; macOS has had both in
+/// one `AdvancedSettingsTab` all along. Since the two platforms now share one
+/// descriptor list, iOS follows macOS's grouping — which is also why the reset
+/// machinery moved off `IOSSettingsView` (a list host has no business owning a
+/// destructive confirmation for one of its rows).
+struct IOSAdvancedSettingsView: View {
+    @Environment(LibraryManager.self) private var libraryManager
+
+    @State private var explorationRetention: ExplorationRetention = .oneMonth
+    @State private var showingClearConfirmation = false
     @State private var showingResetConfirmation = false
     @State private var showingResetInProgress = false
     @State private var resetResult: ResetResult?
 
     var body: some View {
-        NavigationStack {
-            List {
-                // Sources Section
-                Section {
-                    NavigationLink {
-                        SourcesSettingsView()
-                    } label: {
-                        Label("API Keys", systemImage: "key")
-                    }
-                    .accessibilityIdentifier(AccessibilityID.Settings.Tabs.sources)
-                }
-
-                // PDF Settings
-                Section {
-                    NavigationLink {
-                        PDFSettingsView()
-                    } label: {
-                        Label("PDF Settings", systemImage: "doc")
+        List {
+            Section {
+                Picker("Keep Results", selection: $explorationRetention) {
+                    ForEach(ExplorationRetention.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option)
                     }
                 }
-
-                // Search Settings
-                Section {
-                    NavigationLink {
-                        SearchSettingsView()
-                    } label: {
-                        Label("Search Settings", systemImage: "magnifyingglass")
-                    }
+                .onChange(of: explorationRetention) { _, newValue in
+                    SyncedSettingsStore.shared.explorationRetention = newValue
                 }
+            } header: {
+                Text("Retention Period")
+            } footer: {
+                Text("Exploration results (References, Citations, Similar, Co-Reads) will be automatically removed after this period.")
+            }
 
-                // Enrichment Settings
-                Section {
-                    NavigationLink {
-                        IOSEnrichmentSettingsView()
-                    } label: {
-                        Label("Citation Sources", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .accessibilityIdentifier(AccessibilityID.Settings.Tabs.enrichment)
+            Section {
+                Button("Clear All Exploration Results", role: .destructive) {
+                    showingClearConfirmation = true
                 }
+            } footer: {
+                Text("Immediately delete all exploration collections.")
+            }
 
-                // Inbox Settings
-                Section {
-                    NavigationLink {
-                        IOSInboxSettingsView()
-                    } label: {
-                        Label("Inbox Settings", systemImage: "tray")
-                    }
+            Section {
+                Button(role: .destructive) {
+                    showingResetConfirmation = true
+                } label: {
+                    Label("Reset to First Run", systemImage: "arrow.counterclockwise")
                 }
-
-                // Recommendation Settings
-                Section {
-                    NavigationLink {
-                        IOSRecommendationSettingsView()
-                    } label: {
-                        Label("Recommendation Engine", systemImage: "sparkles")
-                    }
-                    .accessibilityIdentifier(AccessibilityID.Settings.Tabs.recommendations)
-                }
-
-                // NOTE: the original "iCloud Sync" row lived here until
-                // 2026-07-23. It was wired to CloudKitSyncSettingsStore, whose
-                // engine (CommentCloudKitEngine) died in the Rust migration —
-                // the toggle advertised cross-device sync that did not exist,
-                // which misled users into perceiving "sync" as broken/slow.
-                // Real sync arrived with ADR-0007 Phase 3; its pane now lives
-                // in the Library section below (IOSSyncSettingsView).
-
-                // PDF Storage Settings (iOS-specific)
-                Section {
-                    NavigationLink {
-                        IOSPDFStorageSettingsView()
-                    } label: {
-                        Label("PDF Storage", systemImage: "externaldrive.fill.badge.icloud")
-                    }
-                }
-
-                // Display Settings
-                Section("Display") {
-                    NavigationLink {
-                        IOSAppearanceSettingsView()
-                    } label: {
-                        Label("Appearance", systemImage: "paintbrush")
-                    }
-
-                    NavigationLink {
-                        ListViewSettingsView()
-                    } label: {
-                        Label("List View", systemImage: "list.bullet")
-                    }
-                }
-
-                // Library Settings
-                Section("Library") {
-                    NavigationLink {
-                        IOSNotesSettingsView()
-                    } label: {
-                        Label("Notes", systemImage: "note.text")
-                    }
-
-                    NavigationLink {
-                        IOSImportExportSettingsView()
-                    } label: {
-                        Label("Import/Export", systemImage: "square.and.arrow.up.on.square")
-                    }
-
-                    NavigationLink {
-                        IOSExplorationSettingsView()
-                    } label: {
-                        Label("Exploration", systemImage: "arrow.triangle.branch")
-                    }
-
-                    // iCloud Sync (ADR-0007 Phase 3). This is the honest
-                    // successor to the row deleted on 2026-07-23, which
-                    // pointed at a CloudKit stack that no longer existed and
-                    // implied syncing that wasn't happening.
-                    NavigationLink {
-                        IOSSyncSettingsView()
-                    } label: {
-                        Label("iCloud Sync", systemImage: "arrow.triangle.2.circlepath.icloud")
-                    }
-
-                    // Backup lives beside sync rather than inside it (macOS
-                    // nests it in the Sync tab): on a phone the Sync pane is
-                    // already a full screen, and a backup is the thing you
-                    // reach for when sync is the problem.
-                    NavigationLink {
-                        IOSBackupSettingsView()
-                    } label: {
-                        Label("Library Backup", systemImage: "arrow.down.doc")
-                    }
-                    .accessibilityIdentifier(AccessibilityID.Settings.Tabs.backup)
-                }
-
-                // Automation Settings
-                Section {
-                    NavigationLink {
-                        IOSAutomationSettingsView()
-                    } label: {
-                        Label("Automation API", systemImage: "terminal")
-                    }
-                }
-
-                // Keyboard Shortcuts
-                Section {
-                    NavigationLink {
-                        IOSKeyboardShortcutsSettingsView()
-                    } label: {
-                        Label("Keyboard Shortcuts", systemImage: "keyboard")
-                    }
-                }
-
-                // Developer Section
-                Section("Developer") {
-                    Button {
-                        showConsole = true
-                    } label: {
-                        Label("Console", systemImage: "terminal")
-                    }
-
-                    Button(role: .destructive) {
-                        showingResetConfirmation = true
-                    } label: {
-                        Label("Reset to First Run", systemImage: "arrow.counterclockwise")
-                    }
-                    .disabled(showingResetInProgress)
-                }
-
-                // Help & Support Section
-                Section("Help & Support") {
-                    NavigationLink {
-                        IOSHelpView()
-                    } label: {
-                        Label("imbib Help", systemImage: "questionmark.circle")
-                    }
-
-                    Link(destination: URL(string: "https://yipihey.github.io/impress-apps/")!) {
-                        Label("Online Documentation", systemImage: "book")
-                    }
-
-                    Link(destination: URL(string: "https://github.com/yipihey/impress-apps/issues")!) {
-                        Label("Report an Issue", systemImage: "exclamationmark.bubble")
-                    }
-                }
-
-                // About Section
-                Section("About") {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack {
-                        Text("Build")
-                        Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
-                            .foregroundStyle(.secondary)
-                    }
+                .disabled(showingResetInProgress)
+            } header: {
+                Text("Developer")
+            }
+        }
+        .onAppear {
+            explorationRetention = SyncedSettingsStore.shared.explorationRetention
+        }
+        .confirmationDialog(
+            "Clear All Exploration Results?",
+            isPresented: $showingClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                libraryManager.clearExplorationLibrary()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete all exploration collections (References, Citations, Similar, Co-Reads). This action cannot be undone.")
+        }
+        .confirmationDialog(
+            "Reset to First Run?",
+            isPresented: $showingResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                performReset()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete all libraries, papers, collections, smart searches, and settings from this device AND iCloud. API keys will be preserved.\n\nIMPORTANT: Quit imbib on ALL other devices first, or they may sync data back.")
+        }
+        .alert(
+            resetResult?.wasFullySuccessful == true ? "Reset Complete" : "Partial Reset",
+            isPresented: Binding(
+                get: { resetResult != nil },
+                set: { if !$0 { resetResult = nil } }
+            )
+        ) {
+            Button("OK") {
+                resetResult = nil
+            }
+        } message: {
+            if let result = resetResult {
+                if result.wasFullySuccessful {
+                    Text("Local settings and files were cleared. Please force-quit and relaunch the app to complete the reset.")
+                } else {
+                    Text("Some local data could not be cleared. Please force-quit and relaunch the app and try again if needed.")
                 }
             }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .accessibilityIdentifier(AccessibilityID.Settings.doneButton)
+        }
+        .overlay {
+            if showingResetInProgress {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Resetting...")
+                        .font(.headline)
                 }
-            }
-            .sheet(isPresented: $showConsole) {
-                IOSConsoleView()
-            }
-            .confirmationDialog(
-                "Reset to First Run?",
-                isPresented: $showingResetConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Reset", role: .destructive) {
-                    performReset()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will delete all libraries, papers, collections, smart searches, and settings from this device AND iCloud. API keys will be preserved.\n\nIMPORTANT: Quit imbib on ALL other devices first, or they may sync data back.")
-            }
-            .alert(
-                resetResult?.wasFullySuccessful == true ? "Reset Complete" : "Partial Reset",
-                isPresented: Binding(
-                    get: { resetResult != nil },
-                    set: { if !$0 { resetResult = nil } }
-                )
-            ) {
-                Button("OK") {
-                    resetResult = nil
-                }
-            } message: {
-                if let result = resetResult {
-                    if result.wasFullySuccessful {
-                        Text("Local settings and files were cleared. Please force-quit and relaunch the app to complete the reset.")
-                    } else {
-                        Text("Some local data could not be cleared. Please force-quit and relaunch the app and try again if needed.")
-                    }
-                }
-            }
-            .overlay {
-                if showingResetInProgress {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("Resetting...")
-                            .font(.headline)
-                    }
-                    .padding(40)
-                    .background(.regularMaterial)
-                    .clipShape(.rect(cornerRadius: 12))
-                }
+                .padding(40)
+                .background(.regularMaterial)
+                .clipShape(.rect(cornerRadius: 12))
             }
         }
     }
@@ -303,6 +244,59 @@ struct IOSSettingsView: View {
         }
     }
 }
+
+// MARK: - Help & About (iOS)
+
+/// The three affordances that were the shipped "Help & Support" section, as a
+/// pane. macOS has these in the Help menu, which iOS does not have.
+struct IOSHelpSettingsPane: View {
+    var body: some View {
+        List {
+            Section {
+                NavigationLink {
+                    IOSHelpView()
+                } label: {
+                    Label("imbib Help", systemImage: "questionmark.circle")
+                }
+
+                Link(destination: URL(string: "https://yipihey.github.io/impress-apps/")!) {
+                    Label("Online Documentation", systemImage: "book")
+                }
+
+                Link(destination: URL(string: "https://github.com/yipihey/impress-apps/issues")!) {
+                    Label("Report an Issue", systemImage: "exclamationmark.bubble")
+                }
+            }
+        }
+    }
+}
+
+/// Version and build — the shipped "About" section, as a pane. macOS gets this
+/// from the standard application About window.
+struct IOSAboutSettingsPane: View {
+    var body: some View {
+        List {
+            Section {
+                LabeledContent("Version") {
+                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+                }
+                LabeledContent("Build") {
+                    Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Superseded list body
+//
+// The 280-line `NavigationStack { List { … } }` that stood here — nineteen
+// `NavigationLink`s, two `Link`s, two `Button`s, two static rows and the reset
+// state machine — is gone. Its rows are `AppSettingsConfiguration.imbib`
+// descriptors; its pushes are `IOSImbibSettingsSections.iosFactories`; its reset
+// lives in `IOSAdvancedSettingsView` above. The panes it pushed are all still
+// below, unedited.
+private enum SupersededSettingsListBody {}
 
 // MARK: - Sources Settings
 
@@ -1067,17 +1061,12 @@ struct IOSAutomationSettingsView: View {
 }
 
 // MARK: - Enrichment Settings
-
-struct IOSEnrichmentSettingsView: View {
-    @Environment(SettingsViewModel.self) private var viewModel
-
-    var body: some View {
-        EnrichmentSettingsView(viewModel: viewModel)
-            .task {
-                await viewModel.loadEnrichmentSettings()
-            }
-    }
-}
+//
+// `IOSEnrichmentSettingsView` was DELETED in Stage 6 phase 2. It and imbib
+// macOS's `EnrichmentSettingsTab` were the same four lines around the same
+// `EnrichmentSettingsView`, differing only by a `.padding(.horizontal)`, so both
+// became `ImbibEnrichmentSettingsPane` in PublicationManagerCore — the one imbib
+// pane for which the two platforms genuinely had a single implementation.
 
 // MARK: - PDF Storage Settings (iOS)
 
@@ -1194,56 +1183,11 @@ struct IOSPDFStorageSettingsView: View {
 }
 
 // MARK: - Exploration Settings (iOS)
-
-struct IOSExplorationSettingsView: View {
-    @Environment(LibraryManager.self) private var libraryManager
-
-    @State private var explorationRetention: ExplorationRetention = .oneMonth
-    @State private var showingClearConfirmation = false
-
-    var body: some View {
-        List {
-            Section {
-                Picker("Keep Results", selection: $explorationRetention) {
-                    ForEach(ExplorationRetention.allCases, id: \.self) { option in
-                        Text(option.displayName).tag(option)
-                    }
-                }
-                .onChange(of: explorationRetention) { _, newValue in
-                    SyncedSettingsStore.shared.explorationRetention = newValue
-                }
-            } header: {
-                Text("Retention Period")
-            } footer: {
-                Text("Exploration results (References, Citations, Similar, Co-Reads) will be automatically removed after this period.")
-            }
-
-            Section {
-                Button("Clear All Exploration Results", role: .destructive) {
-                    showingClearConfirmation = true
-                }
-            } footer: {
-                Text("Immediately delete all exploration collections.")
-            }
-        }
-        .navigationTitle("Exploration")
-        .onAppear {
-            explorationRetention = SyncedSettingsStore.shared.explorationRetention
-        }
-        .confirmationDialog(
-            "Clear All Exploration Results?",
-            isPresented: $showingClearConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Clear All", role: .destructive) {
-                libraryManager.clearExplorationLibrary()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will delete all exploration collections (References, Citations, Similar, Co-Reads). This action cannot be undone.")
-        }
-    }
-}
+//
+// `IOSExplorationSettingsView` was CONSOLIDATED into `IOSAdvancedSettingsView`
+// in Stage 6 phase 2. iOS had Exploration and "Reset to First Run" as two
+// separate rows; macOS has had both in one Advanced pane since it was written,
+// and the two platforms now render from one descriptor list, so iOS follows.
 
 // MARK: - Preview
 
