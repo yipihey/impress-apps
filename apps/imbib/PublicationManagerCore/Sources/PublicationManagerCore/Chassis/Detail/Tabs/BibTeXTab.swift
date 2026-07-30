@@ -47,7 +47,19 @@ public struct BibTeXTab: View {
     /// one thing the iOS copy did better). macOS: false — frozen behaviour.
     var confirmsUnsavedDiscard: Bool = false
 
-    @Environment(LibraryViewModel.self) private var viewModel
+    /// OPTIONAL, and the optionality is I2's finding rather than a style
+    /// choice. This view is "the same view macOS renders" and, since Stage 5b,
+    /// the same view iOS renders — but it read `LibraryViewModel` from the
+    /// environment NON-optionally, and SwiftUI traps on a missing `@Observable`
+    /// environment value. So the one cross-platform detail tab crashed any host
+    /// that had not injected imbib's view model; impress-iOS found it by
+    /// selecting the BibTeX tab and landing on the home screen.
+    ///
+    /// The view model is used for exactly one thing — writing an edited entry
+    /// back, which needs a LIBRARY to import into. A host without one now gets
+    /// the tab READ-ONLY (view + Copy, no Edit) instead of a crash, which is
+    /// the same shape as the Explore row's `LibraryManager` gate.
+    @Environment(LibraryViewModel.self) private var viewModel: LibraryViewModel?
     @Environment(\.themeColors) private var theme
     @State private var bibtexContent: String = ""
     @State private var isEditing = false
@@ -81,9 +93,10 @@ public struct BibTeXTab: View {
         self.confirmsUnsavedDiscard = confirmsUnsavedDiscard
     }
 
-    /// Whether editing is enabled (only for single library paper)
+    /// Whether editing is enabled: a single library paper AND a host that can
+    /// write one back (see `viewModel`).
     private var canEdit: Bool {
-        publicationID != nil && publicationIDs.count <= 1
+        publicationID != nil && publicationIDs.count <= 1 && viewModel != nil
     }
 
     /// Whether multiple papers are selected
@@ -93,8 +106,12 @@ public struct BibTeXTab: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Toolbar (only show edit controls for library papers)
-            if canEdit {
+            // The toolbar shows for any single paper. What it OFFERS depends on
+            // `canEdit`: Copy is always there (reading a paper's BibTeX is not
+            // a library-management verb), Edit only where the host can write
+            // the edit back. Before I2 the whole bar was `canEdit`-gated, so a
+            // read-only host would have lost Copy as well as Edit.
+            if publicationID != nil || isMultiSelection {
                 editableToolbar
             }
 
@@ -182,8 +199,8 @@ public struct BibTeXTab: View {
                 .buttonStyle(.plain)
                 .help("Copy BibTeX to clipboard")
 
-                // Edit button (only for single selection)
-                if !isMultiSelection {
+                // Edit button (single selection, and a host that can save)
+                if !isMultiSelection && canEdit {
                     Button {
                         isEditing = true
                     } label: {
@@ -248,7 +265,7 @@ public struct BibTeXTab: View {
     }
 
     private func saveBibTeX() {
-        guard let id = publicationID else { return }
+        guard let id = publicationID, let viewModel else { return }
 
         Task {
             do {

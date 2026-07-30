@@ -1,12 +1,14 @@
+#if os(iOS)
+// Chassis file — iOS-only. Lifted out of the imbib app target in I2; see
+// `IOSPublicationDetailPane.swift` for why, and for the injection points.
 //
 //  IOSPDFTab.swift
-//  imbib-iOS
+//  PublicationManagerCore
 //
 //  Created by Claude on 2026-01-07.
 //
 
 import SwiftUI
-import PublicationManagerCore
 import OSLog
 
 private let pdfLogger = Logger(subsystem: "com.imbib.app", category: "pdf-tab")
@@ -31,17 +33,23 @@ private enum PDFTabState: Equatable {
 
 /// iOS PDF tab for viewing embedded PDFs with auto-download support.
 /// Uses RustStoreAdapter for all data access (no Core Data).
-struct IOSPDFTab: View {
+public struct IOSPDFTab: View {
     let publicationID: UUID
-    let libraryID: UUID
+    let libraryID: UUID?
     @Binding var isFullscreen: Bool
+
+    public init(publicationID: UUID, libraryID: UUID? = nil, isFullscreen: Binding<Bool>) {
+        self.publicationID = publicationID
+        self.libraryID = libraryID
+        self._isFullscreen = isFullscreen
+    }
 
     @State private var state: PDFTabState = .loading
     @State private var showPDFBrowser = false
     @State private var downloadTask: Task<Void, Never>?
     @State private var publication: PublicationModel?
 
-    var body: some View {
+    public var body: some View {
         Group {
             switch state {
             case .loading:
@@ -406,3 +414,5 @@ struct IOSPDFTab: View {
     }
 
 }
+
+#endif  // os(iOS)

@@ -21,18 +21,27 @@
 //      duplicates.
 //   4. Fixed clock, so relative dates in screenshots are stable.
 //
-//  RULE 5, and it is impress's own FINDING: "never hand-build payloads — use
-//  the app core's own row builders" is exactly what this seed CANNOT do. Every
-//  writer in the suite lives in a sibling APP's core, not in the chassis:
-//  `ImpartStoreAdapter.emailMessageRow` is in MessageManagerCore, figure
-//  writing is implore's, and `task@1.0.0` rows are written by impel's
-//  `TaskStoreApi`. The chassis is read-only — it ships `MailStoreReader`,
-//  `FigureStoreReader`, `AgentStoreReader` and no `*StoreWriter` at all. So the
-//  payloads below are hand-built, and the mitigation is that every SCHEMA REF
-//  is read from the kind's DESCRIPTOR (`primarySchemaRef`) rather than typed as
-//  a literal — the one thing `schema-refs.json` exists to keep true. The field
-//  NAMES are still a second spelling of the reader's `CodingKeys`, and that is
-//  the honest cost of a chassis with no writer half.
+//  RULE 5, and it was impress's own FINDING: "never hand-build payloads — use
+//  the app core's own row builders" is exactly what this seed CANNOT do for
+//  three of its five kinds. Every mail/figure/task writer in the suite lives in
+//  a sibling APP's core, not in the chassis: `ImpartStoreAdapter
+//  .emailMessageRow` is in MessageManagerCore, figure writing is implore's, and
+//  `task@1.0.0` rows are written by impel's `TaskStoreApi`. For those three the
+//  chassis is read-only — it ships `MailStoreReader`, `FigureStoreReader`,
+//  `AgentStoreReader` and no `*StoreWriter` at all. So their payloads below are
+//  hand-built, and the mitigation is that every SCHEMA REF is read from the
+//  kind's DESCRIPTOR (`primarySchemaRef`) rather than typed as a literal — the
+//  one thing `schema-refs.json` exists to keep true.
+//
+//  PUBLICATIONS AND MANUSCRIPTS (I2) DO NOT PAY THAT COST, and the difference
+//  is the point. imbib's writers are IN the chassis, so those two kinds are
+//  seeded through the real ones — `RustStoreAdapter.createLibrary` +
+//  `importBibTeX` (the same BibTeX parser imbib's importer runs) and
+//  `RustStoreAdapter.createManuscript` (what imprint's New Manuscript calls).
+//  Nothing below spells `imbib/bibliography-entry` or `manuscript`, or invents
+//  a field name: the writer owns the shape. That is what the seeding convention
+//  asks for, and it is available for exactly the kinds whose writer half was
+//  never missing.
 //
 
 import Foundation
@@ -59,6 +68,19 @@ enum ImpressIOSUITestSeed {
     static let figureTitle = "Bernoulli convergence"
     static let taskTitle = "Recompute the Bernoulli table"
     static let taskState = "queued"
+    static let libraryName = "Engine Papers"
+    static let collectionName = "Note G"
+    /// A fragment of the first paper's title — what the suite anchors on,
+    /// because `MailStylePublicationRow` exposes no per-row identifier. Chosen
+    /// so it appears on exactly ONE element: it is not a substring of the
+    /// library name, the collection name or the second paper's title, and an
+    /// XCUITest `CONTAINS` predicate that matches two elements taps neither.
+    static let publicationTitleFragment = "Notes on the Analytical Engine"
+    static let secondPublicationTitleFragment = "On the Bernoulli Numbers"
+    static let manuscriptTitle = "On the Note G Correction"
+    /// A markdown manuscript, so the read-only pane's Preview tab has a format
+    /// it can actually render without a compiler.
+    static let manuscriptFormat = "markdown"
 
     static func seedIfRequested() {
         guard UITestingEnvironment.shouldSeedTestData else { return }
@@ -89,6 +111,13 @@ enum ImpressIOSUITestSeed {
         } catch {
             logger.error("seed failed: \(error)")
         }
+        // Publications and manuscripts go through imbib's own writers, which
+        // are `RustStoreAdapter`'s and therefore in the chassis. They open the
+        // SAME `SharedWorkspace.databasePath` the block above wrote to (one
+        // `impress.sqlite`, ADR-023), so this is not a second store — it is the
+        // same store reached through a writer that exists.
+        seedPublications()
+        seedManuscripts()
         ImbibImpressStore.shared.postMutation(structural: true)
     }
 
@@ -211,6 +240,105 @@ enum ImpressIOSUITestSeed {
                 ],
                 createdMs: millis(offset: -259_200)),
         ])
+    }
+
+    // MARK: - Publications (through imbib's real writers)
+
+    private static func seedPublications() {
+        let store = RustStoreAdapter.shared
+        guard store.listLibraries().isEmpty else {
+            logger.info("seed: libraries already present")
+            return
+        }
+        guard let library = store.createLibrary(name: libraryName) else {
+            logger.error("seed: createLibrary failed")
+            return
+        }
+        // The BibTeX parser imbib's importer runs. Two entries, one flagged and
+        // one starred through the store's own triage verbs — the same route the
+        // mail rows take, for the same reason (flags are envelope facts).
+        let ids = store.importBibTeX(
+            """
+            @article{Lovelace1843Analytical,
+              author = {Lovelace, Augusta Ada},
+              title = {Notes on the Analytical Engine},
+              journal = {Scientific Memoirs},
+              year = {1843},
+              volume = {3},
+              pages = {666--731},
+              doi = {10.1000/notes.g}
+            }
+
+            @article{Bernoulli1713Ars,
+              author = {Bernoulli, Jacob},
+              title = {On the Bernoulli Numbers},
+              journal = {Ars Conjectandi},
+              year = {1713},
+              pages = {97--98}
+            }
+            """,
+            libraryId: library.id)
+        guard !ids.isEmpty else {
+            logger.error("seed: importBibTeX imported nothing")
+            return
+        }
+        store.setStarred(ids: [ids[0]], starred: true)
+        store.setFlag(ids: [ids[0]], color: "red")
+        if let collection = store.createCollection(
+            name: collectionName, libraryId: library.id) {
+            store.addToCollection(publicationIds: [ids[0]], collectionId: collection.id)
+        }
+
+        // The Inbox SECTION resolves to the inbox LIBRARY, and a store with no
+        // inbox library has no Inbox section at all (`RecordSidebarBuilder`
+        // drops a section whose host nodes are empty). imbib creates it lazily
+        // in `InboxManager`; impress never writes one, so the fixture does —
+        // through the same `createInboxLibrary` verb, with one paper in it so
+        // the section has both a row and a badge.
+        if let inbox = store.createInboxLibrary(name: "Inbox") {
+            _ = store.importBibTeX(
+                """
+                @article{Menabrea1842Sketch,
+                  author = {Menabrea, Luigi Federico},
+                  title = {Sketch of the Analytical Engine},
+                  journal = {Biblioth\\`eque Universelle de Gen\\`eve},
+                  year = {1842}
+                }
+                """,
+                libraryId: inbox.id)
+        }
+        logger.info("seed: wrote \(ids.count) publications into \(libraryName)")
+    }
+
+    // MARK: - Manuscripts (through imbib's real writer)
+
+    private static func seedManuscripts() {
+        let store = RustStoreAdapter.shared
+        guard store.queryManuscripts(limit: 1).isEmpty else {
+            logger.info("seed: manuscripts already present")
+            return
+        }
+        let created = store.createManuscript(
+            title: manuscriptTitle,
+            format: manuscriptFormat,
+            body: """
+                # \(manuscriptTitle)
+
+                The eighth term of the Bernoulli series was transposed in the
+                published table. This note derives the correction and restates
+                the convergence bound.
+
+                ## Method
+
+                Recompute the partial sums to eight terms and compare against
+                the engine's output.
+                """,
+            authors: ["Augusta Ada Lovelace"])
+        guard let created else {
+            logger.error("seed: createManuscript failed")
+            return
+        }
+        logger.info("seed: wrote manuscript \(created.id)")
     }
 
     // MARK: - Helpers

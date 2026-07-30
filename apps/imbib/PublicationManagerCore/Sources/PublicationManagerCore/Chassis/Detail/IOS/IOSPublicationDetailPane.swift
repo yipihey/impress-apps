@@ -1,40 +1,88 @@
+#if os(iOS)
+// Chassis file — iOS-only (the macOS twin is `Chassis/Detail/DetailView.swift`).
 //
-//  IOSDetailView.swift
-//  imbib-iOS
+//  IOSPublicationDetailPane.swift
+//  PublicationManagerCore
 //
-//  Created by Claude on 2026-01-07.
+//  THE public iOS publication detail pane, for every iOS host.
+//
+//  ## Why this file moved (I2, 2026-07-30)
+//
+//  It was `imbib-iOS/Views/IOSDetailView.swift`, in the imbib APP target. That
+//  privacy — not any missing capability — is why ADR-0022 D9 had to write
+//  "`.publication` is absent because the chassis has no PUBLIC iOS publication
+//  pane", and why imprint-iOS's `presenting([.manuscript])` could not include
+//  the publications its own `citedInManuscripts` section lists. The pane's
+//  CONTENT has been shared since Stage 5b (`Chassis/Detail/Shared/`); only the
+//  CHROME was private, and chrome in an app target is a reach limit for every
+//  other host in the suite.
+//
+//  ## The injection points, and why each is optional
+//
+//  The lift parameterises exactly what was imbib-specific. Nothing else changed
+//  — imbib-iOS's UI suites are the pixel oracle for that claim.
+//
+//    * `LibraryViewModel` (Copy BibTeX) — OPTIONAL environment. A host that
+//      injects one keeps imbib's clipboard path; a host that does not gets the
+//      store's own `exportBibTeX`, which is the same string by a shorter route.
+//    * `LibraryManager` (Explore) — OPTIONAL environment, read by `IOSInfoTab`.
+//      Exploration CREATES a collection in the exploration library and posts
+//      `.navigateToCollection`; a shell with no exploration library and no
+//      sidebar listening for that notification would offer buttons that lead
+//      nowhere. So the Explore row renders only where a `LibraryManager` is in
+//      the environment — declared capability, not a hidden no-op.
+//    * `libraryID` — now OPTIONAL. imbib reaches this pane only from a library
+//      scope and passes one; a generic shell selects a paper out of a
+//      cross-library list and has none to hand, so the pane resolves the
+//      record's own first library. Every `AttachmentManager` verb underneath
+//      already took `UUID?`, so this widened a type and gated nothing.
+//    * `listID` — OPTIONAL already; it clears imbib's saved list selection on
+//      disappear and is simply absent elsewhere.
+//
+//  One thing the lift DELETED rather than parameterised: the pane took a
+//  `selectedPublicationID` binding whose only reader was a `goBack()` that
+//  nothing called. It has been dead since the pane stopped owning its own back
+//  chevron; carrying it into a public API would have made a private accident
+//  into a contract every host has to satisfy.
 //
 
 import SwiftUI
-import PublicationManagerCore
 
 // The file-scope `logger` went with `autoMarkAsRead`, whose only log line it
 // carried; the shell lifecycle it moved to is PMC's
 // `publicationDetailLifecycle`.
 
-/// iOS detail view showing publication information with tabbed interface.
+/// iOS detail pane showing one publication with the descriptor's tab set.
 ///
-/// Matches macOS DetailView with 4 tabs: Info, PDF, Notes, BibTeX.
-/// Uses RustStoreAdapter for all data access (no Core Data).
-struct DetailView: View {
+/// Matches macOS `DetailView` with 4 tabs: Info, PDF, Notes, BibTeX.
+/// Uses `RustStoreAdapter` for all data access (no Core Data).
+public struct IOSPublicationDetailPane: View {
     let publicationID: UUID
-    let libraryID: UUID
+    let libraryID: UUID?
     let listID: ListViewID?
-    @Binding var selectedPublicationID: UUID?
 
-    @Environment(LibraryViewModel.self) private var libraryViewModel
-    @Environment(LibraryManager.self) private var libraryManager
-    @Environment(\.dismiss) private var dismiss
+    @Environment(LibraryViewModel.self) private var libraryViewModel: LibraryViewModel?
 
     @State private var selectedTab: DetailTab = .info
     @State private var isPDFFullscreen: Bool = false
     @State private var publication: PublicationModel?
 
-    init(publicationID: UUID, libraryID: UUID, selectedPublicationID: Binding<UUID?>, listID: ListViewID? = nil) {
+    /// The library whose Papers folder this paper's attachments live in.
+    ///
+    /// `libraryID` when the host knows it (imbib always does); otherwise the
+    /// record's own first library, which is what a cross-library scope means.
+    private var effectiveLibraryID: UUID? {
+        libraryID ?? publication?.libraryIDs.first
+    }
+
+    public init(
+        publicationID: UUID,
+        libraryID: UUID? = nil,
+        listID: ListViewID? = nil
+    ) {
         self.publicationID = publicationID
         self.libraryID = libraryID
         self.listID = listID
-        self._selectedPublicationID = selectedPublicationID
     }
 
     // MARK: - Declarative tab set
@@ -60,11 +108,11 @@ struct DetailView: View {
     private func tabContent(_ tab: DetailTab) -> some View {
         switch tab {
         case .info:
-            IOSInfoTab(publicationID: publicationID, libraryID: libraryID)
+            IOSInfoTab(publicationID: publicationID, libraryID: effectiveLibraryID)
                 .accessibilityIdentifier(AccessibilityID.Detail.Tabs.info)
         case .pdf:
             IOSPDFTab(
-                publicationID: publicationID, libraryID: libraryID,
+                publicationID: publicationID, libraryID: effectiveLibraryID,
                 isFullscreen: $isPDFFullscreen)
                 .accessibilityIdentifier(AccessibilityID.Detail.Tabs.pdf)
         case .notes:
@@ -89,12 +137,14 @@ struct DetailView: View {
         }
     }
 
-    var body: some View {
+    public var body: some View {
         Group {
-            if let pub = publication {
+            if publication != nil {
                 if isPDFFullscreen {
                     // Fullscreen PDF - no tab bar, no navigation bar
-                    IOSPDFTab(publicationID: publicationID, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
+                    IOSPDFTab(
+                        publicationID: publicationID, libraryID: effectiveLibraryID,
+                        isFullscreen: $isPDFFullscreen)
                 } else {
                     // Normal tabbed view. WHICH tabs and in WHAT ORDER is
                     // `PublicationRecordKind.descriptor`, the same declaration
@@ -179,13 +229,6 @@ struct DetailView: View {
         publication = RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
     }
 
-    // MARK: - Navigation
-
-    private func goBack() {
-        dismiss()
-        selectedPublicationID = nil
-    }
-
     // MARK: - More Menu
 
     private func moreMenu(for pub: PublicationModel) -> some View {
@@ -238,9 +281,16 @@ struct DetailView: View {
         loadPublication()
     }
 
+    /// imbib's clipboard path when a `LibraryViewModel` is in the environment;
+    /// the store's own export otherwise. Both produce the same BibTeX — the
+    /// view model adds imbib's selection semantics, which a shell that selects
+    /// one paper at a time does not have.
     private func copyBibTeX() {
-        Task {
-            await libraryViewModel.copyToClipboard([publicationID])
+        if let libraryViewModel {
+            Task { await libraryViewModel.copyToClipboard([publicationID]) }
+        } else {
+            UIPasteboard.general.string =
+                RustStoreAdapter.shared.exportBibTeX(ids: [publicationID])
         }
     }
 
@@ -254,3 +304,5 @@ struct DetailView: View {
         }
     }
 }
+
+#endif  // os(iOS)

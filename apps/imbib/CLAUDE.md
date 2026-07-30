@@ -61,12 +61,26 @@ Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compat
 
 | Component | macOS | iOS |
 |-----------|-------|-----|
-| Detail SHELL | `Chassis/Detail/DetailView.swift` | `IOSDetailView.swift` |
-| Detail TABS | `Chassis/Detail/Tabs/{Info,PDF,Notes}Tab.swift` | `IOSInfoTab` / `IOSPDFTab` / `IOSNotesTab` — chrome only; the DATA/logic is shared (Stage 5b) |
+| Detail SHELL | `Chassis/Detail/DetailView.swift` | `Chassis/Detail/IOS/IOSPublicationDetailPane.swift` — **in PMC and PUBLIC since I2** |
+| Detail TABS | `Chassis/Detail/Tabs/{Info,PDF,Notes}Tab.swift` | `Chassis/Detail/IOS/{IOSInfoTab,IOSPDFTab,IOSNotesTab}.swift` — chrome only; the DATA/logic is shared (Stage 5b), and the chrome moved into PMC in I2 |
 | BibTeX tab | `Chassis/Detail/Tabs/BibTeXTab.swift` | **the same view** — `IOSBibTeXTab` deleted |
+| Publication LIST | `UnifiedPublicationListWrapper` | imbib: `IOSUnifiedPublicationListWrapper` (app-target; imbib's triage + BibTeX sheet + sort controls). OTHER hosts: `Chassis/Shared/IOSPublicationListPane.swift`, read-only |
+| Manuscript detail | `Chassis/Manuscripts/ManuscriptDetailPane.swift` (editor host, macOS-only) | imprint-iOS: `IOSManuscriptEditorHost`. Viewer-only hosts: `Chassis/Manuscripts/IOSManuscriptReadOnlyPane.swift` (I2) |
 | Sidebar | `SidebarView.swift` | `Chassis/Shared/RecordSidebar/RecordSidebarView.swift` + `ImbibSidebarBindings` / `IOSSidebarHost` (wave 3; `IOSSidebarView.swift` deleted) |
 | Settings | `SettingsView.swift` | `IOSSettingsView.swift` (both on the chassis registry, Stage 6 phase 2) |
 | Console | `ImpressLogging.ConsoleView` | **the same view**, presented by `ConsoleScreen`; `IOSConsoleView` is a 6-line entry point |
+
+**I2 (2026-07-30) moved the iOS detail CHROME into PMC.** `IOSDetailView`,
+`IOSInfoTab`, `IOSPDFTab`, `IOSNotesTab` and their three private dependencies
+(`IOSNoPDFView`, `IOSPDFBrowserView`, `IOSNotesEditorView`) left the imbib-iOS
+target for `Chassis/Detail/IOS/`. imbib-iOS CONSUMES them; its two call sites in
+`IOSContentView` name `IOSPublicationDetailPane`. Three injection points were
+parameterised and nothing else changed — `LibraryViewModel` (Copy BibTeX) and
+`LibraryManager` (the Explore row) are now OPTIONAL environment reads, and
+`libraryID` is optional (the pane resolves the record's own). A host that
+injects neither gets the pane with the store's BibTeX export and no Explore row.
+**A new detail affordance still goes in `Chassis/Detail/Shared/`; a new piece of
+iOS CHROME now goes in `Chassis/Detail/IOS/`, not in the app.**
 
 **Shared in Core**: `PDFViewerWithControls`, `BibTeXEditor`, `BibTeXTab`,
 `PublicationListView`, `MailStylePublicationRow`, `ScientificTextParser`, and

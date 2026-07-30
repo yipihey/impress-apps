@@ -192,7 +192,7 @@ When exporting, `rawBibTeX` is used if available, otherwise BibTeX is generated 
 | Component | macOS | iOS |
 |-----------|-------|-----|
 | Main view | `ContentView.swift` | `IOSContentView.swift` |
-| Detail view | `DetailView.swift` | `IOSDetailView.swift` |
+| Detail view | `DetailView.swift` | `Chassis/Detail/IOS/IOSPublicationDetailPane.swift` — in PublicationManagerCore and public since I2 (2026-07-30); imbib-iOS consumes it |
 | Sidebar | `SidebarView.swift` | `IOSSidebarView.swift` |
 | Settings | `SettingsView.swift` | `IOSSettingsView.swift` |
 

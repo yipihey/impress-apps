@@ -1,12 +1,14 @@
+#if os(iOS)
+// Chassis file — iOS-only. Lifted with `IOSPDFTab` in I2 (it is that tab's
+// empty state), so the tab's public surface has no app-private dependency.
 //
 //  IOSNoPDFView.swift
-//  imbib-iOS
+//  PublicationManagerCore
 //
 //  Created by Claude on 2026-01-07.
 //
 
 import SwiftUI
-import PublicationManagerCore
 import OSLog
 
 /// iOS view shown in PDF tab when no PDF is attached.
@@ -168,3 +170,5 @@ struct IOSNoPDFView: View {
         }
     }
 }
+
+#endif  // os(iOS)

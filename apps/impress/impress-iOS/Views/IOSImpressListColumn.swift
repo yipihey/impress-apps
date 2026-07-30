@@ -2,23 +2,31 @@
 //  IOSImpressListColumn.swift
 //  impress-iOS
 //
-//  ONE list column for three kinds.
+//  ONE list column for five kinds.
 //
 //  `RecordListHost` (the shared iOS list host: search field, ⌘F, pull to
 //  refresh, empty/loading phases, triage row grammar) is generic over any
-//  `Identifiable` row, and all three of the chassis's row-data types conform to
-//  `MailStyleItem` — so the row VIEW is `MailStyleRow` for every kind, exactly
+//  `Identifiable` row, and four of the chassis's row-data types conform to
+//  `MailStyleItem` — so the row VIEW is `MailStyleRow` for those kinds, exactly
 //  as it is on macOS. What is left per kind is the honest minimum: which rows a
 //  scope contains, and what a text query matches.
 //
+//  PUBLICATIONS are the exception, and deliberately so: their rows go through
+//  the chassis's `IOSPublicationListPane` (I2) rather than being assembled
+//  here. That pane is `RecordListHost` too — over `PublicationRowData` rendered
+//  by `MailStylePublicationRow`, the row view macOS draws — but the scope→rows
+//  half is `PublicationListCore`, which owns the paging and the sort and is
+//  shared with both of imbib's hosts. Re-deriving a publication query in a
+//  shell would be the one place this file could invent a second truth.
+//
 //  The triage capabilities and the row's verbs come from the KIND'S DESCRIPTOR,
 //  never from a switch here: mail declares no dismiss/archive/delete, figures
-//  declare no create, tasks declare `.none` for everything the kernel owns. A
-//  verb this shell cannot offer is a verb the descriptor did not declare. None
-//  of the three declares a dismissal or an archive status — mail's lifecycle is
-//  IMAP-owned, figures have no status field, task state moves only through the
-//  kernel — so `TriageRowState` passes false for both and the swipe grammar
-//  omits those verbs by itself.
+//  declare no create, tasks declare `.none` for everything the kernel owns,
+//  manuscripts declare a full status lifecycle, publications declare a
+//  library-move dismissal that needs a `LibraryManager` this shell does not
+//  have. A verb this shell cannot offer is a verb the descriptor did not
+//  declare — or, for publications, one `RecordTriageActions.storeBacked`
+//  deliberately leaves unset for `.libraryMove`.
 //
 
 import ImpressMailStyle
@@ -34,6 +42,7 @@ struct IOSImpressListColumn: View {
     @State private var messages: [MessageRowData] = []
     @State private var figures: [FigureRowData] = []
     @State private var tasks: [TaskRowData] = []
+    @State private var manuscripts: [ManuscriptRowData] = []
     @State private var searchText = ""
 
     var body: some View {
@@ -71,6 +80,31 @@ struct IOSImpressListColumn: View {
                  rowState: { TriageRowState(isStarred: $0.isStarredState, isDismissed: false) },
                  tagPaths: { Set($0.tagPaths) },
                  reload: { tasks = Self.loadTasks(scope) })
+        case .manuscripts(let scope, _):
+            list(rows: filtered(manuscripts) { [$0.title, $0.authorString, $0.statusRaw] },
+                 descriptor: ManuscriptRecordKind.descriptor,
+                 prefix: "manuscriptRow.",
+                 listID: "manuscriptList",
+                 prompt: "Search manuscripts",
+                 emptyTitle: "No Manuscripts",
+                 emptySymbol: "doc.richtext",
+                 rowState: {
+                     TriageRowState(
+                         isStarred: $0.isStarredState,
+                         // The descriptor's declared dismissal status, read off
+                         // the kind rather than spelled here.
+                         isDismissed: $0.statusRaw
+                             == ManuscriptRecordKind.descriptor.triage.dismissedStatus)
+                 },
+                 tagPaths: { Set($0.tagDisplays.map(\.path)) },
+                 reload: { manuscripts = Self.loadManuscripts(scope) })
+        case .publications(let source, let title):
+            IOSPublicationListPane(
+                source: source,
+                title: title,
+                selectedID: $selectedID,
+                listIdentifier: "publicationList",
+                dataVersion: dataVersion)
         }
     }
 
@@ -170,6 +204,27 @@ struct IOSImpressListColumn: View {
             // Unreachable: `.agentRun` is not in `presentableKinds`, so no
             // sidebar node routes here. See ImpressSidebarBindings' header.
             return []
+        }
+    }
+
+    /// PMC's OWN manuscript reads (`RustStoreAdapter`), not ImprintCore's
+    /// adapter — impress links no imprint core. The four cases are the four
+    /// `ManuscriptListScope` cases, one query each.
+    @MainActor
+    private static func loadManuscripts(_ scope: ManuscriptListScope) -> [ManuscriptRowData] {
+        let store = RustStoreAdapter.shared
+        switch scope {
+        case .all:
+            return store.queryManuscripts().compactMap(ManuscriptRowData.init(from:))
+        case .status(let status):
+            return store.queryManuscripts(status: status.rawValue)
+                .compactMap(ManuscriptRowData.init(from:))
+        case .folder(let id):
+            return store.queryManuscripts(collectionID: id)
+                .compactMap(ManuscriptRowData.init(from:))
+        case .flagged(let color):
+            return store.getFlaggedManuscripts(color: color)
+                .compactMap(ManuscriptRowData.init(from:))
         }
     }
 }

@@ -1,12 +1,14 @@
+#if os(iOS)
+// Chassis file — iOS-only. Lifted out of the imbib app target in I2; see
+// `IOSPublicationDetailPane.swift` for why, and for the injection points.
 //
 //  IOSNotesTab.swift
-//  imbib-iOS
+//  PublicationManagerCore
 //
 //  Created by Claude on 2026-01-07.
 //
 
 import SwiftUI
-import PublicationManagerCore
 import ImpressHelixCore
 
 /// iOS Notes tab for viewing and editing publication notes.
@@ -39,8 +41,12 @@ import ImpressHelixCore
 /// untouched and are preserved on save, where before they were either shown as
 /// junk or — once a user deleted the confusing lines — silently destroyed.
 @available(iOS 17.0, *)
-struct IOSNotesTab: View {
+public struct IOSNotesTab: View {
     let publicationID: UUID
+
+    public init(publicationID: UUID) {
+        self.publicationID = publicationID
+    }
 
     /// The parsed `note` field. Only `freeform` is editable here; the
     /// annotations are macOS's inline fields and are round-tripped verbatim.
@@ -53,7 +59,7 @@ struct IOSNotesTab: View {
     @AppStorage("helixShowModeIndicator") private var helixShowModeIndicator = true
     @State private var helixState = HelixState()
 
-    var body: some View {
+    public var body: some View {
         Group {
             if helixModeEnabled {
                 HelixTextEditor(
@@ -101,3 +107,5 @@ struct IOSNotesTab: View {
         notesWriter.saveNow(document, for: publicationID, settings: annotationSettings)
     }
 }
+
+#endif  // os(iOS)

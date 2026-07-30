@@ -1,25 +1,35 @@
+#if os(iOS)
+// Chassis file — iOS-only. Lifted out of the imbib app target in I2; see
+// `IOSPublicationDetailPane.swift` for why, and for the injection points.
 //
 //  IOSInfoTab.swift
-//  imbib-iOS
+//  PublicationManagerCore
 //
 //  Created by Claude on 2026-01-07.
 //
 
 import SwiftUI
-import PublicationManagerCore
 import ImpressFTUI
 import QuickLook
 import OSLog
 
 /// iOS Info tab showing publication details, abstract, identifiers, and attachments.
 /// Uses RustStoreAdapter for all data access (no Core Data).
-struct IOSInfoTab: View {
+public struct IOSInfoTab: View {
     let publicationID: UUID
-    let libraryID: UUID
+    let libraryID: UUID?
+
+    public init(publicationID: UUID, libraryID: UUID? = nil) {
+        self.publicationID = publicationID
+        self.libraryID = libraryID
+    }
 
     @Environment(\.themeColors) private var theme
     @Environment(\.fontScale) private var fontScale
-    @Environment(LibraryManager.self) private var libraryManager
+    /// OPTIONAL: exploration writes into the exploration LIBRARY and navigates
+    /// by notification, so a host without a `LibraryManager` gets no Explore
+    /// row rather than five buttons that quietly do nothing.
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager?
     @State private var showPDFBrowser = false
     @State private var showFilePicker = false
     @State private var showShareSheet = false
@@ -38,7 +48,7 @@ struct IOSInfoTab: View {
     // Refresh trigger for when enrichment completes
     @State private var enrichmentRefreshID = UUID()
 
-    var body: some View {
+    public var body: some View {
         ScrollView {
             if let pub = publication {
                 VStack(alignment: .leading, spacing: 20) {
@@ -269,8 +279,10 @@ struct IOSInfoTab: View {
 
     // MARK: - Explore Section
 
+    /// Explorable AND explorable HERE: the paper has to offer an exploration
+    /// (`canExplore`) and this host has to have somewhere to put the result.
     private func canExploreReferences(_ pub: PublicationModel) -> Bool {
-        PublicationExplorationModel(publication: pub).canExplore
+        libraryManager != nil && PublicationExplorationModel(publication: pub).canExplore
     }
 
     /// Flag stripe + tags: the SHARED `PublicationFlagAndTagsSection`
@@ -583,6 +595,7 @@ struct IOSInfoTab: View {
     // Stage 5b made that plumbing shared (`PublicationExplorationRunner`), so
     // the service setup, the in-flight flag and the error surfacing exist once.
     private func explore(_ kind: PublicationExplorationKind) {
+        guard let libraryManager else { return }
         let pubID = publicationID
         Task {
             await explorationRunner.run(kind, for: pubID, libraryManager: libraryManager)
@@ -601,3 +614,5 @@ private struct IOSShareSheet: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
+
+#endif  // os(iOS)

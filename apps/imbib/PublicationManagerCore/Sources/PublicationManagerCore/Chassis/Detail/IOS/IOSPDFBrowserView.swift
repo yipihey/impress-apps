@@ -1,3 +1,6 @@
+#if os(iOS)
+// Chassis file — iOS-only. Lifted with `IOSPDFTab` in I2 (the publisher-site
+// fallback both the PDF tab and the Info tab present).
 //
 //  IOSPDFBrowserView.swift
 //  imbib-iOS
@@ -11,7 +14,6 @@
 
 import SwiftUI
 import WebKit
-import PublicationManagerCore
 import OSLog
 
 private let browserLogger = Logger(subsystem: "com.imbib.app", category: "pdf-browser")
@@ -383,3 +385,5 @@ struct ShareSheet: UIViewControllerRepresentable {
         onPDFSaved: nil
     )
 }
+
+#endif  // os(iOS)

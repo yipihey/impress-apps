@@ -1,6 +1,9 @@
+#if os(iOS)
+// Chassis file — iOS-only. Lifted with `IOSNotesTab` in I2 (it is that tab's
+// editor).
 //
 //  IOSNotesEditorView.swift
-//  imbib-iOS
+//  PublicationManagerCore
 //
 //  Created by Claude on 2026-01-28.
 //
@@ -321,3 +324,5 @@ class NotesTextView: UITextView {
     )
     .padding()
 }
+
+#endif  // os(iOS)

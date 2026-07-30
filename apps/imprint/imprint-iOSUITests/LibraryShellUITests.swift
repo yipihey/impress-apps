@@ -64,28 +64,47 @@ final class LibraryShellUITests: XCTestCase {
     /// Scroll the sidebar until `element` is on screen. The sidebar's section
     /// collapse state is PERSISTED (shared with macOS), so how far down a row
     /// sits depends on the device's history — never assume a fixed offset.
-    private func scrollSidebar(until element: XCUIElement, attempts: Int = 5) {
-        let sidebar = app.collectionViews["Sidebar"]
+    private func scrollSidebar(until element: XCUIElement, attempts: Int = 8) {
+        let named = app.collectionViews["Sidebar"]
+        let sidebar = named.exists ? named : app.collectionViews.firstMatch
+        guard sidebar.exists else { return }
         for _ in 0..<attempts where !element.isHittable {
             sidebar.swipeUp()
             sleep(1)
         }
     }
 
+    /// A sidebar label, scrolled into view if it is below the fold.
+    ///
+    /// I2 added `.citedInManuscripts` to this shell — imprint-iOS presents
+    /// `.publication` now — and that section sits ABOVE Manuscripts in the
+    /// suite-wide section order, so every row of the manuscript tree moved down
+    /// by one section. Rows that used to fit no longer do, and a lazy `List`
+    /// reports an unrendered row as absent. Scrolling for a label is the honest
+    /// instrument; asserting `exists` at a fixed offset was only ever right by
+    /// luck about how tall the sidebar happened to be.
+    private func revealLabel(_ label: String) -> XCUIElement {
+        let element = app.staticTexts[label]
+        if element.exists { return element }
+        scrollSidebar(until: element)
+        return element
+    }
+
     // MARK: - Sidebar
 
     func testSidebarShowsSectionsAndTheCollectionTree() throws {
-        XCTAssertTrue(app.staticTexts["Manuscripts"].waitForExistence(timeout: 20),
+        _ = app.staticTexts.firstMatch.waitForExistence(timeout: 20)
+        XCTAssertTrue(revealLabel("Manuscripts").exists,
                       "the Manuscripts section header comes from AppShellConfiguration.imprint")
         capture("sidebar")
-        // Status smart-children are the descriptor's declared lifecycle.
+        // Status smart-children are the descriptor's declared lifecycle; the
+        // last two are the collection tree, which sits under them.
         for label in ["All Manuscripts", "Drafts", "Submitted", "Published", "Archive",
                       "Flagged", "Papers"] {
-            XCTAssertTrue(app.staticTexts[label].exists, "sidebar is missing “\(label)”")
+            XCTAssertTrue(revealLabel(label).exists, "sidebar is missing “\(label)”")
         }
-        let subfolder = app.staticTexts["Reionization 2026"]
+        let subfolder = revealLabel("Reionization 2026")
         XCTAssertTrue(subfolder.exists, "subcollections nest under their parent folder")
-        scrollSidebar(until: subfolder)
         capture("sidebar-tree")
 
         // Scroll to the Dismissed section and select it: the scope must show
@@ -128,7 +147,8 @@ final class LibraryShellUITests: XCTestCase {
     /// The dismissed manuscript must NOT appear in the default list — the
     /// adapter's dismissal rule, seen from the UI.
     func testDismissedManuscriptIsHiddenFromTheDefaultScope() throws {
-        XCTAssertTrue(app.staticTexts["All Manuscripts"].waitForExistence(timeout: 20))
+        _ = app.staticTexts.firstMatch.waitForExistence(timeout: 20)
+        XCTAssertTrue(revealLabel("All Manuscripts").exists)
         XCTAssertFalse(app.staticTexts["Early Draft of the Reionization Review"].exists)
     }
 
@@ -230,29 +250,75 @@ final class SeededLibraryShellUITests: XCTestCase {
         return titles.element(boundBy: 0)
     }
 
+    /// A sidebar label, scrolled into view if it is below the fold. See the
+    /// twin in `LibraryShellUITests` for why I2 made this necessary.
+    private func revealLabel(_ label: String, attempts: Int = 8) -> XCUIElement {
+        let element = app.staticTexts[label]
+        if element.exists { return element }
+        let named = app.collectionViews["Sidebar"]
+        let sidebar = named.exists ? named : app.collectionViews.firstMatch
+        guard sidebar.exists else { return element }
+        for _ in 0..<attempts where !element.exists {
+            sidebar.swipeUp()
+            sleep(1)
+        }
+        return element
+    }
+
     /// The status rows are the DESCRIPTOR's, so they exist on a fresh store.
     /// Their labels are the frozen `StatusSpec` labels — the same strings
     /// `RecordKindStatusSpecTests` pins on the unit side, seen by a user.
     func testSidebarStatusRowsComeFromTheDescriptor() throws {
-        XCTAssertTrue(app.staticTexts["Manuscripts"].waitForExistence(timeout: 30),
+        _ = app.staticTexts.firstMatch.waitForExistence(timeout: 30)
+        XCTAssertTrue(revealLabel("Manuscripts").exists,
                       "the Manuscripts section header comes from AppShellConfiguration")
         // iOS shows every declared status except the dismissed one, which owns
         // the Dismissed section (`StatusSpec.hiddenByDefault`).
         for label in ["All Manuscripts", "Drafts", "Internal Review", "Submitted",
                       "In Revision", "Published", "Archive"] {
-            XCTAssertTrue(app.staticTexts[label].exists,
+            XCTAssertTrue(revealLabel(label).exists,
                           "sidebar is missing the declared status row “\(label)”")
         }
-        XCTAssertTrue(app.staticTexts["Flagged"].exists)
-        // The host capability's visible effect: `.citedInManuscripts` lists
-        // PUBLICATIONS and imprint-iOS declares `presenting([.manuscript])`,
-        // so the section must be absent — the assertion that replaced a
-        // hardcoded `section != .citedInManuscripts`.
-        XCTAssertFalse(
-            app.staticTexts["Cited in Manuscripts"].exists,
-            "a host that cannot present publications must not offer a "
-                + "publication-bound section")
+        XCTAssertTrue(revealLabel("Flagged").exists)
         capture("seeded-sidebar-status-rows")
+    }
+
+    /// C1(b), paid in I2.
+    ///
+    /// `.citedInManuscripts` lists PUBLICATIONS. imprint-iOS declared
+    /// `presenting([.manuscript])` and this suite asserted the section was
+    /// ABSENT — not because imprint should not offer it, but because the
+    /// chassis had no public iOS publication surface to render it with (the C1
+    /// finding, deferred as "(b)"). I2 built `IOSPublicationListPane` and
+    /// `IOSPublicationDetailPane` in PMC, the capability set gained
+    /// `.publication`, and the section arrived with no other edit — which is
+    /// exactly what naming the KIND rather than the SECTION was supposed to buy.
+    ///
+    /// The assertion is deliberately structural: whether any papers are cited
+    /// depends on `citation-usage@1.0.0` rows imprint writes while a user
+    /// edits, which a fresh seed has none of. The SECTION must exist; its
+    /// contents are the store's business.
+    func testCitedInManuscriptsSectionIsPresentNowThatTheChassisHasAPublicationPane() throws {
+        let header = app.descendants(matching: .any)["sidebar.section.citedInManuscripts"]
+        let label = app.staticTexts["Cited in Manuscripts"]
+        XCTAssertTrue(
+            header.waitForExistence(timeout: 30) || label.waitForExistence(timeout: 10),
+            "imprint-iOS presents `.publication` since I2, so the section its own "
+                + "preset permits must render")
+
+        // Selecting it must reach the chassis list, not an empty column.
+        let node = app.descendants(matching: .any)[
+            "sidebar.node.section.citedInManuscripts.publication"]
+        if node.waitForExistence(timeout: 10) {
+            node.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)["publicationList"]
+                    .waitForExistence(timeout: 20)
+                    || app.staticTexts["No Papers"].waitForExistence(timeout: 10),
+                "the section should route to IOSPublicationListPane — with rows "
+                    + "or with its honest empty state, never nothing")
+        }
+        capture("cited-in-manuscripts")
     }
 
     /// The Tags submenu, populated from `listTags()`.

@@ -224,6 +224,55 @@ because the iOS manuscript surface is imprint's editor HOST, not a viewer;
 REPLACE derived ones, so surfacing Runs means re-spelling the task rows — the
 same shape as the mixed-kind Flagged gap already in the matrix.
 
+### D9 addendum — per-platform reach, WIDENED (I2, 2026-07-30)
+
+The paragraph above described a shell that could not show the two kinds the
+user's own device holds most of. The report was exact: *"It recognizes very few
+types. None of the ones we have multiple entries like publications and
+manuscripts."* Both reasons it gave were chassis facts, so both were fixed in
+the chassis rather than forked into impress.
+
+`presenting([.message, .figure, .task, .publication, .manuscript])`.
+
+| kind | was | now | what it took |
+|---|---|---|---|
+| `.publication` | absent — no PUBLIC iOS pane | ✅ Inbox, Libraries, Flagged, Cited in Manuscripts, Dismissed | LIFTED `IOSDetailView` + its three tabs + three private dependencies out of the imbib app target into `Chassis/Detail/IOS/` (public), and wrote `IOSPublicationListPane` (`Chassis/Shared/`) over the already-cross-platform `PublicationListCore` |
+| `.manuscript` | absent — the iOS surface is imprint's EDITOR | ✅ Manuscripts, read-only | wrote `IOSManuscriptReadOnlyPane` (`Chassis/Manuscripts/`). `ManuscriptDetailPane` is still macOS-only and was NOT un-gated — the session finding above stands; this is a twin that hosts no session |
+| `.artifact` | absent | absent, unchanged | `ArtifactDetailView` is a genuine per-type switch |
+| `.agentRun` | absent | absent, unchanged | still the `sectionBindings` one-kind-per-section limit |
+
+**The gate that replaced them.** Four publication-bound sections are now
+permitted by the preset AND bound to a presentable kind, and still do not
+render: `.search`, `.exploration`, `.scixLibraries`, `.sharedWithMe`. They are
+off by the CONTENT gate (`RecordSidebarDataSource.sectionIsAvailable`), which is
+the correct instrument — the rows have no source in this host, rather than the
+kind having no pane. That is the four-gate model in D9's own docs finally using
+all four gates for real: preset, facet, kind, content.
+
+**Two findings the widening produced, both chassis-level:**
+
+1. **`BibTeXTab` — "the same view on both platforms" since Stage 5b — CRASHED
+   any host that had not injected imbib's `LibraryViewModel`.** It read the
+   value from the environment non-optionally and SwiftUI traps on a missing
+   `@Observable` value. impress-iOS found it by selecting the tab and landing on
+   the home screen. Now optional: the tab degrades to view-plus-Copy where a
+   host cannot write an edit back. This is the exact class the D9 findings list
+   calls out — a shared surface with an unstated host requirement.
+2. **`PublicationSource` had no `RecordRouteScope` conformance.** Four kinds had
+   one; the fifth, the oldest, did not — so a host handed a publication-bound
+   sidebar selection had nothing to turn it into. Added, with the four host-key
+   spellings (`library.<uuid>`, `feed.<uuid>`, `scix.<uuid>`, `recent`)
+   published beside it the way `MessageListScope.accountRouteScope` already is,
+   because a key spelled in two hosts is a key that can differ.
+
+**imprint-iOS: C1(b) paid.** `presenting([.manuscript])` became
+`presenting([.manuscript, .publication])` — one word — and
+`.citedInManuscripts` arrived with no other declaration edit, which is what C1
+bought by replacing a hardcoded `section != .citedInManuscripts` with a
+capability set. Its list is `IOSPublicationListPane` and its detail is the
+lifted pane; imprint gains a read-only view of the papers its own manuscripts
+cite, and gains no bibliography management.
+
 Also absent from iOS: **grouped mixed-kind search, impress's showcase**.
 `StoreSearchSurface` is the one AppKit-linking chassis builtin, so
 `CustomSurfaceRegistry.builtin` is empty on iOS and ⌘⇧F opens nothing there. It

@@ -311,3 +311,90 @@ extension AgentListScope: RecordRouteScope {
         }
     }
 }
+
+// MARK: - Publication route scope (I2)
+//
+// The FIFTH conformance, and the one that was missing when ADR-0022 D9 wrote
+// that impress-iOS could not present `.publication`. The pane was the loud
+// half of that gap; this is the quiet half — with no
+// `PublicationSource.init?(routeScope:)`, a host handed a publication-bound
+// sidebar selection had nothing to turn it into, so every publication section
+// would have selected into a scope no list could name.
+//
+// The four host-key spellings below are imbib-iOS's, verbatim
+// (`ImbibSidebarRoute.key`). They are published HERE for the same reason
+// `MessageListScope.accountRouteScope` and `FigureListScope.unfiledRouteScope`
+// are published beside their scopes: the key space belongs to the host, but
+// once a SECOND host needs the same rows, a key spelled twice is a key that
+// can differ. imbib keeps its own enum — it carries routes the chassis has no
+// scope for (search forms, `contentOnly`) — and the two agree by these
+// constructors being the definition.
+
+public extension PublicationSource {
+
+    /// Chassis spelling of a LIBRARY row. Libraries sit above the collection
+    /// tree (each owns its own), so `.folder` would be the wrong word and the
+    /// organise verbs must not attach to them — host escape hatch.
+    static func libraryRouteScope(_ id: UUID) -> RecordSidebarScope {
+        .host(.publication, key: "library.\(id.uuidString.lowercased())")
+    }
+
+    /// Chassis spelling of a SMART SEARCH / feed row: a stored query rather
+    /// than a stored membership.
+    static func feedRouteScope(_ id: UUID) -> RecordSidebarScope {
+        .host(.publication, key: "feed.\(id.uuidString.lowercased())")
+    }
+
+    /// Chassis spelling of a SciX (remote) shelf row.
+    static func scixRouteScope(_ id: UUID) -> RecordSidebarScope {
+        .host(.publication, key: "scix.\(id.uuidString.lowercased())")
+    }
+
+    /// Chassis spelling of the "Recent" row — papers the user viewed or added
+    /// by hand, which is an activity stamp rather than a subset of any kind.
+    static let recentRouteScope = RecordSidebarScope.host(.publication, key: "recent")
+
+    private static func hostID(_ scope: RecordSidebarScope, prefix: String) -> UUID? {
+        guard case .host(.some(.publication), let key) = scope,
+              key.hasPrefix(prefix) else { return nil }
+        return UUID(uuidString: String(key.dropFirst(prefix.count)))
+    }
+}
+
+extension PublicationSource: RecordRouteScope {
+    public init?(routeScope: RecordSidebarScope) {
+        if let id = Self.hostID(routeScope, prefix: "library.") { self = .library(id); return }
+        if let id = Self.hostID(routeScope, prefix: "feed.") { self = .smartSearch(id); return }
+        if let id = Self.hostID(routeScope, prefix: "scix.") { self = .scixLibrary(id); return }
+        if routeScope == Self.recentRouteScope { self = .recent; return }
+
+        switch routeScope {
+        // Every collection — inbox, library or exploration — is ONE route, the
+        // mapping imbib's `section(for:)` already makes.
+        case .folder(.publication, let id):
+            self = .collection(id)
+        case .flagged(.publication, let raw):
+            // `flatMap` matches every other conformance: an unknown colour
+            // degrades to "any flag", never to no rows.
+            self = .flagged(raw.flatMap { FlagColor(rawValue: $0)?.rawValue })
+        case .section(.citedInManuscripts, _):
+            self = .citedInManuscripts
+        case .section(.dismissed, _):
+            self = .dismissed
+        // `.section(.inbox, _)` is deliberately NOT here. `.inbox` carries the
+        // inbox LIBRARY's id, which is a store read (`getInboxLibrary()`) and
+        // therefore `@MainActor`; this initialiser is not, and making it so
+        // would put a database call inside a scope conversion that runs in
+        // every sidebar rebuild. Hosts that show an Inbox resolve it once,
+        // beside the read they already do for its badge count.
+        //
+        // The publication descriptor declares NO status lifecycle
+        // (`statuses: []`, `dismissal: .libraryMove`), so the builder never
+        // emits `.status(.publication, _)` and `.all(.publication)` has no
+        // library to be "all" of — imbib's Libraries section is a tree of
+        // LIBRARIES, not one "All Publications" row. Both are honest nils.
+        default:
+            return nil
+        }
+    }
+}

@@ -45,6 +45,11 @@ struct IOSManuscriptLibraryView: View {
     @State private var scope: RecordSidebarScope?
     /// The manuscript open in the detail column.
     @State private var selectedManuscriptID: UUID?
+    /// The PAPER open in the detail column, when the selected section is
+    /// publication-bound (`.citedInManuscripts` — I2). Kept separate from
+    /// `selectedManuscriptID` on purpose: they are two different record kinds
+    /// and one `UUID?` for both would let a stale manuscript id select a paper.
+    @State private var selectedPublicationID: UUID?
 
     /// The citation currently being inspected — raised by a long press in the
     /// editor or by `imprint://inspect/citation/{key}`. nil → no sheet.
@@ -183,7 +188,27 @@ struct IOSManuscriptLibraryView: View {
 
     // MARK: - List column
 
+    @ViewBuilder
     private var listColumn: some View {
+        if let publicationSource {
+            // I2: THE chassis's read-only publication list, the same view
+            // impress-iOS shows. imprint writes the `citation-usage@1.0.0`
+            // rows this scope resolves from; it does not own a paper list, and
+            // this is deliberately not one — no triage sheet, no BibTeX editor,
+            // no library management.
+            IOSPublicationListPane(
+                source: publicationSource,
+                title: SidebarSectionType.citedInManuscripts.displayName,
+                selectedID: $selectedPublicationID,
+                listIdentifier: "publicationList",
+                dataVersion: adapter.dataVersion)
+                .id(publicationSource)
+        } else {
+            manuscriptListColumn
+        }
+    }
+
+    private var manuscriptListColumn: some View {
         // THE shared iOS list host (C1): the `List`, the search field, the ⌘F
         // button, pull-to-refresh, the `.recordTriageRow` wiring and the
         // three-state branch are `RecordListHost`'s. What imprint parameterizes
@@ -335,7 +360,22 @@ struct IOSManuscriptLibraryView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if let id = selectedManuscriptID {
+        if publicationSource != nil {
+            if let id = selectedPublicationID {
+                // The LIFTED pane (I2), with no `LibraryViewModel` and no
+                // `LibraryManager` in the environment: Copy BibTeX takes the
+                // store route and the Explore row does not render, because
+                // exploration would write into imbib's exploration library.
+                IOSPublicationDetailPane(publicationID: id)
+                    .accessibilityIdentifier("publicationDetail")
+                    .id(id)
+            } else {
+                ContentUnavailableView(
+                    "No Paper Selected",
+                    systemImage: "doc.text",
+                    description: Text("Choose a paper from the list."))
+            }
+        } else if let id = selectedManuscriptID {
             IOSManuscriptEditorHost(manuscriptID: id)
                 .id(id)
         } else {
@@ -481,6 +521,12 @@ struct IOSManuscriptLibraryView: View {
             isArchived: m.status == ManuscriptStoreAdapter.archivedStatus)
     }
 
+    /// Non-nil when the sidebar's selection is a publication-bound section.
+    /// The whole publication branch of this shell hangs off this one value.
+    private var publicationSource: PublicationSource? {
+        ImprintSidebarBindings.publicationSource(for: scope)
+    }
+
     private var scopeTitle: String {
         switch scope {
         case .status(_, let status): return RecordStatusPresentation.label(for: status)
@@ -497,6 +543,14 @@ struct IOSManuscriptLibraryView: View {
     }
 
     private func refresh() {
+        if publicationSource != nil {
+            // `PublicationSource.citedInManuscripts` resolves against
+            // `CitedInManuscriptsSnapshot`, an in-memory set that something on
+            // screen has to warm — on macOS that something is the sidebar's own
+            // row. Here the list is the only reader, so the refresh warms it.
+            Task { await CitedInManuscriptsSnapshot.shared.refresh() }
+            return
+        }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let storeScope = ImprintSidebarBindings.storeScope(for: scope) ?? .all
         if query.isEmpty {

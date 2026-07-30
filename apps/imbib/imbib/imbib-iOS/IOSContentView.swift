@@ -257,7 +257,9 @@ struct IOSContentView: View {
                 // exist only where it's the sole detail surface.
                 .navigationDestination(item: compactOnlyPublicationSelection) { pubID in
                     if let libraryID = selectedLibraryID {
-                        DetailView(publicationID: pubID, libraryID: libraryID, selectedPublicationID: $selectedPublicationID, listID: currentListID)
+                        IOSPublicationDetailPane(
+                            publicationID: pubID, libraryID: libraryID,
+                            listID: currentListID)
                     } else {
                         // Fallback when no library context
                         ContentUnavailableView(
@@ -443,7 +445,8 @@ struct IOSContentView: View {
             IOSManuscriptDetailView(manuscriptID: manuscriptID)
         } else if let pubID = selectedPublicationID,
            let libraryID = selectedLibraryID {
-            DetailView(publicationID: pubID, libraryID: libraryID, selectedPublicationID: $selectedPublicationID, listID: currentListID)
+            IOSPublicationDetailPane(
+                publicationID: pubID, libraryID: libraryID, listID: currentListID)
         } else {
             ContentUnavailableView(
                 "No Selection",

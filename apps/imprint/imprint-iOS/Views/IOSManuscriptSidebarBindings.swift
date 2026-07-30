@@ -54,19 +54,29 @@ enum ImprintSidebarBindings {
 
     /// imprint's declarative identity. The sidebar is whatever this says.
     ///
-    /// `.presenting([.manuscript])` is this HOST's capability statement: the
-    /// iOS build has one record surface, the manuscript list. The `.imprint`
-    /// preset also permits `.citedInManuscripts`, whose rows are PUBLICATIONS
-    /// — macOS imprint renders those through `UnifiedPublicationListWrapper`,
-    /// and this target has no publication list at all.
+    /// `.presenting([.manuscript, .publication])` is this HOST's capability
+    /// statement. It was `[.manuscript]` alone from C1 until I2, and the
+    /// missing half was never imprint's: the `.imprint` preset permits
+    /// `.citedInManuscripts`, whose rows are PUBLICATIONS, macOS imprint
+    /// renders those through `UnifiedPublicationListWrapper`, and there was no
+    /// PUBLIC iOS publication surface in the chassis to render them with — the
+    /// C1 finding, deferred as "(b)".
     ///
-    /// That section used to be suppressed by `section != .citedInManuscripts`
-    /// in the content gate below: honest, but a hardcoded section NAME in app
-    /// code, which says what to hide and not why. Naming the KIND says why, and
-    /// covers every publication-bound section this shell might be handed in
-    /// future without another line here.
+    /// I2 built both halves in PMC (`IOSPublicationListPane` +
+    /// `IOSPublicationDetailPane`), so the deferral is paid: imprint-iOS now
+    /// declares the kind and the section arrives with no further edit. The
+    /// section was NEVER suppressed by name here — C1 replaced a hardcoded
+    /// `section != .citedInManuscripts` with this capability set precisely so
+    /// that gaining the surface would be a one-word change, and it was.
+    ///
+    /// What imprint-iOS still does NOT gain: a publication list of its own
+    /// making. It shows the papers ITS manuscripts cite, read-only, through the
+    /// chassis pane. Every other publication-bound section (`.inbox`,
+    /// `.libraries`, …) is absent because the imprint PRESET does not permit
+    /// it, which is the correct layer for "imprint is not a bibliography
+    /// manager".
     static var configuration: AppShellConfiguration {
-        .imprint.presenting([.manuscript])
+        .imprint.presenting([.manuscript, .publication])
     }
 
     static var descriptor: RecordKindDescriptor { ManuscriptRecordKind.descriptor }
@@ -74,7 +84,8 @@ enum ImprintSidebarBindings {
     // MARK: Scope translation
 
     /// `RecordSidebarScope` (chassis vocabulary) → `ManuscriptStoreScope`
-    /// (imprint's list surface). `nil` = this shell has no list for that node.
+    /// (imprint's list surface). `nil` = this shell has no MANUSCRIPT list for
+    /// that node; see `publicationSource(for:)` for the other half.
     static func storeScope(for scope: RecordSidebarScope?) -> ManuscriptStoreScope? {
         switch scope {
         case .all: return .all
@@ -87,6 +98,14 @@ enum ImprintSidebarBindings {
         // from the declarations, so it never emits one and has no list for it.
         case .section, .host, nil: return nil
         }
+    }
+
+    /// The publication half (I2). `.citedInManuscripts` is the only section the
+    /// imprint preset binds to `.publication`, and the chassis conversion names
+    /// it — no section literal here either.
+    static func publicationSource(for scope: RecordSidebarScope?) -> PublicationSource? {
+        guard let scope, scope.kind == .publication else { return nil }
+        return PublicationSource(routeScope: scope)
     }
 
     // MARK: Data source
@@ -138,11 +157,12 @@ enum ImprintSidebarBindings {
                 // content (Dismissed is the destination of the dismiss
                 // gesture, so hiding it while empty would strand the verb).
                 //
-                // The section that DOES have to go is `.citedInManuscripts`,
-                // and it is gone declaratively: `configuration` above says
-                // this host presents `.manuscript` only, so the builder drops
-                // every publication-bound section. This closure no longer
-                // names a section, which is the point.
+                // `.citedInManuscripts` used to be the one section that had to
+                // go, and it went declaratively rather than by name. Since I2
+                // it STAYS, declaratively and for the same reason: the host's
+                // capability set gained `.publication` because the chassis
+                // gained the pane. Nothing in this closure changed to let it
+                // in, which is the property the capability set exists to have.
                 true
             })
     }

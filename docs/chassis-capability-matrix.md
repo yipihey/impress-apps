@@ -151,17 +151,29 @@ place; the parity tests still freeze every value:
 
 ### impress — what each platform renders, and what is DECLARED absent
 
-Shipped 2026-07-30 (ADR-0022 D9). The preset permits every section on both
-platforms; what differs is `presentableKinds`, the HOST capability axis. macOS
-leaves it nil (present everything); impress-iOS declares
-`presenting([.message, .figure, .task])`, and `RecordSidebarBuilder` drops every
-section bound to a kind outside that set — with **no section-name literal
-anywhere in the app**, which is the property the axis exists to buy.
+Shipped 2026-07-30 (ADR-0022 D9); **iOS reach widened by I2 the same day.** The
+preset permits every section on both platforms; what differs is
+`presentableKinds`, the HOST capability axis. macOS leaves it nil (present
+everything); impress-iOS declares
+`presenting([.message, .figure, .task, .publication, .manuscript])`, and
+`RecordSidebarBuilder` drops every section bound to a kind outside that set —
+with **no section-name literal in the KIND gate**, which is the property the
+axis exists to buy.
+
+I2 added the last two kinds by building what D9 said was missing, in the
+CHASSIS: `IOSPublicationDetailPane` (lifted out of the imbib app target,
+`Chassis/Detail/IOS/`), `IOSPublicationListPane` (new,
+`Chassis/Shared/`) and `IOSManuscriptReadOnlyPane` (new,
+`Chassis/Manuscripts/`). Five sections moved from "declared absent" to
+rendered: Inbox, Libraries, Manuscripts, Flagged, Dismissed — plus Cited in
+Manuscripts. A second gate now carries the remainder: four publication-bound
+sections whose KIND is presentable but whose ROWS this host has no source for
+(`ImpressSidebarBindings.contentGatedSections`).
 
 | kind | macOS | iOS | route |
 |---|---|---|---|
-| `publication` | ✅ nine sections (inbox, libraries, sharedWithMe, scixLibraries, search, exploration, flagged, citedInManuscripts, dismissed) | ❌ **declared absent** | macOS: the publication list path (`UnifiedPublicationListWrapper` + the `PublicationSource` union) — a DELIBERATE exception to registry routing, per ADR-0022 C2 axis 5. iOS: there is no PUBLIC iOS publication pane in the chassis at all. imbib-iOS has one, but `IOSDetailView` and its tabs are imbib-app-private (the C1 finding), so declaring the kind would render nine sections that select into nothing |
-| `manuscript` | ✅ Manuscripts + Submissions | ❌ **declared absent** | macOS: `ManuscriptSectionView`, also a deliberate exception — it owns the editor SESSION (imbib CLAUDE.md invariant) and a registry factory has nowhere to put one. iOS: the manuscript surface is imprint's editor HOST (`IOSManuscriptLibraryView` + the session registry), an editor rather than a viewer, and `ManuscriptDetailPane` is still macOS-only for the same session reason — unlike the figure and agent panes it is NOT one AppKit call from portable. A read-only manuscript route is a real future option; embedding imprint's editor is not |
+| `publication` | ✅ nine sections (inbox, libraries, sharedWithMe, scixLibraries, search, exploration, flagged, citedInManuscripts, dismissed) | ✅ **five sections (I2)** — inbox, libraries, flagged, citedInManuscripts, dismissed | macOS: the publication list path (`UnifiedPublicationListWrapper` + the `PublicationSource` union) — a DELIBERATE exception to registry routing, per ADR-0022 C2 axis 5. iOS: `IOSPublicationListPane` (`RecordListHost` over `PublicationListCore`, rows by `MailStylePublicationRow`) + `IOSPublicationDetailPane`, both PUBLIC in PMC since I2. The other four sections are gated on CONTENT, not kind: `.search` (imbib's online-search forms; and `StoreSearchSurface` is AppKit-only), `.exploration` (its collections are written by imbib's `ExplorationService`), `.scixLibraries` (ADS credentials), `.sharedWithMe` (imbib's sharing sync) |
+| `manuscript` | ✅ Manuscripts + Submissions | ✅ **Manuscripts, READ-ONLY (I2)** | macOS: `ManuscriptSectionView`, also a deliberate exception — it owns the editor SESSION (imbib CLAUDE.md invariant) and a registry factory has nowhere to put one. iOS: `RecordListHost` over `ManuscriptRowData` + **`IOSManuscriptReadOnlyPane`** (info header, read-only source, markdown preview, "Open in imprint" for compiled formats). `ManuscriptDetailPane` is STILL macOS-only and was not un-gated: five of the six views it composes are AppKit-shaped and it hosts the editor session. The read-only pane is a twin, not a port |
 | `artifact` | ✅ Artifacts | ❌ **declared absent** | `ArtifactDetailView` is macOS-only and is a genuine per-artifact-type switch, not a platform bridge |
 | `figure` | ✅ Figures | ✅ Figures | registry-resolved on macOS (`FigureSectionView`); on iOS `RecordListHost` + **`FigureDetailPane`, which was un-gated from `#if os(macOS)` for this shell** — its only AppKit call was `NSImage(data:)` |
 | `message` | ✅ Mail | ✅ Mail | registry-resolved on macOS (`MessageSectionView`); on iOS `RecordListHost` + `MessageDetailPane`, both already cross-platform (proven by impart-iOS) |
@@ -249,7 +261,7 @@ Files the audit reached for and Stage 2a left **gated**, with the reason:
 
 | File | Why it stays gated |
 |---|---|
-| `Chassis/Manuscripts/ManuscriptDetailPane.swift` | audit said "plain SwiftUI"; it is not. Its `content` switch names six macOS-only views — `ManuscriptDetailView`, `ManuscriptSourceTab`, `MarkdownPreviewTab(session:)`, `ManuscriptLaTeXImprintPrompt`, `ManuscriptPDFPreview`, `ManuscriptInverseSync`. Un-gating would leave a shell whose every branch is an island, which is a re-gate wearing a different hat |
+| `Chassis/Manuscripts/ManuscriptDetailPane.swift` | audit said "plain SwiftUI"; it is not. Its `content` switch names six macOS-only views — `ManuscriptDetailView`, `ManuscriptSourceTab`, `MarkdownPreviewTab(session:)`, `ManuscriptLaTeXImprintPrompt`, `ManuscriptPDFPreview`, `ManuscriptInverseSync`. Un-gating would leave a shell whose every branch is an island, which is a re-gate wearing a different hat. **STILL macOS-only after I2, and this row is why.** I2 wanted an iOS manuscript pane and wrote a TWIN (`IOSManuscriptReadOnlyPane`) rather than un-gating this one: the twin hosts no session, so it needs none of the six |
 | `Chassis/Detail/DetailView.swift` | genuinely AppKit-adjacent (stays). A dead `#if os(iOS) .navigationTitle` branch inside it — unreachable, since the whole file is `#if os(macOS)` — was deleted in passing |
 
 Enforcement is automated, not conventional: `ChassisCrossPlatformContractTests`
@@ -606,6 +618,48 @@ give impel an `automation` pane (its `ImpelHTTPServer` reads
 `httpAutomationEnabled`/`httpAutomationPort` that **no impel pane writes** — the
 server is unconfigurable from the GUI); reconcile impel's `counselModel`, which has
 two conflicting `@AppStorage` defaults in two files.
+
+### iOS publication + manuscript reach (I2, 2026-07-30)
+
+The user's report was "it recognizes very few types — none of the ones we have
+multiple entries, like publications and manuscripts". Two gaps, both CHASSIS
+gaps rather than impress gaps, and both closed as public surfaces every iOS host
+consumes.
+
+| surface | file | macOS | iOS | note |
+|---|---|---|---|---|
+| publication detail pane | `Chassis/Detail/IOS/IOSPublicationDetailPane.swift` | ➖ (macOS twin is `Chassis/Detail/DetailView.swift`) | ✅ **public** | LIFTED verbatim out of `imbib-iOS/Views/IOSDetailView.swift`. Its CONTENT was already shared (Stage 5b's `Chassis/Detail/Shared/`); only the chrome was app-private, and chrome in an app target is a reach limit for the whole suite |
+| publication Info / PDF / Notes tabs | `Chassis/Detail/IOS/IOSInfoTab.swift`, `IOSPDFTab.swift`, `IOSNotesTab.swift` | ➖ | ✅ **public** | lifted with the pane, plus their three private dependencies (`IOSNoPDFView`, `IOSPDFBrowserView`, `IOSNotesEditorView`) |
+| publication LIST | `Chassis/Shared/IOSPublicationListPane.swift` | ➖ (macOS twin is `UnifiedPublicationListWrapper`) | ✅ **public** | NEW, not lifted. `RecordListHost` + `PublicationRowData` + `MailStylePublicationRow`, with scope→rows delegated to the cross-platform `PublicationListCore`. imbib's `IOSUnifiedPublicationListWrapper` was surveyed and rejected: 791 lines of which ~4/5 are imbib's LIBRARY-MANAGEMENT verbs (inbox/feed triage, BibTeX sheet, sort/unread controls, multi-select, attachment drop, smart-search pull), every one of which needs a library to write into |
+| manuscript detail pane (read-only) | `Chassis/Manuscripts/IOSManuscriptReadOnlyPane.swift` | ➖ (macOS twin is `ManuscriptDetailPane`, an EDITOR host) | ✅ **public** | NEW. Info (descriptor-labelled status, authors, dates, `ManuscriptHistorySection`), read-only source, markdown preview. NO session, NO editing, NO `ImprintCore` — it reads `RustStoreAdapter.getManuscriptDetail`, PMC's own FFI |
+| imprint handoff | `Manuscript/ManuscriptImprintHandoff.swift` | ✅ | ✅ **un-gated (I2)** | was `#if os(macOS)` for one `NSWorkspace.open`; now `UIApplication.open` on iOS with a `canOpenURL` availability check. Same shape as the two panes D9 un-gated for one AppKit call each |
+
+**What the read-only manuscript pane does NOT render, stated rather than
+mocked:** a compiled preview. Typst and LaTeX need the editor session and the
+in-process renderer; the pane carries neither, so those formats get an "Open in
+imprint" affordance instead of a spinner that never resolves. Markdown renders
+free (`MarkdownSourcePreview`, no compile step). A body stored as a
+`blob:sha256:…` ref renders its "too large, open in imprint" state rather than
+the literal ref.
+
+**A URL-grammar disagreement the handoff surfaced and did not fix:**
+`ManuscriptImprintHandoff` emits `imprint://open?manuscript=<uuid>`, while
+`ImpressURL.openDocument(id:)` builds `imprint://open/document/<uuid>`. imprint's
+own handler — on both platforms — parses the QUERY form, so the handoff uses it;
+changing the line would break a working handoff to fix a docs inconsistency.
+Recorded here as the open item.
+
+**One crash the lift found, in a view that had been "the same view on both
+platforms" since Stage 5b.** `BibTeXTab` read
+`@Environment(LibraryViewModel.self)` NON-optionally, and SwiftUI traps on a
+missing `@Observable` environment value — so the one fully-collapsed detail tab
+killed any host that had not injected imbib's view model. impress-iOS found it
+by selecting the BibTeX tab and landing on the home screen. The view model is
+used for exactly one thing (writing an edited entry back, which needs a library
+to import into), so the read is now optional and the tab degrades to
+view-plus-Copy where a host cannot save. The Copy button also moved OUT of the
+`canEdit` gate, because reading a paper's BibTeX is not a library-management
+verb.
 
 ### Publication detail pane (`Chassis/Detail/`, Stage 5b, 2026-07-30)
 

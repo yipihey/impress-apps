@@ -19,18 +19,47 @@ import PublicationManagerCore
 import SwiftUI
 
 /// The sidebar's selection, translated into the chassis's per-kind list
-/// vocabulary. One initialiser, three tries, no section-name literals: each
+/// vocabulary. One initialiser, five tries, no section-name literals: each
 /// `RecordRouteScope` conformance already knows which route scopes are its own,
 /// because the scope carries the kind.
+///
+/// Two cases carry a TITLE, and the reason is worth naming: `MessageListScope`,
+/// `FigureListScope` and `AgentListScope` can name themselves because every
+/// scope they have is a fixed subset ("All Figures", "Queued"). A publication
+/// library or a manuscript folder is named by the USER, and the sidebar has
+/// just read that name — asking the list column to read it again would be a
+/// second store round trip for a string the caller is holding.
 enum ImpressRoute: Hashable {
     case messages(MessageListScope)
     case figures(FigureListScope)
     case tasks(AgentListScope)
+    case publications(PublicationSource, title: String)
+    case manuscripts(ManuscriptListScope, title: String)
 
-    init?(scope: RecordSidebarScope) {
+    /// - Parameter snapshot: needed for the two host-named scopes — the Inbox
+    ///   section carries no library id (a store read the chassis conversion
+    ///   deliberately refuses), and folder/library titles live in the sidebar's
+    ///   own read.
+    @MainActor
+    init?(scope: RecordSidebarScope, snapshot: ImpressSidebarSnapshot) {
         if let mail = MessageListScope(routeScope: scope) { self = .messages(mail); return }
         if let figure = FigureListScope(routeScope: scope) { self = .figures(figure); return }
         if let agent = AgentListScope(routeScope: scope) { self = .tasks(agent); return }
+        if let manuscript = ManuscriptListScope(routeScope: scope) {
+            self = .manuscripts(
+                manuscript,
+                title: ImpressSidebarBindings.manuscriptTitle(
+                    for: manuscript, snapshot: snapshot))
+            return
+        }
+        if let source = ImpressSidebarBindings.publicationSource(
+            for: scope, snapshot: snapshot) {
+            self = .publications(
+                source,
+                title: ImpressSidebarBindings.publicationTitle(
+                    for: scope, snapshot: snapshot))
+            return
+        }
         return nil
     }
 
@@ -39,6 +68,8 @@ enum ImpressRoute: Hashable {
         case .messages: return .message
         case .figures: return .figure
         case .tasks: return .task
+        case .publications: return .publication
+        case .manuscripts: return .manuscript
         }
     }
 
@@ -47,6 +78,8 @@ enum ImpressRoute: Hashable {
         case .messages(let s): return s.title
         case .figures(let s): return s.title
         case .tasks(let s): return s.title
+        case .publications(_, let title): return title
+        case .manuscripts(_, let title): return title
         }
     }
 }
@@ -66,7 +99,9 @@ struct IOSImpressHostView: View {
     private var storeAdapter: RustStoreAdapter { RustStoreAdapter.shared }
     private var dataVersion: Int { storeAdapter.dataVersion &* 1_000 &+ revision }
 
-    private var route: ImpressRoute? { scope.flatMap(ImpressRoute.init(scope:)) }
+    private var route: ImpressRoute? {
+        scope.flatMap { ImpressRoute(scope: $0, snapshot: snapshot) }
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -138,8 +173,11 @@ struct IOSImpressHostView: View {
         }
     }
 
-    /// Three chassis panes, no app-side detail view. Two of them were
-    /// `#if os(macOS)` before this shell asked for them.
+    /// Five chassis panes, no app-side detail view. Two of them were
+    /// `#if os(macOS)` before this shell asked for them; the publication pane
+    /// was imbib-app-private and the read-only manuscript pane did not exist
+    /// until I2 — which is what "chassis-level, never an impress-only fork"
+    /// costs and buys.
     @ViewBuilder
     private func recordDetail(route: ImpressRoute, id: UUID) -> some View {
         switch route {
@@ -152,6 +190,16 @@ struct IOSImpressHostView: View {
         case .tasks:
             AgentRecordDetailPane(kind: .task, recordID: id, selectedTab: $selectedTab)
                 .accessibilityIdentifier("taskDetail")
+        case .publications:
+            // No `libraryID`: a cross-library scope has none, and the pane
+            // resolves the paper's own. No `LibraryViewModel`/`LibraryManager`
+            // in the environment either, so Copy BibTeX takes the store route
+            // and the Explore row does not render — both declared, not broken.
+            IOSPublicationDetailPane(publicationID: id)
+                .accessibilityIdentifier("publicationDetail")
+        case .manuscripts:
+            IOSManuscriptReadOnlyPane(manuscriptID: id, selectedTab: $selectedTab)
+                .accessibilityIdentifier("manuscriptDetail")
         }
     }
 

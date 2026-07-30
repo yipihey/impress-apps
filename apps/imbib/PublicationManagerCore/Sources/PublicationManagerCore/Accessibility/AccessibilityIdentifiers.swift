@@ -54,6 +54,8 @@ public enum AccessibilityID {
             public static let pdf = "detail.tabs.pdf"
             public static let notes = "detail.tabs.notes"
             public static let bibtex = "detail.tabs.bibtex"
+            /// The manuscript SOURCE tab (read-only on iOS, editable on macOS).
+            public static let source = "detail.tabs.source"
             public static let references = "detail.tabs.references"
             public static let annotations = "detail.tabs.annotations"
         }
