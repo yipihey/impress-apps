@@ -203,6 +203,24 @@ public struct TabContentView: View {
                 // (`CustomSurfaceRegistry.builtin`), so this never dead-ends.
                 viewModel.navigateToTab(.customSurface(StoreSearchSurface.surfaceID))
             }),
+            // Stage 4c (ADR-0021 seam, ChassisNavigation.swift): the general
+            // case of the two lines above. An app whose DEFAULT window is the
+            // chassis has to be able to drive it from its own menu commands
+            // (impart's ⌘1-5) and URL scheme (impel://navigate/...), neither of
+            // which can reach `viewModel` — and neither of which should learn
+            // `ImbibTab`.
+            (.chassisNavigateToSurface, { notification in
+                guard let surfaceID = notification.object as? String,
+                      shellConfiguration.customSurfaces[surfaceID] != nil else {
+                    // An id no surface claims navigates nowhere, rather than to
+                    // an "unavailable surface" pane the user did not ask for.
+                    return
+                }
+                viewModel.navigateToTab(.customSurface(surfaceID))
+            }),
+            (.chassisNavigateToDefaultSection, { _ in
+                viewModel.selectDefaultSectionLeaf()
+            }),
         ])
         .alert("Delete Library", isPresented: $viewModel.showDeleteConfirmation, presenting: viewModel.libraryToDelete) { library in
             Button("Delete", role: .destructive) {

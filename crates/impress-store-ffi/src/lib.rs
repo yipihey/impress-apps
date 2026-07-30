@@ -1731,6 +1731,77 @@ fn build_item_from_upsert(
     Ok(item)
 }
 
+// ─── Hybrid search ranking (Stage 7 item 7) ──────────────────────────────────
+
+/// One publication returned by at least one of imbib's three retrieval engines.
+///
+/// A `nil` score means that engine did not return this publication. That is
+/// load-bearing rather than a default: it decides the match type and whether
+/// the field boosts apply, so callers must pass `nil` (not `0`) for a miss.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedHybridCandidate {
+    /// Lowercase UUID string. Also the tie-break key — spell it consistently.
+    pub id: String,
+    pub cite_key: String,
+    pub title: String,
+    /// Rendered author list, as displayed.
+    pub authors: String,
+    /// Tantivy BM25 score, if the full-text index returned this publication.
+    pub fts_score: Option<f32>,
+    /// Embedding cosine similarity (0–1).
+    pub semantic_similarity: Option<f32>,
+    /// Best chunk-passage cosine similarity (0–1).
+    pub chunk_similarity: Option<f32>,
+}
+
+/// A scored candidate. The vector this comes back in **is** the rank order.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedRankedCandidate {
+    pub id: String,
+    pub score: f32,
+    /// `both` | `fulltext` | `full` | `semantic`.
+    pub match_type: String,
+}
+
+/// Rank imbib's hybrid (full-text + semantic + chunk) candidate set.
+///
+/// The single implementation of the hybrid relevance formula: full-text hits
+/// outrank semantic-only ones, field matches on author/title/cite-key boost
+/// full-text hits, and chunk-passage similarity is scaled to sit between the
+/// two. Ordering is score descending, ties broken by ascending id — the
+/// tie-break is pinned so the palette does not reshuffle equal-scored rows.
+///
+/// Pure function: no store access, so any surface can call it.
+#[cfg_attr(feature = "native", uniffi::export)]
+pub fn rank_hybrid_search_results(
+    query: String,
+    candidates: Vec<SharedHybridCandidate>,
+) -> Vec<SharedRankedCandidate> {
+    let inputs: Vec<impress_core::search_ops::HybridCandidate> = candidates
+        .into_iter()
+        .map(|c| impress_core::search_ops::HybridCandidate {
+            id: c.id,
+            cite_key: c.cite_key,
+            title: c.title,
+            authors: c.authors,
+            fts_score: c.fts_score,
+            semantic_similarity: c.semantic_similarity,
+            chunk_similarity: c.chunk_similarity,
+        })
+        .collect();
+
+    impress_core::search_ops::rank_hybrid_candidates(&query, &inputs)
+        .into_iter()
+        .map(|r| SharedRankedCandidate {
+            id: r.id,
+            score: r.score,
+            match_type: r.match_type.to_string(),
+        })
+        .collect()
+}
+
 /// The allowed `manuscript.format` payload values (single source of truth:
 /// `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
 /// app-side format enums can assert parity without duplicating the list.

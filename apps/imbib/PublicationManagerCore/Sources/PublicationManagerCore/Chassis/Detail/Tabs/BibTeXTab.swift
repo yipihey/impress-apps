@@ -1,10 +1,31 @@
-#if os(macOS)
-// Chassis file — macOS-only in GUI-meld Phase 1 (iOS keeps IOSContentView).
 //
 //  BibTeXTab.swift
 //  imbib
 //
-//  Extracted from DetailView.swift
+//  Extracted from DetailView.swift; un-gated in Stage 5b — this is the ONE
+//  publication BibTeX tab, macOS and iOS.
+//
+//  ## One surface written twice (verdict: full collapse)
+//
+//  `IOSBibTeXTab` (126 lines) was this view with the same state machine
+//  (`bibtexContent` / `isEditing` / `hasChanges`), the same `BibTeXEditor`
+//  with line numbers, the same load (`RustStoreAdapter.exportBibTeX`) and the
+//  same save-by-reparse. Two differences, both of which were bugs rather than
+//  designs:
+//
+//  * **The save path.** macOS re-imports the parsed entry
+//    (`LibraryViewModel.updateFromBibTeX`), so an edited cite key, entry type
+//    or a DELETED field takes effect. iOS looped `updateField` over
+//    `entry.fields`, which cannot express any of those three: renaming
+//    `@article{foo` to `@article{bar` or deleting a `pages` line appeared to
+//    save and silently did nothing. iOS now takes the macOS path.
+//  * **The empty state.** iOS showed an editor over an empty buffer where
+//    macOS shows `ContentUnavailableView`.
+//
+//  The one behavioural difference kept is `confirmsUnsavedDiscard`: iOS asks
+//  before discarding an edit, macOS discards silently. macOS's Cancel is part
+//  of the frozen detail pane, so the confirmation is opt-in rather than
+//  applied to both.
 //
 
 import SwiftUI
@@ -17,10 +38,14 @@ import UIKit
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "bibtextab")
 
-struct BibTeXTab: View {
+public struct BibTeXTab: View {
     let paper: any PaperRepresentable
     let publicationID: UUID?
     let publicationIDs: [UUID]  // For multi-selection support
+
+    /// Whether Cancel asks before throwing away an edit. iOS: true (it was the
+    /// one thing the iOS copy did better). macOS: false — frozen behaviour.
+    var confirmsUnsavedDiscard: Bool = false
 
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(\.themeColors) private var theme
@@ -28,6 +53,33 @@ struct BibTeXTab: View {
     @State private var isEditing = false
     @State private var hasChanges = false
     @State private var isLoading = false
+    @State private var showDiscardAlert = false
+
+    public init(
+        paper: any PaperRepresentable,
+        publicationID: UUID?,
+        publicationIDs: [UUID],
+        confirmsUnsavedDiscard: Bool = false
+    ) {
+        self.paper = paper
+        self.publicationID = publicationID
+        self.publicationIDs = publicationIDs
+        self.confirmsUnsavedDiscard = confirmsUnsavedDiscard
+    }
+
+    /// Entry point for hosts that have only an id (imbib-iOS's detail pane).
+    ///
+    /// Returns nil when the publication is gone, the same shape
+    /// `DetailView.init?(publicationID:…)` uses.
+    public init?(publicationID: UUID, confirmsUnsavedDiscard: Bool = true) {
+        guard let model = RustStoreAdapter.shared.getPublicationDetail(id: publicationID) else {
+            return nil
+        }
+        self.paper = LocalPaper(from: model)
+        self.publicationID = publicationID
+        self.publicationIDs = [publicationID]
+        self.confirmsUnsavedDiscard = confirmsUnsavedDiscard
+    }
 
     /// Whether editing is enabled (only for single library paper)
     private var canEdit: Bool {
@@ -39,7 +91,7 @@ struct BibTeXTab: View {
         publicationIDs.count > 1
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             // Toolbar (only show edit controls for library papers)
             if canEdit {
@@ -82,6 +134,17 @@ struct BibTeXTab: View {
         }
         // Half-page scrolling support (macOS)
         .halfPageScrollable()
+        .alert("Unsaved Changes", isPresented: $showDiscardAlert) {
+            Button("Discard", role: .destructive) {
+                cancelEditing(force: true)
+            }
+            Button("Save") {
+                saveBibTeX()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You have unsaved changes. Would you like to save them?")
+        }
     }
 
     @ViewBuilder
@@ -89,9 +152,7 @@ struct BibTeXTab: View {
         HStack {
             if isEditing {
                 Button("Cancel") {
-                    bibtexContent = generateBibTeX()
-                    isEditing = false
-                    hasChanges = false
+                    cancelEditing()
                 }
                 .buttonStyle(.plain)
 
@@ -144,6 +205,20 @@ struct BibTeXTab: View {
         #else
         UIPasteboard.general.string = bibtexContent
         #endif
+    }
+
+    /// Leave edit mode, restoring the stored entry.
+    ///
+    /// With `confirmsUnsavedDiscard` the dirty case raises the alert first
+    /// (iOS); macOS discards, which is what its Cancel has always done.
+    private func cancelEditing(force: Bool = false) {
+        if confirmsUnsavedDiscard && hasChanges && !force {
+            showDiscardAlert = true
+            return
+        }
+        bibtexContent = generateBibTeX()
+        isEditing = false
+        hasChanges = false
     }
 
     private func loadBibTeX() {
@@ -271,4 +346,3 @@ struct MultiSelectionBibTeXView: View {
         #endif
     }
 }
-#endif

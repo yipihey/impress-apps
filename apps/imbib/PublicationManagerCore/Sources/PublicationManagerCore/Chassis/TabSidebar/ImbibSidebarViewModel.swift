@@ -130,13 +130,22 @@ final class ImbibSidebarViewModel {
         // Seed expansion state from collapsed sections
         initializeExpansionState()
 
-        // Select the app-shell's default section (imbib = inbox, imprint =
-        // manuscripts). Group-header sections like `.manuscripts` are NOT
-        // selectable rows and `resolveSelectedTab` only maps `.inbox`, so
-        // landing on the header leaves `selectedTab` at its `.inbox` default and
-        // the content area falls back to the publication list. Land on the
-        // section's canonical selectable leaf instead so manuscripts actually
-        // render (manuscripts → "All Manuscripts").
+        selectDefaultSectionLeaf()
+    }
+
+    /// Select the app-shell's default section (imbib = inbox, imprint =
+    /// manuscripts). Group-header sections like `.manuscripts` are NOT
+    /// selectable rows and `resolveSelectedTab` only maps `.inbox`, so
+    /// landing on the header leaves `selectedTab` at its `.inbox` default and
+    /// the content area falls back to the publication list. Land on the
+    /// section's canonical selectable leaf instead so manuscripts actually
+    /// render (manuscripts → "All Manuscripts").
+    ///
+    /// Stage 4c: extracted from `configure(...)` so "go to the default
+    /// landing" is one implementation rather than two. The
+    /// `.chassisNavigateToDefaultSection` notification (impart's ⌘1) resolves
+    /// through exactly the leaf first launch lands on.
+    func selectDefaultSectionLeaf() {
         if shellConfiguration.defaultSection == .manuscripts {
             selectedNodeID = ImbibSidebarNodeID.journalAll
         } else if shellConfiguration.defaultSection == .figures {

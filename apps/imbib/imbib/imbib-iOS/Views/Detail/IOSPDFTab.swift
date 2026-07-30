@@ -11,7 +11,14 @@ import OSLog
 
 private let pdfLogger = Logger(subsystem: "com.imbib.app", category: "pdf-tab")
 
-/// PDF tab state
+/// PDF tab state.
+///
+/// Stage 5b: the three FILE states (`hasPDF` / `cloudOnly` / `fileMissing`) and
+/// `noPDF` are no longer classified here — `PublicationPDFAvailability` in PMC
+/// answers "where is this paper's PDF" for both platforms. What stays local are
+/// the TRANSIENT states, which are this tab's own touch-flow chrome: a
+/// determinate download progress bar with a Cancel button, and a failure state
+/// that offers the in-app browser.
 private enum PDFTabState: Equatable {
     case loading
     case hasPDF(LinkedFileModel)
@@ -43,10 +50,13 @@ struct IOSPDFTab: View {
 
             case .hasPDF(let linkedFile):
                 VStack(spacing: 0) {
-                    // PDF switcher (only shown when multiple PDFs attached)
-                    let allPDFs = publication?.linkedFiles.filter(\.isPDF) ?? []
-                    if allPDFs.count > 1 {
-                        pdfSwitcher(currentPDF: linkedFile, allPDFs: allPDFs)
+                    // The SHARED switcher (Stage 5b) — it renders nothing for a
+                    // single PDF, so the `count > 1` test lives in one place.
+                    PublicationPDFSwitcher(
+                        pdfs: publication?.linkedFiles.filter(\.isPDF) ?? [],
+                        current: linkedFile
+                    ) { pdf in
+                        state = .hasPDF(pdf)
                     }
 
                     PDFViewerWithControls(
@@ -266,58 +276,38 @@ struct IOSPDFTab: View {
 
     // MARK: - State Management
 
+    /// Classify via the shared `PublicationPDFAvailability` (Stage 5b) and map
+    /// its answer onto this tab's states.
+    ///
+    /// The classification it replaces was 25 lines here plus a hand-rolled
+    /// two-candidate file-existence check that duplicated
+    /// `AttachmentManager.resolveURL`'s four. It also missed `eprint`-only
+    /// papers: an import that carried an arXiv id in `eprint` rather than
+    /// `arxivID` offered NO download on iPhone, while macOS's PDF tab has
+    /// always accepted it.
     private func checkPDFState() async {
-        guard let pub = publication else {
-            state = .noPDF
-            return
+        let availability = PublicationPDFAvailability.resolve(
+            publication: publication, libraryID: libraryID)
+
+        if let pub = publication {
+            pdfLogger.info("Checking PDF state for \(pub.citeKey)")
         }
 
-        pdfLogger.info("Checking PDF state for \(pub.citeKey)")
-
-        // Check for PDF linked files
-        let pdfFiles = pub.linkedFiles.filter(\.isPDF)
-        if let primaryPDF = pdfFiles.first {
-            pdfLogger.info("Found existing PDF record: \(primaryPDF.filename)")
-
-            // Verify the actual file exists on disk
-            if pdfFileExists(linkedFile: primaryPDF) {
-                state = .hasPDF(primaryPDF)
-            } else if primaryPDF.pdfCloudAvailable && !primaryPDF.isLocallyMaterialized {
-                pdfLogger.info("PDF available in cloud but not locally materialized")
-                state = .cloudOnly(primaryPDF)
-            } else {
-                pdfLogger.warning("PDF file missing from disk")
-                state = .fileMissing(primaryPDF)
-            }
-            return
-        }
-
-        // Check if we can auto-download
-        if pub.arxivID != nil || pub.doi != nil || pub.bibcode != nil {
+        switch availability {
+        case .localFile(let file):
+            pdfLogger.info("Found existing PDF on disk: \(file.filename)")
+            state = .hasPDF(file)
+        case .cloudOnly(let file):
+            pdfLogger.info("PDF available in cloud but not locally materialized")
+            state = .cloudOnly(file)
+        case .fileMissing(let file):
+            pdfLogger.warning("PDF file missing from disk: \(file.filename)")
+            state = .fileMissing(file)
+        case .remoteAvailable:
             await attemptAutoDownload()
-        } else {
+        case .unavailable:
             state = .noPDF
         }
-    }
-
-    private func pdfFileExists(linkedFile: LinkedFileModel) -> Bool {
-        guard let path = linkedFile.relativePath else { return false }
-
-        let normalizedPath = path.precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-
-        // Primary: container-based path (mirrors PDFViewerWithControls resolution)
-        let containerURL = AttachmentManager.shared.containerURL(for: libraryID)
-            .appendingPathComponent(normalizedPath)
-        if fileManager.fileExists(atPath: containerURL.path) { return true }
-
-        // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
-        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?.appendingPathComponent("imbib") {
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-            if fileManager.fileExists(atPath: legacyURL.path) { return true }
-        }
-        return false
     }
 
     private func attemptAutoDownload() async {
@@ -331,10 +321,26 @@ struct IOSPDFTab: View {
 
         downloadTask = Task {
             do {
-                // Resolve PDF URL
-                guard let pdfURL = resolvePDFURL(pub) else {
+                // Resolve the PDF URL through the SAME resolver macOS uses
+                // (Stage 5b). The local `resolvePDFURL` this replaces knew two
+                // rules — arXiv id, then the bare DOI resolver — where
+                // `PDFURLResolverV2` (cross-platform since it was written)
+                // honours the user's PDF settings, OpenAlex open-access
+                // locations, the publisher registry, landing-page scraping and
+                // bibcode/eprint identifiers, and reports a browser fallback
+                // URL when it cannot get bytes.
+                let settings = await PDFSettingsStore.shared.settings
+                let status = await PDFURLResolverV2.shared.resolve(for: pub, settings: settings)
+                guard let pdfURL = status.pdfURL else {
                     pdfLogger.warning("No PDF URL resolved")
-                    state = .noPDF
+                    if status.browserURL != nil {
+                        // There IS a page to try by hand — say so instead of
+                        // rendering the "no PDF" dead end.
+                        state = .downloadFailed(
+                            message: "No direct PDF link was found. Try the browser option.")
+                    } else {
+                        state = .noPDF
+                    }
                     return
                 }
 
@@ -394,69 +400,9 @@ struct IOSPDFTab: View {
         await downloadTask?.value
     }
 
-    private func resolvePDFURL(_ pub: PublicationModel) -> URL? {
-        // Priority 1: arXiv direct PDF (always open access)
-        if let arxivID = pub.arxivID {
-            return URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
-        }
-
-        // Priority 2: DOI resolver
-        if let doi = pub.doi {
-            return URL(string: "https://doi.org/\(doi)")
-        }
-
-        return nil
-    }
-
     private func isPDF(_ data: Data) -> Bool {
         guard data.count >= 4 else { return false }
         return data.prefix(4).elementsEqual([0x25, 0x50, 0x44, 0x46])
     }
 
-    // MARK: - PDF Switcher
-
-    @ViewBuilder
-    private func pdfSwitcher(currentPDF: LinkedFileModel, allPDFs: [LinkedFileModel]) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "doc.fill")
-                .foregroundStyle(.secondary)
-
-            Menu {
-                ForEach(allPDFs, id: \.id) { pdf in
-                    Button {
-                        state = .hasPDF(pdf)
-                    } label: {
-                        HStack {
-                            if pdf.id == currentPDF.id {
-                                Image(systemName: "checkmark")
-                            }
-                            Text(pdf.filename)
-                            if pdf.fileSize > 0 {
-                                let sizeStr = ByteCountFormatter.string(fromByteCount: pdf.fileSize, countStyle: .file)
-                                Text("(\(sizeStr))")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(currentPDF.filename)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                }
-            }
-
-            Spacer()
-
-            Text("\(allPDFs.count) PDFs")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(.systemBackground))
-    }
 }

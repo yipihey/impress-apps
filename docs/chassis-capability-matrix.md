@@ -144,8 +144,8 @@ unnoticed:
 | dismissedShowsManuscripts | false | true | false (n/a) | false (n/a) | false (n/a) | false — `.dismissed` binds `.publication`, same reasoning as Flagged |
 | visibleSections | **EXPLICIT, publications only (2026-07-27):** inbox, libraries, sharedWithMe, scixLibraries, search, exploration, flagged, citedInManuscripts, artifacts, reviewQueue, dismissed. NOT manuscripts / figures / mail / agents — those are imprint's / implore's / impart's / impel's facets. `citedInManuscripts` stays: its children are "All Cited Papers" (publications), imbib's half of the imprint bridge. `dismissed` stays: it is `.publication`-bound here. Was `nil` ("everything"), which opted imbib into every section the chassis grows; purity is the policy now (ADR-0022 D9) and a new section must opt IN | manuscripts, citedInManuscripts, flagged, dismissed | figures only (Flagged deliberately skipped in v1 — needs a `.flagged: .figure` binding + routing) | mail only (Flagged deliberately skipped in v1 — needs a `.flagged: .message` binding + routing) | agents only (Flagged deliberately skipped in v1 — needs a `.flagged: .task` binding + routing) | **EVERY section, EXPLICITLY** (inbox, libraries, sharedWithMe, scixLibraries, search, exploration, flagged, citedInManuscripts, artifacts, manuscripts, figures, mail, agents, reviewQueue, dismissed = `Set(SidebarSectionType.allCases)`). `nil` would have been shorter and is exactly the mechanism that rode Manuscripts into imbib, so the unifying shell opts in by NAME; `testImpressPermitsEverySection` fails when the enum grows, until someone decides. `sectionBindings` names a kind for every section except `.reviewQueue` (its rows are `review-request@1.0.0`, which has no descriptor — binding it to a kind it does not list would be a lie). `agent-run` is the one registry kind that is not a binding VALUE: runs share the Agents section with tasks by design |
 | defaultSection / defaultDetailTab | inbox / info | manuscripts / source | figures / info | mail / info | agents / info (lands on the Tasks leaf) | inbox / info |
-| custom surfaces | — | — | generate, analyze (registered app-side via `withCustomSurfaces`); canvas = figure open window | chat, research, development (registered app-side via `withCustomSurfaces` in ImpartChassisRoot) | dashboard, escalations, suggestions, counsel (registered app-side via `withCustomSurfaces` in ImpelChassisRoot; escalations keeps its 1-9/j/k keys INSIDE the surface, keyboardGuarded) | — none app-registered; the chassis-builtin store-search surface arrives anyway (`StoreSearchSurfaceTests` enumerates impress too). App-owned surfaces can only be registered by an app target, and there is none |
-| default window | chassis | chassis | chassis | classic ContentView — chassis is a SECONDARY "Mail (Unified)" window; flips via UserDefaults `impart.useChassisWindow` (compose/reply not chassis-wired yet — the one sanctioned deviation from replace-outright) | classic ContentView — chassis is a SECONDARY "impel (Unified)" window; flips via UserDefaults `impel.useChassisWindow` (escalation resolution / counsel not chassis-wired yet — same sanctioned deviation as impart) | ➖ no app target ships this preset (ADR-0022 D9). When it does: a ~120-line `ImpressChassisRoot`, and a signing decision first — impress permits `.search`, so `TabContentView`'s ADS/SciX keychain read WOULD run in it, and those items are ACL'd to imbib's code signature (imbib CLAUDE.md invariant). Either impress ships with imbib's keychain access group or that read moves behind a reachability check |
+| custom surfaces | — | — | generate, analyze (registered app-side via `withCustomSurfaces`); canvas = figure open window | chat, **category**, research, development (registered app-side via `withCustomSurfaces` in ImpartChassisRoot). `category` landed with the Stage-4c flip: it was the one classic view mode (⌘3) the chassis could not reach | dashboard, **threads**, **roster**, escalations, suggestions, counsel (registered app-side via `withCustomSurfaces` in ImpelChassisRoot; escalations keeps its 1-9/j/k keys INSIDE the surface, suggestions its ⏎/⎋ + j/k, both keyboardGuarded). `threads` and `roster` landed with the Stage-4c flip: the Agents SECTION reads the same `task@1.0.0` rows but renders them as tasks (losing impel's temperature / claimedBy) and has no surface for `ImpelClient.state.agents` / `.personas` at all | — none app-registered; the chassis-builtin store-search surface arrives anyway (`StoreSearchSurfaceTests` enumerates impress too). App-owned surfaces can only be registered by an app target, and there is none |
+| default window | chassis | chassis | chassis | **chassis (Stage 4c, 2026-07-30).** `impart.useChassisWindow`, the classic three-column `ContentView`, `EmailListView`, `ImpartSidebarView`/`FolderTreeRow` and the "Mail (Unified)" secondary window are DELETED (1719 lines). The flag is not kept as a kill switch because it could only restore a strictly poorer window: the classic mail lists were permanently EMPTY on macOS — `InboxViewModel.loadMessages()` has no macOS caller (only `IOSContentView` assigns `selectedMailbox`), `accounts` is `private(set)` and assigned nowhere, `loadFolders(for:)` has no caller at all — and its detail pane was unreachable (it read `AppState.selectedMessageIds` while the list wrote `InboxViewModel.selectedMessageIds`). Compose, reply/forward, mark-read-on-select and check-mail moved to `MailChassisHost` over the new `RecordHostVerbs` seam; `ComposeView` and the whole Settings scene were EXTRACTED from the deleted file first | **chassis (Stage 4c, 2026-07-30).** `impel.useChassisWindow`, the classic `ContentView` and the "impel (Unified)" secondary window are DELETED (320 lines). Flag not kept, same reasoning: every surface the classic dashboard rendered is registered here over the same views. Closed first: suggestion ⏎/⎋ keys, the threads list and agent/persona roster (as surfaces), ⌘/ keyboard help (now a menu command), `wireUndo`, the two toolbar status indicators, and `impel://navigate/...` (which set a `DashboardTab` only the classic window observed) | ➖ no app target ships this preset (ADR-0022 D9). When it does: a ~120-line `ImpressChassisRoot`, and a signing decision first — impress permits `.search`, so `TabContentView`'s ADS/SciX keychain read WOULD run in it, and those items are ACL'd to imbib's code signature (imbib CLAUDE.md invariant). Either impress ships with imbib's keychain access group or that read moves behind a reachability check |
 
 ### Platform reach of the contract (iOS foundation pass, 2026-07-29)
 
@@ -524,6 +524,121 @@ give impel an `automation` pane (its `ImpelHTTPServer` reads
 server is unconfigurable from the GUI); reconcile impel's `counselModel`, which has
 two conflicting `@AppStorage` defaults in two files.
 
+### Publication detail pane (`Chassis/Detail/`, Stage 5b, 2026-07-30)
+
+The third iOS-duplication pass, after the sidebar (wave 3) and Settings (phase
+2). imbib-iOS had five bespoke detail views — `IOSDetailView` (246),
+`IOSInfoTab` (705), `IOSPDFTab` (462), `IOSBibTeXTab` (126), `IOSNotesTab` (76)
+— against the chassis's `DetailView` + `InfoTab`/`PDFTab`/`NotesTab`/`BibTeXTab`.
+**Only one of the five was one surface written twice**, and the per-tab verdicts
+matter more than the line count, so they are recorded per tab:
+
+| Tab | Verdict | What moved cross-platform | What stayed two, and why |
+|---|---|---|---|
+| **BibTeX** | **ONE SURFACE — collapsed outright.** `IOSBibTeXTab` DELETED; `BibTeXTab.swift` un-gated and used by both | the whole tab (same state machine, same `BibTeXEditor`, same `exportBibTeX` load, same save-by-reparse) | one parameter, `confirmsUnsavedDiscard`: iOS asks before discarding an edit, macOS's Cancel discards silently and is frozen |
+| **Notes** | **SPLIT — two editors, one document.** | `PublicationNotesDocument` (the `note` field's YAML-front-matter + freeform format) and `PublicationNotesWriter` (500 ms debounce + the "selection moved on" guard both had a copy of) | macOS shows the inline annotation fields plus a hybrid markdown/preview area in a resizable panel BESIDE the PDF; iOS is one full-screen editor with Scribble and optional Helix. A phone has no room for the panel, and macOS's `HelixNotesTextEditor` is an `NSViewRepresentable` |
+| **Info** | **SPLIT — same sections, different affordances.** | `PublicationIdentifierLink` (the four identifier URL templates), `PublicationFlagAndTagsSection` (a shared VIEW — collapsed fully), `PublicationExploration` (kinds, availability, labels, help text, one runner), `AttachmentManager.existingURL` | macOS: `FlowLayout` + `Link` + hover help + copy context menu, drag-and-drop attachments with a duplicate-hash alert, the in-app PDF browser, `CommentSectionView`, `CitedInManuscriptsSection`, a PDF-Sources section. iOS: horizontal scrolls, a per-attachment `Menu`, QuickLook, a share sheet. Collapsing these means `NSOpenPanel`/`NSWorkspace`/tooltips on a phone — the same finding Settings phase 2 recorded |
+| **PDF** | **TWO DESIGNS — three duplications killed inside them.** | `PublicationPDFSwitcher` (the multi-PDF picker, near-identical), `PublicationPDFAvailability` (local / cloud-only / missing / remote / none), and iOS adopting `PDFURLResolverV2` + `AttachmentManager.resolveURL` | macOS owns E-Ink send, Handoff reading activity, corrupt-PDF recovery, space/j/k keyboard paging, auto-download policy from `PDFSettings`, and the browser WINDOW. iOS owns fullscreen-with-hidden-tab-bar, iCloud materialisation states, a determinate download progress bar with Cancel, and the browser SHEET. `PDFViewerWithControls` was already shared and still is |
+| **Shell** (`DetailView`) | **TWO DESIGNS — one shared lifecycle.** | `publicationDetailLifecycle` (auto-mark-as-read after a 1 s dwell, the Recent-view dwell, and the live `ImbibImpressStore.events` refresh) | macOS is a `switch` inside the frozen `HSplitView` whose tab picker lives in the WINDOW toolbar; iOS is a `TabView` with a tab bar, a navigation bar and a More menu. Both have read WHICH tabs from `descriptor.availableTabs(for:)` since wave 2 |
+
+**Six bugs the duplication was hiding, all fixed by the collapse** (each is now
+a test in `PublicationDetailSharedSurfaceTests`):
+
+1. **iOS notes showed the user their own YAML front matter as prose.** macOS has
+   always parsed `note` as front matter + freeform; iOS read the field RAW into a
+   plain editor and wrote the buffer back. Any iPhone user with quick annotations
+   saw `--- / First Author: … / ---` above their notes, and deleting those
+   confusing lines destroyed the annotations.
+2. **iOS BibTeX edits to the cite key, the entry type or a DELETED field did
+   nothing.** iOS looped `updateField` over the parsed entry's fields, which
+   cannot express any of the three; macOS re-imports the entry.
+3. **macOS's detail pane stopped live-refreshing after the first paper.** Its
+   store-event subscription was a bare `.task {}` reading `publicationID` off
+   the captured `self`, so it observed the id from the first body evaluation
+   forever. The shared lifecycle keys the task on the id.
+4. **iOS ignored `eprint`-only papers.** A paper whose arXiv id arrived in
+   `eprint` rather than `arxiv_id` offered no PDF download on iPhone; macOS's
+   PDF tab has always accepted it.
+5. **iOS resolved PDFs with two hardcoded rules** (arXiv id, then the bare DOI
+   resolver) while `PDFURLResolverV2` — cross-platform since it was written —
+   honours the user's PDF settings, OpenAlex OA locations, the publisher
+   registry, landing-page scraping and bibcode/eprint, and reports a browser
+   fallback. iOS now calls it.
+6. **The same paper listed its tags in a different ORDER on each platform**
+   (macOS sorted by path, iOS used store order) and iOS showed leaf names where
+   macOS showed full paths. One shared section now, with macOS's rendering.
+
+Two more asymmetries closed in passing: iOS's More menu hardcoded three of the
+four identifier URLs and had no PubMed row (it reads the shared declaration
+now), and iOS's `resolveFileURL` / `pdfFileExists` were the same twelve
+hand-rolled lines twice, each checking two of the four candidate paths
+`AttachmentManager.resolveURL` knows.
+
+| File | Reach | Role |
+|---|---|---|
+| `Chassis/Detail/Shared/PublicationIdentifierLink.swift` | ✅ both | the four identifier schemes: label, menu title, hover help, URL template. Was written out three times |
+| `Chassis/Detail/Shared/PublicationFlagAndTagsSection.swift` | ✅ both | the ONE Flag & Tags section. Tap-to-filter arrives as a closure, because activating the filter bar is the LIST pane's capability (iOS passes nil — no filter bar to activate) |
+| `Chassis/Detail/Shared/PublicationExploration.swift` | ✅ both | `PublicationExplorationKind` (5 cases; `.wosRelated` is DOI-gated and iOS-only by preset), the availability vocabulary that drives labels/help/enablement, and `PublicationExplorationRunner` — one `running` value in place of macOS's four and iOS's five `isExploringX` booleans, and one copy of the `ExplorationService` setup macOS had four of |
+| `Chassis/Detail/Shared/PublicationNotesDocument.swift` | ✅ both | the `note` field's format + `PublicationNotesWriter` (debounced, publication-scoped). Also read by `InfoTab`'s author-annotation chips, so three readers of one field cannot disagree |
+| `Chassis/Detail/Shared/PublicationPDFSwitcher.swift` | ✅ both | the multi-PDF picker; renders nothing below two PDFs, so the `count > 1` test lives once. `.menuStyle(.borderlessButton)` is an `#if` island inside |
+| `Chassis/Detail/Shared/PublicationPDFAvailability.swift` | ✅ both | "where is this paper's PDF" as one value + `AttachmentManager.existingURL` (the existence-checked companion to `resolveURL`, which answers with a candidate path even on a miss — the subtlety that made the iOS copies look necessary) |
+| `Chassis/Detail/Shared/PublicationDetailLifecycle.swift` | ✅ both | the three things every detail SHELL does. The read-state WRITE is injected: macOS routes through `LibraryViewModel` (whose `store` is a swappable protocol), iOS through `RustStoreAdapter` |
+| `Chassis/Detail/Tabs/BibTeXTab.swift` | ✅ both | un-gated and made `public`; `init?(publicationID:)` is the id-only entry point iOS's pane uses |
+| `Chassis/Detail/DetailView.swift`, `Tabs/InfoTab.swift`, `Tabs/NotesTab.swift`, `Tabs/PDFTab.swift` | macOS | the chromes. Genuinely AppKit-adjacent (NSPasteboard, NSSavePanel, NSWorkspace, `PDFBrowserWindowController`, `HelixNotesTextEditor` as an `NSViewRepresentable`) and each owns a piece of the fragile toolbar/HSplitView surface |
+
+**What was NOT collapsed, deliberately.** The **Record Info** section is the
+same data on both platforms and two different row SELECTIONS in two different
+layouts — macOS a `Grid` with Added/Modified and a Citations row, iOS stacked
+rows with `Date Added`/`Date Modified`-if-different plus a References row.
+Unifying the selection would either add a row to the frozen macOS pane or drop
+one from iOS, so it is a product decision, not a reframe; the shared-`Grid`
+version is a follow-up. `CitedInManuscriptsSection` (already cross-platform) is
+still not in the iOS Info tab — adding a section to iOS is a product change, and
+this pass was about removing duplication, not growing surfaces. And the
+`RelatedItemsSection` deferral for publication Info (see Known gaps) stands: it
+needs the same dedicated pass.
+
+Regression oracles: `PublicationDetailSharedSurfaceTests` (17 tests, `swift test`
+— the identifier templates in shipped order, empty-identifier suppression, the
+exploration availability/label/help rules including the un-loaded pane, the
+DOI gate on WoS, the notes round trip that PRESERVES annotations when only the
+freeform half is edited, the four PDF-availability classifications, `eprint`-only
+fetchability, plus structural guards both ways: the seven shared files must not
+be `#if os(macOS)`, the four chromes must stay so); the eight new rows in
+`ChassisCrossPlatformContractTests.crossPlatformContractFiles`; and
+`imbib-iOSUITests/IOSDetailTabsUITests` (booted simulator — select a seeded
+paper, walk all four tabs, and reach the console).
+
+### Console (`ImpressLogging`, Stage 5b, 2026-07-30)
+
+`ConsoleView` is the console every impress app is supposed to share (root
+CLAUDE.md, "Shared UI Patterns"). It compiled on iOS, but Copy and Export were
+`#if os(macOS)` BODIES — dead controls — and it opened at `minWidth: 600`. So
+imbib-iOS shipped `IOSConsoleView`: 310 lines with its own filter chips, its own
+row view, its own export, a hardcoded `"imbib-log-…"` filename, and **no
+Performance tab**, which made the `PerfMetrics` surface macOS-only.
+
+| File | Reach | Role |
+|---|---|---|
+| `ImpressLogging/ConsoleView.swift` | ✅ both | filters, search, level toggles, the entry list, the empty state, export TEXT, copy text, the parameterized export filename, and both modes (Logs + Performance) |
+| `ImpressLogging/ConsoleScreen.swift` | iOS | the presentation renderer: `NavigationStack` + inline title + Done. macOS puts `ConsoleView` in a `Window` (⌘⇧C) |
+
+Two `#if` islands inside `ConsoleView`, for the reason `SettingsForm` has one: a
+dense pointer toolbar (four toggles + a search field + three icon buttons) does
+not fit an iPhone, and neither does a row of fixed-width columns. iOS keeps the
+chip row + search bar + overflow menu and the two-line row it shipped; macOS is
+byte-identical. Export on iOS writes the same text to a temp file and hands it
+to a share sheet; Copy uses `UIPasteboard`. iOS's list has no `selection:`
+binding — outside edit mode there can be no selection, so "Copy Selected" would
+be a dead control (the `RecordTriageNewTagPrompt` rule); per-row copy is the
+long-press menu and Copy All is in the overflow menu.
+
+**imbib-iOS keeps the TYPE NAME `IOSConsoleView`** — now six lines wrapping
+`ConsoleScreen(appName: "imbib")` — so `IOSSettingsView`'s `console` section
+factory needed no edit, the same courtesy the settings migration paid
+`IOSContentView`. Every app that links ImpressLogging now has an iOS console,
+and it has the Performance tab.
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
@@ -719,15 +834,55 @@ in-process in `crates/impress-mcp/src/server.rs::resource_tests`.
   second, singular label, this is the caller that wants it. `isActive` HAS been
   folded in (it derives from `StatusSpec.isTerminal`).
 
-- **Mail (Stage 2-A) IMAP-owned gaps — Stage-2-A2 follow-ups:** no message
-  drag (move = IMAP move), no folder CRUD (IMAP owns folder lifecycle), no
-  compose from the chassis ("compose stays in classic window"), no
-  delete/dismiss (descriptor `.none`/`.none`; `d` returns `.ignored`), no
-  mark-read on select (read-state syncs over IMAP, not the store), and no
-  thread expand/collapse in the list (badge + detail-pane thread view only).
-  Also: IMAP-driven store writes land through impart's OWN SharedStore handle
-  (MessageManagerCore), so the chassis list only refreshes on in-process
-  StoreEvents (star/flag/tag) or scope change/relaunch.
+- **Mail (Stage 2-A) IMAP-owned gaps — two CLOSED by Stage 4c, the rest still
+  IMAP-owned by design:** no message drag (move = IMAP move), no folder CRUD
+  (IMAP owns folder lifecycle), no delete/dismiss (descriptor `.none`/`.none`;
+  `d` returns `.ignored`), and no thread expand/collapse in the list (badge +
+  detail-pane thread view only). Also: IMAP-driven store writes land through
+  impart's OWN SharedStore handle (MessageManagerCore), so the chassis list only
+  refreshes on in-process StoreEvents (star/flag/tag) or scope change/relaunch.
+
+  **CLOSED 2026-07-30 (Stage 4c), because both blocked making the chassis
+  impart's only window:**
+  - *compose* — was "compose stays in classic window". `MessageRecordKind`
+    now declares one `CreationAffordance("New Message")` and the HOST performs
+    it: `RecordHostVerbs.onCreate`, registered by `MailChassisHost`. The chassis
+    contributes the affordances it owns (`n` in the list, the empty-state button)
+    and still knows nothing about drafts or SMTP. ⌘N / File ▸ New Message /
+    `impart://compose` all route to the same handler. Reply and Forward came
+    along with the Core Data lookup and are now REACHABLE for the first time
+    (their only previous home, `MessageDetailView`, could never appear).
+  - *mark-read on select* — was "read-state syncs over IMAP, not the store".
+    Restated correctly: the store's `SharedItemRow.isRead` is a MIRROR of
+    impart's Core Data (written by `MailStoreMirror`), so the chassis is a
+    replica and must not write it. It now reports selection through
+    `RecordHostVerbs.onSelect` (`RecordSelection`, carrying the payload
+    `message_id` as `externalID` — the store item id is a UUIDv5 and is NOT
+    `CDMessage.id`), and impart marks read through `MessageTriageService.markRead`
+    plus a mirror `setMessagesRead`. The write is guarded on the resolved
+    message's own read flag: mark-read mirrors back as a store mutation →
+    `StoreEvents` → list reload, so an unguarded write would let selection pump
+    the list. Note the guard is on the WRITE, not the notification — filtering
+    unread-only in the chassis would leave the host's reply target stale.
+
+- **`RecordHostVerbs` / `ChassisNavigation` (Stage 4c) — two ADDITIVE seams,
+  flagged here because they are chassis edits made for an app's benefit:**
+  `RecordHostVerbs` (`Chassis/Shared/RecordHostVerbs.swift`) is a per-kind
+  environment registry of the two verbs a host owns and the chassis cannot
+  perform — `onCreate` (the app's answer to a declared `CreationAffordance`) and
+  `onSelect` (the app's chance to react to a record being displayed). The
+  alternative was for impart to register a REPLACEMENT section view in
+  `RecordViewerRegistry`, i.e. to copy `MessageSectionView`'s pane-layout body
+  into an app target — re-introducing exactly the per-app chassis clones Stage 4b
+  deleted. Deliberately only two verbs: delete/move/reply have their own declared
+  capability or none, and smuggling them through a host bag would route around
+  the descriptors. `ChassisNavigation` generalises the `.openStoreSearch` shape
+  (notification → `viewModel.navigateToTab`) to `.chassisNavigateToSurface`
+  (object = a registered surface id) and `.chassisNavigateToDefaultSection`,
+  because an app whose default window IS the chassis has to drive it from its own
+  menu commands (impart's ⌘1-5) and URL scheme (impel's `impel://navigate/…`),
+  and neither can reach `viewModel` nor should learn `ImbibTab`. Both default to
+  EMPTY/no-op, so every shell that does not opt in behaves exactly as before.
 
 - **Agents (Stage 2-C) kernel-owned gaps — by design, kill criterion NOT
   triggered (the section landed entirely on existing seams: descriptors +

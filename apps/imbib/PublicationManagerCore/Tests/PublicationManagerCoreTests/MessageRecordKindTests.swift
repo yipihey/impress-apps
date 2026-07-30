@@ -56,9 +56,51 @@ final class MessageRecordKindTests: XCTestCase {
         XCTAssertEqual(triage.deletion, .none,
                        "mail deletion goes through IMAP flows, never the store")
         XCTAssertEqual(triage.statuses, [])
-        XCTAssertTrue(MessageRecordKind.descriptor.creation.isEmpty,
-                      "compose stays in impart's classic window in v1")
+        // Stage 4c: compose is DECLARED (one affordance) and PERFORMED by the
+        // host via `RecordHostVerbs.onCreate`. The chassis contributes the `n`
+        // key and the empty-state button; it still knows nothing about SMTP.
+        XCTAssertEqual(MessageRecordKind.descriptor.creation.map(\.label), ["New Message"],
+                       "mail declares exactly one creation affordance: compose")
+        XCTAssertNil(MessageRecordKind.descriptor.creation.first?.formatValue,
+                     "messages have no payload `format`; formatValue is manuscripts-only")
         XCTAssertEqual(MessageRecordKind.descriptor.defaultOpenBehavior, .detailPane)
+    }
+
+    // MARK: - Host verbs (Stage 4c seam)
+
+    /// The default registry is EMPTY, which is what keeps the seam additive:
+    /// every shell that does not register mail host verbs behaves exactly as it
+    /// did before 4c — `n` ignored, selection inert, no empty-state button.
+    func testHostVerbRegistryDefaultsToEmpty() {
+        XCTAssertTrue(RecordHostVerbRegistry().isEmpty)
+        XCTAssertNil(RecordHostVerbRegistry()[.message])
+    }
+
+    func testHostVerbRegistryResolvesRegisteredKindOnly() {
+        let registry = RecordHostVerbRegistry([
+            .message: RecordHostVerbs(onCreate: { _ in }, onSelect: { _ in })
+        ])
+        XCTAssertFalse(registry.isEmpty)
+        XCTAssertNotNil(registry[.message]?.onCreate)
+        XCTAssertNotNil(registry[.message]?.onSelect)
+        XCTAssertNil(registry[.task], "a kind nobody registered resolves to nil, not a stub")
+    }
+
+    /// `externalID` is the app-side identity (the RFC Message-ID), NOT the store
+    /// id — the distinction the mark-read wiring depends on, since impart's
+    /// `CDMessage.id` and the store's UUIDv5 item id are different UUIDs.
+    func testRecordSelectionCarriesExternalIdentitySeparateFromStoreID() {
+        let storeID = UUID()
+        let selection = RecordSelection(
+            kind: .message,
+            recordID: storeID,
+            externalID: "<abc@example.com>",
+            isRead: false)
+        XCTAssertEqual(selection.recordID, storeID)
+        XCTAssertEqual(selection.externalID, "<abc@example.com>")
+        XCTAssertNotEqual(selection.externalID, storeID.uuidString)
+        XCTAssertFalse(selection.isRead)
+        XCTAssertEqual(selection.kind, .message)
     }
 
     func testRegistryLookupBySchemaRef() {

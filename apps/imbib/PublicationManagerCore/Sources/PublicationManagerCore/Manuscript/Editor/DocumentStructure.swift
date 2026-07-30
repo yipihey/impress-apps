@@ -7,9 +7,11 @@ import Foundation
 /// paragraphs (blank-line split).
 struct StructureNode: Equatable {
     enum Kind: Equatable { case section, paragraph }
-    /// Character range in the source (NSRange semantics, i.e. UTF-16 offsets —
-    /// matches what the NSTextView layout manager expects). For typical ASCII
-    /// LaTeX/Typst source this equals the Character offsets from SectionExtractor.
+    /// Range in the source in `NSRange` semantics — UTF-16 offsets, which is
+    /// what the NSTextView layout manager expects. Built from
+    /// `ExtractedSection`'s `*UTF16` fields; the `Character` fields beside them
+    /// agree only for ASCII source, and feeding those here shifted every bracket
+    /// after the first accented character.
     let range: NSRange
     /// Nesting depth (0 = outermost, closest to the margin). Drives how far the
     /// bracket is indented: deeper elements sit further left.
@@ -51,7 +53,7 @@ enum DocumentStructure {
         }
 
         for (idx, section) in sections.enumerated() {
-            let start = min(max(0, section.start), total)
+            let start = min(max(0, section.startUTF16), total)
             let depth = section.level - minLevel
 
             // A heading encloses everything up to the next heading of
@@ -61,7 +63,7 @@ enum DocumentStructure {
             var j = idx + 1
             while j < sections.count {
                 if sections[j].level <= section.level {
-                    enclosingEnd = min(max(start, sections[j].start), total)
+                    enclosingEnd = min(max(start, sections[j].startUTF16), total)
                     break
                 }
                 j += 1
@@ -73,9 +75,9 @@ enum DocumentStructure {
             // The heading's *own* body paragraphs run only until the next
             // heading of ANY level (deeper headings own the text past that).
             let ownEnd = (idx + 1 < sections.count)
-                ? min(max(start, sections[idx + 1].start), total)
+                ? min(max(start, sections[idx + 1].startUTF16), total)
                 : total
-            let bodyStart = min(max(start, section.bodyStart), ownEnd)
+            let bodyStart = min(max(start, section.bodyStartUTF16), ownEnd)
             if bodyStart < ownEnd {
                 nodes.append(contentsOf: paragraphNodes(
                     in: ns,

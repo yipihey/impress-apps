@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressRustCore
 import OSLog
 
 private let logger = Logger(subsystem: "com.imbib", category: "GlobalSearch")
@@ -326,10 +327,15 @@ public final class GlobalSearchViewModel {
             chunkMap[result.publicationId] = result
         }
 
-        // Collect all unique publication IDs from all three sources
-        var allIDs = Set(ftsMap.keys)
-        allIDs.formUnion(semanticMap.keys)
-        allIDs.formUnion(chunkMap.keys)
+        // Collect all unique publication IDs from all three sources.
+        // Sorted, not a bare Set: the iteration order used to reach the output
+        // whenever two results scored equally, so the same corpus could produce
+        // two different orderings. Rust pins the tie-break on id, and feeding it
+        // a deterministic candidate list keeps the whole path reproducible.
+        var idSet = Set(ftsMap.keys)
+        idSet.formUnion(semanticMap.keys)
+        idSet.formUnion(chunkMap.keys)
+        let allIDs = idSet.sorted { $0.uuidString < $1.uuidString }
 
         // Pre-build library membership maps ONCE for all results.
         // Papers can belong to a library via HasParent edges (direct import)
@@ -364,14 +370,18 @@ public final class GlobalSearchViewModel {
         libraryMembership = libMembership
         collectionMembership = collMembership
 
-        // Build merged results
-        var merged: [GlobalSearchResult] = []
+        // Resolve metadata and shape the candidate set for the Rust ranker.
+        //
+        // The hybrid relevance formula (FTS base + author/title/cite-key field
+        // boosts + scaled chunk similarity) is `impress_core::search_ops::
+        // rank_hybrid_candidates`, reached through `rankHybridSearchResults`.
+        // It used to be twenty lines of literal arithmetic right here, which
+        // meant the definition of "relevant" was a view-model detail and could
+        // not be tested without a populated store.
+        var metadataByID: [UUID: PublicationMetadata] = [:]
+        var candidates: [SharedHybridCandidate] = []
 
         for id in allIDs {
-            let ftsResult = ftsMap[id]
-            let semanticResult = semanticMap[id]
-            let chunkResult = chunkMap[id]
-
             // Fetch metadata — library names come from pre-built map
             let metadata = fetchFullPublicationMetadata(id: id, libraryNames: pubToLibraryNames[id]?.sorted() ?? [])
 
@@ -382,49 +392,29 @@ public final class GlobalSearchViewModel {
                 continue
             }
 
-            // Determine match type
-            // Chunk results use .full unless combined with FTS/semantic
-            let matchType: GlobalSearchMatchType
-            if ftsResult != nil && semanticResult != nil {
-                matchType = .both
-            } else if ftsResult != nil {
-                matchType = .fulltext
-            } else if chunkResult != nil && semanticResult == nil && ftsResult == nil {
-                matchType = .full
-            } else {
-                matchType = .semantic
-            }
+            metadataByID[id] = metadata
+            candidates.append(
+                SharedHybridCandidate(
+                    // Lowercased because the Rust tie-break compares ids as
+                    // strings; a mixed-case list would order inconsistently.
+                    id: id.uuidString.lowercased(),
+                    citeKey: metadata.citeKey,
+                    title: metadata.title,
+                    authors: metadata.authors,
+                    ftsScore: ftsMap[id]?.score,
+                    semanticSimilarity: semanticMap[id]?.similarity,
+                    chunkSimilarity: chunkMap[id]?.similarity
+                )
+            )
+        }
 
-            // Calculate combined score with field-priority boosting.
-            // FTS (direct text) results should always rank above semantic-only results.
-            // Within FTS, prioritize by field: Author > Title > Abstract > full text.
-            // Chunk results score 0–60, above semantic-only but below FTS.
-            var score: Float = 0
-            if let fts = ftsResult {
-                // Base FTS score ensures FTS results always outrank semantic-only
-                score += 100.0 + fts.score
-
-                // Field-priority boost: check which fields contain the query
-                let q = query.lowercased()
-                if metadata.authors.lowercased().contains(q) {
-                    score += 40  // Author match — highest priority
-                }
-                if metadata.title.lowercased().contains(q) {
-                    score += 30  // Title match
-                }
-                if let citeKey = metadata.citeKey.lowercased() as String?,
-                   citeKey.contains(q) {
-                    score += 25  // Cite key match
-                }
-            }
-            if let sem = semanticResult {
-                // Semantic results get similarity (0–1 range), always below FTS base of 100
-                score += sem.similarity
-            }
-            if let chunk = chunkResult {
-                // Chunk results: 0–60 range, above semantic-only, below FTS
-                score += chunk.similarity * 60
-            }
+        // Build results in the order Rust ranked them.
+        var merged: [GlobalSearchResult] = []
+        for ranked in rankHybridSearchResults(query: query, candidates: candidates) {
+            guard let id = UUID(uuidString: ranked.id),
+                  let metadata = metadataByID[id] else { continue }
+            let ftsResult = ftsMap[id]
+            let chunkResult = chunkMap[id]
 
             // Snippet: prefer FTS snippet (highlighted), then chunk passage text
             let snippet: String?
@@ -442,29 +432,27 @@ public final class GlobalSearchViewModel {
                 snippet = nil
             }
 
-            let pageNumber = chunkResult?.pageNumber
-
-            let result = GlobalSearchResult(
-                id: id,
-                citeKey: metadata.citeKey,
-                title: metadata.title,
-                authors: metadata.authors,
-                year: metadata.year,
-                snippet: snippet,
-                matchType: matchType,
-                score: score,
-                libraryNames: metadata.libraryNames,
-                dateAdded: metadata.dateAdded,
-                dateModified: metadata.dateModified,
-                citationCount: metadata.citationCount,
-                isStarred: metadata.isStarred,
-                pageNumber: pageNumber
+            merged.append(
+                GlobalSearchResult(
+                    id: id,
+                    citeKey: metadata.citeKey,
+                    title: metadata.title,
+                    authors: metadata.authors,
+                    year: metadata.year,
+                    snippet: snippet,
+                    matchType: .fromRankerName(ranked.matchType),
+                    score: ranked.score,
+                    libraryNames: metadata.libraryNames,
+                    dateAdded: metadata.dateAdded,
+                    dateModified: metadata.dateModified,
+                    citationCount: metadata.citationCount,
+                    isStarred: metadata.isStarred,
+                    pageNumber: chunkResult?.pageNumber
+                )
             )
-
-            merged.append(result)
         }
 
-        // Apply context filtering
+        // Apply context filtering — order-preserving, so the ranking survives.
         let filtered = applyContextFilter(to: merged)
 
         // Apply sorting based on current sort order
@@ -474,6 +462,17 @@ public final class GlobalSearchViewModel {
     }
 
     /// Apply sorting to results based on current sort order and direction.
+    ///
+    /// The `.relevance` branch reproduces the order Rust already produced
+    /// (score descending, ties on id) rather than being a no-op, because this
+    /// also runs from `resortResults()` over the *combined* list — manuscripts
+    /// are prepended after ranking and have to be interleaved by score there.
+    ///
+    /// Every branch ends in the same id tie-break. `Array.sort` is not stable,
+    /// so without it equal-keyed rows (same date, same year, same citation
+    /// count — routine) were free to reshuffle between two sorts of the same
+    /// data, which is visible as rows jumping when the user toggles direction
+    /// twice.
     private func applySorting(to results: [GlobalSearchResult]) -> [GlobalSearchResult] {
         var sorted = results
 
@@ -516,6 +515,12 @@ public final class GlobalSearchViewModel {
                 } else {
                     comparison = a.isStarred ? .orderedDescending : .orderedAscending
                 }
+            }
+
+            // Equal on the chosen key: fall back to the id so the order is
+            // total and therefore reproducible.
+            if comparison == .orderedSame {
+                return a.id.uuidString < b.id.uuidString
             }
 
             // Apply sort direction
@@ -706,5 +711,27 @@ public final class GlobalSearchViewModel {
             citationCount: pub.citationCount,
             isStarred: pub.isStarred
         )
+    }
+}
+
+// MARK: - Ranker Match Types
+
+extension GlobalSearchMatchType {
+
+    /// The match kind the Rust ranker reported.
+    ///
+    /// `impress_core::search_ops::match_type` deliberately spells its constants
+    /// as this enum's raw values, so the mapping is identity. The `assertionFailure`
+    /// is the point of the function: a new kind added on one side must not
+    /// silently arrive as `.semantic` and mislabel every row in the palette.
+    ///
+    /// `.manuscript` is absent by design — manuscript hits come from a separate
+    /// store scan, not from the hybrid ranker.
+    static func fromRankerName(_ name: String) -> GlobalSearchMatchType {
+        guard let kind = GlobalSearchMatchType(rawValue: name), kind != .manuscript else {
+            assertionFailure("unknown match type from the Rust ranker: \(name)")
+            return .semantic
+        }
+        return kind
     }
 }

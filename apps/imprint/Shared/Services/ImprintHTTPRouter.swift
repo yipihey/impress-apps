@@ -820,7 +820,7 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return (action.outputMode.rawValue, "Citation suggestions are interactive; run this task from the editor.")
         }
         // Same rich context the editor builds (outline, surrounding sections, …).
-        let format: SectionFormat = source.contains("\\documentclass") || source.contains("\\begin{document}") ? .latex : .typst
+        let format = SectionFormat.autoDetect(source)
         let context = PromptContextBuilder.build(
             range: range, source: source, documentTitle: nil, documentID: UUID(), format: format
         )

@@ -2,8 +2,12 @@
 //  GoldenCorpusParityTests.swift
 //  PublicationManagerCoreTests
 //
-//  Stage 7 items 1–3: the FFI-backed parsers must reproduce, through the real
-//  call sites, exactly what the deleted Swift implementations produced.
+//  Stage 7 items 1–7: the FFI-backed implementations must reproduce, through the
+//  real call sites, exactly what the Swift implementations they replaced did.
+//
+//  Items 1–3 are the parsers (identifiers, BibTeX, RIS). Items 4–7 are the
+//  `DocumentFormat` grammar, `DeduplicationService`, `SectionExtractor` and the
+//  ⌘F hybrid ranking.
 //
 //  The goldens in crates/imbib-core/test_fixtures/golden/ were captured from
 //  the Swift `IdentifierExtractor`, `BibTeXParser` and `RISParser` before those
@@ -14,6 +18,7 @@
 //
 
 import Foundation
+import ImpressRustCore
 import Testing
 @testable import PublicationManagerCore
 
@@ -22,14 +27,28 @@ struct GoldenCorpusParityTests {
 
     // MARK: - Loading
 
-    static var goldenDir: URL {
+    static var repoRoot: URL {
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<7 { url = url.deletingLastPathComponent() }
-        return url.appendingPathComponent("crates/imbib-core/test_fixtures/golden")
+        return url
+    }
+
+    static var goldenDir: URL {
+        repoRoot.appendingPathComponent("crates/imbib-core/test_fixtures/golden")
+    }
+
+    /// Items 4, 5 and 7 keep their goldens next to wave 1's, in imbib-core.
+    /// Item 6's live in imprint-core, which owns the section extractor.
+    static var imprintGoldenDir: URL {
+        repoRoot.appendingPathComponent("crates/imprint-core/test_fixtures/golden")
     }
 
     static func golden(_ name: String) throws -> [String: Any] {
-        let data = try Data(contentsOf: goldenDir.appendingPathComponent(name))
+        try golden(name, in: goldenDir)
+    }
+
+    static func golden(_ name: String, in directory: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: directory.appendingPathComponent(name))
         let object = try JSONSerialization.jsonObject(with: data)
         return try #require(object as? [String: Any])
     }
@@ -236,6 +255,260 @@ struct GoldenCorpusParityTests {
                 let wantTags = want["tags"] as? [[String]] ?? []
                 let gotTags = got["tags"] as? [[String]] ?? []
                 #expect(gotTags == wantTags, "tags of entry \(index) in \(name)")
+            }
+        }
+    }
+
+    // MARK: - Item 4: DocumentFormat grammar
+
+    @Test("The DocumentFormat grammar reproduces the Swift goldens")
+    func documentFormatGrammar() throws {
+        let g = try Self.golden("document_format_golden.json")
+        let formats = try #require(g["formats"] as? [[String: Any]])
+        #expect(formats.count == 4)
+
+        func affixes(_ value: Any?) -> [String: String]? {
+            (value as? [String: String])
+        }
+        func encode(_ pair: (prefix: String, suffix: String)?) -> [String: String]? {
+            pair.map { ["prefix": $0.prefix, "suffix": $0.suffix] }
+        }
+
+        // Order matters: `allCases` order is what a format picker renders.
+        for (expected, format) in zip(formats, DocumentFormat.allCases) {
+            let id = try #require(expected["id"] as? String)
+            #expect(id == format.rawValue, "format order changed")
+            #expect(format.displayName == expected["displayName"] as? String, "displayName of \(id)")
+            #expect(format.previewKind.rawValue == expected["previewKind"] as? String, "previewKind of \(id)")
+            #expect(format.hasPreview == expected["hasPreview"] as? Bool, "hasPreview of \(id)")
+            #expect(format.requiresCompile == expected["requiresCompile"] as? Bool, "requiresCompile of \(id)")
+            #expect(format.fileExtension == expected["fileExtension"] as? String, "fileExtension of \(id)")
+            #expect(format.mainFileName == expected["mainFileName"] as? String, "mainFileName of \(id)")
+            #expect(format.commentPrefix == expected["commentPrefix"] as? String, "commentPrefix of \(id)")
+            #expect(encode(format.citationInsert) == affixes(expected["citationInsert"]), "citationInsert of \(id)")
+            #expect(encode(format.boldWrap) == affixes(expected["boldWrap"]), "boldWrap of \(id)")
+            #expect(encode(format.italicWrap) == affixes(expected["italicWrap"]), "italicWrap of \(id)")
+            #expect(format.defaultDebounceMs == expected["defaultDebounceMs"] as? Int, "defaultDebounceMs of \(id)")
+        }
+    }
+
+    @Test("DocumentFormat detection reproduces the Swift goldens")
+    func documentFormatDetection() throws {
+        let g = try Self.golden("document_format_golden.json")
+
+        let detectCases = try #require(g["detectCases"] as? [[String: Any]])
+        #expect(detectCases.count == 30)
+        for testCase in detectCases {
+            let source = try #require(testCase["source"] as? String)
+            let title = testCase["title"] as? String
+            #expect(
+                DocumentFormat.detect(from: source, title: title).rawValue
+                    == testCase["format"] as? String,
+                "detect(from: \(source.prefix(30).debugDescription), title: \(title ?? "nil"))"
+            )
+        }
+
+        let extensionCases = try #require(g["extensionCases"] as? [[String: Any]])
+        #expect(extensionCases.count == 17)
+        for testCase in extensionCases {
+            let ext = try #require(testCase["extension"] as? String)
+            #expect(
+                DocumentFormat.detect(fromExtension: ext)?.rawValue == testCase["format"] as? String,
+                "detect(fromExtension: \(ext.debugDescription))"
+            )
+        }
+    }
+
+    // MARK: - Item 5: deduplication
+
+    /// The one scenario where Rust deliberately disagrees: Swift's
+    /// `normalizeArXiv` stripped only a trailing `v<n>`, so `arXiv:2301.99999`
+    /// and `2301.99999` stayed two results. Rust also strips the scheme prefix
+    /// and merges them, which is what the surface always wanted.
+    static let dedupKnownDivergences: Set<String> = ["arxiv-prefixed-form"]
+
+    @Test("Deduplication grouping reproduces the Swift goldens")
+    func deduplicationGrouping() async throws {
+        let g = try Self.golden("deduplication_golden.json")
+        let scenarios = try #require(g["scenarios"] as? [[String: Any]])
+        #expect(scenarios.count == 13)
+
+        let service = DeduplicationService()
+        let byName = Dictionary(
+            uniqueKeysWithValues: GoldenCorpus.dedupScenarios.map { ($0.name, $0.results) }
+        )
+
+        for expected in scenarios {
+            let name = try #require(expected["name"] as? String)
+            guard !Self.dedupKnownDivergences.contains(name) else { continue }
+            let results = try #require(byName[name], "corpus lost scenario \(name)")
+
+            let groups = await service.deduplicate(results)
+            let wantGroups = try #require(expected["groups"] as? [[String: Any]])
+            #expect(groups.count == wantGroups.count, "group count for \(name)")
+            guard groups.count == wantGroups.count else { continue }
+
+            for (index, (want, got)) in zip(wantGroups, groups).enumerated() {
+                #expect(got.primary.id == want["primary"] as? String, "group \(index) primary in \(name)")
+                // Order, not just membership: the alternates are in source-priority
+                // order, which a "also on arXiv, DBLP" row renders directly.
+                #expect(
+                    got.alternates.map(\.id) == want["alternates"] as? [String],
+                    "group \(index) alternates in \(name)"
+                )
+                var gotIdentifiers: [String: String] = [:]
+                for (type, value) in got.identifiers { gotIdentifiers[type.rawValue] = value }
+                #expect(
+                    gotIdentifiers == want["identifiers"] as? [String: String],
+                    "group \(index) identifiers in \(name)"
+                )
+            }
+        }
+    }
+
+    @Test("The source-priority table is the Rust one")
+    func deduplicationSourcePriority() {
+        #expect(
+            DeduplicationService.sourcePriorities.map(\.sourceID)
+                == ["crossref", "pubmed", "ads", "semanticscholar", "openalex", "arxiv", "dblp"]
+        )
+        #expect(DeduplicationService.sourcePriorities.map(\.priority) == [10, 20, 30, 40, 50, 60, 70])
+        #expect(DeduplicationService.priority(forSource: "europepmc") == 100)
+    }
+
+    // MARK: - Item 6: section extraction
+
+    @Test("Section extraction reproduces the Swift goldens")
+    func sectionExtraction() throws {
+        let g = try Self.golden("sections_golden.json", in: Self.imprintGoldenDir)
+        let documents = try #require(g["documents"] as? [[String: Any]])
+        #expect(documents.count == 10)
+
+        for expected in documents {
+            let name = try #require(expected["name"] as? String)
+            let formatName = expected["format"] as? String
+            let source = try String(
+                contentsOf: Self.imprintGoldenDir.appendingPathComponent(name),
+                encoding: .utf8
+            )
+            let format: SectionFormat? = formatName.map { $0 == "latex" ? .latex : .typst }
+            let documentIDString = try #require(expected["documentID"] as? String)
+            let documentID = try #require(UUID(uuidString: documentIDString))
+
+            #expect(
+                SectionFormat.autoDetect(source).rustName == expected["autoDetected"] as? String,
+                "autoDetect of \(name)"
+            )
+
+            let sections = SectionExtractor.extract(
+                from: source, documentID: documentID, format: format
+            )
+            let wantSections = try #require(expected["sections"] as? [[String: Any]])
+            let scope = "\(name) format=\(formatName ?? "auto")"
+            #expect(sections.count == wantSections.count, "section count for \(scope)")
+            guard sections.count == wantSections.count else { continue }
+
+            for (want, got) in zip(wantSections, sections) {
+                let index = want["orderIndex"] as? Int ?? -1
+                #expect(got.id.uuidString.lowercased() == want["id"] as? String, "id of \(index) in \(scope)")
+                #expect(got.title == want["title"] as? String, "title of \(index) in \(scope)")
+                #expect(got.level == want["level"] as? Int, "level of \(index) in \(scope)")
+                #expect(got.start == want["start"] as? Int, "start of \(index) in \(scope)")
+                #expect(got.end == want["end"] as? Int, "end of \(index) in \(scope)")
+                #expect(got.bodyStart == want["bodyStart"] as? Int, "bodyStart of \(index) in \(scope)")
+                #expect(got.orderIndex == index, "orderIndex of \(index) in \(scope)")
+                #expect(got.sectionType == want["sectionType"] as? String, "sectionType of \(index) in \(scope)")
+                #expect(got.wordCount == want["wordCount"] as? Int, "wordCount of \(index) in \(scope)")
+            }
+        }
+    }
+
+    @Test("Section id derivation reproduces the Swift goldens")
+    func sectionIDDerivation() throws {
+        // The narrow invariant a data migration depends on: these ids are
+        // persisted as `manuscript-section` row ids, so a derivation change does
+        // not error — it silently orphans every existing row.
+        let g = try Self.golden("sections_golden.json", in: Self.imprintGoldenDir)
+        let cases = try #require(g["idCases"] as? [[String: Any]])
+        #expect(cases.count == 10)
+
+        for testCase in cases {
+            let documentIDString = try #require(testCase["documentID"] as? String)
+            let documentID = try #require(UUID(uuidString: documentIDString))
+            let title = try #require(testCase["title"] as? String)
+            let index = try #require(testCase["orderIndex"] as? Int)
+            #expect(
+                SectionExtractor.sectionID(documentID: documentID, title: title, orderIndex: index)
+                    .uuidString.lowercased() == testCase["id"] as? String,
+                "id for \(title.debugDescription)@\(index)"
+            )
+        }
+    }
+
+    @Test("Section UTF-16 offsets address the same text as the Character offsets")
+    func sectionUTF16Offsets() throws {
+        // The `*UTF16` fields are new, so they have no golden. What they must
+        // satisfy is that they address the SAME text — that is the property the
+        // NSRange consumers (bracket ruler, prompt context, caret jump) rely on.
+        let g = try Self.golden("sections_golden.json", in: Self.imprintGoldenDir)
+        for document in try #require(g["documents"] as? [[String: Any]]) {
+            let name = try #require(document["name"] as? String)
+            let source = try String(
+                contentsOf: Self.imprintGoldenDir.appendingPathComponent(name),
+                encoding: .utf8
+            )
+            let characters = Array(source)
+            let ns = source as NSString
+            let format = (document["format"] as? String).map { $0 == "latex" ? SectionFormat.latex : .typst }
+
+            for section in SectionExtractor.extract(from: source, documentID: UUID(), format: format) {
+                let byCharacter = String(characters[section.start..<section.end])
+                let byUTF16 = ns.substring(
+                    with: NSRange(location: section.startUTF16, length: section.endUTF16 - section.startUTF16)
+                )
+                #expect(byCharacter == byUTF16, "section \(section.orderIndex) of \(name)")
+            }
+        }
+    }
+
+    // MARK: - Item 7: hybrid search ranking
+
+    @Test("Hybrid search ranking reproduces the Swift goldens")
+    func hybridSearchRanking() throws {
+        let g = try Self.golden("search_ranking_golden.json")
+        let scenarios = try #require(g["scenarios"] as? [[String: Any]])
+        #expect(scenarios.count == 10)
+
+        for expected in scenarios {
+            let name = try #require(expected["name"] as? String)
+            let query = try #require(expected["query"] as? String)
+            let candidates = try #require(expected["candidates"] as? [[String: Any]]).map { row in
+                SharedHybridCandidate(
+                    id: row["id"] as? String ?? "",
+                    citeKey: row["citeKey"] as? String ?? "",
+                    title: row["title"] as? String ?? "",
+                    authors: row["authors"] as? String ?? "",
+                    ftsScore: (row["ftsScore"] as? Double).map { Float($0) },
+                    semanticSimilarity: (row["semanticSimilarity"] as? Double).map { Float($0) },
+                    chunkSimilarity: (row["chunkSimilarity"] as? Double).map { Float($0) }
+                )
+            }
+
+            let ranked = rankHybridSearchResults(query: query, candidates: candidates)
+            let want = try #require(expected["ranked"] as? [[String: Any]])
+            #expect(ranked.count == want.count, "row count for \(name)")
+            guard ranked.count == want.count else { continue }
+
+            for (position, (wantRow, gotRow)) in zip(want, ranked).enumerated() {
+                #expect(gotRow.id == wantRow["id"] as? String, "#\(position) id in \(name)")
+                #expect(
+                    gotRow.score == (wantRow["score"] as? Double).map({ Float($0) }),
+                    "#\(position) score in \(name)"
+                )
+                #expect(
+                    gotRow.matchType == wantRow["matchType"] as? String,
+                    "#\(position) matchType in \(name)"
+                )
             }
         }
     }

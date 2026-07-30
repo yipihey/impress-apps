@@ -129,9 +129,9 @@ struct RustBridgePhase2Tests {
     @Suite("Deduplication Scorer Bridge")
     struct DeduplicationScorerBridgeTests {
 
-        @Test("Swift deduplication scorer detects DOI match")
-        func swiftDOIMatch() {
-            let scorer = SwiftDeduplicationScorer()
+        @Test("Deduplication scorer detects DOI match")
+        func doiMatch() {
+            let scorer = DeduplicationScorerFactory.createScorer()
 
             let entry1 = BibTeXEntry(
                 citeKey: "Smith2024a",
@@ -162,9 +162,9 @@ struct RustBridgePhase2Tests {
             #expect(result.isMatch)
         }
 
-        @Test("Swift deduplication scorer detects title similarity")
-        func swiftTitleSimilarity() {
-            let scorer = SwiftDeduplicationScorer()
+        @Test("Deduplication scorer detects title similarity")
+        func titleSimilarity() {
+            let scorer = DeduplicationScorerFactory.createScorer()
 
             let entry1 = BibTeXEntry(
                 citeKey: "Smith2024a",
@@ -192,9 +192,9 @@ struct RustBridgePhase2Tests {
             #expect(result.isPossibleMatch)
         }
 
-        @Test("Swift titles match function")
-        func swiftTitlesMatch() {
-            let scorer = SwiftDeduplicationScorer()
+        @Test("Titles-match function")
+        func titlesMatch() {
+            let scorer = DeduplicationScorerFactory.createScorer()
 
             #expect(scorer.titlesMatch(
                 title1: "Machine Learning",
@@ -215,9 +215,9 @@ struct RustBridgePhase2Tests {
             ))
         }
 
-        @Test("Swift authors overlap function")
-        func swiftAuthorsOverlap() {
-            let scorer = SwiftDeduplicationScorer()
+        @Test("Authors-overlap function")
+        func authorsOverlap() {
+            let scorer = DeduplicationScorerFactory.createScorer()
 
             #expect(scorer.authorsOverlap(
                 authors1: "John Smith and Jane Doe",
@@ -230,14 +230,12 @@ struct RustBridgePhase2Tests {
             ))
         }
 
-        @Test("Deduplication factory creates correct scorer")
+        @Test("Deduplication factory yields the Rust scorer")
         func scorerFactory() {
-            DeduplicationScorerFactory.currentBackend = .swift
-            let swiftScorer = DeduplicationScorerFactory.createScorer()
-            #expect(swiftScorer is SwiftDeduplicationScorer)
-
-            // Reset
-            DeduplicationScorerFactory.currentBackend = .swift
+            // Stage 7 item 5 collapsed the factory: the Swift transcription of
+            // `imbib_core::deduplication::similarity` is gone, so there is no
+            // backend to select and no second implementation to drift.
+            #expect(DeduplicationScorerFactory.createScorer() is RustDeduplicationScorer)
         }
 
         @Test("Deduplication match result properties")

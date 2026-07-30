@@ -18,18 +18,8 @@ import OSLog
 struct ImpelApp: App {
     @StateObject private var client = ImpelClient()
     @StateObject private var mailGatewayState = MailGatewayState()
-    @State private var navigateToTab: DashboardTab?
     @State private var captureGateway: CaptureGateway?
     @State private var emlWatcher: EMLFolderWatcher?
-
-    /// Stage 2-C flag-gated cutover (mirrors impart's): when set, the
-    /// unified chassis (ImpelChassisRoot) becomes the DEFAULT window and the
-    /// classic ContentView moves to a secondary "impel (Classic)" window.
-    /// Default off — escalation resolution / counsel flows aren't wired
-    /// into the chassis yet, so the classic dashboard stays primary
-    /// (deliberate deviation from implore's replace-outright).
-    private static let useChassisWindow =
-        UserDefaults.standard.bool(forKey: "impel.useChassisWindow")
 
     init() {
         // Register default settings (HTTP automation enabled by default for MCP)
@@ -39,19 +29,15 @@ struct ImpelApp: App {
         ])
     }
 
-    /// The classic dashboard window content (NavigationSplitView ContentView).
-    private var classicRoot: some View {
-        ContentView(navigateToTab: $navigateToTab)
-            .environmentObject(client)
-            .environmentObject(mailGatewayState)
-            .onOpenURL { url in
-                handleURL(url)
-            }
-    }
-
-    /// The unified chassis (Stage 2-C): PMC's TabContentView on the Agents
-    /// facet, with dashboard/escalations/suggestions/counsel as custom
-    /// surfaces. Shares the SAME client/gateway state objects as classic.
+    /// impel's window: the unified chassis (PMC's `TabContentView` on the Agents
+    /// facet) with dashboard / threads / roster / escalations / suggestions /
+    /// counsel as app-owned custom surfaces.
+    ///
+    /// Stage 4c: this is now the ONLY root. The classic `ContentView` and the
+    /// `impel.useChassisWindow` flag are deleted — see ImpelChassisRoot's header
+    /// for the parity gaps that had to close first. The flag is not kept as a
+    /// kill switch because there is nothing left to switch TO: every surface the
+    /// classic dashboard rendered is registered here, over the same views.
     private var chassisRoot: some View {
         ImpelChassisRoot()
             .environmentObject(client)
@@ -62,19 +48,8 @@ struct ImpelApp: App {
     }
 
     var body: some Scene {
-        // Main window: classic dashboard by default; the unified chassis
-        // when the "impel.useChassisWindow" flag is set (Stage 2-C gated
-        // cutover, same mechanism as impart). The app-lifecycle task stays
-        // on the PRIMARY window content so servers/gateways start exactly
-        // once regardless of which root is default.
         WindowGroup {
-            Group {
-                if Self.useChassisWindow {
-                    chassisRoot
-                } else {
-                    classicRoot
-                }
-            }
+            chassisRoot
                 .task {
                     // Wire client reference for HTTP router
                     ImpelHTTPRouterState.shared.client = client
@@ -180,10 +155,15 @@ struct ImpelApp: App {
             }
 
             CommandGroup(after: .sidebar) {
+                // Stage 4c: lowercase. `"R"` + `.command` registers ⌘⇧R in
+                // SwiftUI (a capital literal implies Shift), so the menu said ⌘R,
+                // `KeyboardHelpView` said ⌘R, and the chord was ⌘⇧R — harmless
+                // while ContentView ALSO handled ⌘R itself in `handleKeyPress`,
+                // and a silent regression the moment that handler was deleted.
                 Button("Refresh") {
                     Task { await client.refresh() }
                 }
-                .keyboardShortcut("R", modifiers: [.command])
+                .keyboardShortcut("r", modifiers: [.command])
             }
 
             CommandMenu("Server") {
@@ -232,25 +212,19 @@ struct ImpelApp: App {
             // Reaches the chassis window; harmless in the classic dashboard,
             // which simply has no observer.
             ImpressStoreSearchCommands()
-        }
 
-        // Secondary window (Stage 2-C): whichever surface is NOT the
-        // default gets a Window-menu entry — "impel (Unified)" opens the
-        // chassis while classic stays primary; with the flag flipped,
-        // "impel (Classic)" keeps the old dashboard reachable (escalation
-        // resolution / counsel flows live there). One scene with
-        // conditional CONTENT — SceneBuilder rejects `if`.
-        Window(
-            Self.useChassisWindow ? "impel (Classic)" : "impel (Unified)",
-            id: Self.useChassisWindow ? "impel-classic" : "impel-unified"
-        ) {
-            if Self.useChassisWindow {
-                classicRoot
-            } else {
-                chassisRoot
+            // ⌘/ → the keyboard cheat sheet. It used to be reachable ONLY from
+            // the classic ContentView's own key handler, so it appeared in no
+            // menu and did nothing in the chassis window; as a command it works
+            // from the menu bar and needs no focused view.
+            CommandGroup(after: .help) {
+                Button("Keyboard Shortcuts") {
+                    NotificationCenter.default.post(
+                        name: .impelShowKeyboardHelp, object: nil)
+                }
+                .keyboardShortcut("/", modifiers: [.command])
             }
         }
-        .defaultSize(width: 1100, height: 700)
 
         #if os(macOS)
         Settings {
@@ -296,19 +270,29 @@ extension ImpelApp {
     /// - `impel://open/thread/{uuid}` — navigate to a specific thread
     /// - `impel://ask?question={text}` — submit a question to counsel
     /// - `impel://navigate/{threads|counsel|escalations|agents|suggestions|dashboard}` — navigate to section
+    ///
+    /// Stage 4c: these used to set `@State navigateToTab: DashboardTab?`, which
+    /// only the classic `ContentView` observed — so once the chassis became the
+    /// default window every one of these URLs navigated NOTHING. They now post
+    /// PMC's `.chassisNavigateToSurface` with the id of the registered surface
+    /// (`ImpelChassisRoot.surfaceIDsByURLSection`), which `TabContentView` turns
+    /// into a sidebar selection.
     private func handleURL(_ url: URL) {
         guard let parsed = ImpressURL.parse(url), parsed.app == .impel else { return }
 
         switch parsed.action {
         case "open":
+            // Thread DETAIL is still list-level only (the classic window had no
+            // thread detail view either — `selectedThread` was never read), so
+            // an id lands the user on the thread list, honestly.
             if parsed.resourceType == "thread", let idStr = parsed.resourceID,
-               let _ = UUID(uuidString: idStr) {
-                navigateToTab = .threads
+               UUID(uuidString: idStr) != nil {
+                navigate(toSection: "threads")
             }
 
         case "ask":
             if let question = parsed.parameters["question"], !question.isEmpty {
-                navigateToTab = .counsel
+                navigate(toSection: "counsel")
                 // Submit to counsel via Task API
                 Task {
                     guard let engine = mailGatewayState.counselEngine else { return }
@@ -323,20 +307,21 @@ extension ImpelApp {
 
         case "navigate":
             if let section = parsed.resourceType {
-                switch section {
-                case "threads": navigateToTab = .threads
-                case "counsel": navigateToTab = .counsel
-                case "escalations": navigateToTab = .escalations
-                case "agents": navigateToTab = .agents
-                case "suggestions": navigateToTab = .suggestions
-                case "dashboard": navigateToTab = .dashboard
-                default: break
-                }
+                navigate(toSection: section)
             }
 
         default:
             break
         }
+    }
+
+    /// Select the custom surface a URL section names. An unknown section posts
+    /// nothing (the chassis ignores unclaimed ids anyway) rather than silently
+    /// landing the user somewhere they did not ask for.
+    private func navigate(toSection section: String) {
+        guard let surfaceID = ImpelChassisRoot.surfaceIDsByURLSection[section] else { return }
+        NotificationCenter.default.post(
+            name: .chassisNavigateToSurface, object: surfaceID)
     }
 }
 

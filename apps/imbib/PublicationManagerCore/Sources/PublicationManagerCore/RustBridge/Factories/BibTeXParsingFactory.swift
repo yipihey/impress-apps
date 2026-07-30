@@ -54,8 +54,10 @@ public extension BibTeXParsing {
 /// options are chosen.
 public enum BibTeXParserFactory {
 
-    /// Backend identifier, retained for the bridges that still have two
-    /// implementations (e.g. `DeduplicationScorerFactory`).
+    /// Backend identifier. Kept as a vocabulary type for tests and diagnostics
+    /// that want to name which side a value came from; no factory switches on it
+    /// any more (`DeduplicationScorerFactory` was the last one, collapsed in
+    /// Stage 7 item 5).
     public enum Backend: String, CaseIterable, Sendable {
         case swift = "Swift"
         case rust = "Rust"

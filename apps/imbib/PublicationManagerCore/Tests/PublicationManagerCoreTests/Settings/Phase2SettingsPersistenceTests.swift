@@ -233,7 +233,7 @@ final class Phase2SettingsPersistenceTests: XCTestCase {
 
     func testImpartSettingsReadExactlyTheShippedKeys() throws {
         XCTAssertEqual(
-            try Self.appStorageKeys(in: "apps/impart/macOS/Views/ContentView.swift"),
+            try Self.appStorageKeys(in: "apps/impart/macOS/Views/Settings/ImpartSettingsScene.swift"),
             Self.impartMacKeys)
     }
 

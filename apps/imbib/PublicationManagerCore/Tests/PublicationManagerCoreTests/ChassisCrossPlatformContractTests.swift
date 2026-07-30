@@ -186,6 +186,26 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
         "Chassis/Settings/SettingsSectionDescriptor.swift",
         "Chassis/Settings/SettingsSectionRegistry.swift",
         "Chassis/Settings/AppSettingsConfiguration.swift",
+
+        // MARK: Stage 5b — the publication detail pane's shared halves
+        //
+        // The five bespoke iOS detail tabs read these instead of re-encoding
+        // them: the identifier URL templates, the Flag & Tags section, the
+        // Explore row's rules + runner, the `note` field's format + debounced
+        // writer, the multi-PDF switcher, "where is this PDF", and the shell
+        // behaviour (auto-mark-read / Recent dwell / live refresh). The four
+        // macOS CHROMES that consume them stay gated — see
+        // `PublicationDetailSharedSurfaceTests`, which also owns the
+        // behavioural oracle for each file.
+        "Chassis/Detail/Shared/PublicationIdentifierLink.swift",
+        "Chassis/Detail/Shared/PublicationFlagAndTagsSection.swift",
+        "Chassis/Detail/Shared/PublicationExploration.swift",
+        "Chassis/Detail/Shared/PublicationNotesDocument.swift",
+        "Chassis/Detail/Shared/PublicationPDFSwitcher.swift",
+        "Chassis/Detail/Shared/PublicationPDFAvailability.swift",
+        "Chassis/Detail/Shared/PublicationDetailLifecycle.swift",
+        // Collapsed outright: ONE BibTeX tab, both platforms.
+        "Chassis/Detail/Tabs/BibTeXTab.swift",
     ]
 
     func testContractFilesAreNotWrappedInAMacOSGate() throws {

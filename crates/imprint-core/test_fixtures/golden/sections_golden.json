@@ -1,0 +1,544 @@
+{
+  "documents" : [
+    {
+      "autoDetected" : "typst",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : null,
+      "name" : "sections\/paper.typ",
+      "sections" : [
+        {
+          "bodyStart" : 69,
+          "end" : 170,
+          "id" : "c59b7e3b-471c-53ea-bb4b-3b61fd2032eb",
+          "level" : 1,
+          "orderIndex" : 0,
+          "sectionType" : "introduction",
+          "start" : 54,
+          "title" : "Introduction",
+          "wordCount" : 18
+        },
+        {
+          "bodyStart" : 184,
+          "end" : 232,
+          "id" : "9da6202d-4a4c-5ddd-b4e7-2fdf49cb1fda",
+          "level" : 2,
+          "orderIndex" : 1,
+          "sectionType" : null,
+          "start" : 170,
+          "title" : "Prior work",
+          "wordCount" : 7
+        },
+        {
+          "bodyStart" : 242,
+          "end" : 277,
+          "id" : "5643c9eb-4a5a-5379-8cf1-cab297240936",
+          "level" : 1,
+          "orderIndex" : 2,
+          "sectionType" : "methods",
+          "start" : 232,
+          "title" : "Methods",
+          "wordCount" : 5
+        },
+        {
+          "bodyStart" : 297,
+          "end" : 347,
+          "id" : "bcccad6b-b82a-552a-b7bc-1580109b363a",
+          "level" : 2,
+          "orderIndex" : 3,
+          "sectionType" : null,
+          "start" : 277,
+          "title" : "Numerical scheme",
+          "wordCount" : 7
+        },
+        {
+          "bodyStart" : 368,
+          "end" : 396,
+          "id" : "f844bd6c-d77c-56a2-a168-3791e86e3c15",
+          "level" : 3,
+          "orderIndex" : 4,
+          "sectionType" : null,
+          "start" : 347,
+          "title" : "Timestep control",
+          "wordCount" : 2
+        },
+        {
+          "bodyStart" : 421,
+          "end" : 445,
+          "id" : "f68d9631-f3c9-5105-909c-f2e58734deb0",
+          "level" : 1,
+          "orderIndex" : 5,
+          "sectionType" : "results",
+          "start" : 396,
+          "title" : "Results and Discussion",
+          "wordCount" : 3
+        },
+        {
+          "bodyStart" : 463,
+          "end" : 488,
+          "id" : "91fa0e36-0624-525e-8cb4-ba1457e9fc4b",
+          "level" : 1,
+          "orderIndex" : 6,
+          "sectionType" : "acknowledgements",
+          "start" : 445,
+          "title" : "Acknowledgments",
+          "wordCount" : 4
+        },
+        {
+          "bodyStart" : 501,
+          "end" : 523,
+          "id" : "6ad6ab6b-ead5-5706-80d1-07dd589f5f06",
+          "level" : 1,
+          "orderIndex" : 7,
+          "sectionType" : "references",
+          "start" : 488,
+          "title" : "References",
+          "wordCount" : 3
+        }
+      ]
+    },
+    {
+      "autoDetected" : "typst",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : "typst",
+      "name" : "sections\/paper.typ",
+      "sections" : [
+        {
+          "bodyStart" : 69,
+          "end" : 170,
+          "id" : "c59b7e3b-471c-53ea-bb4b-3b61fd2032eb",
+          "level" : 1,
+          "orderIndex" : 0,
+          "sectionType" : "introduction",
+          "start" : 54,
+          "title" : "Introduction",
+          "wordCount" : 18
+        },
+        {
+          "bodyStart" : 184,
+          "end" : 232,
+          "id" : "9da6202d-4a4c-5ddd-b4e7-2fdf49cb1fda",
+          "level" : 2,
+          "orderIndex" : 1,
+          "sectionType" : null,
+          "start" : 170,
+          "title" : "Prior work",
+          "wordCount" : 7
+        },
+        {
+          "bodyStart" : 242,
+          "end" : 277,
+          "id" : "5643c9eb-4a5a-5379-8cf1-cab297240936",
+          "level" : 1,
+          "orderIndex" : 2,
+          "sectionType" : "methods",
+          "start" : 232,
+          "title" : "Methods",
+          "wordCount" : 5
+        },
+        {
+          "bodyStart" : 297,
+          "end" : 347,
+          "id" : "bcccad6b-b82a-552a-b7bc-1580109b363a",
+          "level" : 2,
+          "orderIndex" : 3,
+          "sectionType" : null,
+          "start" : 277,
+          "title" : "Numerical scheme",
+          "wordCount" : 7
+        },
+        {
+          "bodyStart" : 368,
+          "end" : 396,
+          "id" : "f844bd6c-d77c-56a2-a168-3791e86e3c15",
+          "level" : 3,
+          "orderIndex" : 4,
+          "sectionType" : null,
+          "start" : 347,
+          "title" : "Timestep control",
+          "wordCount" : 2
+        },
+        {
+          "bodyStart" : 421,
+          "end" : 445,
+          "id" : "f68d9631-f3c9-5105-909c-f2e58734deb0",
+          "level" : 1,
+          "orderIndex" : 5,
+          "sectionType" : "results",
+          "start" : 396,
+          "title" : "Results and Discussion",
+          "wordCount" : 3
+        },
+        {
+          "bodyStart" : 463,
+          "end" : 488,
+          "id" : "91fa0e36-0624-525e-8cb4-ba1457e9fc4b",
+          "level" : 1,
+          "orderIndex" : 6,
+          "sectionType" : "acknowledgements",
+          "start" : 445,
+          "title" : "Acknowledgments",
+          "wordCount" : 4
+        },
+        {
+          "bodyStart" : 501,
+          "end" : 523,
+          "id" : "6ad6ab6b-ead5-5706-80d1-07dd589f5f06",
+          "level" : 1,
+          "orderIndex" : 7,
+          "sectionType" : "references",
+          "start" : 488,
+          "title" : "References",
+          "wordCount" : 3
+        }
+      ]
+    },
+    {
+      "autoDetected" : "latex",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : null,
+      "name" : "sections\/paper.tex",
+      "sections" : [
+        {
+          "bodyStart" : 92,
+          "end" : 116,
+          "id" : "c59b7e3b-471c-53ea-bb4b-3b61fd2032eb",
+          "level" : 1,
+          "orderIndex" : 0,
+          "sectionType" : "introduction",
+          "start" : 69,
+          "title" : "Introduction",
+          "wordCount" : 3
+        },
+        {
+          "bodyStart" : 140,
+          "end" : 211,
+          "id" : "9da6202d-4a4c-5ddd-b4e7-2fdf49cb1fda",
+          "level" : 2,
+          "orderIndex" : 1,
+          "sectionType" : null,
+          "start" : 116,
+          "title" : "Prior Work",
+          "wordCount" : 11
+        },
+        {
+          "bodyStart" : 245,
+          "end" : 283,
+          "id" : "0e4807f0-46a2-5537-9652-67b995a76a76",
+          "level" : 2,
+          "orderIndex" : 2,
+          "sectionType" : null,
+          "start" : 211,
+          "title" : "An Unnumbered Aside",
+          "wordCount" : 7
+        },
+        {
+          "bodyStart" : 328,
+          "end" : 360,
+          "id" : "4be63078-b3c1-5b6c-9e9f-e000c2f07b56",
+          "level" : 3,
+          "orderIndex" : 3,
+          "sectionType" : null,
+          "start" : 283,
+          "title" : "A Title With {Nested} Braces",
+          "wordCount" : 6
+        },
+        {
+          "bodyStart" : 392,
+          "end" : 405,
+          "id" : "a199fd8c-e0ad-51b8-8417-cf307d782526",
+          "level" : 4,
+          "orderIndex" : 4,
+          "sectionType" : null,
+          "start" : 360,
+          "title" : "A Paragraph Heading",
+          "wordCount" : 2
+        },
+        {
+          "bodyStart" : 433,
+          "end" : 446,
+          "id" : "de4b90cb-2a72-5e1c-a2ec-f384e9692cfc",
+          "level" : 5,
+          "orderIndex" : 5,
+          "sectionType" : null,
+          "start" : 405,
+          "title" : "Deeper Still",
+          "wordCount" : 2
+        },
+        {
+          "bodyStart" : 468,
+          "end" : 490,
+          "id" : "9d2e17ab-d87a-523f-a6a3-78715c2aa2e4",
+          "level" : 1,
+          "orderIndex" : 6,
+          "sectionType" : "conclusion",
+          "start" : 446,
+          "title" : "Conclusions",
+          "wordCount" : 2
+        }
+      ]
+    },
+    {
+      "autoDetected" : "latex",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : "latex",
+      "name" : "sections\/paper.tex",
+      "sections" : [
+        {
+          "bodyStart" : 92,
+          "end" : 116,
+          "id" : "c59b7e3b-471c-53ea-bb4b-3b61fd2032eb",
+          "level" : 1,
+          "orderIndex" : 0,
+          "sectionType" : "introduction",
+          "start" : 69,
+          "title" : "Introduction",
+          "wordCount" : 3
+        },
+        {
+          "bodyStart" : 140,
+          "end" : 211,
+          "id" : "9da6202d-4a4c-5ddd-b4e7-2fdf49cb1fda",
+          "level" : 2,
+          "orderIndex" : 1,
+          "sectionType" : null,
+          "start" : 116,
+          "title" : "Prior Work",
+          "wordCount" : 11
+        },
+        {
+          "bodyStart" : 245,
+          "end" : 283,
+          "id" : "0e4807f0-46a2-5537-9652-67b995a76a76",
+          "level" : 2,
+          "orderIndex" : 2,
+          "sectionType" : null,
+          "start" : 211,
+          "title" : "An Unnumbered Aside",
+          "wordCount" : 7
+        },
+        {
+          "bodyStart" : 328,
+          "end" : 360,
+          "id" : "4be63078-b3c1-5b6c-9e9f-e000c2f07b56",
+          "level" : 3,
+          "orderIndex" : 3,
+          "sectionType" : null,
+          "start" : 283,
+          "title" : "A Title With {Nested} Braces",
+          "wordCount" : 6
+        },
+        {
+          "bodyStart" : 392,
+          "end" : 405,
+          "id" : "a199fd8c-e0ad-51b8-8417-cf307d782526",
+          "level" : 4,
+          "orderIndex" : 4,
+          "sectionType" : null,
+          "start" : 360,
+          "title" : "A Paragraph Heading",
+          "wordCount" : 2
+        },
+        {
+          "bodyStart" : 433,
+          "end" : 446,
+          "id" : "de4b90cb-2a72-5e1c-a2ec-f384e9692cfc",
+          "level" : 5,
+          "orderIndex" : 5,
+          "sectionType" : null,
+          "start" : 405,
+          "title" : "Deeper Still",
+          "wordCount" : 2
+        },
+        {
+          "bodyStart" : 468,
+          "end" : 490,
+          "id" : "9d2e17ab-d87a-523f-a6a3-78715c2aa2e4",
+          "level" : 1,
+          "orderIndex" : 6,
+          "sectionType" : "conclusion",
+          "start" : 446,
+          "title" : "Conclusions",
+          "wordCount" : 2
+        }
+      ]
+    },
+    {
+      "autoDetected" : "latex",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : "typst",
+      "name" : "sections\/paper.tex",
+      "sections" : [
+
+      ]
+    },
+    {
+      "autoDetected" : "typst",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : null,
+      "name" : "sections\/unicode.typ",
+      "sections" : [
+        {
+          "bodyStart" : 108,
+          "end" : 177,
+          "id" : "79e10a53-e3d7-503c-9307-57ecd67ddcc3",
+          "level" : 1,
+          "orderIndex" : 0,
+          "sectionType" : null,
+          "start" : 69,
+          "title" : "Résumé (mixed normalization heading)",
+          "wordCount" : 10
+        },
+        {
+          "bodyStart" : 188,
+          "end" : 211,
+          "id" : "2378bb6d-3fb6-5b37-9a9d-b520ecbf5746",
+          "level" : 2,
+          "orderIndex" : 1,
+          "sectionType" : null,
+          "start" : 177,
+          "title" : "Détails",
+          "wordCount" : 3
+        }
+      ]
+    },
+    {
+      "autoDetected" : "typst",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : null,
+      "name" : "sections\/flat.typ",
+      "sections" : [
+
+      ]
+    },
+    {
+      "autoDetected" : "typst",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : null,
+      "name" : "sections\/crlf.typ",
+      "sections" : [
+        {
+          "bodyStart" : 17,
+          "end" : 17,
+          "id" : "ebb5e94e-8076-52ce-837e-2a12158413ba",
+          "level" : 1,
+          "orderIndex" : 0,
+          "sectionType" : null,
+          "start" : 0,
+          "title" : "One\r\nbody\r\n= Two\r\n",
+          "wordCount" : 0
+        }
+      ]
+    },
+    {
+      "autoDetected" : "typst",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : null,
+      "name" : "sections\/adversarial.typ",
+      "sections" : [
+        {
+          "bodyStart" : 105,
+          "end" : 110,
+          "id" : "f802b57b-3377-5cee-8232-d01fe0d1ee04",
+          "level" : 1,
+          "orderIndex" : 0,
+          "sectionType" : null,
+          "start" : 83,
+          "title" : "Indented Heading",
+          "wordCount" : 1
+        },
+        {
+          "bodyStart" : 141,
+          "end" : 193,
+          "id" : "7bdb35d1-074a-5168-b1b2-2a5436c04241",
+          "level" : 2,
+          "orderIndex" : 1,
+          "sectionType" : null,
+          "start" : 110,
+          "title" : "Trailing spaces in title",
+          "wordCount" : 9
+        }
+      ]
+    },
+    {
+      "autoDetected" : "typst",
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "format" : "latex",
+      "name" : "sections\/adversarial.typ",
+      "sections" : [
+        {
+          "bodyStart" : 193,
+          "end" : 193,
+          "id" : "4699548e-17b3-566c-9ccc-8c4867eae6e0",
+          "level" : 1,
+          "orderIndex" : 0,
+          "sectionType" : null,
+          "start" : 151,
+          "title" : "A LaTeX command in a Typst file",
+          "wordCount" : 0
+        }
+      ]
+    }
+  ],
+  "idCases" : [
+    {
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "id" : "c59b7e3b-471c-53ea-bb4b-3b61fd2032eb",
+      "orderIndex" : 0,
+      "title" : "Introduction"
+    },
+    {
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "id" : "e100e55d-8f5d-5b8f-b345-a6d3978f9e1d",
+      "orderIndex" : 1,
+      "title" : "Introduction"
+    },
+    {
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "id" : "c59b7e3b-471c-53ea-bb4b-3b61fd2032eb",
+      "orderIndex" : 0,
+      "title" : "introduction"
+    },
+    {
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "id" : "c59b7e3b-471c-53ea-bb4b-3b61fd2032eb",
+      "orderIndex" : 0,
+      "title" : "  Introduction  "
+    },
+    {
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "id" : "c59b7e3b-471c-53ea-bb4b-3b61fd2032eb",
+      "orderIndex" : 0,
+      "title" : "INTRODUCTION"
+    },
+    {
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "id" : "edee2f72-9dc4-5260-873f-ada3c0b5ff98",
+      "orderIndex" : 0,
+      "title" : ""
+    },
+    {
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "id" : "baa347ff-e1a2-5b88-9f44-d337a54619e0",
+      "orderIndex" : 2,
+      "title" : "Résumé"
+    },
+    {
+      "documentID" : "550E8400-E29B-41D4-A716-446655440000",
+      "id" : "85d1e507-d629-5d6a-86b5-183009ade3e1",
+      "orderIndex" : 3,
+      "title" : "A Title With {Braces}"
+    },
+    {
+      "documentID" : "00000000-0000-0000-0000-000000000000",
+      "id" : "19016f25-9ca7-5618-a23c-7fd2bf4d4257",
+      "orderIndex" : 0,
+      "title" : "Introduction"
+    },
+    {
+      "documentID" : "6BA7B810-9DAD-11D1-80B4-00C04FD430C8",
+      "id" : "30f1b9bc-ade9-5865-96a5-922c495e30f9",
+      "orderIndex" : 7,
+      "title" : "Methods"
+    }
+  ]
+}

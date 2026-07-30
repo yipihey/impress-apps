@@ -16,13 +16,37 @@ import ImpressHelixCore
 /// - Apple Pencil Scribble support
 /// - Helix modal editing mode (optional)
 /// - Auto-save with debouncing
+///
+/// ## Stage 5b: same document, different editor
+///
+/// This is NOT macOS's `NotesPanel` written twice — macOS shows the quick
+/// annotation fields inline plus a hybrid markdown/preview area inside a
+/// resizable panel BESIDE the PDF, which is a design a phone has no room for.
+/// What WAS written twice is the document model, and it had drifted into a bug:
+/// macOS parsed the `note` field as YAML front matter + freeform, iOS read the
+/// field RAW. So an iPhone user saw
+///
+///     ---
+///     First Author: Pioneer in this field
+///     ---
+///
+/// as literal text above their notes, and every edit round-tripped the front
+/// matter as prose.
+///
+/// Both editors now share `PublicationNotesDocument` (the format) and
+/// `PublicationNotesWriter` (the 500 ms debounce + the "selection moved on"
+/// guard). This editor binds the FREEFORM half; the annotations ride along
+/// untouched and are preserved on save, where before they were either shown as
+/// junk or — once a user deleted the confusing lines — silently destroyed.
 @available(iOS 17.0, *)
 struct IOSNotesTab: View {
     let publicationID: UUID
 
-    @State private var notes: String = ""
-    @State private var saveTask: Task<Void, Never>?
-    @State private var showSaveConfirmation = false
+    /// The parsed `note` field. Only `freeform` is editable here; the
+    /// annotations are macOS's inline fields and are round-tripped verbatim.
+    @State private var document = PublicationNotesDocument()
+    @State private var annotationSettings: QuickAnnotationSettings = .defaults
+    @State private var notesWriter = PublicationNotesWriter()
 
     // Helix mode settings
     @AppStorage("helixModeEnabled") private var helixModeEnabled = false
@@ -33,7 +57,7 @@ struct IOSNotesTab: View {
         Group {
             if helixModeEnabled {
                 HelixTextEditor(
-                    text: $notes,
+                    text: $document.freeform,
                     helixState: helixState,
                     showModeIndicator: helixShowModeIndicator,
                     indicatorPosition: .bottomRight
@@ -41,7 +65,7 @@ struct IOSNotesTab: View {
             } else {
                 // Use IOSNotesEditorView for keyboard shortcut and Scribble support
                 IOSNotesEditorView(
-                    text: $notes,
+                    text: $document.freeform,
                     onSave: {
                         saveNotes()
                     }
@@ -49,28 +73,31 @@ struct IOSNotesTab: View {
             }
         }
         .background(Color(.systemBackground))
+        .task {
+            // The annotation field definitions the front matter is keyed on.
+            annotationSettings = await QuickAnnotationSettingsStore.shared.settings
+            loadNotes()
+        }
         .onChange(of: publicationID, initial: true) { _, _ in
-            saveTask?.cancel()
-            let pub = RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
-            notes = pub?.note ?? ""
+            loadNotes()
             helixState.reset()
         }
-        .onChange(of: notes) { oldValue, newValue in
-            let targetID = publicationID
-
-            saveTask?.cancel()
-            saveTask = Task {
-                try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled else { return }
-                RustStoreAdapter.shared.updateField(id: targetID, field: "note", value: newValue)
-            }
+        .onChange(of: document.freeform) { _, _ in
+            notesWriter.schedule(
+                document, for: publicationID, settings: annotationSettings)
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Persistence
+
+    private func loadNotes() {
+        notesWriter.cancelPending()
+        document = PublicationNotesDocument(
+            publication: RustStoreAdapter.shared.getPublicationDetail(id: publicationID),
+            settings: annotationSettings)
+    }
 
     private func saveNotes() {
-        saveTask?.cancel()
-        RustStoreAdapter.shared.updateField(id: publicationID, field: "note", value: notes)
+        notesWriter.saveNow(document, for: publicationID, settings: annotationSettings)
     }
 }

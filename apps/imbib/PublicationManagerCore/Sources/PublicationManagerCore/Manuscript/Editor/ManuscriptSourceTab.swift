@@ -439,7 +439,9 @@ struct ManuscriptOutlineRail: View {
             } else {
                 List(sections, id: \.id) { section in
                     Button {
-                        onJump(section.start)
+                        // UTF-16, because the offset lands in
+                        // `NSTextView.setSelectedRange`.
+                        onJump(section.startUTF16)
                     } label: {
                         Text(section.title.isEmpty ? "(untitled)" : section.title)
                             .lineLimit(1)

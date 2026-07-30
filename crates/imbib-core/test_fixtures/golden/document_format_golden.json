@@ -1,0 +1,309 @@
+{
+  "detectCases" : [
+    {
+      "format" : "typst",
+      "source" : "",
+      "title" : null
+    },
+    {
+      "format" : "typst",
+      "source" : "   \n\n \t ",
+      "title" : null
+    },
+    {
+      "format" : "markdown",
+      "source" : "",
+      "title" : "ADR-0011.md"
+    },
+    {
+      "format" : "plaintext",
+      "source" : "",
+      "title" : "notes.txt"
+    },
+    {
+      "format" : "latex",
+      "source" : "",
+      "title" : "paper.tex"
+    },
+    {
+      "format" : "latex",
+      "source" : "",
+      "title" : "paper.latex"
+    },
+    {
+      "format" : "typst",
+      "source" : "",
+      "title" : "paper.typ"
+    },
+    {
+      "format" : "markdown",
+      "source" : "",
+      "title" : "readme.MARKDOWN"
+    },
+    {
+      "format" : "plaintext",
+      "source" : "",
+      "title" : "notes.TEXT"
+    },
+    {
+      "format" : "markdown",
+      "source" : "",
+      "title" : "notes.mdown"
+    },
+    {
+      "format" : "typst",
+      "source" : "",
+      "title" : "archive.tar.gz"
+    },
+    {
+      "format" : "typst",
+      "source" : "",
+      "title" : "trailing."
+    },
+    {
+      "format" : "typst",
+      "source" : "",
+      "title" : ".hidden"
+    },
+    {
+      "format" : "typst",
+      "source" : "",
+      "title" : "no-extension-at-all"
+    },
+    {
+      "format" : "typst",
+      "source" : "",
+      "title" : "ADR-0011: The impress Journal"
+    },
+    {
+      "format" : "latex",
+      "source" : "\\documentclass{article}\n\\begin{document}\nhi\n\\end{document}",
+      "title" : null
+    },
+    {
+      "format" : "latex",
+      "source" : "\\begin{document}\ntext\n\\end{document}",
+      "title" : null
+    },
+    {
+      "format" : "markdown",
+      "source" : "\\documentclass{article}",
+      "title" : "notes.md"
+    },
+    {
+      "format" : "markdown",
+      "source" : "# ADR-0011\n\n## Status\nAccepted\n",
+      "title" : null
+    },
+    {
+      "format" : "typst",
+      "source" : "#import \"@preview\/cetz:0.2.0\"\n#set page(margin: 2cm)\n\n= Intro\n",
+      "title" : null
+    },
+    {
+      "format" : "typst",
+      "source" : "####### seven hashes\n",
+      "title" : null
+    },
+    {
+      "format" : "markdown",
+      "source" : "###### six hashes\n",
+      "title" : null
+    },
+    {
+      "format" : "typst",
+      "source" : "#nospace\n",
+      "title" : null
+    },
+    {
+      "format" : "markdown",
+      "source" : "Intro paragraph\n\n```swift\nlet x = 1\n```\n",
+      "title" : null
+    },
+    {
+      "format" : "markdown",
+      "source" : "~~~\ncode fence\n~~~\n",
+      "title" : null
+    },
+    {
+      "format" : "markdown",
+      "source" : "   \t# indented heading\n",
+      "title" : null
+    },
+    {
+      "format" : "typst",
+      "source" : "= Typst heading\nbody\n",
+      "title" : null
+    },
+    {
+      "format" : "typst",
+      "source" : "body\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\nbody\n# late markdown heading\n",
+      "title" : null
+    },
+    {
+      "format" : "markdown",
+      "source" : "# CRLF heading\r\nbody\r\n",
+      "title" : null
+    },
+    {
+      "format" : "typst",
+      "source" : "prose\n\n#import x\n",
+      "title" : null
+    }
+  ],
+  "extensionCases" : [
+    {
+      "extension" : "typ",
+      "format" : "typst"
+    },
+    {
+      "extension" : "TYP",
+      "format" : "typst"
+    },
+    {
+      "extension" : "tex",
+      "format" : "latex"
+    },
+    {
+      "extension" : "TeX",
+      "format" : "latex"
+    },
+    {
+      "extension" : "latex",
+      "format" : "latex"
+    },
+    {
+      "extension" : "md",
+      "format" : "markdown"
+    },
+    {
+      "extension" : "MD",
+      "format" : "markdown"
+    },
+    {
+      "extension" : "markdown",
+      "format" : "markdown"
+    },
+    {
+      "extension" : "mdown",
+      "format" : "markdown"
+    },
+    {
+      "extension" : "txt",
+      "format" : "plaintext"
+    },
+    {
+      "extension" : "text",
+      "format" : "plaintext"
+    },
+    {
+      "extension" : "TEXT",
+      "format" : "plaintext"
+    },
+    {
+      "extension" : "rs",
+      "format" : null
+    },
+    {
+      "extension" : "docx",
+      "format" : null
+    },
+    {
+      "extension" : "",
+      "format" : null
+    },
+    {
+      "extension" : " ",
+      "format" : null
+    },
+    {
+      "extension" : "typ ",
+      "format" : null
+    }
+  ],
+  "formats" : [
+    {
+      "boldWrap" : {
+        "prefix" : "*",
+        "suffix" : "*"
+      },
+      "citationInsert" : {
+        "prefix" : "@",
+        "suffix" : ""
+      },
+      "commentPrefix" : "\/\/",
+      "defaultDebounceMs" : 300,
+      "displayName" : "Typst",
+      "fileExtension" : "typ",
+      "hasPreview" : true,
+      "id" : "typst",
+      "italicWrap" : {
+        "prefix" : "_",
+        "suffix" : "_"
+      },
+      "mainFileName" : "main.typ",
+      "previewKind" : "compiledPDF",
+      "requiresCompile" : true
+    },
+    {
+      "boldWrap" : {
+        "prefix" : "\\textbf{",
+        "suffix" : "}"
+      },
+      "citationInsert" : {
+        "prefix" : "\\cite{",
+        "suffix" : "}"
+      },
+      "commentPrefix" : "%",
+      "defaultDebounceMs" : 1500,
+      "displayName" : "LaTeX",
+      "fileExtension" : "tex",
+      "hasPreview" : true,
+      "id" : "latex",
+      "italicWrap" : {
+        "prefix" : "\\textit{",
+        "suffix" : "}"
+      },
+      "mainFileName" : "main.tex",
+      "previewKind" : "compiledPDF",
+      "requiresCompile" : true
+    },
+    {
+      "boldWrap" : {
+        "prefix" : "**",
+        "suffix" : "**"
+      },
+      "citationInsert" : {
+        "prefix" : "@",
+        "suffix" : ""
+      },
+      "commentPrefix" : null,
+      "defaultDebounceMs" : 200,
+      "displayName" : "Markdown",
+      "fileExtension" : "md",
+      "hasPreview" : true,
+      "id" : "markdown",
+      "italicWrap" : {
+        "prefix" : "_",
+        "suffix" : "_"
+      },
+      "mainFileName" : "main.md",
+      "previewKind" : "renderedMarkdown",
+      "requiresCompile" : false
+    },
+    {
+      "boldWrap" : null,
+      "citationInsert" : null,
+      "commentPrefix" : null,
+      "defaultDebounceMs" : 0,
+      "displayName" : "Plain Text",
+      "fileExtension" : "txt",
+      "hasPreview" : false,
+      "id" : "plaintext",
+      "italicWrap" : null,
+      "mainFileName" : "main.txt",
+      "previewKind" : "none",
+      "requiresCompile" : false
+    }
+  ]
+}

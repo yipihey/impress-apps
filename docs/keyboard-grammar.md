@@ -37,10 +37,29 @@ through `TriageKeyGrammar.command(forCharacters:)`. Pane focus is
 window-scoped rather than row-scoped, so a list surface returns `.ignored` for
 it and lets the event bubble to the shell that owns the split.
 
-One known divergence remains, deliberately unremapped: impart binds `s` to
-Save and ⇧S to Star, where the catalog says `s` = toggle star. impart's
-handler names the divergence at the call site; reconciling it is a product
-remap, not a vocabulary move.
+**Stage 4c (2026-07-30) deleted two of those handlers with their windows.**
+impart's and impel's `ContentView` are gone — the chassis is now each app's only
+window — so the surviving single-key grammar for both apps lives in the chassis
+list wrappers (`MessageListWrapper`, `AgentRecordListWrapper`) and in impel's
+`EscalationsSurface` / `SuggestionsSurface`. Three consequences worth recording:
+
+* impart's `s` / ⇧S / `r` / `u` single keys are **no longer bound at all**. They
+  were unreachable before the deletion too: `ContentView.handleKeyPress`
+  consulted `ImpartKeyboardShortcutsStore` FIRST and returned `.handled` for any
+  keystroke with a default binding, so every one of these posted a notification
+  with no observer and the local handlers below were dead code. The chassis list
+  binds `s` = star through the shared catalog, which is the catalog's own
+  meaning; impart's Save/Star divergence is therefore moot for now, and
+  re-introducing Save needs a store-side verb, not a keymap.
+* impel's suggestion keys (⏎ accept / ⎋ dismiss) moved INTO
+  `SuggestionsSurface`, next to the escalation keys already in
+  `EscalationsSurface`, and now drive a visible `List` selection.
+* impel's ⌘R (refresh) and impart's ⌘N / ⌘R / ⌘⇧R / ⌘⇧F / ⌘⇧U were declared with
+  CAPITAL key literals, which in SwiftUI implies Shift — so the chords were one
+  modifier off from the menu titles and from this document. They are lowercase
+  now. impart's ⌘⇧R collision (File ▸ Check for New Mail vs Message ▸ Reply All)
+  resolved in Reply All's favour, per the table below; Check for New Mail took
+  ⌘⇧N (Mail.app's "Get New Mail").
 
 | Key | Semantic | Catalog |
 |-----|----------|---------|

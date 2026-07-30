@@ -1,4 +1,5 @@
 import Foundation
+import ImbibRustCore
 
 /// The manuscript source formats the suite understands, providing
 /// format-specific constants for editing, preview, and citation insertion.
@@ -7,9 +8,19 @@ import Foundation
 /// so the shared compile/edit stack (`ManuscriptCompileController`,
 /// `SourceEditorView`) has a common format type in both imbib and imprint.
 ///
-/// The allowed set is mirrored in Rust
-/// (`impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`, exported as
-/// `supportedManuscriptFormats()`); a unit test asserts parity.
+/// Stage 7 item 4: the *grammar* moved to Rust. This type used to carry eight
+/// `switch self` statements — one per property — plus two `detect` heuristics.
+/// All ten now read `impress_core::manuscript_format::MANUSCRIPT_FORMAT_GRAMMAR`
+/// through `manuscriptFormatGrammar()`, one row per format, so a format's
+/// behaviour is legible in one place and adding a format is one table row plus
+/// one enum case here (see `DocumentFormatGrammar`). The public surface — the
+/// cases and every property signature — is unchanged; there are dozens of call
+/// sites and they should not have to care.
+///
+/// Cite-key *parsing* is not here and must not come here: finding `@key` /
+/// `\cite{key}` in existing text is `imprint_core::citations::{extract, hit}`,
+/// reachable from Swift as `citeKeyHits(source:syntax:)`. The `citationInsert`
+/// affixes below are the editor-side *insertion* strings only.
 public enum DocumentFormat: String, CaseIterable, Codable, Sendable {
     case typst
     case latex
@@ -17,7 +28,7 @@ public enum DocumentFormat: String, CaseIterable, Codable, Sendable {
     case plaintext
 
     /// How the non-source pane renders this format.
-    public enum PreviewKind: Sendable {
+    public enum PreviewKind: String, Sendable {
         /// Compile the source (Typst in-process / LaTeX via tectonic) to PDF.
         case compiledPDF
         /// Render the live source with MarkdownUI — no compile step.
@@ -26,98 +37,47 @@ public enum DocumentFormat: String, CaseIterable, Codable, Sendable {
         case none
     }
 
-    public var previewKind: PreviewKind {
-        switch self {
-        case .typst, .latex: .compiledPDF
-        case .markdown: .renderedMarkdown
-        case .plaintext: .none
-        }
+    /// This format's row of the Rust grammar table.
+    var grammar: DocumentFormatGrammar.Row {
+        DocumentFormatGrammar.row(for: rawValue)
     }
+
+    public var previewKind: PreviewKind { grammar.previewKind }
 
     /// Whether this format has ANY rendered counterpart to the source — the
     /// single source of truth for showing/hiding a preview affordance
     /// (segmented control, split-view toggle, Preview tab). Plain text has
     /// none, so the affordance must not appear at all.
-    public var hasPreview: Bool { previewKind != .none }
+    public var hasPreview: Bool { grammar.hasPreview }
 
     /// Whether the preview is produced by a compile pass (Typst/LaTeX → PDF).
     /// Formats that render live from the buffer (Markdown) or have no preview
     /// at all must never schedule a compile.
-    public var requiresCompile: Bool { previewKind == .compiledPDF }
+    public var requiresCompile: Bool { grammar.requiresCompile }
 
-    public var fileExtension: String {
-        switch self {
-        case .typst: "typ"
-        case .latex: "tex"
-        case .markdown: "md"
-        case .plaintext: "txt"
-        }
-    }
+    public var fileExtension: String { grammar.fileExtension }
 
-    public var mainFileName: String {
-        "main.\(fileExtension)"
-    }
+    public var mainFileName: String { grammar.mainFileName }
 
-    public var displayName: String {
-        switch self {
-        case .typst: "Typst"
-        case .latex: "LaTeX"
-        case .markdown: "Markdown"
-        case .plaintext: "Plain Text"
-        }
-    }
+    public var displayName: String { grammar.displayName }
 
     /// Line-comment prefix; nil disables comment toggling (Markdown has no
     /// line comments; plain text has no syntax at all).
-    public var commentPrefix: String? {
-        switch self {
-        case .typst: "//"
-        case .latex: "%"
-        case .markdown, .plaintext: nil
-        }
-    }
+    public var commentPrefix: String? { grammar.commentPrefix }
 
     /// Citation insertion delimiters; nil disables citation insert.
     /// Markdown uses the pandoc `@key` convention.
-    public var citationInsert: (prefix: String, suffix: String)? {
-        switch self {
-        case .typst: ("@", "")
-        case .latex: ("\\cite{", "}")
-        case .markdown: ("@", "")
-        case .plaintext: nil
-        }
-    }
+    public var citationInsert: (prefix: String, suffix: String)? { grammar.citationInsert }
 
     /// Bold wrapping; nil disables the Bold command.
-    public var boldWrap: (prefix: String, suffix: String)? {
-        switch self {
-        case .typst: ("*", "*")
-        case .latex: ("\\textbf{", "}")
-        case .markdown: ("**", "**")
-        case .plaintext: nil
-        }
-    }
+    public var boldWrap: (prefix: String, suffix: String)? { grammar.boldWrap }
 
     /// Italic wrapping; nil disables the Italic command.
-    public var italicWrap: (prefix: String, suffix: String)? {
-        switch self {
-        case .typst: ("_", "_")
-        case .latex: ("\\textit{", "}")
-        case .markdown: ("_", "_")
-        case .plaintext: nil
-        }
-    }
+    public var italicWrap: (prefix: String, suffix: String)? { grammar.italicWrap }
 
     /// Default auto-compile/preview debounce in milliseconds.
     /// LaTeX compilation is heavy; Markdown re-renders are cheap.
-    public var defaultDebounceMs: Int {
-        switch self {
-        case .typst: 300
-        case .latex: 1500
-        case .markdown: 200
-        case .plaintext: 0
-        }
-    }
+    public var defaultDebounceMs: Int { Int(grammar.defaultDebounceMs) }
 
     /// Detect format from source content heuristics, optionally using the
     /// manuscript title as a hint (titles are often file names: "ADR-11.md").
@@ -126,48 +86,101 @@ public enum DocumentFormat: String, CaseIterable, Codable, Sendable {
     /// blindly assuming Typst there sends Markdown bodies into the Typst
     /// compiler, whose first complaint is `expected expression` on `# Heading`.
     public static func detect(from source: String, title: String? = nil) -> DocumentFormat {
-        // 1. Title extension hint — cheapest and most reliable when present.
-        if let title,
-           let dot = title.lastIndex(of: "."),
-           case let ext = String(title[title.index(after: dot)...]),
-           !ext.isEmpty,
-           let byExtension = detect(fromExtension: ext) {
-            return byExtension
-        }
-
-        // 2. Content markers.
-        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.contains("\\documentclass") || trimmed.contains("\\begin{document}") {
-            return .latex
-        }
-        if looksLikeMarkdown(trimmed) {
-            return .markdown
-        }
-        return .typst
-    }
-
-    /// Markdown markers that are NOT valid Typst: an ATX heading (`# ` — in
-    /// Typst `#` starts code mode, so `#` + space is a syntax error), a fenced
-    /// code block, or a setext-style `---` front-matter fence.
-    private static func looksLikeMarkdown(_ source: String) -> Bool {
-        for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false).prefix(200) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("```") || line.hasPrefix("~~~") { return true }
-            guard line.hasPrefix("#") else { continue }
-            let hashes = line.prefix(while: { $0 == "#" }).count
-            if hashes <= 6, line.dropFirst(hashes).hasPrefix(" ") { return true }
-        }
-        return false
+        DocumentFormat(rawValue: detectManuscriptFormat(source: source, title: title)) ?? .typst
     }
 
     /// Detect format from a file extension string (without dot).
     public static func detect(fromExtension ext: String) -> DocumentFormat? {
-        switch ext.lowercased() {
-        case "tex", "latex": return .latex
-        case "typ": return .typst
-        case "md", "markdown", "mdown": return .markdown
-        case "txt", "text": return .plaintext
-        default: return nil
+        manuscriptFormatForExtension(ext: ext).flatMap(DocumentFormat.init(rawValue:))
+    }
+}
+
+// MARK: - Cached Rust grammar table
+
+/// The Rust grammar table, fetched once and cached.
+///
+/// Every value in it is a compile-time constant on the Rust side, so one FFI
+/// call at first access is the whole cost — there is nothing to invalidate.
+enum DocumentFormatGrammar {
+
+    /// One format's grammar, as a Swift value type so the cache is `Sendable`
+    /// without depending on how UniFFI happens to annotate its records.
+    struct Row: Sendable {
+        let id: String
+        let displayName: String
+        let previewKind: DocumentFormat.PreviewKind
+        let hasPreview: Bool
+        let requiresCompile: Bool
+        let fileExtension: String
+        let mainFileName: String
+        let extensions: [String]
+        let commentPrefix: String?
+        let citationInsert: (prefix: String, suffix: String)?
+        let boldWrap: (prefix: String, suffix: String)?
+        let italicWrap: (prefix: String, suffix: String)?
+        let defaultDebounceMs: UInt32
+
+        /// The row used when the Rust table has no entry for a format — a case
+        /// added here without a table row. Grammar-free rather than
+        /// Typst-shaped: no comment toggle, no citation insert, no wrapping,
+        /// no preview. A missing row should make the editor plainly inert, not
+        /// quietly apply the wrong syntax to the wrong language.
+        static func unknown(id: String) -> Row {
+            Row(
+                id: id,
+                displayName: id.capitalized,
+                previewKind: .none,
+                hasPreview: false,
+                requiresCompile: false,
+                fileExtension: id,
+                mainFileName: "main.\(id)",
+                extensions: [id],
+                commentPrefix: nil,
+                citationInsert: nil,
+                boldWrap: nil,
+                italicWrap: nil,
+                defaultDebounceMs: 0
+            )
         }
+    }
+
+    /// Keyed by format id (== `DocumentFormat.rawValue`).
+    private static let rows: [String: Row] = {
+        let table = manuscriptFormatGrammar()
+        var byID: [String: Row] = [:]
+        for descriptor in table {
+            byID[descriptor.id] = Row(
+                id: descriptor.id,
+                displayName: descriptor.displayName,
+                previewKind: DocumentFormat.PreviewKind(rawValue: descriptor.previewKind) ?? .none,
+                hasPreview: descriptor.hasPreview,
+                requiresCompile: descriptor.requiresCompile,
+                fileExtension: descriptor.fileExtension,
+                mainFileName: descriptor.mainFileName,
+                extensions: descriptor.extensions,
+                commentPrefix: descriptor.commentPrefix,
+                citationInsert: descriptor.citationInsert.map { ($0.prefix, $0.suffix) },
+                boldWrap: descriptor.boldWrap.map { ($0.prefix, $0.suffix) },
+                italicWrap: descriptor.italicWrap.map { ($0.prefix, $0.suffix) },
+                defaultDebounceMs: descriptor.defaultDebounceMs
+            )
+        }
+        assert(
+            Set(byID.keys) == Set(DocumentFormat.allCases.map(\.rawValue)),
+            "DocumentFormat and the Rust grammar table diverged: "
+                + "swift=\(DocumentFormat.allCases.map(\.rawValue).sorted()) "
+                + "rust=\(byID.keys.sorted())"
+        )
+        return byID
+    }()
+
+    static func row(for id: String) -> Row {
+        rows[id] ?? .unknown(id: id)
+    }
+
+    /// The table in `DocumentFormat.allCases` order — for tests and for any
+    /// surface that wants to enumerate formats without going through the enum.
+    static var allRows: [Row] {
+        DocumentFormat.allCases.map { row(for: $0.rawValue) }
     }
 }

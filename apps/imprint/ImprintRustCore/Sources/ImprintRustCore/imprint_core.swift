@@ -1587,6 +1587,183 @@ public func FfiConverterTypeFFICursorPosition_lower(_ value: FfiCursorPosition) 
 
 
 /**
+ * One section of a manuscript source.
+ *
+ * `start` / `end` / `bodyStart` are **Swift `Character` offsets** (extended
+ * grapheme clusters) — the offsets every existing consumer splices source text
+ * with. `startUtf16` / `endUtf16` / `bodyStartUtf16` are the same positions in
+ * UTF-16 code units, which is what `NSRange` and the AppKit/UIKit text stack
+ * want; use those for anything that talks to a text view.
+ */
+public struct FfiExtractedSection {
+    /**
+     * Lowercase UUID string, deterministic in
+     * `(documentID, normalized title, orderIndex)`. Persisted as the
+     * `manuscript-section` row id — the derivation is frozen.
+     */
+    public var id: String
+    public var title: String
+    /**
+     * Typst: number of `=`. LaTeX: 1 for `\section`, 2 for `\subsection`, ….
+     */
+    public var level: UInt32
+    public var start: UInt32
+    public var end: UInt32
+    public var bodyStart: UInt32
+    public var startUtf16: UInt32
+    public var endUtf16: UInt32
+    public var bodyStartUtf16: UInt32
+    public var orderIndex: UInt32
+    /**
+     * `introduction`, `methods`, `results`, … or `None`.
+     */
+    public var sectionType: String?
+    public var wordCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Lowercase UUID string, deterministic in
+         * `(documentID, normalized title, orderIndex)`. Persisted as the
+         * `manuscript-section` row id — the derivation is frozen.
+         */id: String, title: String, 
+        /**
+         * Typst: number of `=`. LaTeX: 1 for `\section`, 2 for `\subsection`, ….
+         */level: UInt32, start: UInt32, end: UInt32, bodyStart: UInt32, startUtf16: UInt32, endUtf16: UInt32, bodyStartUtf16: UInt32, orderIndex: UInt32, 
+        /**
+         * `introduction`, `methods`, `results`, … or `None`.
+         */sectionType: String?, wordCount: UInt32) {
+        self.id = id
+        self.title = title
+        self.level = level
+        self.start = start
+        self.end = end
+        self.bodyStart = bodyStart
+        self.startUtf16 = startUtf16
+        self.endUtf16 = endUtf16
+        self.bodyStartUtf16 = bodyStartUtf16
+        self.orderIndex = orderIndex
+        self.sectionType = sectionType
+        self.wordCount = wordCount
+    }
+}
+
+
+
+extension FfiExtractedSection: Equatable, Hashable {
+    public static func ==(lhs: FfiExtractedSection, rhs: FfiExtractedSection) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.level != rhs.level {
+            return false
+        }
+        if lhs.start != rhs.start {
+            return false
+        }
+        if lhs.end != rhs.end {
+            return false
+        }
+        if lhs.bodyStart != rhs.bodyStart {
+            return false
+        }
+        if lhs.startUtf16 != rhs.startUtf16 {
+            return false
+        }
+        if lhs.endUtf16 != rhs.endUtf16 {
+            return false
+        }
+        if lhs.bodyStartUtf16 != rhs.bodyStartUtf16 {
+            return false
+        }
+        if lhs.orderIndex != rhs.orderIndex {
+            return false
+        }
+        if lhs.sectionType != rhs.sectionType {
+            return false
+        }
+        if lhs.wordCount != rhs.wordCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(level)
+        hasher.combine(start)
+        hasher.combine(end)
+        hasher.combine(bodyStart)
+        hasher.combine(startUtf16)
+        hasher.combine(endUtf16)
+        hasher.combine(bodyStartUtf16)
+        hasher.combine(orderIndex)
+        hasher.combine(sectionType)
+        hasher.combine(wordCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIExtractedSection: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiExtractedSection {
+        return
+            try FfiExtractedSection(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                level: FfiConverterUInt32.read(from: &buf), 
+                start: FfiConverterUInt32.read(from: &buf), 
+                end: FfiConverterUInt32.read(from: &buf), 
+                bodyStart: FfiConverterUInt32.read(from: &buf), 
+                startUtf16: FfiConverterUInt32.read(from: &buf), 
+                endUtf16: FfiConverterUInt32.read(from: &buf), 
+                bodyStartUtf16: FfiConverterUInt32.read(from: &buf), 
+                orderIndex: FfiConverterUInt32.read(from: &buf), 
+                sectionType: FfiConverterOptionString.read(from: &buf), 
+                wordCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiExtractedSection, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterUInt32.write(value.level, into: &buf)
+        FfiConverterUInt32.write(value.start, into: &buf)
+        FfiConverterUInt32.write(value.end, into: &buf)
+        FfiConverterUInt32.write(value.bodyStart, into: &buf)
+        FfiConverterUInt32.write(value.startUtf16, into: &buf)
+        FfiConverterUInt32.write(value.endUtf16, into: &buf)
+        FfiConverterUInt32.write(value.bodyStartUtf16, into: &buf)
+        FfiConverterUInt32.write(value.orderIndex, into: &buf)
+        FfiConverterOptionString.write(value.sectionType, into: &buf)
+        FfiConverterUInt32.write(value.wordCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIExtractedSection_lift(_ buf: RustBuffer) throws -> FfiExtractedSection {
+    return try FfiConverterTypeFFIExtractedSection.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIExtractedSection_lower(_ value: FfiExtractedSection) -> RustBuffer {
+    return FfiConverterTypeFFIExtractedSection.lower(value)
+}
+
+
+/**
  * Journal information for FFI
  */
 public struct FfiJournalInfo {
@@ -6750,6 +6927,31 @@ fileprivate struct FfiConverterSequenceTypeFFICiteKeyHit: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFFIExtractedSection: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiExtractedSection]
+
+    public static func write(_ value: [FfiExtractedSection], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFFIExtractedSection.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiExtractedSection] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiExtractedSection]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFFIExtractedSection.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFFISourceMapEntry: FfiConverterRustBuffer {
     typealias SwiftType = [FfiSourceMapEntry]
 
@@ -7078,6 +7280,16 @@ public func composeHeading(title: String, level: UInt32, format: String) -> Stri
 })
 }
 /**
+ * The heading grammar `source` would be parsed with: `typst` or `latex`.
+ */
+public func detectSectionFormat(source: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_detect_section_format(
+        FfiConverterString.lower(source),$0
+    )
+})
+}
+/**
  * Check if Typst rendering is available
  *
  * Returns true if the library was built with the typst-render feature.
@@ -7094,6 +7306,24 @@ public func extractCiteKeys(source: String) -> [String] {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_extract_cite_keys(
         FfiConverterString.lower(source),$0
+    )
+})
+}
+/**
+ * Every section in `source`, in document order.
+ *
+ * `document_id` seeds the deterministic section ids; pass the manuscript's id
+ * so the ids match the persisted `manuscript-section` rows. A malformed id is
+ * treated as the nil UUID rather than an error — the caller that wants ids to
+ * mean something owns passing a real one, and an outline rail that only needs
+ * titles and offsets should not have to handle an error case.
+ */
+public func extractSections(source: String, documentId: String, format: String?) -> [FfiExtractedSection] {
+    return try!  FfiConverterSequenceTypeFFIExtractedSection.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_extract_sections(
+        FfiConverterString.lower(source),
+        FfiConverterString.lower(documentId),
+        FfiConverterOptionString.lower(format),$0
     )
 })
 }
@@ -7312,6 +7542,20 @@ public func searchTemplates(query: String) -> [FfiTemplateMetadata] {
 })
 }
 /**
+ * The deterministic id a section with this `(document, title, order index)`
+ * would have — for callers that need the id *before* the source re-parses
+ * (creating a section and returning its id in the same response).
+ */
+public func sectionIdFor(documentId: String, title: String, orderIndex: UInt32) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_section_id_for(
+        FfiConverterString.lower(documentId),
+        FfiConverterString.lower(title),
+        FfiConverterUInt32.lower(orderIndex),$0
+    )
+})
+}
+/**
  * Look up a click position in the source map to find the corresponding source location
  */
 public func sourceMapLookup(entries: [FfiSourceMapEntry], page: UInt32, x: Double, y: Double) -> FfiCursorPosition {
@@ -7421,7 +7665,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_compose_heading() != 61643) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_detect_section_format() != 40919) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_extract_cite_keys() != 50975) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_extract_sections() != 58088) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_generate_source_map() != 55964) {
@@ -7479,6 +7729,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_search_templates() != 22769) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_section_id_for() != 36217) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_source_map_lookup() != 46460) {

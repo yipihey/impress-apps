@@ -24,13 +24,26 @@
 //  ImprintChassisRoot / MEMORY fix_imprint_launch_tcc_offmain_store): the first
 //  `open()` can block on a TCC prompt / WAL lock.
 //
-//  DELIBERATE deviation from implore (Stage 2-A plan): this chassis does NOT
-//  replace impart's default window. Mail is a daily driver and
-//  compose/reply/IMAP flows aren't wired into the chassis yet, so the
-//  classic ContentView stays primary behind the "impart.useChassisWindow"
-//  flag (see ImpartApp).
+//  Stage 4c: this IS impart's window. The classic three-column `ContentView`
+//  and the `impart.useChassisWindow` flag are gone (see ImpartApp for why the
+//  flag is not kept as a kill switch). Two things had to land first:
 //
-//  What stays impart's: the three custom surface descriptors, the
+//    * COMPOSE and MARK-READ ON SELECT — the two gaps
+//      docs/chassis-capability-matrix.md called out as blocking daily-driver
+//      use. Both are verbs whose truth lives in Core Data / IMAP rather than the
+//      store, so they are supplied by `MailChassisHost` (impart's side) through
+//      the `RecordHostVerbs` seam (the chassis's side). Reply/Forward and
+//      Check-Mail came along for free once the CD lookup existed.
+//    * The CATEGORY surface. Chat / Research / Development were registered in
+//      Stage 2-A but `.category` — one of the five view modes the classic
+//      toolbar's picker and ⌘3 selected — was not, so it was the one view mode
+//      the chassis window could not reach.
+//
+//  Still IMAP-owned and still deliberately absent (matrix row unchanged): no
+//  message drag (move = IMAP move), no folder CRUD (IMAP owns folder
+//  lifecycle), no chassis delete/dismiss.
+//
+//  What stays impart's: the four custom surface descriptors, the
 //  `ImpartSurfaceContext` singleton behind them, and the surface views below.
 //
 
@@ -59,11 +72,18 @@ struct ImpartChassisRoot: View {
     /// The impart shell: PMC's `.impart` preset (Mail section, detail-pane
     /// open behavior) EXTENDED app-side with the custom surfaces — the
     /// preset cannot hold app-target views (WP-X0 seam).
-    private static let shellConfiguration: AppShellConfiguration =
+    /// Internal, not private, so `impartTests` can assert that every ⌘1-5
+    /// destination (`MailChassisHost.chassisDestination(for:)`) names a surface
+    /// that is actually REGISTERED — the failure mode of a string-keyed
+    /// navigation seam is a chord that silently navigates nowhere.
+    static let shellConfiguration: AppShellConfiguration =
         AppShellConfiguration.impart.withCustomSurfaces([
             CustomSurfaceDescriptor(
                 id: "chat", title: "Chat", systemImage: "bubble.left.and.bubble.right",
                 makeView: { AnyView(ChatSurface()) }),
+            CustomSurfaceDescriptor(
+                id: "category", title: "Category", systemImage: "square.grid.2x2",
+                makeView: { AnyView(CategorySurface()) }),
             CustomSurfaceDescriptor(
                 id: "research", title: "Research", systemImage: "brain.head.profile",
                 makeView: { AnyView(ResearchSurface()) }),
@@ -91,6 +111,18 @@ struct ChatSurface: View {
             currentUserEmail: ImpartSurfaceContext.shared.inboxViewModel.currentAccountEmail ?? ""
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The existing conversations/broadcasts classifier view as a full-pane surface
+/// (Stage 4c). Registered on exactly the terms `ChatSurface` already was: it
+/// reads the SAME shared `InboxViewModel`, so it shows what that view model has
+/// — which today is nothing, because no macOS code path assigns a mailbox. An
+/// honest empty surface that ⌘3 reaches beats a view mode with no home.
+struct CategorySurface: View {
+    var body: some View {
+        CategoryView(viewModel: ImpartSurfaceContext.shared.inboxViewModel)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -61,11 +61,27 @@ Cross-platform (macOS/iOS) scientific publication manager. BibTeX/BibDesk-compat
 
 | Component | macOS | iOS |
 |-----------|-------|-----|
-| Detail view | `DetailView.swift` | `IOSDetailView.swift` |
-| Sidebar | `SidebarView.swift` | `IOSSidebarView.swift` |
-| Settings | `SettingsView.swift` | `IOSSettingsView.swift` |
+| Detail SHELL | `Chassis/Detail/DetailView.swift` | `IOSDetailView.swift` |
+| Detail TABS | `Chassis/Detail/Tabs/{Info,PDF,Notes}Tab.swift` | `IOSInfoTab` / `IOSPDFTab` / `IOSNotesTab` — chrome only; the DATA/logic is shared (Stage 5b) |
+| BibTeX tab | `Chassis/Detail/Tabs/BibTeXTab.swift` | **the same view** — `IOSBibTeXTab` deleted |
+| Sidebar | `SidebarView.swift` | `Chassis/Shared/RecordSidebar/RecordSidebarView.swift` + `ImbibSidebarBindings` / `IOSSidebarHost` (wave 3; `IOSSidebarView.swift` deleted) |
+| Settings | `SettingsView.swift` | `IOSSettingsView.swift` (both on the chassis registry, Stage 6 phase 2) |
+| Console | `ImpressLogging.ConsoleView` | **the same view**, presented by `ConsoleScreen`; `IOSConsoleView` is a 6-line entry point |
 
-**Shared in Core**: `PDFViewerWithControls`, `BibTeXEditor`, `PublicationListView`, `MailStylePublicationRow`, `ScientificTextParser`
+**Shared in Core**: `PDFViewerWithControls`, `BibTeXEditor`, `BibTeXTab`,
+`PublicationListView`, `MailStylePublicationRow`, `ScientificTextParser`, and
+the detail pane's shared halves in `Chassis/Detail/Shared/`
+(`PublicationIdentifierLink`, `PublicationFlagAndTagsSection`,
+`PublicationExploration`, `PublicationNotesDocument` + `PublicationNotesWriter`,
+`PublicationPDFSwitcher`, `PublicationPDFAvailability`,
+`publicationDetailLifecycle`). **A new detail affordance goes in one of those
+files, not in a per-platform copy** — see docs/chassis-capability-matrix.md
+("Publication detail pane") for the six bugs the previous copies were hiding,
+including iOS showing the user their own YAML notes front matter as prose.
+
+**The `note` field has a FORMAT**: YAML front matter (quick annotations,
+label-keyed) + freeform markdown. Read and write it through
+`PublicationNotesDocument`, never as a raw string — that was the iOS notes bug.
 
 **Platform gotchas**:
 - `Color(nsColor: .controlBackgroundColor)` → `Color(.secondarySystemBackground)`
@@ -304,6 +320,18 @@ The imbib macOS main view is `NavigationSplitView` > `SectionContentView` (HSpli
 - `InfoTab.swift` has `.padding(.top, 40)` (line 77) on `headerSection` for scroll clearance
 
 **If you need to modify the detail pane or toolbar:** read the root CLAUDE.md section first, then make targeted changes without restructuring the HSplitView or toolbar hierarchy.
+
+**Stage 5b kept this invariant while sharing the pane's logic with iOS**, and the
+shape of that is the precedent for the next pass: the DATA/logic moved to
+`Chassis/Detail/Shared/`, and each macOS tab kept its own body. Two places where
+the shared model is deliberately NOT iterated, because iterating it would change
+these pixels:
+- `InfoTab.macExplorationKinds` lists the FOUR Explore buttons macOS ships.
+  `PublicationExplorationModel.offeredKinds` has five (iOS surfaces WoS
+  Related), so `ForEach(model.offeredKinds)` here would grow the row.
+- The Record Info section keeps its own `Grid` and its own row selection. The
+  data is shared but the two platforms show different rows in different layouts;
+  unifying them adds or drops a row and is a product decision.
 
 ## Project Status
 

@@ -11,6 +11,7 @@ import ImpressKit
 import ImpressKeyboard
 import ImpressSpotlight
 import MessageManagerCore
+import PublicationManagerCore
 import SwiftUI
 
 // MARK: - App Entry Point
@@ -19,15 +20,6 @@ import SwiftUI
 struct ImpartApp: App {
     @State private var appState = AppState()
     @Environment(\.openWindow) private var openWindow
-
-    /// Stage 2-A flag-gated cutover: when set, the unified chassis
-    /// (ImpartChassisRoot) becomes the DEFAULT window and the classic
-    /// ContentView moves to a secondary "Mail (Classic)" window. Default
-    /// off — mail is a daily driver and compose/reply aren't wired into the
-    /// chassis yet, so the classic window stays primary (deliberate
-    /// deviation from implore's replace-outright).
-    private static let useChassisWindow =
-        UserDefaults.standard.bool(forKey: "impart.useChassisWindow")
 
     init() {
         // Register default settings (HTTP automation enabled by default for MCP)
@@ -73,12 +65,26 @@ struct ImpartApp: App {
         }
     }
 
-    /// The classic three-column mail window content, with its long-standing
-    /// lifecycle modifiers (heartbeat, Spotlight continuation, URL handling).
-    private var classicRoot: some View {
-        ContentView()
+    /// impart's window: the unified chassis (PMC's `TabContentView` on the Mail
+    /// facet) with chat / category / research / development as custom surfaces,
+    /// plus `MailChassisHost` for the verbs only impart can perform (compose,
+    /// reply/forward, mark-read on select, check-mail).
+    ///
+    /// Stage 4c: this is now the ONLY root. The classic three-column
+    /// `ContentView` and the `impart.useChassisWindow` flag are deleted, and the
+    /// flag is not kept as a kill switch because it could only restore a
+    /// STRICTLY POORER window: the classic mail lists were permanently empty —
+    /// `InboxViewModel.loadMessages()` is never called on macOS (only
+    /// `IOSContentView` assigns `selectedMailbox`), `viewModel.accounts` is
+    /// `private(set)` and assigned nowhere, and `loadFolders(for:)` has no
+    /// caller — so its sidebar showed one row and its lists showed nothing, on
+    /// every launch. Its lifecycle modifiers (heartbeat, Spotlight continuation,
+    /// URL handling) move here unchanged.
+    private var chassisRoot: some View {
+        ImpartChassisRoot()
             .environment(appState)
             .withAppearance()
+            .modifier(MailChassisHost())
             .task {
                 // Start heartbeat for SiblingDiscovery
                 Task.detached {
@@ -102,38 +108,37 @@ struct ImpartApp: App {
             }
     }
 
-    /// The unified chassis (Stage 2-A): PMC's TabContentView on the Mail
-    /// facet, with chat/research/development as custom surfaces.
-    private var chassisRoot: some View {
-        ImpartChassisRoot()
-            .environment(appState)
-            .withAppearance()
-    }
-
     var body: some Scene {
-        // Main window: classic mail by default; the unified chassis when the
-        // "impart.useChassisWindow" flag is set (Stage 2-A gated cutover).
         WindowGroup {
-            if Self.useChassisWindow {
-                chassisRoot
-            } else {
-                classicRoot
-            }
+            chassisRoot
         }
         .commands {
             // File menu
+            //
+            // Stage 4c shortcut correction: every chord in this block and the
+            // Message menu below was written with a CAPITAL key literal and no
+            // `.shift` — and in SwiftUI a capital letter IMPLIES Shift, so
+            // `keyboardShortcut("N", modifiers: [.command])` registered ⌘⇧N, not
+            // the ⌘N the menu displayed. That was invisible while these items
+            // posted into a window that ignored them; now that they all have
+            // observers, the chords have to be the ones docs/keyboard-grammar.md
+            // and the menu titles claim.
             CommandGroup(replacing: .newItem) {
                 Button("New Message") {
                     NotificationCenter.default.post(name: .composeMessage, object: nil)
                 }
-                .keyboardShortcut("N", modifiers: [.command])
+                .keyboardShortcut("n", modifiers: [.command])
 
                 Divider()
 
+                // Moved off ⌘⇧R, which Reply All owns (keyboard-grammar.md).
+                // The two were bound to the same chord — one File, one Message —
+                // plus the classic toolbar's refresh button, and AppKit picked a
+                // winner unpredictably. ⌘⇧N is Mail.app's "Get New Mail".
                 Button("Check for New Mail") {
                     NotificationCenter.default.post(name: .checkMail, object: nil)
                 }
-                .keyboardShortcut("R", modifiers: [.command, .shift])
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             }
 
             // Message menu
@@ -141,24 +146,24 @@ struct ImpartApp: App {
                 Button("Reply") {
                     NotificationCenter.default.post(name: .replyToMessage, object: nil)
                 }
-                .keyboardShortcut("R", modifiers: [.command])
+                .keyboardShortcut("r", modifiers: [.command])
 
                 Button("Reply All") {
                     NotificationCenter.default.post(name: .replyAllToMessage, object: nil)
                 }
-                .keyboardShortcut("R", modifiers: [.command, .shift])
+                .keyboardShortcut("r", modifiers: [.command, .shift])
 
                 Button("Forward") {
                     NotificationCenter.default.post(name: .forwardMessage, object: nil)
                 }
-                .keyboardShortcut("F", modifiers: [.command, .shift])
+                .keyboardShortcut("f", modifiers: [.command, .shift])
 
                 Divider()
 
                 Button("Mark as Read") {
                     NotificationCenter.default.post(name: .markAsRead, object: nil)
                 }
-                .keyboardShortcut("U", modifiers: [.command, .shift])
+                .keyboardShortcut("u", modifiers: [.command, .shift])
 
                 Button("Mark as Unread") {
                     NotificationCenter.default.post(name: .markAsUnread, object: nil)
@@ -166,10 +171,17 @@ struct ImpartApp: App {
 
                 Divider()
 
+                // Archive and Delete are the two items Stage 4c did NOT wire, and
+                // deliberately: both are IMAP MOVES, and mail's lifecycle being
+                // IMAP-owned is exactly why `MessageRecordKind.descriptor`
+                // declares `dismissal: .none` / `deletion: .none` and the chassis
+                // list ignores `d` (docs/chassis-capability-matrix.md, "Mail
+                // IMAP-owned gaps"). They post into nothing, as they did before —
+                // wiring them means an IMAP move path, not an observer.
                 Button("Archive") {
                     NotificationCenter.default.post(name: .archiveMessage, object: nil)
                 }
-                .keyboardShortcut("E", modifiers: [.command])
+                .keyboardShortcut("e", modifiers: [.command])
 
                 Button("Delete") {
                     NotificationCenter.default.post(name: .deleteMessage, object: nil)
@@ -219,16 +231,51 @@ struct ImpartApp: App {
 
             // View menu additions
             CommandGroup(after: .sidebar) {
-                Button("Show Mailboxes") {
-                    NotificationCenter.default.post(name: .toggleSidebar, object: nil)
+                // Stage 4c: "Show Mailboxes" posted `.toggleSidebar`, which had no
+                // observer anywhere in impart — and it held ⌘0, which the chassis
+                // advertises as the detail-pane toggle (`MessageSectionView`,
+                // TabContentView's list button help text). Left in place it would
+                // have SHADOWED a working chord with a dead one. Replaced by the
+                // three declarative pane commands imbib and imprint already
+                // declare over the same `PaneLayoutStore` — the chassis reads it,
+                // impart just never spoke to it.
+                Button("Toggle Detail Pane") {
+                    PaneLayoutStore.shared.current.detailPaneVisible.toggle()
                 }
-                .keyboardShortcut("0", modifiers: [.command])
+                .keyboardShortcut("0", modifiers: .command)
+
+                Button("Toggle List") {
+                    PaneLayoutStore.shared.current.listPaneVisible.toggle()
+                }
+                .keyboardShortcut("0", modifiers: [.command, .option])
+
+                Button("Toggle Sidebar") {
+                    PaneLayoutStore.shared.current.sidebarVisible.toggle()
+                }
+                .keyboardShortcut("s", modifiers: [.control, .command])
 
                 Divider()
 
-                Picker("View Mode", selection: $appState.viewMode) {
-                    Text("Messages").tag(ViewMode.messages)
-                    Text("Threads").tag(ViewMode.threads)
+                // Stage 4c: the ⌘1-5 view-mode accelerators, as MENU COMMANDS.
+                //
+                // They were never really bound before. `ContentView` carried
+                // `.keyboardShortcut("1"…"5")` on a *view* (inert — the modifier
+                // needs a Button), and the real path was ⌘1-3 → the keyboard
+                // store → `switchTo{Email,Chat,Category}View`, with ⌘4/⌘5
+                // falling through to a local switch. Only three of the five had
+                // a store binding at all, and every one of them died with the
+                // window that observed it.
+                //
+                // As commands they need no focused view, they appear in the menu
+                // bar (discoverable), and they cover all five modes. The
+                // notification names are UNCHANGED, so a user's customised
+                // keyboard-store bindings still reach the same handlers.
+                ForEach(MessageViewMode.allCases, id: \.self) { mode in
+                    Button(mode.displayName) {
+                        NotificationCenter.default.post(
+                            name: mode.switchNotification, object: nil)
+                    }
+                    .keyboardShortcut(mode.commandShortcutKey, modifiers: [.command])
                 }
 
                 Divider()
@@ -240,22 +287,11 @@ struct ImpartApp: App {
             }
         }
 
-        // Secondary window (Stage 2-A): whichever surface is NOT the default
-        // gets a Window-menu entry — "Mail (Unified)" opens the chassis while
-        // classic stays primary; with the flag flipped, "Mail (Classic)"
-        // keeps the old window reachable (compose/reply live there).
-        // One scene with conditional CONTENT — SceneBuilder rejects `if`.
-        Window(
-            Self.useChassisWindow ? "Mail (Classic)" : "Mail (Unified)",
-            id: Self.useChassisWindow ? "mail-classic" : "mail-unified"
-        ) {
-            if Self.useChassisWindow {
-                classicRoot
-            } else {
-                chassisRoot
-            }
-        }
-        .defaultSize(width: 1100, height: 700)
+        // Stage 4c: the "Mail (Unified)" / "Mail (Classic)" secondary window is
+        // gone with the flag. It existed only so the non-default surface stayed
+        // reachable during the gated cutover; with one root there is no second
+        // surface to reach, and a duplicate chassis window would fork the mail
+        // selection and the compose sheet between two `MailChassisHost`s.
 
         // Settings window
         #if os(macOS)
@@ -305,9 +341,6 @@ struct ImpartApp: App {
 /// Global application state
 @MainActor @Observable
 final class AppState {
-    /// Current view mode
-    var viewMode: ViewMode = .threads
-
     /// Selected account ID
     var selectedAccountId: UUID?
 
@@ -324,11 +357,12 @@ final class AppState {
     var currentDraft: DraftMessage?
 }
 
-/// View mode for message list
-enum ViewMode: String, CaseIterable {
-    case messages = "messages"
-    case threads = "threads"
-}
+// Stage 4c: `AppState.viewMode` and the `ViewMode` (messages/threads) enum are
+// deleted. They existed for the View menu's "View Mode" picker, and NOTHING ever
+// read them — the window's actual mode lived in `ViewModeState.mode:
+// MessageViewMode`, a different type with five cases. The picker was a control
+// that appeared to do something and did not; the ⌘1-5 commands that replaced it
+// drive the chassis for real.
 
 // MARK: - Appearance Modifier
 
@@ -372,4 +406,48 @@ extension Notification.Name {
     // Clipboard operations
     static let copyMessages = Notification.Name("com.impart.copyMessages")
     static let selectAllMessages = Notification.Name("com.impart.selectAllMessages")
+
+    // MARK: View modes (Stage 4c)
+    //
+    // These five were raw `Notification.Name("switchTo…View")` strings spelled
+    // once in `ContentView`'s observers and once more, as
+    // `ImpartKeyboardShortcutsSettings` `notificationName` values, in
+    // MessageManagerCore. The RAW VALUES are unchanged — a user's customised
+    // ⌘1/⌘2/⌘3 bindings still post exactly these — they are just named now, so
+    // the poster and the observer can no longer drift by a typo. (Two of the
+    // five had no store binding and no poster at all before this.)
+    static let switchToEmailView = Notification.Name("switchToEmailView")
+    static let switchToChatView = Notification.Name("switchToChatView")
+    static let switchToCategoryView = Notification.Name("switchToCategoryView")
+    static let switchToResearchView = Notification.Name("switchToResearchView")
+    static let switchToDevelopmentView = Notification.Name("switchToDevelopmentView")
+}
+
+// MARK: - View Mode Commands
+
+extension MessageViewMode {
+
+    /// The notification this mode's menu command / keyboard binding posts.
+    var switchNotification: Notification.Name {
+        switch self {
+        case .email: return .switchToEmailView
+        case .chat: return .switchToChatView
+        case .category: return .switchToCategoryView
+        case .research: return .switchToResearchView
+        case .development: return .switchToDevelopmentView
+        }
+    }
+
+    /// ⌘1-5, in `MessageViewMode.allCases` order — the order the classic
+    /// toolbar's segmented picker showed and the order its help text promised
+    /// ("Switch view mode (Cmd+1/2/3/4/5)").
+    var commandShortcutKey: KeyEquivalent {
+        switch self {
+        case .email: return "1"
+        case .chat: return "2"
+        case .category: return "3"
+        case .research: return "4"
+        case .development: return "5"
+        }
+    }
 }

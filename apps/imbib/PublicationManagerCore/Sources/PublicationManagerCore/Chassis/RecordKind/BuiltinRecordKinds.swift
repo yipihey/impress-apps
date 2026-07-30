@@ -175,7 +175,14 @@ public enum MessageRecordKind {
             deletion: .none,
             statuses: []
         ),
-        creation: [],   // compose stays app-side (impart's classic window)
+        // Stage 4c: compose is DECLARED here and PERFORMED by the host
+        // (`RecordHostVerbs.onCreate`, injected by ImpartChassisRoot). The
+        // chassis owns the affordances — the `n` key and the empty-state
+        // button — and knows nothing about SMTP, drafts or Core Data. Before
+        // this, `creation: []` said "mail cannot be created", which was never
+        // true; it meant "compose lives in the classic window", and that window
+        // is gone.
+        creation: [CreationAffordance(label: "New Message")],
         defaultOpenBehavior: .detailPane
     )
 }

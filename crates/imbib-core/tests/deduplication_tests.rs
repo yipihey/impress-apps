@@ -565,6 +565,8 @@ fn arb_dedup_input() -> impl Strategy<Value = DeduplicationInput> {
                 arxiv_id,
                 pmid,
                 bibcode,
+                semantic_scholar_id: None,
+                open_alex_id: None,
             }
         })
 }
@@ -633,6 +635,7 @@ proptest! {
             first_author_last_name: None, year: None,
             doi: Some(fmt(DOI_PREFIXES[pa], upper_a)),
             arxiv_id: None, pmid: None, bibcode: None,
+            semantic_scholar_id: None, open_alex_id: None,
         };
         let mut b = a.clone();
         b.id = "b".into();
@@ -669,6 +672,7 @@ proptest! {
             first_author_last_name: None, year: None,
             doi: None, arxiv_id: Some(fmt(prefix_a, version_a)),
             pmid: None, bibcode: None,
+            semantic_scholar_id: None, open_alex_id: None,
         };
         let mut b = a.clone();
         b.arxiv_id = Some(fmt(prefix_b, version_b));
@@ -813,6 +817,8 @@ proptest! {
                 arxiv_id: None,
                 pmid: None,
                 bibcode: None,
+                semantic_scholar_id: None,
+                open_alex_id: None,
             })
             .collect();
 

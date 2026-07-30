@@ -419,7 +419,7 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
             builtinsRelied: [])
         try assertFactoryCoverage(
             preset: .impart, platform: .macOS,
-            factorySource: "apps/impart/macOS/Views/ContentView.swift",
+            factorySource: "apps/impart/macOS/Views/Settings/ImpartSettingsScene.swift",
             alsoRegisteredElsewhere: [],
             builtinsRelied: ["spotlight"])
     }
@@ -468,7 +468,7 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
     func testImploreAndImpartTakeSpotlightFromTheChassisBuiltin() throws {
         for appFile in [
             "apps/implore/Implore/Sources/Views/SettingsView.swift",
-            "apps/impart/macOS/Views/ContentView.swift",
+            "apps/impart/macOS/Views/Settings/ImpartSettingsScene.swift",
         ] {
             XCTAssertFalse(
                 try Self.registeredSections(in: appFile).contains("spotlight"),

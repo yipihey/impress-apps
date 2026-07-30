@@ -5,13 +5,19 @@
 //  Shared corpus + encoders for the Stage 7 Swift -> Rust parser port.
 //
 //  The *inputs* live here; the *expected outputs* live in
-//  crates/imbib-core/test_fixtures/golden/*.json and were captured from the
-//  Swift implementations before they were deleted (see git history for
-//  SwiftGoldenCorpusCapture.swift).
+//  crates/imbib-core/test_fixtures/golden/*.json (items 1–5, 7) and
+//  crates/imprint-core/test_fixtures/golden/ (item 6, section extraction), and
+//  were captured from the Swift implementations before those bodies were
+//  replaced or deleted (see git history for SwiftGoldenCorpusCapture.swift).
 //
 //  Two consumers assert against those goldens:
 //    - Rust:  crates/imbib-core/tests/golden_parity.rs
+//             crates/imprint-core/tests/golden_parity.rs
 //    - Swift: GoldenCorpusParityTests.swift (FFI-backed path)
+//
+//  Wave 2 (items 4–7) covers: the `DocumentFormat` grammar table + detection,
+//  `DeduplicationService` groupings, `SectionExtractor` output and section-id
+//  derivation, and the ⌘F hybrid ranking.
 //
 
 import Foundation
@@ -279,6 +285,400 @@ enum GoldenCorpus {
         ("inline/crlf", "TY  - JOUR\r\nTI  - Title\r\nER  -\r\n"),
         ("inline/unicode", "TY  - JOUR\nTI  - Ångström & Müller α\nER  -"),
     ]
+
+    // MARK: - Item 4: DocumentFormat grammar corpus
+
+    /// `(source, title)` pairs for `DocumentFormat.detect(from:title:)`.
+    ///
+    /// Covers each branch of the heuristic: the title-extension shortcut (and
+    /// its unknown-extension and empty-extension fall-throughs), the two LaTeX
+    /// preamble markers, every Markdown marker, the Typst `#`-code-mode
+    /// near-miss that made an ADR compile as Typst, and the 200-line scan limit.
+    static let formatDetectCases: [(source: String, title: String?)] = [
+        ("", nil),
+        ("   \n\n \t ", nil),
+        ("", "ADR-0011.md"),
+        ("", "notes.txt"),
+        ("", "paper.tex"),
+        ("", "paper.latex"),
+        ("", "paper.typ"),
+        ("", "readme.MARKDOWN"),
+        ("", "notes.TEXT"),
+        ("", "notes.mdown"),
+        ("", "archive.tar.gz"),
+        ("", "trailing."),
+        ("", ".hidden"),
+        ("", "no-extension-at-all"),
+        ("", "ADR-0011: The impress Journal"),
+        ("\\documentclass{article}\n\\begin{document}\nhi\n\\end{document}", nil),
+        ("\\begin{document}\ntext\n\\end{document}", nil),
+        ("\\documentclass{article}", "notes.md"),
+        ("# ADR-0011\n\n## Status\nAccepted\n", nil),
+        ("#import \"@preview/cetz:0.2.0\"\n#set page(margin: 2cm)\n\n= Intro\n", nil),
+        ("####### seven hashes\n", nil),
+        ("###### six hashes\n", nil),
+        ("#nospace\n", nil),
+        ("Intro paragraph\n\n```swift\nlet x = 1\n```\n", nil),
+        ("~~~\ncode fence\n~~~\n", nil),
+        ("   \t# indented heading\n", nil),
+        ("= Typst heading\nbody\n", nil),
+        (String(repeating: "body\n", count: 250) + "# late markdown heading\n", nil),
+        ("# CRLF heading\r\nbody\r\n", nil),
+        ("prose\n\n#import x\n", nil),
+    ]
+
+    /// Bare extensions for `DocumentFormat.detect(fromExtension:)`.
+    static let formatExtensionCases: [String] = [
+        "typ", "TYP", "tex", "TeX", "latex", "md", "MD", "markdown", "mdown",
+        "txt", "text", "TEXT", "rs", "docx", "", " ", "typ ",
+    ]
+
+    // MARK: - Item 5: deduplication corpus
+
+    /// A dedup scenario: a name plus the results fed to
+    /// `DeduplicationService.deduplicate(_:)`.
+    struct DedupScenario {
+        let name: String
+        let results: [SearchResult]
+    }
+
+    static func result(
+        _ id: String,
+        _ source: String,
+        _ title: String,
+        authors: [String] = ["Smith, John"],
+        year: Int? = 2024,
+        doi: String? = nil,
+        arxiv: String? = nil,
+        pmid: String? = nil,
+        bibcode: String? = nil,
+        semanticScholar: String? = nil,
+        openAlex: String? = nil
+    ) -> SearchResult {
+        SearchResult(
+            id: id,
+            sourceID: source,
+            title: title,
+            authors: authors,
+            year: year,
+            doi: doi,
+            arxivID: arxiv,
+            pmid: pmid,
+            bibcode: bibcode,
+            semanticScholarID: semanticScholar,
+            openAlexID: openAlex
+        )
+    }
+
+    static var dedupScenarios: [DedupScenario] {
+        [
+            DedupScenario(name: "empty", results: []),
+            DedupScenario(
+                name: "single-source-fast-path",
+                results: [
+                    result("a", "arxiv", "Same Paper", doi: "10.1/x"),
+                    result("b", "arxiv", "Same Paper", doi: "10.1/x"),
+                    result("c", "arxiv", "Other Paper", doi: "10.1/y"),
+                ]
+            ),
+            DedupScenario(
+                name: "doi-match-priority-order",
+                results: [
+                    result("a", "arxiv", "Paper", doi: "10.1/x"),
+                    result("b", "crossref", "Paper", doi: "10.1/x"),
+                    result("c", "ads", "Different", doi: "10.2/y"),
+                ]
+            ),
+            DedupScenario(
+                name: "doi-normalization",
+                results: [
+                    result("a", "crossref", "Paper", doi: "10.1234/TEST"),
+                    result("b", "arxiv", "Paper", doi: "https://doi.org/10.1234/test"),
+                    result("c", "ads", "Paper", doi: "doi:10.1234/test"),
+                    result("d", "pubmed", "Paper", doi: "http://doi.org/10.1234/test"),
+                ]
+            ),
+            DedupScenario(
+                name: "transitive-through-two-identifiers",
+                results: [
+                    result("a", "crossref", "Paper", doi: "10.1/x"),
+                    result("b", "ads", "Paper", doi: "10.1/x", arxiv: "2301.00001"),
+                    result("c", "arxiv", "Paper", arxiv: "2301.00001"),
+                ]
+            ),
+            DedupScenario(
+                name: "split-identifier-joins-doi-group",
+                results: [
+                    result("a", "crossref", "One", doi: "10.1/x"),
+                    result("b", "arxiv", "Two", arxiv: "2301.00002"),
+                    result("c", "ads", "One", doi: "10.1/x", arxiv: "2301.00002"),
+                ]
+            ),
+            DedupScenario(
+                name: "arxiv-version-suffix",
+                results: [
+                    result("a", "arxiv", "Paper", arxiv: "2301.12345v2"),
+                    result("b", "semanticscholar", "Paper", arxiv: "2301.12345"),
+                    result("c", "openalex", "Paper", arxiv: "2301.12345v11"),
+                ]
+            ),
+            DedupScenario(
+                name: "arxiv-prefixed-form",
+                results: [
+                    result("a", "arxiv", "Paper", arxiv: "arXiv:2301.99999"),
+                    result("b", "crossref", "Paper", arxiv: "2301.99999"),
+                ]
+            ),
+            DedupScenario(
+                name: "pmid-and-bibcode",
+                results: [
+                    result("a", "pubmed", "Paper", pmid: "12345678"),
+                    result("b", "crossref", "Paper", pmid: "12345678"),
+                    result("c", "ads", "Astro", bibcode: "2023ApJ...123..456A"),
+                    result("d", "openalex", "Astro", bibcode: "2023ApJ...123..456A"),
+                ]
+            ),
+            DedupScenario(
+                name: "no-identifiers-identical-metadata",
+                results: [
+                    result("a", "crossref", "Machine Learning for Everyone"),
+                    result("b", "arxiv", "Machine Learning for Everyone"),
+                ]
+            ),
+            DedupScenario(
+                name: "unknown-sources",
+                results: [
+                    result("a", "zzz-unknown", "Paper", doi: "10.1/x"),
+                    result("b", "another-unknown", "Paper", doi: "10.1/x"),
+                    result("c", "dblp", "Paper", doi: "10.1/x"),
+                ]
+            ),
+            DedupScenario(
+                name: "aggregator-identifiers-are-carried",
+                results: [
+                    result("a", "crossref", "Paper", doi: "10.1/x", semanticScholar: "s2:123"),
+                    result("b", "openalex", "Paper", doi: "10.1/x", openAlex: "W123"),
+                ]
+            ),
+            DedupScenario(
+                name: "every-source-once",
+                results: [
+                    result("dblp", "dblp", "Paper", doi: "10.1/x"),
+                    result("arxiv", "arxiv", "Paper", doi: "10.1/x"),
+                    result("openalex", "openalex", "Paper", doi: "10.1/x"),
+                    result("s2", "semanticscholar", "Paper", doi: "10.1/x"),
+                    result("ads", "ads", "Paper", doi: "10.1/x"),
+                    result("pubmed", "pubmed", "Paper", doi: "10.1/x"),
+                    result("crossref", "crossref", "Paper", doi: "10.1/x"),
+                ]
+            ),
+        ]
+    }
+
+    // MARK: - Item 6: section extraction corpus
+
+    /// Fixture documents under `crates/imprint-core/test_fixtures/golden/`.
+    /// `format` of `nil` means "let the extractor auto-detect".
+    static let sectionFixtures: [(name: String, format: String?)] = [
+        ("sections/paper.typ", nil),
+        ("sections/paper.typ", "typst"),
+        ("sections/paper.tex", nil),
+        ("sections/paper.tex", "latex"),
+        ("sections/paper.tex", "typst"),
+        ("sections/unicode.typ", nil),
+        ("sections/flat.typ", nil),
+        ("sections/crlf.typ", nil),
+        ("sections/adversarial.typ", nil),
+        ("sections/adversarial.typ", "latex"),
+    ]
+
+    /// The document id every section fixture is extracted against — fixed so
+    /// the captured ids are reproducible.
+    static let sectionDocumentID = UUID(uuidString: "550E8400-E29B-41D4-A716-446655440000")!
+
+    /// `(documentID, title, orderIndex)` triples for the id derivation alone.
+    /// These pin the *persisted* id shape independently of the heading scanner.
+    static let sectionIDCases: [(doc: String, title: String, index: Int)] = [
+        ("550E8400-E29B-41D4-A716-446655440000", "Introduction", 0),
+        ("550E8400-E29B-41D4-A716-446655440000", "Introduction", 1),
+        ("550E8400-E29B-41D4-A716-446655440000", "introduction", 0),
+        ("550E8400-E29B-41D4-A716-446655440000", "  Introduction  ", 0),
+        ("550E8400-E29B-41D4-A716-446655440000", "INTRODUCTION", 0),
+        ("550E8400-E29B-41D4-A716-446655440000", "", 0),
+        ("550E8400-E29B-41D4-A716-446655440000", "Résumé", 2),
+        ("550E8400-E29B-41D4-A716-446655440000", "A Title With {Braces}", 3),
+        ("00000000-0000-0000-0000-000000000000", "Introduction", 0),
+        ("6BA7B810-9DAD-11D1-80B4-00C04FD430C8", "Methods", 7),
+    ]
+
+    // MARK: - Item 7: hybrid search ranking corpus
+
+    /// One publication as the three retrieval engines reported it. `nil` means
+    /// "that engine did not return this publication" — load-bearing, since it
+    /// decides the match type and whether the field boosts apply.
+    struct RankingCandidate {
+        let id: String
+        let citeKey: String
+        let title: String
+        let authors: String
+        let ftsScore: Float?
+        let semanticSimilarity: Float?
+        let chunkSimilarity: Float?
+    }
+
+    struct RankingScenario {
+        let name: String
+        let query: String
+        let candidates: [RankingCandidate]
+    }
+
+    private static func candidate(
+        _ id: String,
+        citeKey: String = "",
+        title: String = "",
+        authors: String = "",
+        fts: Float? = nil,
+        semantic: Float? = nil,
+        chunk: Float? = nil
+    ) -> RankingCandidate {
+        RankingCandidate(
+            id: id,
+            citeKey: citeKey,
+            title: title,
+            authors: authors,
+            ftsScore: fts,
+            semanticSimilarity: semantic,
+            chunkSimilarity: chunk
+        )
+    }
+
+    static var rankingScenarios: [RankingScenario] {
+        [
+            RankingScenario(name: "empty", query: "kaiser", candidates: []),
+            RankingScenario(
+                name: "fts-beats-semantic",
+                query: "kaiser",
+                candidates: [
+                    candidate("00000000-0000-0000-0000-000000000002", semantic: 1.0),
+                    candidate("00000000-0000-0000-0000-000000000001", fts: 0.001),
+                ]
+            ),
+            RankingScenario(
+                name: "all-field-boosts",
+                query: "Kaiser",
+                candidates: [
+                    candidate(
+                        "00000000-0000-0000-0000-00000000000a",
+                        citeKey: "kaiser1984",
+                        title: "The KAISER effect",
+                        authors: "Kaiser, Nick",
+                        fts: 0.0
+                    ),
+                    candidate(
+                        "00000000-0000-0000-0000-00000000000b",
+                        citeKey: "bbks1986",
+                        title: "The statistics of peaks",
+                        authors: "Bardeen, J.; Bond, J. R.; Kaiser, N.; Szalay, A.",
+                        fts: 0.0
+                    ),
+                    candidate(
+                        "00000000-0000-0000-0000-00000000000c",
+                        citeKey: "other1990",
+                        title: "Something else",
+                        authors: "Nobody",
+                        fts: 5.0
+                    ),
+                ]
+            ),
+            RankingScenario(
+                name: "chunk-between-semantic-and-fts",
+                query: "structure formation",
+                candidates: [
+                    candidate("00000000-0000-0000-0000-000000000011", fts: 1.0),
+                    candidate("00000000-0000-0000-0000-000000000012", chunk: 0.9),
+                    candidate("00000000-0000-0000-0000-000000000013", semantic: 0.99),
+                    candidate("00000000-0000-0000-0000-000000000014", chunk: 0.36),
+                ]
+            ),
+            RankingScenario(
+                name: "combined-engines",
+                query: "peaks",
+                candidates: [
+                    candidate(
+                        "00000000-0000-0000-0000-000000000021",
+                        title: "Statistics of peaks",
+                        fts: 2.0,
+                        semantic: 0.5,
+                        chunk: 0.4
+                    ),
+                    candidate("00000000-0000-0000-0000-000000000022", fts: 2.0, chunk: 0.4),
+                    candidate("00000000-0000-0000-0000-000000000023", semantic: 0.5, chunk: 0.4),
+                    candidate("00000000-0000-0000-0000-000000000024", semantic: 0.5),
+                ]
+            ),
+            RankingScenario(
+                name: "exact-ties-need-a-tie-break",
+                query: "zzz-no-match",
+                candidates: [
+                    candidate("ffffffff-ffff-ffff-ffff-ffffffffffff", fts: 1.0),
+                    candidate("00000000-0000-0000-0000-000000000000", fts: 1.0),
+                    candidate("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", fts: 1.0),
+                    candidate("11111111-1111-1111-1111-111111111111", fts: 1.0),
+                ]
+            ),
+            RankingScenario(
+                name: "empty-query-earns-no-boosts",
+                query: "",
+                candidates: [
+                    candidate(
+                        "00000000-0000-0000-0000-000000000031",
+                        citeKey: "anything",
+                        title: "anything",
+                        authors: "anything",
+                        fts: 2.0
+                    ),
+                ]
+            ),
+            RankingScenario(
+                name: "whitespace-query-earns-no-boosts",
+                query: "   ",
+                candidates: [
+                    candidate(
+                        "00000000-0000-0000-0000-000000000032",
+                        citeKey: "a b",
+                        title: "a b",
+                        authors: "a b",
+                        fts: 2.0
+                    ),
+                ]
+            ),
+            RankingScenario(
+                name: "unicode-case-folding",
+                query: "MÜLLER",
+                candidates: [
+                    candidate(
+                        "00000000-0000-0000-0000-000000000041",
+                        authors: "Müller, Jörg",
+                        fts: 0.0
+                    ),
+                    candidate(
+                        "00000000-0000-0000-0000-000000000042",
+                        title: "Ångström and MÜLLER",
+                        fts: 0.0
+                    ),
+                ]
+            ),
+            RankingScenario(
+                name: "negative-and-large-fts-scores",
+                query: "q",
+                candidates: [
+                    candidate("00000000-0000-0000-0000-000000000051", fts: -3.5),
+                    candidate("00000000-0000-0000-0000-000000000052", fts: 1_000.25),
+                    candidate("00000000-0000-0000-0000-000000000053", fts: 0.0),
+                ]
+            ),
+        ]
+    }
 
     // MARK: - Encoders
 

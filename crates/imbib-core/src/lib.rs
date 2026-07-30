@@ -25,6 +25,9 @@ pub mod files;
 pub mod http;
 pub mod identifiers;
 pub mod import;
+/// Manuscript-format grammar table (Stage 7 item 4) — the FFI shape of
+/// `impress_core::manuscript_format`, read by Swift's `DocumentFormat`.
+pub mod manuscript_format;
 pub mod merge;
 pub mod ris;
 pub mod search;

@@ -178,6 +178,274 @@ pub fn fts_match_expression(query: &str) -> Option<String> {
     }
 }
 
+// ── Hybrid ranking (Stage 7 item 7) ──────────────────────────────────────────
+//
+// imbib's ⌘F palette fans out to three retrieval engines with incomparable
+// score scales — Tantivy BM25 (unbounded positive), embedding cosine similarity
+// (0–1), and chunk-passage cosine similarity (0–1) — and has to produce ONE
+// list. The reconciliation was a hand-rolled formula with five literal
+// constants sitting in `GlobalSearchViewModel.mergeResults`, followed by a
+// `sorted.sort` in the view model.
+//
+// It lives here now because the formula is the *product decision* about what
+// "relevant" means for a publication, not a view-model detail, and because the
+// Swift version was not reproducible: `merged` was built by iterating a
+// `Set<UUID>` and `Array.sort` is not stable, so two runs over the same corpus
+// could order equal-scored hits differently. The tie-break below is pinned.
+
+/// FTS hits always outrank semantic-only ones: the base is larger than any
+/// achievable semantic (≤1) or chunk (≤60) contribution.
+pub const FTS_BASE_BOOST: f32 = 100.0;
+/// The query appears in the author list — the strongest field signal, because
+/// people search for authors by name far more often than they search for a
+/// phrase that happens to be a name.
+pub const AUTHOR_FIELD_BOOST: f32 = 40.0;
+/// The query appears in the title.
+pub const TITLE_FIELD_BOOST: f32 = 30.0;
+/// The query appears in the cite key.
+pub const CITE_KEY_FIELD_BOOST: f32 = 25.0;
+/// Chunk-passage similarity is scaled into 0–60: above semantic-only, below any
+/// FTS hit.
+pub const CHUNK_SIMILARITY_SCALE: f32 = 60.0;
+
+/// How a candidate matched, mirroring Swift's `GlobalSearchMatchType`.
+pub mod match_type {
+    /// Full-text AND semantic.
+    pub const BOTH: &str = "both";
+    /// Full-text only (with or without a chunk hit).
+    pub const FULLTEXT: &str = "fulltext";
+    /// A chunk-passage hit only — the match is in the PDF body.
+    pub const FULL: &str = "full";
+    /// Semantic only.
+    pub const SEMANTIC: &str = "semantic";
+}
+
+/// One publication that at least one retrieval engine returned, with the
+/// metadata the field boosts inspect.
+///
+/// A `None` score means "this engine did not return this publication" — which
+/// is load-bearing, not a default: it decides the match type and whether the
+/// field boosts apply at all.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HybridCandidate {
+    /// Lowercase UUID string. Also the tie-break key, so it must be spelled
+    /// consistently by every caller.
+    pub id: String,
+    pub cite_key: String,
+    pub title: String,
+    /// The rendered author list, as displayed ("Smith, J.; Jones, A.").
+    pub authors: String,
+    /// Tantivy BM25 score, if the full-text index returned this publication.
+    pub fts_score: Option<f32>,
+    /// Embedding cosine similarity (0–1), if the semantic index returned it.
+    pub semantic_similarity: Option<f32>,
+    /// Best chunk-passage cosine similarity (0–1) for this publication.
+    pub chunk_similarity: Option<f32>,
+}
+
+/// A scored candidate in final rank order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RankedCandidate {
+    pub id: String,
+    pub score: f32,
+    /// One of [`match_type`].
+    pub match_type: &'static str,
+}
+
+/// Score and order the hybrid candidate set.
+///
+/// Ordering is score descending, **ties broken by ascending id**. The tie-break
+/// is not cosmetic: without it the palette reorders equal-scored hits between
+/// keystrokes, and a golden test cannot exist.
+///
+/// `query` is matched case-insensitively as a literal substring against the
+/// author list, title and cite key of candidates that the full-text index
+/// returned. An empty (or whitespace-only) query earns no field boosts — a
+/// substring search for "" matches everything, which would boost every row
+/// equally and mean nothing.
+pub fn rank_hybrid_candidates(query: &str, candidates: &[HybridCandidate]) -> Vec<RankedCandidate> {
+    let needle = query.to_lowercase();
+    let mut ranked: Vec<RankedCandidate> = candidates
+        .iter()
+        .map(|c| RankedCandidate {
+            id: c.id.clone(),
+            score: hybrid_score(&needle, c),
+            match_type: hybrid_match_type(c),
+        })
+        .collect();
+
+    ranked.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    ranked
+}
+
+/// The score for one candidate. `needle` must already be lowercased.
+fn hybrid_score(needle: &str, c: &HybridCandidate) -> f32 {
+    let mut score: f32 = 0.0;
+
+    if let Some(fts) = c.fts_score {
+        // The base ensures any full-text hit outranks any semantic-only one.
+        score += FTS_BASE_BOOST + fts;
+
+        // Field-priority boosts apply only to full-text hits: they explain
+        // *why* the text engine matched, and a semantic neighbour that happens
+        // to contain the query string is not a stronger neighbour for it.
+        if !needle.is_empty() {
+            if c.authors.to_lowercase().contains(needle) {
+                score += AUTHOR_FIELD_BOOST;
+            }
+            if c.title.to_lowercase().contains(needle) {
+                score += TITLE_FIELD_BOOST;
+            }
+            if c.cite_key.to_lowercase().contains(needle) {
+                score += CITE_KEY_FIELD_BOOST;
+            }
+        }
+    }
+    if let Some(semantic) = c.semantic_similarity {
+        score += semantic;
+    }
+    if let Some(chunk) = c.chunk_similarity {
+        score += chunk * CHUNK_SIMILARITY_SCALE;
+    }
+
+    score
+}
+
+/// Which engines matched, in the precedence Swift used.
+fn hybrid_match_type(c: &HybridCandidate) -> &'static str {
+    match (
+        c.fts_score.is_some(),
+        c.semantic_similarity.is_some(),
+        c.chunk_similarity.is_some(),
+    ) {
+        (true, true, _) => match_type::BOTH,
+        (true, false, _) => match_type::FULLTEXT,
+        (false, false, true) => match_type::FULL,
+        _ => match_type::SEMANTIC,
+    }
+}
+
+#[cfg(test)]
+mod ranking_tests {
+    use super::*;
+
+    fn candidate(id: &str) -> HybridCandidate {
+        HybridCandidate {
+            id: id.to_string(),
+            cite_key: String::new(),
+            title: String::new(),
+            authors: String::new(),
+            fts_score: None,
+            semantic_similarity: None,
+            chunk_similarity: None,
+        }
+    }
+
+    #[test]
+    fn any_fts_hit_outranks_any_semantic_only_hit() {
+        let mut fts = candidate("a");
+        fts.fts_score = Some(0.001);
+        let mut semantic = candidate("b");
+        semantic.semantic_similarity = Some(1.0);
+
+        let ranked = rank_hybrid_candidates("q", &[semantic, fts]);
+        assert_eq!(ranked[0].id, "a");
+        assert_eq!(ranked[0].match_type, match_type::FULLTEXT);
+        assert_eq!(ranked[1].match_type, match_type::SEMANTIC);
+    }
+
+    #[test]
+    fn chunk_only_hits_sit_between_semantic_and_fts() {
+        let mut fts = candidate("fts");
+        fts.fts_score = Some(1.0);
+        let mut chunk = candidate("chunk");
+        chunk.chunk_similarity = Some(0.9);
+        let mut semantic = candidate("sem");
+        semantic.semantic_similarity = Some(0.99);
+
+        let ranked = rank_hybrid_candidates("q", &[semantic, chunk, fts]);
+        assert_eq!(
+            ranked.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["fts", "chunk", "sem"]
+        );
+        assert_eq!(ranked[1].match_type, match_type::FULL);
+    }
+
+    #[test]
+    fn field_boosts_stack_and_are_case_insensitive() {
+        let mut c = candidate("a");
+        c.fts_score = Some(0.0);
+        c.authors = "Kaiser, Nick".into();
+        c.title = "The KAISER effect".into();
+        c.cite_key = "kaiser1984".into();
+
+        let ranked = rank_hybrid_candidates("Kaiser", &[c]);
+        assert_eq!(
+            ranked[0].score,
+            FTS_BASE_BOOST + AUTHOR_FIELD_BOOST + TITLE_FIELD_BOOST + CITE_KEY_FIELD_BOOST
+        );
+    }
+
+    #[test]
+    fn field_boosts_never_apply_to_semantic_only_hits() {
+        let mut c = candidate("a");
+        c.semantic_similarity = Some(0.5);
+        c.authors = "Kaiser, Nick".into();
+        let ranked = rank_hybrid_candidates("kaiser", &[c]);
+        assert_eq!(ranked[0].score, 0.5);
+    }
+
+    #[test]
+    fn an_empty_query_earns_no_field_boosts() {
+        let mut c = candidate("a");
+        c.fts_score = Some(2.0);
+        c.title = "anything".into();
+        assert_eq!(rank_hybrid_candidates("", &[c.clone()])[0].score, 102.0);
+        // Whitespace lowercases to whitespace, which is not a substring of
+        // "anything" — no boost, and no crash.
+        assert_eq!(rank_hybrid_candidates("   ", &[c])[0].score, 102.0);
+    }
+
+    #[test]
+    fn ties_break_on_ascending_id() {
+        let ids = ["ffff", "0000", "aaaa"];
+        let candidates: Vec<HybridCandidate> = ids
+            .iter()
+            .map(|id| {
+                let mut c = candidate(id);
+                c.fts_score = Some(1.0);
+                c
+            })
+            .collect();
+        let ranked = rank_hybrid_candidates("zzz", &candidates);
+        assert_eq!(
+            ranked.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["0000", "aaaa", "ffff"]
+        );
+    }
+
+    #[test]
+    fn match_type_both_requires_fts_and_semantic() {
+        let mut c = candidate("a");
+        c.fts_score = Some(1.0);
+        c.semantic_similarity = Some(0.5);
+        c.chunk_similarity = Some(0.5);
+        let ranked = rank_hybrid_candidates("q", &[c]);
+        assert_eq!(ranked[0].match_type, match_type::BOTH);
+        assert_eq!(ranked[0].score, 100.0 + 1.0 + 0.5 + 30.0);
+    }
+
+    #[test]
+    fn an_empty_candidate_set_ranks_to_nothing() {
+        assert!(rank_hybrid_candidates("anything", &[]).is_empty());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

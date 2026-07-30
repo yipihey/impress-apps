@@ -23,20 +23,7 @@ public enum RustDeduplicationOrchestrator {
         _ results: [SearchResult],
         config: DeduplicationOrchestratorConfig = .default
     ) -> [DeduplicatedSearchGroup] {
-        // Convert to Rust input format
-        let inputs = results.map { result in
-            DeduplicationInput(
-                id: result.id,
-                sourceId: result.sourceID,
-                title: result.title,
-                firstAuthorLastName: result.firstAuthorLastName,
-                year: result.year.map { Int32($0) },
-                doi: result.doi,
-                arxivId: result.arxivID,
-                pmid: result.pmid,
-                bibcode: result.bibcode
-            )
-        }
+        let inputs = results.map(input(from:))
 
         // Convert config
         let rustConfig = ImbibRustCore.DeduplicationConfig(
@@ -70,92 +57,77 @@ public enum RustDeduplicationOrchestrator {
         }
     }
 
-    /// Check if two search results share any identifier
+    /// Check if two search results share any identifier.
     public static func sharesIdentifier(_ a: SearchResult, _ b: SearchResult) -> Bool {
-        let inputA = DeduplicationInput(
-            id: a.id,
-            sourceId: a.sourceID,
-            title: a.title,
-            firstAuthorLastName: a.firstAuthorLastName,
-            year: a.year.map { Int32($0) },
-            doi: a.doi,
-            arxivId: a.arxivID,
-            pmid: a.pmid,
-            bibcode: a.bibcode
-        )
-
-        let inputB = DeduplicationInput(
-            id: b.id,
-            sourceId: b.sourceID,
-            title: b.title,
-            firstAuthorLastName: b.firstAuthorLastName,
-            year: b.year.map { Int32($0) },
-            doi: b.doi,
-            arxivId: b.arxivID,
-            pmid: b.pmid,
-            bibcode: b.bibcode
-        )
-
-        return ImbibRustCore.sharesIdentifier(a: inputA, b: inputB)
+        ImbibRustCore.sharesIdentifier(a: input(from: a), b: input(from: b))
     }
 
-    /// Check if two search results fuzzy match (by title/author/year)
+    /// Fuzzy-match two search results by title + first author + year, returning
+    /// the title similarity when they match.
+    ///
+    /// Not used by `deduplicate` unless the config opts in — see
+    /// `DeduplicationOrchestratorConfig.useFuzzyMatching`.
     public static func fuzzyMatch(
         _ a: SearchResult,
         _ b: SearchResult,
         titleThreshold: Double = 0.85
     ) -> Double? {
-        let inputA = DeduplicationInput(
-            id: a.id,
-            sourceId: a.sourceID,
-            title: a.title,
-            firstAuthorLastName: a.firstAuthorLastName,
-            year: a.year.map { Int32($0) },
-            doi: a.doi,
-            arxivId: a.arxivID,
-            pmid: a.pmid,
-            bibcode: a.bibcode
-        )
+        fuzzyMatchResults(a: input(from: a), b: input(from: b), titleThreshold: titleThreshold)
+    }
 
-        let inputB = DeduplicationInput(
-            id: b.id,
-            sourceId: b.sourceID,
-            title: b.title,
-            firstAuthorLastName: b.firstAuthorLastName,
-            year: b.year.map { Int32($0) },
-            doi: b.doi,
-            arxivId: b.arxivID,
-            pmid: b.pmid,
-            bibcode: b.bibcode
+    /// Project a `SearchResult` onto the fields dedup actually reads.
+    ///
+    /// `semanticScholarID` / `openAlexID` are carried but never matched on: no
+    /// two sources report the same one, so they cannot group anything — they are
+    /// here so the group's identifier map is complete for a later enrichment
+    /// pass, which is what the Swift service collected via `allIdentifiers`.
+    private static func input(from result: SearchResult) -> DeduplicationInput {
+        DeduplicationInput(
+            id: result.id,
+            sourceId: result.sourceID,
+            title: result.title,
+            firstAuthorLastName: result.firstAuthorLastName,
+            year: result.year.map { Int32($0) },
+            doi: result.doi,
+            arxivId: result.arxivID,
+            pmid: result.pmid,
+            bibcode: result.bibcode,
+            semanticScholarId: result.semanticScholarID,
+            openAlexId: result.openAlexID
         )
-
-        return fuzzyMatchResults(a: inputA, b: inputB, titleThreshold: titleThreshold)
     }
 }
 
 // MARK: - Configuration
 
-/// Configuration for deduplication orchestration
-public struct DeduplicationOrchestratorConfig {
-    /// Minimum title similarity threshold (0.0 - 1.0)
+/// Configuration for deduplication orchestration.
+public struct DeduplicationOrchestratorConfig: Sendable {
+    /// Minimum title similarity threshold (0.0 - 1.0), used only when
+    /// `useFuzzyMatching` is on.
     public var titleThreshold: Double
 
-    /// Whether to use fuzzy matching when no identifier match
+    /// Whether to additionally merge groups that share NO identifier but match
+    /// on title + first author + year.
+    ///
+    /// Off by default, and that is the shipped behaviour, not a conservative
+    /// guess: the Swift `DeduplicationService.fuzzyMatch` was written and never
+    /// called, so no released build has ever merged on fuzzy evidence. Turning
+    /// it on means accepting that two papers with a 0.85-similar title, the same
+    /// first author and years within one become one row — which is right for
+    /// preprint/published pairs and wrong for a paper series.
     public var useFuzzyMatching: Bool
 
-    /// Source priority order (lower index = higher priority)
+    /// Explicit source priority order, highest priority first. Empty (the
+    /// default) uses the Rust `SOURCE_PRIORITY` table, so the app does not carry
+    /// a second copy of the ranking.
     public var sourcePriority: [String]
 
-    public static let `default` = DeduplicationOrchestratorConfig(
-        titleThreshold: 0.85,
-        useFuzzyMatching: true,
-        sourcePriority: ["crossref", "pubmed", "ads", "semanticscholar", "openalex", "arxiv", "dblp"]
-    )
+    public static let `default` = DeduplicationOrchestratorConfig()
 
     public init(
         titleThreshold: Double = 0.85,
-        useFuzzyMatching: Bool = true,
-        sourcePriority: [String] = ["crossref", "pubmed", "ads", "semanticscholar", "openalex", "arxiv", "dblp"]
+        useFuzzyMatching: Bool = false,
+        sourcePriority: [String] = []
     ) {
         self.titleThreshold = titleThreshold
         self.useFuzzyMatching = useFuzzyMatching

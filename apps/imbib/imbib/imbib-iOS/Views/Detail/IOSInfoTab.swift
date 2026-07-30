@@ -31,13 +31,9 @@ struct IOSInfoTab: View {
     // Publication data loaded from store
     @State private var publication: PublicationModel?
 
-    // State for exploration (references/citations/similar/co-reads/wos-related)
-    @State private var isExploringReferences = false
-    @State private var isExploringCitations = false
-    @State private var isExploringSimilar = false
-    @State private var isExploringCoReads = false
-    @State private var isExploringWoSRelated = false
-    @State private var explorationError: String?
+    // Exploration (references/citations/similar/co-reads/wos-related) — one
+    // shared runner in place of five parallel booleans + an error string.
+    @State private var explorationRunner = PublicationExplorationRunner()
 
     // Refresh trigger for when enrichment completes
     @State private var enrichmentRefreshID = UUID()
@@ -110,12 +106,12 @@ struct IOSInfoTab: View {
             handleFileImport(result)
         }
         .quickLookPreview($fileToPreview)
-        .alert("Exploration Error", isPresented: .constant(explorationError != nil)) {
+        .alert("Exploration Error", isPresented: .constant(explorationRunner.errorMessage != nil)) {
             Button("OK") {
-                explorationError = nil
+                explorationRunner.errorMessage = nil
             }
         } message: {
-            if let error = explorationError {
+            if let error = explorationRunner.errorMessage {
                 Text(error)
             }
         }
@@ -210,9 +206,13 @@ struct IOSInfoTab: View {
 
     /// Whether this paper has any identifiers to display
     private func hasIdentifiers(_ pub: PublicationModel) -> Bool {
-        pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil || pub.pmid != nil
+        !PublicationIdentifierLink.all(for: pub).isEmpty
     }
 
+    /// The identifier row. The four URL templates live once, in
+    /// `PublicationIdentifierLink` (Stage 5b); the horizontal scroll and the
+    /// tinted-button look stay iOS's, because a `FlowLayout` of `Link`s with
+    /// hover help is the pointer surface's answer, not a phone's.
     private func identifiersSection(_ pub: PublicationModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Identifiers")
@@ -222,17 +222,8 @@ struct IOSInfoTab: View {
 
             ScrollView(.horizontal) {
                 HStack(spacing: 16) {
-                    if let doi = pub.doi {
-                        identifierLink("DOI", value: doi, url: "https://doi.org/\(doi)")
-                    }
-                    if let arxivID = pub.arxivID {
-                        identifierLink("arXiv", value: arxivID, url: "https://arxiv.org/abs/\(arxivID)")
-                    }
-                    if let bibcode = pub.bibcode {
-                        identifierLink("ADS", value: bibcode, url: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")
-                    }
-                    if let pmid = pub.pmid {
-                        identifierLink("PubMed", value: pmid, url: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")
+                    ForEach(PublicationIdentifierLink.all(for: pub)) { link in
+                        identifierLink(link)
                     }
                 }
             }
@@ -241,17 +232,17 @@ struct IOSInfoTab: View {
     }
 
     @ViewBuilder
-    private func identifierLink(_ label: String, value: String, url: String) -> some View {
+    private func identifierLink(_ link: PublicationIdentifierLink) -> some View {
         Button {
-            if let linkURL = URL(string: url) {
+            if let linkURL = link.url {
                 _ = FileManager_Opener.shared.openURL(linkURL)
             }
         } label: {
             HStack(spacing: 4) {
-                Text("\(label):")
+                Text("\(link.label):")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(value)
+                Text(link.value)
                     .font(.caption)
                     .foregroundStyle(theme.linkColor)
             }
@@ -262,42 +253,32 @@ struct IOSInfoTab: View {
     // MARK: - Explore Section
 
     private func canExploreReferences(_ pub: PublicationModel) -> Bool {
-        pub.bibcode != nil || pub.doi != nil || pub.arxivID != nil
+        PublicationExplorationModel(publication: pub).canExplore
     }
 
-    private var isExploring: Bool {
-        isExploringReferences || isExploringCitations || isExploringSimilar || isExploringCoReads || isExploringWoSRelated
-    }
-
+    /// Flag stripe + tags: the SHARED `PublicationFlagAndTagsSection`
+    /// (Stage 5b). iOS gains what its copy lacked — tags sorted by path (they
+    /// used to appear in a different order than on macOS for the same paper)
+    /// and the full path on each chip. Chips stay inert here: activating a
+    /// filter is a capability of the LIST pane, and iOS's list has no filter
+    /// bar to activate.
     @ViewBuilder
     private func flagAndTagsSection(_ pub: PublicationModel) -> some View {
-        let hasFlag = pub.flag != nil
-        let hasTags = !pub.tags.isEmpty
-
-        if hasFlag || hasTags {
-            VStack(alignment: .leading, spacing: 8) {
-                if let flag = pub.flag {
-                    HStack(spacing: 6) {
-                        FlagStripe(flag: flag, rowHeight: 16)
-                        Text("\(flag.color.displayName) · \(flag.style.displayName) · \(flag.length.displayName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if hasTags {
-                    FlowLayout(spacing: 4) {
-                        ForEach(pub.tags, id: \.id) { tag in
-                            TagChip(tag: tag)
-                        }
-                    }
-                }
-            }
-        }
+        PublicationFlagAndTagsSection(publication: pub, tagPathStyle: .full)
     }
 
+    /// The Explore row. Which explorations exist, their labels, counts and
+    /// enablement come from `PublicationExplorationModel`; running one is
+    /// `PublicationExplorationRunner` (Stage 5b), which replaced the five
+    /// `isExploringX` booleans and the local `explore(_:_:)` helper. The
+    /// horizontal scroll is iOS chrome and stays.
+    ///
+    /// Unlike macOS this row iterates `offeredKinds`, so iOS keeps its fifth
+    /// button (WoS Related, DOI-gated) — the difference is now declared rather
+    /// than written out.
     private func exploreSection(_ pub: PublicationModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let model = PublicationExplorationModel(publication: pub)
+        return VStack(alignment: .leading, spacing: 8) {
             Text("Explore")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -305,74 +286,19 @@ struct IOSInfoTab: View {
 
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
-                    Button {
-                        showReferences()
-                    } label: {
-                        if isExploringReferences {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            let refCount = pub.referenceCount
-                            Label(refCount > 0 ? "References (\(refCount))" : "References", systemImage: "doc.text")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isExploring)
-
-                    Button {
-                        showCitations()
-                    } label: {
-                        if isExploringCitations {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            let citeCount = pub.citationCount
-                            Label(citeCount > 0 ? "Citations (\(citeCount))" : "Citations", systemImage: "quote.bubble")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isExploring)
-
-                    Button {
-                        showSimilar()
-                    } label: {
-                        if isExploringSimilar {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Label("Similar", systemImage: "sparkles")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isExploring)
-
-                    Button {
-                        showCoReads()
-                    } label: {
-                        if isExploringCoReads {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Label("Co-Reads", systemImage: "books.vertical")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isExploring)
-
-                    // WoS Related (requires DOI)
-                    if pub.doi != nil {
+                    ForEach(model.offeredKinds) { kind in
                         Button {
-                            showWoSRelated()
+                            explore(kind)
                         } label: {
-                            if isExploringWoSRelated {
+                            if explorationRunner.isRunning(kind) {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Label("WoS Related", systemImage: "globe.americas")
+                                Label(model.label(for: kind), systemImage: kind.systemImage)
                             }
                         }
                         .buttonStyle(.bordered)
-                        .disabled(isExploring)
+                        .disabled(!model.isEnabled(kind) || explorationRunner.isExploring)
                     }
                 }
             }
@@ -571,24 +497,16 @@ struct IOSInfoTab: View {
         showShareSheet = true
     }
 
-    /// Resolve a linked file to an on-disk URL using the value-type store's
-    /// UUID-keyed container path (mirrors IOSPDFTab.pdfFileExists), with a
-    /// fallback to the legacy pre-v1.3.0 `imbib/` app-support location.
+    /// Resolve a linked file to an on-disk URL.
+    ///
+    /// Stage 5b: this was twelve hand-rolled lines checking TWO candidate
+    /// paths, duplicated verbatim in `IOSPDFTab.pdfFileExists`, while
+    /// `AttachmentManager.resolveURL(for:in:)` — cross-platform all along, and
+    /// what macOS calls — knows FOUR. The one thing it does not do is answer
+    /// "does it exist", because macOS callers want a path to reveal in Finder
+    /// even on a miss; that step is `existingURL`, in PMC now.
     private func resolveFileURL(_ file: LinkedFileModel) -> URL? {
-        guard let path = file.relativePath else { return nil }
-        let normalizedPath = path.precomposedStringWithCanonicalMapping
-        let fileManager = FileManager.default
-
-        let containerURL = AttachmentManager.shared.containerURL(for: libraryID)
-            .appendingPathComponent(normalizedPath)
-        if fileManager.fileExists(atPath: containerURL.path) { return containerURL }
-
-        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?.appendingPathComponent("imbib") {
-            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
-            if fileManager.fileExists(atPath: legacyURL.path) { return legacyURL }
-        }
-        return nil
+        AttachmentManager.shared.existingURL(for: file, in: libraryID)
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
@@ -642,53 +560,16 @@ struct IOSInfoTab: View {
 
     // MARK: - Exploration
 
-    // These previously posted `.explore*` notifications that NOTHING
-    // observed (the macOS flow never used them as triggers) — taps fired
-    // into a void, no ADS/SciX search ran. Now they call ExplorationService
-    // directly, exactly like the macOS InfoTab: the service runs the search,
-    // creates the exploration collection, and posts `.navigateToCollection`,
-    // which the iOS sidebar + content view already consume.
-
-    /// Shared plumbing for all five explore buttons.
-    private func explore(
-        _ flag: Binding<Bool>,
-        _ operation: @escaping @MainActor (UUID) async throws -> Void
-    ) {
+    // These once posted `.explore*` notifications that NOTHING observed — taps
+    // fired into a void and no ADS/SciX search ran. They then called
+    // `ExplorationService` directly, in a local copy of macOS's plumbing;
+    // Stage 5b made that plumbing shared (`PublicationExplorationRunner`), so
+    // the service setup, the in-flight flag and the error surfacing exist once.
+    private func explore(_ kind: PublicationExplorationKind) {
         let pubID = publicationID
-        flag.wrappedValue = true
-        explorationError = nil
         Task {
-            do {
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-                try await operation(pubID)
-                flag.wrappedValue = false
-            } catch {
-                flag.wrappedValue = false
-                explorationError = error.localizedDescription
-            }
+            await explorationRunner.run(kind, for: pubID, libraryManager: libraryManager)
         }
-    }
-
-    private func showReferences() {
-        explore($isExploringReferences) { _ = try await ExplorationService.shared.exploreReferences(of: $0) }
-    }
-
-    private func showCitations() {
-        explore($isExploringCitations) { _ = try await ExplorationService.shared.exploreCitations(of: $0) }
-    }
-
-    private func showSimilar() {
-        explore($isExploringSimilar) { _ = try await ExplorationService.shared.exploreSimilar(of: $0) }
-    }
-
-    private func showCoReads() {
-        explore($isExploringCoReads) { _ = try await ExplorationService.shared.exploreCoReads(of: $0) }
-    }
-
-    private func showWoSRelated() {
-        explore($isExploringWoSRelated) { _ = try await ExplorationService.shared.exploreWoSRelated(of: $0) }
     }
 }
 

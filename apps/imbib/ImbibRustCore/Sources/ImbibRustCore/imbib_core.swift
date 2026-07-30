@@ -7191,11 +7191,14 @@ public struct DeduplicationConfig {
      */
     public var titleThreshold: Double
     /**
-     * Whether to use fuzzy matching when no identifier match
+     * Whether to additionally merge groups that share no identifier but match
+     * on title + author + year. **Off by default** — see the module docs.
      */
     public var useFuzzyMatching: Bool
     /**
-     * Source priority order (lower index = higher priority)
+     * Source priority order, highest priority first. Empty (the default) means
+     * "use [`SOURCE_PRIORITY`]"; a non-empty list overrides it entirely and
+     * sources missing from it rank behind every listed one.
      */
     public var sourcePriority: [String]
 
@@ -7206,10 +7209,13 @@ public struct DeduplicationConfig {
          * Minimum title similarity threshold (0.0 - 1.0)
          */titleThreshold: Double, 
         /**
-         * Whether to use fuzzy matching when no identifier match
+         * Whether to additionally merge groups that share no identifier but match
+         * on title + author + year. **Off by default** — see the module docs.
          */useFuzzyMatching: Bool, 
         /**
-         * Source priority order (lower index = higher priority)
+         * Source priority order, highest priority first. Empty (the default) means
+         * "use [`SOURCE_PRIORITY`]"; a non-empty list overrides it entirely and
+         * sources missing from it rank behind every listed one.
          */sourcePriority: [String]) {
         self.titleThreshold = titleThreshold
         self.useFuzzyMatching = useFuzzyMatching
@@ -7318,6 +7324,16 @@ public struct DeduplicationInput {
      * ADS bibcode if available
      */
     public var bibcode: String?
+    /**
+     * Semantic Scholar id, if available. Not a grouping key (no two sources
+     * report it), but it is carried into the group's identifier map so an
+     * enrichment pass downstream can use it.
+     */
+    public var semanticScholarId: String?
+    /**
+     * OpenAlex id, if available. Carried, not matched — as above.
+     */
+    public var openAlexId: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -7348,7 +7364,15 @@ public struct DeduplicationInput {
          */pmid: String?, 
         /**
          * ADS bibcode if available
-         */bibcode: String?) {
+         */bibcode: String?, 
+        /**
+         * Semantic Scholar id, if available. Not a grouping key (no two sources
+         * report it), but it is carried into the group's identifier map so an
+         * enrichment pass downstream can use it.
+         */semanticScholarId: String?, 
+        /**
+         * OpenAlex id, if available. Carried, not matched — as above.
+         */openAlexId: String?) {
         self.id = id
         self.sourceId = sourceId
         self.title = title
@@ -7358,6 +7382,8 @@ public struct DeduplicationInput {
         self.arxivId = arxivId
         self.pmid = pmid
         self.bibcode = bibcode
+        self.semanticScholarId = semanticScholarId
+        self.openAlexId = openAlexId
     }
 }
 
@@ -7392,6 +7418,12 @@ extension DeduplicationInput: Equatable, Hashable {
         if lhs.bibcode != rhs.bibcode {
             return false
         }
+        if lhs.semanticScholarId != rhs.semanticScholarId {
+            return false
+        }
+        if lhs.openAlexId != rhs.openAlexId {
+            return false
+        }
         return true
     }
 
@@ -7405,6 +7437,8 @@ extension DeduplicationInput: Equatable, Hashable {
         hasher.combine(arxivId)
         hasher.combine(pmid)
         hasher.combine(bibcode)
+        hasher.combine(semanticScholarId)
+        hasher.combine(openAlexId)
     }
 }
 
@@ -7424,7 +7458,9 @@ public struct FfiConverterTypeDeduplicationInput: FfiConverterRustBuffer {
                 doi: FfiConverterOptionString.read(from: &buf), 
                 arxivId: FfiConverterOptionString.read(from: &buf), 
                 pmid: FfiConverterOptionString.read(from: &buf), 
-                bibcode: FfiConverterOptionString.read(from: &buf)
+                bibcode: FfiConverterOptionString.read(from: &buf), 
+                semanticScholarId: FfiConverterOptionString.read(from: &buf), 
+                openAlexId: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -7438,6 +7474,8 @@ public struct FfiConverterTypeDeduplicationInput: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.arxivId, into: &buf)
         FfiConverterOptionString.write(value.pmid, into: &buf)
         FfiConverterOptionString.write(value.bibcode, into: &buf)
+        FfiConverterOptionString.write(value.semanticScholarId, into: &buf)
+        FfiConverterOptionString.write(value.openAlexId, into: &buf)
     }
 }
 
@@ -8561,6 +8599,75 @@ public func FfiConverterTypeFilenameOptions_lift(_ buf: RustBuffer) throws -> Fi
 #endif
 public func FfiConverterTypeFilenameOptions_lower(_ value: FilenameOptions) -> RustBuffer {
     return FfiConverterTypeFilenameOptions.lower(value)
+}
+
+
+/**
+ * A prefix/suffix pair wrapped around a selection.
+ */
+public struct FormatAffixes {
+    public var prefix: String
+    public var suffix: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(prefix: String, suffix: String) {
+        self.prefix = prefix
+        self.suffix = suffix
+    }
+}
+
+
+
+extension FormatAffixes: Equatable, Hashable {
+    public static func ==(lhs: FormatAffixes, rhs: FormatAffixes) -> Bool {
+        if lhs.prefix != rhs.prefix {
+            return false
+        }
+        if lhs.suffix != rhs.suffix {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(prefix)
+        hasher.combine(suffix)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFormatAffixes: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FormatAffixes {
+        return
+            try FormatAffixes(
+                prefix: FfiConverterString.read(from: &buf), 
+                suffix: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FormatAffixes, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.prefix, into: &buf)
+        FfiConverterString.write(value.suffix, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFormatAffixes_lift(_ buf: RustBuffer) throws -> FormatAffixes {
+    return try FfiConverterTypeFormatAffixes.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFormatAffixes_lower(_ value: FormatAffixes) -> RustBuffer {
+    return FfiConverterTypeFormatAffixes.lower(value)
 }
 
 
@@ -10607,6 +10714,217 @@ public func FfiConverterTypeManuscriptDetail_lift(_ buf: RustBuffer) throws -> M
 #endif
 public func FfiConverterTypeManuscriptDetail_lower(_ value: ManuscriptDetail) -> RustBuffer {
     return FfiConverterTypeManuscriptDetail.lower(value)
+}
+
+
+/**
+ * One manuscript source format's full editor grammar.
+ */
+public struct ManuscriptFormatDescriptor {
+    /**
+     * `manuscript.format` payload value / Swift enum raw value.
+     */
+    public var id: String
+    public var displayName: String
+    /**
+     * `compiledPDF` | `renderedMarkdown` | `none`.
+     */
+    public var previewKind: String
+    /**
+     * True when the format has any rendered counterpart to the source.
+     */
+    public var hasPreview: Bool
+    /**
+     * True when the preview comes from a compile pass.
+     */
+    public var requiresCompile: Bool
+    /**
+     * Canonical extension, also the one used for `main_file_name`.
+     */
+    public var fileExtension: String
+    /**
+     * `main.<file_extension>`.
+     */
+    public var mainFileName: String
+    /**
+     * Every extension that detects as this format, canonical one first.
+     */
+    public var extensions: [String]
+    /**
+     * Line-comment prefix; `None` disables comment toggling.
+     */
+    public var commentPrefix: String?
+    /**
+     * Citation *insertion* affixes; `None` disables citation insert.
+     */
+    public var citationInsert: FormatAffixes?
+    public var boldWrap: FormatAffixes?
+    public var italicWrap: FormatAffixes?
+    public var defaultDebounceMs: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `manuscript.format` payload value / Swift enum raw value.
+         */id: String, displayName: String, 
+        /**
+         * `compiledPDF` | `renderedMarkdown` | `none`.
+         */previewKind: String, 
+        /**
+         * True when the format has any rendered counterpart to the source.
+         */hasPreview: Bool, 
+        /**
+         * True when the preview comes from a compile pass.
+         */requiresCompile: Bool, 
+        /**
+         * Canonical extension, also the one used for `main_file_name`.
+         */fileExtension: String, 
+        /**
+         * `main.<file_extension>`.
+         */mainFileName: String, 
+        /**
+         * Every extension that detects as this format, canonical one first.
+         */extensions: [String], 
+        /**
+         * Line-comment prefix; `None` disables comment toggling.
+         */commentPrefix: String?, 
+        /**
+         * Citation *insertion* affixes; `None` disables citation insert.
+         */citationInsert: FormatAffixes?, boldWrap: FormatAffixes?, italicWrap: FormatAffixes?, defaultDebounceMs: UInt32) {
+        self.id = id
+        self.displayName = displayName
+        self.previewKind = previewKind
+        self.hasPreview = hasPreview
+        self.requiresCompile = requiresCompile
+        self.fileExtension = fileExtension
+        self.mainFileName = mainFileName
+        self.extensions = extensions
+        self.commentPrefix = commentPrefix
+        self.citationInsert = citationInsert
+        self.boldWrap = boldWrap
+        self.italicWrap = italicWrap
+        self.defaultDebounceMs = defaultDebounceMs
+    }
+}
+
+
+
+extension ManuscriptFormatDescriptor: Equatable, Hashable {
+    public static func ==(lhs: ManuscriptFormatDescriptor, rhs: ManuscriptFormatDescriptor) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.displayName != rhs.displayName {
+            return false
+        }
+        if lhs.previewKind != rhs.previewKind {
+            return false
+        }
+        if lhs.hasPreview != rhs.hasPreview {
+            return false
+        }
+        if lhs.requiresCompile != rhs.requiresCompile {
+            return false
+        }
+        if lhs.fileExtension != rhs.fileExtension {
+            return false
+        }
+        if lhs.mainFileName != rhs.mainFileName {
+            return false
+        }
+        if lhs.extensions != rhs.extensions {
+            return false
+        }
+        if lhs.commentPrefix != rhs.commentPrefix {
+            return false
+        }
+        if lhs.citationInsert != rhs.citationInsert {
+            return false
+        }
+        if lhs.boldWrap != rhs.boldWrap {
+            return false
+        }
+        if lhs.italicWrap != rhs.italicWrap {
+            return false
+        }
+        if lhs.defaultDebounceMs != rhs.defaultDebounceMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(displayName)
+        hasher.combine(previewKind)
+        hasher.combine(hasPreview)
+        hasher.combine(requiresCompile)
+        hasher.combine(fileExtension)
+        hasher.combine(mainFileName)
+        hasher.combine(extensions)
+        hasher.combine(commentPrefix)
+        hasher.combine(citationInsert)
+        hasher.combine(boldWrap)
+        hasher.combine(italicWrap)
+        hasher.combine(defaultDebounceMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManuscriptFormatDescriptor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManuscriptFormatDescriptor {
+        return
+            try ManuscriptFormatDescriptor(
+                id: FfiConverterString.read(from: &buf), 
+                displayName: FfiConverterString.read(from: &buf), 
+                previewKind: FfiConverterString.read(from: &buf), 
+                hasPreview: FfiConverterBool.read(from: &buf), 
+                requiresCompile: FfiConverterBool.read(from: &buf), 
+                fileExtension: FfiConverterString.read(from: &buf), 
+                mainFileName: FfiConverterString.read(from: &buf), 
+                extensions: FfiConverterSequenceString.read(from: &buf), 
+                commentPrefix: FfiConverterOptionString.read(from: &buf), 
+                citationInsert: FfiConverterOptionTypeFormatAffixes.read(from: &buf), 
+                boldWrap: FfiConverterOptionTypeFormatAffixes.read(from: &buf), 
+                italicWrap: FfiConverterOptionTypeFormatAffixes.read(from: &buf), 
+                defaultDebounceMs: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManuscriptFormatDescriptor, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.displayName, into: &buf)
+        FfiConverterString.write(value.previewKind, into: &buf)
+        FfiConverterBool.write(value.hasPreview, into: &buf)
+        FfiConverterBool.write(value.requiresCompile, into: &buf)
+        FfiConverterString.write(value.fileExtension, into: &buf)
+        FfiConverterString.write(value.mainFileName, into: &buf)
+        FfiConverterSequenceString.write(value.extensions, into: &buf)
+        FfiConverterOptionString.write(value.commentPrefix, into: &buf)
+        FfiConverterOptionTypeFormatAffixes.write(value.citationInsert, into: &buf)
+        FfiConverterOptionTypeFormatAffixes.write(value.boldWrap, into: &buf)
+        FfiConverterOptionTypeFormatAffixes.write(value.italicWrap, into: &buf)
+        FfiConverterUInt32.write(value.defaultDebounceMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptFormatDescriptor_lift(_ buf: RustBuffer) throws -> ManuscriptFormatDescriptor {
+    return try FfiConverterTypeManuscriptFormatDescriptor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptFormatDescriptor_lower(_ value: ManuscriptFormatDescriptor) -> RustBuffer {
+    return FfiConverterTypeManuscriptFormatDescriptor.lower(value)
 }
 
 
@@ -15650,6 +15968,88 @@ public func FfiConverterTypeSmartSearchRow_lift(_ buf: RustBuffer) throws -> Sma
 #endif
 public func FfiConverterTypeSmartSearchRow_lower(_ value: SmartSearchRow) -> RustBuffer {
     return FfiConverterTypeSmartSearchRow.lower(value)
+}
+
+
+/**
+ * One row of the [`SOURCE_PRIORITY`] table, for callers that want to display
+ * or assert it rather than re-declare it.
+ */
+public struct SourcePriorityRow {
+    /**
+     * Source id as `SearchResult.sourceID` spells it.
+     */
+    public var sourceId: String
+    /**
+     * Lower wins.
+     */
+    public var priority: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Source id as `SearchResult.sourceID` spells it.
+         */sourceId: String, 
+        /**
+         * Lower wins.
+         */priority: UInt32) {
+        self.sourceId = sourceId
+        self.priority = priority
+    }
+}
+
+
+
+extension SourcePriorityRow: Equatable, Hashable {
+    public static func ==(lhs: SourcePriorityRow, rhs: SourcePriorityRow) -> Bool {
+        if lhs.sourceId != rhs.sourceId {
+            return false
+        }
+        if lhs.priority != rhs.priority {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(sourceId)
+        hasher.combine(priority)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSourcePriorityRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SourcePriorityRow {
+        return
+            try SourcePriorityRow(
+                sourceId: FfiConverterString.read(from: &buf), 
+                priority: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SourcePriorityRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sourceId, into: &buf)
+        FfiConverterUInt32.write(value.priority, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSourcePriorityRow_lift(_ buf: RustBuffer) throws -> SourcePriorityRow {
+    return try FfiConverterTypeSourcePriorityRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSourcePriorityRow_lower(_ value: SourcePriorityRow) -> RustBuffer {
+    return FfiConverterTypeSourcePriorityRow.lower(value)
 }
 
 
@@ -21328,6 +21728,30 @@ fileprivate struct FfiConverterOptionTypeConflict: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFormatAffixes: FfiConverterRustBuffer {
+    typealias SwiftType = FormatAffixes?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFormatAffixes.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFormatAffixes.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLibraryRow: FfiConverterRustBuffer {
     typealias SwiftType = LibraryRow?
 
@@ -22712,6 +23136,31 @@ fileprivate struct FfiConverterSequenceTypeManuscriptCollectionRow: FfiConverter
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeManuscriptFormatDescriptor: FfiConverterRustBuffer {
+    typealias SwiftType = [ManuscriptFormatDescriptor]
+
+    public static func write(_ value: [ManuscriptFormatDescriptor], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeManuscriptFormatDescriptor.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ManuscriptFormatDescriptor] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ManuscriptFormatDescriptor]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeManuscriptFormatDescriptor.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeManuscriptRevisionRow: FfiConverterRustBuffer {
     typealias SwiftType = [ManuscriptRevisionRow]
 
@@ -23204,6 +23653,31 @@ fileprivate struct FfiConverterSequenceTypeSmartSearchRow: FfiConverterRustBuffe
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSmartSearchRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSourcePriorityRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SourcePriorityRow]
+
+    public static func write(_ value: [SourcePriorityRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSourcePriorityRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SourcePriorityRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SourcePriorityRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSourcePriorityRow.read(from: &buf))
         }
         return seq
     }
@@ -24119,6 +24593,26 @@ public func decodeLatex(input: String) -> String {
     )
 })
 }
+/**
+ * The source-priority table, highest priority first. Sources absent from it
+ * rank at [`UNRANKED_SOURCE_PRIORITY`].
+ */
+public func dedupSourcePriorities() -> [SourcePriorityRow] {
+    return try!  FfiConverterSequenceTypeSourcePriorityRow.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_dedup_source_priorities($0
+    )
+})
+}
+/**
+ * Priority of a single source id, including the unranked fallback.
+ */
+public func dedupSourcePriority(sourceId: String) -> UInt32 {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_dedup_source_priority(
+        FfiConverterString.lower(sourceId),$0
+    )
+})
+}
 public func deduplicateSearchResults(results: [DeduplicationInput], config: DeduplicationConfig) -> [DeduplicatedGroup] {
     return try!  FfiConverterSequenceTypeDeduplicatedGroup.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_deduplicate_search_results(
@@ -24171,6 +24665,18 @@ public func detectFormat(content: String) -> ImportFormat {
     return try!  FfiConverterTypeImportFormat.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_detect_format(
         FfiConverterString.lower(content),$0
+    )
+})
+}
+/**
+ * Detect a format id from source content, optionally hinted by a title whose
+ * extension is trusted above the content heuristics.
+ */
+public func detectManuscriptFormat(source: String, title: String?) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_detect_manuscript_format(
+        FfiConverterString.lower(source),
+        FfiConverterOptionString.lower(title),$0
     )
 })
 }
@@ -24965,6 +25471,27 @@ public func makeCiteKeyUnique(base: String, existingKeys: [String]) -> String {
     uniffi_imbib_core_fn_func_make_cite_key_unique(
         FfiConverterString.lower(base),
         FfiConverterSequenceString.lower(existingKeys),$0
+    )
+})
+}
+/**
+ * Format id for a bare file extension (no dot), or `None` if unrecognised.
+ */
+public func manuscriptFormatForExtension(ext: String) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_manuscript_format_for_extension(
+        FfiConverterString.lower(ext),$0
+    )
+})
+}
+/**
+ * The whole grammar table, in `DocumentFormat.allCases` order.
+ *
+ * Called once per process and cached Swift-side — every value is a constant.
+ */
+public func manuscriptFormatGrammar() -> [ManuscriptFormatDescriptor] {
+    return try!  FfiConverterSequenceTypeManuscriptFormatDescriptor.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_manuscript_format_grammar($0
     )
 })
 }
@@ -25811,6 +26338,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_decode_latex() != 44047) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_dedup_source_priorities() != 46122) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_dedup_source_priority() != 36270) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_deduplicate_search_results() != 30645) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25830,6 +26363,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_detect_format() != 52778) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_detect_manuscript_format() != 59055) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_doi_from_fields() != 51212) {
@@ -26073,6 +26609,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_make_cite_key_unique() != 41508) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_manuscript_format_for_extension() != 21623) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_manuscript_format_grammar() != 7794) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_merge_annotations() != 16430) {

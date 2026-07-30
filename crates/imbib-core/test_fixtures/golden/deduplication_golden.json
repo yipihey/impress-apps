@@ -1,0 +1,789 @@
+{
+  "scenarios" : [
+    {
+      "groups" : [
+
+      ],
+      "inputs" : [
+
+      ],
+      "name" : "empty"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+            "doi" : "10.1\/x"
+          },
+          "primary" : "a"
+        },
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+            "doi" : "10.1\/x"
+          },
+          "primary" : "b"
+        },
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+            "doi" : "10.1\/y"
+          },
+          "primary" : "c"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Same Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Same Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/y",
+          "firstAuthorLastName" : "Smith",
+          "id" : "c",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Other Paper",
+          "year" : 2024
+        }
+      ],
+      "name" : "single-source-fast-path"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "a"
+          ],
+          "identifiers" : {
+            "doi" : "10.1\/x"
+          },
+          "primary" : "b"
+        },
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+            "doi" : "10.2\/y"
+          },
+          "primary" : "c"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "crossref",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.2\/y",
+          "firstAuthorLastName" : "Smith",
+          "id" : "c",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "ads",
+          "title" : "Different",
+          "year" : 2024
+        }
+      ],
+      "name" : "doi-match-priority-order"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "d",
+            "c",
+            "b"
+          ],
+          "identifiers" : {
+            "doi" : "http:\/\/doi.org\/10.1234\/test"
+          },
+          "primary" : "a"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1234\/TEST",
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "crossref",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "https:\/\/doi.org\/10.1234\/test",
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "doi:10.1234\/test",
+          "firstAuthorLastName" : "Smith",
+          "id" : "c",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "ads",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "http:\/\/doi.org\/10.1234\/test",
+          "firstAuthorLastName" : "Smith",
+          "id" : "d",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "pubmed",
+          "title" : "Paper",
+          "year" : 2024
+        }
+      ],
+      "name" : "doi-normalization"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "b",
+            "c"
+          ],
+          "identifiers" : {
+            "arxiv" : "2301.00001",
+            "doi" : "10.1\/x"
+          },
+          "primary" : "a"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "crossref",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : "2301.00001",
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "ads",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : "2301.00001",
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "c",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Paper",
+          "year" : 2024
+        }
+      ],
+      "name" : "transitive-through-two-identifiers"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "c"
+          ],
+          "identifiers" : {
+            "arxiv" : "2301.00002",
+            "doi" : "10.1\/x"
+          },
+          "primary" : "a"
+        },
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+            "arxiv" : "2301.00002"
+          },
+          "primary" : "b"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "crossref",
+          "title" : "One",
+          "year" : 2024
+        },
+        {
+          "arxivID" : "2301.00002",
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Two",
+          "year" : 2024
+        },
+        {
+          "arxivID" : "2301.00002",
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "c",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "ads",
+          "title" : "One",
+          "year" : 2024
+        }
+      ],
+      "name" : "split-identifier-joins-doi-group"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "c",
+            "a"
+          ],
+          "identifiers" : {
+            "arxiv" : "2301.12345v11"
+          },
+          "primary" : "b"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : "2301.12345v2",
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : "2301.12345",
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "semanticscholar",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : "2301.12345v11",
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "c",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "openalex",
+          "title" : "Paper",
+          "year" : 2024
+        }
+      ],
+      "name" : "arxiv-version-suffix"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+            "arxiv" : "arXiv:2301.99999"
+          },
+          "primary" : "a"
+        },
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+            "arxiv" : "2301.99999"
+          },
+          "primary" : "b"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : "arXiv:2301.99999",
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : "2301.99999",
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "crossref",
+          "title" : "Paper",
+          "year" : 2024
+        }
+      ],
+      "name" : "arxiv-prefixed-form"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "a"
+          ],
+          "identifiers" : {
+            "pmid" : "12345678"
+          },
+          "primary" : "b"
+        },
+        {
+          "alternates" : [
+            "d"
+          ],
+          "identifiers" : {
+            "bibcode" : "2023ApJ...123..456A"
+          },
+          "primary" : "c"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : "12345678",
+          "semanticScholarID" : null,
+          "sourceID" : "pubmed",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : "12345678",
+          "semanticScholarID" : null,
+          "sourceID" : "crossref",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : "2023ApJ...123..456A",
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "c",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "ads",
+          "title" : "Astro",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : "2023ApJ...123..456A",
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "d",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "openalex",
+          "title" : "Astro",
+          "year" : 2024
+        }
+      ],
+      "name" : "pmid-and-bibcode"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+
+          },
+          "primary" : "a"
+        },
+        {
+          "alternates" : [
+
+          ],
+          "identifiers" : {
+
+          },
+          "primary" : "b"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "crossref",
+          "title" : "Machine Learning for Everyone",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : null,
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Machine Learning for Everyone",
+          "year" : 2024
+        }
+      ],
+      "name" : "no-identifiers-identical-metadata"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "a",
+            "b"
+          ],
+          "identifiers" : {
+            "doi" : "10.1\/x"
+          },
+          "primary" : "c"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "zzz-unknown",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "another-unknown",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "c",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "dblp",
+          "title" : "Paper",
+          "year" : 2024
+        }
+      ],
+      "name" : "unknown-sources"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "b"
+          ],
+          "identifiers" : {
+            "doi" : "10.1\/x",
+            "openAlex" : "W123",
+            "semanticScholar" : "s2:123"
+          },
+          "primary" : "a"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "a",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : "s2:123",
+          "sourceID" : "crossref",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "b",
+          "openAlexID" : "W123",
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "openalex",
+          "title" : "Paper",
+          "year" : 2024
+        }
+      ],
+      "name" : "aggregator-identifiers-are-carried"
+    },
+    {
+      "groups" : [
+        {
+          "alternates" : [
+            "pubmed",
+            "ads",
+            "s2",
+            "openalex",
+            "arxiv",
+            "dblp"
+          ],
+          "identifiers" : {
+            "doi" : "10.1\/x"
+          },
+          "primary" : "crossref"
+        }
+      ],
+      "inputs" : [
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "dblp",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "dblp",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "arxiv",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "arxiv",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "openalex",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "openalex",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "s2",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "semanticscholar",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "ads",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "ads",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "pubmed",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "pubmed",
+          "title" : "Paper",
+          "year" : 2024
+        },
+        {
+          "arxivID" : null,
+          "bibcode" : null,
+          "doi" : "10.1\/x",
+          "firstAuthorLastName" : "Smith",
+          "id" : "crossref",
+          "openAlexID" : null,
+          "pmid" : null,
+          "semanticScholarID" : null,
+          "sourceID" : "crossref",
+          "title" : "Paper",
+          "year" : 2024
+        }
+      ],
+      "name" : "every-source-once"
+    }
+  ]
+}

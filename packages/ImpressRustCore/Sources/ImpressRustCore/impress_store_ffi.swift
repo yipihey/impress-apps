@@ -447,6 +447,22 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
+    typealias FfiType = Float
+    typealias SwiftType = Float
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
+        return try lift(readFloat(&buf))
+    }
+
+    public static func write(_ value: Float, into buf: inout [UInt8]) {
+        writeFloat(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
     typealias FfiType = Double
     typealias SwiftType = Double
@@ -2442,6 +2458,149 @@ public func FfiConverterTypeSharedFieldEq_lower(_ value: SharedFieldEq) -> RustB
 
 
 /**
+ * One publication returned by at least one of imbib's three retrieval engines.
+ *
+ * A `nil` score means that engine did not return this publication. That is
+ * load-bearing rather than a default: it decides the match type and whether
+ * the field boosts apply, so callers must pass `nil` (not `0`) for a miss.
+ */
+public struct SharedHybridCandidate {
+    /**
+     * Lowercase UUID string. Also the tie-break key — spell it consistently.
+     */
+    public var id: String
+    public var citeKey: String
+    public var title: String
+    /**
+     * Rendered author list, as displayed.
+     */
+    public var authors: String
+    /**
+     * Tantivy BM25 score, if the full-text index returned this publication.
+     */
+    public var ftsScore: Float?
+    /**
+     * Embedding cosine similarity (0–1).
+     */
+    public var semanticSimilarity: Float?
+    /**
+     * Best chunk-passage cosine similarity (0–1).
+     */
+    public var chunkSimilarity: Float?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Lowercase UUID string. Also the tie-break key — spell it consistently.
+         */id: String, citeKey: String, title: String, 
+        /**
+         * Rendered author list, as displayed.
+         */authors: String, 
+        /**
+         * Tantivy BM25 score, if the full-text index returned this publication.
+         */ftsScore: Float?, 
+        /**
+         * Embedding cosine similarity (0–1).
+         */semanticSimilarity: Float?, 
+        /**
+         * Best chunk-passage cosine similarity (0–1).
+         */chunkSimilarity: Float?) {
+        self.id = id
+        self.citeKey = citeKey
+        self.title = title
+        self.authors = authors
+        self.ftsScore = ftsScore
+        self.semanticSimilarity = semanticSimilarity
+        self.chunkSimilarity = chunkSimilarity
+    }
+}
+
+
+
+extension SharedHybridCandidate: Equatable, Hashable {
+    public static func ==(lhs: SharedHybridCandidate, rhs: SharedHybridCandidate) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.citeKey != rhs.citeKey {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.ftsScore != rhs.ftsScore {
+            return false
+        }
+        if lhs.semanticSimilarity != rhs.semanticSimilarity {
+            return false
+        }
+        if lhs.chunkSimilarity != rhs.chunkSimilarity {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(citeKey)
+        hasher.combine(title)
+        hasher.combine(authors)
+        hasher.combine(ftsScore)
+        hasher.combine(semanticSimilarity)
+        hasher.combine(chunkSimilarity)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedHybridCandidate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedHybridCandidate {
+        return
+            try SharedHybridCandidate(
+                id: FfiConverterString.read(from: &buf), 
+                citeKey: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                authors: FfiConverterString.read(from: &buf), 
+                ftsScore: FfiConverterOptionFloat.read(from: &buf), 
+                semanticSimilarity: FfiConverterOptionFloat.read(from: &buf), 
+                chunkSimilarity: FfiConverterOptionFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedHybridCandidate, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.citeKey, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.authors, into: &buf)
+        FfiConverterOptionFloat.write(value.ftsScore, into: &buf)
+        FfiConverterOptionFloat.write(value.semanticSimilarity, into: &buf)
+        FfiConverterOptionFloat.write(value.chunkSimilarity, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedHybridCandidate_lift(_ buf: RustBuffer) throws -> SharedHybridCandidate {
+    return try FfiConverterTypeSharedHybridCandidate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedHybridCandidate_lower(_ value: SharedHybridCandidate) -> RustBuffer {
+    return FfiConverterTypeSharedHybridCandidate.lower(value)
+}
+
+
+/**
  * Flat, UniFFI-friendly query over items — compiles to `ItemQuery`
  * predicates. All filters are ANDed.
  */
@@ -3023,6 +3182,89 @@ public func FfiConverterTypeSharedOperationRow_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeSharedOperationRow_lower(_ value: SharedOperationRow) -> RustBuffer {
     return FfiConverterTypeSharedOperationRow.lower(value)
+}
+
+
+/**
+ * A scored candidate. The vector this comes back in **is** the rank order.
+ */
+public struct SharedRankedCandidate {
+    public var id: String
+    public var score: Float
+    /**
+     * `both` | `fulltext` | `full` | `semantic`.
+     */
+    public var matchType: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, score: Float, 
+        /**
+         * `both` | `fulltext` | `full` | `semantic`.
+         */matchType: String) {
+        self.id = id
+        self.score = score
+        self.matchType = matchType
+    }
+}
+
+
+
+extension SharedRankedCandidate: Equatable, Hashable {
+    public static func ==(lhs: SharedRankedCandidate, rhs: SharedRankedCandidate) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.score != rhs.score {
+            return false
+        }
+        if lhs.matchType != rhs.matchType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(score)
+        hasher.combine(matchType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedRankedCandidate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedRankedCandidate {
+        return
+            try SharedRankedCandidate(
+                id: FfiConverterString.read(from: &buf), 
+                score: FfiConverterFloat.read(from: &buf), 
+                matchType: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedRankedCandidate, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterFloat.write(value.score, into: &buf)
+        FfiConverterString.write(value.matchType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedRankedCandidate_lift(_ buf: RustBuffer) throws -> SharedRankedCandidate {
+    return try FfiConverterTypeSharedRankedCandidate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedRankedCandidate_lower(_ value: SharedRankedCandidate) -> RustBuffer {
+    return FfiConverterTypeSharedRankedCandidate.lower(value)
 }
 
 
@@ -4295,6 +4537,30 @@ fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
+    typealias SwiftType = Float?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterFloat.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterFloat.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
     typealias SwiftType = Bool?
 
@@ -4540,6 +4806,31 @@ fileprivate struct FfiConverterSequenceTypeSharedFieldEq: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedHybridCandidate: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedHybridCandidate]
+
+    public static func write(_ value: [SharedHybridCandidate], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedHybridCandidate.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedHybridCandidate] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedHybridCandidate]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedHybridCandidate.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSharedItemRow: FfiConverterRustBuffer {
     typealias SwiftType = [SharedItemRow]
 
@@ -4607,6 +4898,31 @@ fileprivate struct FfiConverterSequenceTypeSharedOperationRow: FfiConverterRustB
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSharedOperationRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedRankedCandidate: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedRankedCandidate]
+
+    public static func write(_ value: [SharedRankedCandidate], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedRankedCandidate.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedRankedCandidate] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedRankedCandidate]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedRankedCandidate.read(from: &buf))
         }
         return seq
     }
@@ -4787,6 +5103,25 @@ fileprivate struct FfiConverterSequenceTypeSyncTombstoneRecord: FfiConverterRust
     }
 }
 /**
+ * Rank imbib's hybrid (full-text + semantic + chunk) candidate set.
+ *
+ * The single implementation of the hybrid relevance formula: full-text hits
+ * outrank semantic-only ones, field matches on author/title/cite-key boost
+ * full-text hits, and chunk-passage similarity is scaled to sit between the
+ * two. Ordering is score descending, ties broken by ascending id — the
+ * tie-break is pinned so the palette does not reshuffle equal-scored rows.
+ *
+ * Pure function: no store access, so any surface can call it.
+ */
+public func rankHybridSearchResults(query: String, candidates: [SharedHybridCandidate]) -> [SharedRankedCandidate] {
+    return try!  FfiConverterSequenceTypeSharedRankedCandidate.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_rank_hybrid_search_results(
+        FfiConverterString.lower(query),
+        FfiConverterSequenceTypeSharedHybridCandidate.lower(candidates),$0
+    )
+})
+}
+/**
  * The allowed `manuscript.format` payload values (single source of truth:
  * `impress_core::manuscript_ops::SUPPORTED_MANUSCRIPT_FORMATS`). Exposed so
  * app-side format enums can assert parity without duplicating the list.
@@ -4812,6 +5147,9 @@ private var initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_impress_store_ffi_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_rank_hybrid_search_results() != 39200) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_supported_manuscript_formats() != 37034) {
         return InitializationResult.apiChecksumMismatch

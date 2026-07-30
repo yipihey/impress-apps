@@ -68,6 +68,15 @@ regex = { workspace = true }
 # SyncTeX parsing (Phase 2B) — `.synctex.gz` gzip decompression.
 flate2 = "1"
 
+# Deterministic section ids (Stage 7 item 6) — SHA-256 truncated to a UUID.
+# The digest input is persisted-id-bearing, so this must stay bit-exact.
+sha2 = "0.10"
+
+# Section offsets are Swift `Character` offsets — extended grapheme clusters,
+# not scalars — because that is what every consumer of `ExtractedSection`
+# splices source text with. `chars()` would be off by one per combining mark.
+unicode-segmentation = "1"
+
 # UniFFI for FFI bindings (optional)
 uniffi = { workspace = true, optional = true }
 

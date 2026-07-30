@@ -37,6 +37,7 @@ pub mod note_import;
 pub mod plot_ffi;
 pub mod render;
 pub mod render_project;
+pub mod sections;
 pub mod selection;
 pub mod sourcemap;
 pub mod synctex;
@@ -1266,6 +1267,110 @@ pub fn cite_key_hits(source: String, syntax: String) -> Vec<FFICiteKeyHit> {
         .into_iter()
         .map(|hit| ffi_cite_key_hit(&source, hit))
         .collect()
+}
+
+// ============================================================================
+// UniFFI Exports for Section Extraction (Stage 7 item 6)
+// ============================================================================
+
+/// One section of a manuscript source.
+///
+/// `start` / `end` / `bodyStart` are **Swift `Character` offsets** (extended
+/// grapheme clusters) — the offsets every existing consumer splices source text
+/// with. `startUtf16` / `endUtf16` / `bodyStartUtf16` are the same positions in
+/// UTF-16 code units, which is what `NSRange` and the AppKit/UIKit text stack
+/// want; use those for anything that talks to a text view.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct FFIExtractedSection {
+    /// Lowercase UUID string, deterministic in
+    /// `(documentID, normalized title, orderIndex)`. Persisted as the
+    /// `manuscript-section` row id — the derivation is frozen.
+    pub id: String,
+    pub title: String,
+    /// Typst: number of `=`. LaTeX: 1 for `\section`, 2 for `\subsection`, ….
+    pub level: u32,
+    pub start: u32,
+    pub end: u32,
+    pub body_start: u32,
+    pub start_utf16: u32,
+    pub end_utf16: u32,
+    pub body_start_utf16: u32,
+    pub order_index: u32,
+    /// `introduction`, `methods`, `results`, … or `None`.
+    pub section_type: Option<String>,
+    pub word_count: u32,
+}
+
+#[cfg(feature = "uniffi")]
+fn ffi_section(section: crate::sections::ExtractedSection) -> FFIExtractedSection {
+    FFIExtractedSection {
+        id: section.id.to_string(),
+        title: section.title,
+        level: section.level,
+        start: section.start as u32,
+        end: section.end as u32,
+        body_start: section.body_start as u32,
+        start_utf16: section.start_utf16 as u32,
+        end_utf16: section.end_utf16 as u32,
+        body_start_utf16: section.body_start_utf16 as u32,
+        order_index: section.order_index as u32,
+        section_type: section.section_type,
+        word_count: section.word_count as u32,
+    }
+}
+
+/// Resolve the `format` parameter shared by the section functions.
+///
+/// `None` (or an empty string) auto-detects from the source; `latex` selects the
+/// LaTeX heading grammar; anything else is Typst.
+#[cfg(feature = "uniffi")]
+fn ffi_section_format(source: &str, format: Option<String>) -> crate::sections::SectionFormat {
+    match format.as_deref() {
+        None | Some("") => crate::sections::SectionFormat::auto_detect(source),
+        Some(name) => crate::sections::SectionFormat::from_str_lenient(name),
+    }
+}
+
+/// Every section in `source`, in document order.
+///
+/// `document_id` seeds the deterministic section ids; pass the manuscript's id
+/// so the ids match the persisted `manuscript-section` rows. A malformed id is
+/// treated as the nil UUID rather than an error — the caller that wants ids to
+/// mean something owns passing a real one, and an outline rail that only needs
+/// titles and offsets should not have to handle an error case.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn extract_sections(
+    source: String,
+    document_id: String,
+    format: Option<String>,
+) -> Vec<FFIExtractedSection> {
+    let doc_id = uuid::Uuid::parse_str(&document_id).unwrap_or(uuid::Uuid::nil());
+    let fmt = ffi_section_format(&source, format);
+    crate::sections::extract(&source, doc_id, Some(fmt))
+        .into_iter()
+        .map(ffi_section)
+        .collect()
+}
+
+/// The deterministic id a section with this `(document, title, order index)`
+/// would have — for callers that need the id *before* the source re-parses
+/// (creating a section and returning its id in the same response).
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn section_id_for(document_id: String, title: String, order_index: u32) -> String {
+    let doc_id = uuid::Uuid::parse_str(&document_id).unwrap_or(uuid::Uuid::nil());
+    crate::sections::section_id(doc_id, &title, order_index as usize).to_string()
+}
+
+/// The heading grammar `source` would be parsed with: `typst` or `latex`.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn detect_section_format(source: String) -> String {
+    crate::sections::SectionFormat::auto_detect(&source)
+        .as_str()
+        .to_string()
 }
 
 // ============================================================================

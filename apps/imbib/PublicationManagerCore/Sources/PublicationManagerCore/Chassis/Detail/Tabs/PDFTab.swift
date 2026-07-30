@@ -196,54 +196,20 @@ struct PDFTab: View {
 
     // MARK: - PDF Switcher
 
+    /// The multi-PDF picker, now the shared `PublicationPDFSwitcher`
+    /// (Stage 5b) — the same view iOS's PDF tab renders. Both copies were the
+    /// same glyph + `Menu` + checkmark + size caption + "N PDFs"; the only
+    /// macOS-only piece, `.menuStyle(.borderlessButton)`, is an `#if` island
+    /// inside the shared view.
     @ViewBuilder
     private func pdfSwitcher(currentPDF: LinkedFileModel, pub: PublicationModel) -> some View {
-        let pdfs = pub.linkedFiles.filter { $0.isPDF }
-        HStack(spacing: 8) {
-            Image(systemName: "doc.fill")
-                .foregroundStyle(.secondary)
-
-            Menu {
-                ForEach(pdfs, id: \.id) { pdf in
-                    Button {
-                        linkedFile = pdf
-                    } label: {
-                        HStack {
-                            if pdf.id == currentPDF.id {
-                                Image(systemName: "checkmark")
-                            }
-                            Text(pdf.filename)
-                            Text("(\(Self.formattedFileSize(pdf.fileSize)))")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(currentPDF.filename)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                }
-            }
-            .menuStyle(.borderlessButton)
-
-            Spacer()
-
-            Text("\(pdfs.count) PDFs")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        PublicationPDFSwitcher(
+            pdfs: pub.linkedFiles.filter { $0.isPDF },
+            current: currentPDF,
+            isDarkModeEnabled: pdfDarkModeEnabled
+        ) { pdf in
+            linkedFile = pdf
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        #if os(macOS)
-        .background(pdfDarkModeEnabled ? Color.black.opacity(0.9) : Color(nsColor: .windowBackgroundColor))
-        .foregroundStyle(pdfDarkModeEnabled ? .white : .primary)
-        #else
-        .background(pdfDarkModeEnabled ? Color.black.opacity(0.9) : Color(.systemBackground))
-        .foregroundStyle(pdfDarkModeEnabled ? .white : .primary)
-        #endif
     }
 
     // MARK: - Subviews
@@ -439,12 +405,15 @@ struct PDFTab: View {
 
             Logger.files.infoCapture("[PDFTab] No local PDF found, checking remote...", category: "pdf")
 
-            // No local PDF - check if remote PDF is available via identifiers
+            // No local PDF - check if remote PDF is available via identifiers.
+            // The predicate is `PublicationPDFAvailability.hasFetchableIdentifier`
+            // (Stage 5b), which iOS's PDF tab now reads too; the per-identifier
+            // locals below stay because the log line names each one.
             let hasArxivID = pub.arxivID != nil
             let hasEprint = pub.fields["eprint"] != nil
             let hasDOI = pub.doi != nil
             let hasBibcode = pub.bibcode != nil
-            let hasRemote = hasArxivID || hasEprint || hasDOI || hasBibcode
+            let hasRemote = PublicationPDFAvailability.hasFetchableIdentifier(pub)
 
             // Debug logging for PDF availability
             let arxivVal = pub.arxivID ?? "nil"

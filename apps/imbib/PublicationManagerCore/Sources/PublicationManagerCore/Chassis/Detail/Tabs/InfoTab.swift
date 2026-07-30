@@ -51,12 +51,9 @@ struct InfoTab: View {
     // Timing for body evaluation
     @State private var bodyStartTime: CFAbsoluteTime = 0
 
-    // State for exploration (references/citations)
-    @State private var isExploringReferences = false
-    @State private var isExploringCitations = false
-    @State private var isExploringSimilar = false
-    @State private var isExploringCoReads = false
-    @State private var explorationError: String?
+    // Exploration (references/citations/similar/co-reads) — one runner, whose
+    // `running` value replaced four parallel `isExploringX` booleans.
+    @State private var explorationRunner = PublicationExplorationRunner()
 
     // Refresh trigger for when enrichment completes
     @State private var enrichmentRefreshID = UUID()
@@ -185,11 +182,7 @@ struct InfoTab: View {
             loadPublication()
             loadAnnotations()
             // Reset ephemeral state that should not carry over between papers
-            isExploringReferences = false
-            isExploringCitations = false
-            isExploringSimilar = false
-            isExploringCoReads = false
-            explorationError = nil
+            explorationRunner.reset()
             enrichmentRefreshID = UUID()
         }
         .task {
@@ -268,12 +261,12 @@ struct InfoTab: View {
                 infoTabLogger.info("Refreshing InfoTab after enrichment completed for \(publication?.citeKey ?? "unknown")")
             }
         }
-        .alert("Exploration Error", isPresented: .constant(explorationError != nil)) {
+        .alert("Exploration Error", isPresented: .constant(explorationRunner.errorMessage != nil)) {
             Button("OK") {
-                explorationError = nil
+                explorationRunner.errorMessage = nil
             }
         } message: {
-            if let error = explorationError {
+            if let error = explorationRunner.errorMessage {
                 Text(error)
             }
         }
@@ -322,8 +315,14 @@ struct InfoTab: View {
 
     // MARK: - Identifiers Section
 
+    /// DOI / arXiv / ADS / PubMed, from the ONE declaration
+    /// (`PublicationIdentifierLink`) both platforms and the iOS More menu read.
+    private var identifierLinks: [PublicationIdentifierLink] {
+        PublicationIdentifierLink.all(for: paper)
+    }
+
     private var hasIdentifiers: Bool {
-        paper.doi != nil || paper.arxivID != nil || paper.bibcode != nil || paper.pmid != nil
+        !identifierLinks.isEmpty
     }
 
     @ViewBuilder
@@ -335,132 +334,82 @@ struct InfoTab: View {
                 .textCase(.uppercase)
 
             FlowLayout(spacing: 12) {
-                if let doi = paper.doi {
-                    identifierLink("DOI", value: doi, url: "https://doi.org/\(doi)")
-                        .help("Open DOI resolver")
-                }
-                if let arxivID = paper.arxivID {
-                    identifierLink("arXiv", value: arxivID, url: "https://arxiv.org/abs/\(arxivID)")
-                        .help("Open on arXiv")
-                }
-                if let bibcode = paper.bibcode {
-                    identifierLink("ADS", value: bibcode, url: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")
-                        .help("Open on NASA ADS")
-                }
-                if let pmid = paper.pmid {
-                    identifierLink("PubMed", value: pmid, url: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")
-                        .help("Open on PubMed")
+                ForEach(identifierLinks) { link in
+                    identifierLink(link)
+                        .help(link.openHelpText)
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func identifierLink(_ label: String, value: String, url: String) -> some View {
+    private func identifierLink(_ link: PublicationIdentifierLink) -> some View {
         HStack(spacing: 4) {
-            Text("\(label):")
+            Text("\(link.label):")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if let linkURL = URL(string: url) {
-                Link(value, destination: linkURL)
+            if let linkURL = link.url {
+                Link(link.value, destination: linkURL)
                     .font(.caption)
             } else {
-                Text(value)
+                Text(link.value)
                     .font(.caption)
             }
         }
         .contextMenu {
-            Button("Copy \(label)") {
+            Button("Copy \(link.label)") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(value, forType: .string)
+                NSPasteboard.general.setString(link.value, forType: .string)
             }
         }
     }
 
     // MARK: - Flag & Tags Section
 
-    /// Displays flag stripe and tags using ImpressFTUI components.
-    /// Tag chips are clickable — tapping one activates the filter bar with `tags:{path}`.
+    /// Flag stripe + tags, rendered by the shared
+    /// `PublicationFlagAndTagsSection` (Stage 5b) — the same view iOS's Info
+    /// tab now uses, so the two cannot drift about tag ORDER or path style
+    /// again. Tapping a chip activates the filter bar with `tags:{path}`; that
+    /// gesture belongs to the host, which is why it arrives as a closure.
     @ViewBuilder
     private func flagAndTagsSection(_ pub: PublicationModel) -> some View {
-        let sortedTags = pub.tags.sorted { $0.path < $1.path }
-        let hasFlag = pub.flag != nil
-        let hasTags = !sortedTags.isEmpty
-
-        if hasFlag || hasTags {
-            VStack(alignment: .leading, spacing: 8) {
-                if let flag = pub.flag {
-                    HStack(spacing: 6) {
-                        FlagStripe(flag: flag, rowHeight: 16)
-                        Text("\(flag.color.displayName) · \(flag.style.displayName) · \(flag.length.displayName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if hasTags {
-                    FlowLayout(spacing: 4) {
-                        ForEach(sortedTags, id: \.id) { tag in
-                            TagChip(tag: tag, pathStyle: .full)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    NotificationCenter.default.post(
-                                        name: .activateFilterWithTag,
-                                        object: nil,
-                                        userInfo: ["tagPath": tag.path]
-                                    )
-                                }
-                                .help("Click to filter by tags:\(tag.path)")
-                        }
-                    }
-                }
-            }
+        PublicationFlagAndTagsSection(publication: pub, tagPathStyle: .full) { tagPath in
+            NotificationCenter.default.post(
+                name: .activateFilterWithTag,
+                object: nil,
+                userInfo: ["tagPath": tagPath]
+            )
         }
     }
 
     // MARK: - Explore Section (References & Citations)
 
-    /// Whether this paper can be explored via ADS (has bibcode, DOI, or arXiv ID)
+    /// Whether this paper can be explored via ADS (has bibcode, DOI, or arXiv ID).
+    ///
+    /// Paper-level on purpose: an online search result has identifiers before
+    /// it has a store row.
     private var canExploreReferences: Bool {
-        paper.bibcode != nil || paper.doi != nil || paper.arxivID != nil
+        PublicationExplorationModel.canExplore(paper: paper)
     }
 
-    /// Exploration availability for references/citations
-    private enum ExplorationAvailability: Equatable {
-        case notEnriched
-        case hasResults(Int)
-        case noResults
-        case unavailable
+    /// Labels, counts, help text and enablement, from the shared declaration.
+    private var explorationModel: PublicationExplorationModel {
+        PublicationExplorationModel(publication: publication)
     }
 
-    /// Determine references availability from publication data
-    private var referencesAvailability: ExplorationAvailability {
-        guard let pub = publication else { return .unavailable }
-        let hasIdentifiers = pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil
-        if pub.referenceCount > 0 {
-            return .hasResults(pub.referenceCount)
-        } else if hasIdentifiers {
-            return .notEnriched
-        } else {
-            return .unavailable
-        }
-    }
-
-    /// Determine citations availability from publication data
-    private var citationsAvailability: ExplorationAvailability {
-        guard let pub = publication else { return .unavailable }
-        let hasIdentifiers = pub.doi != nil || pub.arxivID != nil || pub.bibcode != nil
-        if pub.citationCount > 0 {
-            return .hasResults(pub.citationCount)
-        } else if hasIdentifiers {
-            return .notEnriched
-        } else {
-            return .unavailable
-        }
-    }
+    /// The four buttons macOS ships, listed explicitly.
+    ///
+    /// NOT `explorationModel.offeredKinds` — that set includes `.wosRelated`,
+    /// which only iOS surfaces. Adding a fifth button here would be a product
+    /// change to the frozen pane, so the shared model informs each button and
+    /// the ROW stays macOS's.
+    private static let macExplorationKinds: [PublicationExplorationKind] = [
+        .references, .citations, .similar, .coReads,
+    ]
 
     @ViewBuilder
     private var exploreSection: some View {
+        let model = explorationModel
         VStack(alignment: .leading, spacing: 8) {
             Text("Explore")
                 .font(.caption)
@@ -469,223 +418,32 @@ struct InfoTab: View {
 
             // All buttons in a single row
             HStack(spacing: 8) {
-                let refAvail = referencesAvailability
-                Button {
-                    showReferences()
-                } label: {
-                    if isExploringReferences {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Label(referencesButtonLabel, systemImage: "doc.text")
+                ForEach(Self.macExplorationKinds) { kind in
+                    Button {
+                        explore(kind)
+                    } label: {
+                        if explorationRunner.isRunning(kind) {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Label(model.label(for: kind), systemImage: kind.systemImage)
+                        }
                     }
+                    .buttonStyle(.bordered)
+                    .disabled(!model.isEnabled(kind) || explorationRunner.isExploring)
+                    .help(model.helpText(for: kind))
                 }
-                .buttonStyle(.bordered)
-                .disabled(refAvail == .noResults || isExploring)
-                .help(referencesHelpText(for: refAvail))
-
-                let citeAvail = citationsAvailability
-                Button {
-                    showCitations()
-                } label: {
-                    if isExploringCitations {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Label(citationsButtonLabel, systemImage: "quote.bubble")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(citeAvail == .noResults || isExploring)
-                .help(citationsHelpText(for: citeAvail))
-
-                Button {
-                    showSimilar()
-                } label: {
-                    if isExploringSimilar {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Label("Similar", systemImage: "sparkles")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isExploring)
-                .help("Show papers with similar content")
-
-                Button {
-                    showCoReads()
-                } label: {
-                    if isExploringCoReads {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Label("Co-Reads", systemImage: "books.vertical")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isExploring)
-                .help("Show papers frequently read together")
             }
         }
     }
 
-    /// Whether any exploration is in progress
-    private var isExploring: Bool {
-        isExploringReferences || isExploringCitations || isExploringSimilar || isExploringCoReads
-    }
-
-    /// Label for the references button, including count if available
-    private var referencesButtonLabel: String {
-        switch referencesAvailability {
-        case .hasResults(let count): return "References (\(count))"
-        case .noResults: return "References (0)"
-        default: return "References"
-        }
-    }
-
-    /// Label for the citations button, including count if available
-    private var citationsButtonLabel: String {
-        switch citationsAvailability {
-        case .hasResults(let count): return "Citations (\(count))"
-        case .noResults: return "Citations (0)"
-        default: return "Citations"
-        }
-    }
-
-    /// Help text for references button based on availability
-    private func referencesHelpText(for availability: ExplorationAvailability) -> String {
-        switch availability {
-        case .notEnriched: return "Click to find papers this paper cites"
-        case .hasResults(let count): return "Show \(count) referenced papers"
-        case .noResults: return "No references available for this paper"
-        case .unavailable: return "No identifiers available for lookup"
-        }
-    }
-
-    /// Help text for citations button based on availability
-    private func citationsHelpText(for availability: ExplorationAvailability) -> String {
-        switch availability {
-        case .notEnriched: return "Click to find papers that cite this paper"
-        case .hasResults(let count): return "Show \(count) citing papers"
-        case .noResults: return "No citations available for this paper"
-        case .unavailable: return "No identifiers available for lookup"
-        }
-    }
-
-    /// Show references using ExplorationService
-    private func showReferences() {
+    /// Run one exploration. The four ~20-line copies of this block (one per
+    /// button, differing only in which `explore*` they awaited) are now
+    /// `PublicationExplorationRunner`.
+    private func explore(_ kind: PublicationExplorationKind) {
         guard let pubID = publicationID else { return }
-
-        isExploringReferences = true
-        explorationError = nil
-
         Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore references - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreReferences(of: pubID)
-
-                await MainActor.run {
-                    isExploringReferences = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringReferences = false
-                    explorationError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    /// Show citations using ExplorationService
-    private func showCitations() {
-        guard let pubID = publicationID else { return }
-
-        isExploringCitations = true
-        explorationError = nil
-
-        Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore citations - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreCitations(of: pubID)
-
-                await MainActor.run {
-                    isExploringCitations = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringCitations = false
-                    explorationError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    /// Show similar papers using ExplorationService
-    private func showSimilar() {
-        guard let pubID = publicationID else { return }
-
-        isExploringSimilar = true
-        explorationError = nil
-
-        Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore similar - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreSimilar(of: pubID)
-
-                await MainActor.run {
-                    isExploringSimilar = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringSimilar = false
-                    explorationError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    /// Show co-read papers using ExplorationService
-    private func showCoReads() {
-        guard let pubID = publicationID else { return }
-
-        isExploringCoReads = true
-        explorationError = nil
-
-        Task {
-            do {
-                // Set up ExplorationService with enrichment service and library manager
-                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
-                ExplorationService.shared.setEnrichmentService(enrichmentService)
-                ExplorationService.shared.setLibraryManager(libraryManager)
-
-                // Explore co-reads - creates collection and navigates via notification
-                _ = try await ExplorationService.shared.exploreCoReads(of: pubID)
-
-                await MainActor.run {
-                    isExploringCoReads = false
-                }
-            } catch {
-                await MainActor.run {
-                    isExploringCoReads = false
-                    explorationError = error.localizedDescription
-                }
-            }
+            await explorationRunner.run(kind, for: pubID, libraryManager: libraryManager)
         }
     }
 
@@ -1011,20 +769,16 @@ struct InfoTab: View {
 
     // MARK: - Author Annotations
 
-    /// Load annotations from the publication's note field
+    /// Load annotations from the publication's note field.
+    ///
+    /// The `note` field's format (YAML front matter + freeform) is parsed by
+    /// `PublicationNotesDocument` — the same type the Notes editors on both
+    /// platforms use, so three readers of one field cannot disagree about what
+    /// it contains.
     private func loadAnnotations() {
-        guard let pub = publication else {
-            annotations = [:]
-            return
-        }
-
-        // Get raw note content
-        let rawNote = pub.fields["note"] ?? ""
-
-        // Parse YAML front matter
-        let parsed = NotesParser.parse(rawNote)
-        // Convert label-keyed annotations to ID-keyed
-        annotations = annotationSettings.labelToIDAnnotations(parsed.annotations)
+        annotations = PublicationNotesDocument(
+            publication: publication, settings: annotationSettings
+        ).annotations
     }
 
     /// Author annotation chips displayed below the author list

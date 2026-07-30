@@ -11,10 +11,13 @@ mod similarity;
 pub use normalization::{normalize_author_export, normalize_title_export};
 #[cfg(feature = "native")]
 pub use orchestration::{
-    deduplicate_search_results, default_deduplication_config, fuzzy_match_results,
-    shares_identifier,
+    dedup_source_priorities, dedup_source_priority, deduplicate_search_results,
+    default_deduplication_config, fuzzy_match_results, shares_identifier,
 };
-pub use orchestration::{DeduplicatedGroup, DeduplicationConfig, DeduplicationInput};
+pub use orchestration::{
+    source_priority_rank, DeduplicatedGroup, DeduplicationConfig, DeduplicationInput,
+    SourcePriorityRow, SOURCE_PRIORITY, UNRANKED_SOURCE_PRIORITY,
+};
 #[cfg(feature = "native")]
 pub use similarity::{
     authors_overlap, calculate_publication_similarity, calculate_similarity, find_duplicates,

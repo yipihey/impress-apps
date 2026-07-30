@@ -161,37 +161,28 @@ struct DetailView: View {
         // macOS: No navigation title - clean Apple Mail/Notes style.
         // (A dead `#if os(iOS)` .navigationTitle branch lived here — unreachable
         // since the whole file is `#if os(macOS)`. Removed Stage 2a.)
-        .task(id: publicationID) {
-            // Auto-mark as read after brief delay (Apple Mail style)
-            await autoMarkAsRead()
-        }
-        .task(id: publicationID) {
-            // Opening a paper is a user-initiated view — it belongs in Recent.
-            // (Automated ingest paths must never record activity.) The
-            // one-second dwell keeps arrow-key scrubbing through a list from
-            // filling Recent with papers the user merely passed over; the task
-            // is cancelled as soon as the selection changes.
-            guard let id = publicationID else { return }
-            try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            RustStoreAdapter.shared.recordRecentView(id: id)
-        }
         .onChange(of: publicationID, initial: true) { _, newID in
             guard let id = newID else { cachedPublication = nil; return }
             cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: id)
         }
-        .task {
-            // One subscription replaces the legacy flag/tag observers.
-            // Refresh cachedPublication only when the focused pub id
-            // is among the affected set.
-            for await event in ImbibImpressStore.shared.events.subscribe() {
-                guard case .itemsMutated(_, let ids) = event,
-                      let pubID = publicationID,
-                      ids.contains(pubID)
-                else { continue }
-                cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: pubID)
-            }
-        }
+        // Auto-mark-as-read, the Recent-view dwell and the live store-event
+        // refresh are the SHELL behaviour both detail panes share; they moved
+        // to `publicationDetailLifecycle` (Stage 5b), which iOS's `DetailView`
+        // applies too. The read-state WRITE stays this shell's
+        // (`LibraryViewModel`, whose `store` is a protocol the app may swap).
+        //
+        // The event subscription is now keyed on `publicationID`. It used to be
+        // a bare `.task {}` that read `publicationID` off the captured `self`,
+        // so it observed the id from the FIRST body evaluation and stopped
+        // refreshing the pane after the first paper switch.
+        .publicationDetailLifecycle(
+            publicationID: publicationID,
+            isRead: { cachedPublication?.isRead },
+            markAsRead: { id in await viewModel.markAsRead(id: id) },
+            reload: {
+                guard let id = publicationID else { return }
+                cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: id)
+            })
         // Keyboard shortcuts for tab switching (Cmd+4/5/6, Cmd+R for Notes)
         .onReceive(NotificationCenter.default.publisher(for: .showPDFTab)) { _ in
             selectedTab = .pdf
@@ -245,23 +236,6 @@ struct DetailView: View {
                 dropRefreshID = UUID()
             }
         ))
-    }
-
-    // MARK: - Auto-Mark as Read
-
-    private func autoMarkAsRead() async {
-        guard let pub = publication, !pub.isRead else { return }
-
-        // Wait 2 seconds before marking as read
-        do {
-            try await Task.sleep(for: .seconds(1))
-            // Re-check after sleep in case publication was deleted while waiting
-            guard publication != nil else { return }
-            await viewModel.markAsRead(id: pub.id)
-            logger.debug("Auto-marked as read: \(pub.citeKey)")
-        } catch {
-            // Task was cancelled (user navigated away quickly)
-        }
     }
 
     // MARK: - Tab Cycling

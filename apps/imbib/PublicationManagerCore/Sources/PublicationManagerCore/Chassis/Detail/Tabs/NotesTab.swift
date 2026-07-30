@@ -371,7 +371,8 @@ struct NotesPanel: View {
     // Parsed notes (annotations + freeform)
     @State private var annotations: [String: String] = [:]
     @State private var freeformNotes: String = ""
-    @State private var saveTask: Task<Void, Never>?
+    /// Debounced `note`-field writer, shared with the iOS editor (Stage 5b).
+    @State private var notesWriter = PublicationNotesWriter()
 
     /// Which annotation fields are currently active/visible (by field ID)
     @State private var activeAnnotations: Set<String> = []
@@ -807,41 +808,30 @@ struct NotesPanel: View {
 
     // MARK: - Persistence
 
+    /// The `note` field's two halves, parsed by the shared
+    /// `PublicationNotesDocument` (Stage 5b). iOS's notes editor reads the same
+    /// type; before this it read the field RAW and showed the user their own
+    /// YAML front matter as prose.
     private func loadNotes() {
-        saveTask?.cancel()
+        notesWriter.cancelPending()
 
-        // Get raw note content
-        let rawNote = publication.fields["note"] ?? ""
-
-        // Parse YAML front matter
-        let parsed = NotesParser.parse(rawNote)
-        // Convert label-keyed annotations to ID-keyed
-        annotations = annotationSettings.labelToIDAnnotations(parsed.annotations)
-        freeformNotes = parsed.freeform
+        let document = PublicationNotesDocument(
+            publication: publication, settings: annotationSettings)
+        annotations = document.annotations
+        freeformNotes = document.freeform
 
         // Populate active set from fields that have content
-        activeAnnotations = Set(annotations.filter { !$0.value.isEmpty }.map(\.key))
+        activeAnnotations = document.populatedAnnotationIDs
     }
 
+    /// Debounced save through the shared writer, which owns the 500 ms interval
+    /// and the "did the selection move on" guard both editors had their own
+    /// copy of.
     private func scheduleSave() {
-        let targetPublication = publication
-        let currentAnnotations = annotations
-        let currentFreeform = freeformNotes
-        let settings = annotationSettings
-
-        saveTask?.cancel()
-        saveTask = Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            guard targetPublication.id == self.publication.id else { return }
-
-            // Serialize to unified format with YAML front matter
-            let notes = ParsedNotes(annotations: currentAnnotations, freeform: currentFreeform)
-            let serialized = NotesParser.serialize(notes, fields: settings.fields)
-
-            // Save to single "note" field
-            await viewModel.updateField(id: targetPublication.id, field: "note", value: serialized)
-        }
+        notesWriter.schedule(
+            PublicationNotesDocument(annotations: annotations, freeform: freeformNotes),
+            for: publication.id,
+            settings: annotationSettings)
     }
 }
 

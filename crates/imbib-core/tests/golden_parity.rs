@@ -495,3 +495,398 @@ fn ris_matches_swift_golden() {
 
     report.assert_empty("ris");
 }
+
+// ── Item 4: DocumentFormat grammar ───────────────────────────────────────────
+
+fn affixes(value: &Value) -> Option<(String, String)> {
+    value.as_object().map(|o| {
+        (
+            o["prefix"].as_str().unwrap().to_string(),
+            o["suffix"].as_str().unwrap().to_string(),
+        )
+    })
+}
+
+#[test]
+fn manuscript_format_grammar_matches_swift_golden() {
+    use imbib_core::manuscript_format::manuscript_format_grammar;
+
+    let g = golden("document_format_golden.json");
+    let mut report = Report::default();
+
+    let want = g["formats"].as_array().unwrap();
+    let got = manuscript_format_grammar();
+    assert_eq!(want.len(), 4, "golden format count changed");
+    assert_eq!(
+        got.len(),
+        want.len(),
+        "Rust table has {} rows, Swift had {}",
+        got.len(),
+        want.len()
+    );
+
+    for (expected, actual) in want.iter().zip(got.iter()) {
+        let scope = expected["id"].as_str().unwrap().to_string();
+        let mut check = |field: &str, want: String, have: String| {
+            if want != have {
+                report.push(&scope, format!("{field}: {want} != {have}"));
+            }
+        };
+        // Order matters too: Swift's `allCases` order is what a picker renders.
+        check("id", scope.clone(), actual.id.clone());
+        check(
+            "displayName",
+            expected["displayName"].as_str().unwrap().to_string(),
+            actual.display_name.clone(),
+        );
+        check(
+            "previewKind",
+            expected["previewKind"].as_str().unwrap().to_string(),
+            actual.preview_kind.clone(),
+        );
+        check(
+            "hasPreview",
+            expected["hasPreview"].to_string(),
+            actual.has_preview.to_string(),
+        );
+        check(
+            "requiresCompile",
+            expected["requiresCompile"].to_string(),
+            actual.requires_compile.to_string(),
+        );
+        check(
+            "fileExtension",
+            expected["fileExtension"].as_str().unwrap().to_string(),
+            actual.file_extension.clone(),
+        );
+        check(
+            "mainFileName",
+            expected["mainFileName"].as_str().unwrap().to_string(),
+            actual.main_file_name.clone(),
+        );
+        check(
+            "commentPrefix",
+            format!("{:?}", expected["commentPrefix"].as_str()),
+            format!("{:?}", actual.comment_prefix.as_deref()),
+        );
+        for (field, want_value, have) in [
+            (
+                "citationInsert",
+                affixes(&expected["citationInsert"]),
+                actual.citation_insert.clone(),
+            ),
+            (
+                "boldWrap",
+                affixes(&expected["boldWrap"]),
+                actual.bold_wrap.clone(),
+            ),
+            (
+                "italicWrap",
+                affixes(&expected["italicWrap"]),
+                actual.italic_wrap.clone(),
+            ),
+        ] {
+            let have_pair = have.map(|a| (a.prefix, a.suffix));
+            check(field, format!("{want_value:?}"), format!("{have_pair:?}"));
+        }
+        check(
+            "defaultDebounceMs",
+            expected["defaultDebounceMs"].to_string(),
+            actual.default_debounce_ms.to_string(),
+        );
+    }
+
+    report.assert_empty("manuscript format grammar");
+}
+
+#[test]
+fn manuscript_format_detection_matches_swift_golden() {
+    use imbib_core::manuscript_format::{
+        detect_manuscript_format, manuscript_format_for_extension,
+    };
+
+    let g = golden("document_format_golden.json");
+    let mut report = Report::default();
+
+    let detect_cases = g["detectCases"].as_array().unwrap();
+    assert_eq!(detect_cases.len(), 30);
+    for case in detect_cases {
+        let source = case["source"].as_str().unwrap();
+        let title = case["title"].as_str();
+        let want = case["format"].as_str().unwrap();
+        let got = detect_manuscript_format(source.to_string(), title.map(str::to_string));
+        if want != got {
+            report.push(
+                &format!("detect(source={:?}, title={title:?})", truncate(source)),
+                format!("{want} != {got}"),
+            );
+        }
+    }
+
+    let extension_cases = g["extensionCases"].as_array().unwrap();
+    assert_eq!(extension_cases.len(), 17);
+    for case in extension_cases {
+        let ext = case["extension"].as_str().unwrap();
+        let want = case["format"].as_str();
+        let got = manuscript_format_for_extension(ext.to_string());
+        if want != got.as_deref() {
+            report.push(
+                &format!("extension({ext:?})"),
+                format!("{want:?} != {:?}", got.as_deref()),
+            );
+        }
+    }
+
+    report.assert_empty("manuscript format detection");
+}
+
+fn truncate(text: &str) -> String {
+    if text.chars().count() <= 40 {
+        text.to_string()
+    } else {
+        format!("{}…", text.chars().take(40).collect::<String>())
+    }
+}
+
+// ── Item 5: deduplication ────────────────────────────────────────────────────
+
+/// Scenarios where Rust deliberately disagrees with the captured Swift output.
+///
+/// `arxiv-prefixed-form`: Swift's `normalizeArXiv` only stripped a trailing
+/// `v<n>` (regex `v\d+$`), so `arXiv:2301.99999` and `2301.99999` were treated
+/// as different papers and the duplicate reached the results list. Rust also
+/// strips the `arxiv:` scheme prefix and lowercases, which merges them. That is
+/// the behaviour the surface always wanted, so it is a strict gain rather than a
+/// regression — but it *is* a difference, so it is named here instead of being
+/// smoothed over.
+const DEDUP_KNOWN_DIVERGENCES: [&str; 1] = ["arxiv-prefixed-form"];
+
+fn dedup_input(row: &Value) -> imbib_core::deduplication::DeduplicationInput {
+    imbib_core::deduplication::DeduplicationInput {
+        id: row["id"].as_str().unwrap().to_string(),
+        source_id: row["sourceID"].as_str().unwrap().to_string(),
+        title: row["title"].as_str().unwrap().to_string(),
+        first_author_last_name: opt(&row["firstAuthorLastName"]),
+        year: row["year"].as_i64().map(|y| y as i32),
+        doi: opt(&row["doi"]),
+        arxiv_id: opt(&row["arxivID"]),
+        pmid: opt(&row["pmid"]),
+        bibcode: opt(&row["bibcode"]),
+        semantic_scholar_id: opt(&row["semanticScholarID"]),
+        open_alex_id: opt(&row["openAlexID"]),
+    }
+}
+
+#[test]
+fn deduplication_grouping_matches_swift_golden() {
+    use imbib_core::deduplication::{deduplicate_search_results, DeduplicationConfig};
+
+    let g = golden("deduplication_golden.json");
+    let mut report = Report::default();
+    let scenarios = g["scenarios"].as_array().unwrap();
+    assert_eq!(scenarios.len(), 13, "golden scenario count changed");
+
+    for scenario in scenarios {
+        let name = scenario["name"].as_str().unwrap();
+        if DEDUP_KNOWN_DIVERGENCES.contains(&name) {
+            continue;
+        }
+        let inputs: Vec<_> = scenario["inputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(dedup_input)
+            .collect();
+        let ids: Vec<String> = inputs.iter().map(|i| i.id.clone()).collect();
+
+        let groups = deduplicate_search_results(inputs, DeduplicationConfig::default());
+        let want = scenario["groups"].as_array().unwrap();
+
+        if groups.len() != want.len() {
+            report.push(
+                name,
+                format!("group count: want {} got {}", want.len(), groups.len()),
+            );
+            continue;
+        }
+
+        for (index, (expected, actual)) in want.iter().zip(groups.iter()).enumerate() {
+            let want_primary = expected["primary"].as_str().unwrap();
+            let got_primary = &ids[actual.primary_index as usize];
+            if want_primary != got_primary {
+                report.push(
+                    name,
+                    format!("group {index} primary: {want_primary} != {got_primary}"),
+                );
+            }
+
+            // Alternate ORDER is asserted, not just the set: Swift sorted the
+            // group by source priority, so the order is the source ranking and a
+            // UI that shows "also on arXiv, DBLP" depends on it.
+            let want_alternates: Vec<&str> = expected["alternates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            let got_alternates: Vec<&str> = actual
+                .alternate_indices
+                .iter()
+                .map(|&i| ids[i as usize].as_str())
+                .collect();
+            if want_alternates != got_alternates {
+                report.push(
+                    name,
+                    format!("group {index} alternates: {want_alternates:?} != {got_alternates:?}"),
+                );
+            }
+
+            let want_identifiers: BTreeMap<String, String> = expected["identifiers"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
+                .collect();
+            let got_identifiers: BTreeMap<String, String> = actual
+                .identifiers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            if want_identifiers != got_identifiers {
+                report.push(
+                    name,
+                    format!(
+                        "group {index} identifiers: {want_identifiers:?} != {got_identifiers:?}"
+                    ),
+                );
+            }
+        }
+    }
+
+    report.assert_empty("deduplication grouping");
+}
+
+#[test]
+fn the_known_dedup_divergence_is_the_one_documented() {
+    use imbib_core::deduplication::{deduplicate_search_results, DeduplicationConfig};
+
+    // Guard the divergence list itself: if Rust ever stops merging the prefixed
+    // arXiv form, the "strict gain" claim above has quietly become false.
+    let g = golden("deduplication_golden.json");
+    let scenario = g["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "arxiv-prefixed-form")
+        .expect("divergent scenario missing from the golden");
+
+    let inputs: Vec<_> = scenario["inputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(dedup_input)
+        .collect();
+    let groups = deduplicate_search_results(inputs, DeduplicationConfig::default());
+
+    assert_eq!(
+        scenario["groups"].as_array().unwrap().len(),
+        2,
+        "Swift kept `arXiv:2301.99999` and `2301.99999` apart"
+    );
+    assert_eq!(groups.len(), 1, "Rust merges them — that is the divergence");
+}
+
+#[test]
+fn source_priority_table_matches_the_swift_literals() {
+    use imbib_core::deduplication::{dedup_source_priorities, dedup_source_priority};
+
+    // The literal table from `DeduplicationService.sourcePriority`.
+    let expected: [(&str, u32); 7] = [
+        ("crossref", 10),
+        ("pubmed", 20),
+        ("ads", 30),
+        ("semanticscholar", 40),
+        ("openalex", 50),
+        ("arxiv", 60),
+        ("dblp", 70),
+    ];
+    let table = dedup_source_priorities();
+    assert_eq!(table.len(), expected.len());
+    for ((name, priority), row) in expected.iter().zip(table.iter()) {
+        assert_eq!(*name, row.source_id);
+        assert_eq!(*priority, row.priority);
+        assert_eq!(dedup_source_priority((*name).to_string()), *priority);
+    }
+    // Swift's `?? 100` fallback.
+    assert_eq!(dedup_source_priority("europepmc".to_string()), 100);
+}
+
+// ── Item 7: hybrid search ranking ────────────────────────────────────────────
+
+#[test]
+fn hybrid_search_ranking_matches_swift_golden() {
+    use impress_core::search_ops::{rank_hybrid_candidates, HybridCandidate};
+
+    let g = golden("search_ranking_golden.json");
+    let mut report = Report::default();
+    let scenarios = g["scenarios"].as_array().unwrap();
+    assert_eq!(scenarios.len(), 10, "golden scenario count changed");
+
+    for scenario in scenarios {
+        let name = scenario["name"].as_str().unwrap();
+        let query = scenario["query"].as_str().unwrap();
+        let candidates: Vec<HybridCandidate> = scenario["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| HybridCandidate {
+                id: c["id"].as_str().unwrap().to_string(),
+                cite_key: c["citeKey"].as_str().unwrap().to_string(),
+                title: c["title"].as_str().unwrap().to_string(),
+                authors: c["authors"].as_str().unwrap().to_string(),
+                fts_score: c["ftsScore"].as_f64().map(|v| v as f32),
+                semantic_similarity: c["semanticSimilarity"].as_f64().map(|v| v as f32),
+                chunk_similarity: c["chunkSimilarity"].as_f64().map(|v| v as f32),
+            })
+            .collect();
+
+        let ranked = rank_hybrid_candidates(query, &candidates);
+        let want = scenario["ranked"].as_array().unwrap();
+
+        if ranked.len() != want.len() {
+            report.push(
+                name,
+                format!("row count: want {} got {}", want.len(), ranked.len()),
+            );
+            continue;
+        }
+
+        // Byte-for-byte order, and exact f32 equality on the score: the formula
+        // is additions of literals, so "close enough" would hide a reordering.
+        for (position, (expected, actual)) in want.iter().zip(ranked.iter()).enumerate() {
+            let want_id = expected["id"].as_str().unwrap();
+            if want_id != actual.id {
+                report.push(name, format!("#{position} id: {want_id} != {}", actual.id));
+            }
+            let want_score = expected["score"].as_f64().unwrap() as f32;
+            if want_score != actual.score {
+                report.push(
+                    name,
+                    format!("#{position} score: {want_score} != {}", actual.score),
+                );
+            }
+            let want_kind = expected["matchType"].as_str().unwrap();
+            if want_kind != actual.match_type {
+                report.push(
+                    name,
+                    format!(
+                        "#{position} matchType: {want_kind} != {}",
+                        actual.match_type
+                    ),
+                );
+            }
+        }
+    }
+
+    report.assert_empty("hybrid search ranking");
+}

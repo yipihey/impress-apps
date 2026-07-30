@@ -4,8 +4,34 @@
 //
 //  Shared in-app console for viewing log entries across all impress apps.
 //
+//  ## Cross-platform since Stage 5b (2026-07-30)
+//
+//  This file compiled on iOS before, but two of its three actions were
+//  `#if os(macOS)` bodies — so on iOS, Copy did nothing and Export did
+//  nothing — and it opened at `minWidth: 600`. imbib-iOS therefore shipped
+//  `IOSConsoleView`, a 310-line second console with its own filter chips, its
+//  own row view and its own export. It also had NO Performance tab, so the
+//  `PerfMetrics` surface the suite reads bottlenecks from was macOS-only.
+//
+//  Everything except the TOOLBAR and the ROW LAYOUT is now genuinely shared:
+//  the filter/search state, the level toggles, the entry list, the empty
+//  state, the export text, the copy text and the parameterized export
+//  filename. Those two are `#if` islands, for the reason the settings work
+//  gave for `SettingsForm`: a dense pointer toolbar with four toggles, a
+//  search field and three icon buttons does not fit a phone, and a row of
+//  fixed-width columns does not either. iOS gets the chip row + search bar +
+//  overflow menu it shipped, and the two-line row that made long messages
+//  readable at that width.
+//
+//  Presentation stays a per-platform renderer, like the settings surface:
+//  macOS puts `ConsoleView` in a `Window`, iOS presents `ConsoleScreen`
+//  (NavigationStack + Done) as a sheet.
+//
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - Shared Formatter
 
@@ -44,6 +70,10 @@ public struct ConsoleView: View {
     @State private var autoScroll = true
     @State private var selection: Set<LogEntry.ID> = []
     @State private var mode: ConsoleMode = .logs
+    #if os(iOS)
+    /// Temp file backing the share sheet (iOS export).
+    @State private var exportedFile: ConsoleExportFile?
+    #endif
 
     // MARK: - Init
 
@@ -84,7 +114,15 @@ public struct ConsoleView: View {
                 PerformanceTabView()
             }
         }
+        #if os(macOS)
+        // Window metrics. A phone has no window to size, and 600pt of minimum
+        // width on an iPhone clipped the console off screen.
         .frame(minWidth: 600, minHeight: 300)
+        #else
+        .sheet(item: $exportedFile) { file in
+            ConsoleShareSheet(items: [file.url])
+        }
+        #endif
     }
 
     // MARK: - Mode Bar
@@ -121,41 +159,24 @@ public struct ConsoleView: View {
         }
     }
 
-    // MARK: - Toolbar
+    // MARK: - Toolbar (the one platform island)
+
+    #if os(macOS)
 
     private var toolbar: some View {
         HStack(spacing: 12) {
             HStack(spacing: 8) {
-                FilterToggle(label: "Debug", color: .secondary, isOn: $showDebug)
-                FilterToggle(label: "Info", color: .blue, isOn: $showInfo)
-                FilterToggle(label: "Warn", color: .orange, isOn: $showWarning)
-                FilterToggle(label: "Error", color: .red, isOn: $showError)
+                levelToggles
             }
 
             Spacer()
 
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Filter", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .frame(width: 150)
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            #if os(macOS)
-            .background(Color(nsColor: .textBackgroundColor))
-            #endif
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            searchField
+                .frame(width: 150)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
 
             Divider()
                 .frame(height: 20)
@@ -191,35 +212,165 @@ public struct ConsoleView: View {
         }
     }
 
-    // MARK: - Log List
+    #else
 
-    private var logList: some View {
-        ScrollViewReader { proxy in
-            List(filteredEntries, selection: $selection) { entry in
-                ConsoleRowView(entry: entry)
-                    .id(entry.id)
+    /// iOS: the chip row + entry count, the search field on its own line, and
+    /// the three actions in an overflow menu — the arrangement `IOSConsoleView`
+    /// shipped, because four toggles plus a search field plus three icon
+    /// buttons do not fit an iPhone's width.
+    private var toolbar: some View {
+        VStack(spacing: 8) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    levelToggles
+
+                    Spacer()
+
+                    Text("\(filteredEntries.count) entries")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .listStyle(.plain)
-            .font(.system(.body, design: .monospaced))
-            .onChange(of: filteredEntries.count) { oldValue, newValue in
-                if autoScroll, let last = filteredEntries.last {
-                    withAnimation {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+            .scrollIndicators(.hidden)
+
+            HStack(spacing: 8) {
+                searchField
+                    .padding(10)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                Menu {
+                    Button {
+                        autoScroll.toggle()
+                    } label: {
+                        Label(
+                            autoScroll ? "Auto-scroll On" : "Auto-scroll Off",
+                            systemImage: autoScroll ? "checkmark" : "")
                     }
-                }
-            }
-            .contextMenu {
-                Button("Copy Selected") {
-                    copySelectedEntries()
-                }
-                .disabled(selection.isEmpty)
 
-                Button("Select All") {
-                    selection = Set(filteredEntries.map { $0.id })
+                    Divider()
+
+                    Button {
+                        copyAllEntries()
+                    } label: {
+                        Label("Copy All", systemImage: "doc.on.doc")
+                    }
+
+                    Button {
+                        exportLog()
+                    } label: {
+                        Label("Share Logs", systemImage: "square.and.arrow.up")
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        logStore.clear()
+                    } label: {
+                        Label("Clear Logs", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
     }
+
+    #endif
+
+    // MARK: - Toolbar pieces (shared)
+
+    @ViewBuilder
+    private var levelToggles: some View {
+        FilterToggle(label: "Debug", color: .secondary, isOn: $showDebug)
+        FilterToggle(label: "Info", color: .blue, isOn: $showInfo)
+        FilterToggle(label: "Warn", color: .orange, isOn: $showWarning)
+        FilterToggle(label: "Error", color: .red, isOn: $showError)
+    }
+
+    private var searchField: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Filter", text: $searchText)
+                .textFieldStyle(.plain)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - Log List
+
+    private var logList: some View {
+        ScrollViewReader { proxy in
+            list
+                .listStyle(.plain)
+                #if os(macOS)
+                .font(.system(.body, design: .monospaced))
+                #else
+                .font(.system(.caption, design: .monospaced))
+                #endif
+                .onChange(of: filteredEntries.count) { _, _ in
+                    if autoScroll, let last = filteredEntries.last {
+                        withAnimation {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+        }
+    }
+
+    #if os(macOS)
+
+    private var list: some View {
+        List(filteredEntries, selection: $selection) { entry in
+            ConsoleRowView(entry: entry)
+                .id(entry.id)
+        }
+        .contextMenu {
+            Button("Copy Selected") {
+                copySelectedEntries()
+            }
+            .disabled(selection.isEmpty)
+
+            Button("Select All") {
+                selection = Set(filteredEntries.map { $0.id })
+            }
+        }
+    }
+
+    #else
+
+    /// iOS has no pointer multi-select outside edit mode, so a `selection:`
+    /// list would offer a Copy Selected that can never have a selection (the
+    /// `RecordTriageNewTagPrompt` rule: omit the affordance). Per-row copy is
+    /// the long-press menu; Copy All is in the overflow menu.
+    private var list: some View {
+        List {
+            ForEach(filteredEntries) { entry in
+                ConsoleRowView(entry: entry)
+                    .id(entry.id)
+                    .listRowInsets(
+                        EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                    .contextMenu {
+                        Button {
+                            copyToClipboard(Self.plainText(for: [entry]))
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                    }
+            }
+        }
+    }
+
+    #endif
 
     // MARK: - Empty State
 
@@ -240,37 +391,92 @@ public struct ConsoleView: View {
 
     // MARK: - Actions
 
+    /// The export filename, parameterized by `appName` on BOTH platforms.
+    ///
+    /// imbib-iOS's own console hardcoded `"imbib-log-…"`, which is exactly the
+    /// drift the `appName` parameter exists to prevent.
+    var exportFilename: String {
+        "\(appName)-log-\(Date().ISO8601Format()).txt"
+    }
+
     private func exportLog() {
-        #if os(macOS)
         let content = logStore.export(levels: enabledLevels, searchText: searchText)
 
+        #if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "\(appName)-log-\(Date().ISO8601Format()).txt"
+        panel.nameFieldStringValue = exportFilename
 
         if panel.runModal() == .OK, let url = panel.url {
             try? content.write(to: url, atomically: true, encoding: .utf8)
+        }
+        #else
+        // iOS has no save panel: write the same text to a temp file and hand it
+        // to the share sheet. Before this, Export was a no-op body on iOS.
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(exportFilename)
+        do {
+            try content.write(to: tempURL, atomically: true, encoding: .utf8)
+            exportedFile = ConsoleExportFile(url: tempURL)
+        } catch {
+            logStore.log(
+                level: .error, category: "console",
+                message: "Export failed: \(error.localizedDescription)")
         }
         #endif
     }
 
     private func copySelectedEntries() {
         guard !selection.isEmpty else { return }
-
         let selectedEntries = filteredEntries.filter { selection.contains($0.id) }
+        copyToClipboard(Self.plainText(for: selectedEntries))
+    }
 
-        let text = selectedEntries.map { entry in
+    private func copyAllEntries() {
+        copyToClipboard(logStore.export(levels: enabledLevels, searchText: searchText))
+    }
+
+    /// One entry per line, `HH:mm:ss [LEVEL] [category] message` — the format
+    /// both consoles produced.
+    static func plainText(for entries: [LogEntry]) -> String {
+        entries.map { entry in
             let time = consoleTimeFormatter.string(from: entry.timestamp)
             let level = entry.level.rawValue.uppercased()
             return "\(time) [\(level)] [\(entry.category)] \(entry.message)"
         }.joined(separator: "\n")
+    }
 
+    private func copyToClipboard(_ text: String) {
         #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
         #endif
     }
 }
+
+// MARK: - Share Sheet (iOS)
+
+#if os(iOS)
+/// The exported log file, as an `Identifiable` so `.sheet(item:)` owns its own
+/// presentation state (rather than a `.constant` binding SwiftUI cannot clear).
+private struct ConsoleExportFile: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// `UIActivityViewController` wrapper for the console's export.
+private struct ConsoleShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+#endif
 
 // MARK: - Filter Toggle
 
@@ -318,6 +524,9 @@ public struct ConsoleRowView: View {
         consoleTimeFormatter.string(from: entry.timestamp)
     }
 
+    #if os(macOS)
+
+    /// Fixed-width columns — a table read with a pointer at window width.
     public var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text(timeString)
@@ -339,6 +548,39 @@ public struct ConsoleRowView: View {
         }
         .padding(.vertical, 2)
     }
+
+    #else
+
+    /// Two lines: metadata above, message below. At iPhone width the column
+    /// layout left ~90pt for the message, which is where imbib-iOS's own row
+    /// view came from — it is kept, as the layout, not as a second console.
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(timeString)
+                    .foregroundStyle(.secondary)
+
+                Text(entry.level.rawValue.uppercased())
+                    .font(.system(.caption2, design: .monospaced, weight: .bold))
+                    .foregroundStyle(entry.level.color)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(entry.level.color.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+
+                Text(entry.category)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+
+            Text(entry.message)
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+        }
+    }
+
+    #endif
 }
 
 // MARK: - Performance Tab

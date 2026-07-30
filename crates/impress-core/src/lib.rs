@@ -15,6 +15,9 @@ pub mod backup;
 pub mod collection_migration;
 #[cfg(feature = "sqlite")]
 pub mod collection_ops;
+/// The manuscript-format grammar table. Pure data + text heuristics, so it is
+/// available without the `sqlite` feature (wasm/UI-only builds read it too).
+pub mod manuscript_format;
 #[cfg(feature = "sqlite")]
 pub mod manuscript_ops;
 #[cfg(feature = "sqlite")]

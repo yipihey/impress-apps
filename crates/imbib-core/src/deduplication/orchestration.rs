@@ -1,10 +1,69 @@
 //! Search result deduplication orchestration
 //!
-//! Groups search results from multiple sources by shared identifiers
-//! or fuzzy matching, then selects primary results based on source priority.
+//! Groups search results from multiple sources by shared identifiers (and,
+//! optionally, by fuzzy title/author/year match), then selects the primary
+//! result of each group by source priority.
+//!
+//! ## Stage 7 item 5 — one dedup, not two
+//!
+//! This module and Swift's `DeduplicationService` were parallel
+//! implementations of the same job, and they had already drifted:
+//!
+//! - Swift grouped **transitively through an identifier index** (O(n)): a
+//!   result joins the group its DOI *or* arXiv id *or* PMID *or* bibcode
+//!   already points at, and then registers all of its own identifiers for that
+//!   group. Rust compared each unprocessed result only against the group's
+//!   *first* member (O(n²)), so `A(doi) — B(doi,arxiv) — C(arxiv)` produced two
+//!   groups in Rust and one in Swift. The transitive form is both correct and
+//!   cheaper, so it is what survives; see [`identifier_group_pass`].
+//! - Swift never fuzzy-matched. `DeduplicationService.fuzzyMatch` existed, was
+//!   fully written, and was **never called** — `deduplicate` only ever grouped
+//!   by identifier. So [`DeduplicationConfig::default`] has fuzzy matching
+//!   **off**: turning it on is a real behaviour change (it merges papers that
+//!   share no identifier at all) and must be an explicit decision, not a
+//!   default inherited from a function nobody called.
+//! - Swift carried a numeric [`SOURCE_PRIORITY`] table (crossref 10 … dblp 70,
+//!   unknown 100); Rust carried the same order as a `Vec<String>` position
+//!   lookup. Both orders agree, so the table is now the single spelling and the
+//!   config's `source_priority` list overrides it when non-empty.
+//! - Swift short-circuited when every result came from one source (each source
+//!   already dedups internally, and two genuinely distinct papers in one
+//!   source's own results must not be merged). Reproduced in
+//!   [`deduplicate_search_results_internal`].
 
 use std::collections::{HashMap, HashSet};
 use strsim::jaro_winkler;
+
+/// Source priority for picking a group's primary result — **lower wins**.
+///
+/// Publisher metadata (Crossref) beats curated indexes (PubMed, ADS), which
+/// beat aggregators, which beat preprint servers. The literal numbers (rather
+/// than 0,1,2,…) leave room to slot a source in without renumbering.
+pub const SOURCE_PRIORITY: [(&str, u32); 7] = [
+    // Publisher source, most authoritative.
+    ("crossref", 10),
+    // Curated.
+    ("pubmed", 20),
+    ("ads", 30),
+    ("semanticscholar", 40),
+    ("openalex", 50),
+    ("arxiv", 60),
+    ("dblp", 70),
+];
+
+/// Priority assigned to a source that is not in [`SOURCE_PRIORITY`] — behind
+/// every known source, but ahead of nothing, so unknown sources tie among
+/// themselves and the original result order breaks the tie.
+pub const UNRANKED_SOURCE_PRIORITY: u32 = 100;
+
+/// Priority of `source_id`, or [`UNRANKED_SOURCE_PRIORITY`].
+pub fn source_priority_rank(source_id: &str) -> u32 {
+    SOURCE_PRIORITY
+        .iter()
+        .find(|(name, _)| *name == source_id)
+        .map(|(_, rank)| *rank)
+        .unwrap_or(UNRANKED_SOURCE_PRIORITY)
+}
 
 /// A group of deduplicated search results
 #[derive(Debug, Clone, uniffi::Record)]
@@ -24,9 +83,12 @@ pub struct DeduplicatedGroup {
 pub struct DeduplicationConfig {
     /// Minimum title similarity threshold (0.0 - 1.0)
     pub title_threshold: f64,
-    /// Whether to use fuzzy matching when no identifier match
+    /// Whether to additionally merge groups that share no identifier but match
+    /// on title + author + year. **Off by default** — see the module docs.
     pub use_fuzzy_matching: bool,
-    /// Source priority order (lower index = higher priority)
+    /// Source priority order, highest priority first. Empty (the default) means
+    /// "use [`SOURCE_PRIORITY`]"; a non-empty list overrides it entirely and
+    /// sources missing from it rank behind every listed one.
     pub source_priority: Vec<String>,
 }
 
@@ -34,16 +96,11 @@ impl Default for DeduplicationConfig {
     fn default() -> Self {
         Self {
             title_threshold: 0.85,
-            use_fuzzy_matching: true,
-            source_priority: vec![
-                "crossref".to_string(),
-                "pubmed".to_string(),
-                "ads".to_string(),
-                "semanticscholar".to_string(),
-                "openalex".to_string(),
-                "arxiv".to_string(),
-                "dblp".to_string(),
-            ],
+            // The shipping Swift path never fuzzy-matched. Enabling it here
+            // would silently start merging papers that share no identifier.
+            use_fuzzy_matching: false,
+            // Empty = the SOURCE_PRIORITY table.
+            source_priority: vec![],
         }
     }
 }
@@ -70,6 +127,12 @@ pub struct DeduplicationInput {
     pub pmid: Option<String>,
     /// ADS bibcode if available
     pub bibcode: Option<String>,
+    /// Semantic Scholar id, if available. Not a grouping key (no two sources
+    /// report it), but it is carried into the group's identifier map so an
+    /// enrichment pass downstream can use it.
+    pub semantic_scholar_id: Option<String>,
+    /// OpenAlex id, if available. Carried, not matched — as above.
+    pub open_alex_id: Option<String>,
 }
 
 pub(crate) fn deduplicate_search_results_internal(
@@ -80,68 +143,188 @@ pub(crate) fn deduplicate_search_results_internal(
         return vec![];
     }
 
-    let mut groups: Vec<DeduplicatedGroup> = vec![];
-    let mut processed: HashSet<usize> = HashSet::new();
-
-    for i in 0..results.len() {
-        if processed.contains(&i) {
-            continue;
-        }
-
-        let mut group_indices: Vec<usize> = vec![i];
-        let mut identifiers: HashMap<String, String> = HashMap::new();
-        let mut max_confidence: f64 = 0.0;
-
-        // Collect identifiers from first result
-        collect_identifiers(&results[i], &mut identifiers);
-
-        // Find all results that match
-        for j in (i + 1)..results.len() {
-            if processed.contains(&j) {
-                continue;
-            }
-
-            let (is_match, confidence) = results_match(&results[i], &results[j], &config);
-            if is_match {
-                group_indices.push(j);
-                processed.insert(j);
-                collect_identifiers(&results[j], &mut identifiers);
-                if confidence > max_confidence {
-                    max_confidence = confidence;
-                }
-            }
-        }
-
-        // Sort group by source priority to find primary
-        group_indices.sort_by(|&a, &b| {
-            let priority_a = source_priority(&results[a].source_id, &config.source_priority);
-            let priority_b = source_priority(&results[b].source_id, &config.source_priority);
-            priority_a.cmp(&priority_b)
-        });
-
-        let primary_index = group_indices[0];
-        let alternate_indices: Vec<u32> = group_indices
+    // Single-source fast path. Each source already dedups its own results, and
+    // two distinct papers within one source's answer must not be merged just
+    // because their titles are close — so there is nothing to do but wrap each
+    // result in its own group.
+    let first_source = &results[0].source_id;
+    if results.iter().all(|r| &r.source_id == first_source) {
+        return results
             .iter()
-            .skip(1)
-            .map(|&idx| idx as u32)
+            .enumerate()
+            .map(|(idx, result)| {
+                let mut identifiers = HashMap::new();
+                collect_identifiers(result, &mut identifiers);
+                DeduplicatedGroup {
+                    primary_index: idx as u32,
+                    alternate_indices: vec![],
+                    identifiers,
+                    confidence: 0.0,
+                }
+            })
             .collect();
+    }
 
-        // Set confidence to 1.0 if we have identifier matches, otherwise use max fuzzy score
-        if max_confidence == 0.0 && !alternate_indices.is_empty() {
-            max_confidence = 1.0; // Must have matched on identifier
+    let mut group_members = identifier_group_pass(&results);
+    let mut confidences = vec![0.0_f64; group_members.len()];
+
+    if config.use_fuzzy_matching {
+        fuzzy_merge_pass(&results, &mut group_members, &mut confidences, &config);
+    }
+
+    group_members
+        .into_iter()
+        .zip(confidences)
+        .map(|(members, fuzzy_confidence)| {
+            let mut identifiers = HashMap::new();
+            for &idx in &members {
+                collect_identifiers(&results[idx], &mut identifiers);
+            }
+
+            // Primary = best source; ties broken by original position so the
+            // choice never depends on sort stability.
+            let mut ordered = members.clone();
+            ordered.sort_by_key(|&idx| (priority_of(&results[idx].source_id, &config), idx));
+
+            let confidence = if fuzzy_confidence > 0.0 {
+                fuzzy_confidence
+            } else if ordered.len() > 1 {
+                // Grouped without a fuzzy score, so it was an identifier match.
+                1.0
+            } else {
+                0.0
+            };
+
+            DeduplicatedGroup {
+                primary_index: ordered[0] as u32,
+                alternate_indices: ordered[1..].iter().map(|&idx| idx as u32).collect(),
+                identifiers,
+                confidence,
+            }
+        })
+        .collect()
+}
+
+/// Group results transitively through an identifier index — the ported Swift
+/// algorithm, one pass over the results.
+///
+/// A result joins the group already claimed by its normalized DOI, else its
+/// normalized arXiv id, else its PMID, else its bibcode (that precedence is
+/// Swift's and is observable: when a result's DOI and arXiv id point at
+/// *different* existing groups, it joins the DOI's group and re-points its arXiv
+/// id there — the two groups are not merged with each other).
+///
+/// Returns each group's member indices in first-seen order.
+fn identifier_group_pass(results: &[DeduplicationInput]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = vec![];
+    let mut by_doi: HashMap<String, usize> = HashMap::new();
+    let mut by_arxiv: HashMap<String, usize> = HashMap::new();
+    let mut by_pmid: HashMap<String, usize> = HashMap::new();
+    let mut by_bibcode: HashMap<String, usize> = HashMap::new();
+
+    for (idx, result) in results.iter().enumerate() {
+        let doi_key = result.doi.as_deref().map(normalize_doi);
+        let arxiv_key = result.arxiv_id.as_deref().map(normalize_arxiv);
+
+        let target = doi_key
+            .as_ref()
+            .and_then(|k| by_doi.get(k))
+            .or_else(|| arxiv_key.as_ref().and_then(|k| by_arxiv.get(k)))
+            .or_else(|| result.pmid.as_ref().and_then(|k| by_pmid.get(k)))
+            .or_else(|| result.bibcode.as_ref().and_then(|k| by_bibcode.get(k)))
+            .copied();
+
+        let group_idx = match target {
+            Some(existing) => {
+                groups[existing].push(idx);
+                existing
+            }
+            None => {
+                groups.push(vec![idx]);
+                groups.len() - 1
+            }
+        };
+
+        if let Some(key) = doi_key {
+            by_doi.insert(key, group_idx);
         }
-
-        groups.push(DeduplicatedGroup {
-            primary_index: primary_index as u32,
-            alternate_indices,
-            identifiers,
-            confidence: max_confidence,
-        });
-
-        processed.insert(i);
+        if let Some(key) = arxiv_key {
+            by_arxiv.insert(key, group_idx);
+        }
+        if let Some(key) = result.pmid.clone() {
+            by_pmid.insert(key, group_idx);
+        }
+        if let Some(key) = result.bibcode.clone() {
+            by_bibcode.insert(key, group_idx);
+        }
     }
 
     groups
+}
+
+/// Second pass: merge groups whose *primary-order-first* members fuzzy match.
+///
+/// Off unless `use_fuzzy_matching` is set. Compares only across groups (within
+/// a group the identifier pass already decided), lowest group index absorbing
+/// the higher, so the result order stays first-seen.
+fn fuzzy_merge_pass(
+    results: &[DeduplicationInput],
+    groups: &mut Vec<Vec<usize>>,
+    confidences: &mut Vec<f64>,
+    config: &DeduplicationConfig,
+) {
+    let mut merged_into: Vec<Option<usize>> = vec![None; groups.len()];
+
+    for a in 0..groups.len() {
+        if merged_into[a].is_some() {
+            continue;
+        }
+        for b in (a + 1)..groups.len() {
+            if merged_into[b].is_some() {
+                continue;
+            }
+            // A representative comparison is enough: the members of a group
+            // are already asserted to be the same paper.
+            let Some(score) = fuzzy_match_results_internal(
+                &results[groups[a][0]],
+                &results[groups[b][0]],
+                config.title_threshold,
+            ) else {
+                continue;
+            };
+            merged_into[b] = Some(a);
+            if score > confidences[a] {
+                confidences[a] = score;
+            }
+        }
+    }
+
+    // Apply the merges, then drop the absorbed groups.
+    for b in (0..groups.len()).rev() {
+        if let Some(a) = merged_into[b] {
+            let absorbed = std::mem::take(&mut groups[b]);
+            groups[a].extend(absorbed);
+            groups.remove(b);
+            confidences.remove(b);
+        }
+    }
+    for members in groups.iter_mut() {
+        members.sort_unstable();
+    }
+}
+
+/// Priority of a source under `config`: the config's explicit order when it has
+/// one, otherwise the [`SOURCE_PRIORITY`] table.
+fn priority_of(source_id: &str, config: &DeduplicationConfig) -> u32 {
+    if config.source_priority.is_empty() {
+        return source_priority_rank(source_id);
+    }
+    config
+        .source_priority
+        .iter()
+        .position(|s| s == source_id)
+        .map(|pos| pos as u32)
+        .unwrap_or(u32::MAX)
 }
 
 #[cfg(feature = "native")]
@@ -153,25 +336,39 @@ pub fn deduplicate_search_results(
     deduplicate_search_results_internal(results, config)
 }
 
-/// Check if two results represent the same paper
-fn results_match(
-    a: &DeduplicationInput,
-    b: &DeduplicationInput,
-    config: &DeduplicationConfig,
-) -> (bool, f64) {
-    // Check identifier matches (highest confidence)
-    if shares_identifier(a, b) {
-        return (true, 1.0);
-    }
+/// One row of the [`SOURCE_PRIORITY`] table, for callers that want to display
+/// or assert it rather than re-declare it.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SourcePriorityRow {
+    /// Source id as `SearchResult.sourceID` spells it.
+    pub source_id: String,
+    /// Lower wins.
+    pub priority: u32,
+}
 
-    // Try fuzzy matching if enabled
-    if config.use_fuzzy_matching {
-        if let Some(score) = fuzzy_match_results(a, b, config.title_threshold) {
-            return (true, score);
-        }
-    }
+pub(crate) fn dedup_source_priorities_internal() -> Vec<SourcePriorityRow> {
+    SOURCE_PRIORITY
+        .iter()
+        .map(|(source_id, priority)| SourcePriorityRow {
+            source_id: source_id.to_string(),
+            priority: *priority,
+        })
+        .collect()
+}
 
-    (false, 0.0)
+/// The source-priority table, highest priority first. Sources absent from it
+/// rank at [`UNRANKED_SOURCE_PRIORITY`].
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn dedup_source_priorities() -> Vec<SourcePriorityRow> {
+    dedup_source_priorities_internal()
+}
+
+/// Priority of a single source id, including the unranked fallback.
+#[cfg(feature = "native")]
+#[uniffi::export]
+pub fn dedup_source_priority(source_id: String) -> u32 {
+    source_priority_rank(&source_id)
 }
 
 pub(crate) fn shares_identifier_internal(a: &DeduplicationInput, b: &DeduplicationInput) -> bool {
@@ -314,14 +511,11 @@ fn normalize_arxiv(arxiv: &str) -> String {
 }
 
 /// Get source priority (lower = higher priority)
-fn source_priority(source_id: &str, priority_list: &[String]) -> usize {
-    priority_list
-        .iter()
-        .position(|s| s == source_id)
-        .unwrap_or(usize::MAX)
-}
-
-/// Collect identifiers from a result into a map
+/// Collect identifiers from a result into a map.
+///
+/// Keys are `IdentifierType` raw values on the Swift side — spelling them
+/// differently would make the group's identifier map unreadable to the caller
+/// that builds `DeduplicatedResult.identifiers` from it.
 fn collect_identifiers(result: &DeduplicationInput, identifiers: &mut HashMap<String, String>) {
     if let Some(doi) = &result.doi {
         identifiers.insert("doi".to_string(), doi.clone());
@@ -334,6 +528,12 @@ fn collect_identifiers(result: &DeduplicationInput, identifiers: &mut HashMap<St
     }
     if let Some(bibcode) = &result.bibcode {
         identifiers.insert("bibcode".to_string(), bibcode.clone());
+    }
+    if let Some(id) = &result.semantic_scholar_id {
+        identifiers.insert("semanticScholar".to_string(), id.clone());
+    }
+    if let Some(id) = &result.open_alex_id {
+        identifiers.insert("openAlex".to_string(), id.clone());
     }
 }
 
@@ -368,6 +568,8 @@ mod tests {
             arxiv_id: arxiv.map(|s| s.to_string()),
             pmid: None,
             bibcode: None,
+            semantic_scholar_id: None,
+            open_alex_id: None,
         }
     }
 
@@ -495,5 +697,134 @@ mod tests {
         assert_eq!(normalize_arxiv("2301.12345v1"), "2301.12345");
         assert_eq!(normalize_arxiv("2301.12345v2"), "2301.12345");
         assert_eq!(normalize_arxiv("arxiv:2301.12345"), "2301.12345");
+    }
+
+    // ── Stage 7 item 5: the ported Swift algorithm ───────────────────────────
+
+    #[test]
+    fn identifier_grouping_is_transitive() {
+        // A shares a DOI with B; B shares an arXiv id with C. Swift's
+        // identifier index put all three in one group; the old pairwise Rust
+        // pass produced two, because it only ever compared against A.
+        let mut a = make_input("a", "crossref", "Paper", Some("10.1/x"), None);
+        a.first_author_last_name = None;
+        let b = make_input("b", "ads", "Paper", Some("10.1/x"), Some("2301.00001"));
+        let c = make_input("c", "arxiv", "Paper", None, Some("2301.00001"));
+
+        let groups =
+            deduplicate_search_results_internal(vec![a, b, c], DeduplicationConfig::default());
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            groups[0].primary_index, 0,
+            "crossref outranks ads and arxiv"
+        );
+        assert_eq!(groups[0].alternate_indices, vec![1, 2]);
+        assert_eq!(groups[0].confidence, 1.0);
+    }
+
+    #[test]
+    fn a_split_identifier_result_joins_the_doi_group_only() {
+        // The DOI-before-arXiv precedence is observable: `c` could join either
+        // group, and it must join the DOI one without merging the two.
+        let a = make_input("a", "crossref", "One", Some("10.1/x"), None);
+        let b = make_input("b", "arxiv", "Two", None, Some("2301.00002"));
+        let c = make_input("c", "ads", "One", Some("10.1/x"), Some("2301.00002"));
+
+        let groups =
+            deduplicate_search_results_internal(vec![a, b, c], DeduplicationConfig::default());
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].alternate_indices, vec![2]);
+        assert!(groups[1].alternate_indices.is_empty());
+    }
+
+    #[test]
+    fn a_single_source_result_set_is_never_grouped() {
+        // Two identical rows from one source stay separate — the source already
+        // deduped, so identical-looking rows are the source's own answer.
+        let a = make_input("a", "arxiv", "Same Paper", Some("10.1/x"), None);
+        let b = make_input("b", "arxiv", "Same Paper", Some("10.1/x"), None);
+        let groups =
+            deduplicate_search_results_internal(vec![a, b], DeduplicationConfig::default());
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].confidence, 0.0);
+        assert_eq!(groups[0].identifiers.get("doi").unwrap(), "10.1/x");
+    }
+
+    #[test]
+    fn fuzzy_matching_is_off_unless_asked_for() {
+        // No shared identifier, identical title/author/year.
+        let a = make_input("a", "crossref", "Machine Learning for Everyone", None, None);
+        let b = make_input("b", "arxiv", "Machine Learning for Everyone", None, None);
+
+        let default_groups = deduplicate_search_results_internal(
+            vec![a.clone(), b.clone()],
+            DeduplicationConfig::default(),
+        );
+        assert_eq!(default_groups.len(), 2, "default must not fuzzy-merge");
+
+        let fuzzy_groups = deduplicate_search_results_internal(
+            vec![a, b],
+            DeduplicationConfig {
+                use_fuzzy_matching: true,
+                ..DeduplicationConfig::default()
+            },
+        );
+        assert_eq!(fuzzy_groups.len(), 1);
+        assert_eq!(fuzzy_groups[0].primary_index, 0);
+        assert!(fuzzy_groups[0].confidence > 0.9);
+    }
+
+    #[test]
+    fn source_priority_table_matches_the_swift_literals() {
+        assert_eq!(source_priority_rank("crossref"), 10);
+        assert_eq!(source_priority_rank("pubmed"), 20);
+        assert_eq!(source_priority_rank("ads"), 30);
+        assert_eq!(source_priority_rank("semanticscholar"), 40);
+        assert_eq!(source_priority_rank("openalex"), 50);
+        assert_eq!(source_priority_rank("arxiv"), 60);
+        assert_eq!(source_priority_rank("dblp"), 70);
+        assert_eq!(source_priority_rank("europepmc"), UNRANKED_SOURCE_PRIORITY);
+        assert_eq!(dedup_source_priorities_internal().len(), 7);
+    }
+
+    #[test]
+    fn unknown_sources_tie_break_on_original_position() {
+        let a = make_input("a", "zzz", "Paper", Some("10.1/x"), None);
+        let b = make_input("b", "yyy", "Paper", Some("10.1/x"), None);
+        let groups =
+            deduplicate_search_results_internal(vec![a, b], DeduplicationConfig::default());
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].primary_index, 0);
+    }
+
+    #[test]
+    fn an_explicit_priority_list_overrides_the_table() {
+        let a = make_input("a", "crossref", "Paper", Some("10.1/x"), None);
+        let b = make_input("b", "arxiv", "Paper", Some("10.1/x"), None);
+        let groups = deduplicate_search_results_internal(
+            vec![a, b],
+            DeduplicationConfig {
+                source_priority: vec!["arxiv".into(), "crossref".into()],
+                ..DeduplicationConfig::default()
+            },
+        );
+        assert_eq!(groups[0].primary_index, 1, "arxiv was listed first");
+    }
+
+    #[test]
+    fn carried_identifiers_include_aggregator_ids() {
+        let mut a = make_input("a", "crossref", "Paper", Some("10.1/x"), None);
+        a.semantic_scholar_id = Some("s2:123".into());
+        let mut b = make_input("b", "openalex", "Paper", Some("10.1/x"), None);
+        b.open_alex_id = Some("W123".into());
+
+        let groups =
+            deduplicate_search_results_internal(vec![a, b], DeduplicationConfig::default());
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            groups[0].identifiers.get("semanticScholar").unwrap(),
+            "s2:123"
+        );
+        assert_eq!(groups[0].identifiers.get("openAlex").unwrap(), "W123");
     }
 }

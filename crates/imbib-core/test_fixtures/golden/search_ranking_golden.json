@@ -1,0 +1,422 @@
+{
+  "scenarios" : [
+    {
+      "candidates" : [
+
+      ],
+      "name" : "empty",
+      "query" : "kaiser",
+      "ranked" : [
+
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : null,
+          "id" : "00000000-0000-0000-0000-000000000002",
+          "semanticSimilarity" : 1,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 0.0010000000474974513,
+          "id" : "00000000-0000-0000-0000-000000000001",
+          "semanticSimilarity" : null,
+          "title" : ""
+        }
+      ],
+      "name" : "fts-beats-semantic",
+      "query" : "kaiser",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-000000000001",
+          "matchType" : "fulltext",
+          "score" : 100.00099945068359
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000002",
+          "matchType" : "semantic",
+          "score" : 1
+        }
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "Kaiser, Nick",
+          "chunkSimilarity" : null,
+          "citeKey" : "kaiser1984",
+          "ftsScore" : 0,
+          "id" : "00000000-0000-0000-0000-00000000000a",
+          "semanticSimilarity" : null,
+          "title" : "The KAISER effect"
+        },
+        {
+          "authors" : "Bardeen, J.; Bond, J. R.; Kaiser, N.; Szalay, A.",
+          "chunkSimilarity" : null,
+          "citeKey" : "bbks1986",
+          "ftsScore" : 0,
+          "id" : "00000000-0000-0000-0000-00000000000b",
+          "semanticSimilarity" : null,
+          "title" : "The statistics of peaks"
+        },
+        {
+          "authors" : "Nobody",
+          "chunkSimilarity" : null,
+          "citeKey" : "other1990",
+          "ftsScore" : 5,
+          "id" : "00000000-0000-0000-0000-00000000000c",
+          "semanticSimilarity" : null,
+          "title" : "Something else"
+        }
+      ],
+      "name" : "all-field-boosts",
+      "query" : "Kaiser",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-00000000000a",
+          "matchType" : "fulltext",
+          "score" : 195
+        },
+        {
+          "id" : "00000000-0000-0000-0000-00000000000b",
+          "matchType" : "fulltext",
+          "score" : 140
+        },
+        {
+          "id" : "00000000-0000-0000-0000-00000000000c",
+          "matchType" : "fulltext",
+          "score" : 105
+        }
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 1,
+          "id" : "00000000-0000-0000-0000-000000000011",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : 0.89999997615814209,
+          "citeKey" : "",
+          "ftsScore" : null,
+          "id" : "00000000-0000-0000-0000-000000000012",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : null,
+          "id" : "00000000-0000-0000-0000-000000000013",
+          "semanticSimilarity" : 0.99000000953674316,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : 0.36000001430511475,
+          "citeKey" : "",
+          "ftsScore" : null,
+          "id" : "00000000-0000-0000-0000-000000000014",
+          "semanticSimilarity" : null,
+          "title" : ""
+        }
+      ],
+      "name" : "chunk-between-semantic-and-fts",
+      "query" : "structure formation",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-000000000011",
+          "matchType" : "fulltext",
+          "score" : 101
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000012",
+          "matchType" : "full",
+          "score" : 54
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000014",
+          "matchType" : "full",
+          "score" : 21.600000381469727
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000013",
+          "matchType" : "semantic",
+          "score" : 0.99000000953674316
+        }
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "",
+          "chunkSimilarity" : 0.40000000596046448,
+          "citeKey" : "",
+          "ftsScore" : 2,
+          "id" : "00000000-0000-0000-0000-000000000021",
+          "semanticSimilarity" : 0.5,
+          "title" : "Statistics of peaks"
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : 0.40000000596046448,
+          "citeKey" : "",
+          "ftsScore" : 2,
+          "id" : "00000000-0000-0000-0000-000000000022",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : 0.40000000596046448,
+          "citeKey" : "",
+          "ftsScore" : null,
+          "id" : "00000000-0000-0000-0000-000000000023",
+          "semanticSimilarity" : 0.5,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : null,
+          "id" : "00000000-0000-0000-0000-000000000024",
+          "semanticSimilarity" : 0.5,
+          "title" : ""
+        }
+      ],
+      "name" : "combined-engines",
+      "query" : "peaks",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-000000000021",
+          "matchType" : "both",
+          "score" : 156.5
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000022",
+          "matchType" : "fulltext",
+          "score" : 126
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000023",
+          "matchType" : "semantic",
+          "score" : 24.5
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000024",
+          "matchType" : "semantic",
+          "score" : 0.5
+        }
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 1,
+          "id" : "ffffffff-ffff-ffff-ffff-ffffffffffff",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 1,
+          "id" : "00000000-0000-0000-0000-000000000000",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 1,
+          "id" : "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 1,
+          "id" : "11111111-1111-1111-1111-111111111111",
+          "semanticSimilarity" : null,
+          "title" : ""
+        }
+      ],
+      "name" : "exact-ties-need-a-tie-break",
+      "query" : "zzz-no-match",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-000000000000",
+          "matchType" : "fulltext",
+          "score" : 101
+        },
+        {
+          "id" : "11111111-1111-1111-1111-111111111111",
+          "matchType" : "fulltext",
+          "score" : 101
+        },
+        {
+          "id" : "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "matchType" : "fulltext",
+          "score" : 101
+        },
+        {
+          "id" : "ffffffff-ffff-ffff-ffff-ffffffffffff",
+          "matchType" : "fulltext",
+          "score" : 101
+        }
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "anything",
+          "chunkSimilarity" : null,
+          "citeKey" : "anything",
+          "ftsScore" : 2,
+          "id" : "00000000-0000-0000-0000-000000000031",
+          "semanticSimilarity" : null,
+          "title" : "anything"
+        }
+      ],
+      "name" : "empty-query-earns-no-boosts",
+      "query" : "",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-000000000031",
+          "matchType" : "fulltext",
+          "score" : 102
+        }
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "a b",
+          "chunkSimilarity" : null,
+          "citeKey" : "a b",
+          "ftsScore" : 2,
+          "id" : "00000000-0000-0000-0000-000000000032",
+          "semanticSimilarity" : null,
+          "title" : "a b"
+        }
+      ],
+      "name" : "whitespace-query-earns-no-boosts",
+      "query" : "   ",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-000000000032",
+          "matchType" : "fulltext",
+          "score" : 102
+        }
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "Müller, Jörg",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 0,
+          "id" : "00000000-0000-0000-0000-000000000041",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 0,
+          "id" : "00000000-0000-0000-0000-000000000042",
+          "semanticSimilarity" : null,
+          "title" : "Ångström and MÜLLER"
+        }
+      ],
+      "name" : "unicode-case-folding",
+      "query" : "MÜLLER",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-000000000041",
+          "matchType" : "fulltext",
+          "score" : 140
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000042",
+          "matchType" : "fulltext",
+          "score" : 130
+        }
+      ]
+    },
+    {
+      "candidates" : [
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : -3.5,
+          "id" : "00000000-0000-0000-0000-000000000051",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 1000.25,
+          "id" : "00000000-0000-0000-0000-000000000052",
+          "semanticSimilarity" : null,
+          "title" : ""
+        },
+        {
+          "authors" : "",
+          "chunkSimilarity" : null,
+          "citeKey" : "",
+          "ftsScore" : 0,
+          "id" : "00000000-0000-0000-0000-000000000053",
+          "semanticSimilarity" : null,
+          "title" : ""
+        }
+      ],
+      "name" : "negative-and-large-fts-scores",
+      "query" : "q",
+      "ranked" : [
+        {
+          "id" : "00000000-0000-0000-0000-000000000052",
+          "matchType" : "fulltext",
+          "score" : 1100.25
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000053",
+          "matchType" : "fulltext",
+          "score" : 100
+        },
+        {
+          "id" : "00000000-0000-0000-0000-000000000051",
+          "matchType" : "fulltext",
+          "score" : 96.5
+        }
+      ]
+    }
+  ]
+}

@@ -41,6 +41,13 @@ public struct MessageListWrapper: View {
     @Binding var selectedID: UUID?
     var actions: RecordTriageActions
 
+    /// Host-owned verbs for `.message` (Stage 4c). `onSelect` is how mail's
+    /// read state gets marked: `SharedItemRow.isRead` is MIRRORED from impart's
+    /// Core Data, so the store is a replica here, not the authority — the
+    /// chassis reports "the user is looking at this row" and impart decides
+    /// what that means. Absent registry = the pre-4c behaviour exactly.
+    @Environment(\.recordHostVerbs) private var hostVerbs
+
     @State private var rows: [MessageRowData] = []
     @State private var filterText: String = ""
     @State private var isLoading = false
@@ -179,6 +186,7 @@ public struct MessageListWrapper: View {
                     if let newID {
                         if !selectedIDs.contains(newID) { selectedIDs = [newID] }
                         proxy.scrollTo(newID)
+                        notifyHostOfSelection(newID)
                     } else if !selectedIDs.isEmpty {
                         selectedIDs = []
                     }
@@ -198,6 +206,14 @@ public struct MessageListWrapper: View {
                 Text("Messages appear here once impart has mirrored mail into the shared store.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                // Stage 4c: the ManuscriptListWrapper empty-state pattern —
+                // offered only when a host registered a create verb, so a shell
+                // without one shows no button rather than a dead one.
+                if let create = hostVerbs[.message]?.onCreate,
+                   let affordance = MessageRecordKind.descriptor.creation.first {
+                    Button(affordance.label) { create(affordance) }
+                        .buttonStyle(.borderless)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -255,9 +271,15 @@ public struct MessageListWrapper: View {
             selectedID = ordered[prev].id
             return .handled
         case .create:
-            // Compose stays in impart's classic window (descriptor.creation
-            // is []) — `n` falls through.
-            return .ignored
+            // Stage 4c: `n` composes when the host registered a create verb
+            // (impart does; a shell that only READS mail does not, and there
+            // `n` still falls through unhandled).
+            guard let create = hostVerbs[.message]?.onCreate,
+                  let affordance = MessageRecordKind.descriptor.creation.first else {
+                return .ignored
+            }
+            create(affordance)
+            return .handled
         case .toggleStar:
             guard let row = currentRow else { return .ignored }
             actions.onToggleStar(targets, !row.isStarredState)
@@ -278,6 +300,29 @@ public struct MessageListWrapper: View {
             // shell that owns the split (ContentView / ImpressSplitView).
             return .ignored
         }
+    }
+
+    // MARK: Host selection hand-off
+
+    /// Tell the host which message the detail pane is now showing.
+    ///
+    /// Fires for EVERY selection, read or unread, and carries `isRead` so the
+    /// host can decide. Filtering unread-only here would have been the obvious
+    /// optimisation and a bug: a host that also uses selection to know WHICH
+    /// message the user is on (impart resolves it for Reply/Forward) would keep
+    /// pointing at the last unread one, and reply to the wrong message.
+    ///
+    /// The write-skipping that protects against a mark-read → store mutation →
+    /// `StoreEvents` → `reload()` pump (CLAUDE.md's render-loop hazard) belongs
+    /// on the same side as the write — see `ImpartMailHost.resolveAndMarkRead`.
+    private func notifyHostOfSelection(_ id: UUID) {
+        guard let onSelect = hostVerbs[.message]?.onSelect,
+              let row = rows.first(where: { $0.id == id }) else { return }
+        onSelect(RecordSelection(
+            kind: .message,
+            recordID: row.id,
+            externalID: row.messageIDHeader,
+            isRead: row.isReadState))
     }
 
     // MARK: Data

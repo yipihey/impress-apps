@@ -7,9 +7,10 @@
 
 import SwiftUI
 import PublicationManagerCore
-import OSLog
 
-private let logger = Logger(subsystem: "com.imbib.app", category: "detail")
+// The file-scope `logger` went with `autoMarkAsRead`, whose only log line it
+// carried; the shell lifecycle it moved to is PMC's
+// `publicationDetailLifecycle`.
 
 /// iOS detail view showing publication information with tabbed interface.
 ///
@@ -70,8 +71,18 @@ struct DetailView: View {
             IOSNotesTab(publicationID: publicationID)
                 .accessibilityIdentifier(AccessibilityID.Detail.Tabs.notes)
         case .bibtex:
-            IOSBibTeXTab(publicationID: publicationID)
-                .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+            // The SHARED tab (Stage 5b). `IOSBibTeXTab` was this view with a
+            // weaker save path — it looped `updateField` over the parsed
+            // entry's fields, so an edited cite key or entry type, or a
+            // deleted field, silently did nothing. Deleted.
+            if let tab = BibTeXTab(publicationID: publicationID) {
+                tab.accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+            } else {
+                ContentUnavailableView(
+                    "No BibTeX", systemImage: "doc.text",
+                    description: Text("BibTeX is not available for this paper"))
+                    .accessibilityIdentifier(AccessibilityID.Detail.Tabs.bibtex)
+            }
         case .source:
             // Manuscript-only tab; the publication descriptor never offers it.
             EmptyView()
@@ -125,29 +136,18 @@ struct DetailView: View {
         }
         .task(id: publicationID) {
             loadPublication()
-            // Auto-mark as read after brief delay (Apple Mail style)
-            await autoMarkAsRead()
         }
-        .task(id: publicationID) {
-            // Opening a paper is a user-initiated view — it belongs in Recent.
-            // The one-second dwell keeps rapid scrubbing through a list from
-            // filling Recent with papers the user merely passed over; the task
-            // is cancelled as soon as the selection changes.
-            try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            RustStoreAdapter.shared.recordRecentView(id: publicationID)
-        }
-        .task(id: publicationID) {
-            // Keep the OPEN detail in sync with background mutations
-            // (enrichment filling in abstract/PDF, tag/flag changes from
-            // other surfaces). Previously the detail loaded once and went
-            // stale until re-navigation.
-            for await event in ImbibImpressStore.shared.events.subscribe() {
-                if case .itemsMutated(_, let ids) = event, ids.contains(publicationID) {
-                    loadPublication()
-                }
-            }
-        }
+        // Auto-mark-as-read, the Recent-view dwell and the live store-event
+        // refresh are the shell behaviour BOTH detail panes share; they are one
+        // modifier in PMC since Stage 5b (`publicationDetailLifecycle`), where
+        // macOS's `DetailView` applies the same three tasks.
+        .publicationDetailLifecycle(
+            publicationID: publicationID,
+            isRead: { publication?.isRead },
+            markAsRead: { id in
+                RustStoreAdapter.shared.setRead(ids: [id], read: true)
+            },
+            reload: { loadPublication() })
         .onChange(of: selectedTab) { _, newTab in
             // Post notification when tab changes so parent can update search context
             NotificationCenter.default.post(
@@ -177,22 +177,6 @@ struct DetailView: View {
 
     private func loadPublication() {
         publication = RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
-    }
-
-    // MARK: - Auto-Mark as Read
-
-    private func autoMarkAsRead() async {
-        guard let pub = publication, !pub.isRead else { return }
-
-        // Wait 1 second before marking as read (like Mail)
-        do {
-            try await Task.sleep(for: .seconds(1))
-            RustStoreAdapter.shared.setRead(ids: [publicationID], read: true)
-            loadPublication()
-            logger.debug("Auto-marked as read: \(pub.citeKey)")
-        } catch {
-            // Task was cancelled (user navigated away quickly)
-        }
     }
 
     // MARK: - Navigation
@@ -229,27 +213,16 @@ struct DetailView: View {
 
             Divider()
 
-            if let doi = pub.doi {
+            // The identifier rows come from `PublicationIdentifierLink`
+            // (Stage 5b) — the same declaration both Info tabs read. This menu
+            // hardcoded three of the four URL templates and had no PubMed row
+            // at all; now it cannot disagree with the Info tab about which
+            // identifiers exist or where they point.
+            ForEach(PublicationIdentifierLink.all(for: pub)) { link in
                 Button {
-                    openURL("https://doi.org/\(doi)")
+                    openURL(link.urlString)
                 } label: {
-                    Label("Open DOI", systemImage: "arrow.up.right.square")
-                }
-            }
-
-            if let arxivID = pub.arxivID {
-                Button {
-                    openURL("https://arxiv.org/abs/\(arxivID)")
-                } label: {
-                    Label("Open arXiv", systemImage: "arrow.up.right.square")
-                }
-            }
-
-            if let bibcode = pub.bibcode {
-                Button {
-                    openURL("https://ui.adsabs.harvard.edu/abs/\(bibcode)")
-                } label: {
-                    Label("Open ADS", systemImage: "arrow.up.right.square")
+                    Label(link.menuTitle, systemImage: "arrow.up.right.square")
                 }
             }
         } label: {
