@@ -29,56 +29,116 @@ enum IOSTestApp {
 /// Identifiers this suite addresses, mirrored locally rather than imported: the
 /// runner must not link PublicationManagerCore (and its Rust xcframeworks) for
 /// a handful of string constants.
+///
+/// I3 GROUPED THEM ALL. impress's sidebar is now a `SidebarComposition`: one
+/// collapsible group per sibling app, each rendering that app's OWN preset. So
+/// every identifier below carries the app whose sidebar the row belongs to —
+/// `sidebar.section.<app>.<section>`, `sidebar.node.<app>.<scopeKey>` — and
+/// that is not decoration. The composed sidebar has TWO rows called Flagged
+/// (imbib's, listing publications; imprint's, listing manuscripts) and renders
+/// Cited in Manuscripts twice with the identical scope, so an unqualified
+/// identifier resolves to whichever XCUITest reaches first. Qualifying it is
+/// also what lets a test PROVE the user's report is closed: the assertion
+/// "`sidebar.node.imprint.manuscript.flagged.red` exists" is precisely the row
+/// the flat sidebar could not have.
+///
+/// The five sibling apps do NOT group; their suites keep the unqualified
+/// identifiers and were untouched by this change.
 enum ImpressA11y {
-    // `sidebar.section.<SidebarSectionType.rawValue>`
-    static let mailSection = "sidebar.section.mail"
-    static let figuresSection = "sidebar.section.figures"
-    static let agentsSection = "sidebar.section.agents"
-    static let inboxSection = "sidebar.section.inbox"
-    static let librariesSection = "sidebar.section.libraries"
-    static let manuscriptsSection = "sidebar.section.manuscripts"
-    static let flaggedSection = "sidebar.section.flagged"
-    static let citedSection = "sidebar.section.citedInManuscripts"
-    static let dismissedSection = "sidebar.section.dismissed"
 
-    /// Sections the preset PERMITS but this host declares it cannot present.
-    /// They must be ABSENT, not empty — that is the whole contract this suite
-    /// exists to pin. It SHRANK in I2: `.inbox`, `.libraries`, `.manuscripts`,
-    /// `.flagged` and `.dismissed` moved out of this list and into the visible
-    /// set when the chassis grew the public iOS publication pane and the
-    /// read-only manuscript pane. What is left is two kinds of absence, kept
-    /// apart on purpose because they fail for different reasons:
+    // MARK: Groups — `sidebar.group.<appID>`
+
+    static let imbibGroup = "sidebar.group.imbib"
+    static let imprintGroup = "sidebar.group.imprint"
+    static let imploreGroup = "sidebar.group.implore"
+    static let impelGroup = "sidebar.group.impel"
+    static let impartGroup = "sidebar.group.impart"
+
+    /// Every group, in `SiblingApp.descriptors` order — the order
+    /// `SidebarComposition.impress` derives from the one table.
+    static let allGroups = [
+        imbibGroup, imprintGroup, imploreGroup, impelGroup, impartGroup,
+    ]
+
+    /// The bare app ids, for asserting that no row escapes its group.
+    static let appIDs = ["imbib", "imprint", "implore", "impel", "impart"]
+
+    /// A disclosure header's accessibility VALUE — `RecordSidebarView
+    /// .collapsedValue` / `.expandedValue`, mirrored here like every other
+    /// anchor. It is the only reliable read of "is this group open": a lazy
+    /// `List` publishes only the rows on screen, so "does it show any rows"
+    /// answers `false` for an expanded group scrolled past.
+    static let collapsed = "collapsed"
+    static let expanded = "expanded"
+
+    // MARK: Sections — `sidebar.section.<appID>.<SidebarSectionType.rawValue>`
+
+    static let mailSection = "sidebar.section.impart.mail"
+    static let figuresSection = "sidebar.section.implore.figures"
+    static let agentsSection = "sidebar.section.impel.agents"
+    static let inboxSection = "sidebar.section.imbib.inbox"
+    static let librariesSection = "sidebar.section.imbib.libraries"
+    static let manuscriptsSection = "sidebar.section.imprint.journal"
+    static let imbibFlaggedSection = "sidebar.section.imbib.flagged"
+    static let imprintFlaggedSection = "sidebar.section.imprint.flagged"
+    static let imbibDismissedSection = "sidebar.section.imbib.dismissed"
+    static let imprintDismissedSection = "sidebar.section.imprint.dismissed"
+
+    /// Sections a group's preset PERMITS but this host declares it cannot
+    /// present. They must be ABSENT, not empty — that is the whole contract
+    /// this suite exists to pin.
+    ///
+    /// All six belong to the IMBIB group, which is the composition's honest
+    /// answer to "why is Search missing": Search is imbib's section, so its
+    /// absence is a statement about impress-iOS's imbib group and nowhere else.
+    /// Two kinds of absence, kept apart because they fail for different reasons:
     ///
     ///   * KIND gate (`presentableKinds`) — `.artifacts` (`ArtifactDetailView`
     ///     is a macOS-only per-type switch). Nothing renders it on iOS.
-    ///   * CONTENT gate (`sectionIsAvailable`) — the four below plus
-    ///     `.reviewQueue`. Their KIND is presentable now; their ROWS have no
-    ///     source in this host. See `ImpressSidebarBindings
-    ///     .contentGatedSections`, which this list mirrors.
+    ///   * CONTENT gate (`sectionIsAvailable`) — the five below. Their KIND is
+    ///     presentable; their ROWS have no source in this host. See
+    ///     `ImpressSidebarBindings.contentGatedSections`, which this mirrors.
     static let declaredAbsentSections = [
         // Kind gate
-        "sidebar.section.artifacts",
+        "sidebar.section.imbib.artifacts",
         // Content gate
-        "sidebar.section.search",
-        "sidebar.section.exploration",
-        "sidebar.section.scixLibraries",
-        "sidebar.section.sharedWithMe",
-        "sidebar.section.reviewQueue",
+        "sidebar.section.imbib.search",
+        "sidebar.section.imbib.exploration",
+        "sidebar.section.imbib.scixLibraries",
+        "sidebar.section.imbib.sharedWithMe",
+        "sidebar.section.imbib.reviewQueue",
     ]
 
-    // `sidebar.node.<RecordSidebarScope.scopeKey>`
-    static let allMessagesNode = "sidebar.node.message.all"
-    static let allFiguresNode = "sidebar.node.figure.all"
-    static let allTasksNode = "sidebar.node.task.all"
-    static let allManuscriptsNode = "sidebar.node.manuscript.all"
-    static let inboxNode = "sidebar.node.section.inbox.publication"
-    static let citedNode = "sidebar.node.section.citedInManuscripts.publication"
-    static let dismissedNode = "sidebar.node.section.dismissed.publication"
-    static let redFlaggedPapersNode = "sidebar.node.publication.flagged.red"
+    // MARK: Nodes — `sidebar.node.<appID>.<RecordSidebarScope.scopeKey>`
+
+    static let allMessagesNode = "sidebar.node.impart.message.all"
+    static let allFiguresNode = "sidebar.node.implore.figure.all"
+    static let allTasksNode = "sidebar.node.impel.task.all"
+    static let allManuscriptsNode = "sidebar.node.imprint.manuscript.all"
+    static let inboxNode = "sidebar.node.imbib.section.inbox.publication"
+    static let dismissedNode = "sidebar.node.imbib.section.dismissed.publication"
+
+    /// THE per-group Flagged pair — the two rows the flat sidebar collapsed
+    /// into one. imbib's Flagged binds `.publication` (`AppShellConfiguration
+    /// .imbib.sectionBindings`); imprint's binds `.manuscript`. Same section
+    /// type, same colour, different kind, different list.
+    static let redFlaggedPapersNode = "sidebar.node.imbib.publication.flagged.red"
+    static let redFlaggedManuscriptsNode = "sidebar.node.imprint.manuscript.flagged.red"
+    /// imprint dismisses by STATUS CHANGE where imbib dismisses by library
+    /// move, so the two groups' Dismissed rows differ in scope shape as well as
+    /// in kind — the semantics travel with the group.
+    static let dismissedManuscriptsNode = "sidebar.node.imprint.manuscript.status.dismissed"
+
+    /// Cited in Manuscripts is declared by BOTH presets, so it renders in both
+    /// groups with the SAME scope. Two doors, one destination — and the two
+    /// identifiers are what keep them separately addressable.
+    static let imbibCitedNode = "sidebar.node.imbib.section.citedInManuscripts.publication"
+    static let imprintCitedNode = "sidebar.node.imprint.section.citedInManuscripts.publication"
+
     /// Library rows carry the library's UUID, which the seed does not choose
     /// (`createLibrary` does), so this is a PREFIX match — imbib's suite
     /// anchors the same way for the same reason.
-    static let libraryNodePrefix = "sidebar.node.host.publication.library."
+    static let libraryNodePrefix = "sidebar.node.imbib.host.publication.library."
 
     static let messageList = "messageList"
     static let figureList = "figureList"

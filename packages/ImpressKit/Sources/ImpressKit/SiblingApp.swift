@@ -19,19 +19,36 @@ public struct SiblingAppDescriptor: Sendable, Equatable, Hashable {
     public let httpPort: UInt16
     /// Human-readable display name.
     public let displayName: String
+    /// The SF Symbol that stands for this app wherever the suite has to draw
+    /// one app among several.
+    ///
+    /// Added when impress's sidebar became a COMPOSITION of the five sibling
+    /// presets (`SidebarComposition`): each group's title and glyph had to come
+    /// from somewhere, and the two candidates were this table or a sixth
+    /// `switch` in the chassis. The table wins for the reason the whole type
+    /// exists — a seventh app is a row here, not an edit in N files. Each
+    /// symbol is the one the app's own primary section already uses, so the
+    /// group header and the section beneath it agree:
+    /// imbib/`books.vertical` = `.libraries`, imprint/`doc.text.image` =
+    /// `.manuscripts`, implore/`photo.on.rectangle.angled` = `.figures`,
+    /// impel/`brain` = `.agents`, impart/`envelope` = `.mail`. impress owns no
+    /// section, so it takes the shell glyph.
+    public let systemImage: String
 
     public init(
         id: SiblingApp,
         bundleID: String,
         urlScheme: String,
         httpPort: UInt16,
-        displayName: String
+        displayName: String,
+        systemImage: String
     ) {
         self.id = id
         self.bundleID = bundleID
         self.urlScheme = urlScheme
         self.httpPort = httpPort
         self.displayName = displayName
+        self.systemImage = systemImage
     }
 }
 
@@ -62,35 +79,40 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
             bundleID: "com.impress.imbib",
             urlScheme: "imbib",
             httpPort: 23120,
-            displayName: "imbib"
+            displayName: "imbib",
+            systemImage: "books.vertical"
         ),
         SiblingAppDescriptor(
             id: .imprint,
             bundleID: "com.imbib.imprint",
             urlScheme: "imprint",
             httpPort: 23121,
-            displayName: "imprint"
+            displayName: "imprint",
+            systemImage: "doc.text.image"
         ),
         SiblingAppDescriptor(
             id: .implore,
             bundleID: "com.impress.implore",
             urlScheme: "implore",
             httpPort: 23123,
-            displayName: "implore"
+            displayName: "implore",
+            systemImage: "photo.on.rectangle.angled"
         ),
         SiblingAppDescriptor(
             id: .impel,
             bundleID: "com.impress.impel",
             urlScheme: "impel",
             httpPort: 23124,
-            displayName: "impel"
+            displayName: "impel",
+            systemImage: "brain"
         ),
         SiblingAppDescriptor(
             id: .impart,
             bundleID: "com.imbib.impart",
             urlScheme: "impart",
             httpPort: 23122,
-            displayName: "impart"
+            displayName: "impart",
+            systemImage: "envelope"
         ),
         SiblingAppDescriptor(
             id: .impress,
@@ -100,7 +122,8 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
             // this table before the server existed, which is the rule: servers
             // align TO the table.
             httpPort: 23125,
-            displayName: "impress"
+            displayName: "impress",
+            systemImage: "square.grid.2x2"
         ),
     ]
 
@@ -151,6 +174,9 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
 
     /// Human-readable display name.
     public var displayName: String { descriptor.displayName }
+
+    /// The SF Symbol that stands for this app.
+    public var systemImage: String { descriptor.systemImage }
 
     // MARK: - Reverse Lookups
 

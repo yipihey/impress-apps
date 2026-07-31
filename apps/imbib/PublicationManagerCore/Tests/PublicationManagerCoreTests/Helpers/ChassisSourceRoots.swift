@@ -72,9 +72,17 @@ enum ChassisSourceRoots {
             .deletingLastPathComponent()   // PublicationManagerCore
 
     /// `<repo>`.
-    private static let repoRoot: URL =
+    static let repoRoot: URL =
         packageRoot
             .deletingLastPathComponent()   // imbib
             .deletingLastPathComponent()   // apps
             .deletingLastPathComponent()   // repo root
+
+    /// The text of a repo-rooted file (an APP target's source, which PMC's test
+    /// bundle cannot link). Used by the structural suites that assert what an
+    /// app does or does not call.
+    static func repoText(of relativePath: String) throws -> String {
+        try String(
+            contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)
+    }
 }

@@ -61,7 +61,21 @@ struct DataModelTests {
             #expect(row.id.urlScheme == row.urlScheme)
             #expect(row.id.httpPort == row.httpPort)
             #expect(row.id.displayName == row.displayName)
+            #expect(row.id.systemImage == row.systemImage)
         }
+    }
+
+    /// Every app has a glyph, and no two apps share one. `SidebarComposition`
+    /// draws five of these side by side in impress's sidebar, so a duplicate is
+    /// two groups a user cannot tell apart at a glance — and an empty string is
+    /// an SF Symbol lookup that renders nothing at all.
+    @Test("SiblingApp glyphs are present and distinct")
+    func glyphsArePresentAndDistinct() {
+        for row in SiblingApp.descriptors {
+            #expect(!row.systemImage.isEmpty)
+        }
+        let glyphs = SiblingApp.descriptors.map(\.systemImage)
+        #expect(Set(glyphs).count == glyphs.count)
     }
 
     @Test("SiblingApp reverse lookups round-trip")

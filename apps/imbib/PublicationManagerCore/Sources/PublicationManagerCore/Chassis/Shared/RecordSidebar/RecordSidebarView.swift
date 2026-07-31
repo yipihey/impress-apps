@@ -16,6 +16,30 @@
 //  imprint-iOS adopts it by passing `.imprint`; imbib-iOS adopts it by
 //  passing `.imbib` and a data source over `RustStoreAdapter`.
 //
+//  TWO MODES, and only impress uses the second one.
+//
+//    * FLAT — `init(configuration:…)`. One preset, one list of sections. This
+//      is what imbib-iOS, imprint-iOS and impart-iOS pass and NOTHING about it
+//      changed when the grouped mode landed: the same rows, the same
+//      accessibility identifiers (`sidebar.section.<section>` /
+//      `sidebar.node.<scopeKey>`), the same collapse store.
+//    * GROUPED — `init(composition:host:…)`. A `SidebarComposition`: one
+//      collapsible group per app, each rendering that app's OWN preset. Rows
+//      and headers are namespaced by group (`sidebar.group.<app>`,
+//      `sidebar.section.<app>.<section>`, `sidebar.node.<app>.<scopeKey>`),
+//      because a composed sidebar genuinely has two rows called Flagged and
+//      `.citedInManuscripts` appears twice with the SAME scope — an unqualified
+//      identifier would resolve to whichever of the two SwiftUI reached first,
+//      and a duplicate `ForEach` id is undefined behaviour rather than a
+//      cosmetic problem.
+//
+//  Selection stays a plain `RecordSidebarScope?` in both modes. Two rows in
+//  different groups that carry the SAME scope (imbib's and imprint's Cited in
+//  Manuscripts, both publication-bound) therefore highlight together and route
+//  identically — which is honest: they are two doors onto one destination, and
+//  making them distinguishable would mean inventing a per-group scope the five
+//  sibling apps have no use for.
+//
 
 import ImpressFTUI
 import SwiftUI
@@ -86,6 +110,8 @@ public struct RecordSidebarView: View {
     // MARK: - Inputs
 
     private let configuration: AppShellConfiguration
+    /// Non-nil = GROUPED mode. See the file header.
+    private let composition: SidebarComposition?
     private let dataSource: RecordSidebarDataSource
     private let collectionActions: RecordCollectionActions
     private let chrome: RecordSidebarHostChrome
@@ -105,6 +131,7 @@ public struct RecordSidebarView: View {
         title: String? = nil
     ) {
         self.configuration = configuration
+        self.composition = nil
         self.dataSource = dataSource
         self.collectionActions = collectionActions
         self.chrome = chrome
@@ -113,9 +140,44 @@ public struct RecordSidebarView: View {
         self.title = title ?? configuration.appID
     }
 
+    /// The COMPOSED sidebar: one collapsible group per app in `composition`.
+    ///
+    /// - Parameters:
+    ///   - composition: which apps, in what order, with which presets.
+    ///   - host: the shell this is rendering IN. Only two of its fields matter
+    ///     here — `presentableKinds`, which narrows every group to the kinds
+    ///     this build has panes for, and `defaultSection`, which decides where
+    ///     a regular-width launch lands. The section list and bindings come
+    ///     from each GROUP's preset, never from this one.
+    public init(
+        composition: SidebarComposition,
+        host: AppShellConfiguration,
+        dataSource: RecordSidebarDataSource,
+        collectionActions: RecordCollectionActions = RecordCollectionActions(),
+        chrome: RecordSidebarHostChrome = RecordSidebarHostChrome(),
+        dataVersion: Int = 0,
+        selection: Binding<RecordSidebarScope?>,
+        title: String? = nil
+    ) {
+        self.configuration = host
+        self.composition = composition
+        self.dataSource = dataSource
+        self.collectionActions = collectionActions
+        self.chrome = chrome
+        self.dataVersion = dataVersion
+        self._selection = selection
+        self.title = title ?? host.appID
+    }
+
     // MARK: - State
 
     @State private var sections: [RecordSidebarSectionModel] = []
+    @State private var groups: [RecordSidebarGroupModel] = []
+    /// Grouped mode's collapse state: group keys AND per-group section keys, in
+    /// one persisted set. Empty = everything expanded, which is the launch state
+    /// "collate their sidebars" asks for.
+    @State private var collapsedComposition: Set<SidebarCompositionKey> =
+        SidebarCompositionCollapsedStore.loadCollapsedSync()
     /// Flat folder list per kind — the organise menus need the whole tree,
     /// not just the visible rows.
     @State private var foldersByKind: [RecordKindID: [RecordFolder]] = [:]
@@ -141,8 +203,14 @@ public struct RecordSidebarView: View {
 
     public var body: some View {
         List(selection: $selection) {
-            ForEach(sections) { section in
-                sectionView(section)
+            if composition == nil {
+                ForEach(sections) { section in
+                    sectionView(section)
+                }
+            } else {
+                ForEach(groups) { group in
+                    groupView(group)
+                }
             }
         }
         .listStyle(.sidebar)
@@ -177,7 +245,7 @@ public struct RecordSidebarView: View {
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Sections (flat mode)
 
     @ViewBuilder
     private func sectionView(_ section: RecordSidebarSectionModel) -> some View {
@@ -186,7 +254,7 @@ public struct RecordSidebarView: View {
         Section {
             if !isCollapsed {
                 let content = ForEach(rows, id: \.node.id) { entry in
-                    nodeRow(entry.node, depth: entry.depth, section: section)
+                    nodeRow(entry.node, depth: entry.depth, section: section, groupID: nil)
                 }
                 // Reorder only where an index IS a sibling position.
                 if let onMove = chrome.onMoveNodes,
@@ -199,51 +267,214 @@ public struct RecordSidebarView: View {
                 }
             }
         } header: {
-            HStack(spacing: 6) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { toggleCollapsed(section.section) }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                        // A header that IS a destination keeps the disclosure
-                        // triangle as the collapse target and gives the TITLE
-                        // its own tap, so one gesture never means both.
-                        if section.headerScope == nil {
-                            Text(section.title).foregroundStyle(.primary)
-                        }
+            sectionHeader(
+                section,
+                groupID: nil,
+                isCollapsed: isCollapsed,
+                toggle: { toggleCollapsed(section.section) })
+        }
+    }
+
+    /// The header chrome, shared by both modes: disclosure chevron, title (its
+    /// own tap target when the header is a destination), host accessory and the
+    /// root-folder button. `groupID` namespaces every identifier and is nil in
+    /// flat mode, where the identifiers are exactly what they have always been.
+    @ViewBuilder
+    private func sectionHeader(
+        _ section: RecordSidebarSectionModel,
+        groupID: String?,
+        isCollapsed: Bool,
+        toggle: @escaping () -> Void
+    ) -> some View {
+        let suffix = groupID.map { "\($0).\(section.section.rawValue)" }
+            ?? section.section.rawValue
+        HStack(spacing: 6) {
+            // ONE rendering for both modes, and the `groupID` only namespaces
+            // the identifier. An earlier version of this file added
+            // `.accessibilityElement(children: .combine)` here for composed
+            // mode, so that a test could read the disclosure state back the way
+            // it does from a GROUP header — and combining made the button stop
+            // toggling. A section header inside a group is an ordinary `List`
+            // row, and merging its children into one accessibility element
+            // changed what the row hit-tests to: the sidebar looked right and
+            // the affordance was dead. Group state is queryable (the group
+            // header IS a `List` section header, which behaves differently);
+            // per-section state is asserted on ROWS instead, which is what a
+            // user experiences anyway.
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    // A header that IS a destination keeps the disclosure
+                    // triangle as the collapse target and gives the TITLE
+                    // its own tap, so one gesture never means both.
+                    if section.headerScope == nil {
+                        Text(section.title).foregroundStyle(.primary)
                     }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("sidebar.section.\(section.section.rawValue)")
-                if let headerScope = section.headerScope {
-                    Text(section.title)
-                        .foregroundStyle(.primary)
-                        .contentShape(Rectangle())
-                        .onTapGesture { selection = headerScope }
-                        .accessibilityIdentifier(
-                            "sidebar.sectionSelect.\(section.section.rawValue)")
-                }
-                Spacer()
-                if let accessory = chrome.sectionAccessory?(section.section) {
-                    accessory
-                }
-                if section.offersRootFolderCreation, section.canOrganizeFolders,
-                   let kind = section.kind {
-                    Button {
-                        newFolderRequest = NewFolderRequest(kind: kind, parent: nil)
-                    } label: {
-                        Image(systemName: "folder.badge.plus")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("sidebar.newFolder.\(section.section.rawValue)")
                 }
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sidebar.section.\(suffix)")
+            if let headerScope = section.headerScope {
+                Text(section.title)
+                    .foregroundStyle(.primary)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selection = headerScope }
+                    .accessibilityIdentifier("sidebar.sectionSelect.\(suffix)")
+            }
+            Spacer()
+            if let accessory = chrome.sectionAccessory?(section.section) {
+                accessory
+            }
+            // `collectionActions.canOrganize` is the third condition and it was
+            // MISSING, which the composed sidebar made impossible to ignore.
+            // The row-level organise gate (`isOrganizableFolder`) has always
+            // asked the HOST as well as the section; this one asked only the
+            // section, so a host that wires up no organise verbs still got a
+            // `folder.badge.plus` on every publication-bound section — Inbox,
+            // Flagged, Cited in Manuscripts, Dismissed — and tapping it opened
+            // a sheet whose Create called the default no-op closure. Four dead
+            // buttons in one group, in a sidebar whose reported defect was that
+            // it was "hit and miss".
+            //
+            // No sibling changes: imbib-iOS and imprint-iOS both pass
+            // `canOrganize: true` (imprint's derived from the descriptor), and
+            // impart-iOS passes no actions but binds `.mail` to a kind with no
+            // `CollectionCapability`, so its sections never reached this line.
+            if section.offersRootFolderCreation, section.canOrganizeFolders,
+               collectionActions.canOrganize,
+               let kind = section.kind {
+                Button {
+                    newFolderRequest = NewFolderRequest(kind: kind, parent: nil)
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("sidebar.newFolder.\(suffix)")
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - Groups (composed mode)
+
+    /// One app's sidebar: a `List` `Section` carrying the APP header, followed
+    /// by one `Section` per app-section.
+    ///
+    /// `Section`s rather than `DisclosureGroup`s: the two collapse identically
+    /// for the user, but `Section`s keep every row a direct child of the one
+    /// lazy `List`, which is what makes a 45-row composed sidebar scroll (and
+    /// what lets a UI test sweep it). A `DisclosureGroup` per app would nest
+    /// five `List`s' worth of rows inside five container views.
+    ///
+    /// And a `Section` PER APP-SECTION rather than one Section per group with
+    /// the section headers as rows, which is what this rendered first: a
+    /// disclosure Button in an ordinary `List` row does not receive the tap on
+    /// iOS, so every per-section chevron in the composed sidebar was dead while
+    /// looking exactly right. A `Section` HEADER does receive it — that is the
+    /// mechanism the flat sidebar and the group header have always used. The
+    /// bug was invisible to the first version of the test, which asserted the
+    /// rows were GONE and passed because tapping the row pushed the detail
+    /// column over the sidebar instead.
+    @ViewBuilder
+    private func groupView(_ group: RecordSidebarGroupModel) -> some View {
+        let isCollapsed = collapsedComposition.contains(.group(group.id))
+        Section {
+            EmptyView()
+        } header: {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    toggleComposition(.group(group.id))
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    Label(group.title, systemImage: group.systemImage)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("sidebar.group.\(group.id)")
+            // The disclosure STATE, published rather than inferred. VoiceOver
+            // should announce a disclosure control's state, and automation has
+            // no other way to read it: the chevron is a rotation, and "does
+            // this group show any rows" is answerable only for the part of the
+            // list currently on screen — which is how the real-store suite
+            // first COLLAPSED a group it had scrolled to while meaning to
+            // expand it.
+            .accessibilityValue(isCollapsed ? Self.collapsedValue : Self.expandedValue)
+        }
+        if !isCollapsed {
+            ForEach(group.sections) { section in
+                groupedSection(section, group: group)
+            }
+        }
+    }
+
+    /// Accessibility values for a disclosure header. Public-by-convention
+    /// strings: the UI suites mirror them locally (they must not link PMC).
+    static let collapsedValue = "collapsed"
+    static let expandedValue = "expanded"
+
+    /// One section INSIDE a group — its own `List` `Section`, indented under the
+    /// app header, keyed by `(group, section)` so the two Flagged sections
+    /// collapse independently.
+    ///
+    /// No `chrome.onMoveNodes` here, deliberately. Drag-reorder is expressed as
+    /// indices into a section's rendered rows; no composing host asks for it
+    /// (imbib-iOS is the only one that supplies `onMoveNodes`), so this is a
+    /// declined capability rather than a missing one.
+    @ViewBuilder
+    private func groupedSection(
+        _ section: RecordSidebarSectionModel, group: RecordSidebarGroupModel
+    ) -> some View {
+        let key = SidebarCompositionKey.section(group.id, section.section)
+        let isCollapsed = collapsedComposition.contains(key)
+        Section {
+            if !isCollapsed {
+                ForEach(groupedRows(section, group: group)) { row in
+                    nodeRow(row.node, depth: row.depth, section: section, groupID: group.id)
+                }
+            }
+        } header: {
+            sectionHeader(
+                section,
+                groupID: group.id,
+                isCollapsed: isCollapsed,
+                toggle: { toggleComposition(key) })
+                .font(.footnote)
+                .padding(.leading, 10)
+        }
+    }
+
+    /// A group's rows, re-identified by `<group>.<scopeKey>`.
+    ///
+    /// The composed sidebar renders the SAME scope twice — imbib and imprint
+    /// both declare Cited in Manuscripts and both resolve it to `.publication`,
+    /// so `RecordSidebarNode.id` (which is `scope.stableViewID`) collides across
+    /// groups. Feeding SwiftUI two rows with one id is not a cosmetic problem;
+    /// it is the case `ForEach` documents as undefined.
+    private func groupedRows(
+        _ section: RecordSidebarSectionModel, group: RecordSidebarGroupModel
+    ) -> [GroupedRow] {
+        section.nodes.flattened(expanded: expandedFolders).map { entry in
+            GroupedRow(
+                id: "\(group.id).\(entry.node.scope.scopeKey)",
+                node: entry.node,
+                depth: entry.depth)
         }
     }
 
@@ -251,10 +482,16 @@ public struct RecordSidebarView: View {
 
     @ViewBuilder
     private func nodeRow(
-        _ node: RecordSidebarNode, depth: Int, section: RecordSidebarSectionModel
+        _ node: RecordSidebarNode, depth: Int, section: RecordSidebarSectionModel,
+        groupID: String?
     ) -> some View {
         let isExpanded = expandedFolders.contains(node.id)
+        // `<group>.` in composed mode, empty in flat mode — see the file header.
+        let ident = groupID.map { "\($0).\(node.scope.scopeKey)" } ?? node.scope.scopeKey
         HStack(spacing: 4) {
+            // Composed rows sit one level under their section header, which
+            // itself sits under the app header.
+            if groupID != nil { Spacer().frame(width: 14) }
             if depth > 0 { Spacer().frame(width: CGFloat(depth) * 14) }
             if node.children.isEmpty {
                 Spacer().frame(width: 12)
@@ -274,7 +511,7 @@ public struct RecordSidebarView: View {
                         .frame(width: 12, height: 12)
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("sidebar.disclose.\(node.scope.scopeKey)")
+                .accessibilityIdentifier("sidebar.disclose.\(ident)")
             }
             // `sidebar.node.<scopeKey>` names the SELECTABLE part of the row,
             // not the whole HStack. It used to sit on the HStack, and a row with
@@ -294,7 +531,7 @@ public struct RecordSidebarView: View {
             // combined element is both the correct VoiceOver reading of a
             // sidebar row and a tap target that behaves like the row.
             .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("sidebar.node.\(node.scope.scopeKey)")
+            .accessibilityIdentifier("sidebar.node.\(ident)")
             Spacer(minLength: 4)
             if let count = node.count, count > 0 {
                 Text("\(count)")
@@ -375,10 +612,28 @@ public struct RecordSidebarView: View {
     // MARK: - Data
 
     private func rebuild() {
-        sections = RecordSidebarBuilder.sections(
-            configuration: configuration,
-            order: SidebarSectionOrderStore.loadOrderSync(),
-            dataSource: dataSource)
+        let order = SidebarSectionOrderStore.loadOrderSync()
+        if let composition {
+            groups = RecordSidebarBuilder.groups(
+                composition: composition,
+                host: configuration,
+                order: order,
+                dataSource: dataSource)
+            // The flat concatenation, in group order, is kept for the two
+            // things below that are about the sidebar as a WHOLE rather than
+            // about any group: the folder-tree read (one per kind, whichever
+            // group first bound it) and the regular-width landing seed. The
+            // seed lands on the FIRST group that declares the host's
+            // `defaultSection` — `.inbox` in imbib, which is first, so impress
+            // opens where imbib opens.
+            sections = groups.flatMap(\.sections)
+        } else {
+            groups = []
+            sections = RecordSidebarBuilder.sections(
+                configuration: configuration,
+                order: order,
+                dataSource: dataSource)
+        }
         var folders: [RecordKindID: [RecordFolder]] = [:]
         for section in sections {
             guard let kind = section.kind, folders[kind] == nil else { continue }
@@ -429,6 +684,27 @@ public struct RecordSidebarView: View {
         let snapshot = collapsedSections
         Task { await SidebarCollapsedStateStore.shared.save(snapshot) }
     }
+
+    /// Toggle a group or a per-group section, and persist. One key space, one
+    /// store — the two levels differ only in the key they build.
+    private func toggleComposition(_ key: SidebarCompositionKey) {
+        if collapsedComposition.contains(key) {
+            collapsedComposition.remove(key)
+        } else {
+            collapsedComposition.insert(key)
+        }
+        let snapshot = collapsedComposition
+        Task { await SidebarCompositionCollapsedStore.shared.save(snapshot) }
+    }
+}
+
+// MARK: - Composed rows
+
+/// A composed sidebar's row, re-identified by group. See `groupedRows`.
+private struct GroupedRow: Identifiable {
+    let id: String
+    let node: RecordSidebarNode
+    let depth: Int
 }
 
 // MARK: - Sheet requests

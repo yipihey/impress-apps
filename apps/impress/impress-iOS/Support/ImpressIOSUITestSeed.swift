@@ -33,6 +33,23 @@
 //  kind's DESCRIPTOR (`primarySchemaRef`) rather than typed as a literal — the
 //  one thing `schema-refs.json` exists to keep true.
 //
+//  RULE 6, found by running the suite lanes back to back on ONE simulator: this
+//  seed writes the APP-GROUP store, and a simulator's app-group container is
+//  SHARED BY EVERY APP IN THE GROUP. So after this suite runs, impart-iOS's own
+//  suite opens a store that already holds impress's one mail account, one INBOX
+//  folder and three messages — and impart's seed is idempotence-guarded on
+//  exactly that probe, so it declines to write its own four mailboxes and its
+//  suite fails looking for them. Nothing is wrong with either seed; they are
+//  two writers of one store on a shared device. **Run each app's iOS UI lane on
+//  its own simulator, or erase the group container between lanes.**
+//  `scripts/run-ui-tests-isolated.sh` already runs one app at a time.
+//
+//  (The same sweep found a second, unrelated lane hazard worth knowing about
+//  here: imprint's and impart's suites pin `.landscapeLeft` and are therefore
+//  iPad suites — they fail on an iPhone for lack of list HEIGHT, from the same
+//  commit that passes on an iPad. impress's and imbib's pin `.portrait` and are
+//  iPhone suites. See docs/chassis-capability-matrix.md.)
+//
 //  PUBLICATIONS AND MANUSCRIPTS (I2) DO NOT PAY THAT COST, and the difference
 //  is the point. imbib's writers are IN the chassis, so those two kinds are
 //  seeded through the real ones — `RustStoreAdapter.createLibrary` +
@@ -84,6 +101,17 @@ enum ImpressIOSUITestSeed {
 
     static func seedIfRequested() {
         guard UITestingEnvironment.shouldSeedTestData else { return }
+        // UI STATE IS FIXTURE TOO, and it is reset BEFORE the idempotence guard
+        // below because it is not part of what that guard is protecting.
+        //
+        // The composed sidebar (I3) persists which app groups and which
+        // per-group sections are collapsed, in `UserDefaults.standard` inside
+        // the simulator's container — which SURVIVES an app relaunch, so a test
+        // that collapses the imprint group leaves every later test in this
+        // suite starting from a sidebar with imprint closed. That is the same
+        // class of cross-test leak the fixed `seedEpoch` exists to prevent for
+        // dates: "the state the run starts in" must be chosen, not inherited.
+        UserDefaults.standard.removeObject(forKey: "sidebarCompositionCollapsed")
         // `ensureDirectoryExists()` FIRST, and it is load-bearing rather than
         // defensive. Every chassis reader opens the store like this, and the
         // seed runs BEFORE any of them — so on a cold install nothing has
@@ -117,7 +145,7 @@ enum ImpressIOSUITestSeed {
         // `impress.sqlite`, ADR-023), so this is not a second store — it is the
         // same store reached through a writer that exists.
         seedPublications()
-        seedManuscripts()
+        seedManuscripts(store)
         ImbibImpressStore.shared.postMutation(structural: true)
     }
 
@@ -312,7 +340,7 @@ enum ImpressIOSUITestSeed {
 
     // MARK: - Manuscripts (through imbib's real writer)
 
-    private static func seedManuscripts() {
+    private static func seedManuscripts(_ shared: SharedStore) {
         let store = RustStoreAdapter.shared
         guard store.queryManuscripts(limit: 1).isEmpty else {
             logger.info("seed: manuscripts already present")
@@ -338,7 +366,17 @@ enum ImpressIOSUITestSeed {
             logger.error("seed: createManuscript failed")
             return
         }
-        logger.info("seed: wrote manuscript \(created.id)")
+        // RED-FLAGGED, and this one line is the fixture for the whole I3
+        // regression. The composed sidebar has TWO Flagged sections — imbib's
+        // binds `.publication`, imprint's binds `.manuscript` — and the flat
+        // sidebar had only the first. Without a flagged manuscript in the store
+        // the imprint group's red row would list nothing, and "the row exists
+        // but is empty" is exactly the state that reads as working when it is
+        // not. Flag through the ENVELOPE verb (`SharedStore.setFlag`), like the
+        // mail rows above: flags are envelope facts, never payload fields.
+        try? shared.setFlag(
+            id: created.id.lowercased(), color: "red", style: nil, length: nil)
+        logger.info("seed: wrote manuscript \(created.id), red-flagged")
     }
 
     // MARK: - Helpers

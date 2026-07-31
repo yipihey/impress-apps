@@ -120,11 +120,25 @@ struct IOSImpressHostView: View {
 
     // MARK: - Columns
 
+    /// The COMPOSED sidebar (I3): one collapsible group per sibling app, each
+    /// rendering that app's own preset, narrowed to the kinds this build can
+    /// present. The flat `.impress` preset is still what `host:` carries — it
+    /// supplies `presentableKinds` and the landing section — but it no longer
+    /// supplies the SECTION LIST, because a union of section lists is what lost
+    /// "whose section is this" and made flagged manuscripts unreachable.
     private var sidebarColumn: some View {
         RecordSidebarView(
-            configuration: ImpressSidebarBindings.configuration,
+            composition: .impress,
+            host: ImpressSidebarBindings.configuration,
             dataSource: ImpressSidebarBindings.dataSource(
                 snapshot: snapshot, version: dataVersion),
+            // impress READS the shared store and organises nothing in it —
+            // creating a collection needs imbib's per-library semantics, and a
+            // manuscript folder is imprint's. Said once here, in the action bag
+            // whose whole job is "which verbs does this host support", rather
+            // than per section: `RecordSidebarView` gates both the row menus
+            // and the section header's new-folder button on it.
+            collectionActions: RecordCollectionActions(canOrganize: false),
             dataVersion: dataVersion,
             selection: $scope,
             title: "impress")

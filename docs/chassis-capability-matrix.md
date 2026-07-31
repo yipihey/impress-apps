@@ -141,13 +141,121 @@ place; the parity tests still freeze every value:
 | Derived value | imbib | imprint | implore (Stage 2-B) | impart (Stage 2-A) | impel (Stage 2-C) | impress (D9 — NOT SHIPPED) |
 |---|---|---|---|---|---|---|
 | showsSubmissionsInbox | true (auxiliaryRoute retained, but UNREACHABLE since the publications-only purification — it hung off the Manuscripts section; see Known gaps) | false | false | false | false | **true — and the home is no longer future.** The route and `SubmissionsInboxView` were kept for exactly this; the macOS shell permits `.submissionsInbox` and renders it, so the inbox that lost its home in the publications-only purification is structurally reachable again — it hangs off the Manuscripts section node builder (`ImbibSidebarViewModel`, gated on exactly this route), which impress permits. Not RUNTIME-verified: no macOS app is launched from this workflow |
-| flagsShowManuscripts | false | true | false | false | false | false — `.flagged` binds `.publication`. A single `RecordKindID` cannot say "flagged records of every kind"; mixed-kind Flagged over `AnyRecordListWrapper` is a follow-up, not a preset edit |
+| flagsShowManuscripts | false | true | false | false | false | false in the PRESET — `.flagged` binds `.publication`, because a single `RecordKindID` cannot say "flagged records of every kind". **Answered a different way on iOS by I3**: impress-iOS renders a `SidebarComposition`, so it has one Flagged section PER APP GROUP, each bound by that app's own preset (imbib → `.publication`, imprint → `.manuscript`). Flagged manuscripts are reachable there without a mixed-kind list existing. A single mixed-kind Flagged over `AnyRecordListWrapper` remains the follow-up for the macOS flat sidebar |
 | opensManuscriptsInProcess | false | true | false (n/a) | false (n/a) | false (n/a) | false — `openOverrides` is EMPTY (impress embeds every viewer, so every kind uses its descriptor default). The manuscript default is `.appHandoff`. It was expected to become `.detailPane` when impress shipped; it did NOT, and the reason is worth keeping: the shipped shell renders manuscripts through `ManuscriptSectionView` on macOS, which owns the editor SESSION, and hands off on iOS where there is no session host at all. Flipping the override is a product decision about who owns the editing surface, not a consequence of the target existing |
-| dismissedShowsManuscripts | false | true | false (n/a) | false (n/a) | false (n/a) | false — `.dismissed` binds `.publication`, same reasoning as Flagged |
+| dismissedShowsManuscripts | false | true | false (n/a) | false (n/a) | false (n/a) | false in the PRESET — `.dismissed` binds `.publication`, same reasoning as Flagged, and answered the same way by I3's composition on iOS: the imprint group's Dismissed binds `.manuscript` and uses that kind's STATUS-CHANGE dismissal, while the imbib group's uses the publication kind's library move |
 | visibleSections | **EXPLICIT, publications only (2026-07-27):** inbox, libraries, sharedWithMe, scixLibraries, search, exploration, flagged, citedInManuscripts, artifacts, reviewQueue, dismissed. NOT manuscripts / figures / mail / agents — those are imprint's / implore's / impart's / impel's facets. `citedInManuscripts` stays: its children are "All Cited Papers" (publications), imbib's half of the imprint bridge. `dismissed` stays: it is `.publication`-bound here. Was `nil` ("everything"), which opted imbib into every section the chassis grows; purity is the policy now (ADR-0022 D9) and a new section must opt IN | manuscripts, citedInManuscripts, flagged, dismissed | figures only (Flagged deliberately skipped in v1 — needs a `.flagged: .figure` binding + routing) | mail only (Flagged deliberately skipped in v1 — needs a `.flagged: .message` binding + routing) | agents only (Flagged deliberately skipped in v1 — needs a `.flagged: .task` binding + routing) | **EVERY section, EXPLICITLY** (inbox, libraries, sharedWithMe, scixLibraries, search, exploration, flagged, citedInManuscripts, artifacts, manuscripts, figures, mail, agents, reviewQueue, dismissed = `Set(SidebarSectionType.allCases)`). `nil` would have been shorter and is exactly the mechanism that rode Manuscripts into imbib, so the unifying shell opts in by NAME; `testImpressPermitsEverySection` fails when the enum grows, until someone decides. `sectionBindings` names a kind for every section except `.reviewQueue` (its rows are `review-request@1.0.0`, which has no descriptor — binding it to a kind it does not list would be a lie). `agent-run` is the one registry kind that is not a binding VALUE: runs share the Agents section with tasks by design |
 | defaultSection / defaultDetailTab | inbox / info | manuscripts / source | figures / info | mail / info | agents / info (lands on the Tasks leaf) | inbox / info |
 | custom surfaces | — | — | generate, analyze (registered app-side via `withCustomSurfaces`); canvas = figure open window | chat, **category**, research, development (registered app-side via `withCustomSurfaces` in ImpartChassisRoot). `category` landed with the Stage-4c flip: it was the one classic view mode (⌘3) the chassis could not reach | dashboard, **threads**, **roster**, escalations, suggestions, counsel (registered app-side via `withCustomSurfaces` in ImpelChassisRoot; escalations keeps its 1-9/j/k keys INSIDE the surface, suggestions its ⏎/⎋ + j/k, both keyboardGuarded). `threads` and `roster` landed with the Stage-4c flip: the Agents SECTION reads the same `task@1.0.0` rows but renders them as tasks (losing impel's temperature / claimedBy) and has no surface for `ImpelClient.state.agents` / `.personas` at all | — none app-registered, and now that an app target EXISTS that is a positive result rather than a vacancy: `ImpressChassisRoot` deliberately calls no `withCustomSurfaces`. The chassis-builtin store-search surface arrives anyway (`CustomSurfaceRegistry.builtin`; `StoreSearchSurfaceTests` enumerates impress), and registering a copy of it app-side would REPLACE the builtin with an identical view. ⌘⇧F is bound by `ImpressStoreSearchCommands` in the menu tree, which is the only part an app owes. **iOS: none, and the builtin is empty there** — `StoreSearchSurface` is the one AppKit-linking builtin, so grouped search, impress's showcase, is macOS-only until a UIKit-clean version exists |
 | default window | chassis | chassis | chassis | **chassis (Stage 4c, 2026-07-30).** `impart.useChassisWindow`, the classic three-column `ContentView`, `EmailListView`, `ImpartSidebarView`/`FolderTreeRow` and the "Mail (Unified)" secondary window are DELETED (1719 lines). The flag is not kept as a kill switch because it could only restore a strictly poorer window: the classic mail lists were permanently EMPTY on macOS — `InboxViewModel.loadMessages()` has no macOS caller (only `IOSContentView` assigns `selectedMailbox`), `accounts` is `private(set)` and assigned nowhere, `loadFolders(for:)` has no caller at all — and its detail pane was unreachable (it read `AppState.selectedMessageIds` while the list wrote `InboxViewModel.selectedMessageIds`). Compose, reply/forward, mark-read-on-select and check-mail moved to `MailChassisHost` over the new `RecordHostVerbs` seam; `ComposeView` and the whole Settings scene were EXTRACTED from the deleted file first | **chassis (Stage 4c, 2026-07-30).** `impel.useChassisWindow`, the classic `ContentView` and the "impel (Unified)" secondary window are DELETED (320 lines). Flag not kept, same reasoning: every surface the classic dashboard rendered is registered here over the same views. Closed first: suggestion ⏎/⎋ keys, the threads list and agent/persona roster (as surfaces), ⌘/ keyboard help (now a menu command), `wireUndo`, the two toolbar status indicators, and `impel://navigate/...` (which set a `DashboardTab` only the classic window observed) | **chassis (ADR-0022 D9, 2026-07-30).** `ImpressChassisRoot` is 79 lines, 14 of them code — `ChassisRootView(configuration: .impress)` plus `.withAppearance()`. The ~120-line estimate predates `ChassisRootView` (Stage 4b), which took the rest. The signing decision this cell demanded was made: the ADS/SciX read now sits behind `CredentialManager.itemsAreReadableWithoutPrompting` (a bundle-identity reachability check), NOT a shared keychain access group — a group would need imbib re-signed and every already-stored item migrated into it. impress still permits and renders `.search`; it just does not read credentials it provably cannot open |
+
+### impress — the sidebar is a COMPOSITION of the other five (I3, 2026-07-31, iOS)
+
+The user's report: *"It's quite hit and miss with impress. Libraries and
+collections and the Inbox is for imbib. Imprint has its own collections for
+manuscripts. Impart has its own for messages and all have flagged pubs,
+manuscripts or messages. So it is ok for us to collate each of their sidebars
+into collapsible sections of the impress sidebar rather than attempt this flat
+but incomplete collection impress surfaces now."*
+
+The flat `.impress` preset is a UNION of sections, and a union loses WHOSE
+section each one is. The sharpest consequence is the last clause:
+`sectionBindings` maps a section to ONE `RecordKindID`, so a union has exactly
+one `.flagged` entry, it was `.publication`, and **flagged manuscripts had no
+row in impress at all** — on any platform, in any container. That is what "hit
+and miss" looks like from outside.
+
+**`SidebarComposition`** (`Chassis/Shared/RecordSidebar/SidebarComposition.swift`)
+is the fix, and its whole content is that each app's `AppShellConfiguration`
+ALREADY IS its sidebar definition:
+
+| piece | where it comes from |
+|---|---|
+| which apps, in what order | `SiblingApp.descriptors`, filtered of `impress` — imbib, imprint, implore, impel, impart |
+| each group's title + glyph | `SiblingAppDescriptor.displayName` / **`.systemImage`** (new column on the one table) |
+| each group's sections, order, kinds, roles, folders, flag bindings | that app's SHIPPING preset, passed to the same `RecordSidebarBuilder.sections` the app itself runs |
+| host narrowing | `SidebarAppGroup.configuration(inHost:)` — the host's `presentableKinds`, applied once per group |
+| content gating | unchanged: `RecordSidebarDataSource.sectionIsAvailable`, inside every group |
+
+`RecordSidebarBuilder.groups(composition:host:order:dataSource:)` is nine lines
+and contains no section name, no record kind and no app id. Adding a section to
+`.imprint` makes it appear in impress's imprint group with no edit anywhere.
+
+Four decisions worth keeping:
+
+* **Duplication across groups is the design.** `.citedInManuscripts` is declared
+  by BOTH `.imbib` and `.imprint`, so it renders twice, with the same scope —
+  two doors onto one destination. `.dismissed` renders twice too, bound to
+  different kinds AND different dismissal semantics (publications move library;
+  manuscripts change status). The user asked for each app's sidebar verbatim.
+* **Empty groups are KEPT, sections are still DROPPED.** A group whose every
+  section gates away still renders its header: a group is an app's presence in
+  impress, not a claim about its data. Within a group, a section that resolves
+  to no rows keeps the existing drop behaviour, which is the host saying "I
+  cannot serve this".
+* **Rows are namespaced by group** — `sidebar.group.<app>`,
+  `sidebar.section.<app>.<section>`, `sidebar.node.<app>.<scopeKey>`. Not
+  cosmetic: two rows genuinely share a scope, and a duplicate `ForEach` id is
+  undefined behaviour. The five sibling apps do NOT compose and their
+  identifiers are unchanged.
+* **Two collapsible levels, one persisted key space.** `SidebarCompositionKey`
+  (`group:<app>` / `section:<app>:<section>`) in its own UserDefaults key, so
+  collapsing imbib's Flagged never touches imprint's, and an impress collapse
+  never lands in imbib's own sidebar. Default empty = everything expanded.
+  Disclosure headers publish their state as an accessibility VALUE
+  (`expanded`/`collapsed`), which VoiceOver should announce and which is the
+  only read of open/closed that does not depend on scroll position.
+
+macOS impress still runs the FLAT preset — see Known gaps for the four
+structural reasons and the ordered follow-up.
+
+**A chassis gap I3 could not close, recorded rather than papered over.**
+Tapping a `List` SECTION header to collapse it — an affordance
+`RecordSidebarView` has offered since ADR-0021 — does not take effect from a
+synthesized tap on iOS 26. The event reaches the button (XCUITest logs
+"Synthesize event" against `sidebar.section.…`) and the rows stay. It behaves
+the same in the FLAT sidebar and in the composed one, and **no suite in this
+repo covers it** — imbib-iOS, imprint-iOS and impart-iOS all locate section
+headers and none asserts that tapping one collapses the section. So it is not
+composition-specific and I3 did not introduce it. impress's GROUP headers do
+collapse correctly (`testCollapsingAGroupHidesItsSectionsAndExpandingRestoresThem`
+proves it, by rows and by the header's published `accessibilityValue`), which is
+the level the user asked for — "collate each of their sidebars into collapsible
+sections". Per-section collapse inside a group is keyed and persisted
+(`SidebarCompositionKey.section`) and will work the moment the header tap does.
+Whether the tap is broken for a real finger or only for a synthesized one is the
+open question, and answering it needs a device pass.
+
+**Three findings the I3 lanes surfaced, none caused by them.**
+
+1. **iOS UI lanes are DEVICE-SPECIFIC, and the device is not in the scheme.**
+   `imprint-iOSUITests` and `impart-iOSUITests` pin `.landscapeLeft` because
+   their three-column split view hides the sidebar in iPad portrait — so they
+   are iPad suites. Run them on an iPhone and they fail on HEIGHT, not on
+   contract: impart's "four seeded mailboxes should be visible" finds two,
+   because a lazy `List` in a 402-point landscape iPhone column only
+   instantiates what fits. Both pass on `iPad Pro 11-inch (M5)` and fail on
+   `iPhone 17e` **from the same commit**. imbib-iOSUITests and
+   impress-iOSUITests pin `.portrait` and are iPhone suites (impress moved in
+   I2 for exactly this reason — landscape cost the height its eight-section
+   sidebar needed, and I3's composed sidebar is taller still). A destination is
+   part of what makes these lanes green; pick it per app.
+2. **`imprint-iOSUITests.LibraryShellUITests
+   .testSidebarShowsSectionsAndTheCollectionTree` fails at HEAD** — "sidebar is
+   missing “Papers”", the seeded manuscript COLLECTION row. Reproduced on a
+   freshly ERASED iPad Pro 11-inch (M5) from commit 6a18f174 with no working-tree
+   changes at all, so it is not I3's and not container contamination. Every
+   other assertion in that test passes, including the Manuscripts header and the
+   descriptor's status rows; only the collection tree is missing. Worth a look
+   at imprint's seed or `ManuscriptStoreAdapter`'s collection read — the sidebar
+   half is shared with imbib, whose collection rows do render.
+3. **A simulator's app-group container is shared by every app in the group**,
+   and both `ImpressIOSUITestSeed` and impart's seed write `impress.sqlite` in
+   it. Run impress-iOS's seeded lane before impart-iOS's on ONE simulator and
+   impart's seed declines to write (its idempotence probe sees impress's mail
+   account), so its suite looks for four mailboxes it never wrote. Give each
+   app's iOS UI lane its own simulator, or erase the group container between
+   lanes; `scripts/run-ui-tests-isolated.sh` already runs one app at a time.
 
 ### impress — what each platform renders, and what is DECLARED absent
 
@@ -1528,6 +1636,62 @@ decoupled, it is uninformed. Cost of being wrong is near zero today: no target
 links `ImpressCommandPalette` at all — it is written but not yet activated.
 
 ## Known gaps (tracked)
+
+- **The composed (per-app-group) sidebar is iOS-ONLY; macOS impress still runs
+  the flat preset.** Shipped I3, 2026-07-31.
+
+  impress-iOS's sidebar is now a `SidebarComposition` — five collapsible groups,
+  one per sibling app, each built by running `RecordSidebarBuilder` against that
+  app's own `AppShellConfiguration`. macOS impress still passes the flat
+  `.impress` preset to `TabContentView`/`ImbibSidebarViewModel`, so it keeps ONE
+  Flagged section bound to `.publication` and cannot show flagged manuscripts —
+  the exact limitation iOS just lost.
+
+  **This was scoped deliberately, not overlooked.** The macOS build SITE is
+  cheap (`ImbibSidebarViewModel.buildSectionNodes`, ~18 lines, plus one
+  `children(of:)` arm and one `ImbibSidebarNodeType` case; `rebuildTabMap`,
+  `findNode`, `SidebarOutlineView.rebuildData` and `TreeFlattener` all recurse
+  and need nothing). Four things around it are not:
+
+  1. **The group ROW STYLE lives in the shared package.** `isGroup` drives one
+     hardcoded appearance in `ImpressSidebar/SidebarOutlineCellView.swift`
+     (`configureAsGroup`, no depth parameter, tree lines cleared, uppercased, no
+     icon or count) and `shouldSelectItem` makes group rows unselectable. A
+     second tier means either editing that file — which is on the rendering path
+     of ALL SIX shells, against the requirement that the five siblings' frozen
+     pixel surfaces stay untouched — or demoting section headers to ordinary
+     rows, which loses the section-header context menu (`sectionMenu` is only
+     consulted on the group path).
+  2. **`treeDepth` is assigned BY HAND at ten builder sites** in
+     `ImbibSidebarViewModel`. Indentation is drawn from it, not by AppKit
+     (`indentationPerLevel = 0`), so a new level above the sections shifts
+     nothing automatically.
+  3. **Section drag-reorder would break silently.** `handleReorder` treats
+     `parent == nil` as "root = section reorder", and `canAcceptDrop` refuses
+     `(.section, _)` outright — so with groups the gesture dies before the
+     handler, with no error.
+  4. **macOS section-collapse persistence is already half-broken.**
+     `handleExpansionChange(nodeID:expanded:)` has NO CALLERS: collapse state is
+     loaded at launch and never saved. Group collapse would therefore ship
+     non-persistent, failing the design requirement, unless that pre-existing
+     bug is fixed first.
+
+  And the decisive one: **no test constructs `ImbibSidebarViewModel`.** The
+  macOS sidebar view model is the largest file in the repo (3487 lines) and is
+  covered only indirectly, so a change there is verifiable by launching the app
+  — which this workflow does not do. iOS's half is `RecordSidebarBuilder` +
+  `RecordSidebarView`, both unit-tested in `swift test`
+  (`SidebarCompositionTests`, 14 tests) and screenshot-verified on a simulator.
+
+  **The follow-up, in order:** (a) give `SidebarCollapsedStateStore` a caller on
+  macOS so section collapse persists at all; (b) add a second group tier to
+  `ImpressSidebar` behind a flag the five siblings do not set, with the parity
+  suites as the oracle; (c) wrap `buildSectionNodes` in
+  `SidebarComposition.impress` for the impress shell only; (d) two `canAcceptDrop`
+  / `handleReorder` arms and a decision about cross-group section moves;
+  (e) expand the default leaf's group in `selectDefaultSectionLeaf`
+  (`restoreSelection` deselects when an ancestor is collapsed —
+  `beginEditingNode`'s ancestor-expansion is the precedent).
 
 - **~~Ten `UTType(exportedAs:)` identifiers in shared code are declared per app,
   not in `apps/chassis-utis.yml`~~** — **CLOSED 2026-07-30.** Nine graduated;

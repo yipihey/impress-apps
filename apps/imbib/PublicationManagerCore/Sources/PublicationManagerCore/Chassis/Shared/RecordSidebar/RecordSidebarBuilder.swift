@@ -194,6 +194,47 @@ public enum RecordSidebarBuilder {
             }
     }
 
+    /// Build a COMPOSED sidebar: one group per app, each group built by running
+    /// the call above against that app's own preset.
+    ///
+    /// This is the whole of impress's sidebar redesign, and the point is how
+    /// little there is of it. There is no per-group logic below — no section
+    /// list, no kind, no rule about what Flagged means in the imprint group.
+    /// Every one of those is `sections(configuration:order:dataSource:)`
+    /// answering the same question it answers for the shipping imprint app,
+    /// because it is handed the same value.
+    ///
+    /// The one thing the composed call adds is the HOST intersection: the
+    /// sibling presets say `presentableKinds == nil` (true of their own apps),
+    /// and a composed host is a different build. `SidebarAppGroup
+    /// .configuration(inHost:)` applies it once per group.
+    ///
+    /// EMPTY GROUPS ARE KEPT. A group whose every section gates away still
+    /// returns a model with `sections == []`, and the renderer still draws its
+    /// header. "Collate each of their sidebars" means the five sidebars are
+    /// present; an app with nothing in it right now is a fact about the store,
+    /// not about whether that app is part of impress. Within a group, a section
+    /// that resolves to no rows keeps the existing DROP behaviour — the
+    /// distinction being that a missing section is the host saying "I cannot
+    /// serve this", which is exactly what the flat sidebar's negative-space
+    /// contract already means.
+    @MainActor
+    public static func groups(
+        composition: SidebarComposition,
+        host: AppShellConfiguration,
+        order: [SidebarSectionType]? = nil,
+        dataSource: RecordSidebarDataSource
+    ) -> [RecordSidebarGroupModel] {
+        composition.groups.map { group in
+            RecordSidebarGroupModel(
+                group: group,
+                sections: sections(
+                    configuration: group.configuration(inHost: host),
+                    order: order,
+                    dataSource: dataSource))
+        }
+    }
+
     @MainActor
     private static func section(
         _ section: SidebarSectionType,

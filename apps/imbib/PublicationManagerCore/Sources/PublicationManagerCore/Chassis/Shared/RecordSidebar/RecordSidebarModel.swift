@@ -385,3 +385,37 @@ public struct RecordSidebarSectionModel: Identifiable, Sendable {
         self.offersRootFolderCreation = offersRootFolderCreation ?? canOrganizeFolders
     }
 }
+
+// MARK: - Groups
+
+/// One app's sections, under that app's name — the rendered form of a
+/// `SidebarAppGroup`.
+///
+/// `sections` may be EMPTY and the group is still returned: see the note on
+/// `RecordSidebarBuilder.groups(composition:host:order:dataSource:)`.
+public struct RecordSidebarGroupModel: Identifiable, Sendable {
+    public let group: SidebarAppGroup
+    public let sections: [RecordSidebarSectionModel]
+
+    public var id: String { group.id }
+    public var title: String { group.title }
+    public var systemImage: String { group.systemImage }
+
+    public init(group: SidebarAppGroup, sections: [RecordSidebarSectionModel]) {
+        self.group = group
+        self.sections = sections
+    }
+
+    /// The section serving `section` in THIS group, if it renders here.
+    /// The per-group lookup tests and hosts reach for — the flat sidebar's
+    /// `first { $0.section == x }` is ambiguous once two groups declare `x`.
+    public func section(_ section: SidebarSectionType) -> RecordSidebarSectionModel? {
+        sections.first { $0.section == section }
+    }
+}
+
+public extension Array where Element == RecordSidebarGroupModel {
+    subscript(groupID groupID: String) -> RecordSidebarGroupModel? {
+        first { $0.id == groupID }
+    }
+}
