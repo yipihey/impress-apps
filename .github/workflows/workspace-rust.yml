@@ -38,24 +38,67 @@ concurrency:
   group: workspace-rust-${{ github.ref }}
   cancel-in-progress: true
 
+# SHARDING (2026-07-31). The campaign push showed the failure mode of one
+# monolithic lane: a cold cache turned "Workspace lint" into a ~90-minute job
+# while three runners sat idle. The workspace splits on its one natural heavy
+# boundary — the imprint tree links Typst + Tectonic, which dominate cold
+# compile time — so each half's cold wall-time is roughly half, and with four
+# runners the two clippy shards and two test shards run concurrently. The
+# shards PARTITION the workspace by construction: `imprint` is an explicit
+# `-p` list, `rest` is `--workspace --exclude` of exactly that list, so a new
+# crate lands in `rest` automatically and nothing can fall between the gates.
+# Feature note: `--features native` with `--workspace` applies per-member
+# where defined; the `-p` shard must use the `pkg/feature` spelling instead,
+# because a plain `--features native` errors on an explicit package list
+# (and only imprint-core HAS one there: imprint-service's features are
+# the render engines, proven by a local dry run of both shard commands).
+# The shard lists are spelled twice (clippy and test matrices) because a
+# matrix cannot read `env:` — keep the four copies identical when editing.
+
 jobs:
-  lint:
-    name: Workspace lint
+  guards:
+    name: Guards (fmt + schema refs)
     runs-on: [self-hosted, impress-mac]
     steps:
       - uses: actions/checkout@v4
 
-      # Before the toolchain install: this is bash + python3 only, takes under a
-      # second, and a schema-ref mismatch is a silently-empty query rather than
-      # a compile error — so failing fast on it costs nothing and saves a full
-      # clippy cycle on a change that is already wrong.
+      # Bash + python3 only, under a second; a schema-ref mismatch is a
+      # silently-empty query rather than a compile error — fail fast on it
+      # before anything compiles.
       - name: Schema-ref lint
         run: ./scripts/check-schema-refs.sh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: rustfmt
+
+      # `--all` because the per-app gates only check their own subtree, and fmt
+      # drift between them is the single most common cause of a red main.
+      # Needs no cache: fmt does not compile.
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy (${{ matrix.shard.name }})
+    runs-on: [self-hosted, impress-mac]
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: imprint
+            select: -p imprint-core -p imprint-service -p imprint-service-http -p imprint-selftest -p imprint-cli
+            features: --features imprint-core/native
+          - name: rest
+            select: --workspace --exclude imprint-core --exclude imprint-service --exclude imprint-service-http --exclude imprint-selftest --exclude imprint-cli
+            features: --features native
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -66,21 +109,26 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-workspace-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-ws-clippy-${{ matrix.shard.name }}-${{ hashFiles('**/Cargo.lock') }}
 
-      # `--all` because the per-app gates only check their own subtree, and fmt
-      # drift between them is the single most common cause of a red main.
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      # `--all-targets` reaches tests and benches; `--features native` matches
-      # what the apps link. Both are needed — see the header.
+      # `--all-targets` reaches tests and benches; the feature spelling matches
+      # what the apps actually link — see the sharding note above.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --features native -- -D warnings
+        run: cargo clippy ${{ matrix.shard.select }} --all-targets ${{ matrix.shard.features }} -- -D warnings
 
   test:
-    name: Workspace tests
+    name: Tests (${{ matrix.shard.name }})
     runs-on: [self-hosted, impress-mac]
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: imprint
+            select: -p imprint-core -p imprint-service -p imprint-service-http -p imprint-selftest -p imprint-cli
+            features: --features imprint-core/native
+          - name: rest
+            select: --workspace --exclude imprint-core --exclude imprint-service --exclude imprint-service-http --exclude imprint-selftest --exclude imprint-cli
+            features: --features native
     steps:
       - uses: actions/checkout@v4
 
@@ -96,7 +144,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-workspace-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-ws-test-${{ matrix.shard.name }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run tests
-        run: cargo test --workspace --features native
+        run: cargo test ${{ matrix.shard.select }} ${{ matrix.shard.features }}
