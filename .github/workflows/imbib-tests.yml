@@ -319,9 +319,9 @@ jobs:
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -derivedDataPath "$PWD/.ci-derived" -scheme imbib-iOS -configuration Debug \
-            -destination "id=$UDID" -derivedDataPath build-ios \
+            -destination "id=$UDID" \
             CODE_SIGNING_ALLOWED=NO build | tail -30
-          APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imbib.app' | head -1)
+          APP=$(find .ci-derived/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'imbib.app' | head -1)
           echo "installing $APP"
           xcrun simctl install "$UDID" "$APP"
           # Verify by PID liveness, not launchctl label grep: simctl launch

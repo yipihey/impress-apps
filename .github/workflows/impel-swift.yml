@@ -80,6 +80,33 @@ jobs:
         with:
           crate: impel-tools
 
+      # impel links PublicationManagerCore (Stage 2-C chassis conversion), and
+      # `swift test` resolves PMC's WHOLE binary-target closure even for
+      # packages that never call into it — the campaign push failed here with
+      # "does not contain a binary artifact" for helix and scix. This is the
+      # same five-crate closure imbib-tests.yml builds for PMC.
+      - name: ImbibCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imbib-core
+          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+
+      - name: ScixClientCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: scix-client-ffi
+
+      - name: ImpressHelix.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: impress-helix
+
+      - name: ImprintCore.xcframework
+        uses: ./.github/actions/xcframework
+        with:
+          crate: imprint-core
+          env-extra: IMPRINT_SKIP_IOS=1
+
       - name: Test ImpelCore
         working-directory: apps/impel/Packages/ImpelCore
         run: swift test
