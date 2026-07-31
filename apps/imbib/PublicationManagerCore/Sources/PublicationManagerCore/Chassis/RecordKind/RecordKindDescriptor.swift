@@ -449,6 +449,119 @@ public struct RecordLifecycleSpec: Sendable, Equatable {
     }
 }
 
+/// How a discovered file becomes store rows (ADR-0023 D3).
+///
+/// The two units are genuinely different operations, not two settings of one:
+/// an `entries` file is opened, parsed and deduped against the whole library,
+/// while a `file` record is never opened by the watcher at all. Declaring the
+/// unit on the KIND is what lets one Rust discovery path serve four apps —
+/// the file-level bookkeeping (which files, which hashes, which provenance) is
+/// identical for both, and only the fan-out differs.
+public enum FileIngestUnit: String, Sendable, Equatable, Codable, CaseIterable {
+    /// The file is a **container**: it fans out to many records, deduped
+    /// through the Rust identifier machinery against the whole library.
+    /// imbib's `.bib`/`.ris` — BibDesk's model generalized, and the form imbib
+    /// ADR-002's "BibTeX is the source of truth" already implies.
+    case entries
+    /// The file **is** the record, ingested reference-in-place (ADR-0023 D4):
+    /// the store row is an index entry carrying a bookmark, a path, a hash and
+    /// an mtime, and the file stays the user's. No write-back, ever.
+    case file
+}
+
+/// One watchable file type: its extensions, and the UTI that identifies it if
+/// the suite declares one.
+///
+/// A type rather than two flat lists because `utiIdentifier` is genuinely
+/// `nil` for some of them — `.ris` and `.mbox`/`.eml` have no exported type
+/// anywhere in the suite, so `UTType(filenameExtension:)` resolves them to a
+/// dynamic `dyn.…` that is useless as a Spotlight predicate. Flattening the
+/// two lists would lose which extension the missing UTI belonged to, and a
+/// discovery query built from that would silently never match a RIS file:
+/// ADR-0023 D6's failure mode arriving through the front door.
+/// `FileDiscoveryCapability.requiresFilenameFallback` is the derived answer.
+public struct FileTypeSpec: Sendable, Equatable, Identifiable {
+    /// The format id where the authoritative table has one (`"bibtex"`,
+    /// `"typst"`), else the primary extension. Only an identity for diffing —
+    /// nothing routes on it.
+    public let id: String
+    /// Bare, lowercase, no leading dot. Primary extension first.
+    public let fileExtensions: [String]
+    /// The declared UTI, or nil when the suite declares none for this type.
+    public let utiIdentifier: String?
+
+    public init(id: String, fileExtensions: [String], utiIdentifier: String? = nil) {
+        self.id = id
+        self.fileExtensions = fileExtensions
+        self.utiIdentifier = utiIdentifier
+    }
+}
+
+/// The file types a record kind can ingest, and how (ADR-0023 D1).
+///
+/// Pure DATA, like every other facet in this file: no closures, no query
+/// construction, no `UTType`. The Spotlight scope for a watched folder is
+/// *derived* from this by the platform layer, so no app names a file extension
+/// in discovery code — and where the authority already lives somewhere else it
+/// is **referenced, not restated**:
+///
+/// * manuscripts read `DocumentFormatGrammar`, which reads the Rust
+///   `manuscript_format` table over the FFI at runtime. There is no second
+///   copy to drift.
+/// * `.bib`/`.ris` are pinned against `impress_core::bibliography_format`, the
+///   table that ADR-0023 created because the answer previously lived in
+///   twenty-three inline literals and no constant at all.
+/// * the UTIs are pinned against `apps/chassis-utis.yml` and the per-app
+///   document-type declarations that actually claim them.
+///
+/// `FileDiscoveryCapabilityParityTests` is the interlock for all three.
+public struct FileDiscoveryCapability: Sendable, Equatable {
+    /// The watchable types, in authority-table order.
+    public let types: [FileTypeSpec]
+    /// How a discovered file becomes rows (ADR-0023 D3).
+    public let ingestUnit: FileIngestUnit
+
+    public init(types: [FileTypeSpec], ingestUnit: FileIngestUnit) {
+        self.types = types
+        self.ingestUnit = ingestUnit
+    }
+
+    /// Every extension this kind watches, in table order. Bare and lowercase.
+    public var fileExtensions: [String] { types.flatMap(\.fileExtensions) }
+
+    /// Every DECLARED UTI. Shorter than `types` whenever a type has none —
+    /// which is the point of it being separate.
+    public var utiIdentifiers: [String] { types.compactMap(\.utiIdentifier) }
+
+    /// True when at least one watched type has no UTI, so a discovery query
+    /// must OR its type clause with a filename clause or it will match nothing
+    /// for that type. Derived, never declared: a hand-written flag is a third
+    /// thing to keep in step with the two lists it summarises.
+    public var requiresFilenameFallback: Bool {
+        types.contains { $0.utiIdentifier == nil }
+    }
+
+    /// Whether a bare extension (no dot) is one this kind ingests.
+    public func matches(fileExtension: String) -> Bool {
+        let needle = fileExtension.lowercased()
+        return fileExtensions.contains(needle)
+    }
+
+    /// Whether a file name is one this kind ingests. Takes the substring after
+    /// the LAST dot, which is what `URL.pathExtension` yields.
+    public func matches(fileName: String) -> Bool {
+        guard let dot = fileName.lastIndex(of: ".") else { return false }
+        let ext = fileName[fileName.index(after: dot)...]
+        return !ext.isEmpty && matches(fileExtension: String(ext))
+    }
+
+    /// The type owning an extension, if any.
+    public func type(forExtension fileExtension: String) -> FileTypeSpec? {
+        let needle = fileExtension.lowercased()
+        return types.first { $0.fileExtensions.contains(needle) }
+    }
+}
+
 /// A way to create a record of this kind (drives the `n` key and the
 /// empty-state / File menus). `formatValue` is the payload `format` for kinds
 /// that have one (manuscripts).
@@ -508,6 +621,11 @@ public struct RecordKindDescriptor: Identifiable, Sendable {
     /// (impel's tasks). Nil for every kind whose lifecycle is `status`, or
     /// which has none.
     public let lifecycle: RecordLifecycleSpec?
+    /// The file types this kind can ingest from a watched folder, and how
+    /// (ADR-0023 D1). Nil for a kind that no folder can produce — a task and an
+    /// agent-run are records OF work, not files on disk, and an artifact's
+    /// eight media schemas are a phase-2 question.
+    public let fileDiscovery: FileDiscoveryCapability?
 
     public init(
         id: RecordKindID,
@@ -521,7 +639,8 @@ public struct RecordKindDescriptor: Identifiable, Sendable {
         creation: [CreationAffordance] = [],
         defaultOpenBehavior: OpenBehavior = .detailPane,
         collection: CollectionCapability? = nil,
-        lifecycle: RecordLifecycleSpec? = nil
+        lifecycle: RecordLifecycleSpec? = nil,
+        fileDiscovery: FileDiscoveryCapability? = nil
     ) {
         // A kind with no schema ref resolves for zero rows, forever, silently
         // — the exact failure mode schema-refs.json exists to prevent. Trap at
@@ -542,6 +661,7 @@ public struct RecordKindDescriptor: Identifiable, Sendable {
         self.defaultOpenBehavior = defaultOpenBehavior
         self.collection = collection
         self.lifecycle = lifecycle
+        self.fileDiscovery = fileDiscovery
     }
 
     /// The ref this kind's own readers query. Non-optional by construction
@@ -593,5 +713,19 @@ public struct RecordKindRegistry: Sendable {
     /// Descriptor whose collection capability uses `bindingID`, if any.
     public func descriptor(forCollectionBinding bindingID: String) -> RecordKindDescriptor? {
         descriptors.first { $0.collection?.bindingID == bindingID }
+    }
+
+    /// Descriptors a watched folder can be scoped to (ADR-0023 D1).
+    public var fileDiscoverable: [RecordKindDescriptor] {
+        descriptors.filter { $0.fileDiscovery != nil }
+    }
+
+    /// The kind that ingests a bare file extension, if exactly one does.
+    ///
+    /// Extensions are unique across kinds — a `.bib` is a publication source
+    /// and nothing else, and `FileDiscoveryCapabilityParityTests` enforces
+    /// that — so "the first match" is "the only match".
+    public func descriptor(forFileExtension fileExtension: String) -> RecordKindDescriptor? {
+        descriptors.first { $0.fileDiscovery?.matches(fileExtension: fileExtension) ?? false }
     }
 }

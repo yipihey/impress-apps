@@ -76,7 +76,9 @@
     "revision-note": "impress-core knowledge objects. Written by impel JournalReviewService.",
     "task@1.0.0": "VERSIONED, and the ONLY spelling of this kind since WP C4. Selected by impress-core sqlite_store ready_tasks — which is why it won: it is the spelling with a live queue behind it, so converging on it means nothing that is scheduled today stops being scheduled. Written by impel-core task_spawn TASK_SCHEMA and by impel SharedTaskBridge.taskCreated; registered ONCE, in impress-core schemas/task.rs, whose fields are the union of both writers' payloads; inherited by manuscript-submission; claimed by the TaskRecordKind descriptor, which is what AgentStoreReader and the agentTasksAll sidebar counts read. The retired `task` (impress-core registration, unwritten in production) and `impel/task` (SharedTaskBridge) rows are converged by impress_core::task_schema_migration. NOTE: ready_tasks additionally requires a non-empty payload `task_kind`, so bridge-MIRRORED rows converge without becoming schedulable.",
     "throughline": "impress-core (ADR-0016). Written by imprint ImprintStoreAdapter.",
-    "veusz-plot": "impress-core."
+    "veusz-plot": "impress-core.",
+    "watched-file@1.0.0": "VERSIONED. impress-core schemas/watched_folder.rs (ADR-0023 D4). One row per file a watched folder has ever discovered — an INDEX ENTRY, never a copy: path, sha256 content hash, mtime, and a `state` of present|missing. Written and read ONLY by impress-store-service DocsImportService (import_discovered / finish_watched_scan / record_produced_rows / list_watched_files), which is the single writer for both ingest units. A vanished file's row is marked `missing`, never deleted, because the rows it produced are still real. `produced_ids` is the W2 seam: discovery leaves it absent and the app's real importer fills it in through record_produced_rows.",
+    "watched-folder@1.0.0": "VERSIONED, exactly as ADR-0023 D2 names it. impress-core schemas/watched_folder.rs. One row per folder the user (or an agent, via MCP/CLI) asked the suite to watch: path + optional security-scoped bookmark, kind_scope, enabled, declared volume_state (D6) and last-scan stats. Written by impress-store-service DocsImportService add_watched_folder / update_watched_folder / finish_watched_scan; W1's Swift FolderWatchService reaches it through those verbs, never with its own writer. The watched file TYPES and the ingest UNIT are deliberately NOT fields here — they are derived from the record kind's FileDiscoveryCapability (D1), which is the one authority for both."
   },
   "$registriesDoc": [
     "Exactly what each crate's schema-registration entry point produces. Asserted in BOTH",
@@ -127,7 +129,9 @@
       "revision-note",
       "task@1.0.0",
       "throughline",
-      "veusz-plot"
+      "veusz-plot",
+      "watched-file@1.0.0",
+      "watched-folder@1.0.0"
     ],
     "imbib-core": [
       "core/operation",

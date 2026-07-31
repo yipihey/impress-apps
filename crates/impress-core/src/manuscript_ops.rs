@@ -41,8 +41,21 @@ pub fn is_supported_manuscript_format(format: &str) -> bool {
 
 /// SHA-256 hex digest of a UTF-8 string.
 pub fn sha256_hex(text: &str) -> String {
+    sha256_bytes_hex(text.as_bytes())
+}
+
+/// SHA-256 hex digest of raw bytes.
+///
+/// Identical to [`sha256_hex`] for UTF-8 input — it is the same digest over the
+/// same bytes, and [`sha256_hex`] delegates here so there is one
+/// implementation. It exists separately because ADR-0023's watched folders hash
+/// arbitrary FILES: routing those through the `&str` form would mean a lossy
+/// UTF-8 conversion, and two files differing only in bytes that
+/// `from_utf8_lossy` maps to U+FFFD would then hash IDENTICALLY — an edited
+/// file reading as unchanged, forever, with nothing to see.
+pub fn sha256_bytes_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(text.as_bytes());
+    hasher.update(bytes);
     hex_encode(&hasher.finalize())
 }
 
@@ -480,5 +493,20 @@ mod tests {
             rev.payload.get("content_hash"),
             Some(&Value::String("abc123".into()))
         );
+    }
+
+    /// The reason `sha256_bytes_hex` exists. Two files that differ only in
+    /// bytes `String::from_utf8_lossy` would collapse to U+FFFD must NOT hash
+    /// the same — otherwise ADR-0023's re-scan diff reads an edited file as
+    /// unchanged, forever, with nothing to see.
+    #[test]
+    fn byte_hashing_is_not_lossy() {
+        let a = sha256_bytes_hex(&[0x41, 0xC3, 0x28]);
+        let b = sha256_bytes_hex(&[0x41, 0xC3, 0x29]);
+        assert_ne!(a, b, "two invalid-UTF-8 files collapsed to one digest");
+        assert_ne!(a, sha256_hex(&String::from_utf8_lossy(&[0x41, 0xC3, 0x28])));
+        // And for UTF-8 input the two entry points agree, because one
+        // delegates to the other.
+        assert_eq!(sha256_hex("hello"), sha256_bytes_hex(b"hello"));
     }
 }

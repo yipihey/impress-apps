@@ -222,10 +222,31 @@ fn matches_to_json(matches: &ArgMatches, schema: &Value) -> Result<Value, BoxErr
                 map.insert(name.clone(), Value::Bool(v));
             }
             PropertyKind::Array => {
+                // An array of STRINGS takes its values verbatim; an array of
+                // anything else (an array of objects — `Vec<SomeDto>`) takes
+                // each repetition as a JSON literal, exactly as a scalar
+                // `PropertyKind::Json` arg does.
+                //
+                // Without this branch such an argument is reachable over MCP
+                // (which speaks real JSON) and unusable from the CLI, which
+                // would hand serde a `Value::String` where the DTO belongs and
+                // fail with `invalid type: string "...", expected struct X`.
+                // Gated on the declared item type, so every existing
+                // `Vec<String>` subcommand is bit-for-bit unaffected.
+                let items_are_strings = prop
+                    .get("items")
+                    .map(|items| matches!(property_kind(items), PropertyKind::String))
+                    .unwrap_or(true);
                 let mut arr: Vec<Value> = Vec::new();
                 if let Some(values) = matches.get_many::<String>(name) {
                     for v in values {
-                        arr.push(Value::String(v.clone()));
+                        if items_are_strings {
+                            arr.push(Value::String(v.clone()));
+                        } else {
+                            arr.push(serde_json::from_str(v).map_err(|e| -> BoxError {
+                                format!("--{name}: expected a JSON literal per value ({e})").into()
+                            })?);
+                        }
                     }
                 }
                 if arr.is_empty() && !required.contains(name) {
@@ -281,4 +302,82 @@ fn matches_to_json(matches: &ArgMatches, schema: &Value) -> Result<Value, BoxErr
     }
 
     Ok(Value::Object(map))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A `Command` with one repeatable `--items` argument built from `schema`,
+    /// matched against `argv`, then folded back to the JSON the handler sees.
+    fn round_trip(schema: Value, argv: &[&str]) -> Result<Value, String> {
+        let prop = schema["properties"]["items"].clone();
+        let cmd = Command::new("t")
+            .no_binary_name(true)
+            .arg(build_arg("items", &prop, false));
+        let matches = cmd.try_get_matches_from(argv).map_err(|e| e.to_string())?;
+        matches_to_json(&matches, &schema).map_err(|e| e.to_string())
+    }
+
+    fn array_schema(item_type: &str) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "items": { "type": "array", "items": { "type": item_type } }
+            }
+        })
+    }
+
+    /// The shipped shape — `Vec<String>` args take their values verbatim. This
+    /// is the regression guard on the object-array branch: every existing
+    /// subcommand (`add_members`, `member_counts`, `record_produced_rows`)
+    /// passes ids as bare strings and must keep doing so.
+    #[test]
+    fn a_string_array_takes_its_values_verbatim() {
+        let out = round_trip(
+            array_schema("string"),
+            &["--items", "alpha", "--items", "{not json"],
+        )
+        .expect("string arrays never parse their values");
+        assert_eq!(out["items"], json!(["alpha", "{not json"]));
+    }
+
+    /// `Vec<SomeDto>`: each repetition is a JSON literal. Without this the
+    /// argument is reachable over MCP and unusable from the CLI, which fails
+    /// with `invalid type: string "...", expected struct X`.
+    #[test]
+    fn an_object_array_parses_each_value_as_json() {
+        let out = round_trip(
+            array_schema("object"),
+            &[
+                "--items",
+                r#"{"path":"/a.bib"}"#,
+                "--items",
+                r#"{"path":"/b.ris"}"#,
+            ],
+        )
+        .expect("object arrays parse per value");
+        assert_eq!(
+            out["items"],
+            json!([{"path": "/a.bib"}, {"path": "/b.ris"}])
+        );
+    }
+
+    #[test]
+    fn an_object_array_reports_bad_json_against_the_argument() {
+        let err = round_trip(array_schema("object"), &["--items", "not json"])
+            .expect_err("malformed JSON must fail loudly");
+        assert!(err.contains("--items"), "{err}");
+        assert!(err.contains("JSON literal"), "{err}");
+    }
+
+    /// An absent optional array stays absent rather than becoming `[]` —
+    /// unchanged by this branch, and the difference matters to a handler that
+    /// distinguishes "not supplied" from "supplied empty".
+    #[test]
+    fn an_absent_optional_array_is_omitted() {
+        let out = round_trip(array_schema("object"), &[]).expect("absent is fine");
+        assert!(out.get("items").is_none());
+    }
 }

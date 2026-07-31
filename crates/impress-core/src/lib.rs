@@ -9,6 +9,11 @@ pub mod schemas;
 pub mod store;
 pub mod task;
 
+/// The bibliography interchange-format grammar table (ADR-0023 D1) — the
+/// `.bib`/`.ris` twin of `manuscript_format`. Pure data, so it is available
+/// without the `sqlite` feature for the same reason that one is.
+pub mod bibliography_format;
+
 #[cfg(feature = "sqlite")]
 pub mod backup;
 #[cfg(feature = "sqlite")]

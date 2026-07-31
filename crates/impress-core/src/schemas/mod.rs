@@ -17,6 +17,7 @@ pub mod plot_spec;
 pub mod task;
 pub mod throughline;
 pub mod veusz_plot;
+pub mod watched_folder;
 
 pub use artifact::register_artifact_schemas;
 pub use bibliography::register_bibliography_schemas;
@@ -38,6 +39,11 @@ pub use task::{
 };
 pub use throughline::register_throughline_schema;
 pub use veusz_plot::register_veusz_plot_schema;
+pub use watched_folder::{
+    register_watched_folder_schemas, FILE_STATES, FILE_STATE_MISSING, FILE_STATE_PRESENT,
+    VOLUME_STATES, VOLUME_STATE_INDEXED, VOLUME_STATE_SCAN_ON_DEMAND, VOLUME_STATE_UNAVAILABLE,
+    VOLUME_STATE_UNINDEXED, WATCHED_FILE_SCHEMA, WATCHED_FOLDER_SCHEMA,
+};
 
 /// Register all canonical impress-core schemas into the registry.
 ///
@@ -76,6 +82,10 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // Throughline (ADR-0016): narrative companion documents. Depends on
     // nothing; registered after manuscript for reading order only.
     register_throughline_schema(registry);
+    // Watched folders and their discovered files (ADR-0023 D2/D4). Depends on
+    // nothing — the record kinds a folder ingests are named by `kind_scope`,
+    // not by an inherits edge.
+    register_watched_folder_schemas(registry);
 }
 
 #[cfg(test)]

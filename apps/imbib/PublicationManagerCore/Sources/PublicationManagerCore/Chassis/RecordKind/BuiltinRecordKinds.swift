@@ -84,7 +84,36 @@ public enum PublicationRecordKind {
                     allowsRename: false, allowsSubcontainers: false),
             ],
             deleteTitleOverride: "Delete"
-        )
+        ),
+        // ADR-0023 D1/D3. A watched `.bib` or `.ris` is a CONTAINER: it fans
+        // out to publication entries, deduped through the Rust identifier
+        // machinery against the whole library. That is BibDesk's model
+        // generalized, and it is what imbib ADR-002's "BibTeX is the source of
+        // truth" already implies.
+        //
+        // The extensions and the one UTI are PINNED against
+        // `impress_core::bibliography_format`, the authority ADR-0023 had to
+        // create: before it, "which extensions are a bibliography?" was
+        // answered by twenty-three independent inline literals across the tree
+        // and no constant at all. `FileDiscoveryCapabilityParityTests` reads
+        // that Rust table and fails if these drift from it.
+        //
+        // `.ris` carries no UTI because the suite declares none — anywhere.
+        // Saying `nil` here is what makes `requiresFilenameFallback` true, and
+        // a discovery query that trusted a UTI-only clause would silently never
+        // match a RIS file.
+        fileDiscovery: FileDiscoveryCapability(
+            types: [
+                FileTypeSpec(
+                    id: "bibtex",
+                    fileExtensions: ["bib", "bibtex"],
+                    // Exported by imbib (apps/imbib/imbib/project.yml) with
+                    // `public.filename-extension: [bib]` — the only `.bib`
+                    // claim in the suite.
+                    utiIdentifier: "com.impress.bibtex-entry"),
+                FileTypeSpec(id: "ris", fileExtensions: ["ris"], utiIdentifier: nil),
+            ],
+            ingestUnit: .entries)
     )
 }
 
@@ -159,8 +188,41 @@ public enum ManuscriptRecordKind {
             bindingID: CollectionBindingID.manuscript,
             canOrganize: true,
             dragUTTypeIdentifier: "com.imbib.manuscript-id"
-        )
+        ),
+        // ADR-0023 D1/D3. A watched manuscript file IS the record, ingested
+        // reference-in-place (D4): the row carries a bookmark, a path, a hash
+        // and an mtime, and the file stays the user's. No write-back.
+        //
+        // The extensions are READ FROM THE AUTHORITY, not restated: this is
+        // `DocumentFormatGrammar`, which fetches Rust's
+        // `impress_core::manuscript_format::MANUSCRIPT_FORMAT_GRAMMAR` over the
+        // FFI once and caches it. Adding a format — or an extension to one —
+        // is still exactly one row of Rust, and this capability follows without
+        // an edit. That is the pattern ADR-0023 D1 asks for and the reason the
+        // `.bib`/`.ris` half needed a Rust table built for it.
+        fileDiscovery: FileDiscoveryCapability(
+            types: DocumentFormat.allCases.map { format in
+                FileTypeSpec(
+                    id: format.rawValue,
+                    fileExtensions: DocumentFormatGrammar.row(for: format.rawValue).extensions,
+                    utiIdentifier: ManuscriptRecordKind.declaredUTIs[format.rawValue])
+            },
+            ingestUnit: .file)
     )
+
+    /// The UTI each manuscript format is claimed by, where an app claims one.
+    ///
+    /// Only LaTeX has a narrow declared type — imprint's `CFBundleDocumentTypes`
+    /// claims `org.tug.tex` for `.tex`. Typst and Markdown have no UTI in the
+    /// suite at all.
+    ///
+    /// `public.plain-text` is DELIBERATELY absent even though imprint declares
+    /// it for `.txt`: it is a conformance every text file on the volume
+    /// satisfies, so putting it here would turn a watched manuscript folder's
+    /// Spotlight scope into "every text file", which is not a manuscript
+    /// folder. A UTI earns its place here by IDENTIFYING the kind, not by
+    /// being technically true of it.
+    static let declaredUTIs: [String: String] = ["latex": "org.tug.tex"]
 }
 
 public enum FigureRecordKind {
@@ -200,7 +262,24 @@ public enum FigureRecordKind {
             bindingID: CollectionBindingID.figure,
             canOrganize: true,
             dragUTTypeIdentifier: "com.impress.figure-id"
-        )
+        ),
+        // ADR-0023 D1/D3: a Veusz document IS the figure, reference-in-place.
+        // `org.veusz.document` is Veusz's own identifier, IMPORTED (never
+        // exported) by imprint's project.yml with
+        // `public.filename-extension: [vsz]` — importing another vendor's type
+        // is the correct declaration for a file the suite reads but does not
+        // own. implore, the app that will consume these, declares nothing for
+        // `.vsz` today; the parity test names imprint's declaration as the one
+        // that exists, so hoisting it later fails loudly here rather than
+        // silently emptying a watched folder.
+        fileDiscovery: FileDiscoveryCapability(
+            types: [
+                FileTypeSpec(
+                    id: "veusz",
+                    fileExtensions: ["vsz"],
+                    utiIdentifier: "org.veusz.document")
+            ],
+            ingestUnit: .file)
     )
 }
 
@@ -242,7 +321,31 @@ public enum MessageRecordKind {
         // true; it meant "compose lives in the classic window", and that window
         // is gone.
         creation: [CreationAffordance(label: "New Message")],
-        defaultOpenBehavior: .detailPane
+        defaultOpenBehavior: .detailPane,
+        // ADR-0023 D1/D3, and the one entry in the ingest map the ADR leaves
+        // open: "impart | .mbox, .eml | file → messages (phase 3 decision)".
+        //
+        // Declared `.file` for now, and the reason is not indecision. An
+        // `.eml` IS one message, so `file` is simply correct for it; an
+        // `.mbox` is an archive of many, which reads like `entries` — but
+        // unlike a `.bib`, an mbox has no dedup identifier machinery behind it
+        // and impart's message lifecycle is IMAP-owned (see the triage
+        // capability above, which declares neither dismissal nor deletion for
+        // exactly that reason). Claiming `entries` before that question is
+        // answered would put the fan-out on a path with nothing to fan out
+        // THROUGH. W4 is where it is decided; until then the file-level
+        // bookkeeping — which archives exist, their hashes, their provenance —
+        // is real and useful on its own, and is what `file` buys.
+        //
+        // Neither extension has a UTI anywhere in the suite, so
+        // `requiresFilenameFallback` is true and a discovery query must match
+        // on the filename.
+        fileDiscovery: FileDiscoveryCapability(
+            types: [
+                FileTypeSpec(id: "mbox", fileExtensions: ["mbox"], utiIdentifier: nil),
+                FileTypeSpec(id: "eml", fileExtensions: ["eml"], utiIdentifier: nil),
+            ],
+            ingestUnit: .file)
     )
 }
 
@@ -421,5 +524,34 @@ public enum BuiltinRecordKinds {
         forBindingID bindingID: String
     ) -> CollectionCapability? {
         collectionCapable.first { $0.collection?.bindingID == bindingID }?.collection
+    }
+
+    /// Descriptors a watched folder can be scoped to (ADR-0023 D1).
+    ///
+    /// Resolved from `all`, not from a shell's `recordKinds`, for the same
+    /// reason `collectionCapable` is: file discovery is kind-INTRINSIC, and a
+    /// shell-scoped lookup would make imbib unable to name the manuscript kind
+    /// it does not register but does display.
+    public static var fileDiscoverable: [RecordKindDescriptor] {
+        all.filter { $0.fileDiscovery != nil }
+    }
+
+    /// The `kind_scope` values a `watched-folder@1.0.0` row may carry — the
+    /// Swift end of the string the Rust schema stores.
+    ///
+    /// The store keeps the scope as a bare string (it is schema-agnostic and
+    /// must stay that way), so this is where a caller finds out which strings
+    /// mean anything. A folder whose scope is not in here resolves no
+    /// capability and therefore watches nothing, which is the honest outcome
+    /// and not a crash.
+    public static var fileDiscoveryKindScopes: [String] {
+        fileDiscoverable.map(\.id.rawValue)
+    }
+
+    /// The capability for a watched folder's `kind_scope`, or nil.
+    public static func fileDiscovery(
+        forKindScope kindScope: String
+    ) -> FileDiscoveryCapability? {
+        fileDiscoverable.first { $0.id.rawValue == kindScope }?.fileDiscovery
     }
 }

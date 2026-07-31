@@ -37,6 +37,7 @@ pub mod docs_import_service;
 pub mod query_service;
 pub mod store;
 pub mod triage_service;
+pub mod watched_folder;
 
 #[cfg(test)]
 mod test_support;
@@ -53,8 +54,10 @@ pub use collection_service::{
 };
 pub use docs_import_service::{
     document_id, document_key, glob_match, title_from_markdown, DefaultDocsImportService,
-    DocsImportResult, DocsImportService, EmptyManuscriptDto, ImportedDocDto, PruneResult,
-    SkippedDocDto, DOCS_IMPORT_NAMESPACE, MARKDOWN_EXTENSIONS, MARKDOWN_FORMAT,
+    DiscoveredImportResult, DocsImportResult, DocsImportService, EmptyManuscriptDto,
+    ImportedDocDto, ProducedRowsResult, PruneResult, SkippedDocDto, WatchedFileListResult,
+    WatchedFolderListResult, WatchedFolderRemovalResult, WatchedFolderResult, WatchedScanResult,
+    DOCS_IMPORT_NAMESPACE, MARKDOWN_EXTENSIONS, MARKDOWN_FORMAT,
 };
 pub use query_service::{
     DefaultStoreQueryService, ItemEnvelopeDto, ItemListResult, ItemResult, RelatedItemDto,
@@ -63,6 +66,12 @@ pub use query_service::{
 };
 pub use store::{default_store_path, install_store, set_store_path, store_instance, store_path};
 pub use triage_service::{DefaultTriageService, TriageResult, TriageService};
+pub use watched_folder::{
+    watched_file_id, watched_file_key, watched_folder_id, watched_folder_key, DiscoveredFileInput,
+    DiscoveredFileOutcome, SkippedFile, WatchedFileDto, WatchedFolderDto, DEFAULT_FILE_LIST_LIMIT,
+    MAX_DISCOVERED_FILES_PER_CALL, MAX_DISCOVERY_BATCH, MAX_FILE_LIST_LIMIT,
+    WATCHED_FILE_NAMESPACE, WATCHED_FOLDER_NAMESPACE,
+};
 
 #[cfg(test)]
 mod inventory_tests {
@@ -100,6 +109,16 @@ mod inventory_tests {
             // Markdown-directory → manuscript-collection import (repeatable).
             "docs-import-service_import-directory",
             "docs-import-service_prune-empty-manuscripts",
+            // ADR-0023 watched folders. D5 puts these on MCP deliberately:
+            // "an agent can say 'watch this directory' too".
+            "docs-import-service_add-watched-folder",
+            "docs-import-service_list-watched-folders",
+            "docs-import-service_update-watched-folder",
+            "docs-import-service_remove-watched-folder",
+            "docs-import-service_import-discovered",
+            "docs-import-service_finish-watched-scan",
+            "docs-import-service_record-produced-rows",
+            "docs-import-service_list-watched-files",
         ] {
             assert!(
                 names.contains(&expected),
