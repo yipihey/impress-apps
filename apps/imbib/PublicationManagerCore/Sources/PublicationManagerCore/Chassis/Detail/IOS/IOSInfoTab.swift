@@ -483,6 +483,19 @@ public struct IOSInfoTab: View {
                         .textSelection(.enabled)
                 }
             }
+
+            // ADR-0023 W2 — the same additive row macOS's `InfoTab` grid gains.
+            // Two edits rather than one because the two Record Info sections are
+            // deliberately not unified (imbib CLAUDE.md: "unifying them adds or
+            // drops a row and is a product decision").
+            if let provenance = WatchedFolderProvenanceIndex.shared.provenance(
+                of: pub.id, dataVersion: RustStoreAdapter.shared.dataVersion) {
+                recordInfoRow("Source File") {
+                    Text(provenance.summary)
+                        .textSelection(.enabled)
+                        .foregroundStyle(provenance.isMissing ? .secondary : .primary)
+                }
+            }
         }
     }
 

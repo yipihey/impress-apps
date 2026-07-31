@@ -49,6 +49,14 @@ public enum ImbibTab: Hashable {
     case libraryFeed(UUID)           // Auto-refreshing feed in a non-inbox library
     case flagged(String?)     // nil = any flag, String = FlagColor.rawValue
     case customSurface(String)  // app-owned whole-pane surface (WP-X0)
+
+    /// One watched folder's produced publications (ADR-0023 W2).
+    ///
+    /// The tag path travels with the id because it IS the scope: a watched
+    /// folder's papers are the ones carrying its provenance tag, so this
+    /// resolves to `.publicationList(.tag(_))` with no lookup and no new
+    /// `PublicationSource` case.
+    case watchedFolder(WatchedFolderID, tagPath: String)
     case allArtifacts
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed

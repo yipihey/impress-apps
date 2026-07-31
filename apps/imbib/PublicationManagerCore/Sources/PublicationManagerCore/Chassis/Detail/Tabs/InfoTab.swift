@@ -762,6 +762,25 @@ struct InfoTab: View {
                         Text(pub.citationCount.formatted())
                     }
                 }
+
+                // ADR-0023 W2 — "where did this paper come from?". Renders only
+                // for papers a watched folder imported; a user who watches no
+                // folder never sees the row and pays nothing for it (the index
+                // short-circuits on an empty folder list).
+                if let provenance = WatchedFolderProvenanceIndex.shared.provenance(
+                    of: pub.id, dataVersion: RustStoreAdapter.shared.dataVersion) {
+                    GridRow {
+                        Text("Source File")
+                            .foregroundStyle(.secondary)
+                        Text(provenance.summary)
+                            .textSelection(.enabled)
+                            .foregroundStyle(
+                                provenance.isMissing ? AnyShapeStyle(.secondary)
+                                    : AnyShapeStyle(.primary))
+                            .help("Imported from \(provenance.path) — "
+                                + "watched folder \u{201C}\(provenance.folderName)\u{201D}.")
+                    }
+                }
             }
             .font(.callout)
         }

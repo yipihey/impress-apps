@@ -1194,9 +1194,21 @@ impl ImbibStore {
         for entry in &parse_result.entries {
             let publication = crate::conversions::bibtex_entry_to_publication(entry.clone());
             if let Some(found) = self.find_existing_publication(&publication, scope)? {
-                if collection_id.is_some() {
-                    existing.push(found.to_string());
-                }
+                // ALWAYS recorded, not only when filing into a collection.
+                //
+                // `existing` means "entries this BibTeX already had rows for",
+                // and that is true of a plain library import too — the field
+                // was simply never filled in on that path, so it read as an
+                // empty list rather than as "nothing was deduped". ADR-0023 W2
+                // is the caller that cannot live with the ambiguity: a watched
+                // `.bib` reports the rows it accounts for, and an entry that
+                // deduped onto a paper already in the library is still an entry
+                // that file contains. Omitting it made every re-scan claim the
+                // source had DROPPED it.
+                //
+                // No existing caller regresses: `import_bibtex` reads only
+                // `imported`, and the collection path's behaviour is unchanged.
+                existing.push(found.to_string());
                 continue;
             }
             let item = conversion::publication_to_item(&publication, Some(parent_uuid));

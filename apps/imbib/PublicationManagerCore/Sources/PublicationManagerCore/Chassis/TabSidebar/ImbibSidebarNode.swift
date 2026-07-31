@@ -81,6 +81,27 @@ enum ImbibSidebarNodeType: Hashable {
     case agentRunsAll
     case agentTaskState(String)  // kernel task state raw value
 
+    /// A watched folder (ADR-0023 W2) — a local feed of `.bib`/`.ris` files.
+    ///
+    /// **Why macOS gets a node case where iOS gets a `.host` scope.** W1 built
+    /// the row to ride `RecordSidebarSectionContent`, and iOS's sidebar does
+    /// read `RecordSidebarBuilder`, so iOS needed no enum to grow. This sidebar
+    /// does not read the builder at all — it is an `NSOutlineView` over this
+    /// enum — so the choice here was a node case or the `customSurface` seam,
+    /// and W1's matrix row left it to W2 to decide. **A node case**, because a
+    /// custom surface is by construction a top-level, childless, countless,
+    /// menuless whole-pane view (`CustomSurface.swift`'s header), and every one
+    /// of those four is a thing this row must do: sit under Libraries, carry a
+    /// badge, offer Refresh / Reveal / Stop Watching, and open a list. Using a
+    /// custom surface would have meant re-implementing a sidebar row inside a
+    /// pane, which is the shape W1 explicitly avoided.
+    ///
+    /// `tagPath` is carried rather than looked up because it IS the route: the
+    /// publications a folder produced are scoped by their provenance tag
+    /// (`WatchedFolderProvenanceTag`), so the node is self-contained and no
+    /// view body has to consult the coordinator to resolve a selection.
+    case watchedFolder(folderID: WatchedFolderID, tagPath: String)
+
     // App-owned whole-pane surface (Stage 2 WP-X0, ADR-0021)
     case customSurface(String)  // CustomSurfaceDescriptor.id
 }
@@ -248,6 +269,8 @@ extension ImbibSidebarNode {
             return .record(.all(.agentRun))
         case .agentTaskState(let state):
             return .record(.status(.task, state))
+        case .watchedFolder(let folderID, let tagPath):
+            return .watchedFolder(folderID, tagPath: tagPath)
         case .customSurface(let id):
             return .customSurface(id)
         }
@@ -400,6 +423,16 @@ enum ImbibSidebarNodeID {
 
     static func customSurface(_ surfaceID: String) -> UUID {
         stable("custom.surface.\(surfaceID)")
+    }
+
+    /// Node id for a watched folder (ADR-0023 W2).
+    ///
+    /// Keyed on the watcher's id, NOT on the store row's — the watcher's is
+    /// what the row, the refresh verb and the bookmark all agree on, and the
+    /// store's is derived from the path (so it would change if the folder
+    /// moved, silently reshuffling the outline).
+    static func watchedFolder(_ folderID: WatchedFolderID) -> UUID {
+        stable("watched.folder.\(folderID.storageKey)")
     }
 }
 #endif

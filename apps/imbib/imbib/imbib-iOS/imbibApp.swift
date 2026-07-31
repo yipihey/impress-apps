@@ -65,6 +65,7 @@ struct imbibApp: App {
         // (The iOS app previously had no UI-test seeding path at all — the
         // `shouldSeedTestData` flag existed but nothing consumed it.)
         Self.seedUITestDataIfNeeded()
+        Self.seedUITestWatchedFolderIfNeeded()
 
         // UI-testing: skip the first-run onboarding sheet so the main split
         // view is reachable immediately. The in-memory store starts fresh on
@@ -160,6 +161,17 @@ struct imbibApp: App {
             await cleanupExplorationCollectionsOnStartup(libraryManager: capturedLibraryManager)
         }
 
+        // ADR-0023 W2 — watched folders. NOT inside the 90-second block above:
+        // `FolderWatchService` owns that embargo itself
+        // (`FolderWatchStartupGate`, awaited once before the first gather), and
+        // the part that runs now is registration plus bookmark resolution —
+        // cheap reads the sidebar needs immediately so a persisted folder has a
+        // row on launch rather than ninety seconds later.
+        Task { @MainActor in
+            await WatchedFolderIngestCoordinator.shared.start()
+            appLogger.info("Watched folders restored")
+        }
+
         // CloudKit sync (ADR-0007 Phase 3) — same launcher as macOS. It waits
         // out its own 120s grace period and is a no-op unless the user enabled
         // sync AND this build is provisioned for the sync container.
@@ -236,6 +248,93 @@ struct imbibApp: App {
     /// This ensures the intents are linked into the app binary.
     @available(iOS 16.0, *)
     private static let _shortcutsProvider: any AppShortcutsProvider.Type = ImbibShortcuts.self
+
+    // MARK: - UI Testing Seed (ADR-0023 W2 watched folder)
+
+    /// Create the directory and `.bib` an ADR-0023 W2 UI test watches.
+    ///
+    /// **Why the app writes the file and not the test.** An XCUITest runs in
+    /// its own process with its own container; on iOS it cannot create a
+    /// directory the app under test is allowed to read, and the system document
+    /// picker the real "Add Watched Folder…" flow uses cannot be driven
+    /// headlessly. So the picker's OUTPUT — a directory URL — is produced here,
+    /// and everything downstream of it is the shipping path verbatim:
+    /// `WatchedFolderIngestCoordinator.addFolder(at:)`, the security-scoped
+    /// bookmark, the store row, the ingest loop.
+    ///
+    /// `--uitesting-watched-folder-append` is the live-drop half: on a relaunch
+    /// it adds a third entry to the same file before watching resumes, so the
+    /// re-scan has to notice a file whose content hash moved — exactly what an
+    /// editor's save produces.
+    ///
+    /// Both are no-ops without `--ui-testing`, under which every store this
+    /// touches is in-memory.
+    @MainActor
+    private static func seedUITestWatchedFolder() {
+        guard UITestingEnvironment.isUITesting,
+              UITestingEnvironment.shouldSeedWatchedFolder else { return }
+
+        let directory = UITestingEnvironment.watchedFolderSeedDirectory
+        let file = directory.appendingPathComponent("watched.bib")
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            if UITestingEnvironment.shouldAppendToWatchedFolder,
+               let existing = try? String(contentsOf: file, encoding: .utf8) {
+                try (existing + "\n\n" + Self.watchedSeedEntryThree)
+                    .write(to: file, atomically: true, encoding: .utf8)
+                appLogger.info("UI-testing watched folder: appended a third entry")
+            } else {
+                try (Self.watchedSeedEntryOne + "\n\n" + Self.watchedSeedEntryTwo)
+                    .write(to: file, atomically: true, encoding: .utf8)
+                appLogger.info("UI-testing watched folder: seeded two entries")
+            }
+        } catch {
+            appLogger.error("UI-testing watched folder seed failed: \(error.localizedDescription)")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                _ = try await WatchedFolderIngestCoordinator.shared.addFolder(at: directory)
+                appLogger.info("UI-testing watched folder: watching \(directory.path)")
+            } catch {
+                appLogger.error(
+                    "UI-testing watched folder: addFolder failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private static func seedUITestWatchedFolderIfNeeded() {
+        MainActor.assumeIsolated { seedUITestWatchedFolder() }
+    }
+
+    private static let watchedSeedEntryOne = """
+        @article{WatchedCurie1903,
+            author = {Marie Curie},
+            title = {Recherches sur les substances radioactives},
+            year = {1903},
+            doi = {10.1000/watched-curie-1903}
+        }
+        """
+
+    private static let watchedSeedEntryTwo = """
+        @article{WatchedNoether1918,
+            author = {Emmy Noether},
+            title = {Invariante Variationsprobleme},
+            year = {1918},
+            doi = {10.1000/watched-noether-1918}
+        }
+        """
+
+    private static let watchedSeedEntryThree = """
+        @article{WatchedLovelace1843,
+            author = {Ada Lovelace},
+            title = {Notes on the Analytical Engine},
+            year = {1843},
+            doi = {10.1000/watched-lovelace-1843}
+        }
+        """
 
     // MARK: - UI Testing Seed
 

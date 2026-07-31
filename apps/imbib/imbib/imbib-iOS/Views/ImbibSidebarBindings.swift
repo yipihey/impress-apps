@@ -261,6 +261,14 @@ enum ImbibSidebarBindings {
     static func section(for scope: RecordSidebarScope?) -> SidebarSection? {
         switch scope {
         case .host(_, let key):
+            // ADR-0023 W2: watched-folder keys are the chassis's own vocabulary
+            // (`WatchedFolderRoute`, whose `keyPrefix` is public precisely so a
+            // host can recognise keys it did not build), so they are resolved
+            // BEFORE imbib's route enum — which would return nil for them and
+            // silently drop the selection.
+            if case .folder(let folderID)? = WatchedFolderRoute(key: key) {
+                return .watchedFolder(folderID)
+            }
             switch ImbibSidebarRoute(key: key) {
             case .recent: return .recent
             case .library(let id): return .library(id)
@@ -298,6 +306,7 @@ enum ImbibSidebarBindings {
         case .flagged(let color): return .flagged(.publication, color)
         case .citedInManuscripts: return .section(.citedInManuscripts, .publication)
         case .dismissed: return .section(.dismissed, .publication)
+        case .watchedFolder(let id): return WatchedFolderRoute.folder(id).scope(kind: .publication)
         // Routes with no sidebar row of their own.
         case .search, .manuscripts: return ImbibSidebarRoute.contentOnly.scope
         case nil: return nil
@@ -429,8 +438,16 @@ enum ImbibSidebarBindings {
                     count: library.publicationCount > 0 ? library.publicationCount : nil,
                     children: feeds + collections)
             }
+            // ADR-0023 W2 — watched folders, through the seam W1 prepared.
+            // `sidebarNodes(kind:)` renders `WatchedFolderRowState` verbatim:
+            // the state in the title for degraded rows, and a badge only when
+            // the count is trustworthy. Nothing here recomputes either.
+            let watched = WatchedFolderIngestCoordinator.shared.rows
+                .sidebarNodes(kind: .publication)
             return RecordSidebarSectionContent(
-                nodes: nodes, canOrganizeFolders: true, offersRootFolderCreation: false)
+                nodes: nodes + watched,
+                canOrganizeFolders: true,
+                offersRootFolderCreation: false)
 
         case .exploration:
             var nodes = snapshot.explorationSearches.map { search in

@@ -340,6 +340,21 @@ struct IOSContentView: View {
                 selectedPublicationID: $selectedPublicationID
             )
 
+        case .watchedFolder(let folderID):
+            if case .tag(let path)? = WatchedFolderIngestCoordinator.shared.publicationSource(
+                for: folderID) {
+                IOSUnifiedPublicationListWrapper(
+                    source: .tag(path),
+                    selectedPublicationID: $selectedPublicationID
+                )
+                .id(PublicationSource.tag(path).viewID)
+            } else {
+                ContentUnavailableView(
+                    "Folder Not Watched",
+                    systemImage: "folder.badge.questionmark",
+                    description: Text("This watched folder is no longer available."))
+            }
+
         case .search:
             IOSSearchView(
                 selectedPublicationID: $selectedPublicationID,
@@ -554,7 +569,9 @@ struct IOSContentView: View {
             return .collection(colID, "Collection")
 
         case .inbox, .search, .searchForm, .flagged, .citedInManuscripts, .recent, .manuscripts,
-             .dismissed, .none:
+             .dismissed, .watchedFolder, .none:
+            // A watched folder is a cross-library tag scope: `.global` is the
+            // honest context, exactly as `.flagged` is.
             return .global
         }
     }
@@ -675,6 +692,13 @@ enum SidebarSection: Hashable {
     /// on macOS, and the hand-written iOS sidebar rendered it as `EmptyView()`,
     /// which stranded every dismissed paper on this platform.
     case dismissed
+
+    /// One watched folder's produced publications (ADR-0023 W2).
+    ///
+    /// The id alone: the list scope is the folder's provenance TAG, which the
+    /// coordinator derives from the row's display name, so carrying the tag
+    /// here would be a second copy of a derived value.
+    case watchedFolder(WatchedFolderID)
 }
 
 // MARK: - iOS Search View

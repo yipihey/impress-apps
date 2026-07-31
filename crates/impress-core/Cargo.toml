@@ -9,15 +9,25 @@ description = "Unified item protocol for the impress research suite"
 [features]
 default = []
 sqlite = ["rusqlite"]
+# Derive `schemars::JsonSchema` on the kernel DTOs that cross an
+# `#[impress_service]` boundary. Enabled by `impress-store-service`.
+schema = ["schemars"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-uuid = { workspace = true, features = ["v4", "serde"] }
+# `v5`: the watched-folder kernel derives every folder and file id
+# deterministically from its path, so a re-add finds the same row.
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
 chrono = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 sha2 = "0.10"
+# Only for the `schema` feature: the DTOs the `#[impress_service]` verbs take
+# and return need `JsonSchema` derives, and those DTOs live with the kernel
+# that produces them. OFF by default so `impress-store-ffi` — which calls the
+# same kernel from Swift and has no use for JSON schemas — does not link it.
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = "1.4"

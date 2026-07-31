@@ -11,7 +11,10 @@ impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 # The kernel these services front. No imbib-core dependency: these verbs are
 # schema-agnostic and run against the shared store directly.
-impress-core = { workspace = true, features = ["sqlite"] }
+# `schema`: the ADR-0023 watched-folder kernel lives in impress-core (so
+# impress-store-ffi can front it too) and its DTOs cross this crate's
+# `#[impress_method]` boundary, which needs `schemars::JsonSchema` on them.
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 async-trait = { workspace = true }

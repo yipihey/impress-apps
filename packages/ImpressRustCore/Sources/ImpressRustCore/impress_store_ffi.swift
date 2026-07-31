@@ -1003,6 +1003,143 @@ public protocol SharedStoreProtocol : AnyObject {
      */
     func upsertItems(rows: [SharedItemUpsert]) throws  -> SharedBatchResult
     
+    /**
+     * The provenance query, both directions.
+     *
+     * * `watched_folder_id` — "which files does this folder know about?",
+     * optionally narrowed to `state: "present"` or `"missing"`, paged.
+     * * `file_id` — one file's row, whose `produced_ids` answers "which store
+     * rows did this file produce?" and whose `needs_reimport` says whether
+     * its content has moved on since.
+     *
+     * One of the two is required.
+     */
+    func watchedFilesList(watchedFolderId: String?, fileId: String?, state: String?, limit: Int64, offset: Int64) throws  -> SharedWatchedFilePage
+    
+    /**
+     * Close a scan: find the files that vanished, and write the folder's
+     * last-scan stats.
+     *
+     * A file whose path is gone is marked `missing` — **never deleted**
+     * (ADR-0023 D4). A moved file is not a retracted one, and the rows it
+     * produced are still real.
+     *
+     * **Refuses to run when the folder's own root is unreachable.** If a
+     * volume unmounted or a bookmark lapsed, every path under it stops
+     * existing at once and a credulous sweep would mark a whole library
+     * missing in one pass; the folder's `volume_state` is set to `unavailable`
+     * and the call throws instead (D6 with teeth).
+     *
+     * The three counts are the caller's running totals across however many
+     * `watched_import_discovered` calls the scan took — no single one of them
+     * knows the total. File and missing counts are computed here.
+     */
+    func watchedFinishScan(watchedFolderId: String, newCount: Int64?, changedCount: Int64?, durationMs: Int64?, dryRun: Bool) throws  -> SharedWatchedScanReport
+    
+    /**
+     * Start watching a directory for files of one record kind.
+     *
+     * `kind_scope` is the record kind whose `FileDiscoveryCapability` decides
+     * which files count (`publication`, `manuscript`, `figure`, `message`).
+     * The file types are deliberately NOT an argument: they are declared once,
+     * on the record kind, and restating them here would be a second authority
+     * that can disagree with the first.
+     *
+     * **Idempotent.** The id is derived from `(path, kind_scope)`, so adding
+     * the same folder twice returns the existing row (`created == false`).
+     * Re-adding with a fresh `bookmark_base64` swaps the bookmark in — that is
+     * how a Swift caller hands over a re-granted access scope — and changes
+     * nothing else. Watching one directory for two kinds is two folders.
+     *
+     * Nothing is scanned by this call; discovery is `watched_import_discovered`.
+     */
+    func watchedFolderAdd(path: String, kindScope: String, displayName: String?, bookmarkBase64: String?, recursive: Bool) throws  -> SharedWatchedFolderOutcome
+    
+    /**
+     * Every watched folder, optionally narrowed to one `kind_scope`, in path
+     * order — with its last-scan stats and its declared volume state.
+     */
+    func watchedFolderList(kindScope: String?) throws  -> [SharedWatchedFolder]
+    
+    /**
+     * Stop watching a folder.
+     *
+     * **Never touches a byte on disk** — ADR-0023 D4's reference-in-place rule
+     * is one-way. The rows the folder's files PRODUCED are left alone too: a
+     * publication imported from a watched `.bib` is a publication, and
+     * un-watching its folder is not a retraction of it.
+     *
+     * `delete_file_rows` additionally removes the folder's `watched-file`
+     * index entries. Leave it false to keep the provenance readable.
+     */
+    func watchedFolderRemove(id: String, deleteFileRows: Bool) throws  -> SharedWatchedFolderRemoval
+    
+    /**
+     * Change a watched folder's mutable facets. Every argument is optional and
+     * `nil` leaves that field alone, so pausing a folder cannot blank its
+     * bookmark by omission.
+     *
+     * `volume_state` is the ADR-0023 D6 declaration — `indexed`, `unindexed`,
+     * `scan-on-demand`, `unavailable`. Writing it is how a folder on a
+     * Spotlight-less volume says so instead of rendering an honest-looking
+     * zero, and it is the store-side twin of `WatchedFolderState`.
+     */
+    func watchedFolderUpdate(id: String, enabled: Bool?, recursive: Bool?, displayName: String?, bookmarkBase64: String?, volumeState: String?) throws  -> SharedWatchedFolder
+    
+    /**
+     * Record a batch of discovered files against a watched folder — the
+     * ADR-0023 D4 diff.
+     *
+     * * A path not seen before becomes a `watched-file` row with its
+     * provenance, content hash and mtime (`created`).
+     * * A path whose hash moved is updated in place, same id (`changed`).
+     * * A path whose hash is identical writes **nothing at all** — not the
+     * row, not a timestamp. Re-running discovery over a settled tree is free
+     * and fires no store mutation, which is what keeps a watcher out of the
+     * startup render loop.
+     * * A path that was `missing` and is back is restored, same id, with its
+     * attribution intact (`restored`).
+     *
+     * Missing files are NOT found here: a batch never has to be a complete set
+     * (live discovery reports one file at a time), so absence from a batch
+     * means nothing. `watched_finish_scan` is what looks for them.
+     *
+     * There is deliberately no `kind_scope` argument — the folder declared its
+     * scope when it was added, and a second copy on every call could only ever
+     * be redundant or wrong.
+     *
+     * Bounded per ADR-0023 D7: paths are sorted and written in batches of 500,
+     * and at most 5000 files may be sent in one call. A bigger tree is paged;
+     * an over-large call is REJECTED with the bound named, never truncated.
+     */
+    func watchedImportDiscovered(watchedFolderId: String, files: [SharedDiscoveredFile], dryRun: Bool) throws  -> SharedDiscoveryReport
+    
+    /**
+     * Attribute store rows to the discovered file that produced them.
+     *
+     * The seam between file-level bookkeeping (the kernel) and each app's real
+     * importer (Swift). The kernel does not know how to parse a `.bib` and
+     * must not learn:
+     *
+     * 1. `watched_import_discovered` reports a file `created` / `changed` /
+     * `restored`.
+     * 2. The app's own importer runs on that one file — for imbib, the same
+     * BibTeX/RIS import a manual drag performs, with its whole-library
+     * identifier dedup.
+     * 3. It calls this with the ids that file now accounts for.
+     *
+     * `replace` is what makes deletions detectable: re-importing an edited
+     * `.bib` that lost an entry returns that entry's id in `removed_ids`, so
+     * the caller can decide what "the source no longer contains this" means.
+     * Pass `replace: false` to union instead, which is what an incremental
+     * append wants.
+     *
+     * Pass ALL the ids the file accounts for, not just the newly created ones
+     * — an id the importer deduped onto an existing publication is still an id
+     * this file produces, and omitting it would orphan a row on every re-scan.
+     */
+    func watchedRecordProduced(fileId: String, producedIds: [String], replace: Bool) throws  -> SharedProducedRowsReport
+    
 }
 
 /**
@@ -1901,6 +2038,213 @@ open func upsertItems(rows: [SharedItemUpsert])throws  -> SharedBatchResult {
 })
 }
     
+    /**
+     * The provenance query, both directions.
+     *
+     * * `watched_folder_id` — "which files does this folder know about?",
+     * optionally narrowed to `state: "present"` or `"missing"`, paged.
+     * * `file_id` — one file's row, whose `produced_ids` answers "which store
+     * rows did this file produce?" and whose `needs_reimport` says whether
+     * its content has moved on since.
+     *
+     * One of the two is required.
+     */
+open func watchedFilesList(watchedFolderId: String?, fileId: String?, state: String?, limit: Int64, offset: Int64)throws  -> SharedWatchedFilePage {
+    return try  FfiConverterTypeSharedWatchedFilePage.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_watched_files_list(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(watchedFolderId),
+        FfiConverterOptionString.lower(fileId),
+        FfiConverterOptionString.lower(state),
+        FfiConverterInt64.lower(limit),
+        FfiConverterInt64.lower(offset),$0
+    )
+})
+}
+    
+    /**
+     * Close a scan: find the files that vanished, and write the folder's
+     * last-scan stats.
+     *
+     * A file whose path is gone is marked `missing` — **never deleted**
+     * (ADR-0023 D4). A moved file is not a retracted one, and the rows it
+     * produced are still real.
+     *
+     * **Refuses to run when the folder's own root is unreachable.** If a
+     * volume unmounted or a bookmark lapsed, every path under it stops
+     * existing at once and a credulous sweep would mark a whole library
+     * missing in one pass; the folder's `volume_state` is set to `unavailable`
+     * and the call throws instead (D6 with teeth).
+     *
+     * The three counts are the caller's running totals across however many
+     * `watched_import_discovered` calls the scan took — no single one of them
+     * knows the total. File and missing counts are computed here.
+     */
+open func watchedFinishScan(watchedFolderId: String, newCount: Int64?, changedCount: Int64?, durationMs: Int64?, dryRun: Bool)throws  -> SharedWatchedScanReport {
+    return try  FfiConverterTypeSharedWatchedScanReport.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_watched_finish_scan(self.uniffiClonePointer(),
+        FfiConverterString.lower(watchedFolderId),
+        FfiConverterOptionInt64.lower(newCount),
+        FfiConverterOptionInt64.lower(changedCount),
+        FfiConverterOptionInt64.lower(durationMs),
+        FfiConverterBool.lower(dryRun),$0
+    )
+})
+}
+    
+    /**
+     * Start watching a directory for files of one record kind.
+     *
+     * `kind_scope` is the record kind whose `FileDiscoveryCapability` decides
+     * which files count (`publication`, `manuscript`, `figure`, `message`).
+     * The file types are deliberately NOT an argument: they are declared once,
+     * on the record kind, and restating them here would be a second authority
+     * that can disagree with the first.
+     *
+     * **Idempotent.** The id is derived from `(path, kind_scope)`, so adding
+     * the same folder twice returns the existing row (`created == false`).
+     * Re-adding with a fresh `bookmark_base64` swaps the bookmark in — that is
+     * how a Swift caller hands over a re-granted access scope — and changes
+     * nothing else. Watching one directory for two kinds is two folders.
+     *
+     * Nothing is scanned by this call; discovery is `watched_import_discovered`.
+     */
+open func watchedFolderAdd(path: String, kindScope: String, displayName: String?, bookmarkBase64: String?, recursive: Bool)throws  -> SharedWatchedFolderOutcome {
+    return try  FfiConverterTypeSharedWatchedFolderOutcome.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_watched_folder_add(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(kindScope),
+        FfiConverterOptionString.lower(displayName),
+        FfiConverterOptionString.lower(bookmarkBase64),
+        FfiConverterBool.lower(recursive),$0
+    )
+})
+}
+    
+    /**
+     * Every watched folder, optionally narrowed to one `kind_scope`, in path
+     * order — with its last-scan stats and its declared volume state.
+     */
+open func watchedFolderList(kindScope: String?)throws  -> [SharedWatchedFolder] {
+    return try  FfiConverterSequenceTypeSharedWatchedFolder.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_watched_folder_list(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(kindScope),$0
+    )
+})
+}
+    
+    /**
+     * Stop watching a folder.
+     *
+     * **Never touches a byte on disk** — ADR-0023 D4's reference-in-place rule
+     * is one-way. The rows the folder's files PRODUCED are left alone too: a
+     * publication imported from a watched `.bib` is a publication, and
+     * un-watching its folder is not a retraction of it.
+     *
+     * `delete_file_rows` additionally removes the folder's `watched-file`
+     * index entries. Leave it false to keep the provenance readable.
+     */
+open func watchedFolderRemove(id: String, deleteFileRows: Bool)throws  -> SharedWatchedFolderRemoval {
+    return try  FfiConverterTypeSharedWatchedFolderRemoval.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_watched_folder_remove(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterBool.lower(deleteFileRows),$0
+    )
+})
+}
+    
+    /**
+     * Change a watched folder's mutable facets. Every argument is optional and
+     * `nil` leaves that field alone, so pausing a folder cannot blank its
+     * bookmark by omission.
+     *
+     * `volume_state` is the ADR-0023 D6 declaration — `indexed`, `unindexed`,
+     * `scan-on-demand`, `unavailable`. Writing it is how a folder on a
+     * Spotlight-less volume says so instead of rendering an honest-looking
+     * zero, and it is the store-side twin of `WatchedFolderState`.
+     */
+open func watchedFolderUpdate(id: String, enabled: Bool?, recursive: Bool?, displayName: String?, bookmarkBase64: String?, volumeState: String?)throws  -> SharedWatchedFolder {
+    return try  FfiConverterTypeSharedWatchedFolder.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_watched_folder_update(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterOptionBool.lower(enabled),
+        FfiConverterOptionBool.lower(recursive),
+        FfiConverterOptionString.lower(displayName),
+        FfiConverterOptionString.lower(bookmarkBase64),
+        FfiConverterOptionString.lower(volumeState),$0
+    )
+})
+}
+    
+    /**
+     * Record a batch of discovered files against a watched folder — the
+     * ADR-0023 D4 diff.
+     *
+     * * A path not seen before becomes a `watched-file` row with its
+     * provenance, content hash and mtime (`created`).
+     * * A path whose hash moved is updated in place, same id (`changed`).
+     * * A path whose hash is identical writes **nothing at all** — not the
+     * row, not a timestamp. Re-running discovery over a settled tree is free
+     * and fires no store mutation, which is what keeps a watcher out of the
+     * startup render loop.
+     * * A path that was `missing` and is back is restored, same id, with its
+     * attribution intact (`restored`).
+     *
+     * Missing files are NOT found here: a batch never has to be a complete set
+     * (live discovery reports one file at a time), so absence from a batch
+     * means nothing. `watched_finish_scan` is what looks for them.
+     *
+     * There is deliberately no `kind_scope` argument — the folder declared its
+     * scope when it was added, and a second copy on every call could only ever
+     * be redundant or wrong.
+     *
+     * Bounded per ADR-0023 D7: paths are sorted and written in batches of 500,
+     * and at most 5000 files may be sent in one call. A bigger tree is paged;
+     * an over-large call is REJECTED with the bound named, never truncated.
+     */
+open func watchedImportDiscovered(watchedFolderId: String, files: [SharedDiscoveredFile], dryRun: Bool)throws  -> SharedDiscoveryReport {
+    return try  FfiConverterTypeSharedDiscoveryReport.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_watched_import_discovered(self.uniffiClonePointer(),
+        FfiConverterString.lower(watchedFolderId),
+        FfiConverterSequenceTypeSharedDiscoveredFile.lower(files),
+        FfiConverterBool.lower(dryRun),$0
+    )
+})
+}
+    
+    /**
+     * Attribute store rows to the discovered file that produced them.
+     *
+     * The seam between file-level bookkeeping (the kernel) and each app's real
+     * importer (Swift). The kernel does not know how to parse a `.bib` and
+     * must not learn:
+     *
+     * 1. `watched_import_discovered` reports a file `created` / `changed` /
+     * `restored`.
+     * 2. The app's own importer runs on that one file — for imbib, the same
+     * BibTeX/RIS import a manual drag performs, with its whole-library
+     * identifier dedup.
+     * 3. It calls this with the ids that file now accounts for.
+     *
+     * `replace` is what makes deletions detectable: re-importing an edited
+     * `.bib` that lost an entry returns that entry's id in `removed_ids`, so
+     * the caller can decide what "the source no longer contains this" means.
+     * Pass `replace: false` to union instead, which is what an incremental
+     * append wants.
+     *
+     * Pass ALL the ids the file accounts for, not just the newly created ones
+     * — an id the importer deduped onto an existing publication is still an id
+     * this file produces, and omitting it would orphan a row on every re-scan.
+     */
+open func watchedRecordProduced(fileId: String, producedIds: [String], replace: Bool)throws  -> SharedProducedRowsReport {
+    return try  FfiConverterTypeSharedProducedRowsReport.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_watched_record_produced(self.uniffiClonePointer(),
+        FfiConverterString.lower(fileId),
+        FfiConverterSequenceString.lower(producedIds),
+        FfiConverterBool.lower(replace),$0
+    )
+})
+}
+    
 
 }
 
@@ -2468,6 +2812,358 @@ public func FfiConverterTypeSharedDeletedCollection_lift(_ buf: RustBuffer) thro
 #endif
 public func FfiConverterTypeSharedDeletedCollection_lower(_ value: SharedDeletedCollection) -> RustBuffer {
     return FfiConverterTypeSharedDeletedCollection.lower(value)
+}
+
+
+/**
+ * One file the watcher discovered, on its way in.
+ *
+ * `content_hash` / `mtime` / `size_bytes` are optional because Swift usually
+ * has them already (the metadata query supplies them) and the kernel reads
+ * them off disk when it does not. Passing a hash is trusted — the kernel does
+ * not re-read the file to check.
+ */
+public struct SharedDiscoveredFile {
+    /**
+     * Absolute POSIX path.
+     */
+    public var path: String
+    public var contentHash: String?
+    /**
+     * ISO-8601.
+     */
+    public var mtime: String?
+    public var sizeBytes: Int64?
+    /**
+     * Base64 of a per-file security-scoped bookmark, for reference-in-place
+     * records that must reopen the file after a relaunch (ADR-0023 D4).
+     */
+    public var bookmarkBase64: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Absolute POSIX path.
+         */path: String, contentHash: String?, 
+        /**
+         * ISO-8601.
+         */mtime: String?, sizeBytes: Int64?, 
+        /**
+         * Base64 of a per-file security-scoped bookmark, for reference-in-place
+         * records that must reopen the file after a relaunch (ADR-0023 D4).
+         */bookmarkBase64: String?) {
+        self.path = path
+        self.contentHash = contentHash
+        self.mtime = mtime
+        self.sizeBytes = sizeBytes
+        self.bookmarkBase64 = bookmarkBase64
+    }
+}
+
+
+
+extension SharedDiscoveredFile: Equatable, Hashable {
+    public static func ==(lhs: SharedDiscoveredFile, rhs: SharedDiscoveredFile) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.contentHash != rhs.contentHash {
+            return false
+        }
+        if lhs.mtime != rhs.mtime {
+            return false
+        }
+        if lhs.sizeBytes != rhs.sizeBytes {
+            return false
+        }
+        if lhs.bookmarkBase64 != rhs.bookmarkBase64 {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(contentHash)
+        hasher.combine(mtime)
+        hasher.combine(sizeBytes)
+        hasher.combine(bookmarkBase64)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedDiscoveredFile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedDiscoveredFile {
+        return
+            try SharedDiscoveredFile(
+                path: FfiConverterString.read(from: &buf), 
+                contentHash: FfiConverterOptionString.read(from: &buf), 
+                mtime: FfiConverterOptionString.read(from: &buf), 
+                sizeBytes: FfiConverterOptionInt64.read(from: &buf), 
+                bookmarkBase64: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedDiscoveredFile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterOptionString.write(value.contentHash, into: &buf)
+        FfiConverterOptionString.write(value.mtime, into: &buf)
+        FfiConverterOptionInt64.write(value.sizeBytes, into: &buf)
+        FfiConverterOptionString.write(value.bookmarkBase64, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedDiscoveredFile_lift(_ buf: RustBuffer) throws -> SharedDiscoveredFile {
+    return try FfiConverterTypeSharedDiscoveredFile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedDiscoveredFile_lower(_ value: SharedDiscoveredFile) -> RustBuffer {
+    return FfiConverterTypeSharedDiscoveredFile.lower(value)
+}
+
+
+/**
+ * What one file's pass through discovery did.
+ */
+public struct SharedDiscoveredFileOutcome {
+    public var id: String
+    public var path: String
+    /**
+     * `created` | `changed` | `unchanged` | `restored`.
+     *
+     * The first, second and fourth are the ones whose file the app's importer
+     * must run on again; `unchanged` wrote nothing at all.
+     */
+    public var action: String
+    public var contentHash: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, path: String, 
+        /**
+         * `created` | `changed` | `unchanged` | `restored`.
+         *
+         * The first, second and fourth are the ones whose file the app's importer
+         * must run on again; `unchanged` wrote nothing at all.
+         */action: String, contentHash: String) {
+        self.id = id
+        self.path = path
+        self.action = action
+        self.contentHash = contentHash
+    }
+}
+
+
+
+extension SharedDiscoveredFileOutcome: Equatable, Hashable {
+    public static func ==(lhs: SharedDiscoveredFileOutcome, rhs: SharedDiscoveredFileOutcome) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.action != rhs.action {
+            return false
+        }
+        if lhs.contentHash != rhs.contentHash {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(path)
+        hasher.combine(action)
+        hasher.combine(contentHash)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedDiscoveredFileOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedDiscoveredFileOutcome {
+        return
+            try SharedDiscoveredFileOutcome(
+                id: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                action: FfiConverterString.read(from: &buf), 
+                contentHash: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedDiscoveredFileOutcome, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.action, into: &buf)
+        FfiConverterString.write(value.contentHash, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedDiscoveredFileOutcome_lift(_ buf: RustBuffer) throws -> SharedDiscoveredFileOutcome {
+    return try FfiConverterTypeSharedDiscoveredFileOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedDiscoveredFileOutcome_lower(_ value: SharedDiscoveredFileOutcome) -> RustBuffer {
+    return FfiConverterTypeSharedDiscoveredFileOutcome.lower(value)
+}
+
+
+/**
+ * What one discovery batch did (ADR-0023 D4).
+ */
+public struct SharedDiscoveryReport {
+    public var watchedFolderId: String
+    public var kindScope: String
+    public var created: UInt32
+    public var changed: UInt32
+    /**
+     * Files whose hash is identical — **these wrote nothing at all**.
+     */
+    public var unchanged: UInt32
+    public var restored: UInt32
+    /**
+     * Write-gate batches used (`ceil(files / 500)`), for the D7 burst budget.
+     */
+    public var batches: UInt32
+    public var files: [SharedDiscoveredFileOutcome]
+    public var skipped: [SharedSkippedFile]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(watchedFolderId: String, kindScope: String, created: UInt32, changed: UInt32, 
+        /**
+         * Files whose hash is identical — **these wrote nothing at all**.
+         */unchanged: UInt32, restored: UInt32, 
+        /**
+         * Write-gate batches used (`ceil(files / 500)`), for the D7 burst budget.
+         */batches: UInt32, files: [SharedDiscoveredFileOutcome], skipped: [SharedSkippedFile]) {
+        self.watchedFolderId = watchedFolderId
+        self.kindScope = kindScope
+        self.created = created
+        self.changed = changed
+        self.unchanged = unchanged
+        self.restored = restored
+        self.batches = batches
+        self.files = files
+        self.skipped = skipped
+    }
+}
+
+
+
+extension SharedDiscoveryReport: Equatable, Hashable {
+    public static func ==(lhs: SharedDiscoveryReport, rhs: SharedDiscoveryReport) -> Bool {
+        if lhs.watchedFolderId != rhs.watchedFolderId {
+            return false
+        }
+        if lhs.kindScope != rhs.kindScope {
+            return false
+        }
+        if lhs.created != rhs.created {
+            return false
+        }
+        if lhs.changed != rhs.changed {
+            return false
+        }
+        if lhs.unchanged != rhs.unchanged {
+            return false
+        }
+        if lhs.restored != rhs.restored {
+            return false
+        }
+        if lhs.batches != rhs.batches {
+            return false
+        }
+        if lhs.files != rhs.files {
+            return false
+        }
+        if lhs.skipped != rhs.skipped {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(watchedFolderId)
+        hasher.combine(kindScope)
+        hasher.combine(created)
+        hasher.combine(changed)
+        hasher.combine(unchanged)
+        hasher.combine(restored)
+        hasher.combine(batches)
+        hasher.combine(files)
+        hasher.combine(skipped)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedDiscoveryReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedDiscoveryReport {
+        return
+            try SharedDiscoveryReport(
+                watchedFolderId: FfiConverterString.read(from: &buf), 
+                kindScope: FfiConverterString.read(from: &buf), 
+                created: FfiConverterUInt32.read(from: &buf), 
+                changed: FfiConverterUInt32.read(from: &buf), 
+                unchanged: FfiConverterUInt32.read(from: &buf), 
+                restored: FfiConverterUInt32.read(from: &buf), 
+                batches: FfiConverterUInt32.read(from: &buf), 
+                files: FfiConverterSequenceTypeSharedDiscoveredFileOutcome.read(from: &buf), 
+                skipped: FfiConverterSequenceTypeSharedSkippedFile.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedDiscoveryReport, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.watchedFolderId, into: &buf)
+        FfiConverterString.write(value.kindScope, into: &buf)
+        FfiConverterUInt32.write(value.created, into: &buf)
+        FfiConverterUInt32.write(value.changed, into: &buf)
+        FfiConverterUInt32.write(value.unchanged, into: &buf)
+        FfiConverterUInt32.write(value.restored, into: &buf)
+        FfiConverterUInt32.write(value.batches, into: &buf)
+        FfiConverterSequenceTypeSharedDiscoveredFileOutcome.write(value.files, into: &buf)
+        FfiConverterSequenceTypeSharedSkippedFile.write(value.skipped, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedDiscoveryReport_lift(_ buf: RustBuffer) throws -> SharedDiscoveryReport {
+    return try FfiConverterTypeSharedDiscoveryReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedDiscoveryReport_lower(_ value: SharedDiscoveryReport) -> RustBuffer {
+    return FfiConverterTypeSharedDiscoveryReport.lower(value)
 }
 
 
@@ -3353,6 +4049,95 @@ public func FfiConverterTypeSharedOperationRow_lower(_ value: SharedOperationRow
 
 
 /**
+ * What attributing rows to a file changed.
+ */
+public struct SharedProducedRowsReport {
+    public var file: SharedWatchedFile
+    public var added: UInt32
+    /**
+     * Ids that were attributed to this file before and are not now — the rows
+     * a re-import ORPHANED, which is how a deletion inside a `.bib` becomes
+     * visible. **What to do about them is the app's decision** (imbib tags
+     * them for review; nothing here deletes anything).
+     */
+    public var removedIds: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(file: SharedWatchedFile, added: UInt32, 
+        /**
+         * Ids that were attributed to this file before and are not now — the rows
+         * a re-import ORPHANED, which is how a deletion inside a `.bib` becomes
+         * visible. **What to do about them is the app's decision** (imbib tags
+         * them for review; nothing here deletes anything).
+         */removedIds: [String]) {
+        self.file = file
+        self.added = added
+        self.removedIds = removedIds
+    }
+}
+
+
+
+extension SharedProducedRowsReport: Equatable, Hashable {
+    public static func ==(lhs: SharedProducedRowsReport, rhs: SharedProducedRowsReport) -> Bool {
+        if lhs.file != rhs.file {
+            return false
+        }
+        if lhs.added != rhs.added {
+            return false
+        }
+        if lhs.removedIds != rhs.removedIds {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(file)
+        hasher.combine(added)
+        hasher.combine(removedIds)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedProducedRowsReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedProducedRowsReport {
+        return
+            try SharedProducedRowsReport(
+                file: FfiConverterTypeSharedWatchedFile.read(from: &buf), 
+                added: FfiConverterUInt32.read(from: &buf), 
+                removedIds: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedProducedRowsReport, into buf: inout [UInt8]) {
+        FfiConverterTypeSharedWatchedFile.write(value.file, into: &buf)
+        FfiConverterUInt32.write(value.added, into: &buf)
+        FfiConverterSequenceString.write(value.removedIds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedProducedRowsReport_lift(_ buf: RustBuffer) throws -> SharedProducedRowsReport {
+    return try FfiConverterTypeSharedProducedRowsReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedProducedRowsReport_lower(_ value: SharedProducedRowsReport) -> RustBuffer {
+    return FfiConverterTypeSharedProducedRowsReport.lower(value)
+}
+
+
+/**
  * A scored candidate. The vector this comes back in **is** the rank order.
  */
 public struct SharedRankedCandidate {
@@ -3758,6 +4543,788 @@ public func FfiConverterTypeSharedSearchHit_lift(_ buf: RustBuffer) throws -> Sh
 #endif
 public func FfiConverterTypeSharedSearchHit_lower(_ value: SharedSearchHit) -> RustBuffer {
     return FfiConverterTypeSharedSearchHit.lower(value)
+}
+
+
+/**
+ * A file discovery declined to record, and why. Never silently dropped.
+ */
+public struct SharedSkippedFile {
+    public var path: String
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, reason: String) {
+        self.path = path
+        self.reason = reason
+    }
+}
+
+
+
+extension SharedSkippedFile: Equatable, Hashable {
+    public static func ==(lhs: SharedSkippedFile, rhs: SharedSkippedFile) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.reason != rhs.reason {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(reason)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSkippedFile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSkippedFile {
+        return
+            try SharedSkippedFile(
+                path: FfiConverterString.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedSkippedFile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSkippedFile_lift(_ buf: RustBuffer) throws -> SharedSkippedFile {
+    return try FfiConverterTypeSharedSkippedFile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSkippedFile_lower(_ value: SharedSkippedFile) -> RustBuffer {
+    return FfiConverterTypeSharedSkippedFile.lower(value)
+}
+
+
+/**
+ * A discovered file as the store holds it — the provenance row.
+ */
+public struct SharedWatchedFile {
+    public var id: String
+    public var watchedFolderId: String
+    public var path: String
+    public var contentHash: String
+    /**
+     * `present` | `missing`. A missing file keeps its row and its
+     * attributions — ADR-0023 D4 never deletes one.
+     */
+    public var state: String
+    public var kindScope: String
+    public var mtime: String?
+    public var sizeBytes: Int64
+    public var firstSeenAt: String?
+    public var lastSeenAt: String?
+    public var missingSince: String?
+    /**
+     * Store rows this file produced. Empty AND `produced_at == nil` means the
+     * fan-out has not run; empty WITH a `produced_at` means it ran and
+     * produced nothing.
+     */
+    public var producedIds: [String]
+    public var producedAt: String?
+    /**
+     * True when the content moved on after the last fan-out — the queue the
+     * app's importer drains.
+     */
+    public var needsReimport: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, watchedFolderId: String, path: String, contentHash: String, 
+        /**
+         * `present` | `missing`. A missing file keeps its row and its
+         * attributions — ADR-0023 D4 never deletes one.
+         */state: String, kindScope: String, mtime: String?, sizeBytes: Int64, firstSeenAt: String?, lastSeenAt: String?, missingSince: String?, 
+        /**
+         * Store rows this file produced. Empty AND `produced_at == nil` means the
+         * fan-out has not run; empty WITH a `produced_at` means it ran and
+         * produced nothing.
+         */producedIds: [String], producedAt: String?, 
+        /**
+         * True when the content moved on after the last fan-out — the queue the
+         * app's importer drains.
+         */needsReimport: Bool) {
+        self.id = id
+        self.watchedFolderId = watchedFolderId
+        self.path = path
+        self.contentHash = contentHash
+        self.state = state
+        self.kindScope = kindScope
+        self.mtime = mtime
+        self.sizeBytes = sizeBytes
+        self.firstSeenAt = firstSeenAt
+        self.lastSeenAt = lastSeenAt
+        self.missingSince = missingSince
+        self.producedIds = producedIds
+        self.producedAt = producedAt
+        self.needsReimport = needsReimport
+    }
+}
+
+
+
+extension SharedWatchedFile: Equatable, Hashable {
+    public static func ==(lhs: SharedWatchedFile, rhs: SharedWatchedFile) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.watchedFolderId != rhs.watchedFolderId {
+            return false
+        }
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.contentHash != rhs.contentHash {
+            return false
+        }
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.kindScope != rhs.kindScope {
+            return false
+        }
+        if lhs.mtime != rhs.mtime {
+            return false
+        }
+        if lhs.sizeBytes != rhs.sizeBytes {
+            return false
+        }
+        if lhs.firstSeenAt != rhs.firstSeenAt {
+            return false
+        }
+        if lhs.lastSeenAt != rhs.lastSeenAt {
+            return false
+        }
+        if lhs.missingSince != rhs.missingSince {
+            return false
+        }
+        if lhs.producedIds != rhs.producedIds {
+            return false
+        }
+        if lhs.producedAt != rhs.producedAt {
+            return false
+        }
+        if lhs.needsReimport != rhs.needsReimport {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(watchedFolderId)
+        hasher.combine(path)
+        hasher.combine(contentHash)
+        hasher.combine(state)
+        hasher.combine(kindScope)
+        hasher.combine(mtime)
+        hasher.combine(sizeBytes)
+        hasher.combine(firstSeenAt)
+        hasher.combine(lastSeenAt)
+        hasher.combine(missingSince)
+        hasher.combine(producedIds)
+        hasher.combine(producedAt)
+        hasher.combine(needsReimport)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedWatchedFile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedWatchedFile {
+        return
+            try SharedWatchedFile(
+                id: FfiConverterString.read(from: &buf), 
+                watchedFolderId: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                contentHash: FfiConverterString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                kindScope: FfiConverterString.read(from: &buf), 
+                mtime: FfiConverterOptionString.read(from: &buf), 
+                sizeBytes: FfiConverterInt64.read(from: &buf), 
+                firstSeenAt: FfiConverterOptionString.read(from: &buf), 
+                lastSeenAt: FfiConverterOptionString.read(from: &buf), 
+                missingSince: FfiConverterOptionString.read(from: &buf), 
+                producedIds: FfiConverterSequenceString.read(from: &buf), 
+                producedAt: FfiConverterOptionString.read(from: &buf), 
+                needsReimport: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedWatchedFile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.watchedFolderId, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.contentHash, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterString.write(value.kindScope, into: &buf)
+        FfiConverterOptionString.write(value.mtime, into: &buf)
+        FfiConverterInt64.write(value.sizeBytes, into: &buf)
+        FfiConverterOptionString.write(value.firstSeenAt, into: &buf)
+        FfiConverterOptionString.write(value.lastSeenAt, into: &buf)
+        FfiConverterOptionString.write(value.missingSince, into: &buf)
+        FfiConverterSequenceString.write(value.producedIds, into: &buf)
+        FfiConverterOptionString.write(value.producedAt, into: &buf)
+        FfiConverterBool.write(value.needsReimport, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFile_lift(_ buf: RustBuffer) throws -> SharedWatchedFile {
+    return try FfiConverterTypeSharedWatchedFile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFile_lower(_ value: SharedWatchedFile) -> RustBuffer {
+    return FfiConverterTypeSharedWatchedFile.lower(value)
+}
+
+
+/**
+ * One page of discovered files.
+ */
+public struct SharedWatchedFilePage {
+    public var files: [SharedWatchedFile]
+    /**
+     * Unpaged match count, so "200 of 4000" is distinguishable from
+     * "200 of 200".
+     */
+    public var total: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(files: [SharedWatchedFile], 
+        /**
+         * Unpaged match count, so "200 of 4000" is distinguishable from
+         * "200 of 200".
+         */total: UInt32) {
+        self.files = files
+        self.total = total
+    }
+}
+
+
+
+extension SharedWatchedFilePage: Equatable, Hashable {
+    public static func ==(lhs: SharedWatchedFilePage, rhs: SharedWatchedFilePage) -> Bool {
+        if lhs.files != rhs.files {
+            return false
+        }
+        if lhs.total != rhs.total {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(files)
+        hasher.combine(total)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedWatchedFilePage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedWatchedFilePage {
+        return
+            try SharedWatchedFilePage(
+                files: FfiConverterSequenceTypeSharedWatchedFile.read(from: &buf), 
+                total: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedWatchedFilePage, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeSharedWatchedFile.write(value.files, into: &buf)
+        FfiConverterUInt32.write(value.total, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFilePage_lift(_ buf: RustBuffer) throws -> SharedWatchedFilePage {
+    return try FfiConverterTypeSharedWatchedFilePage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFilePage_lower(_ value: SharedWatchedFilePage) -> RustBuffer {
+    return FfiConverterTypeSharedWatchedFilePage.lower(value)
+}
+
+
+/**
+ * A watched folder as the store holds it.
+ */
+public struct SharedWatchedFolder {
+    public var id: String
+    public var path: String
+    /**
+     * The record kind whose `FileDiscoveryCapability` decides what counts —
+     * `publication`, `manuscript`, `figure`, `message`.
+     */
+    public var kindScope: String
+    public var displayName: String
+    public var enabled: Bool
+    public var recursive: Bool
+    /**
+     * `indexed` | `unindexed` | `scan-on-demand` | `unavailable`, or nil when
+     * the platform has not declared one yet (ADR-0023 D6).
+     */
+    public var volumeState: String?
+    public var bookmarkBase64: String?
+    public var lastScanAt: String?
+    public var lastScanFileCount: Int64
+    public var lastScanNewCount: Int64
+    public var lastScanChangedCount: Int64
+    public var lastScanMissingCount: Int64
+    public var lastScanDurationMs: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, path: String, 
+        /**
+         * The record kind whose `FileDiscoveryCapability` decides what counts —
+         * `publication`, `manuscript`, `figure`, `message`.
+         */kindScope: String, displayName: String, enabled: Bool, recursive: Bool, 
+        /**
+         * `indexed` | `unindexed` | `scan-on-demand` | `unavailable`, or nil when
+         * the platform has not declared one yet (ADR-0023 D6).
+         */volumeState: String?, bookmarkBase64: String?, lastScanAt: String?, lastScanFileCount: Int64, lastScanNewCount: Int64, lastScanChangedCount: Int64, lastScanMissingCount: Int64, lastScanDurationMs: Int64) {
+        self.id = id
+        self.path = path
+        self.kindScope = kindScope
+        self.displayName = displayName
+        self.enabled = enabled
+        self.recursive = recursive
+        self.volumeState = volumeState
+        self.bookmarkBase64 = bookmarkBase64
+        self.lastScanAt = lastScanAt
+        self.lastScanFileCount = lastScanFileCount
+        self.lastScanNewCount = lastScanNewCount
+        self.lastScanChangedCount = lastScanChangedCount
+        self.lastScanMissingCount = lastScanMissingCount
+        self.lastScanDurationMs = lastScanDurationMs
+    }
+}
+
+
+
+extension SharedWatchedFolder: Equatable, Hashable {
+    public static func ==(lhs: SharedWatchedFolder, rhs: SharedWatchedFolder) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.kindScope != rhs.kindScope {
+            return false
+        }
+        if lhs.displayName != rhs.displayName {
+            return false
+        }
+        if lhs.enabled != rhs.enabled {
+            return false
+        }
+        if lhs.recursive != rhs.recursive {
+            return false
+        }
+        if lhs.volumeState != rhs.volumeState {
+            return false
+        }
+        if lhs.bookmarkBase64 != rhs.bookmarkBase64 {
+            return false
+        }
+        if lhs.lastScanAt != rhs.lastScanAt {
+            return false
+        }
+        if lhs.lastScanFileCount != rhs.lastScanFileCount {
+            return false
+        }
+        if lhs.lastScanNewCount != rhs.lastScanNewCount {
+            return false
+        }
+        if lhs.lastScanChangedCount != rhs.lastScanChangedCount {
+            return false
+        }
+        if lhs.lastScanMissingCount != rhs.lastScanMissingCount {
+            return false
+        }
+        if lhs.lastScanDurationMs != rhs.lastScanDurationMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(path)
+        hasher.combine(kindScope)
+        hasher.combine(displayName)
+        hasher.combine(enabled)
+        hasher.combine(recursive)
+        hasher.combine(volumeState)
+        hasher.combine(bookmarkBase64)
+        hasher.combine(lastScanAt)
+        hasher.combine(lastScanFileCount)
+        hasher.combine(lastScanNewCount)
+        hasher.combine(lastScanChangedCount)
+        hasher.combine(lastScanMissingCount)
+        hasher.combine(lastScanDurationMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedWatchedFolder: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedWatchedFolder {
+        return
+            try SharedWatchedFolder(
+                id: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                kindScope: FfiConverterString.read(from: &buf), 
+                displayName: FfiConverterString.read(from: &buf), 
+                enabled: FfiConverterBool.read(from: &buf), 
+                recursive: FfiConverterBool.read(from: &buf), 
+                volumeState: FfiConverterOptionString.read(from: &buf), 
+                bookmarkBase64: FfiConverterOptionString.read(from: &buf), 
+                lastScanAt: FfiConverterOptionString.read(from: &buf), 
+                lastScanFileCount: FfiConverterInt64.read(from: &buf), 
+                lastScanNewCount: FfiConverterInt64.read(from: &buf), 
+                lastScanChangedCount: FfiConverterInt64.read(from: &buf), 
+                lastScanMissingCount: FfiConverterInt64.read(from: &buf), 
+                lastScanDurationMs: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedWatchedFolder, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.kindScope, into: &buf)
+        FfiConverterString.write(value.displayName, into: &buf)
+        FfiConverterBool.write(value.enabled, into: &buf)
+        FfiConverterBool.write(value.recursive, into: &buf)
+        FfiConverterOptionString.write(value.volumeState, into: &buf)
+        FfiConverterOptionString.write(value.bookmarkBase64, into: &buf)
+        FfiConverterOptionString.write(value.lastScanAt, into: &buf)
+        FfiConverterInt64.write(value.lastScanFileCount, into: &buf)
+        FfiConverterInt64.write(value.lastScanNewCount, into: &buf)
+        FfiConverterInt64.write(value.lastScanChangedCount, into: &buf)
+        FfiConverterInt64.write(value.lastScanMissingCount, into: &buf)
+        FfiConverterInt64.write(value.lastScanDurationMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFolder_lift(_ buf: RustBuffer) throws -> SharedWatchedFolder {
+    return try FfiConverterTypeSharedWatchedFolder.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFolder_lower(_ value: SharedWatchedFolder) -> RustBuffer {
+    return FfiConverterTypeSharedWatchedFolder.lower(value)
+}
+
+
+/**
+ * A watched folder plus whether THIS call created it. `created == false` is a
+ * re-add, which is a no-op returning the existing row.
+ */
+public struct SharedWatchedFolderOutcome {
+    public var folder: SharedWatchedFolder
+    public var created: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(folder: SharedWatchedFolder, created: Bool) {
+        self.folder = folder
+        self.created = created
+    }
+}
+
+
+
+extension SharedWatchedFolderOutcome: Equatable, Hashable {
+    public static func ==(lhs: SharedWatchedFolderOutcome, rhs: SharedWatchedFolderOutcome) -> Bool {
+        if lhs.folder != rhs.folder {
+            return false
+        }
+        if lhs.created != rhs.created {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(folder)
+        hasher.combine(created)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedWatchedFolderOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedWatchedFolderOutcome {
+        return
+            try SharedWatchedFolderOutcome(
+                folder: FfiConverterTypeSharedWatchedFolder.read(from: &buf), 
+                created: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedWatchedFolderOutcome, into buf: inout [UInt8]) {
+        FfiConverterTypeSharedWatchedFolder.write(value.folder, into: &buf)
+        FfiConverterBool.write(value.created, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFolderOutcome_lift(_ buf: RustBuffer) throws -> SharedWatchedFolderOutcome {
+    return try FfiConverterTypeSharedWatchedFolderOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFolderOutcome_lower(_ value: SharedWatchedFolderOutcome) -> RustBuffer {
+    return FfiConverterTypeSharedWatchedFolderOutcome.lower(value)
+}
+
+
+/**
+ * What removing a watched folder took with it.
+ */
+public struct SharedWatchedFolderRemoval {
+    /**
+     * False when there was no such folder.
+     */
+    public var removed: Bool
+    /**
+     * `watched-file` index entries deleted. Zero unless asked.
+     */
+    public var fileRowsDeleted: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * False when there was no such folder.
+         */removed: Bool, 
+        /**
+         * `watched-file` index entries deleted. Zero unless asked.
+         */fileRowsDeleted: UInt32) {
+        self.removed = removed
+        self.fileRowsDeleted = fileRowsDeleted
+    }
+}
+
+
+
+extension SharedWatchedFolderRemoval: Equatable, Hashable {
+    public static func ==(lhs: SharedWatchedFolderRemoval, rhs: SharedWatchedFolderRemoval) -> Bool {
+        if lhs.removed != rhs.removed {
+            return false
+        }
+        if lhs.fileRowsDeleted != rhs.fileRowsDeleted {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(removed)
+        hasher.combine(fileRowsDeleted)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedWatchedFolderRemoval: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedWatchedFolderRemoval {
+        return
+            try SharedWatchedFolderRemoval(
+                removed: FfiConverterBool.read(from: &buf), 
+                fileRowsDeleted: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedWatchedFolderRemoval, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.removed, into: &buf)
+        FfiConverterUInt32.write(value.fileRowsDeleted, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFolderRemoval_lift(_ buf: RustBuffer) throws -> SharedWatchedFolderRemoval {
+    return try FfiConverterTypeSharedWatchedFolderRemoval.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedFolderRemoval_lower(_ value: SharedWatchedFolderRemoval) -> RustBuffer {
+    return FfiConverterTypeSharedWatchedFolderRemoval.lower(value)
+}
+
+
+/**
+ * What the terminal sweep of a scan found.
+ */
+public struct SharedWatchedScanReport {
+    public var watchedFolderId: String
+    public var examined: UInt32
+    public var present: UInt32
+    /**
+     * Rows flipped to `missing` by this call. **Nothing was deleted.**
+     */
+    public var markedMissing: UInt32
+    public var missing: [SharedWatchedFile]
+    /**
+     * The folder row after its stats were written.
+     */
+    public var folder: SharedWatchedFolder?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(watchedFolderId: String, examined: UInt32, present: UInt32, 
+        /**
+         * Rows flipped to `missing` by this call. **Nothing was deleted.**
+         */markedMissing: UInt32, missing: [SharedWatchedFile], 
+        /**
+         * The folder row after its stats were written.
+         */folder: SharedWatchedFolder?) {
+        self.watchedFolderId = watchedFolderId
+        self.examined = examined
+        self.present = present
+        self.markedMissing = markedMissing
+        self.missing = missing
+        self.folder = folder
+    }
+}
+
+
+
+extension SharedWatchedScanReport: Equatable, Hashable {
+    public static func ==(lhs: SharedWatchedScanReport, rhs: SharedWatchedScanReport) -> Bool {
+        if lhs.watchedFolderId != rhs.watchedFolderId {
+            return false
+        }
+        if lhs.examined != rhs.examined {
+            return false
+        }
+        if lhs.present != rhs.present {
+            return false
+        }
+        if lhs.markedMissing != rhs.markedMissing {
+            return false
+        }
+        if lhs.missing != rhs.missing {
+            return false
+        }
+        if lhs.folder != rhs.folder {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(watchedFolderId)
+        hasher.combine(examined)
+        hasher.combine(present)
+        hasher.combine(markedMissing)
+        hasher.combine(missing)
+        hasher.combine(folder)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedWatchedScanReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedWatchedScanReport {
+        return
+            try SharedWatchedScanReport(
+                watchedFolderId: FfiConverterString.read(from: &buf), 
+                examined: FfiConverterUInt32.read(from: &buf), 
+                present: FfiConverterUInt32.read(from: &buf), 
+                markedMissing: FfiConverterUInt32.read(from: &buf), 
+                missing: FfiConverterSequenceTypeSharedWatchedFile.read(from: &buf), 
+                folder: FfiConverterOptionTypeSharedWatchedFolder.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedWatchedScanReport, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.watchedFolderId, into: &buf)
+        FfiConverterUInt32.write(value.examined, into: &buf)
+        FfiConverterUInt32.write(value.present, into: &buf)
+        FfiConverterUInt32.write(value.markedMissing, into: &buf)
+        FfiConverterSequenceTypeSharedWatchedFile.write(value.missing, into: &buf)
+        FfiConverterOptionTypeSharedWatchedFolder.write(value.folder, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedScanReport_lift(_ buf: RustBuffer) throws -> SharedWatchedScanReport {
+    return try FfiConverterTypeSharedWatchedScanReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWatchedScanReport_lower(_ value: SharedWatchedScanReport) -> RustBuffer {
+    return FfiConverterTypeSharedWatchedScanReport.lower(value)
 }
 
 
@@ -4869,6 +6436,30 @@ fileprivate struct FfiConverterOptionTypeSharedItemRow: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeSharedWatchedFolder: FfiConverterRustBuffer {
+    typealias SwiftType = SharedWatchedFolder?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSharedWatchedFolder.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSharedWatchedFolder.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
     typealias SwiftType = [UInt32]
 
@@ -4961,6 +6552,56 @@ fileprivate struct FfiConverterSequenceTypeSharedCollectionRow: FfiConverterRust
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSharedCollectionRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedDiscoveredFile: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedDiscoveredFile]
+
+    public static func write(_ value: [SharedDiscoveredFile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedDiscoveredFile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedDiscoveredFile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedDiscoveredFile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedDiscoveredFile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedDiscoveredFileOutcome: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedDiscoveredFileOutcome]
+
+    public static func write(_ value: [SharedDiscoveredFileOutcome], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedDiscoveredFileOutcome.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedDiscoveredFileOutcome] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedDiscoveredFileOutcome]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedDiscoveredFileOutcome.read(from: &buf))
         }
         return seq
     }
@@ -5186,6 +6827,81 @@ fileprivate struct FfiConverterSequenceTypeSharedSearchHit: FfiConverterRustBuff
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSharedSearchHit.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedSkippedFile: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedSkippedFile]
+
+    public static func write(_ value: [SharedSkippedFile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedSkippedFile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedSkippedFile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedSkippedFile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedSkippedFile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedWatchedFile: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedWatchedFile]
+
+    public static func write(_ value: [SharedWatchedFile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedWatchedFile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedWatchedFile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedWatchedFile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedWatchedFile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedWatchedFolder: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedWatchedFolder]
+
+    public static func write(_ value: [SharedWatchedFolder], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedWatchedFolder.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedWatchedFolder] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedWatchedFolder]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedWatchedFolder.read(from: &buf))
         }
         return seq
     }
@@ -5511,6 +7227,30 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_upsert_items() != 54137) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_files_list() != 45379) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_finish_scan() != 47643) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_folder_add() != 53335) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_folder_list() != 27654) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_folder_remove() != 31151) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_folder_update() != 22414) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_import_discovered() != 41029) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_record_produced() != 53538) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open() != 6376) {

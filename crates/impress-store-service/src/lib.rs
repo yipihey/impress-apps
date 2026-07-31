@@ -37,7 +37,15 @@ pub mod docs_import_service;
 pub mod query_service;
 pub mod store;
 pub mod triage_service;
-pub mod watched_folder;
+
+/// ADR-0023's watched-folder kernel, at the address W0 gave it.
+///
+/// The module itself moved to [`impress_core::watched_folder_ops`] in W2, when
+/// `impress-store-ffi` became its second consumer and the choice was between
+/// one kernel in `impress-core` (the shape `collection_ops` already has) and an
+/// FFI shim that depends on the MCP/CLI service crate. Every path W0 wrote
+/// still resolves; see the kernel's module docs for the full reasoning.
+pub use impress_core::watched_folder_ops as watched_folder;
 
 #[cfg(test)]
 mod test_support;

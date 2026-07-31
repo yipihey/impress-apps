@@ -1,5 +1,23 @@
 //! Watched-folder bookkeeping — the Rust half of ADR-0023 (WP W0).
 //!
+//! # Why this is a kernel in `impress-core` and not a module of the service
+//!
+//! W0 wrote it as `impress_store_service::watched_folder`, because at that
+//! point the agent-facing verbs were its only consumer. W2 added the second:
+//! Swift reaches these same verbs through `SharedStore` (`impress-store-ffi`),
+//! and an FFI shim that depended on the *service* crate would drag the whole
+//! MCP/CLI machinery — `inventory` registrations, `tokio`, `async-trait` — into
+//! every app binary on both platforms, to call functions that are synchronous
+//! and know nothing about any of it.
+//!
+//! So it moved here, into the shape the suite already uses for exactly this:
+//! [`crate::collection_ops`] is the kernel, `CollectionService` is its
+//! agent-facing twin, and `SharedStore::collection_*` is its Swift twin — the
+//! triangle `impress-store-service`'s own crate docs describe. Nothing about
+//! the module changed in the move except its address:
+//! `impress_store_service::watched_folder` is still a valid path (a re-export),
+//! and the eight service verbs are untouched.
+//!
 //! ADR-0023 D5 draws the line: **discovery is Swift, everything below it is
 //! Rust.** `NSMetadataQuery` and security-scoped bookmarks are platform policy;
 //! parsing, id derivation, provenance and the re-scan diff are logic, and logic
@@ -104,16 +122,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use impress_core::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
-use impress_core::manuscript_ops::{iso8601_now, sha256_bytes_hex};
-use impress_core::query::{ItemQuery, Predicate};
-use impress_core::reference::{EdgeType, TypedReference};
-use impress_core::schemas::watched_folder::{
+use crate::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
+use crate::manuscript_ops::{iso8601_now, sha256_bytes_hex};
+use crate::query::{ItemQuery, Predicate};
+use crate::reference::{EdgeType, TypedReference};
+use crate::schemas::watched_folder::{
     FILE_STATE_MISSING, FILE_STATE_PRESENT, VOLUME_STATES, VOLUME_STATE_UNAVAILABLE,
     WATCHED_FILE_SCHEMA, WATCHED_FOLDER_SCHEMA,
 };
-use impress_core::sqlite_store::SqliteItemStore;
-use impress_core::store::{FieldMutation, ItemStore, StoreError};
+use crate::sqlite_store::SqliteItemStore;
+use crate::store::{FieldMutation, ItemStore, StoreError};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -124,7 +142,7 @@ use uuid::Uuid;
 /// Fixed namespace for every watched-folder row.
 ///
 /// Derived ONCE as `UUIDv5(NAMESPACE_DNS, "store.impress.watched-folder")` and
-/// hardcoded, exactly as [`crate::docs_import_service::DOCS_IMPORT_NAMESPACE`]
+/// hardcoded, exactly as `impress_store_service::DOCS_IMPORT_NAMESPACE`
 /// and `DeterministicID.impartNamespace` are. **Never change it** — a new
 /// namespace forks every watched folder in every store into a duplicate, and
 /// takes the provenance of every file with it.
@@ -224,7 +242,8 @@ fn normalize_dir_path(path: &str) -> String {
 /// a CLI/MCP caller who does not is served by this module reading them off the
 /// filesystem itself. A caller who passes a hash is trusted — this is not the
 /// place to re-read every file to check.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct DiscoveredFileInput {
     /// Absolute POSIX path of the file.
     pub path: String,
@@ -244,7 +263,8 @@ pub struct DiscoveredFileInput {
 }
 
 /// A watched folder as the store holds it.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WatchedFolderDto {
     pub id: String,
     pub path: String,
@@ -252,7 +272,7 @@ pub struct WatchedFolderDto {
     pub display_name: String,
     pub enabled: bool,
     pub recursive: bool,
-    /// One of `impress_core::schemas::watched_folder::VOLUME_STATES`, or null
+    /// One of `crate::schemas::watched_folder::VOLUME_STATES`, or null
     /// when the platform has not declared one yet.
     pub volume_state: Option<String>,
     /// Base64 security-scoped bookmark, when one was stored. Present so the
@@ -267,7 +287,8 @@ pub struct WatchedFolderDto {
 }
 
 /// A discovered file as the store holds it.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WatchedFileDto {
     pub id: String,
     pub watched_folder_id: String,
@@ -292,7 +313,8 @@ pub struct WatchedFileDto {
 }
 
 /// What one file's pass through discovery did.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct DiscoveredFileOutcome {
     pub id: String,
     pub path: String,
@@ -305,7 +327,8 @@ pub struct DiscoveredFileOutcome {
 }
 
 /// A file discovery declined to record, and why.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SkippedFile {
     pub path: String,
     pub reason: String,

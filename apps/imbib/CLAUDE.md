@@ -304,6 +304,54 @@ UnifiedPublicationListWrapper(source: source, ...).id(source.id)
 
 Without `.id()`, NavigationSplitView caches the `detail:` closure and `let` properties of child views go stale — switching between sidebar items with the same view type (e.g., Red → Grey flags) won't update the content.
 
+### The BibTeX import path has TWO entry points (ADR-0023 W2)
+
+Every real import still funnels into the same Rust verb — `ImbibStore
+::import_bibtex_into(bibtex, library, collection:)`, which owns the identifier
+dedup. What differs is which half of its answer the Swift caller keeps:
+
+| Swift entry point | Returns | Used by |
+|---|---|---|
+| `RustStoreAdapter.importBibTeX(_:libraryId:)` | ids it CREATED | every manual path (⌘I panel → `ImportPreviewView`, drag-drop, automation, Safari, SciX) |
+| `RustStoreAdapter.importBibTeXOutcome(_:libraryId:)` | `(imported, existing)` | watched folders |
+| `RustStoreAdapter.importBibTeXIntoCollection(_:libraryId:collectionId:)` | `(imported, existing)` | filing an import into a collection |
+
+**A watched folder cannot use the first one**, and the reason is worth keeping:
+it reports which store rows a source FILE accounts for
+(`SharedStore.watchedRecordProduced`), and an entry that deduped onto a paper
+already in the library is still an entry that file contains. Passing only the
+created ids made every re-scan claim the source had *dropped* every deduped
+entry. `importBibTeXOutcome` is the same call with the same dedup, the same undo
+entry and the same `dataVersion` discipline — it just does not throw away
+`existing`. (Fixed in the same phase: `import_bibtex_into` only populated
+`existing` when filing into a collection, so the field read as "nothing was
+deduped" on the plain-library path.)
+
+`.ris` is converted to BibTeX before any of this — `BibliographyFileText`
+(watched folders) and `LibraryViewModel.importRIS` (the manual path) both do it
+with `RISParserFactory` + `toBibTeX()`. A watched folder imports each file as ONE
+blob so the dedup pass runs once per file rather than once per entry, which is
+what the manual path does too.
+
+### Watched folders (ADR-0023)
+
+`WatchedFolderIngestCoordinator.shared` is the whole loop: W1's
+`FolderWatchService` → `SharedStore.watchedImportDiscovered` → the importer above
+→ `watchedRecordProduced` → `watchedFinishScan`. Three things about it are easy
+to get wrong later:
+
+- **An entry the source file no longer contains is TAGGED**
+  (`watched/removed-from-source`), never deleted, and un-tagged if it comes back.
+  Nothing in this feature deletes a publication, ever (ADR-0023 D4).
+- **A folder's papers are its provenance tag** (`watched/<folder name>`), which is
+  why the display name is uniquified at add time — it is an identity, not a
+  label. This is also the first constructor of `PublicationSource.tag(_:)`, a
+  scope that had been fully Rust-backed and never built.
+- **Under `--ui-testing` every store handle opens ONE scratch FILE**
+  (`UITestingEnvironment.scratchDatabasePath`), not `openInMemory()`. Two
+  in-memory opens are two databases; provenance is a cross-handle claim and the
+  kernel correctly refuses to attribute rows it cannot see.
+
 ### Critical Invariants
 
 **Dismissed papers must never re-enter the inbox.** Enforced in: `batch_import_search_results` (Rust `filter_dismissed` checks both new and existing papers), `GroupFeedRefreshService` (Swift `wasDismissed`). Risk: any new import path that doesn't check dismissed status.

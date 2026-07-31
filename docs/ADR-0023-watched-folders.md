@@ -117,13 +117,51 @@ Spotlight's live updates make the steady state event-driven, not polled.
 |----|---------|------|
 | W0 | `FileDiscoveryCapability` + parity tests; `watched-folder@1.0.0` schema + schema-refs.json entry; `DocsImportService.import_discovered` with provenance + incremental re-scan (Rust tests over a scratch tree) | cargo green; lint green; capability↔table parity |
 | W1 | Chassis `FolderWatchService` (NSMetadataQuery + bookmark persistence + FSEvents fallback), feed-shaped sidebar rows, degraded-volume states | PMC tests; UI test with a temp watched dir |
-| W2 | **imbib phase**: watched `.bib`/`.ris` folders end-to-end — add folder (panel + bookmark), live discovery, entry ingest with dedup + provenance, missing-file handling, folder badge/refresh | imbib UI suite + a live-drop simulator test; dedup golden additions |
+| W2 | **imbib phase**: watched `.bib`/`.ris` folders end-to-end — add folder (panel + bookmark), live discovery, entry ingest with dedup + provenance, missing-file handling, folder badge/refresh | **SHIPPED 2026-07-31.** `SharedStore.watched*` (the eight verbs, Swift twin of the service's); `WatchedFolderIngestCoordinator` (watcher → `import_discovered` → imbib's real importer → `record_produced_rows` → `finish_watched_scan`); NSOpenPanel (macOS) / `fileImporter` (iOS); sidebar rows both platforms; provenance tag = the folder's list scope; Source File row in both Info tabs. 6 headless end-to-end tests + 2 simulator UI tests (live drop, deduped) + 8 FFI tests |
 | W3 | **imprint phase**: watched manuscript folders, reference-in-place rows, open-in-place vs import-copy affordance, `missing` state | imprint suites; editor invariants untouched |
 | W4 | impart mbox + implore vsz; iOS iCloud-folder spike recorded | per-app suites |
 | W5 | imbib phase 2: adjacent-PDF matching → attachments | golden matches; Bdsk round-trip preserved |
 
 Sequencing: W0 → W1 → W2 ship together as the feature's proof; W3–W5 follow
 independently. Every WP updates the capability matrix row for its surface.
+
+### What W2 settled that W0 and W1 left open
+
+- **`removed_ids` disposition** (W0 recorded it as "a product decision"). An
+  entry the source file no longer contains is **tagged** `watched/removed-from-source`,
+  never deleted, and **un-tagged automatically if it comes back**. A tag renders
+  on the row and in the detail pane, is removable with a gesture the user already
+  knows, survives relaunch (it is a store row), and `PublicationSource.tag(_:)`
+  makes the whole set a list. Rejected: deletion (D4 forbids it), a status change
+  (imbib's statuses are the *reading* workflow), and the review queue (its rows
+  await an accept/reject decision, and there is no accept verb here — the paper is
+  fine, only its source moved on).
+- **Where a folder's papers are seen.** The same tag, per folder
+  (`watched/<folder name>`), so the folder row's list is an existing, fully
+  Rust-backed scope: no new `PublicationSource` case, no new query, no per-folder
+  collection in the Libraries tree. Folder display names are uniquified when a
+  folder is added, because that name is now an identity.
+- **The macOS sidebar row** (W1's matrix left the choice to W2): a
+  `ImbibSidebarNodeType.watchedFolder` case, not the `customSurface` seam — a
+  custom surface is by construction childless, badgeless and menuless, and this
+  row needs all three.
+- **The kernel's address.** `watched_folder.rs` moved from
+  `impress-store-service` to `impress_core::watched_folder_ops`, so the FFI can
+  front it without the MCP/CLI crate (`inventory`, `tokio`) entering every app
+  binary. Same triangle `collection_ops` already has; every W0 path still
+  resolves through a re-export.
+
+Two defects the phase surfaced and fixed, both silent:
+
+- **A watched file could never be re-read after an edit.** `DiscoveryDiff` was a
+  URL set difference, so a `.bib` whose contents changed produced no event at all
+  and the live half of the feature was unreachable. The diff now has a third
+  bucket (`changed`, by mtime/size) and a `filesChanged` event; a touched file is
+  still never an *add*, and whether its bytes really moved is still decided by the
+  hash-keyed Rust layer.
+- **`import_bibtex_into` dropped the ids it deduped** unless filing into a
+  collection, so a re-scan reported every deduped entry as *dropped by the
+  source*. `existing` is now always populated.
 
 ## Risks
 

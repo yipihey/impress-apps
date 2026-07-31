@@ -141,6 +141,18 @@ public enum FolderWatchEvent: Sendable, Equatable {
     /// Live change: files that appeared. Also chunked to `maxBatchSize`.
     case filesAdded(WatchedFolderID, files: [DiscoveredFile])
 
+    /// Live change: files that were already here and whose contents moved.
+    ///
+    /// Separate from `filesAdded` (W2) because the two mean different things to
+    /// the two consumers: the sidebar's "new since you last looked" badge must
+    /// NOT tick for an edit, and the ingest sink must run on it just the same.
+    /// Collapsing them would force one of those two to be wrong.
+    ///
+    /// Coarse by construction — see `DiscoveryDiff.changed`. The receiver hands
+    /// these to `import_discovered`, which is hash-keyed and answers
+    /// `unchanged` at no cost when the bytes really did not move.
+    case filesChanged(WatchedFolderID, files: [DiscoveredFile])
+
     /// Live change: files that went away. D4 says a vanished file marks its row
     /// `missing` rather than deleting it; that decision is the host's, this is
     /// only the notification.

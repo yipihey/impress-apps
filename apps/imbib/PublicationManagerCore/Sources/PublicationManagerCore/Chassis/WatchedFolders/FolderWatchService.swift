@@ -435,7 +435,21 @@ public final class FolderWatchService {
             // The state a completed gather implies. `usedPrimary` distinguishes
             // "Spotlight answered" from "the walk answered", which is exactly
             // the live/fallback distinction the row shows.
-            setState(folder.usedPrimary ? .live : .fallback, for: id)
+            //
+            // W2 correction: `fallback` says "watched by FSEvents with a
+            // bounded walk behind it", and on a platform with no live engine at
+            // all (iOS — `FolderWatchAvailability.livePlatforms == [.macOS]`)
+            // that is simply not true: the walk completed, but nothing will
+            // fire again until the user asks. D6's own words for that case are
+            // "declares itself scan-on-demand", and the difference is not
+            // cosmetic — `scanOnDemand.countIsTrustworthy` is false, so the row
+            // shows no badge, which is the honest rendering of a count that may
+            // already be stale.
+            let completed: WatchedFolderState =
+                folder.usedPrimary
+                ? .live
+                : (FolderWatchAvailability.isLiveHere ? .fallback : .scanOnDemand)
+            setState(completed, for: id)
 
             if previous.isEmpty {
                 emitGather(files, for: id)
@@ -451,8 +465,13 @@ public final class FolderWatchService {
             folder.lastScanDate = Date()
             var current = discoveredFiles[id] ?? []
             let removed = Set(diff.removed)
-            current.removeAll { removed.contains($0.url) }
+            // A CHANGED file is replaced, not appended: its metadata is what the
+            // next diff compares against, and keeping the stale copy would
+            // republish the same edit on every subsequent scan.
+            let changedURLs = Set(diff.changed.map(\.url))
+            current.removeAll { removed.contains($0.url) || changedURLs.contains($0.url) }
             current.append(contentsOf: diff.added)
+            current.append(contentsOf: diff.changed)
             let updated = DiscoveryBatcher.ordered(current)
             discoveredFiles[id] = updated
             folder.discoveredCount = updated.count
@@ -511,6 +530,15 @@ public final class FolderWatchService {
             for batch in DiscoveryBatcher.batches(diff.added, maxBatchSize: maxBatchSize)
             where !batch.isEmpty {
                 publish(.filesAdded(id, files: batch))
+            }
+        }
+        if !diff.changed.isEmpty {
+            // Deliberately NOT bumping `newSinceLastVisit`: an edited file is
+            // not a new one, and a badge that ticks when a user saves their own
+            // `.bib` is noise the feed analogy does not license.
+            for batch in DiscoveryBatcher.batches(diff.changed, maxBatchSize: maxBatchSize)
+            where !batch.isEmpty {
+                publish(.filesChanged(id, files: batch))
             }
         }
         if !diff.removed.isEmpty {

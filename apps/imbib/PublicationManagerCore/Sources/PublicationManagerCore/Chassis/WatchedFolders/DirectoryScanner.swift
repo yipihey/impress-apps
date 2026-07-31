@@ -239,29 +239,56 @@ public struct DiscoveryDiff: Sendable, Equatable {
     public let added: [DiscoveredFile]
     public let removed: [URL]
 
-    public var isEmpty: Bool { added.isEmpty && removed.isEmpty }
+    /// Files present before AND after whose on-disk metadata moved.
+    ///
+    /// **Added in W2, and the reason is a hole W1 could not see from where it
+    /// stood.** The diff was a pure URL set difference, with a comment
+    /// explaining that a touched file is not an *add* — which is right, and is
+    /// why these are a third bucket rather than more `added`. But a URL-only
+    /// diff means EDITING a watched `.bib` produces no event at all: the file
+    /// was there before and is there now, so nothing is published, so
+    /// `import_discovered` never sees it, so the entry the user just added to
+    /// their bibliography never arrives. The live-update half of the feature
+    /// was unreachable.
+    ///
+    /// Publishing these is safe precisely because of the layer W1's comment
+    /// pointed at: `import_discovered` is hash-keyed, so a file whose bytes did
+    /// NOT actually move answers `unchanged` and writes nothing. Metadata is
+    /// therefore allowed to be a coarse over-approximation — mtime granularity,
+    /// a same-size edit, a touch — and the cost of a false positive is one
+    /// hash, not a duplicate import.
+    public let changed: [DiscoveredFile]
 
-    public init(added: [DiscoveredFile], removed: [URL]) {
+    public var isEmpty: Bool { added.isEmpty && removed.isEmpty && changed.isEmpty }
+
+    public init(added: [DiscoveredFile], removed: [URL], changed: [DiscoveredFile] = []) {
         self.added = added
         self.removed = removed
+        self.changed = changed
     }
 
-    /// Pure set difference by URL, ordered.
+    /// Set difference by URL for membership, metadata comparison for content.
     ///
-    /// By URL and not by whole value on purpose: a file whose mtime changed is
-    /// NOT an add — D4's re-scan is hash-keyed and lives in Rust, and
-    /// republishing every touched file as "new" would make the importer's job
-    /// impossible to do incrementally.
+    /// A file whose mtime or size moved is `changed`, never `added` — a
+    /// consumer that counts adds (the feed badge) must not count an edit as a
+    /// new file, and a consumer that ingests (`import_discovered`) must see it
+    /// either way.
     public static func between(
         old: [DiscoveredFile], new: [DiscoveredFile]
     ) -> DiscoveryDiff {
-        let oldURLs = Set(old.map(\.url))
+        let oldByURL = Dictionary(old.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
         let newURLs = Set(new.map(\.url))
-        let added = DiscoveryBatcher.ordered(new.filter { !oldURLs.contains($0.url) })
+        let added = DiscoveryBatcher.ordered(new.filter { oldByURL[$0.url] == nil })
         let removed = old
             .filter { !newURLs.contains($0.url) }
             .map(\.url)
             .sorted { $0.path.caseInsensitiveCompare($1.path) == .orderedAscending }
-        return DiscoveryDiff(added: added, removed: removed)
+        let changed = DiscoveryBatcher.ordered(
+            new.filter { candidate in
+                guard let previous = oldByURL[candidate.url] else { return false }
+                return previous.modificationDate != candidate.modificationDate
+                    || previous.byteSize != candidate.byteSize
+            })
+        return DiscoveryDiff(added: added, removed: removed, changed: changed)
     }
 }

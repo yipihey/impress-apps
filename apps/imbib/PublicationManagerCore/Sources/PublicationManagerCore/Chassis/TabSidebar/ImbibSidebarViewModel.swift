@@ -52,6 +52,10 @@ final class ImbibSidebarViewModel {
     var editingNodeID: UUID?
     var dataVersion: Int = 0
 
+    /// ADR-0023 W2 — the watcher-only redraw hook (see
+    /// `.watchedFoldersDidChange`). Held so it can be torn down.
+    @ObservationIgnored var watchedFolderObserver: NSObjectProtocol?
+
     // MARK: - Section State
 
     var sectionOrder: [SidebarSectionType]
@@ -184,6 +188,27 @@ final class ImbibSidebarViewModel {
         initializeExpansionState()
 
         selectDefaultSectionLeaf()
+        startWatchingFolders()
+    }
+
+    /// ADR-0023 W2: restore the persisted watched folders and begin watching.
+    ///
+    /// Registration happens now so the sidebar has rows immediately; the first
+    /// GATHER — the part that writes — is held behind
+    /// `FolderWatchStartupGate`'s 90 seconds inside the watcher, which is the
+    /// suite's background-service rule and the reason it is a value there
+    /// rather than a sleep here.
+    private func startWatchingFolders() {
+        guard watchedFolderObserver == nil else { return }
+        watchedFolderObserver = NotificationCenter.default.addObserver(
+            forName: .watchedFoldersDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.bumpDataVersion() }
+        }
+        Task { @MainActor [weak self] in
+            await WatchedFolderIngestCoordinator.shared.start()
+            self?.bumpDataVersion()
+        }
     }
 
     /// Select the app-shell's default section (imbib = inbox, imprint =
@@ -1063,6 +1088,9 @@ final class ImbibSidebarViewModel {
         guard let manager = libraryManager else { return [] }
         let explorationID = manager.explorationLibrary?.id
         let dismissedID = manager.dismissedLibrary?.id
+        // ADR-0023 W2: watched folders are feeds, and imbib's feeds sit beside
+        // the libraries they feed. They come LAST so adding one never reshuffles
+        // the library rows a user has learned the position of.
         return manager.libraries
             .filter { !$0.isInbox && $0.id != explorationID && $0.id != dismissedID }
             .map { library in
@@ -1083,6 +1111,7 @@ final class ImbibSidebarViewModel {
                     hasTreeChildren: hasCollections
                 )
             }
+            + watchedFolderNodes()
     }
 
     private func libraryCollectionChildren(libraryID: UUID) -> [ImbibSidebarNode] {
@@ -1605,6 +1634,18 @@ final class ImbibSidebarViewModel {
         case .agentTasksAll, .agentRunsAll, .agentTaskState:
             // Stage 2-C: the kernel owns task lifecycle — agent nodes are
             // read-only fixed rows (no rename/delete/drag/drop; matrix ➖).
+            return .readOnly
+        case .watchedFolder:
+            // ADR-0023 W2. Deliberately read-only in the OUTLINE's sense:
+            //  * rename — the display name is the provenance tag's leaf and
+            //    therefore the identity of "papers this folder produced";
+            //    renaming it in place would orphan every tag already written.
+            //  * delete — ⌫ on a row that owns imported papers reads as
+            //    "delete the papers". The verb is "Stop Watching", in the menu,
+            //    where its consequences can be named.
+            //  * drop — D4's rule is one-way: the watcher never writes a user's
+            //    files, so dropping a paper onto a folder can mean nothing.
+            //  * drag — a folder is not a container to reorder into.
             return .readOnly
         default:
             return .readOnly
@@ -2452,6 +2493,9 @@ final class ImbibSidebarViewModel {
         case .library(let id):
             buildLibraryContextMenu(menu, libraryID: id)
 
+        case .watchedFolder(let folderID, _):
+            buildWatchedFolderContextMenu(menu, folderID: folderID)
+
         case .libraryCollection(_, let libID):
             // ADR-0022 C2: the SAME builder as manuscript/figure folders. The
             // per-row smart predicate and the owning library are arguments now,
@@ -2677,6 +2721,13 @@ final class ImbibSidebarViewModel {
             let newLibItem = NSMenuItem(title: "New Library", action: #selector(ContextMenuActions.createLibrary(_:)), keyEquivalent: "")
             newLibItem.target = ContextMenuActions.shared
             menu.addItem(newLibItem)
+
+            // ADR-0023 W2 — the folder-picking affordance, next to the verb it
+            // is a sibling of ("New Library" makes an empty one; this adopts a
+            // folder of .bib/.ris files that already exists).
+            let watchItem = NSMenuItem(title: "Add Watched Folder…", action: #selector(ContextMenuActions.addWatchedFolder(_:)), keyEquivalent: "")
+            watchItem.target = ContextMenuActions.shared
+            menu.addItem(watchItem)
 
         case .search:
             if !hiddenSearchForms.isEmpty {

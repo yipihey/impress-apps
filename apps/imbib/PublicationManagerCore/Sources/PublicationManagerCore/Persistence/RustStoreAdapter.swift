@@ -46,7 +46,17 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             // the whole PMC suite for 25+ minutes before it was caught.
             // XCUITest is unaffected: it launches the real app process
             // (no XCTest env vars there), which opts in via `--ui-testing`.
-            if isUITesting || RustStoreAdapter.isUnitTestProcess {
+            if isUITesting {
+                // A FILE, not `inMemory` — see
+                // `UITestingEnvironment.scratchDatabasePath`. Still fresh per
+                // launch, still never the app-group container, but now the
+                // same database `SharedStore`-based adapters open, which is
+                // production's topology and the only one worth testing.
+                UITestingEnvironment.prepareScratchDatabaseDirectory()
+                return try RustStoreAdapter(
+                    scratchPath: UITestingEnvironment.scratchDatabasePath)
+            }
+            if RustStoreAdapter.isUnitTestProcess {
                 return try RustStoreAdapter(inMemory: true)
             }
             return try RustStoreAdapter()
@@ -146,6 +156,17 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         self.imbibStore = s
         self.kernelStore = Self.openKernelStore(at: dbPath)
         Logger.library.infoCapture("RustStoreAdapter initialized at \(dbPath)", category: "rust-store")
+    }
+
+    /// Open an explicit scratch database file (UI testing).
+    ///
+    /// Separate from `init(inMemory:)` because the point is the FILE: it is
+    /// what lets `SharedStore` handles in the same process see these writes.
+    init(scratchPath: String) throws {
+        let s = try ImbibStore.open(path: scratchPath)
+        self.store = s
+        self.imbibStore = s
+        self.kernelStore = Self.openKernelStore(at: scratchPath)
     }
 
     /// For testing with in-memory store.
@@ -723,6 +744,62 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             } catch {
                 Logger.library.errorCapture("importBibTeX failed: \(error)", category: "import")
                 return []
+            }
+        }
+    }
+
+    /// `importBibTeX`, without discarding the half it discards.
+    ///
+    /// **Exactly the same import**: same Rust verb, same `collectionId: nil`,
+    /// so the same whole-library identifier dedup, the same undo entry, the
+    /// same `dataVersion` discipline. The only difference is the return —
+    /// `importBibTeX` answers with the ids it CREATED, and drops the ids of
+    /// entries that deduped onto papers already in the library.
+    ///
+    /// ADR-0023 W2 is the caller that cannot afford that. A watched `.bib`
+    /// must tell the store which rows it accounts for
+    /// (`SharedStore.watched_record_produced`), and "accounts for" includes an
+    /// entry that deduped: the file still contains it, and a re-scan that
+    /// reported only the newly-created ids would report every deduped entry as
+    /// *orphaned by the source*, which is the exact opposite of the truth.
+    ///
+    /// A second entry point rather than a changed signature: `importBibTeX` is
+    /// on `PublicationStoreProtocol` and has a dozen callers who want a count.
+    public func importBibTeXOutcome(
+        _ bibtex: String, libraryId: UUID
+    ) -> (imported: [UUID], existing: [UUID]) {
+        StoreTimings.shared.measure("importBibTeXOutcome") {
+            do {
+                let outcome = try store.importBibtexInto(
+                    bibtex: bibtex, libraryId: libraryId.uuidString, collectionId: nil)
+                let imported = outcome.imported.compactMap { UUID(uuidString: $0) }
+                let existing = outcome.existing.compactMap { UUID(uuidString: $0) }
+                if !outcome.imported.isEmpty {
+                    didMutate()
+                    UserDefaults.standard.set(true, forKey: "needsStartupDedup")
+                    let count = outcome.imported.count
+                    let capturedStore = store
+                    let createdIds = outcome.imported
+                    UndoCoordinator.shared.registerUndoClosure(
+                        actionName: count == 1 ? "Import Paper" : "Import \(count) Papers",
+                        undo: { [weak self] in
+                            do {
+                                try capturedStore.deletePublications(ids: createdIds)
+                                self?.didMutate()
+                            } catch {
+                                Logger.library.error("Undo importBibTeXOutcome failed: \(error)")
+                            }
+                        }
+                    )
+                }
+                Logger.library.infoCapture(
+                    "importBibTeXOutcome: \(imported.count) new, \(existing.count) already present",
+                    category: "import")
+                return (imported, existing)
+            } catch {
+                Logger.library.errorCapture(
+                    "importBibTeXOutcome failed: \(error)", category: "import")
+                return ([], [])
             }
         }
     }

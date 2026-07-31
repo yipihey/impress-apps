@@ -69,6 +69,12 @@ struct IOSUnifiedPublicationListWrapper: View {
         case citedInManuscripts
         /// Papers the user viewed or added by hand — never automated ingest.
         case recent
+        /// Every paper carrying one tag path.
+        ///
+        /// ADR-0023 W2's watched-folder rows are the first constructor of
+        /// `PublicationSource.tag` in the app: the scope existed and was fully
+        /// Rust-backed (`queryByTag` / `countByTag`), with nothing building it.
+        case tag(String)
 
         /// Convert to `PublicationSource` for chassis queries and derivations.
         ///
@@ -91,6 +97,7 @@ struct IOSUnifiedPublicationListWrapper: View {
             case .flagged(let color): return .flagged(color)
             case .citedInManuscripts: return .citedInManuscripts
             case .recent: return .recent
+            case .tag(let path): return .tag(path)
             }
         }
 
@@ -131,6 +138,10 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "Cited in Manuscripts"
             case .recent:
                 return "Recent"
+            case .tag(let path):
+                // The leaf, not the whole path — the same rule
+                // `UnifiedPublicationListWrapper` uses for a tag title.
+                return path.components(separatedBy: "/").last ?? path
             }
         }
 
@@ -153,6 +164,8 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "No Cited Papers"
             case .recent:
                 return "Nothing Recent"
+            case .tag:
+                return "No Papers"
             }
         }
 
@@ -175,6 +188,8 @@ struct IOSUnifiedPublicationListWrapper: View {
                 return "Cite a paper in imprint to see it here."
             case .recent:
                 return "Papers you open or add by hand show up here."
+            case .tag:
+                return "Papers tagged this way show up here."
             }
         }
     }
@@ -489,7 +504,8 @@ struct IOSUnifiedPublicationListWrapper: View {
         switch source {
         case .library, .libraryByID:
             return !isInbox
-        case .smartSearch, .collection, .scixLibrary, .flagged, .citedInManuscripts, .recent:
+        case .smartSearch, .collection, .scixLibrary, .flagged, .citedInManuscripts, .recent,
+             .tag:
             return false
         }
     }

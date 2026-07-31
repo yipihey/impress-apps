@@ -56,6 +56,62 @@ public enum UITestingEnvironment {
         return args.contains("--uitesting-seed") || args.contains("--ui-testing-seed")
     }
 
+    /// The ONE database a UI-test launch uses.
+    ///
+    /// **Why a file and not `openInMemory()`.** Two in-memory opens are two
+    /// DATABASES, not two handles on one — the lesson `RustStoreAdapter`'s own
+    /// init comment records as "the imprint seed lesson". Production has one
+    /// database with several handles on it (`ImbibStore` and `SharedStore` both
+    /// open `SharedWorkspace.databasePath`), and a UI-test topology that
+    /// differs there does not test production: ADR-0023's provenance write
+    /// failed under UI testing for exactly this reason, with the publications
+    /// in one store and the `watched-file` rows in another, and the kernel
+    /// correctly refusing to attribute rows it could not see.
+    ///
+    /// Per PROCESS, so each launch is still a fresh, empty store — the property
+    /// the in-memory choice was actually buying — and never the app-group
+    /// container, which is what it was avoiding.
+    public static var scratchDatabasePath: String {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("impress-ui-tests-\(ProcessInfo.processInfo.processIdentifier)")
+            .appendingPathComponent("impress.sqlite")
+            .path
+    }
+
+    /// Create the scratch database's directory. Safe to call repeatedly.
+    public static func prepareScratchDatabaseDirectory() {
+        let directory = URL(fileURLWithPath: scratchDatabasePath).deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true)
+    }
+
+    /// Whether to seed a WATCHED FOLDER (ADR-0023 W2) on launch.
+    ///
+    /// The folder and its `.bib` are created inside the app's own container,
+    /// because an XCUITest runs in a different process with a different sandbox
+    /// and cannot write into the app's. Everything after the directory exists
+    /// is the real path: the same `WatchedFolderIngestCoordinator.addFolder`
+    /// the `fileImporter` calls, the same bookmark, the same ingest loop.
+    public static var shouldSeedWatchedFolder: Bool {
+        ProcessInfo.processInfo.arguments.contains("--uitesting-watched-folder")
+    }
+
+    /// Whether to APPEND an entry to the seeded `.bib` before watching starts.
+    ///
+    /// The second half of the live-drop proof: relaunch with this flag, the
+    /// file on disk has one more entry than imbib last saw, and the re-scan has
+    /// to notice by content hash — the same code path an editor's save takes.
+    public static var shouldAppendToWatchedFolder: Bool {
+        ProcessInfo.processInfo.arguments.contains("--uitesting-watched-folder-append")
+    }
+
+    /// The seeded watched folder, inside the app container. Stable across
+    /// launches of one UI-test session, which is what makes the append work.
+    public static var watchedFolderSeedDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("uitest-watched", isDirectory: true)
+    }
+
     /// Get custom fixture name from launch arguments (e.g., `--uitesting-fixture=large`).
     public static var fixtureArgument: String? {
         for argument in ProcessInfo.processInfo.arguments {

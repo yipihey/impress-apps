@@ -195,16 +195,50 @@ final class DirectoryScannerTests: XCTestCase {
 
     // MARK: - Diffing
 
-    func testDiffIsByURLSoATouchedFileIsNotANewOne() {
+    /// A touched file is CHANGED, never ADDED.
+    ///
+    /// W1 asserted the stronger claim — that a touched file produced no diff at
+    /// all — and W2 had to weaken it, because the stronger version made the
+    /// live-update half of the feature unreachable: editing a watched `.bib`
+    /// left its URL set identical, so nothing was ever published and the new
+    /// entry never arrived. The invariant W1 was protecting is intact and is
+    /// what the two assertions below pin: a touched file is not an ADD (so a
+    /// feed badge does not tick when a user saves their own file), and the
+    /// decision about whether its bytes actually moved still belongs to the
+    /// hash-keyed Rust layer, which answers `unchanged` for free.
+    func testATouchedFileIsChangedNotAdded() {
         let url = URL(fileURLWithPath: "/tmp/a.bib")
         let old = [DiscoveredFile(url: url, filterID: "bibtex", modificationDate: .distantPast)]
         let new = [DiscoveredFile(url: url, filterID: "bibtex", modificationDate: Date())]
 
         let diff = DiscoveryDiff.between(old: old, new: new)
-        XCTAssertTrue(
-            diff.isEmpty,
-            "re-scan diffing is hash-keyed in Rust (D4); republishing every touched "
-                + "file as an add would make incremental ingest impossible")
+        XCTAssertTrue(diff.added.isEmpty, "a touched file is not a new one")
+        XCTAssertTrue(diff.removed.isEmpty)
+        XCTAssertEqual(diff.changed.map(\.url), [url])
+        XCTAssertFalse(diff.isEmpty, "and it must be published, or an edit is invisible")
+    }
+
+    /// A file nobody touched produces nothing — the zero-work re-scan.
+    func testAnUntouchedFileProducesNoDiff() {
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let url = URL(fileURLWithPath: "/tmp/a.bib")
+        let file = DiscoveredFile(
+            url: url, filterID: "bibtex", modificationDate: stamp, byteSize: 42)
+
+        XCTAssertTrue(DiscoveryDiff.between(old: [file], new: [file]).isEmpty)
+    }
+
+    /// Size alone is enough: an editor that preserves mtime granularity still
+    /// changes the byte count, and either signal is a reason to re-hash.
+    func testASizeChangeAloneIsAChange() {
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let url = URL(fileURLWithPath: "/tmp/a.bib")
+        let before = DiscoveredFile(
+            url: url, filterID: "bibtex", modificationDate: stamp, byteSize: 10)
+        let after = DiscoveredFile(
+            url: url, filterID: "bibtex", modificationDate: stamp, byteSize: 20)
+
+        XCTAssertEqual(DiscoveryDiff.between(old: [before], new: [after]).changed.count, 1)
     }
 
     func testDiffReportsAddsAndRemovesOrdered() {

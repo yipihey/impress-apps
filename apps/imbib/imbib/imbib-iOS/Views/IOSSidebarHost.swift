@@ -75,6 +75,9 @@ struct IOSSidebarHost: View {
     @State private var libraryToDelete: LibraryModel?
     @State private var showDeleteLibraryConfirmation = false
 
+    /// ADR-0023 W2 — the iOS folder picker.
+    @State private var showWatchedFolderPicker = false
+
     // MARK: - Derived
 
     private var visibleSearchForms: [SearchFormType] {
@@ -188,6 +191,39 @@ struct IOSSidebarHost: View {
                 try? libraryManager.deleteLibrary(id: library.id)
                 Task { await refresh() }
             }))
+        // ADR-0023 W2 — the iOS half of "the folder-picking UI, which is what
+        // produces a URL the sandbox will let us bookmark". `.folder` is the
+        // directory content type; the URL arrives security-scoped, and
+        // `WatchedFolderBookmarkStore` mints the persistent bookmark from it.
+        .fileImporter(
+            isPresented: $showWatchedFolderPicker,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            adoptWatchedFolder(at: url)
+        }
+    }
+
+    /// Add the picked directory as a watched folder and select its row.
+    private func adoptWatchedFolder(at url: URL) {
+        Task { @MainActor in
+            // The picker hands back a security-scoped URL; access must be open
+            // while the bookmark is minted from it, and closed straight after.
+            // (`IOSSettingsView`'s import does the same dance for the same
+            // reason.) The PERSISTENT scope lives in the bookmark, not here.
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let row = try await WatchedFolderIngestCoordinator.shared.addFolder(at: url)
+                selection = .watchedFolder(row.id)
+                chromeRevision += 1
+            } catch {
+                logError(
+                    "Add Watched Folder failed: \(error.localizedDescription)",
+                    category: "watched-folders")
+            }
+        }
     }
 
     // MARK: - Host chrome
@@ -596,6 +632,17 @@ struct IOSSidebarHost: View {
             }
 
             Divider()
+
+            // ADR-0023 W2. On iOS the folder is an iCloud Drive / Files
+            // location and there is no Spotlight behind it, so the row it adds
+            // will honestly say `Scan on demand` (D6, `FolderWatchAvailability`)
+            // rather than pretending to watch live.
+            Button {
+                showWatchedFolderPicker = true
+            } label: {
+                Label("Add Watched Folder…", systemImage: "folder.badge.gearshape")
+            }
+            .accessibilityIdentifier(AccessibilityID.Sidebar.addWatchedFolderButton)
 
             Button {
                 showArXivCategoryBrowser = true

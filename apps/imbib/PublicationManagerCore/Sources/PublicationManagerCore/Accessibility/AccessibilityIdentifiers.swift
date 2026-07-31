@@ -21,6 +21,8 @@ public enum AccessibilityID {
         public static let settingsButton = "sidebar.settingsButton"
         public static let searchField = "sidebar.searchField"
         public static let refreshButton = "sidebar.refreshButton"
+        /// ADR-0023 W2 — the "Add Watched Folder…" entry in the iOS add menu.
+        public static let addWatchedFolderButton = "sidebar.addWatchedFolderButton"
 
         public static func libraryRow(_ id: UUID) -> String { "sidebar.library.\(id.uuidString)" }
         public static func libraryRow(_ id: String) -> String { "sidebar.library.\(id)" }

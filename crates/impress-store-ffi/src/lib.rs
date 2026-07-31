@@ -26,8 +26,10 @@ use impress_core::{
     operation::{OperationIntent, OperationSpec, OperationType, RetentionTier},
     query::{ItemQuery, Predicate, SortDescriptor},
     reference::{EdgeType, TypedReference},
+    schemas::watched_folder::VOLUME_STATE_UNAVAILABLE,
     sqlite_store::SqliteItemStore,
     store::{FieldMutation, ItemStore, StoreError},
+    watched_folder_ops,
 };
 
 // Setup UniFFI proc-macro scaffolding (native builds only).
@@ -315,6 +317,246 @@ pub struct SharedDeletedCollection {
     /// Direct child collections whose parent pointer the delete invalidated.
     /// `collection_restore` re-attaches all of them.
     pub child_collection_ids: Vec<String>,
+}
+
+// ─── Watched-folder DTOs (ADR-0023 W2) ───────────────────────────────────────
+//
+// FFI mirrors of `impress_core::watched_folder_ops`' DTOs, in the same
+// relationship the `SharedCollection*` records above have to
+// `impress_core::collection_ops`: the kernel owns the semantics, these carry
+// them across UniFFI, and the conversion is one `From` impl per type.
+//
+// Why mirrors and not the kernel types directly: `#[derive(uniffi::Record)]`
+// cannot be applied to a foreign type, and the kernel's DTOs also carry
+// `schemars` derives this side has no use for. The field names are kept
+// byte-identical so a reader can diff the two files.
+
+/// One file the watcher discovered, on its way in.
+///
+/// `content_hash` / `mtime` / `size_bytes` are optional because Swift usually
+/// has them already (the metadata query supplies them) and the kernel reads
+/// them off disk when it does not. Passing a hash is trusted — the kernel does
+/// not re-read the file to check.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedDiscoveredFile {
+    /// Absolute POSIX path.
+    pub path: String,
+    pub content_hash: Option<String>,
+    /// ISO-8601.
+    pub mtime: Option<String>,
+    pub size_bytes: Option<i64>,
+    /// Base64 of a per-file security-scoped bookmark, for reference-in-place
+    /// records that must reopen the file after a relaunch (ADR-0023 D4).
+    pub bookmark_base64: Option<String>,
+}
+
+/// A watched folder as the store holds it.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedWatchedFolder {
+    pub id: String,
+    pub path: String,
+    /// The record kind whose `FileDiscoveryCapability` decides what counts —
+    /// `publication`, `manuscript`, `figure`, `message`.
+    pub kind_scope: String,
+    pub display_name: String,
+    pub enabled: bool,
+    pub recursive: bool,
+    /// `indexed` | `unindexed` | `scan-on-demand` | `unavailable`, or nil when
+    /// the platform has not declared one yet (ADR-0023 D6).
+    pub volume_state: Option<String>,
+    pub bookmark_base64: Option<String>,
+    pub last_scan_at: Option<String>,
+    pub last_scan_file_count: i64,
+    pub last_scan_new_count: i64,
+    pub last_scan_changed_count: i64,
+    pub last_scan_missing_count: i64,
+    pub last_scan_duration_ms: i64,
+}
+
+/// A discovered file as the store holds it — the provenance row.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedWatchedFile {
+    pub id: String,
+    pub watched_folder_id: String,
+    pub path: String,
+    pub content_hash: String,
+    /// `present` | `missing`. A missing file keeps its row and its
+    /// attributions — ADR-0023 D4 never deletes one.
+    pub state: String,
+    pub kind_scope: String,
+    pub mtime: Option<String>,
+    pub size_bytes: i64,
+    pub first_seen_at: Option<String>,
+    pub last_seen_at: Option<String>,
+    pub missing_since: Option<String>,
+    /// Store rows this file produced. Empty AND `produced_at == nil` means the
+    /// fan-out has not run; empty WITH a `produced_at` means it ran and
+    /// produced nothing.
+    pub produced_ids: Vec<String>,
+    pub produced_at: Option<String>,
+    /// True when the content moved on after the last fan-out — the queue the
+    /// app's importer drains.
+    pub needs_reimport: bool,
+}
+
+/// What one file's pass through discovery did.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedDiscoveredFileOutcome {
+    pub id: String,
+    pub path: String,
+    /// `created` | `changed` | `unchanged` | `restored`.
+    ///
+    /// The first, second and fourth are the ones whose file the app's importer
+    /// must run on again; `unchanged` wrote nothing at all.
+    pub action: String,
+    pub content_hash: String,
+}
+
+/// A file discovery declined to record, and why. Never silently dropped.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedSkippedFile {
+    pub path: String,
+    pub reason: String,
+}
+
+/// What one discovery batch did (ADR-0023 D4).
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedDiscoveryReport {
+    pub watched_folder_id: String,
+    pub kind_scope: String,
+    pub created: u32,
+    pub changed: u32,
+    /// Files whose hash is identical — **these wrote nothing at all**.
+    pub unchanged: u32,
+    pub restored: u32,
+    /// Write-gate batches used (`ceil(files / 500)`), for the D7 burst budget.
+    pub batches: u32,
+    pub files: Vec<SharedDiscoveredFileOutcome>,
+    pub skipped: Vec<SharedSkippedFile>,
+}
+
+/// What the terminal sweep of a scan found.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedWatchedScanReport {
+    pub watched_folder_id: String,
+    pub examined: u32,
+    pub present: u32,
+    /// Rows flipped to `missing` by this call. **Nothing was deleted.**
+    pub marked_missing: u32,
+    pub missing: Vec<SharedWatchedFile>,
+    /// The folder row after its stats were written.
+    pub folder: Option<SharedWatchedFolder>,
+}
+
+/// What attributing rows to a file changed.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedProducedRowsReport {
+    pub file: SharedWatchedFile,
+    pub added: u32,
+    /// Ids that were attributed to this file before and are not now — the rows
+    /// a re-import ORPHANED, which is how a deletion inside a `.bib` becomes
+    /// visible. **What to do about them is the app's decision** (imbib tags
+    /// them for review; nothing here deletes anything).
+    pub removed_ids: Vec<String>,
+}
+
+/// One page of discovered files.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedWatchedFilePage {
+    pub files: Vec<SharedWatchedFile>,
+    /// Unpaged match count, so "200 of 4000" is distinguishable from
+    /// "200 of 200".
+    pub total: u32,
+}
+
+/// The kernel reports failures as prose (`Result<_, String>`), because its
+/// other consumer puts them straight into an agent transcript. Swift wants a
+/// thrown error, and `Storage` is the variant every non-classified store
+/// failure already uses here.
+fn watched_err(message: String) -> SharedStoreError {
+    SharedStoreError::Storage { message }
+}
+
+impl From<watched_folder_ops::WatchedFolderDto> for SharedWatchedFolder {
+    fn from(d: watched_folder_ops::WatchedFolderDto) -> Self {
+        Self {
+            id: d.id,
+            path: d.path,
+            kind_scope: d.kind_scope,
+            display_name: d.display_name,
+            enabled: d.enabled,
+            recursive: d.recursive,
+            volume_state: d.volume_state,
+            bookmark_base64: d.bookmark_base64,
+            last_scan_at: d.last_scan_at,
+            last_scan_file_count: d.last_scan_file_count,
+            last_scan_new_count: d.last_scan_new_count,
+            last_scan_changed_count: d.last_scan_changed_count,
+            last_scan_missing_count: d.last_scan_missing_count,
+            last_scan_duration_ms: d.last_scan_duration_ms,
+        }
+    }
+}
+
+impl From<watched_folder_ops::WatchedFileDto> for SharedWatchedFile {
+    fn from(d: watched_folder_ops::WatchedFileDto) -> Self {
+        Self {
+            id: d.id,
+            watched_folder_id: d.watched_folder_id,
+            path: d.path,
+            content_hash: d.content_hash,
+            state: d.state,
+            kind_scope: d.kind_scope,
+            mtime: d.mtime,
+            size_bytes: d.size_bytes,
+            first_seen_at: d.first_seen_at,
+            last_seen_at: d.last_seen_at,
+            missing_since: d.missing_since,
+            produced_ids: d.produced_ids,
+            produced_at: d.produced_at,
+            needs_reimport: d.needs_reimport,
+        }
+    }
+}
+
+impl From<SharedDiscoveredFile> for watched_folder_ops::DiscoveredFileInput {
+    fn from(f: SharedDiscoveredFile) -> Self {
+        Self {
+            path: f.path,
+            content_hash: f.content_hash,
+            mtime: f.mtime,
+            size_bytes: f.size_bytes,
+            bookmark_base64: f.bookmark_base64,
+        }
+    }
+}
+
+/// A watched folder plus whether THIS call created it. `created == false` is a
+/// re-add, which is a no-op returning the existing row.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedWatchedFolderOutcome {
+    pub folder: SharedWatchedFolder,
+    pub created: bool,
+}
+
+/// What removing a watched folder took with it.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SharedWatchedFolderRemoval {
+    /// False when there was no such folder.
+    pub removed: bool,
+    /// `watched-file` index entries deleted. Zero unless asked.
+    pub file_rows_deleted: u32,
 }
 
 // ─── Sync engine DTOs (ADR-0007 Phase 3, Phase C) ────────────────────────────
@@ -1304,6 +1546,351 @@ impl SharedStore {
             &binding.binding(),
             &collection_ids,
         )?)
+    }
+
+    // ─── Watched folders (ADR-0023 W2) ─────────────────────────────────────
+    //
+    // Eight verbs, the same eight `DocsImportService` exposes to MCP/CLI, over
+    // the same kernel (`impress_core::watched_folder_ops`) — the
+    // collection-kernel arrangement exactly: agent surface and Swift surface
+    // are twins of one implementation, never two implementations of one idea.
+    //
+    // What differs from the service twin, deliberately: no `message` strings
+    // (those are prose for an agent transcript) and errors are `Result` rather
+    // than an `ok: false` field, because Swift has `throws` and the service's
+    // callers do not. The DATA is identical field for field.
+    //
+    // The order a caller uses them:
+    //
+    //   watched_folder_add            once, when the user picks a directory
+    //   watched_folder_list           at launch, to rebuild the sidebar
+    //   watched_import_discovered  ─┐ per discovery batch
+    //   watched_record_produced    ─┘ per file, after the app's importer ran
+    //   watched_finish_scan           once per sweep — the missing-file pass
+    //   watched_files_list            provenance, both directions
+    //   watched_folder_update         pause / rename / re-bookmark / declare
+    //   watched_folder_remove         stop watching (touches no file on disk)
+
+    /// Start watching a directory for files of one record kind.
+    ///
+    /// `kind_scope` is the record kind whose `FileDiscoveryCapability` decides
+    /// which files count (`publication`, `manuscript`, `figure`, `message`).
+    /// The file types are deliberately NOT an argument: they are declared once,
+    /// on the record kind, and restating them here would be a second authority
+    /// that can disagree with the first.
+    ///
+    /// **Idempotent.** The id is derived from `(path, kind_scope)`, so adding
+    /// the same folder twice returns the existing row (`created == false`).
+    /// Re-adding with a fresh `bookmark_base64` swaps the bookmark in — that is
+    /// how a Swift caller hands over a re-granted access scope — and changes
+    /// nothing else. Watching one directory for two kinds is two folders.
+    ///
+    /// Nothing is scanned by this call; discovery is `watched_import_discovered`.
+    pub fn watched_folder_add(
+        &self,
+        path: String,
+        kind_scope: String,
+        display_name: Option<String>,
+        bookmark_base64: Option<String>,
+        recursive: bool,
+    ) -> Result<SharedWatchedFolderOutcome, SharedStoreError> {
+        let (folder, created) = watched_folder_ops::create_folder(
+            &self.inner,
+            &path,
+            &kind_scope,
+            display_name.as_deref(),
+            bookmark_base64.as_deref(),
+            recursive,
+        )
+        .map_err(watched_err)?;
+        Ok(SharedWatchedFolderOutcome {
+            folder: folder.into(),
+            created,
+        })
+    }
+
+    /// Every watched folder, optionally narrowed to one `kind_scope`, in path
+    /// order — with its last-scan stats and its declared volume state.
+    pub fn watched_folder_list(
+        &self,
+        kind_scope: Option<String>,
+    ) -> Result<Vec<SharedWatchedFolder>, SharedStoreError> {
+        let folders = watched_folder_ops::list_folders(&self.inner, kind_scope.as_deref())
+            .map_err(watched_err)?;
+        Ok(folders.into_iter().map(Into::into).collect())
+    }
+
+    /// Change a watched folder's mutable facets. Every argument is optional and
+    /// `nil` leaves that field alone, so pausing a folder cannot blank its
+    /// bookmark by omission.
+    ///
+    /// `volume_state` is the ADR-0023 D6 declaration — `indexed`, `unindexed`,
+    /// `scan-on-demand`, `unavailable`. Writing it is how a folder on a
+    /// Spotlight-less volume says so instead of rendering an honest-looking
+    /// zero, and it is the store-side twin of `WatchedFolderState`.
+    pub fn watched_folder_update(
+        &self,
+        id: String,
+        enabled: Option<bool>,
+        recursive: Option<bool>,
+        display_name: Option<String>,
+        bookmark_base64: Option<String>,
+        volume_state: Option<String>,
+    ) -> Result<SharedWatchedFolder, SharedStoreError> {
+        let folder = watched_folder_ops::update_folder(
+            &self.inner,
+            &id,
+            enabled,
+            recursive,
+            display_name.as_deref(),
+            bookmark_base64.as_deref(),
+            volume_state.as_deref(),
+        )
+        .map_err(watched_err)?;
+        Ok(folder.into())
+    }
+
+    /// Stop watching a folder.
+    ///
+    /// **Never touches a byte on disk** — ADR-0023 D4's reference-in-place rule
+    /// is one-way. The rows the folder's files PRODUCED are left alone too: a
+    /// publication imported from a watched `.bib` is a publication, and
+    /// un-watching its folder is not a retraction of it.
+    ///
+    /// `delete_file_rows` additionally removes the folder's `watched-file`
+    /// index entries. Leave it false to keep the provenance readable.
+    pub fn watched_folder_remove(
+        &self,
+        id: String,
+        delete_file_rows: bool,
+    ) -> Result<SharedWatchedFolderRemoval, SharedStoreError> {
+        let (removed, file_rows_deleted) =
+            watched_folder_ops::remove_folder(&self.inner, &id, delete_file_rows)
+                .map_err(watched_err)?;
+        Ok(SharedWatchedFolderRemoval {
+            removed,
+            file_rows_deleted,
+        })
+    }
+
+    /// Record a batch of discovered files against a watched folder — the
+    /// ADR-0023 D4 diff.
+    ///
+    /// * A path not seen before becomes a `watched-file` row with its
+    ///   provenance, content hash and mtime (`created`).
+    /// * A path whose hash moved is updated in place, same id (`changed`).
+    /// * A path whose hash is identical writes **nothing at all** — not the
+    ///   row, not a timestamp. Re-running discovery over a settled tree is free
+    ///   and fires no store mutation, which is what keeps a watcher out of the
+    ///   startup render loop.
+    /// * A path that was `missing` and is back is restored, same id, with its
+    ///   attribution intact (`restored`).
+    ///
+    /// Missing files are NOT found here: a batch never has to be a complete set
+    /// (live discovery reports one file at a time), so absence from a batch
+    /// means nothing. `watched_finish_scan` is what looks for them.
+    ///
+    /// There is deliberately no `kind_scope` argument — the folder declared its
+    /// scope when it was added, and a second copy on every call could only ever
+    /// be redundant or wrong.
+    ///
+    /// Bounded per ADR-0023 D7: paths are sorted and written in batches of 500,
+    /// and at most 5000 files may be sent in one call. A bigger tree is paged;
+    /// an over-large call is REJECTED with the bound named, never truncated.
+    pub fn watched_import_discovered(
+        &self,
+        watched_folder_id: String,
+        files: Vec<SharedDiscoveredFile>,
+        dry_run: bool,
+    ) -> Result<SharedDiscoveryReport, SharedStoreError> {
+        let folder = watched_folder_ops::load_folder(&self.inner, &watched_folder_id)
+            .map_err(watched_err)?
+            .ok_or_else(|| {
+                watched_err(format!(
+                    "no watched folder {watched_folder_id} — call watched_folder_add first"
+                ))
+            })?;
+        let kind_scope = watched_folder_ops::folder_to_dto(&folder).kind_scope;
+        let inputs: Vec<watched_folder_ops::DiscoveredFileInput> =
+            files.into_iter().map(Into::into).collect();
+        let outcome = watched_folder_ops::upsert_discovered(&self.inner, &folder, &inputs, dry_run)
+            .map_err(watched_err)?;
+        Ok(SharedDiscoveryReport {
+            watched_folder_id: folder.id.to_string(),
+            kind_scope,
+            created: outcome.created,
+            changed: outcome.changed,
+            unchanged: outcome.unchanged,
+            restored: outcome.restored,
+            batches: outcome.batches,
+            files: outcome
+                .files
+                .into_iter()
+                .map(|f| SharedDiscoveredFileOutcome {
+                    id: f.id,
+                    path: f.path,
+                    action: f.action,
+                    content_hash: f.content_hash,
+                })
+                .collect(),
+            skipped: outcome
+                .skipped
+                .into_iter()
+                .map(|s| SharedSkippedFile {
+                    path: s.path,
+                    reason: s.reason,
+                })
+                .collect(),
+        })
+    }
+
+    /// Close a scan: find the files that vanished, and write the folder's
+    /// last-scan stats.
+    ///
+    /// A file whose path is gone is marked `missing` — **never deleted**
+    /// (ADR-0023 D4). A moved file is not a retracted one, and the rows it
+    /// produced are still real.
+    ///
+    /// **Refuses to run when the folder's own root is unreachable.** If a
+    /// volume unmounted or a bookmark lapsed, every path under it stops
+    /// existing at once and a credulous sweep would mark a whole library
+    /// missing in one pass; the folder's `volume_state` is set to `unavailable`
+    /// and the call throws instead (D6 with teeth).
+    ///
+    /// The three counts are the caller's running totals across however many
+    /// `watched_import_discovered` calls the scan took — no single one of them
+    /// knows the total. File and missing counts are computed here.
+    pub fn watched_finish_scan(
+        &self,
+        watched_folder_id: String,
+        new_count: Option<i64>,
+        changed_count: Option<i64>,
+        duration_ms: Option<i64>,
+        dry_run: bool,
+    ) -> Result<SharedWatchedScanReport, SharedStoreError> {
+        let folder = watched_folder_ops::load_folder(&self.inner, &watched_folder_id)
+            .map_err(watched_err)?
+            .ok_or_else(|| watched_err(format!("no watched folder {watched_folder_id}")))?;
+
+        let outcome = match watched_folder_ops::sweep_missing(&self.inner, &folder, dry_run) {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                // The root is unreachable. DECLARE it before throwing, so the
+                // row the user sees says "Folder unavailable" rather than
+                // silently keeping a stale healthy state.
+                let _ = watched_folder_ops::update_folder(
+                    &self.inner,
+                    &watched_folder_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(VOLUME_STATE_UNAVAILABLE),
+                );
+                return Err(watched_err(e));
+            }
+        };
+
+        let folder_dto = if dry_run {
+            Some(watched_folder_ops::folder_to_dto(&folder))
+        } else {
+            Some(
+                watched_folder_ops::record_scan_stats(
+                    &self.inner,
+                    &folder,
+                    outcome.present as i64,
+                    new_count.unwrap_or(0).max(0),
+                    changed_count.unwrap_or(0).max(0),
+                    outcome.marked_missing as i64,
+                    duration_ms.unwrap_or(0).max(0),
+                )
+                .map_err(watched_err)?,
+            )
+        };
+
+        Ok(SharedWatchedScanReport {
+            watched_folder_id: folder.id.to_string(),
+            examined: outcome.examined,
+            present: outcome.present,
+            marked_missing: outcome.marked_missing,
+            missing: outcome.missing.into_iter().map(Into::into).collect(),
+            folder: folder_dto.map(Into::into),
+        })
+    }
+
+    /// Attribute store rows to the discovered file that produced them.
+    ///
+    /// The seam between file-level bookkeeping (the kernel) and each app's real
+    /// importer (Swift). The kernel does not know how to parse a `.bib` and
+    /// must not learn:
+    ///
+    /// 1. `watched_import_discovered` reports a file `created` / `changed` /
+    ///    `restored`.
+    /// 2. The app's own importer runs on that one file — for imbib, the same
+    ///    BibTeX/RIS import a manual drag performs, with its whole-library
+    ///    identifier dedup.
+    /// 3. It calls this with the ids that file now accounts for.
+    ///
+    /// `replace` is what makes deletions detectable: re-importing an edited
+    /// `.bib` that lost an entry returns that entry's id in `removed_ids`, so
+    /// the caller can decide what "the source no longer contains this" means.
+    /// Pass `replace: false` to union instead, which is what an incremental
+    /// append wants.
+    ///
+    /// Pass ALL the ids the file accounts for, not just the newly created ones
+    /// — an id the importer deduped onto an existing publication is still an id
+    /// this file produces, and omitting it would orphan a row on every re-scan.
+    pub fn watched_record_produced(
+        &self,
+        file_id: String,
+        produced_ids: Vec<String>,
+        replace: bool,
+    ) -> Result<SharedProducedRowsReport, SharedStoreError> {
+        let outcome =
+            watched_folder_ops::record_produced(&self.inner, &file_id, &produced_ids, replace)
+                .map_err(watched_err)?;
+        Ok(SharedProducedRowsReport {
+            file: outcome.file.into(),
+            added: outcome.added,
+            removed_ids: outcome.removed_ids,
+        })
+    }
+
+    /// The provenance query, both directions.
+    ///
+    /// * `watched_folder_id` — "which files does this folder know about?",
+    ///   optionally narrowed to `state: "present"` or `"missing"`, paged.
+    /// * `file_id` — one file's row, whose `produced_ids` answers "which store
+    ///   rows did this file produce?" and whose `needs_reimport` says whether
+    ///   its content has moved on since.
+    ///
+    /// One of the two is required.
+    pub fn watched_files_list(
+        &self,
+        watched_folder_id: Option<String>,
+        file_id: Option<String>,
+        state: Option<String>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<SharedWatchedFilePage, SharedStoreError> {
+        let limit = if limit <= 0 {
+            watched_folder_ops::DEFAULT_FILE_LIST_LIMIT
+        } else {
+            limit
+        };
+        let (files, total) = watched_folder_ops::list_files(
+            &self.inner,
+            watched_folder_id.as_deref(),
+            file_id.as_deref(),
+            state.as_deref(),
+            limit,
+            offset,
+        )
+        .map_err(watched_err)?;
+        Ok(SharedWatchedFilePage {
+            files: files.into_iter().map(Into::into).collect(),
+            total,
+        })
     }
 
     // ─── CloudKit sync engine surface (ADR-0007 Phase 3, Phase C) ──────────
@@ -3480,5 +4067,402 @@ mod search_related_tests {
             store.related_items(uuid::Uuid::new_v4().to_string(), 10),
             Err(SharedStoreError::NotFound { .. })
         ));
+    }
+}
+
+// ─── Watched folders (ADR-0023 W2) ───────────────────────────────────────────
+//
+// The kernel's own semantics are pinned in `impress_core::watched_folder_ops`
+// and in `DocsImportService`'s tests. What is proven HERE is the thing only
+// this file can get wrong: that the eight Swift-facing methods carry the
+// kernel's answers across the boundary intact — including the two that are
+// easy to lose in a mirror, `unchanged` writing nothing and `removed_ids`
+// coming back at all.
+//
+// Scratch stores and temp directories only.
+#[cfg(test)]
+mod watched_folder_tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    struct Scratch {
+        dir: PathBuf,
+    }
+
+    impl Scratch {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!("watched-ffi-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&dir).expect("temp dir");
+            Self { dir }
+        }
+
+        fn write(&self, name: &str, contents: &str) -> String {
+            let path = self.dir.join(name);
+            fs::write(&path, contents).expect("write");
+            path.to_string_lossy().to_string()
+        }
+
+        fn path(&self) -> String {
+            self.dir.to_string_lossy().to_string()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// A real publication row. The kernel refuses to attribute provenance to
+    /// an id that names nothing — a dangling pointer is not provenance — so
+    /// every produced id in these tests is a row that exists.
+    fn publication(store: &SharedStore, title: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        store
+            .upsert_item(
+                id.clone(),
+                "bibliography-entry".into(),
+                format!(r#"{{"title": "{title}"}}"#),
+            )
+            .expect("publication");
+        id
+    }
+
+    fn discovered(path: &str) -> SharedDiscoveredFile {
+        SharedDiscoveredFile {
+            path: path.to_string(),
+            content_hash: None,
+            mtime: None,
+            size_bytes: None,
+            bookmark_base64: None,
+        }
+    }
+
+    fn watched(store: &SharedStore, scratch: &Scratch) -> String {
+        store
+            .watched_folder_add(
+                scratch.path(),
+                "publication".into(),
+                Some("Papers".into()),
+                None,
+                true,
+            )
+            .expect("add")
+            .folder
+            .id
+    }
+
+    #[test]
+    fn adding_the_same_folder_twice_returns_the_same_row() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let scratch = Scratch::new();
+
+        let first = store
+            .watched_folder_add(scratch.path(), "publication".into(), None, None, true)
+            .expect("add");
+        assert!(first.created, "the first add creates");
+
+        let second = store
+            .watched_folder_add(
+                // Trailing slash: the kernel normalises it, and a mirror that
+                // forwarded the raw string would mint a duplicate folder.
+                format!("{}/", scratch.path()),
+                "publication".into(),
+                None,
+                Some("Ym9va21hcms=".into()),
+                true,
+            )
+            .expect("re-add");
+        assert!(!second.created, "a re-add is a no-op, not a duplicate");
+        assert_eq!(first.folder.id, second.folder.id);
+        assert_eq!(
+            second.folder.bookmark_base64.as_deref(),
+            Some("Ym9va21hcms="),
+            "re-adding with a fresh bookmark swaps it in — the re-grant path"
+        );
+
+        // Watching one directory for two kinds is two folders, on purpose.
+        let other = store
+            .watched_folder_add(scratch.path(), "manuscript".into(), None, None, true)
+            .expect("add manuscript scope");
+        assert!(other.created);
+        assert_ne!(first.folder.id, other.folder.id);
+
+        assert_eq!(store.watched_folder_list(None).expect("list").len(), 2);
+        assert_eq!(
+            store
+                .watched_folder_list(Some("publication".into()))
+                .expect("list scoped")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn discovery_reports_created_then_unchanged_then_changed() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let scratch = Scratch::new();
+        let folder = watched(&store, &scratch);
+        let bib = scratch.write("refs.bib", "@article{a2026, title={A}}");
+
+        let first = store
+            .watched_import_discovered(folder.clone(), vec![discovered(&bib)], false)
+            .expect("first discovery");
+        assert_eq!((first.created, first.changed, first.unchanged), (1, 0, 0));
+        assert_eq!(first.kind_scope, "publication");
+        assert_eq!(first.batches, 1);
+        assert_eq!(first.files[0].action, "created");
+
+        let again = store
+            .watched_import_discovered(folder.clone(), vec![discovered(&bib)], false)
+            .expect("second discovery");
+        assert_eq!(
+            (again.created, again.changed, again.unchanged),
+            (0, 0, 1),
+            "a settled tree must re-scan free — this is the property that keeps \
+             a watcher out of the startup render loop"
+        );
+        assert_eq!(again.files[0].id, first.files[0].id, "same row, same id");
+
+        fs::write(
+            &bib,
+            "@article{a2026, title={A}}\n@article{b2026, title={B}}",
+        )
+        .expect("edit");
+        let edited = store
+            .watched_import_discovered(folder, vec![discovered(&bib)], false)
+            .expect("third discovery");
+        assert_eq!(
+            (edited.created, edited.changed, edited.unchanged),
+            (0, 1, 0)
+        );
+        assert_eq!(edited.files[0].id, first.files[0].id, "changed in place");
+    }
+
+    #[test]
+    fn produced_rows_round_trip_and_surface_what_a_re_import_orphaned() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let scratch = Scratch::new();
+        let folder = watched(&store, &scratch);
+        let bib = scratch.write("refs.bib", "@article{a2026,}\n@article{b2026,}");
+
+        let report = store
+            .watched_import_discovered(folder.clone(), vec![discovered(&bib)], false)
+            .expect("discovery");
+        let file_id = report.files[0].id.clone();
+
+        let one = publication(&store, "A");
+        let two = publication(&store, "B");
+        let attributed = store
+            .watched_record_produced(file_id.clone(), vec![one.clone(), two.clone()], true)
+            .expect("attribute");
+        assert_eq!(attributed.added, 2);
+        assert!(attributed.removed_ids.is_empty());
+        assert_eq!(attributed.file.produced_ids.len(), 2);
+
+        // The source lost an entry. `replace: true` is what makes that visible;
+        // NOTHING is deleted here, and the id comes back for the app to decide
+        // about.
+        let after = store
+            .watched_record_produced(file_id.clone(), vec![one.clone()], true)
+            .expect("re-attribute");
+        assert_eq!(after.removed_ids, vec![two.clone()]);
+        assert_eq!(after.file.produced_ids, vec![one.clone()]);
+
+        // And the union mode an incremental append wants.
+        let unioned = store
+            .watched_record_produced(file_id.clone(), vec![two.clone()], false)
+            .expect("union");
+        assert!(unioned.removed_ids.is_empty());
+        assert_eq!(unioned.file.produced_ids.len(), 2);
+
+        let page = store
+            .watched_files_list(None, Some(file_id), None, 0, 0)
+            .expect("by file id");
+        assert_eq!(page.total, 1);
+        assert_eq!(page.files[0].produced_ids.len(), 2);
+        assert!(!page.files[0].needs_reimport);
+    }
+
+    #[test]
+    fn a_vanished_file_is_marked_missing_and_never_deleted() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let scratch = Scratch::new();
+        let folder = watched(&store, &scratch);
+        let kept = scratch.write("kept.bib", "@article{k,}");
+        let doomed = scratch.write("doomed.bib", "@article{d,}");
+
+        let report = store
+            .watched_import_discovered(
+                folder.clone(),
+                vec![discovered(&kept), discovered(&doomed)],
+                false,
+            )
+            .expect("discovery");
+        assert_eq!(report.created, 2);
+        let doomed_row = report
+            .files
+            .iter()
+            .find(|f| f.path == doomed)
+            .expect("row")
+            .id
+            .clone();
+        let produced = publication(&store, "D");
+        store
+            .watched_record_produced(doomed_row.clone(), vec![produced.clone()], true)
+            .expect("attribute");
+
+        fs::remove_file(&doomed).expect("delete");
+
+        let scan = store
+            .watched_finish_scan(folder.clone(), Some(2), Some(0), Some(12), false)
+            .expect("sweep");
+        assert_eq!(
+            (scan.examined, scan.present, scan.marked_missing),
+            (2, 1, 1)
+        );
+        assert_eq!(scan.missing.len(), 1);
+        assert_eq!(scan.missing[0].path, doomed);
+        let stats = scan.folder.expect("folder stats");
+        assert_eq!(stats.last_scan_file_count, 1);
+        assert_eq!(stats.last_scan_missing_count, 1);
+        assert_eq!(stats.last_scan_duration_ms, 12);
+
+        // The row and its provenance survive. This is D4's whole point.
+        let still_there = store
+            .watched_files_list(None, Some(doomed_row), None, 0, 0)
+            .expect("read back");
+        assert_eq!(still_there.total, 1);
+        assert_eq!(still_there.files[0].state, "missing");
+        assert_eq!(still_there.files[0].produced_ids, vec![produced]);
+
+        let missing_only = store
+            .watched_files_list(Some(folder), None, Some("missing".into()), 0, 0)
+            .expect("filtered");
+        assert_eq!(missing_only.total, 1);
+    }
+
+    #[test]
+    fn a_sweep_over_an_unreachable_root_refuses_and_declares_the_volume() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let scratch = Scratch::new();
+        let folder = watched(&store, &scratch);
+        let bib = scratch.write("refs.bib", "@article{a,}");
+        store
+            .watched_import_discovered(folder.clone(), vec![discovered(&bib)], false)
+            .expect("discovery");
+
+        fs::remove_dir_all(&scratch.dir).expect("unmount the volume, so to speak");
+
+        let refused = store.watched_finish_scan(folder.clone(), None, None, None, false);
+        assert!(
+            refused.is_err(),
+            "a whole library must not be marked missing because its volume went away"
+        );
+
+        let declared = store
+            .watched_folder_list(None)
+            .expect("list")
+            .into_iter()
+            .find(|f| f.id == folder)
+            .expect("folder");
+        assert_eq!(
+            declared.volume_state.as_deref(),
+            Some("unavailable"),
+            "D6: the folder DECLARES the state rather than reporting an honest-looking zero"
+        );
+    }
+
+    #[test]
+    fn removing_a_folder_keeps_the_rows_its_files_produced() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let scratch = Scratch::new();
+        let folder = watched(&store, &scratch);
+        let bib = scratch.write("refs.bib", "@article{a,}");
+        let report = store
+            .watched_import_discovered(folder.clone(), vec![discovered(&bib)], false)
+            .expect("discovery");
+        let file_id = report.files[0].id.clone();
+
+        let row = publication(&store, "A");
+        store
+            .watched_record_produced(file_id, vec![row.clone()], true)
+            .expect("attribute");
+
+        let removal = store
+            .watched_folder_remove(folder.clone(), false)
+            .expect("remove");
+        assert!(removal.removed);
+        assert_eq!(
+            removal.file_rows_deleted, 0,
+            "provenance is kept unless the caller asks otherwise"
+        );
+        assert!(
+            store.get_item(row).expect("read").is_some(),
+            "un-watching a folder is not a retraction of what it imported"
+        );
+
+        assert!(
+            !store
+                .watched_folder_remove(folder, false)
+                .expect("second remove")
+                .removed
+        );
+    }
+
+    #[test]
+    fn update_leaves_omitted_fields_alone() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let scratch = Scratch::new();
+        let folder = store
+            .watched_folder_add(
+                scratch.path(),
+                "publication".into(),
+                Some("Papers".into()),
+                Some("Ym9va21hcms=".into()),
+                true,
+            )
+            .expect("add")
+            .folder;
+
+        let paused = store
+            .watched_folder_update(folder.id.clone(), Some(false), None, None, None, None)
+            .expect("pause");
+        assert!(!paused.enabled);
+        assert_eq!(
+            paused.bookmark_base64.as_deref(),
+            Some("Ym9va21hcms="),
+            "pausing a folder must not blank its bookmark by omission"
+        );
+        assert_eq!(paused.display_name, "Papers");
+        assert!(paused.recursive);
+
+        let declared = store
+            .watched_folder_update(folder.id, None, None, None, None, Some("unindexed".into()))
+            .expect("declare");
+        assert_eq!(declared.volume_state.as_deref(), Some("unindexed"));
+        assert!(!declared.enabled, "still paused");
+    }
+
+    #[test]
+    fn a_dry_run_writes_nothing() {
+        let store = SharedStore::open_in_memory().expect("open");
+        let scratch = Scratch::new();
+        let folder = watched(&store, &scratch);
+        let bib = scratch.write("refs.bib", "@article{a,}");
+
+        let planned = store
+            .watched_import_discovered(folder.clone(), vec![discovered(&bib)], true)
+            .expect("dry run");
+        assert_eq!(planned.created, 1, "the counts are the real run's counts");
+        assert_eq!(
+            store
+                .watched_files_list(Some(folder), None, None, 0, 0)
+                .expect("list")
+                .total,
+            0,
+            "and nothing was written"
+        );
     }
 }

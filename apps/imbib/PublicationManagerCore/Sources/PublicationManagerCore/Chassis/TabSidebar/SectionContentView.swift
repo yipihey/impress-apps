@@ -232,6 +232,11 @@ struct SectionContentView: View {
             return .citedInManuscripts
         case .recent:
             return .recent
+        case .watchedFolder(_, let tagPath):
+            // ADR-0023 W2: a folder's papers ARE its provenance tag. No new
+            // `PublicationSource` case, no new query — `.tag` is fully
+            // Rust-backed and was simply never constructed before now.
+            return .tag(tagPath)
         case .allArtifacts, .artifactType, .reviewQueue:
             return nil
         case .customSurface:
@@ -269,6 +274,12 @@ struct SectionContentView: View {
             return libraryManager.dismissedLibrary?.id
         case .citedInManuscripts, .recent:
             // Cross-library pseudo source — no owning library.
+            return nil
+        case .watchedFolder:
+            // A watched folder imports INTO the default library, but its list
+            // is a cross-library tag scope: naming an owning library here would
+            // scope the toolbar's per-library affordances to a library the
+            // folder does not own.
             return nil
         case .allArtifacts, .artifactType, .reviewQueue:
             return nil
