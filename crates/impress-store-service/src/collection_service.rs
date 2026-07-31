@@ -361,6 +361,42 @@ impl DefaultCollectionService {
     fn store(&self) -> Arc<SqliteItemStore> {
         self.store.clone().unwrap_or_else(store_instance)
     }
+
+    /// The store for MIGRATION verbs, which must never run against the
+    /// in-memory fallback: a migrate that "succeeds" on an empty substitute
+    /// reports success about data it never saw. An injected store (tests,
+    /// embedding apps) is always trusted; only the lazily-opened global is
+    /// checked. Found live on the first real flip attempt — a TCC-blocked
+    /// open yielded `rows: 0` everywhere from a store that was not the
+    /// user's.
+    fn migration_store(&self) -> Result<Arc<SqliteItemStore>, String> {
+        if let Some(store) = self.store.clone() {
+            return Ok(store);
+        }
+        let store = store_instance();
+        if crate::store::store_is_fallback() {
+            return Err(format!(
+                "REFUSING to run a migration verb: the real store at {} could not \
+                 be opened and the service substituted an empty in-memory store. \
+                 Fix access first (close apps holding the store; grant the \
+                 terminal Full Disk Access for the app-group container) and re-run.",
+                crate::store::store_path().display()
+            ));
+        }
+        Ok(store)
+    }
+}
+
+/// The `migrate` refusal shape, shared so the guard cannot drift from the DTO.
+fn migration_report_refusal(message: String, dry_run: bool) -> MigrationReportResult {
+    MigrationReportResult {
+        ok: false,
+        dry_run,
+        was_migrated: false,
+        bindings: vec![],
+        membership_edges_untouched: true,
+        message,
+    }
 }
 
 /// Kernel errors carry the diagnosis (`invalid UUID`, `would create a cycle`,
@@ -626,7 +662,19 @@ impl CollectionService for DefaultCollectionService {
     }
 
     async fn migration_status(&self) -> MigrationStatusResult {
-        match collection_migration::migration_status(&self.store()) {
+        let store = match self.migration_store() {
+            Ok(s) => s,
+            Err(message) => {
+                return MigrationStatusResult {
+                    ok: false,
+                    migrated: false,
+                    legacy: vec![],
+                    generic: vec![],
+                    message,
+                }
+            }
+        };
+        match collection_migration::migration_status(&store) {
             Ok(status) => MigrationStatusResult {
                 ok: true,
                 message: format!(
@@ -666,7 +714,11 @@ impl CollectionService for DefaultCollectionService {
     }
 
     async fn migrate(&self, dry_run: bool) -> MigrationReportResult {
-        match collection_migration::migrate_collections(&self.store(), dry_run) {
+        let store = match self.migration_store() {
+            Ok(s) => s,
+            Err(message) => return migration_report_refusal(message, dry_run),
+        };
+        match collection_migration::migrate_collections(&store, dry_run) {
             Ok(report) => MigrationReportResult {
                 ok: true,
                 message: if report.dry_run {
@@ -710,7 +762,19 @@ impl CollectionService for DefaultCollectionService {
     }
 
     async fn rollback(&self) -> RollbackReportResult {
-        match collection_migration::rollback_collections(&self.store()) {
+        let store = match self.migration_store() {
+            Ok(s) => s,
+            Err(message) => {
+                return RollbackReportResult {
+                    ok: false,
+                    restored: vec![],
+                    native_generic_untouched: 0,
+                    membership_edges_untouched: true,
+                    message,
+                }
+            }
+        };
+        match collection_migration::rollback_collections(&store) {
             Ok(report) => RollbackReportResult {
                 ok: true,
                 message: format!(

@@ -56,30 +56,55 @@ pub fn install_store(store: Arc<SqliteItemStore>) -> Result<(), String> {
         .map_err(|_| "impress store already installed".to_string())
 }
 
+/// Whether [`store_instance`] had to substitute the in-memory fallback.
+/// Read this before any operation whose ANSWER must be about the real store —
+/// the collections migration refuses to run when it is `true`, because a
+/// migration that "succeeds" against an empty substitute is a lie about the
+/// user's data (found live: a TCC-blocked open during the first real flip
+/// attempt produced `rows: 0` across the board).
+static STORE_IS_FALLBACK: OnceLock<bool> = OnceLock::new();
+
+pub fn store_is_fallback() -> bool {
+    STORE_IS_FALLBACK.get().copied().unwrap_or(false)
+}
+
+/// Open `path`, or fall back to an empty in-memory store. Returns the store
+/// and whether the fallback fired. Pure with respect to the singletons, so the
+/// fallback behaviour is unit-testable.
+fn open_or_fallback(path: &Path) -> (Arc<SqliteItemStore>, bool) {
+    match SqliteItemStore::open(path) {
+        Ok(store) => (Arc::new(store), false),
+        Err(e) => {
+            eprintln!(
+                "[impress-store-service] could not open the store at {}: {e} \
+                 — falling back to an empty in-memory store",
+                path.display()
+            );
+            (
+                Arc::new(
+                    SqliteItemStore::open_in_memory()
+                        .expect("in-memory SqliteItemStore always opens"),
+                ),
+                true,
+            )
+        }
+    }
+}
+
 /// Get (or lazily open) the shared store.
 ///
 /// On open failure this falls back to a private in-memory store rather than
 /// panicking: an MCP tool that answers "no such collection" is recoverable, a
 /// server that aborts mid-session is not. The failure is logged to stderr,
-/// which is where every other service in this server logs.
+/// which is where every other service in this server logs — and recorded in
+/// [`store_is_fallback`], which destiny-grade operations (the collections
+/// migration) consult and refuse on.
 pub fn store_instance() -> Arc<SqliteItemStore> {
     STORE
         .get_or_init(|| {
-            let path = store_path();
-            match SqliteItemStore::open(&path) {
-                Ok(store) => Arc::new(store),
-                Err(e) => {
-                    eprintln!(
-                        "[impress-store-service] could not open the store at {}: {e} \
-                         — falling back to an empty in-memory store",
-                        path.display()
-                    );
-                    Arc::new(
-                        SqliteItemStore::open_in_memory()
-                            .expect("in-memory SqliteItemStore always opens"),
-                    )
-                }
-            }
+            let (store, fell_back) = open_or_fallback(&store_path());
+            let _ = STORE_IS_FALLBACK.set(fell_back);
+            store
         })
         .clone()
 }
@@ -87,6 +112,21 @@ pub fn store_instance() -> Arc<SqliteItemStore> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_or_fallback_reports_the_substitution() {
+        // A path that cannot exist as a database file: a directory.
+        let dir = std::env::temp_dir();
+        let (_store, fell_back) = open_or_fallback(&dir);
+        assert!(fell_back, "opening a directory must trip the fallback flag");
+
+        let real = tempfile::tempdir().expect("tempdir");
+        let (_store, fell_back) = open_or_fallback(&real.path().join("ok.sqlite"));
+        assert!(
+            !fell_back,
+            "a creatable path must not be reported as fallback"
+        );
+    }
 
     #[test]
     fn default_path_honours_the_environment_override() {
