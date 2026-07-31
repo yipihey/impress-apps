@@ -85,6 +85,34 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
     /// Return nil to hide the button for that section.
     public var sectionMenu: ((Node) -> NSMenu?)?
 
+    /// Returns whether a node should be rendered as an APP-GROUP row — the
+    /// second, outer collapsible tier a COMPOSED sidebar has (impress: one
+    /// group per sibling app, each containing that app's own sections).
+    ///
+    /// Deliberately a separate axis from `isGroupItem`, not a mode on it. A
+    /// composed sidebar has BOTH tiers at once and they look and behave
+    /// differently: an app group carries the app's glyph and title, a section
+    /// header stays the uppercased label with its `sectionMenu` button. Folding
+    /// the two into one flag would have meant demoting section headers to
+    /// ordinary rows, which loses the section menu (it is only consulted on the
+    /// group path).
+    ///
+    /// Default `nil` — and nil is the value the five single-preset shells pass,
+    /// so `viewFor`'s app-group branch is not merely false for them, it is
+    /// unreachable. Their cells are produced by exactly the code that produced
+    /// them before this property existed.
+    public var isAppGroupItem: ((Node) -> Bool)?
+
+    /// Called after the user expands or collapses a row, with the node and its
+    /// new state. The view's own `TreeExpansionState` is updated first, so this
+    /// is purely the host's chance to PERSIST the change.
+    ///
+    /// It exists because "collapse state is loaded at launch and never saved"
+    /// is a real, shipped bug: `ImbibSidebarViewModel.handleExpansionChange`
+    /// had no callers because the outline view offered nowhere to call it from.
+    /// Default `nil` keeps that the caller's choice.
+    public var onExpansionChanged: ((Node, Bool) -> Void)?
+
     public init(
         rootNodes: [Node],
         childrenOf: @escaping (Node) -> [Node],
@@ -102,7 +130,9 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
         shouldSelectItem: ((Node) -> Bool)? = nil,
         sectionMenu: ((Node) -> NSMenu?)? = nil,
         onMultipleSelectionChanged: (([Node]) -> Void)? = nil,
-        onDeleteKeyPressed: (([Node]) -> Void)? = nil
+        onDeleteKeyPressed: (([Node]) -> Void)? = nil,
+        isAppGroupItem: ((Node) -> Bool)? = nil,
+        onExpansionChanged: ((Node, Bool) -> Void)? = nil
     ) {
         self.rootNodes = rootNodes
         self.childrenOf = childrenOf
@@ -121,6 +151,8 @@ public struct SidebarOutlineConfiguration<Node: SidebarTreeNode> {
         self.sectionMenu = sectionMenu
         self.onMultipleSelectionChanged = onMultipleSelectionChanged
         self.onDeleteKeyPressed = onDeleteKeyPressed
+        self.isAppGroupItem = isAppGroupItem
+        self.onExpansionChanged = onExpansionChanged
     }
 }
 #endif

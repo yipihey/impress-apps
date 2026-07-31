@@ -1072,25 +1072,20 @@ struct AppCommands: Commands {
 
             // Declarative layout state: these mutate PaneLayoutStore directly
             // (previously these posted notifications nothing handled).
-            Button("Toggle Detail Pane") {
-                PaneLayoutStore.shared.current.detailPaneVisible.toggle()
-            }
-            .keyboardShortcut("0", modifiers: .command)
-
-            // NOT manuscript-specific despite its old label: listPaneVisible
-            // drives the middle column of EVERY imbib route (publication
-            // SectionContentView included) and is the shortcut advertised by
-            // TabContentView's list toolbar button ("Show/Hide the list ⌥⌘0").
-            // Renamed, not removed, with the publications-only purification.
-            Button("Toggle List") {
-                PaneLayoutStore.shared.current.listPaneVisible.toggle()
-            }
-            .keyboardShortcut("0", modifiers: [.command, .option])
-
-            Button("Toggle Sidebar") {
-                PaneLayoutStore.shared.current.sidebarVisible.toggle()
-            }
-            .keyboardShortcut("s", modifiers: [.control, .command])
+            //
+            // The three buttons are the CHASSIS's since ADR-0022 X2 (D9 finding
+            // 4): they were hand-written identically here, in imprint, in impart
+            // and finally in impress, over chassis state with a chassis-wide
+            // keyboard grammar. Embedded as content rather than inserted as a
+            // `Commands` value so their position in this group — after the tab
+            // shortcuts, before the Layouts menu — is unchanged.
+            //
+            // "Toggle List" is NOT manuscript-specific despite the label its
+            // imprint twin still carries: listPaneVisible drives the middle
+            // column of EVERY imbib route (publication SectionContentView
+            // included) and is the shortcut advertised by TabContentView's list
+            // toolbar button ("Show/Hide the list ⌥⌘0").
+            ImpressPaneLayoutButtons()
 
             layoutsMenu
 

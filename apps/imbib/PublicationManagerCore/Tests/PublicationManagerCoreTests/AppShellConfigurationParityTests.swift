@@ -8,6 +8,7 @@
 //  value, that is a deliberate behavior change and the matrix must move too.
 //
 
+import ImpressKit
 import XCTest
 @testable import PublicationManagerCore
 
@@ -288,13 +289,39 @@ final class AppShellConfigurationParityTests: XCTestCase {
     /// the ADS/SciX keychain items in it. Those items are ACL'd to imbib's code
     /// signature: a differently-signed shell reading them pops a SecurityAgent
     /// prompt and blocks the cooperative-pool thread (the bug that hung
-    /// impart's `/api/logs`). Before an impress target exists, either it ships
-    /// with imbib's keychain access group or the credential read moves behind
-    /// a reachability check. Asserted here so the requirement is discovered by
-    /// a test, not by a hang.
+    /// impart's `/api/logs`).
+    ///
+    /// DECIDED 2026-07-30, and the prose above is now history rather than an
+    /// open question: the REACHABILITY CHECK shipped
+    /// (`CredentialManager.itemsAreReadableWithoutPrompting`), and a shared
+    /// keychain access group did not — it needs imbib re-signed AND every
+    /// already-stored item migrated into the group. See ADR-0022 D9 and
+    /// docs/chassis-capability-matrix.md § Known gaps for the full record,
+    /// including exactly which reads the check covers (one) and which do not
+    /// need it (the rest are imbib-process-only).
+    ///
+    /// The assertions are the same and are still worth making: they are the
+    /// premise. If impress ever STOPPED permitting `.search`, the second gate
+    /// would be dead code guarding nothing, and this is where that shows up.
     func testImpressPermitsSearchWhichImpliesTheKeychainRequirement() {
         XCTAssertTrue(AppShellConfiguration.impress.permits(.search))
         XCTAssertEqual(AppShellConfiguration.impress.recordKind(for: .search), .publication)
+    }
+
+    /// The reachability gate is a BUNDLE-IDENTITY check, and the identity it
+    /// checks is imbib's. Pinned because the failure mode of getting it wrong
+    /// is not a crash: a check that accidentally returned true everywhere would
+    /// re-arm the SecurityAgent hang in five apps, and one that returned false
+    /// in imbib would silently disable ADS/SciX for the app that owns them.
+    /// Neither shows up as a test failure anywhere else.
+    func testTheKeychainReachabilityGateNamesImbibsBundleIdentity() {
+        XCTAssertEqual(SiblingApp.imbib.bundleID, "com.impress.imbib")
+        XCTAssertNotEqual(
+            SiblingApp.impress.bundleID, SiblingApp.imbib.bundleID,
+            "impress is signed separately; that is the whole reason for the gate")
+        // The test bundle is neither app, so the gate must be closed here — the
+        // same answer every non-imbib host gets.
+        XCTAssertFalse(CredentialManager.itemsAreReadableWithoutPrompting)
     }
 
     func testOpenBehaviorFallsBackToDescriptorDefault() {

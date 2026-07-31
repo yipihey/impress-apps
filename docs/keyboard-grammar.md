@@ -13,12 +13,28 @@ them.
 | ⌘1 ⌘2 ⌘3 | Switch primary view | Library / Search / Inbox | Text Only / Split View / Direct PDF |
 | ⌃⌘S | Toggle leading sidebar | Sidebar | Outline sidebar |
 | ⌘0 | Toggle secondary pane | Detail pane | Preview pane |
+| ⌥⌘0 | Toggle list (middle) pane | List pane | Manuscript list |
 | ⌘\ | Split editor | — | Two views of the same document |
 | ⌃⌘P | Open on second display | Detached PDF window (also Shift+P, guarded) | Detached PDF window |
 | ⌃⌘D | All dark / all light | App + PDF together | App+editor+PDF together |
 | ⌃⌘1…9 | Apply saved layout N | Layouts menu | Layouts menu |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
+
+**⌥⌘0 was missing from this table until 2026-07-31**, through four apps' worth
+of adoption, even though `PaneLayoutState.listPaneVisible` documented it and
+every one of those apps bound it. Rule 2 below ("new universal actions go into
+`UniversalShortcut` + this doc + both ⌘/ views") was followed for the catalog
+and not for the doc, and nothing checked. It is checked now:
+`PaneLayoutCommandsTests.testTheKeyboardGrammarDocumentsAllThreeChords` fails if
+a row for ⌘0, ⌥⌘0 or ⌃⌘S leaves this table.
+
+**The three pane toggles are one shared value.** ⌘0 / ⌥⌘0 / ⌃⌘S are
+`ImpressPaneLayoutButtons` (`Chassis/Shared/PaneLayoutCommands.swift`), not four
+hand-written copies — ADR-0022 X2 closes D9 finding 4. The chords are published
+there as DATA (`chords()`) so this table and the code can be compared by a test
+rather than by eye. imprint keeps the label "Toggle Manuscript List" on ⌥⌘0; the
+chord and the state it drives are identical to everyone else's.
 
 ## Guarded single-key layer (vim grammar)
 

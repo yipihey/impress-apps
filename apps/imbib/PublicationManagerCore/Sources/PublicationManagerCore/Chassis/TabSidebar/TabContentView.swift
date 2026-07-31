@@ -33,6 +33,12 @@ public struct TabContentView: View {
     /// root; defaults to `.imbib` so imbib is unchanged.
     @Environment(\.appShellConfiguration) private var shellConfiguration
 
+    /// The composed sidebar, when this shell has one. nil in the five sibling
+    /// apps; `.impress` in impress, supplied by its root. Applied alongside
+    /// `shellConfiguration` below, before `configure()`, so the very first tree
+    /// the outline builds is already the composed one.
+    @Environment(\.sidebarComposition) private var sidebarComposition
+
     // MARK: - State
 
     @State private var viewModel = ImbibSidebarViewModel()
@@ -108,6 +114,10 @@ public struct TabContentView: View {
             // imprint). Idempotent across .task re-runs.
             if !didApplyShellConfig {
                 viewModel.shellConfiguration = shellConfiguration
+                // nil for the five single-preset shells, so this line is the
+                // no-op it looks like there; `.impress` for impress, which is
+                // what turns the flat sidebar into five app groups.
+                viewModel.sidebarComposition = sidebarComposition
                 didApplyShellConfig = true
             }
             // Wire up dependencies

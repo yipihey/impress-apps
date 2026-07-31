@@ -10,6 +10,7 @@ import CoreSpotlight
 import ImpressKit
 import ImpressKeyboard
 import ImpressSpotlight
+import ImpressTheme
 import MessageManagerCore
 import PublicationManagerCore
 import SwiftUI
@@ -244,20 +245,12 @@ struct ImpartApp: App {
                 // three declarative pane commands imbib and imprint already
                 // declare over the same `PaneLayoutStore` — the chassis reads it,
                 // impart just never spoke to it.
-                Button("Toggle Detail Pane") {
-                    PaneLayoutStore.shared.current.detailPaneVisible.toggle()
-                }
-                .keyboardShortcut("0", modifiers: .command)
-
-                Button("Toggle List") {
-                    PaneLayoutStore.shared.current.listPaneVisible.toggle()
-                }
-                .keyboardShortcut("0", modifiers: [.command, .option])
-
-                Button("Toggle Sidebar") {
-                    PaneLayoutStore.shared.current.sidebarVisible.toggle()
-                }
-                .keyboardShortcut("s", modifiers: [.control, .command])
+                // …and since ADR-0022 X2 (D9 finding 4) those three commands
+                // are the CHASSIS's, not a fourth hand-written copy of them.
+                // Embedded as content rather than inserted as a `Commands`
+                // value so they keep their position in this group, ahead of the
+                // ⌘1-5 view-mode accelerators below.
+                ImpressPaneLayoutButtons()
 
                 Divider()
 
@@ -369,29 +362,13 @@ final class AppState {
 // that appeared to do something and did not; the ⌘1-5 commands that replaced it
 // drive the chassis for real.
 
-// MARK: - Appearance Modifier
-
-struct AppearanceModifier: ViewModifier {
-    @AppStorage("appearanceMode") private var appearanceMode = "system"
-
-    private var colorScheme: ColorScheme? {
-        switch appearanceMode {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
-        }
-    }
-
-    func body(content: Content) -> some View {
-        content.preferredColorScheme(colorScheme)
-    }
-}
-
-extension View {
-    func withAppearance() -> some View {
-        modifier(AppearanceModifier())
-    }
-}
+// MARK: - Appearance
+//
+// `AppearanceModifier` / `withAppearance()` are ImpressTheme's now (ADR-0022
+// X2, D9 finding 5). The 18 lines that used to sit here were byte-identical to
+// imprint's and impress's, and all three re-derived the string->ColorScheme
+// mapping `AppearanceMode.colorScheme` already publishes. Same key
+// (`appearanceMode`), same behaviour; `import ImpressTheme` is the migration.
 
 // MARK: - Notification Names
 

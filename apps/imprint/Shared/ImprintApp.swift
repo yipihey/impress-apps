@@ -9,6 +9,7 @@ import ImprintCore
 import ImpressKit
 import ImpressSpotlight
 import ImpressSyntaxHighlight
+import ImpressTheme
 import ImpressToolbox
 import PublicationManagerCore
 import SwiftUI
@@ -17,31 +18,18 @@ extension NSNotification.Name {
     static let openDocument = NSNotification.Name("com.imprint.openDocument")
 }
 
-// MARK: - Appearance Modifier
-
-/// View modifier that applies user's color scheme preference
-struct AppearanceModifier: ViewModifier {
-    @AppStorage("appearanceMode") private var appearanceMode = "system"
-
-    private var colorScheme: ColorScheme? {
-        switch appearanceMode {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
-        }
-    }
-
-    func body(content: Content) -> some View {
-        content.preferredColorScheme(colorScheme)
-    }
-}
-
-extension View {
-    /// Apply user's appearance preference (system/light/dark)
-    func withAppearance() -> some View {
-        modifier(AppearanceModifier())
-    }
-}
+// MARK: - Appearance
+//
+// `AppearanceModifier` / `withAppearance()` are ImpressTheme's now (ADR-0022
+// X2, D9 finding 5). The 18 lines that used to sit here were byte-identical to
+// impart's and impress's, and all three re-derived the string→ColorScheme
+// mapping `AppearanceMode.colorScheme` already publishes. The key
+// (`appearanceMode`) and the behaviour are unchanged; `import ImpressTheme`
+// above is the whole migration.
+//
+// imprint-iOS had a FOURTH copy, inline in `ImprintIOSApp`, because the version
+// here was `#if os(macOS)` end to end and iOS could not reach it. The shared
+// one is un-gated, so that copy is gone too.
 
 /// App delegate to handle app lifecycle events
 final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
@@ -834,20 +822,21 @@ struct ImprintApp: App {
 
             // Declarative chassis layout (PaneLayoutStore is what the main
             // window actually reads; the old bindings drove retired AppState).
-            Button("Toggle Sidebar") {
-                PaneLayoutStore.shared.current.sidebarVisible.toggle()
-            }
-            .keyboardShortcut("s", modifiers: [.control, .command])
-
-            Button("Toggle Detail Pane") {
-                PaneLayoutStore.shared.current.detailPaneVisible.toggle()
-            }
-            .keyboardShortcut("0", modifiers: [.command])
-
-            Button("Toggle Manuscript List") {
-                PaneLayoutStore.shared.current.listPaneVisible.toggle()
-            }
-            .keyboardShortcut("0", modifiers: [.command, .option])
+            //
+            // The CHASSIS's since ADR-0022 X2 (D9 finding 4). Embedded as
+            // content rather than inserted as a `Commands` value so the toggles
+            // keep their position in this group, between the edit-mode
+            // accelerators and Split Editor.
+            //
+            // Two deliberate deltas from the copy this replaces, both cosmetic
+            // and both recorded in the ADR: the buttons are now in the order the
+            // other three apps used (Detail, List, Sidebar — this copy was the
+            // only one that led with Sidebar), and the list button keeps
+            // imprint's "Toggle Manuscript List" spelling, which is the reason
+            // `listTitle` is a parameter at all. `listPaneVisible` is not
+            // manuscript-specific; relabelling a live menu entry is a UX
+            // decision, so the label stays until someone makes it.
+            ImpressPaneLayoutButtons(listTitle: "Toggle Manuscript List")
 
             Button(appState.isEditorSplit ? "Close Split Editor" : "Split Editor") {
                 withAnimation { appState.isEditorSplit.toggle() }

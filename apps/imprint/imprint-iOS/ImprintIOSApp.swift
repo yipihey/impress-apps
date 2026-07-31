@@ -7,6 +7,7 @@
 
 import SwiftUI
 import ImprintCore
+import ImpressTheme
 import PublicationManagerCore
 
 // MARK: - imprint iOS App
@@ -19,23 +20,15 @@ struct ImprintIOSApp: App {
     /// State for handling incoming URLs
     @State private var pendingURL: URL?
 
-    /// The appearance preference the (Stage 6) settings screen writes.
-    ///
-    /// macOS applies this through `AppearanceModifier` in
-    /// `Shared/ImprintApp.swift`, which is `#if os(macOS)` end to end — so iOS
-    /// had no application of the key at all. Reading it here is what keeps the
-    /// new Appearance pane from being a control that does nothing: the key,
-    /// `appearanceMode`, and its three values (`system`/`light`/`dark`) are the
-    /// ones macOS has always used, so the preference is shared, not parallel.
-    @AppStorage("appearanceMode") private var appearanceMode = "system"
-
-    private var preferredColorScheme: ColorScheme? {
-        switch appearanceMode {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
-        }
-    }
+    // The appearance preference the (Stage 6) settings screen writes is applied
+    // by `ImpressTheme.withAppearance()` on the scene root below (ADR-0022 X2).
+    //
+    // It used to be a local `@AppStorage("appearanceMode")` plus a
+    // string→ColorScheme switch, written here because macOS's `AppearanceModifier`
+    // lived in `Shared/ImprintApp.swift` behind `#if os(macOS)` and iOS could not
+    // reach it. The shared modifier is un-gated, so both platforms now apply the
+    // preference through one implementation instead of two that agreed by luck.
+    // Same key, same three values, same result.
 
     init() {
         // Citation seam. WITHOUT THIS, `ManuscriptCompileController`
@@ -313,7 +306,7 @@ struct ImprintIOSApp: App {
             // shake-to-undo needs.
             IOSManuscriptLibraryView()
                 .undoEnabled()
-                .preferredColorScheme(preferredColorScheme)
+                .withAppearance()
         }
     }
 }

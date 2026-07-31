@@ -108,6 +108,19 @@ final class ImprintSettingsPersistenceTests: XCTestCase {
     /// declaration would fork the preference — and that BOTH platforms still
     /// apply that key, which is what makes the new Appearance row do something
     /// on iOS instead of nothing.
+    ///
+    /// UPDATED (ADR-0022 X2, D9 finding 5). The claim is unchanged; the
+    /// artifact that proves it moved. imprint used to APPLY the key with an
+    /// 18-line `AppearanceModifier` in `Shared/ImprintApp.swift` and a fourth
+    /// inline copy in `ImprintIOSApp.swift`, so the honest check was "does each
+    /// of those two files still declare `@AppStorage("appearanceMode")`". Both
+    /// copies are deleted; `ImpressTheme.withAppearance()` is the one
+    /// application on both platforms. So the READER assertion is now made once,
+    /// against the shared modifier, and each platform is checked for the thing
+    /// that can actually regress: that it still CALLS it. An imprint scene that
+    /// drops `.withAppearance()` is exactly the "control that does nothing"
+    /// this test was written to catch, and dropping it is now the only way to
+    /// get there.
     func testAppearanceKeyIsStillTheOneBothPlatformsApply() throws {
         let paneKeys = try Self.appStorageKeys(
             in: "apps/imprint/Shared/Settings/ImprintSettingsPanes.swift")
@@ -116,14 +129,53 @@ final class ImprintSettingsPersistenceTests: XCTestCase {
             "the appearance pane is a chassis builtin now; a second declaration forks it")
 
         let declaration = "@AppStorage(\"\(Self.appearanceKey)\")"
+
+        // The ONE application, shared by every app in the suite.
+        let sharedModifier = try Self.source(
+            of: "packages/ImpressTheme/Sources/ImpressTheme/AppearanceModifier.swift")
         XCTAssertTrue(
-            try Self.source(of: "apps/imprint/Shared/ImprintApp.swift").contains(declaration),
-            "macOS's AppearanceModifier must still read `\(Self.appearanceKey)`")
+            sharedModifier.contains("public static let storageKey = \"\(Self.appearanceKey)\""),
+            "ImpressTheme's AppearanceModifier must still read `\(Self.appearanceKey)`")
+        // Through `@AppStorage`, so a settings write lands live rather than at
+        // next launch. It reads the CONSTANT asserted above rather than a
+        // fourth copy of the literal, which is why this is not `declaration`.
+        XCTAssertTrue(
+            sharedModifier.contains("@AppStorage(AppearanceModifier.storageKey)"),
+            "…and must read it through @AppStorage, so a settings write lands live")
+
+        // Both imprint platforms must still CALL it. This is the assertion that
+        // can regress: deleting the call is silent, and the app just stops
+        // honouring the preference.
+        XCTAssertTrue(
+            try Self.source(of: "apps/imprint/Shared/ImprintApp.swift")
+                .contains(".withAppearance()"),
+            "macOS imprint must apply the shared appearance modifier")
         XCTAssertTrue(
             try Self.source(of: "apps/imprint/imprint-iOS/ImprintIOSApp.swift")
-                .contains(declaration),
+                .contains(".withAppearance()"),
             "iOS must APPLY the key the new settings screen writes, or the "
                 + "Appearance row is a control that does nothing")
+
+        // Neither may re-grow a private APPLICATION of the key. Note what is
+        // NOT asserted: imprint's `ImprintApp` still declares
+        // `@AppStorage("appearanceMode")` and legitimately so — that property
+        // backs the View ▸ Appearance menu, which WRITES the preference (⌃⌘D,
+        // "all dark / all light"). Reading and writing the key is fine and is
+        // the point of a shared key. What must not come back is a second
+        // string→ColorScheme mapping, which is the actual finding.
+        for path in [
+            "apps/imprint/Shared/ImprintApp.swift",
+            "apps/imprint/imprint-iOS/ImprintIOSApp.swift",
+        ] {
+            let source = try Self.source(of: path)
+            XCTAssertFalse(
+                source.contains("struct AppearanceModifier"),
+                "\(path) must not re-declare AppearanceModifier — ImpressTheme owns it")
+            XCTAssertFalse(
+                source.contains("func withAppearance()"),
+                "\(path) must not re-declare withAppearance() — ImpressTheme owns it")
+        }
+
         XCTAssertTrue(
             try Self.source(
                 of: "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore"

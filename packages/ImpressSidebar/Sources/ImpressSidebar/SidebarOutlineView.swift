@@ -488,6 +488,26 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
                   let id = nodeID(for: item),
                   let info = flattenedInfo[id] else { return nil }
 
+            // Composed sidebars only (impress). `isAppGroupItem` is nil in the
+            // five single-preset shells, so this branch is unreachable there
+            // and their rows go through exactly the two paths below.
+            if configuration.isAppGroupItem?(node) == true {
+                let cellID = NSUserInterfaceItemIdentifier("SidebarOutlineAppGroupCell")
+                let cell: SidebarOutlineCellView
+                if let reused = outlineView.makeView(withIdentifier: cellID, owner: nil)
+                    as? SidebarOutlineCellView {
+                    cell = reused
+                } else {
+                    cell = SidebarOutlineCellView(frame: .zero)
+                    cell.identifier = cellID
+                }
+                cell.configureAsAppGroup(
+                    displayName: node.displayName,
+                    systemImage: node.iconName,
+                    menu: configuration.sectionMenu?(node))
+                return cell
+            }
+
             let isGroup = configuration.isGroupItem?(node) ?? false
 
             if isGroup {
@@ -575,6 +595,13 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             guard !isUpdatingProgrammatically else { return }
             if let wrapper = notification.userInfo?["NSObject"] as? SidebarOutlineNodeWrapper {
                 expansionState.expand(wrapper.id)
+                // The host's chance to persist. Guarded by
+                // `isUpdatingProgrammatically` above, so restoring expansion
+                // during a reload never writes the state back as if the user
+                // had done it.
+                if let node = nodeLookup[wrapper.id] {
+                    configuration.onExpansionChanged?(node, true)
+                }
             }
         }
 
@@ -582,6 +609,9 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             guard !isUpdatingProgrammatically else { return }
             if let wrapper = notification.userInfo?["NSObject"] as? SidebarOutlineNodeWrapper {
                 expansionState.collapse(wrapper.id)
+                if let node = nodeLookup[wrapper.id] {
+                    configuration.onExpansionChanged?(node, false)
+                }
             }
         }
 

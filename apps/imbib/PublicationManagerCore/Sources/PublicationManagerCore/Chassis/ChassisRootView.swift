@@ -75,6 +75,28 @@ extension RustStoreAdapter {
     }
 }
 
+// MARK: - Composed sidebar
+
+/// The `SidebarComposition` a shell renders, or nil for a shell that runs a
+/// single flat preset.
+///
+/// An environment value rather than a flag on `AppShellConfiguration`, because
+/// composing is not a property of a PRESET — the `.impress` preset is still the
+/// flat union, and the parity suites still pin it — it is a property of the
+/// WINDOW: this window shows five apps' sidebars. It is also what keeps the
+/// chassis free of an `appID == "impress"` test (ADR-0022 D9): the one shell
+/// that composes is the one root that passes the value.
+public struct SidebarCompositionKeyEnvironment: EnvironmentKey {
+    public static let defaultValue: SidebarComposition? = nil
+}
+
+public extension EnvironmentValues {
+    var sidebarComposition: SidebarComposition? {
+        get { self[SidebarCompositionKeyEnvironment.self] }
+        set { self[SidebarCompositionKeyEnvironment.self] = newValue }
+    }
+}
+
 // MARK: - Root
 
 /// The chassis root every sibling app's macOS window renders.
@@ -106,11 +128,22 @@ public struct ChassisRootView: View {
     /// stays greppable per app instead of collapsing into one anonymous line.
     private let readyLogMessage: String
 
+    /// The composed sidebar this shell renders, or nil for a single-preset
+    /// shell. DEFAULTED to nil so the five sibling roots are unchanged — they
+    /// do not pass it, and a shell that does not pass it cannot accidentally
+    /// acquire a group tier.
+    private let sidebarComposition: SidebarComposition?
+
     @State private var models: ChassisViewModels?
 
-    public init(configuration: AppShellConfiguration, readyLogMessage: String) {
+    public init(
+        configuration: AppShellConfiguration,
+        readyLogMessage: String,
+        sidebarComposition: SidebarComposition? = nil
+    ) {
         self.configuration = configuration
         self.readyLogMessage = readyLogMessage
+        self.sidebarComposition = sidebarComposition
     }
 
     public var body: some View {
@@ -121,6 +154,7 @@ public struct ChassisRootView: View {
                     .environment(models.libraryViewModel)
                     .environment(models.searchViewModel)
                     .environment(\.appShellConfiguration, configuration)
+                    .environment(\.sidebarComposition, sidebarComposition)
             } else {
                 ChassisRootLoadingView()
             }

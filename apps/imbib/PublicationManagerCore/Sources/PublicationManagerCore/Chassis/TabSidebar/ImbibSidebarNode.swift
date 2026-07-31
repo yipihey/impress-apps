@@ -18,6 +18,14 @@ import ImpressFTUI
 /// Discriminated union of all sidebar item types.
 /// Uses value types only — no Core Data objects stored here.
 enum ImbibSidebarNodeType: Hashable {
+    /// One sibling app's WHOLE sidebar, as the outer tier of a COMPOSED sidebar
+    /// (impress). The payload is the app id — `SiblingApp.rawValue`.
+    ///
+    /// Produced ONLY when the shell supplies a `SidebarComposition`; the five
+    /// single-preset shells never build one, so every `switch` over this enum
+    /// that predates it keeps its existing behaviour through `default`.
+    case appGroup(String)
+
     case section(SidebarSectionType)
     case allInbox
     case inboxFeed(feedID: UUID)
@@ -86,7 +94,14 @@ enum ImbibSidebarNodeType: Hashable {
 /// ensure stable identity across rebuilds.
 @MainActor
 struct ImbibSidebarNode: SidebarTreeNode {
-    let id: UUID
+    /// `var` rather than `let` for exactly one reason: `adopting(group:…)`
+    /// re-keys a node into its app group's namespace. Two rows in a composed
+    /// sidebar can otherwise share a deterministic id (`.flagColor(.red)` in
+    /// the imbib group and in the imprint group), and `SidebarOutlineView`
+    /// caches wrappers, children and flattening info in UUID-keyed dictionaries
+    /// — a duplicate id is not a cosmetic clash there, it is one row silently
+    /// standing in for another.
+    var id: UUID
     let nodeType: ImbibSidebarNodeType
     let displayName: String
     let iconName: String
@@ -101,6 +116,44 @@ struct ImbibSidebarNode: SidebarTreeNode {
 
     /// Whether this node is a section header (group item in NSOutlineView)
     var isGroup: Bool = false
+
+    /// Whether this node is an APP-GROUP header — the outer tier a composed
+    /// sidebar has and a flat one does not.
+    ///
+    /// A separate flag from `isGroup`, not a mode on it: the two tiers coexist
+    /// and render differently, and `isGroup`'s meaning (uppercased header with
+    /// a `sectionMenu` button) is frozen pixel behaviour in five shells.
+    /// `false` for every node the single-preset shells build.
+    var isAppGroup: Bool = false
+
+    /// The app group this node belongs to, or nil in a flat sidebar.
+    ///
+    /// Carried on the node because the macOS tree is built LAZILY — see
+    /// `SidebarNodeGroup` for the four questions this answers that a flat tree
+    /// never had to ask.
+    var appGroup: SidebarNodeGroup?
+}
+
+// MARK: - Group adoption
+
+extension ImbibSidebarNode {
+
+    /// This node as it appears INSIDE an app group: re-keyed into the group's id
+    /// namespace, tagged with the group, and pushed one level deeper.
+    ///
+    /// Applied at exactly ONE place — `ImbibSidebarViewModel.children(of:)`,
+    /// whenever the parent has a group — so all three corrections happen once
+    /// per node, for every node in the subtree, with no builder-site edits. That
+    /// is what keeps `treeDepth` (hand-assigned at ten sites, and the ONLY
+    /// source of indentation because `indentationPerLevel == 0`) correct under a
+    /// new tier without touching any of the ten.
+    func adopting(group: SidebarNodeGroup, depthOffset: Int = 1) -> ImbibSidebarNode {
+        var copy = self
+        copy.appGroup = group
+        copy.id = ImbibSidebarNodeID.grouped(group.id, id)
+        copy.treeDepth += depthOffset
+        return copy
+    }
 }
 
 // MARK: - Tab Mapping
@@ -109,7 +162,20 @@ extension ImbibSidebarNode {
     /// Maps this node to the corresponding ImbibTab for content routing.
     /// Returns nil for section headers (not selectable).
     var imbibTab: ImbibTab? {
+        // In a COMPOSED sidebar, the two cross-kind sections (Flagged,
+        // Dismissed) take their kind from the GROUP's preset rather than from
+        // the window's. Without this, impress's imprint group would list
+        // flagged PAPERS under a manuscript app, because `SectionContentView`
+        // resolves a bare `.flagged` tab against the flat `.impress` union —
+        // which is the user's original "hit and miss" report, transplanted to
+        // macOS. nil here (every other node type, and every node in a flat
+        // sidebar) falls through to the unchanged switch below.
+        if let retargeted = appGroup?.retargetedTab(for: nodeType) { return retargeted }
+
         switch nodeType {
+        case .appGroup:
+            // A group header is an app's presence, not a destination.
+            return nil
         case .section:
             return nil
         case .allInbox:
@@ -249,6 +315,23 @@ enum ImbibSidebarNodeID {
 
     static func section(_ type: SidebarSectionType) -> UUID {
         stable("section.\(type.rawValue)")
+    }
+
+    /// An app group's header row (composed sidebars only).
+    static func appGroup(_ groupID: String) -> UUID {
+        stable("group.\(groupID)")
+    }
+
+    /// A node's id INSIDE an app group.
+    ///
+    /// Derived from the flat id rather than from the node's own key, so it needs
+    /// no per-builder knowledge: every one of the ~30 builder functions keeps
+    /// producing exactly the id it produced before, and `adopting(group:)`
+    /// namespaces it. Deterministic, like every other id here, and stable for
+    /// the same single-launch window (`stable(_:)` seeds a per-process
+    /// `Hasher`; nothing persists these).
+    static func grouped(_ groupID: String, _ flatID: UUID) -> UUID {
+        stable("group.\(groupID).node.\(flatID.uuidString)")
     }
 
     static func searchForm(_ type: SearchFormType) -> UUID {

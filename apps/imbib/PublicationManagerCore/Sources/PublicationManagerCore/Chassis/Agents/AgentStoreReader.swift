@@ -24,22 +24,27 @@ import ImpressKit
 import ImpressRustCore
 import OSLog
 
+// `Codable`, not `Decodable`, since ADR-0022 X2: `AgentStoreWriter` builds its
+// rows by ENCODING these types, so the field names a seed writes are the field
+// names this file reads. `CaseIterable` is what lets
+// `ChassisPayloadVocabularyTests` enumerate and pin them.
+
 /// Decoded `task@1.0.0` payload fields (defensive: rows may omit optionals).
-struct AgentTaskPayload: Decodable {
+struct AgentTaskPayload: Codable {
     var title: String?
     /// queued | running | waiting_review | completed | failed | cancelled.
     var state: String?
     var description: String?
     var assignedTo: String?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case title, state, description
         case assignedTo = "assigned_to"
     }
 }
 
 /// Decoded `agent-run@1.0.0` payload fields (provenance record, ADR-0005 §5).
-struct AgentRunPayload: Decodable {
+struct AgentRunPayload: Codable {
     var agentID: String?
     var model: String?
     var promptHash: String?
@@ -47,7 +52,7 @@ struct AgentRunPayload: Decodable {
     var tokenCount: Int64?
     var durationMs: Int64?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case model
         case agentID = "agent_id"
         case promptHash = "prompt_hash"
@@ -80,8 +85,8 @@ public final class AgentStoreReader {
     /// `impress_core::task_schema_migration`. So this reader now sees the rows
     /// impel's Swift bridge writes as well as the ones its Rust kernel writes —
     /// before, the Agents section showed only the latter.
-    public static let taskSchema = TaskRecordKind.descriptor.primarySchemaRef
-    public static let agentRunSchema = AgentRunRecordKind.descriptor.primarySchemaRef
+    nonisolated public static let taskSchema = TaskRecordKind.descriptor.primarySchemaRef
+    nonisolated public static let agentRunSchema = AgentRunRecordKind.descriptor.primarySchemaRef
 
     /// The kernel task lifecycle, in canonical pipeline order — the
     /// descriptor's declared `lifecycle`, not a parallel array. Empty only if
@@ -109,7 +114,13 @@ public final class AgentStoreReader {
     public func fetchTasks(state: String? = nil, limit: UInt32 = 5000) -> [SharedItemRow] {
         guard let store else { return [] }
         let eq: [SharedFieldEq] = state.map {
-            [SharedFieldEq(field: "state", valueJson: Self.jsonString($0))]
+            [SharedFieldEq(
+                // The FIELD NAME from the decoder's own key. `TaskRecordKind
+                // .descriptor.lifecycle.payloadField` declares the same string;
+                // a `payloadEq` that disagrees with either matches nothing,
+                // silently, forever.
+                field: AgentTaskPayload.CodingKeys.state.rawValue,
+                valueJson: Self.jsonString($0))]
         } ?? []
         return (try? store.queryItems(query: SharedItemQuery(
             schemaRef: Self.taskSchema, parentId: nil, payloadEq: eq,
@@ -179,7 +190,13 @@ public final class AgentStoreReader {
     public func taskCount(state: String? = nil) -> Int {
         guard let store else { return 0 }
         let eq: [SharedFieldEq] = state.map {
-            [SharedFieldEq(field: "state", valueJson: Self.jsonString($0))]
+            [SharedFieldEq(
+                // The FIELD NAME from the decoder's own key. `TaskRecordKind
+                // .descriptor.lifecycle.payloadField` declares the same string;
+                // a `payloadEq` that disagrees with either matches nothing,
+                // silently, forever.
+                field: AgentTaskPayload.CodingKeys.state.rawValue,
+                valueJson: Self.jsonString($0))]
         } ?? []
         let count = (try? store.countItems(query: SharedItemQuery(
             schemaRef: Self.taskSchema, parentId: nil, payloadEq: eq,

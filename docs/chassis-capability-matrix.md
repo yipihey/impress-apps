@@ -20,6 +20,8 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 
 | Node kind | Context menu | Rename | Delete | Drag | Drop target | Counts | Notes |
 |---|---|---|---|---|---|---|---|
+| `appGroup` (X3, 2026-07-31) | ➖ | ➖ | ➖ | ❌ never — group order is `SiblingApp.descriptors`', not a user preference | ❌ refuses every drop, including a section from another group (logged once per pair, not silently) | ➖ | **COMPOSED shells only (macOS impress).** One sibling app's whole sidebar as a collapsible tier above the section headers. `isAppGroup` is a NEW flag, separate from `isGroup`: the two tiers coexist and render differently, and folding them together would demote section headers to ordinary rows and lose `sectionMenu`. Not selectable (`shouldSelectItem` → false), `imbibTab` nil, `capabilities` `.readOnly`. Rendered by `SidebarOutlineCellView.configureAsAppGroup` — an ADDITIVE method reached only via `SidebarOutlineConfiguration.isAppGroupItem`, which is **nil** in all five single-preset shells, so their cells are produced by exactly the code that produced them before. Collapse persists under `SidebarCompositionKey.group(<app>)` |
+| `section(...)` INSIDE an `appGroup` | ✅ unchanged (`sectionMenu` still consulted) | ➖ | ➖ | ✅ reorder **within its own group only** | ✅ its own group header | ✅ per-group | X3. Same node kind, same cell path, same menu — the group travels on the node (`appGroup: SidebarNodeGroup?`) and decides three things the flat tree never had to ask: which PRESET binds this section's kind, which id NAMESPACE it lives in (`.flagColor(.red)` occurs in several groups and `ImbibSidebarNodeID` is deterministic — ungrouped ids would collide in `SidebarOutlineView`'s UUID-keyed caches), and which `SidebarCompositionKey.section(<app>, <section>)` persists its collapse. `treeDepth` gains exactly one level for the whole subtree, applied once in `children(of:)` — the ten hand-assigned `treeDepth` sites are untouched |
 | `section(.inbox)` | ✅ Add Feed / New Collection | ➖ | ➖ | ✅ reorder | ✅ pubs, expl. search→feed | ✅ | |
 | `section(.libraries)` | ✅ New Library | ➖ | ➖ | ✅ reorder | ➖ | ➖ | |
 | `section(.manuscripts)` | ✅ New Folder | ➖ | ➖ | ✅ reorder | ✅ folder→root | ➖ | added 2026-07. **imprint-only surface since the 2026-07-27 publications-only purification** — imbib's `visibleSections` no longer contains `.manuscripts`. The chassis code (ManuscriptSectionView, folder block, CollectionStoreAdapter manuscript binding) is UNCHANGED: imprint runs on it |
@@ -1637,8 +1639,173 @@ links `ImpressCommandPalette` at all — it is written but not yet activated.
 
 ## Known gaps (tracked)
 
-- **The composed (per-app-group) sidebar is iOS-ONLY; macOS impress still runs
-  the flat preset.** Shipped I3, 2026-07-31.
+- **~~The suite has no shared keychain access group, so only imbib can read the
+  ADS/SciX credentials.~~** — **DECIDED 2026-07-30, NOT IMPLEMENTED, and that is
+  the decision.** The gap is real and stays open on purpose; what follows is the
+  record of why, written here because a deliberate non-implementation with no
+  written reason is indistinguishable from an oversight.
+
+  **The hazard.** `com.imbib.credentials.ads.apiKey` and its siblings are ACL'd
+  to imbib's code signature. When a differently-signed process reads them, macOS
+  raises a SecurityAgent password prompt, and the synchronous
+  `SecItemCopyMatching` behind `KeychainSwift` blocks the CALLER's
+  cooperative-pool thread until the user answers. That is not a slow read, it is
+  a hang: impart's `/api/logs` (a `@MainActor` route) froze on exactly this. Six
+  apps now link the chassis and five of them are signed differently from imbib,
+  so any chassis code path that touches an imbib-owned keychain item is one
+  adopter away from reproducing it.
+
+  **What shipped: a reachability check.**
+  `CredentialManager.itemsAreReadableWithoutPrompting` — `Bundle.main
+  .bundleIdentifier == SiblingApp.imbib.bundleID`. A bundle-identity comparison,
+  no keychain query, so it cannot itself prompt or block. It is deliberately a
+  REACHABILITY fact and not a policy: `AppShellConfiguration.permits(.search)`
+  still says which shells surface external search, and impress still permits it.
+  impress renders the Search section; it just does not attempt a read it
+  provably cannot complete.
+
+  **What the check covers — one call site, and that is the whole point.**
+  `TabContentView`'s boot task, the only place CHASSIS code (shipped into all six
+  apps) reads imbib-owned credentials, gates on `permits(.search) &&
+  itemsAreReadableWithoutPrompting`. The other ~9 `CredentialManager.shared`
+  readers in the tree — `SciXLibraryService`, `SciXSyncManager`,
+  `InboxCoordinator`, `EnrichmentSettingsView`, `ADSSetupStepView`,
+  `OnboardingSheet`, both `imbibApp`s, `IOSSidebarHost` — are NOT gated and must
+  not be: every one of them is imbib-app-target code that only ever runs inside
+  the imbib process, where the answer is trivially true. **The rule for new
+  code:** a credential read added to `Chassis/` or to any `packages/Impress*`
+  needs the gate; one added under `apps/imbib/imbib/` does not. If that ever
+  stops being the boundary, the gate has to move with it.
+
+  **What a shared access group would entail, if this is ever revisited.** It was
+  rejected on cost, not taste, and the cost is four things, in order:
+
+  1. **Re-sign imbib** with a `keychain-access-groups` entitlement (e.g.
+     `$(AppIdentifierPrefix)com.impress.suite`). No app in the suite declares one
+     today — the sharing mechanism is App Groups
+     (`QG3MEYVHMS.com.impress.suite`), which covers the store and the workspace
+     and does not cover the keychain.
+  2. **Migrate every already-stored item.** An item written without an access
+     group is not retroactively a member of one. Each existing item must be read
+     under the old ACL and re-added under the group, by the imbib process, once,
+     idempotently — and the read half of that migration is the very operation
+     that prompts if it is attempted from anywhere else.
+  3. **Set `KeychainSwift.accessGroup`** in `CredentialManager` (today an
+     explicit `nil`, commented "use the app's default keychain (works in
+     sandbox)"), and decide what happens for a user who upgrades one app but not
+     the others — the migration is imbib's, so the siblings see nothing until
+     imbib has run.
+  4. **Re-sign the other five apps** with the same group, which makes every
+     sibling's provisioning profile depend on one shared identifier.
+
+  Steps 1 and 4 are release-engineering changes to six shipping apps; step 2 is
+  a one-shot data migration with a "user cancelled the prompt" failure mode. The
+  reachability check is four lines. The trade was made on that ratio, and the
+  consequence, stated plainly, is that **credential ENTRY stays in imbib** —
+  which is where the user set them — and the other five shells surface search UI
+  backed by whatever needs no key.
+
+  Pinned by `AppShellConfigurationParityTests
+  .testTheKeychainReachabilityGateNamesImbibsBundleIdentity`. See ADR-0022 D9
+  finding 6.
+
+- **~~The composed (per-app-group) sidebar is iOS-ONLY; macOS impress still runs
+  the flat preset.~~** — **CLOSED 2026-07-31 (X3).** macOS impress renders the
+  same `SidebarComposition` through the `NSOutlineView`. All five recorded
+  follow-up steps were taken; what each one actually cost is worth keeping,
+  because four of the five turned out to have a single structural answer.
+
+  **(1) Testability first, and it was the whole unlock.** The decisive
+  objection — "no test constructs `ImbibSidebarViewModel`" — was half wrong at
+  HEAD (`SidebarExplorationMenuTests` builds one with `MockPublicationStore`,
+  which the injectable `init(store:)` already allowed) and half exactly right:
+  nothing could seed or observe the half that PERSISTS, because section order
+  and collapse state were read from `UserDefaults.standard` in stored-property
+  initialisers — before any test could intervene — and written through
+  process-wide singletons. `SidebarPersistenceScope` is the `StoreKernelScope`
+  shape applied one layer up: a struct of load/save closures, a `.userDefaults`
+  value that is byte-for-byte the singletons the code used before, and an
+  `.inMemory()` value backed by a scratch box. With it, `MacComposedSidebarTests`
+  (30 tests) builds the view model headlessly and walks the tree through the two
+  entry points the `NSOutlineView` coordinator uses
+  (`outlineConfiguration.rootNodes` + `children(of:)`), so nothing is asserted
+  through a back door. That file is the launch this workflow cannot perform.
+
+  **(2) macOS section-collapse persistence — fixed for ALL SIX shells.**
+  `handleExpansionChange` had no callers because `SidebarOutlineView` offered
+  nowhere to call it from. It now takes the NODE (a grouped section's id is
+  namespaced, so it cannot be matched against `ImbibSidebarNodeID.section(_:)`)
+  and is wired to a new `SidebarOutlineConfiguration.onExpansionChanged`, fired
+  from `outlineViewItemDidExpand`/`DidCollapse` behind the existing
+  `isUpdatingProgrammatically` guard so a reload never writes state back as if
+  the user had done it. Flat shells keep the `sidebarCollapsedSections` key
+  space; composed shells write `SidebarCompositionKey` into
+  `sidebarCompositionCollapsed`. This was a pre-existing bug in every shell, not
+  something the composition introduced.
+
+  **(3) The group row style is ADDITIVE, and unreachable in the five siblings.**
+  `SidebarOutlineCellView.configureAsGroup` and `configure` are byte-unmodified;
+  a new `configureAsAppGroup(displayName:systemImage:menu:)` sits beside them,
+  reached only when `SidebarOutlineConfiguration.isAppGroupItem` says so — and
+  the view model passes that closure as **nil**, not as a closure returning
+  false, whenever `sidebarComposition == nil`. So for imbib, imprint, implore,
+  impel and impart the new branch in `viewFor` is not merely false-valued, it is
+  unreachable, and `testSinglePresetShellsSupplyNoAppGroupPredicateAtAll` pins
+  that. Section headers keep their own tier and therefore keep `sectionMenu` —
+  the alternative the original note feared (demoting headers to ordinary rows)
+  was never taken.
+
+  **(4) `treeDepth` at ten hand-assigned sites: none of them changed.** Grouping
+  is applied at exactly ONE place, `children(of:)`, which — whenever the parent
+  carries a group — tags each child with that group, re-keys its id into the
+  group's namespace and adds one to its `treeDepth`. Since each node is produced
+  exactly once by its parent's `children(of:)` call, one uniform rule corrects
+  the whole subtree. The id re-keying is not cosmetic: `ImbibSidebarNodeID` is
+  deterministic, so imbib's red flag and imprint's red flag would otherwise BE
+  the same UUID inside `SidebarOutlineView`'s UUID-keyed wrapper cache, child
+  map and flattening info — one row silently standing in for another.
+
+  **(5) Section drag-reorder keeps working; cross-group is refused loudly.**
+  `canAcceptDrop` gained one arm before the existing `(.section, _) -> false`
+  rule: a section may drop on its OWN group header. Without it, section reorder
+  would have died at the first gesture with no error (`handleReorder` treats
+  `parent == nil` as "section reorder", and a grouped section's parent is never
+  nil). A cross-group drop is refused AND logged once per distinct pair —
+  `canAcceptDrop` runs on every mouse-move, and a refusal that fills the console
+  is a refusal nobody reads. `handleReparent` carries the write-side half of the
+  same guard. The section ORDER stays one suite-wide `SidebarSectionType` list;
+  a per-group reorder re-sequences only the slots that group already occupied
+  (`ImbibSidebarViewModel.merging`), so the four groups the user was not looking
+  at do not move.
+
+  **What the impress macOS window now constructs.** `ImpressChassisRoot` passes
+  `sidebarComposition: .impress` to `ChassisRootView`, whose parameter defaults
+  to nil — so a sibling cannot acquire a group tier by omission, and there is no
+  `appID ==` test anywhere (ADR-0022 D9). The preset is UNCHANGED and still
+  pinned by the parity suites: what impress may RENDER and what its sidebar
+  SHOWS are two questions now, and two values.
+  `ImpressShellTests.testMacRootRunsTheUnmodifiedImpressPreset` was replaced by
+  `testMacRootRunsTheImpressPresetAndTheComposedSidebar`, which keeps every
+  assertion the old one made and adds the composition.
+
+  **The user-facing payoff, same as iOS.** impress-macOS now has a Flagged
+  section per group, each bound by its own app's preset — imbib's to
+  `.publication`, imprint's to `.manuscript`. The routing is done on the NODE
+  (`SidebarNodeGroup.retargetedTab`), which produces the tab that already
+  carries its kind (`.record(.flagged(kind, colour))`), so `SectionContentView`
+  is completely unmodified: it never has to ask the window's flat preset what
+  Flagged means. `.publication` deliberately falls through unchanged, so the
+  imbib group behaves exactly as flat imbib does.
+
+  **Still open, recorded rather than papered over.** Per-group flag COUNTS are
+  computed for `.publication` and `.manuscript` only (the two kinds with a
+  flag-only read verb); any other kind's Flagged rows render without a badge,
+  which is the shipped behaviour for every kind that has never had one. And no
+  macOS app was launched in this workflow, so the group row's PIXELS are
+  unverified — the 30 headless tests assert the tree, the ids, the depths, the
+  persistence and the drop guards, not the drawing.
+
+  The original entry follows.
 
   impress-iOS's sidebar is now a `SidebarComposition` — five collapsible groups,
   one per sibling app, each built by running `RecordSidebarBuilder` against that

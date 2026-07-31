@@ -62,6 +62,49 @@
 #
 # The 2026-07-30 reachability audit graduated the other nine formerly per-app
 # identifiers into the block below; see the comment on that section.
+#
+# -----------------------------------------------------------------------------
+# NOT SHARED HERE, and deliberately: TEST_HOST.
+#
+# This template carries UTI declarations and nothing else. It does NOT define
+# TEST_HOST or BUNDLE_LOADER for test targets, and a shared default would be
+# wrong — the correct value depends on the PLATFORM and on whether the project
+# overrides PRODUCT_NAME, which varies per app. Recorded here anyway, because
+# this is the file someone reads when they go looking for a shared answer, and
+# the trap has now cost three projects a build break (ADR-0022 D9, informational
+# finding).
+#
+# XcodeGen derives TEST_HOST from the TARGET name and the iOS bundle LAYOUT:
+#
+#     $(BUILT_PRODUCTS_DIR)/<TargetName>.app/<TargetName>
+#
+# It is wrong whenever either half of that is wrong.
+#
+#   * PRODUCT_NAME override (iOS). imprint, impart and imbib set a project-wide
+#     `PRODUCT_NAME` that differs from the iOS target name, so the product is
+#     `imprint.app/imprint`, not `imprint-iOS.app/imprint-iOS`.
+#     `build-for-testing` fails with "Could not find test host for
+#     imprint-iOSTests" before compiling anything.
+#       → `apps/imprint/project.yml` (imprint-iOSTests),
+#         `apps/impart/project.yml` (impart-iOSTests) carry the override.
+#
+#   * macOS BUNDLE LAYOUT. On macOS the executable is at
+#     `<Product>.app/Contents/MacOS/<Product>`, not `<Product>.app/<Product>`.
+#     So a macOS unit-test target hits the SAME failure for a second, additive
+#     reason — and an app that also renames its product hits both at once, which
+#     is what impress did on its first `build-for-testing`.
+#       → `apps/impress/project.yml` (impressTests) is the only macOS TEST_HOST
+#         override in the repo, and it spells out both halves rather than
+#         deriving either.
+#
+#   * UI-test bundles need NO override. An XCUITest runner launches the app out
+#     of process; it has no test host. `impart-iOSUITests` documents this.
+#
+# So: if a new unit-test target fails with "Could not find test host", the fix
+# is a per-project `TEST_HOST` + `BUNDLE_LOADER` pair, and the two working
+# examples are the ones named above. Do not add one to this template — a test
+# target that included it would inherit a path for the wrong platform.
+# -----------------------------------------------------------------------------
 
 targetTemplates:
   ChassisUTIs:

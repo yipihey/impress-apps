@@ -66,31 +66,23 @@ struct ImpressApp: App {
     /// to either chord, so it takes both as written — implore and impel are the
     /// precedent.
     ///
-    /// The three pane toggles are NOT shared and are hand-written here, exactly
-    /// as impart and imprint hand-write them. That is a finding, recorded in
-    /// the D9 report: `PaneLayoutStore` is chassis state with a chassis-wide
-    /// keyboard grammar (docs/keyboard-grammar.md) and no chassis `Commands`
-    /// value, so the fourth adopter re-typed it for the fourth time.
+    /// The three pane toggles WERE hand-written here, exactly as impart and
+    /// imprint hand-wrote them, and that was the recorded D9 finding: chassis
+    /// state with a chassis-wide keyboard grammar (docs/keyboard-grammar.md)
+    /// and no chassis `Commands` value, retyped by the fourth adopter.
+    /// `ImpressPaneLayoutButtons` closes it (ADR-0022 X2).
+    ///
+    /// Embedded as CONTENT rather than inserted as `ImpressPaneLayoutCommands()`
+    /// because this group also carries the Console item below; a separate
+    /// `Commands` value can only contribute a whole group, which would have
+    /// moved the toggles away from the Divider they sit above.
     @CommandsBuilder
     private var sharedCommands: some Commands {
         ImpressFindCommands()
         ImpressStoreSearchCommands()
 
         CommandGroup(after: .sidebar) {
-            Button("Toggle Detail Pane") {
-                PaneLayoutStore.shared.current.detailPaneVisible.toggle()
-            }
-            .keyboardShortcut("0", modifiers: .command)
-
-            Button("Toggle List") {
-                PaneLayoutStore.shared.current.listPaneVisible.toggle()
-            }
-            .keyboardShortcut("0", modifiers: [.option, .command])
-
-            Button("Toggle Sidebar") {
-                PaneLayoutStore.shared.current.sidebarVisible.toggle()
-            }
-            .keyboardShortcut("s", modifiers: [.control, .command])
+            ImpressPaneLayoutButtons()
 
             Divider()
 
@@ -101,33 +93,19 @@ struct ImpressApp: App {
 }
 
 // MARK: - Appearance
-
-/// The suite's `appearanceMode` key (`system` / `light` / `dark`) — the same
-/// key `AppearanceSettingsPane` (the chassis settings builtin impress adopts)
-/// writes.
-///
-/// FINDING: this modifier is byte-identical in imprint's and impart's app
-/// files and is now written a third time, because `withAppearance()` is an
-/// app-local convention rather than something `ImpressTheme` ships. The package
-/// exports `AppearanceMode` and `AppearanceSettingsSection` — the enum and the
-/// picker — but not the one line that applies the choice.
-private struct AppearanceModifier: ViewModifier {
-    @AppStorage("appearanceMode") private var appearanceMode = "system"
-
-    private var colorScheme: ColorScheme? {
-        switch appearanceMode {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
-        }
-    }
-
-    func body(content: Content) -> some View {
-        content.preferredColorScheme(colorScheme)
-    }
-}
-
-extension View {
-    func withAppearance() -> some View { modifier(AppearanceModifier()) }
-}
+//
+// The 18-line `AppearanceModifier` that used to sit here — the THIRD verbatim
+// copy, and the D9 finding — is `ImpressTheme`'s now (ADR-0022 X2). The package
+// exported `AppearanceMode` and `AppearanceSettingsSection` (the enum and the
+// picker) but not the one line that APPLIES the choice; it does now.
+// `import ImpressTheme` above is the whole of impress's side of it, and
+// `ImpressChassisRoot`'s `.withAppearance()` call site is unchanged.
+//
+// Deleting it stopped being optional the moment the package shipped its own: a
+// module-local `withAppearance()` with the same signature as an imported one is
+// AMBIGUOUS, not shadowed, and this file already imported ImpressTheme for the
+// settings picker. Each of the three apps that carried a private copy gave it
+// up in the same change that handed them a shared one — which is the honest
+// shape of this kind of migration, and the reason it is done in one pass rather
+// than app by app.
 #endif // os(macOS)

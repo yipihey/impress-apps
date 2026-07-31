@@ -21,17 +21,26 @@
 //      duplicates.
 //   4. Fixed clock, so relative dates in screenshots are stable.
 //
-//  RULE 5, and it was impress's own FINDING: "never hand-build payloads — use
-//  the app core's own row builders" is exactly what this seed CANNOT do for
-//  three of its five kinds. Every mail/figure/task writer in the suite lives in
-//  a sibling APP's core, not in the chassis: `ImpartStoreAdapter
-//  .emailMessageRow` is in MessageManagerCore, figure writing is implore's, and
-//  `task@1.0.0` rows are written by impel's `TaskStoreApi`. For those three the
-//  chassis is read-only — it ships `MailStoreReader`, `FigureStoreReader`,
-//  `AgentStoreReader` and no `*StoreWriter` at all. So their payloads below are
-//  hand-built, and the mitigation is that every SCHEMA REF is read from the
-//  kind's DESCRIPTOR (`primarySchemaRef`) rather than typed as a literal — the
-//  one thing `schema-refs.json` exists to keep true.
+//  RULE 5, and it was impress's own FINDING — now CLOSED (ADR-0022 X2).
+//
+//  It used to read: "never hand-build payloads" is exactly what this seed
+//  CANNOT do for three of its five kinds, because every mail/figure/task writer
+//  in the suite lives in a sibling APP's core (`ImpartStoreAdapter
+//  .emailMessageRow` in MessageManagerCore, figures in implore, `task@1.0.0` in
+//  impel's `TaskStoreApi`) and the chassis shipped `MailStoreReader`,
+//  `FigureStoreReader`, `AgentStoreReader` and no `*StoreWriter` at all. So the
+//  payloads below were hand-built, and the only mitigation available was to
+//  read every SCHEMA REF from the kind's DESCRIPTOR — which left the field
+//  NAMES (`subject`, `remote_path`, `sort_order`, `data_hash`, `assigned_to`, …)
+//  as a second spelling of the readers' `CodingKeys` that nothing compared.
+//
+//  The chassis now has the WRITER half of its own vocabulary: `MailStoreWriter`,
+//  `FigureStoreWriter` and `AgentStoreWriter` sit next to their readers and
+//  build rows by ENCODING the readers' own payload structs. Not a store writer —
+//  they open nothing and mutate nothing, and the real writers stay in the owning
+//  apps' cores where mail lifecycle and task transitions belong. What they are
+//  is the one place the field names are spelled, so this file no longer spells
+//  any of them. `ChassisPayloadVocabularyTests` pins reader keys == writer keys.
 //
 //  RULE 6, found by running the suite lanes back to back on ONE simulator: this
 //  seed writes the APP-GROUP store, and a simulator's app-group container is
@@ -155,20 +164,20 @@ enum ImpressIOSUITestSeed {
     private static let inboxID = "22222222-2222-4222-8222-222222222222"
 
     private static func seedMail(_ store: SharedStore) throws {
-        let messageSchema = MessageRecordKind.descriptor.primarySchemaRef
         var rows: [SharedItemUpsert] = [
-            upsert(
-                id: accountID, schemaRef: "mail-account",
-                payload: ["name": accountName, "address": accountAddress, "sort_order": 0]),
-            upsert(
-                id: inboxID, schemaRef: "mail-folder", parentID: accountID,
-                payload: [
-                    "name": inboxName, "remote_path": "INBOX",
-                    // `role: "inbox"` is load-bearing: `MessageListScope
-                    // .allInboxes` fans out over INBOX-ROLE folders, and it is
-                    // the scope `.all(.message)` maps to.
-                    "role": "inbox", "sort_order": 0,
-                ]),
+            // `createdMs` explicit on both container rows: the retired local
+            // helper defaulted it to `millis(offset: 0)`, and rule 4 (fixed
+            // clock) is why. The chassis builder does not guess a date.
+            MailStoreWriter.accountRow(
+                id: accountID, name: accountName, address: accountAddress,
+                sortOrder: 0, createdMs: millis(offset: 0)),
+            MailStoreWriter.folderRow(
+                id: inboxID, accountID: accountID, name: inboxName,
+                // `role: "inbox"` is load-bearing: `MessageListScope
+                // .allInboxes` fans out over INBOX-ROLE folders, and it is
+                // the scope `.all(.message)` maps to.
+                role: "inbox", remotePath: "INBOX", sortOrder: 0,
+                createdMs: millis(offset: 0)),
         ]
 
         let messages: [(id: String, subject: String, body: String, offset: TimeInterval)] = [
@@ -182,15 +191,13 @@ enum ImpressIOSUITestSeed {
         ]
         for message in messages {
             rows.append(
-                upsert(
-                    id: message.id, schemaRef: messageSchema, parentID: inboxID,
-                    payload: [
-                        "subject": message.subject,
-                        "body": message.body,
-                        "from": accountAddress,
-                        "to": ["charles@analyticalengine.org"],
-                        "message_id": "<\(message.id)@analyticalengine.org>",
-                    ],
+                MailStoreWriter.messageRow(
+                    id: message.id, folderID: inboxID,
+                    subject: message.subject,
+                    body: message.body,
+                    from: accountAddress,
+                    to: ["charles@analyticalengine.org"],
+                    messageID: "<\(message.id)@analyticalengine.org>",
                     createdMs: millis(offset: message.offset),
                     isRead: message.offset < -3_600,
                     isStarred: message.subject == starredSubject))
@@ -207,7 +214,6 @@ enum ImpressIOSUITestSeed {
     // MARK: - Figures
 
     private static func seedFigures(_ store: SharedStore) throws {
-        let schema = FigureRecordKind.descriptor.primarySchemaRef
         // A real PNG, so the (newly cross-platform) `FigureDetailPane` View tab
         // has something to decode on iOS. Written straight into the CAS
         // directory under its own digest — `BlobStore.store(data:ext:)` is
@@ -222,25 +228,22 @@ enum ImpressIOSUITestSeed {
             dataHash = hash
         }
 
-        var figurePayload: [String: Any] = [
-            "title": figureTitle,
-            "caption": "Partial sums of the Bernoulli series, eight terms.",
-            "format": "png",
-        ]
-        if let dataHash { figurePayload["data_hash"] = dataHash }
-
         _ = try store.upsertItems(rows: [
-            upsert(
-                id: "44444444-4444-4444-8444-444444444441", schemaRef: schema,
-                payload: figurePayload,
+            FigureStoreWriter.figureRow(
+                id: "44444444-4444-4444-8444-444444444441",
+                title: figureTitle,
+                caption: "Partial sums of the Bernoulli series, eight terms.",
+                format: "png",
+                // nil when the PNG failed to decode — the builder OMITS the key
+                // rather than writing a null, which is the shape a figure with
+                // no raster preview genuinely has.
+                dataHash: dataHash,
                 createdMs: millis(offset: -86_400), isStarred: true),
-            upsert(
-                id: "44444444-4444-4444-8444-444444444442", schemaRef: schema,
-                payload: [
-                    "title": "Engine timing (SVG)",
-                    "caption": "Vector plot — no raster preview, by design.",
-                    "format": "svg",
-                ],
+            FigureStoreWriter.figureRow(
+                id: "44444444-4444-4444-8444-444444444442",
+                title: "Engine timing (SVG)",
+                caption: "Vector plot — no raster preview, by design.",
+                format: "svg",
                 createdMs: millis(offset: -172_800)),
         ])
     }
@@ -248,24 +251,19 @@ enum ImpressIOSUITestSeed {
     // MARK: - Tasks
 
     private static func seedTasks(_ store: SharedStore) throws {
-        let schema = TaskRecordKind.descriptor.primarySchemaRef
         _ = try store.upsertItems(rows: [
-            upsert(
-                id: "55555555-5555-4555-8555-555555555551", schemaRef: schema,
-                payload: [
-                    "title": taskTitle,
-                    "state": taskState,
-                    "description": "Re-run the table with the revised eighth term.",
-                    "assigned_to": "counsel",
-                ],
+            AgentStoreWriter.taskRow(
+                id: "55555555-5555-4555-8555-555555555551",
+                title: taskTitle,
+                state: taskState,
+                description: "Re-run the table with the revised eighth term.",
+                assignedTo: "counsel",
                 createdMs: millis(offset: -1_800)),
-            upsert(
-                id: "55555555-5555-4555-8555-555555555552", schemaRef: schema,
-                payload: [
-                    "title": "File the revised note",
-                    "state": "completed",
-                    "description": "Store Note G revision 2 alongside the manuscript.",
-                ],
+            AgentStoreWriter.taskRow(
+                id: "55555555-5555-4555-8555-555555555552",
+                title: "File the revised note",
+                state: "completed",
+                description: "Store Note G revision 2 alongside the manuscript.",
                 createdMs: millis(offset: -259_200)),
         ])
     }
@@ -385,29 +383,11 @@ enum ImpressIOSUITestSeed {
         Int64((seedEpoch + offset) * 1000)
     }
 
-    private static func upsert(
-        id: String,
-        schemaRef: String,
-        parentID: String? = nil,
-        payload: [String: Any],
-        createdMs: Int64? = nil,
-        isRead: Bool? = nil,
-        isStarred: Bool? = nil
-    ) -> SharedItemUpsert {
-        let json = (try? JSONSerialization.data(withJSONObject: payload))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        return SharedItemUpsert(
-            // Lowercased at the boundary — the store's canonical id form
-            // (imbib CLAUDE.md invariant).
-            id: id.lowercased(),
-            schemaRef: schemaRef,
-            payloadJson: json,
-            parentId: parentID?.lowercased(),
-            tags: [],
-            createdMs: createdMs ?? millis(offset: 0),
-            isRead: isRead,
-            isStarred: isStarred)
-    }
+    // The local `upsert(id:schemaRef:parentID:payload:…)` helper is GONE
+    // (ADR-0022 X2). It took `[String: Any]`, which is what made every field
+    // name in this file a literal — a dictionary key cannot be checked against
+    // anything. `ChassisPayloadRow.upsert` replaces it inside the chassis
+    // writers, with the same id-lowercasing rule and the same `tags: []`.
 
     /// A 4×4 solid-blue PNG. Small enough to inline, real enough to decode.
     private static let pngBase64 = """

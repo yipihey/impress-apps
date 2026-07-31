@@ -26,14 +26,18 @@ import OSLog
 
 /// Decoded `figure@…` payload fields (all optional except format by schema,
 /// but decode defensively — Stage-0 backfill rows carry only title/format).
-struct FigurePayload: Decodable {
+///
+/// `Codable`, not `Decodable`, since ADR-0022 X2: `FigureStoreWriter` builds
+/// its rows by ENCODING this type, so a seeded figure's field names are this
+/// type's `CodingKeys` and cannot be a second spelling of them.
+struct FigurePayload: Codable {
     var format: String?
     var title: String?
     var caption: String?
     var dataHash: String?
     var scriptHash: String?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case format, title, caption
         case dataHash = "data_hash"
         case scriptHash = "script_hash"
@@ -54,6 +58,12 @@ public final class FigureStoreReader {
     public static let shared = FigureStoreReader()
 
     private static let logger = Logger(subsystem: "com.imbib.app", category: "figures")
+
+    /// The figure ref, from the DESCRIPTOR rather than the bare literal this
+    /// query used to carry (`AgentStoreReader.taskSchema` is the precedent).
+    /// `FigureStoreWriter` names the same constant, so a seed and this reader
+    /// cannot disagree about which rows are figures.
+    nonisolated public static let figureSchemaRef = FigureRecordKind.descriptor.primarySchemaRef
 
     private var store: SharedStore?
 
@@ -109,7 +119,7 @@ public final class FigureStoreReader {
     public func fetchFigures(inFolder folderID: String? = nil) -> [SharedItemRow] {
         guard let store else { return [] }
         return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: "figure", parentId: folderID?.lowercased(), payloadEq: [],
+            schemaRef: Self.figureSchemaRef, parentId: folderID?.lowercased(), payloadEq: [],
             modifiedAfterMs: nil, sortField: "modified",
             ascending: false, limit: 5000, offset: 0))) ?? []
     }

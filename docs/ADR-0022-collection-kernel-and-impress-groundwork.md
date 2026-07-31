@@ -918,22 +918,21 @@ rediscovered:
   time** (2026-07-30): `.agents` binds `.task`, so impress-iOS has no derived
   route to `.all(.agentRun)` and declares `agent-run` absent. One `RecordKindID`
   per section now costs two surfaces, not one.
-- **No writer half of the chassis.** `MailStoreReader`, `FigureStoreReader` and
-  `AgentStoreReader` are cross-platform and public; there is no corresponding
-  `*StoreWriter` anywhere. Every writer lives in a sibling APP's core
-  (`ImpartStoreAdapter`, impel's `TaskStoreApi`, implore's figure paths), so a
-  host that RENDERS a kind cannot create one, and a UI-test fixture for a
-  multi-kind shell has to hand-build payloads — which is what
-  `ImpressIOSUITestSeed` does, against the rule the other seeds follow. The
-  mitigation there is to read every `schema_ref` from the kind's descriptor
-  rather than as a literal; the field NAMES remain a second spelling.
-- **`withAppearance()` and the `PaneLayoutStore` menu toggles are per-app.**
-  `ImpressTheme` exports `AppearanceMode` and the picker but not the modifier
-  that applies the choice, so an 18-line `AppearanceModifier` is now written
-  verbatim in imprint, impart and impress. Likewise ⌘0 / ⌥⌘0 / ⌃⌘S: chassis
-  state, a chassis-wide keyboard grammar (docs/keyboard-grammar.md) and no
-  chassis `Commands` value. `ImpressFindCommands` and
-  `ImpressStoreSearchCommands` are what the fix looks like.
+- **~~No writer half of the chassis.~~** — **CLOSED 2026-07-31 (X2).**
+  `MailStoreReader`, `FigureStoreReader` and `AgentStoreReader` shipped
+  cross-platform and public with no corresponding `*StoreWriter` anywhere, so a
+  host that RENDERED a kind could not construct one and `ImpressIOSUITestSeed`
+  hand-built payloads against the rule the other seeds follow. Reading every
+  `schema_ref` from the descriptor mitigated half of it; the field NAMES stayed
+  a second spelling. `MailStoreWriter` / `FigureStoreWriter` /
+  `AgentStoreWriter` now sit beside their readers and build rows by ENCODING the
+  readers' own payload structs. Production writers are unchanged and still live
+  in the owning apps' cores. See the X2 section below.
+- **~~`withAppearance()` and the `PaneLayoutStore` menu toggles are per-app.~~**
+  — **CLOSED 2026-07-31 (X2).** `ImpressTheme.withAppearance()` and
+  `ImpressPaneLayoutButtons` ship; all four apps that hand-wrote either
+  (imbib, imprint, impart, impress) consume them, and imprint-iOS's fourth,
+  inline appearance copy is gone with them. See the X2 section below.
 - **impress keychain access.** ~~Before an impress target exists, either it
   ships with imbib's keychain access group or the read moves behind a
   reachability check.~~ **DECIDED 2026-07-30:** the reachability check shipped.
@@ -945,3 +944,187 @@ rediscovered:
   (items written without one are not retroactively members). The consequence,
   plainly: impress renders the Search section with no ADS/SciX credentials, and
   credential ENTRY stays in imbib, which is where the user set it.
+  **The full decision record — what the check covers, which of the ten
+  `CredentialManager` readers are gated and why the other nine must not be, and
+  the four-step cost of a future shared group — is
+  docs/chassis-capability-matrix.md § Known gaps, first entry (X2, 2026-07-31).**
+
+## X2 — the D9 "forced to write" findings, closed (2026-07-31)
+
+D9 shipped impress and listed six things the shell *was forced to write anyway*.
+Findings 2 and 3 (the two `#if os(macOS)` detail panes; `MessageListScope.title`
+and its siblings being `internal`) were fixed as they were found. This pass
+closes the remaining four. They have one shape in common and it is worth naming
+before the details: **each was a place where the chassis published half of a
+contract and left the other half to be re-typed by whoever needed it.** Nothing
+compared the copies, so all four had already drifted before anyone noticed.
+
+### 1. The chassis has a writer half now — of its VOCABULARY, not of its stores
+
+`MailStoreWriter`, `FigureStoreWriter` and `AgentStoreWriter` sit beside their
+readers in `Chassis/{Messages,Figures,Agents}/`, with `ChassisPayloadRow` in
+`Chassis/Shared/` as the one encoder they share.
+
+**What they are not.** They open no store, hold no handle, perform no I/O and
+post no `StoreEvent`. Every function is `nonisolated static`, takes typed
+parameters and returns a `SharedItemUpsert` the caller writes with its own
+handle. The readers' scope discipline is intact: mail lifecycle is still
+IMAP-owned and impart's, task transitions are still kernel-owned
+(`TaskStoreApi.transition`, ADR-0015 D1), figures are still implore's. A chassis
+that could write mail would be a chassis with opinions about IMAP.
+
+**What they are.** The one place the payload FIELD NAMES are spelled. And they
+are spelled once by construction rather than by agreement: each builder encodes
+the reader's own payload struct, which is why the structs went from `Decodable`
+to `Codable`. There is no key list in the writer files to keep in step. Rename
+`MailMessagePayload.CodingKeys.threadID`'s raw value and the writer emits the
+new name in the same compile.
+
+Four second-spellings were retired along the way, all of them cases where a
+string appeared in two places and only one of them was authoritative:
+
+| Was | Now |
+|---|---|
+| `MailStoreReader` queried `"email-message"` (×3) as a literal | `MailStoreReader.messageSchemaRef`, from `MessageRecordKind.descriptor` |
+| `FigureStoreReader` queried `"figure"` as a literal | `FigureStoreReader.figureSchemaRef`, from `FigureRecordKind.descriptor` |
+| `mail-account` / `mail-folder` were literals in the reader AND the seed | `MailStoreReader.accountSchemaRef` / `.folderSchemaRef` — named constants, because those two kinds have no `RecordKindDescriptor` at all (they are the message kind's CONTAINERS, not presented records, so the descriptor mitigation was structurally unavailable and a constant is the honest substitute) |
+| `fetchThread` matched `payloadEq(field: "thread_id")` and `fetchTasks` matched `field: "state"`, both literals | the decoders' own `CodingKeys` raw values. A `payloadEq` that disagrees with the struct that decodes the row matches nothing, silently, forever |
+
+**The parity test pins it three ways** (`ChassisPayloadVocabularyTests`, 22
+tests), and it takes all three:
+
+1. **reader == writer** — encode a fully-populated payload through the writer,
+   compare the emitted JSON keys against `CodingKeys.allCases`. Catches a writer
+   that drops a field.
+2. **reader == frozen** — compare `CodingKeys.allCases` against a literal list in
+   the test. Catches a rename that moved BOTH sides in step, which axis 1 cannot
+   see by construction and which is a store-compatibility break (existing rows
+   carry the old key).
+3. **round trip** — encode through the writer, decode through the reader, assert
+   the values survive. Catches a key that matches with a type that does not.
+
+Plus the two envelope rules `ChassisPayloadRow` centralises: ids are lowercased
+at the boundary, and a nil field is OMITTED rather than written as `null` —
+which is the shape a production writer with nothing to say about a field
+actually produces, and the shape the readers decode defensively for.
+
+**`ImpressIOSUITestSeed` is rewired**, and its local
+`upsert(id:schemaRef:parentID:payload:)` helper is deleted. That helper took a
+`[String: Any]`, which is precisely what made every field name in the file a
+literal: a dictionary key cannot be checked against anything.
+
+**impart-iOS's seed was NOT rewired, and should not be.** It does not share the
+shape — it already builds through `ImpartStoreAdapter.accountRow` /
+`folderRow` / `emailMessageRow`, the same functions the Mac's mirror uses, so a
+seeded row is byte-shaped exactly like a real one (deterministic UUIDv5 ids,
+real message dates). That is strictly better than the chassis builders, which
+know the field names but not impart's id derivation. The rule this establishes:
+**a seed that can reach its kind's real writer should; the chassis writers exist
+for the kinds where the chassis is the only thing a host can reach.**
+
+### 2. Three pane toggles, one value
+
+`ImpressPaneLayoutButtons` (`Chassis/Shared/PaneLayoutCommands.swift`) ships
+⌘0 / ⌥⌘0 / ⌃⌘S, with `ImpressPaneLayoutCommands` wrapping it as a `Commands`
+value in the shape of `ImpressFindCommands` / `ImpressStoreSearchCommands`.
+
+**Two shapes, and the reason is menu ORDER rather than taste.** Three of the four
+apps wrote these buttons in the MIDDLE of a larger `CommandGroup(after:
+.sidebar)` — imbib's sits between "Show BibTeX Tab" and the Layouts menu, with
+four more items after it. A `Commands` value can only contribute a WHOLE group,
+so migrating onto one would have moved the toggles to the end of the View menu:
+chords identical, menu visibly rearranged, and a rearrangement nothing would
+have flagged. The `View` form is what those three drop in place, so their menus
+are byte-identical after the migration.
+
+**The four copies had already drifted in four axes** — button order,
+`[.option, .command]` vs `[.command, .option]`, `.command` vs `[.command]`, and
+one label. None of those changed behaviour, which is the point: nothing was
+watching, so nothing failed when they diverged. Two deltas survive the
+reconciliation and are recorded rather than silent:
+
+* **imprint's button order changes** (it was the only one that led with Sidebar;
+  it now matches the other three: Detail, List, Sidebar).
+* **imprint keeps "Toggle Manuscript List"**, which is why `listTitle` is a
+  parameter at all. `listPaneVisible` is not manuscript-specific — it drives the
+  middle column of every chassis route, which is why imbib renamed its own copy
+  away from that spelling — but silently relabelling a live menu entry is a UX
+  decision, not a refactor side effect. Same reasoning that kept
+  `createCollection` off the kernel in C2.
+
+**⌥⌘0 was missing from docs/keyboard-grammar.md entirely**, through four apps'
+worth of adoption. The doc's own rule 2 says a universal action goes into the
+catalog AND the doc; the second half was never checked. It is now: the chords
+are published as DATA (`ImpressPaneLayoutButtons.chords()`) because SwiftUI
+offers no way to enumerate a built `Commands` body — which is exactly why the
+drift was invisible — and `PaneLayoutCommandsTests` (8 tests) compares that data
+to the grammar, checks each chord toggles its own field and no other, checks a
+toggle is its own inverse, and source-scans the migrated apps so none re-grows a
+private copy.
+
+### 3. `withAppearance()` lives where the preference lives
+
+`ImpressTheme.withAppearance()` / `AppearanceModifier`. The package already
+owned both ends — the enum with its `colorScheme` mapping and the picker the
+chassis settings builtin presents — and exported everything except the middle.
+
+**The line count was never the hazard; the second derivation was.** Each copy
+was `switch appearanceMode { case "light": … default: nil }` over raw strings —
+a second spelling of `AppearanceMode.colorScheme`. A fourth mode added to the
+enum would have fallen silently to `default`, that is to System, in every app,
+with the picker offering it and nothing applying it. The shared modifier reads
+through the enum, so an unknown mode is unrepresentable rather than mis-handled.
+
+Un-gated, which closes the half of the finding that produced a FOURTH copy:
+imprint-iOS had an inline `@AppStorage` + switch because macOS's modifier was
+`#if os(macOS)` end to end and iOS could not reach it. Both platforms now apply
+the preference through one implementation instead of two that agreed by luck.
+
+The storage key (`appearanceMode`, unprefixed) is unchanged and is a migration
+contract, not an implementation detail — `ImprintSettingsPersistenceTests` was
+updated to assert against the new home rather than deleted. Note what it does
+NOT assert: imprint's `ImprintApp` still declares `@AppStorage("appearanceMode")`
+and legitimately so, because that property backs the View ▸ Appearance menu,
+which WRITES the preference (⌃⌘D). Sharing a key is the goal; a second mapping
+is the finding.
+
+### 4. The keychain decision, written down
+
+Not implemented, and the decision is that it stays not implemented. The full
+record — the hazard, what the reachability check covers, which of the ten
+`CredentialManager` call sites are gated and why the other nine must not be, the
+rule for new code (`Chassis/` and `packages/Impress*` need the gate;
+`apps/imbib/imbib/` does not), and the four-step cost of a future shared access
+group — is **docs/chassis-capability-matrix.md § Known gaps, first entry**, with
+the stale "either/or" prose in `AppShellConfigurationParityTests` corrected and a
+new test pinning the gate's bundle identity.
+
+### Also swept
+
+* **The macOS `TEST_HOST` variant** (informational in D9) is documented in
+  `apps/chassis-utis.yml`, the one shared xcodegen template, as a comment
+  explaining why it is NOT shared: the correct value depends on the platform AND
+  on whether the project overrides `PRODUCT_NAME`, and a template default would
+  be wrong for someone. The three worked examples are named.
+
+### One thing this pass learned the hard way
+
+The `withAppearance()` migration is not divisible, and the compiler is what says
+so. A module-local `func withAppearance() -> some View` on `View` and an
+imported one with the same signature are **ambiguous, not shadowed** — Swift
+does not prefer the local declaration for extension members reached this way.
+Every app that carried a private copy AND imported `ImpressTheme` therefore had
+to give the copy up in the same change that shipped the shared one, or stop
+compiling.
+
+impress was the app this bit: `ImpressApp.swift` already imported ImpressTheme
+for `AppearanceSettingsSection`, so the moment the package exported the modifier
+its private copy became a build error rather than a redundancy. That is worth
+recording because it inverts the usual sequencing instinct — "ship the shared
+thing, migrate callers later" is available for a `Commands` value and is NOT
+available for a `View` extension. The two halves of this finding, which look
+like the same kind of de-duplication, have different migration shapes.
+
+All four apps are migrated. implore and impel are not in the list because they
+never bound the pane chords at all; giving them the toggles is a product
+decision about their windows, not a migration.

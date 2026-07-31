@@ -159,6 +159,24 @@ final class ChassisCrossPlatformContractTests: XCTestCase {
         "Chassis/Agents/AgentStoreReader.swift",
         "Chassis/Services/JournalEventBridge.swift",
 
+        // MARK: X2 (ADR-0022 D9 finding 1) — the writer half of the vocabulary
+        //
+        // Row BUILDERS, not store writers: pure encoding of the readers' own
+        // payload structs into `SharedItemUpsert`, no store handle, no I/O.
+        // Un-gated for the same reason the readers are, and more strongly —
+        // the host that needed them first was an iOS UI-test seed, so a macOS
+        // gate here would have left iOS with the readers and no vocabulary,
+        // which is the state the finding describes.
+        "Chassis/Shared/ChassisPayloadRow.swift",
+        "Chassis/Messages/MailStoreWriter.swift",
+        "Chassis/Figures/FigureStoreWriter.swift",
+        "Chassis/Agents/AgentStoreWriter.swift",
+
+        // X2 (D9 finding 4) — the pane toggles. `Commands` is SwiftUI, not
+        // AppKit, and `PaneLayoutStore` is deliberately Foundation-only; the
+        // sibling `FindCoordinator.swift` above is the precedent.
+        "Chassis/Shared/PaneLayoutCommands.swift",
+
         // Plain-SwiftUI sections and sheets.
         "Chassis/Shared/RelatedItemsSection.swift",
         "Chassis/Detail/Tabs/CitedInManuscriptsSection.swift",

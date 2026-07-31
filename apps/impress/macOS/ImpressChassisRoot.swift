@@ -68,10 +68,29 @@ struct ImpressChassisRoot: View {
     /// a claim that is not true.
     static let shellConfiguration: AppShellConfiguration = .impress
 
+    /// impress's SIDEBAR is not the preset — it is the other five presets, as
+    /// collapsible app groups (I3, and its macOS half).
+    ///
+    /// The preset above still decides what this window may RENDER (every
+    /// section, every kind, every viewer); the composition decides what the
+    /// sidebar SHOWS, and it shows imbib's sidebar, imprint's, implore's,
+    /// impel's and impart's, each built by running that app's own preset
+    /// through the same builder the app itself runs. The two are separate
+    /// because they answer separate questions: a union of sections cannot say
+    /// whose section each one is, which is why flat impress had exactly one
+    /// Flagged section, bound to `.publication`, and no row anywhere for a
+    /// flagged manuscript.
+    ///
+    /// This is the ONE construction difference between impress's window and the
+    /// five siblings' — `ChassisRootView`'s parameter defaults to nil, so a
+    /// sibling cannot acquire a group tier by omission.
+    static let sidebarComposition: SidebarComposition = .impress
+
     var body: some View {
         ChassisRootView(
             configuration: Self.shellConfiguration,
-            readyLogMessage: "ImpressChassisRoot: chassis environment ready (every facet)"
+            readyLogMessage: "ImpressChassisRoot: chassis environment ready (every facet)",
+            sidebarComposition: Self.sidebarComposition
         )
         .withAppearance()
     }

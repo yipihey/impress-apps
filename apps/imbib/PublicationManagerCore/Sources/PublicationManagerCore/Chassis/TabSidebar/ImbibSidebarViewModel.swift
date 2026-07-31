@@ -54,8 +54,12 @@ final class ImbibSidebarViewModel {
 
     // MARK: - Section State
 
-    var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
-    private var collapsedSections: Set<SidebarSectionType> = SidebarCollapsedStateStore.loadCollapsedSync()
+    var sectionOrder: [SidebarSectionType]
+    private var collapsedSections: Set<SidebarSectionType>
+
+    /// Collapse state for a COMPOSED sidebar's two tiers. Empty (= everything
+    /// expanded) in the five single-preset shells, which never build a group.
+    private var collapsedComposition: Set<SidebarCompositionKey>
 
     // MARK: - Orderable Items
 
@@ -66,6 +70,12 @@ final class ImbibSidebarViewModel {
     // MARK: - Counts & Status
 
     var flagCounts = FlagCounts.empty
+
+    /// Flag counts PER RECORD KIND — populated only in a composed sidebar,
+    /// where several groups show a Flagged section at once and each counts its
+    /// own kind. Empty in a flat sidebar, where `flagCounts` is the one answer
+    /// and is computed exactly as before.
+    private(set) var flagCountsByKind: [RecordKindID: FlagCounts] = [:]
     var hasSciXAPIKey = false
     var scixSyncing = false
     var scixSyncError: String?
@@ -112,8 +122,51 @@ final class ImbibSidebarViewModel {
     /// imprint sets `.imprint` to show only the Manuscripts facet.
     var shellConfiguration: AppShellConfiguration = .imbib
 
-    init(store: any PublicationStoreProtocol = RustStoreAdapter.shared) {
+    /// The COMPOSITION this shell renders, or nil for a shell that runs a
+    /// single flat preset.
+    ///
+    /// nil is the value all five sibling apps have, and it is what makes every
+    /// composed code path below unreachable for them rather than merely
+    /// false-valued: `buildSectionNodes`, `children(of:)`, `canAcceptDrop` and
+    /// the outline configuration's new closures all branch on this one
+    /// property, and it is set from an ENVIRONMENT value that only impress's
+    /// root supplies (`ChassisRootView(sidebarComposition:)`). No `appID ==`
+    /// test anywhere — ADR-0022 D9's rule, and the reason macOS impress could
+    /// not simply be special-cased here.
+    var sidebarComposition: SidebarComposition? {
+        didSet {
+            guard oldValue != sidebarComposition else { return }
+            initializeExpansionState()
+        }
+    }
+
+    /// Where persisted sidebar state is read from and written to. Injected so a
+    /// unit test can seed and observe it without touching `UserDefaults` —
+    /// see `SidebarPersistenceScope`.
+    private let persistence: SidebarPersistenceScope
+
+    /// - Parameters:
+    ///   - store: the publication store. `MockPublicationStore` in tests.
+    ///   - persistence: the persisted-state seam. `.inMemory()` in tests.
+    ///   - shellConfiguration: the shell preset. Settable afterwards too
+    ///     (`TabContentView` applies it from the environment), but an init
+    ///     parameter lets a test build a fully-specified view model in one
+    ///     expression — the persisted order and collapse state are read HERE,
+    ///     before any caller could assign them.
+    ///   - sidebarComposition: nil for the five single-preset shells.
+    init(
+        store: any PublicationStoreProtocol = RustStoreAdapter.shared,
+        persistence: SidebarPersistenceScope = .userDefaults,
+        shellConfiguration: AppShellConfiguration = .imbib,
+        sidebarComposition: SidebarComposition? = nil
+    ) {
         self.store = store
+        self.persistence = persistence
+        self.shellConfiguration = shellConfiguration
+        self.sidebarComposition = sidebarComposition
+        self.sectionOrder = persistence.loadSectionOrder()
+        self.collapsedSections = persistence.loadCollapsedSections()
+        self.collapsedComposition = persistence.loadComposedCollapse()
     }
 
     // MARK: - Configure
@@ -146,25 +199,51 @@ final class ImbibSidebarViewModel {
     /// `.chassisNavigateToDefaultSection` notification (impart's ⌘1) resolves
     /// through exactly the leaf first launch lands on.
     func selectDefaultSectionLeaf() {
-        if shellConfiguration.defaultSection == .manuscripts {
-            selectedNodeID = ImbibSidebarNodeID.journalAll
-        } else if shellConfiguration.defaultSection == .figures {
-            // Same rule as manuscripts: the section header is a group row,
-            // so land on the canonical selectable leaf ("All Figures").
-            selectedNodeID = ImbibSidebarNodeID.figuresAll
-        } else if shellConfiguration.defaultSection == .mail {
-            // Same rule again: land on the canonical selectable leaf
-            // ("All Inboxes").
-            selectedNodeID = ImbibSidebarNodeID.mailAllInboxes
-        } else if shellConfiguration.defaultSection == .agents {
-            // Same rule again: land on the canonical selectable leaf
-            // ("Tasks").
-            selectedNodeID = ImbibSidebarNodeID.agentTasks
+        let section = shellConfiguration.defaultSection
+        let flatID = Self.defaultLeafID(for: section)
+
+        if let group = defaultLandingGroup(for: section) {
+            // COMPOSED: the same leaf, in the group that owns it — and its
+            // ancestors expanded first. `restoreSelection` drops a selection
+            // whose ancestor is collapsed, so landing inside a collapsed group
+            // would leave the window with nothing selected and no obvious
+            // reason why (`beginEditingNode`'s ancestor expansion is the
+            // precedent for doing this before the write, not after).
+            let groupNodeID = ImbibSidebarNodeID.appGroup(group.id)
+            expansionState.expand(groupNodeID)
+            expansionState.expand(
+                ImbibSidebarNodeID.grouped(group.id, ImbibSidebarNodeID.section(section)))
+            selectedNodeID = ImbibSidebarNodeID.grouped(group.id, flatID)
         } else {
-            selectedNodeID = ImbibSidebarNodeID.section(shellConfiguration.defaultSection)
+            selectedNodeID = flatID
         }
 
         bumpDataVersion()
+    }
+
+    /// The canonical selectable leaf of a section, flat.
+    ///
+    /// Group-header sections (`.manuscripts`, `.figures`, `.mail`, `.agents`)
+    /// are not selectable rows, so landing on the header would leave
+    /// `selectedTab` at its `.inbox` default and render the publication list.
+    private static func defaultLeafID(for section: SidebarSectionType) -> UUID {
+        switch section {
+        case .manuscripts: return ImbibSidebarNodeID.journalAll
+        case .figures: return ImbibSidebarNodeID.figuresAll
+        case .mail: return ImbibSidebarNodeID.mailAllInboxes
+        case .agents: return ImbibSidebarNodeID.agentTasks
+        default: return ImbibSidebarNodeID.section(section)
+        }
+    }
+
+    /// In a composed sidebar, the group that should own the default landing:
+    /// the FIRST group whose own preset permits the host's default section.
+    /// The order is the composition's, which is `SiblingApp.descriptors`' —
+    /// never a literal here.
+    private func defaultLandingGroup(for section: SidebarSectionType) -> SidebarNodeGroup? {
+        guard let composition = sidebarComposition else { return nil }
+        let groups = composition.groups.map { SidebarNodeGroup(group: $0, host: shellConfiguration) }
+        return groups.first { $0.configuration.permits(section) } ?? groups.first
     }
 
     // MARK: - Data Version
@@ -260,6 +339,8 @@ final class ImbibSidebarViewModel {
             },
             isGroupItem: { $0.isGroup },
             shouldSelectItem: { node in
+                // App-group headers are an app's PRESENCE, never a destination.
+                if node.isAppGroup { return false }
                 // Group items are not selectable except for inbox section
                 if node.isGroup {
                     if case .section(.inbox) = node.nodeType { return true }
@@ -290,6 +371,18 @@ final class ImbibSidebarViewModel {
                 // delete uses the bulk-confirmation alert. Mixed kinds drop
                 // (no menu shown when right-clicking either, so be consistent).
                 self?.handleDeleteKey(for: nodes)
+            },
+            // Composed shells only. Passing nil (not a closure that returns
+            // false) is what keeps the app-group branch in
+            // `SidebarOutlineView.viewFor` unreachable in the five sibling
+            // shells rather than merely unused — their cells are produced by
+            // exactly the code that produced them before this tier existed.
+            isAppGroupItem: sidebarComposition == nil ? nil : { $0.isAppGroup },
+            // The caller `handleExpansionChange` never had. Every shell gets
+            // this: section collapse not persisting is a pre-existing bug in
+            // all six, not something the composition introduced.
+            onExpansionChanged: { [weak self] node, expanded in
+                self?.handleExpansionChange(node: node, expanded: expanded)
             }
         )
     }
@@ -297,6 +390,24 @@ final class ImbibSidebarViewModel {
     // MARK: - Expansion State Initialization
 
     private func initializeExpansionState() {
+        if let composition = sidebarComposition {
+            // COMPOSED: two tiers, one persisted key space, default EMPTY —
+            // "collate their sidebars" means a user opening impress sees five
+            // sidebars, not five closed drawers.
+            for group in composition.groups {
+                let binding = SidebarNodeGroup(group: group, host: shellConfiguration)
+                if !collapsedComposition.contains(binding.collapseKey) {
+                    expansionState.expand(ImbibSidebarNodeID.appGroup(binding.id))
+                }
+                for section in sectionOrder
+                where !collapsedComposition.contains(binding.collapseKey(section: section)) {
+                    expansionState.expand(
+                        ImbibSidebarNodeID.grouped(
+                            binding.id, ImbibSidebarNodeID.section(section)))
+                }
+            }
+            return
+        }
         // Sections that are NOT collapsed should be expanded
         for section in sectionOrder {
             let sectionNodeID = ImbibSidebarNodeID.section(section)
@@ -338,9 +449,29 @@ final class ImbibSidebarViewModel {
 
     private func buildSectionNodes() -> [ImbibSidebarNode] {
         var nodes: [ImbibSidebarNode] = []
-        for section in sectionOrder {
-            guard shouldShowSection(section) else { continue }
-            nodes.append(makeSectionNode(section))
+        if let composition = sidebarComposition {
+            // COMPOSED: the root tier is one node per app group, in the
+            // composition's order — which is `SiblingApp.descriptors`'. No
+            // section, kind or app id is named here; each group's sections are
+            // resolved lazily in `children(of:)` from the group's own preset.
+            //
+            // EMPTY GROUPS ARE KEPT (the iOS decision, verbatim): a group is an
+            // app's presence in impress, not a claim about its data.
+            for group in composition.groups {
+                let binding = SidebarNodeGroup(group: group, host: shellConfiguration)
+                nodes.append(ImbibSidebarNode(
+                    id: ImbibSidebarNodeID.appGroup(binding.id),
+                    nodeType: .appGroup(binding.id),
+                    displayName: binding.title,
+                    iconName: binding.systemImage,
+                    isAppGroup: true,
+                    appGroup: binding))
+            }
+        } else {
+            for section in sectionOrder {
+                guard shouldShowSection(section) else { continue }
+                nodes.append(makeSectionNode(section))
+            }
         }
         // App-owned whole-pane surfaces (WP-X0): one selectable top-level
         // node per registered surface, after the record sections. Deliberate
@@ -356,7 +487,18 @@ final class ImbibSidebarViewModel {
         return nodes
     }
 
-    private func shouldShowSection(_ section: SidebarSectionType) -> Bool {
+    /// Whether a section renders, under a given preset.
+    ///
+    /// The preset is a PARAMETER rather than `shellConfiguration` because in a
+    /// composed sidebar the answer differs per group: the window's preset is
+    /// the flat `.impress` union, and asking it inside the imprint group is how
+    /// a union loses whose section this is. It defaults to the window's preset,
+    /// so every flat call site reads exactly as it did.
+    private func shouldShowSection(
+        _ section: SidebarSectionType,
+        configuration: AppShellConfiguration? = nil
+    ) -> Bool {
+        let shellConfiguration = configuration ?? self.shellConfiguration
         // Thin-twin: the app-shell config restricts which sections exist at all
         // (imprint = Manuscripts facet only). Content gating applies on top.
         guard shellConfiguration.permits(section) else { return false }
@@ -423,10 +565,40 @@ final class ImbibSidebarViewModel {
         )
     }
 
+    /// The children of a node, with a composed sidebar's per-node corrections
+    /// applied ONCE, here, for the whole subtree.
+    ///
+    /// Every child of a node that belongs to a group belongs to the same group,
+    /// so this is the single place that has to know it. Three things happen and
+    /// all three are structural rather than per-builder:
+    ///
+    ///   * the child is tagged with the group, so it can answer "which preset
+    ///     decides my kind" long after the group loop returned;
+    ///   * its id is re-keyed into the group's namespace, so the imbib group's
+    ///     red flag and the imprint group's red flag are two rows and not one;
+    ///   * its `treeDepth` gains a level, because a composed sidebar is one
+    ///     level deeper and indentation is drawn from `treeDepth` alone
+    ///     (`indentationPerLevel == 0`). This is why the ten hand-assigned
+    ///     `treeDepth` sites did not need to change.
     func children(of node: ImbibSidebarNode) -> [ImbibSidebarNode] {
+        let children = rawChildren(of: node)
+        guard let group = node.appGroup else { return children }
+        return children.map { $0.adopting(group: group) }
+    }
+
+    private func rawChildren(of node: ImbibSidebarNode) -> [ImbibSidebarNode] {
         switch node.nodeType {
+        case .appGroup:
+            // A group's children are the sections that group's OWN preset
+            // permits, in the shared section order. Nothing enumerates a
+            // section here: `shouldShowSection` is the same gate the flat
+            // sidebar runs, handed a different preset.
+            guard let group = node.appGroup else { return [] }
+            return sectionOrder
+                .filter { shouldShowSection($0, configuration: group.configuration) }
+                .map { makeSectionNode($0) }
         case .section(let sectionType):
-            return sectionChildren(sectionType)
+            return sectionChildren(sectionType, configuration: node.appGroup?.configuration)
         case .library(let libraryID):
             return libraryCollectionChildren(libraryID: libraryID)
         case .libraryCollection(let collectionID, let libraryID):
@@ -442,7 +614,18 @@ final class ImbibSidebarViewModel {
 
     // MARK: - Section Children
 
-    private func sectionChildren(_ section: SidebarSectionType) -> [ImbibSidebarNode] {
+    /// A section's rows, under a given preset.
+    ///
+    /// Only the three kind-bound arms actually read the preset — Flagged and
+    /// Dismissed (which kind's flags/dismissals these are) and Manuscripts
+    /// (whether the shell carries the Submissions auxiliary route). The other
+    /// twelve are the same rows regardless, so they take no parameter and are
+    /// untouched.
+    private func sectionChildren(
+        _ section: SidebarSectionType,
+        configuration: AppShellConfiguration? = nil
+    ) -> [ImbibSidebarNode] {
+        let configuration = configuration ?? shellConfiguration
         switch section {
         case .inbox:
             return inboxChildren()
@@ -457,17 +640,17 @@ final class ImbibSidebarViewModel {
         case .exploration:
             return explorationChildren()
         case .flagged:
-            return flaggedChildren()
+            return flaggedChildren(configuration: configuration)
         case .artifacts:
             return artifactsChildren()
         case .dismissed:
-            return dismissedChildren()
+            return dismissedChildren(configuration: configuration)
         case .citedInManuscripts:
             return citedInManuscriptsChildren()
         case .reviewQueue:
             return reviewQueueChildren()
         case .manuscripts:
-            return journalChildren()
+            return journalChildren(configuration: configuration)
         case .figures:
             return figuresChildren()
         case .mail:
@@ -671,7 +854,10 @@ final class ImbibSidebarViewModel {
     /// synchronous and `ManuscriptBridge` is an actor. A snapshot pattern
     /// (mirroring `CitedInManuscriptsSnapshot`) can layer counts on later
     /// without changing this structure.
-    private func journalChildren() -> [ImbibSidebarNode] {
+    private func journalChildren(
+        configuration: AppShellConfiguration? = nil
+    ) -> [ImbibSidebarNode] {
+        let shellConfiguration = configuration ?? self.shellConfiguration
         let descriptor = ManuscriptRecordKind.descriptor
         var nodes: [ImbibSidebarNode] = [
             ImbibSidebarNode(
@@ -1066,7 +1252,16 @@ final class ImbibSidebarViewModel {
 
     // MARK: Flagged
 
-    private func flaggedChildren() -> [ImbibSidebarNode] {
+    private func flaggedChildren(
+        configuration: AppShellConfiguration? = nil
+    ) -> [ImbibSidebarNode] {
+        // WHOSE flags these are. In a composed sidebar each group's Flagged
+        // section counts its OWN kind — imbib's papers, imprint's manuscripts —
+        // which is the count half of the same fact `SidebarNodeGroup
+        // .retargetedTab` supplies for the row's destination. Flat shells pass
+        // nil and read the single `flagCounts` they always read.
+        let flagCounts = resolvedFlagCounts(under: configuration)
+
         var nodes: [ImbibSidebarNode] = []
 
         // Any Flag
@@ -1129,7 +1324,10 @@ final class ImbibSidebarViewModel {
 
     // MARK: Dismissed
 
-    private func dismissedChildren() -> [ImbibSidebarNode] {
+    private func dismissedChildren(
+        configuration: AppShellConfiguration? = nil
+    ) -> [ImbibSidebarNode] {
+        let shellConfiguration = configuration ?? self.shellConfiguration
         if shellConfiguration.recordKind(for: .dismissed) == .manuscript {
             let count = RustStoreAdapter.shared.countManuscripts(
                 status: JournalManuscriptStatus.dismissed.rawValue)
@@ -1416,9 +1614,32 @@ final class ImbibSidebarViewModel {
     // MARK: - Drag-Drop
 
     private func canAcceptDrop(_ dragged: ImbibSidebarNode, target: ImbibSidebarNode?) -> Bool {
+        // An app group is not draggable and never a reorder target: group order
+        // is `SiblingApp.descriptors`', the one table, not a per-user
+        // preference. (`capabilities(of:)` already withholds `.draggable`, so
+        // this is the belt to that's braces.)
+        if case .appGroup = dragged.nodeType { return false }
+
         guard let target = target else {
-            // Root level: only sections can be dropped here
+            // Root level. Flat: sections reorder here. COMPOSED: the root tier
+            // is app groups, so a section dropped at root is a section trying
+            // to leave its app — refused, and refused VISIBLY (no drop
+            // feedback) rather than silently accepted into the wrong place.
+            if sidebarComposition != nil { return false }
             return dragged.nodeType.isSection
+        }
+
+        // COMPOSED: a section may reorder within ITS OWN group and nowhere
+        // else. Without this arm the `(.section, _)` case below would refuse
+        // every section drag once a group tier existed — `handleReorder` treats
+        // `parent == nil` as "section reorder" and a grouped section's parent is
+        // never nil — so section reorder would simply stop working, with no
+        // error. That is the "breaks silently" this exists to prevent.
+        if case .section = dragged.nodeType, case .appGroup(let targetGroupID) = target.nodeType {
+            guard let draggedGroupID = dragged.appGroup?.id else { return false }
+            if draggedGroupID == targetGroupID { return true }
+            noteCrossGroupRefusal(from: draggedGroupID, to: targetGroupID)
+            return false
         }
 
         switch (dragged.nodeType, target.nodeType) {
@@ -1452,6 +1673,35 @@ final class ImbibSidebarViewModel {
         }
     }
 
+    /// A cross-group section drop was refused. Reported ONCE per distinct pair
+    /// rather than on every mouse-move: `canAcceptDrop` runs continuously
+    /// during a drag, and a refusal that fills the console is a refusal nobody
+    /// reads. The user already sees the refusal (no drop feedback); this is for
+    /// the person who has to explain it.
+    ///
+    /// Also the only reason a `refusedCrossGroupDrops` set exists at all: the
+    /// alternative — a silently ignored gesture — is exactly what a section
+    /// drag would have become the moment a group tier appeared above it.
+    private var refusedCrossGroupDrops: Set<String> = []
+
+    /// Which app group a node belongs to: the group it was adopted into, or —
+    /// for a group HEADER, which is a root node and therefore adopted by no
+    /// parent — itself.
+    private static func owningGroupID(of node: ImbibSidebarNode) -> String? {
+        if let id = node.appGroup?.id { return id }
+        if case .appGroup(let id) = node.nodeType { return id }
+        return nil
+    }
+
+    private func noteCrossGroupRefusal(from source: String, to destination: String) {
+        let pair = "\(source)→\(destination)"
+        guard refusedCrossGroupDrops.insert(pair).inserted else { return }
+        Logger.library.warningCapture(
+            "Sidebar: refused a cross-group section drop (\(pair)). A section belongs to the "
+                + "app whose sidebar it is; reorder it within its own group.",
+            category: "sidebar")
+    }
+
     /// Collection folders (ADR-0022 D3): nest under a folder of the SAME
     /// binding (never itself, never one of its own descendants) or drop on
     /// the owning section header to move back to root.
@@ -1478,18 +1728,47 @@ final class ImbibSidebarViewModel {
 
     private func handleReorder(_ siblings: [ImbibSidebarNode], parent: ImbibSidebarNode?) {
         guard let parentType = parent?.nodeType else {
-            // Root level: section reorder
+            // Root level: section reorder. In a COMPOSED sidebar the root tier
+            // is app groups, whose order is the suite table's — nothing to
+            // reorder and nothing to persist.
+            if sidebarComposition != nil { return }
             let newOrder = siblings.compactMap { node -> SidebarSectionType? in
                 if case .section(let type) = node.nodeType { return type }
                 return nil
             }
             sectionOrder = newOrder
-            Task { await SidebarSectionOrderStore.shared.save(newOrder) }
+            persistence.saveSectionOrder(newOrder)
             bumpDataVersion()
             return
         }
 
         switch parentType {
+        case .appGroup(let groupID):
+            // Section reorder WITHIN a group. The siblings are only that
+            // group's sections, so writing them as the whole order would drop
+            // every section the other four groups show; the new relative order
+            // is merged into the positions the group already occupies instead.
+            //
+            // The order stays SUITE-WIDE, one `SidebarSectionType` list, which
+            // is what it has always been: moving Flagged above Libraries is a
+            // statement about the sidebar, and a per-group order would make
+            // "where is Flagged" have five answers.
+            let reordered = siblings.compactMap { node -> SidebarSectionType? in
+                guard case .section(let type) = node.nodeType else { return nil }
+                // A mixed-group sibling list should be impossible —
+                // `canAcceptDrop` refuses cross-group drops — so if one
+                // arrives, say so and drop the whole gesture rather than
+                // half-apply it.
+                if let owner = node.appGroup?.id, owner != groupID {
+                    noteCrossGroupRefusal(from: owner, to: groupID)
+                    return nil
+                }
+                return type
+            }
+            guard reordered.count == siblings.count else { return }
+            sectionOrder = Self.merging(reordered, into: sectionOrder)
+            persistence.saveSectionOrder(sectionOrder)
+            bumpDataVersion()
         case .section(.libraries):
             guard let manager = libraryManager else { return }
             let libraryIDs = siblings.compactMap { node -> UUID? in
@@ -1572,6 +1851,35 @@ final class ImbibSidebarViewModel {
     /// Reorder the collection-folder rows of a sibling list (ADR-0022 D3).
     /// Grouped by binding so a mixed list can never cross-number two trees;
     /// in practice a sibling list is homogeneous by construction.
+    /// The global section order, with one SUBSET re-sequenced in place.
+    ///
+    /// The subset's members keep the SLOTS they already occupied in the global
+    /// order and are re-filled in the new relative order; sections outside the
+    /// subset do not move at all. That is what makes a section drag inside
+    /// impress's imprint group a statement about imprint's sections and not a
+    /// silent re-shuffle of the four groups the user was not looking at.
+    static func merging(
+        _ reordered: [SidebarSectionType], into order: [SidebarSectionType]
+    ) -> [SidebarSectionType] {
+        let subset = Set(reordered)
+        var remaining = reordered.filter { order.contains($0) }
+        var result: [SidebarSectionType] = []
+        result.reserveCapacity(order.count)
+        for section in order {
+            if subset.contains(section) {
+                if !remaining.isEmpty { result.append(remaining.removeFirst()) }
+            } else {
+                result.append(section)
+            }
+        }
+        // Sections the drag introduced that the global order did not know
+        // (a preset can permit a section the persisted order predates).
+        for section in reordered where !order.contains(section) {
+            result.append(section)
+        }
+        return result
+    }
+
     private func reorderFolders(_ siblings: [ImbibSidebarNode]) {
         var idsByBinding: [String: [String]] = [:]
         for node in siblings {
@@ -1601,6 +1909,21 @@ final class ImbibSidebarViewModel {
     }
 
     private func handleReparent(_ node: ImbibSidebarNode, newParent: ImbibSidebarNode?) {
+        // COMPOSED: nothing moves BETWEEN app groups. Every reparent below is
+        // a store write (a folder's parent, a feed's library), and applying one
+        // across groups would move a record container into another app's
+        // sidebar while its store row stayed where it was — the two would
+        // disagree, on disk, with no error. `canAcceptDrop` already refuses
+        // these; this is the write-side half of the same guard, and it says so
+        // rather than returning quietly.
+        if sidebarComposition != nil, let newParent,
+           let source = node.appGroup?.id,
+           let destination = Self.owningGroupID(of: newParent),
+           source != destination {
+            noteCrossGroupRefusal(from: source, to: destination)
+            return
+        }
+
         // Handle exploration search → inbox feed conversion
         if case .explorationSearch(let searchID) = node.nodeType,
            let newParent = newParent {
@@ -2594,27 +2917,91 @@ final class ImbibSidebarViewModel {
 
     // MARK: - Expansion Persistence
 
-    func handleExpansionChange(nodeID: UUID, expanded: Bool) {
-        // Check if this is a section node
-        for section in sectionOrder {
-            if ImbibSidebarNodeID.section(section) == nodeID {
-                if expanded {
-                    collapsedSections.remove(section)
-                } else {
-                    collapsedSections.insert(section)
-                }
-                Task { await SidebarCollapsedStateStore.shared.save(collapsedSections) }
+    /// Persist a row's new expanded/collapsed state.
+    ///
+    /// This method existed with NO CALLERS: collapse state was loaded at launch
+    /// and never written, in all six shells, because `SidebarOutlineView` had
+    /// nowhere to call it from. It now has one
+    /// (`SidebarOutlineConfiguration.onExpansionChanged`), and it handles both
+    /// tiers — an app group and a per-group section key the composed key space,
+    /// a flat section keeps the key space the five siblings have always used.
+    ///
+    /// Taking the NODE rather than a bare id is what makes the composed half
+    /// possible: a grouped section's id is namespaced, so it cannot be matched
+    /// against `ImbibSidebarNodeID.section(_:)`, and the group it belongs to is
+    /// on the node.
+    func handleExpansionChange(node: ImbibSidebarNode, expanded: Bool) {
+        if let group = node.appGroup ?? appGroupBinding(of: node) {
+            let key: SidebarCompositionKey
+            switch node.nodeType {
+            case .appGroup:
+                key = group.collapseKey
+            case .section(let section):
+                key = group.collapseKey(section: section)
+            default:
+                // Folders and leaves inside a group are in-memory expansion
+                // state, exactly as they are in a flat sidebar.
                 return
             }
+            if expanded {
+                collapsedComposition.remove(key)
+            } else {
+                collapsedComposition.insert(key)
+            }
+            persistence.saveComposedCollapse(collapsedComposition)
+            return
         }
+
+        // Flat: check if this is a section node
+        guard case .section(let section) = node.nodeType,
+              sectionOrder.contains(section) else { return }
+        if expanded {
+            collapsedSections.remove(section)
+        } else {
+            collapsedSections.insert(section)
+        }
+        persistence.saveCollapsedSections(collapsedSections)
+    }
+
+    /// The group binding for an app-group HEADER, which carries its own group
+    /// but is not `adopting`-ed by any parent (it is a root node).
+    private func appGroupBinding(of node: ImbibSidebarNode) -> SidebarNodeGroup? {
+        guard case .appGroup(let id) = node.nodeType,
+              let group = sidebarComposition?[id] else { return nil }
+        return SidebarNodeGroup(group: group, host: shellConfiguration)
     }
 
     // MARK: - Flag Counts
 
     func refreshFlagCounts() {
+        flagCounts = flagCountsSnapshot(ofKind: shellConfiguration.recordKind(for: .flagged))
+
+        // A composed sidebar shows SEVERAL Flagged sections at once, one per
+        // group, each bound to its group's own kind. Precompute them here — the
+        // tree build is synchronous and must not fan out store reads per row.
+        // Empty (and therefore free) in a flat sidebar.
+        guard let composition = sidebarComposition else {
+            flagCountsByKind = [:]
+            return
+        }
+        var byKind: [RecordKindID: FlagCounts] = [:]
+        for group in composition.groups {
+            guard let kind = group.configuration.recordKind(for: .flagged),
+                  byKind[kind] == nil else { continue }
+            byKind[kind] = flagCountsSnapshot(ofKind: kind)
+        }
+        flagCountsByKind = byKind
+    }
+
+    /// Flag counts for one record kind. `.manuscript` and `.publication` are
+    /// the two kinds with a flag-only read verb; any other kind reports no
+    /// counts rather than paying for a full scan (the ROWS are still correct —
+    /// this is the badge, and a missing badge is the shipped behaviour for
+    /// every kind that has never had one).
+    private func flagCountsSnapshot(ofKind kind: RecordKindID?) -> FlagCounts {
         var total = 0
         var byColor: [String: Int] = [:]
-        if shellConfiguration.recordKind(for: .flagged) == .manuscript {
+        if kind == .manuscript {
             // Manuscript-flag shells (imprint): the Flagged section counts
             // flagged manuscripts, matching what its rows list.
             for row in RustStoreAdapter.shared.getFlaggedManuscripts() {
@@ -2623,7 +3010,7 @@ final class ImbibSidebarViewModel {
                     byColor[color, default: 0] += 1
                 }
             }
-        } else {
+        } else if kind == nil || kind == .publication {
             // Use getFlaggedPublications — returns only flagged rows, avoiding
             // a full table scan.
             for pubRow in store.getFlaggedPublications() {
@@ -2632,8 +3019,23 @@ final class ImbibSidebarViewModel {
                     byColor[color.rawValue, default: 0] += 1
                 }
             }
+        } else {
+            return .empty
         }
-        flagCounts = FlagCounts(total: total, byColor: byColor)
+        return FlagCounts(total: total, byColor: byColor)
+    }
+
+    /// The counts a Flagged section should show under a given preset.
+    ///
+    /// Keyed on whether this shell COMPOSES, not on whether the per-kind cache
+    /// happens to be populated: the first tree is built before
+    /// `refreshFlagCounts` runs, and falling back to `flagCounts` there would
+    /// put imbib's publication badges on imprint's manuscript rows for a frame.
+    /// No badge is the honest answer while the count is unknown.
+    private func resolvedFlagCounts(under configuration: AppShellConfiguration?) -> FlagCounts {
+        guard sidebarComposition != nil else { return flagCounts }
+        guard let kind = configuration?.recordKind(for: .flagged) else { return .empty }
+        return flagCountsByKind[kind] ?? .empty
     }
 
     // MARK: - Lookup Helpers

@@ -296,6 +296,101 @@ public final class SidebarOutlineCellView: NSTableCellView {
         starBadgeContainer.isHidden = true
     }
 
+    // MARK: - App Group Configuration
+
+    /// Configure the cell as an APP-GROUP row — the outer tier of a COMPOSED
+    /// sidebar, where each group is one sibling app's whole sidebar.
+    ///
+    /// This method is ADDITIVE and is the only thing on this file's rendering
+    /// path that a composed sidebar reaches: `configure(…)` and
+    /// `configureAsGroup(…)` above are untouched, so the five single-preset
+    /// shells — which share this file — produce byte-identical cells. A cell is
+    /// routed here only when `SidebarOutlineConfiguration.isAppGroupItem` says
+    /// so, and that closure is `nil` in every shell that does not compose.
+    ///
+    /// Visually it is deliberately NOT `configureAsGroup`'s uppercased label: a
+    /// group is an APP, so it keeps its own name in title case and shows the
+    /// app's glyph (`SiblingAppDescriptor.systemImage`), at the emphasis of a
+    /// source-list top-level row. That is what makes the two tiers legible as
+    /// two tiers rather than as one list with inconsistent capitalisation.
+    public func configureAsAppGroup(
+        displayName: String, systemImage: String, menu: NSMenu? = nil
+    ) {
+        for view in stackView.arrangedSubviews {
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        // Remove old tree line labels — an app group is always at depth 0.
+        for label in treeLineLabels {
+            label.removeFromSuperview()
+        }
+        treeLineLabels.removeAll()
+
+        // Remove old section menu button
+        sectionMenuButton?.removeFromSuperview()
+        sectionMenuButton = nil
+        sectionMenu = nil
+
+        // Leading spacer — room after the left-side disclosure chevron.
+        let leadingSpacer = NSView()
+        leadingSpacer.translatesAutoresizingMaskIntoConstraints = false
+        leadingSpacer.widthAnchor.constraint(equalToConstant: 6).isActive = true
+        stackView.addArrangedSubview(leadingSpacer)
+
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        iconView.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config)
+        iconView.contentTintColor = .labelColor
+        stackView.addArrangedSubview(iconView)
+
+        let nameSpacer = NSView()
+        nameSpacer.translatesAutoresizingMaskIntoConstraints = false
+        nameSpacer.widthAnchor.constraint(equalToConstant: 5).isActive = true
+        stackView.addArrangedSubview(nameSpacer)
+
+        nameField.stringValue = displayName
+        nameField.font = .systemFont(ofSize: 12, weight: .semibold)
+        nameField.textColor = .labelColor
+        stackView.addArrangedSubview(nameField)
+
+        if let menu {
+            sectionMenu = menu
+
+            let trailingSpacer = NSView()
+            trailingSpacer.translatesAutoresizingMaskIntoConstraints = false
+            trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            stackView.addArrangedSubview(trailingSpacer)
+
+            let button = NSButton(frame: .zero)
+            button.bezelStyle = .accessoryBarAction
+            button.isBordered = false
+            let buttonConfig = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+            button.image = NSImage(
+                systemSymbolName: "ellipsis", accessibilityDescription: "Group settings")?
+                .withSymbolConfiguration(buttonConfig)
+            button.contentTintColor = .secondaryLabelColor
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 20),
+                button.heightAnchor.constraint(equalToConstant: 16),
+            ])
+            button.target = self
+            button.action = #selector(sectionMenuButtonClicked(_:))
+            sectionMenuButton = button
+            stackView.addArrangedSubview(button)
+
+            let trailingPad = NSView()
+            trailingPad.translatesAutoresizingMaskIntoConstraints = false
+            trailingPad.widthAnchor.constraint(equalToConstant: 4).isActive = true
+            stackView.addArrangedSubview(trailingPad)
+        }
+
+        badgeContainer.isHidden = true
+        starBadgeContainer.isHidden = true
+    }
+
     // MARK: - Section Menu
 
     private var sectionMenuButton: NSButton?

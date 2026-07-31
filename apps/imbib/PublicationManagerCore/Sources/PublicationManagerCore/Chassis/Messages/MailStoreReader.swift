@@ -25,9 +25,16 @@ import ImpressKit
 import ImpressRustCore
 import OSLog
 
+// `Codable`, not `Decodable`, since ADR-0022 X2 — and the encode half is the
+// whole point. `MailStoreWriter` (next door) builds its rows by ENCODING these
+// exact types, so the field names a seed writes are the field names this file
+// reads, by construction rather than by matching two lists in two files. The
+// `CaseIterable` on each `CodingKeys` is what lets
+// `ChassisPayloadVocabularyTests` enumerate them and pin the vocabulary.
+
 /// Decoded `email-message@…` payload fields (defensive: Stage-0 rows omit
 /// empty arrays and optional ids).
-struct MailMessagePayload: Decodable {
+struct MailMessagePayload: Codable {
     var subject: String?
     var body: String?
     var from: String?
@@ -36,7 +43,7 @@ struct MailMessagePayload: Decodable {
     var messageID: String?
     var threadID: String?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case subject, body, from, to, cc
         case messageID = "message_id"
         case threadID = "thread_id"
@@ -44,14 +51,14 @@ struct MailMessagePayload: Decodable {
 }
 
 /// Decoded `mail-folder@…` payload fields.
-struct MailFolderPayload: Decodable {
+struct MailFolderPayload: Codable {
     var name: String?
     /// inbox | sent | drafts | trash | archive | spam (custom folders omit it).
     var role: String?
     var remotePath: String?
     var sortOrder: Int?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case name, role
         case remotePath = "remote_path"
         case sortOrder = "sort_order"
@@ -59,13 +66,13 @@ struct MailFolderPayload: Decodable {
 }
 
 /// Decoded `mail-account@…` payload fields.
-struct MailAccountPayload: Decodable {
+struct MailAccountPayload: Codable {
     var name: String?
     var address: String?
     var provider: String?
     var sortOrder: Int?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case name, address, provider
         case sortOrder = "sort_order"
     }
@@ -77,6 +84,22 @@ public final class MailStoreReader {
     public static let shared = MailStoreReader()
 
     private static let logger = Logger(subsystem: "com.imbib.app", category: "mail")
+
+    // MARK: - Schema refs
+
+    /// The message ref, from the DESCRIPTOR — not a fourth literal.
+    /// (`AgentStoreReader.taskSchema` is the precedent and the reasoning.)
+    nonisolated public static let messageSchemaRef = MessageRecordKind.descriptor.primarySchemaRef
+
+    /// `mail-account` and `mail-folder` have NO `RecordKindDescriptor`: they are
+    /// the message kind's CONTAINERS, not records the chassis presents, so
+    /// nothing declares them and the descriptor mitigation is structurally
+    /// unavailable. They were therefore bare literals in three places — this
+    /// reader's two queries, the impress seed, and impart's `ImpartStoreAdapter`.
+    /// Two of those three now name these constants; the third is a production
+    /// writer in a sibling app's core and stays where it is (X2 scope).
+    nonisolated public static let accountSchemaRef = "mail-account"
+    nonisolated public static let folderSchemaRef = "mail-folder"
 
     private var store: SharedStore?
 
@@ -97,7 +120,7 @@ public final class MailStoreReader {
     public func fetchAccounts() -> [SharedItemRow] {
         guard let store else { return [] }
         return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: "mail-account", parentId: nil, payloadEq: [],
+            schemaRef: Self.accountSchemaRef, parentId: nil, payloadEq: [],
             modifiedAfterMs: nil, sortField: "payload.sort_order",
             ascending: true, limit: 100, offset: 0))) ?? []
     }
@@ -107,7 +130,7 @@ public final class MailStoreReader {
     public func fetchFolders(accountID: String? = nil) -> [SharedItemRow] {
         guard let store else { return [] }
         return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: "mail-folder", parentId: accountID?.lowercased(), payloadEq: [],
+            schemaRef: Self.folderSchemaRef, parentId: accountID?.lowercased(), payloadEq: [],
             modifiedAfterMs: nil, sortField: "payload.sort_order",
             ascending: true, limit: 1000, offset: 0))) ?? []
     }
@@ -123,7 +146,7 @@ public final class MailStoreReader {
     public func fetchMessages(inFolder folderID: String, limit: UInt32 = 5000) -> [SharedItemRow] {
         guard let store else { return [] }
         return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: "email-message", parentId: folderID.lowercased(), payloadEq: [],
+            schemaRef: Self.messageSchemaRef, parentId: folderID.lowercased(), payloadEq: [],
             modifiedAfterMs: nil, sortField: "created",
             ascending: false, limit: limit, offset: 0))) ?? []
     }
@@ -132,7 +155,7 @@ public final class MailStoreReader {
     public func fetchAllMessages(limit: UInt32 = 5000) -> [SharedItemRow] {
         guard let store else { return [] }
         return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: "email-message", parentId: nil, payloadEq: [],
+            schemaRef: Self.messageSchemaRef, parentId: nil, payloadEq: [],
             modifiedAfterMs: nil, sortField: "created",
             ascending: false, limit: limit, offset: 0))) ?? []
     }
@@ -152,8 +175,13 @@ public final class MailStoreReader {
     public func fetchThread(threadID: String, limit: UInt32 = 1000) -> [SharedItemRow] {
         guard let store else { return [] }
         return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: "email-message", parentId: nil,
-            payloadEq: [SharedFieldEq(field: "thread_id", valueJson: Self.jsonString(threadID))],
+            schemaRef: Self.messageSchemaRef, parentId: nil,
+            payloadEq: [SharedFieldEq(
+                // The FIELD NAME from the decoder's own key, not a second
+                // spelling of it: a `payloadEq` that disagrees with the struct
+                // that reads the row matches nothing, silently, forever.
+                field: MailMessagePayload.CodingKeys.threadID.rawValue,
+                valueJson: Self.jsonString(threadID))],
             modifiedAfterMs: nil, sortField: "created",
             ascending: true, limit: limit, offset: 0))) ?? []
     }
@@ -162,7 +190,7 @@ public final class MailStoreReader {
     public func messageCount(inFolder folderID: String) -> Int {
         guard let store else { return 0 }
         let count = (try? store.countItems(query: SharedItemQuery(
-            schemaRef: "email-message", parentId: folderID.lowercased(), payloadEq: [],
+            schemaRef: Self.messageSchemaRef, parentId: folderID.lowercased(), payloadEq: [],
             modifiedAfterMs: nil, sortField: "", ascending: false,
             limit: 0, offset: 0))) ?? 0
         return Int(count)
