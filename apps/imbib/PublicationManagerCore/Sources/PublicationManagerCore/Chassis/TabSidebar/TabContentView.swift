@@ -291,6 +291,16 @@ public struct TabContentView: View {
         .sheet(item: $viewModel.scixLibraryToEdit) { library in
             SciXEditLibrarySheet(library: library, viewModel: scixViewModel)
         }
+        // ADR-0023 W5 — the PDFs a watched folder could not attach on its own.
+        .sheet(item: $viewModel.attachmentReviewRequest) { request in
+            WatchedAttachmentOffersView(
+                folderName: request.folderName,
+                offers: request.offers,
+                onAttach: { offer, candidate in
+                    viewModel.confirmAttachment(offer, to: candidate)
+                },
+                onDismiss: { viewModel.attachmentReviewRequest = nil })
+        }
         .task {
             // Run retention cleanup on launch
             RetentionCleanupService.shared.performCleanup()

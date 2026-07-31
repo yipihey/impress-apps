@@ -64,9 +64,16 @@ public final class AttachmentManager {
     ) -> LinkedFileModel? {
         Logger.files.infoCapture("Linking existing PDF: \(relativePath)", category: "files")
 
-        // Verify file exists using container-based path
+        // Verify file exists using container-based path — unless the caller
+        // gave us an ABSOLUTE path, in which case that IS the file. See
+        // `resolveURL`'s note: a watched-folder attachment (ADR-0023 W5)
+        // references a PDF outside the library container by design, and
+        // appending an absolute path to the container yields a path that
+        // exists nowhere.
         var absoluteURL: URL?
-        if let libraryId = libraryId {
+        if relativePath.hasPrefix("/") {
+            absoluteURL = URL(fileURLWithPath: relativePath)
+        } else if let libraryId = libraryId {
             absoluteURL = containerURL(for: libraryId).appendingPathComponent(relativePath)
         } else if let appSupport = applicationSupportURL {
             absoluteURL = appSupport.appendingPathComponent("DefaultLibrary/\(relativePath)")
@@ -569,6 +576,31 @@ public final class AttachmentManager {
     public func resolveURL(for linkedFile: LinkedFileModel, in libraryId: UUID?) -> URL? {
         guard let relativePath = linkedFile.relativePath else { return nil }
         let normalizedPath = relativePath.precomposedStringWithCanonicalMapping
+
+        // ── An ABSOLUTE path is the file (ADR-0023 W5) ──────────────────────
+        //
+        // Every other linked file in imbib lives inside the library container,
+        // so `relativePath` is relative TO that container and the candidate
+        // ladder below is how it is found. A watched-folder attachment is the
+        // one that does not: D4's rule is that the watcher never copies and the
+        // file stays the user's, so the row references a PDF sitting wherever
+        // the researcher keeps it — a location the container knows nothing
+        // about.
+        //
+        // Without this branch, `appendingPathComponent` on an absolute path
+        // produces `<container>//Users/…`, which exists nowhere: the ladder
+        // would miss every candidate, log a warning, and hand back a URL that
+        // cannot open. That is the failure mode this feature would have shipped
+        // with, and it would have looked exactly like "the PDF is missing".
+        //
+        // `hasPrefix("/")` and not a `URL` check: `relativePath` is a store
+        // string, and the two cases are genuinely distinguished by that one
+        // character, which is also how `bdsk_file_decode`'s output is read on
+        // the Rust side.
+        if normalizedPath.hasPrefix("/") {
+            return URL(fileURLWithPath: normalizedPath)
+        }
+
         guard let appSupport = applicationSupportURL else { return nil }
 
         if let libraryId = libraryId {

@@ -11,6 +11,9 @@
 //!
 //! These implementations are exposed to Swift/Kotlin via UniFFI bindings.
 
+/// Matching PDFs found on disk to the bibliography entries they belong to
+/// (ADR-0023 W5) — the watched-folder attachment matcher.
+pub mod attachments;
 pub mod automation;
 pub mod bibtex;
 pub mod conversions;

@@ -286,6 +286,57 @@ extension ImbibSidebarViewModel {
         }
     }
 
+    // MARK: - ADR-0023 W5: reviewing unattached PDFs
+
+    /// The PDFs in one folder that were not attached automatically.
+    ///
+    /// Everything the coordinator published, unfiltered: ambiguous candidates
+    /// AND files that matched nothing. Both belong in the review list — "this
+    /// PDF is in your folder and in no entry" is exactly as useful an answer as
+    /// "it might be one of these two".
+    func pendingAttachmentOffers(_ id: WatchedFolderID) -> [WatchedAttachmentOffer] {
+        WatchedFolderIngestCoordinator.shared.attachmentOffers[id] ?? []
+    }
+
+    /// Open the review surface for one folder.
+    func reviewWatchedAttachments(_ id: WatchedFolderID) {
+        guard let row = watchedFolderRows.first(where: { $0.id == id }) else { return }
+        attachmentReviewRequest = WatchedAttachmentReviewRequest(
+            folderID: id,
+            folderName: row.displayName,
+            offers: pendingAttachmentOffers(id))
+    }
+
+    /// The user's decision, executed: attach ONE PDF to ONE publication.
+    ///
+    /// The same verb the automatic path uses, so a confirmed offer and an
+    /// auto-attach produce the same row — there is no second kind of
+    /// attachment, and no way to tell later which route a file took (nor should
+    /// there be: the user's answer and the matcher's are equally true).
+    func confirmAttachment(
+        _ offer: WatchedAttachmentOffer, to candidate: WatchedAttachmentOffer.Candidate
+    ) {
+        let libraryID = RustStoreAdapter.shared.getDefaultLibrary()?.id
+        guard AttachmentManager.shared.linkExistingPDF(
+            relativePath: offer.path, for: candidate.id, in: libraryID) != nil
+        else {
+            Logger.files.errorCapture(
+                "the store refused to link \(offer.path) to \(candidate.citeKey)",
+                category: "watched-folders")
+            return
+        }
+        // Drop it from the offer list: it has an answer now, and leaving it
+        // there would invite the user to attach it twice.
+        let coordinator = WatchedFolderIngestCoordinator.shared
+        for (folderID, offers) in coordinator.attachmentOffers
+        where offers.contains(where: { $0.id == offer.id }) {
+            coordinator.attachmentOffers[folderID] = offers.filter { $0.id != offer.id }
+        }
+        Logger.files.infoCapture(
+            "attached \(offer.fileName) to \(candidate.citeKey) on the user's say-so",
+            category: "watched-folders")
+    }
+
     func revealWatchedFolder(_ id: WatchedFolderID) {
         guard let path = watchedFolderRows.first(where: { $0.id == id })?.path else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
@@ -312,6 +363,23 @@ extension ImbibSidebarViewModel {
             let item = NSMenuItem(
                 title: "Choose Again…",
                 action: #selector(ContextMenuActions.reauthorizeWatchedFolder(_:)),
+                keyEquivalent: "")
+            item.target = ContextMenuActions.shared
+            item.representedObject = folderID
+            menu.addItem(item)
+        }
+
+        // ADR-0023 W5. OMITTED ENTIRELY when there is nothing to review — the
+        // same rule Refresh and Choose Again… follow two lines up, and the
+        // reason this row's matrix entry says "omit a dead affordance, never
+        // show one". A folder whose PDFs all attached cleanly is the common
+        // case and must not grow a menu item that opens an empty list.
+        let pending = pendingAttachmentOffers(folderID)
+        if !pending.isEmpty {
+            let item = NSMenuItem(
+                title: pending.count == 1
+                    ? "Review 1 PDF Match…" : "Review \(pending.count) PDF Matches…",
+                action: #selector(ContextMenuActions.reviewWatchedAttachments(_:)),
                 keyEquivalent: "")
             item.target = ContextMenuActions.shared
             item.representedObject = folderID
@@ -431,6 +499,12 @@ extension ContextMenuActions {
         viewModel?.addWatchedFolder()
     }
 
+    /// ADR-0023 W5.
+    @objc func reviewWatchedAttachments(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? WatchedFolderID else { return }
+        viewModel?.reviewWatchedAttachments(id)
+    }
+
     @objc func revealWatchedFolder(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? WatchedFolderID else { return }
         viewModel?.revealWatchedFolder(id)
@@ -442,3 +516,28 @@ extension ContextMenuActions {
     }
 }
 #endif
+
+
+// MARK: - ADR-0023 W5: the review request
+
+/// One folder's review surface, as a `.sheet(item:)` payload.
+///
+/// A VALUE and not a folder id: the sheet must render what was offered at the
+/// moment the user asked, not re-read a list that a background scan can change
+/// underneath an open window. The same reason `WatchedFolderRowState` is a
+/// snapshot of the watcher's registration rather than a live handle on it.
+public struct WatchedAttachmentReviewRequest: Identifiable, Hashable, Sendable {
+    public let folderID: WatchedFolderID
+    public let folderName: String
+    public let offers: [WatchedAttachmentOffer]
+
+    public var id: WatchedFolderID { folderID }
+
+    public init(
+        folderID: WatchedFolderID, folderName: String, offers: [WatchedAttachmentOffer]
+    ) {
+        self.folderID = folderID
+        self.folderName = folderName
+        self.offers = offers
+    }
+}

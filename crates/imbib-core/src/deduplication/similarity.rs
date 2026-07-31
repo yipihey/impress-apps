@@ -116,8 +116,14 @@ pub fn authors_overlap(authors1: String, authors2: String) -> bool {
     authors_overlap_internal(&authors1, &authors2)
 }
 
-/// Calculate title similarity using multiple metrics
-fn title_similarity(title1: &str, title2: &str) -> f64 {
+/// Calculate title similarity using multiple metrics.
+///
+/// `pub(crate)` rather than private since ADR-0023 W5: the watched-folder PDF
+/// matcher (`crate::attachments`) scores a filename against an entry's title
+/// and must use THIS function, not a second one. A second implementation of
+/// "how alike are two titles" is a second answer to it, and the two would
+/// diverge the first time one of them was tuned.
+pub(crate) fn title_similarity(title1: &str, title2: &str) -> f64 {
     let norm1 = normalize_title_internal(title1);
     let norm2 = normalize_title_internal(title2);
 

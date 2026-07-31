@@ -3,9 +3,9 @@
 //! This module provides similarity scoring and matching functions
 //! to identify potential duplicate entries.
 
-mod normalization;
+pub(crate) mod normalization;
 mod orchestration;
-mod similarity;
+pub(crate) mod similarity;
 
 #[cfg(feature = "native")]
 pub use normalization::{normalize_author_export, normalize_title_export};

@@ -1,0 +1,740 @@
+{
+  "_about": [
+    "ADR-0023 W5 golden corpus: PDFs discovered near a watched .bib, matched to",
+    "that file's entries. One case = one folder's worth of entries and PDFs plus",
+    "the EXACT verdicts the matcher must return.",
+    "",
+    "`bdskFiles` are relative paths the harness ENCODES with bdsk_file_encode",
+    "into Bdsk-File-1..N, so the golden stays readable and the BibDesk codec is",
+    "exercised on every run. `fields` are written verbatim.",
+    "",
+    "`confidence` is pinned to 1e-6. A change to the weights is therefore a",
+    "change to this file, reviewed, rather than a number that drifted."
+  ],
+  "cases": [
+    {
+      "name": "declared/bdsk-file-exact-path",
+      "why": "BibDesk's own data. The entry names the file; nothing inferred may outrank a statement of fact.",
+      "entries": [
+        {
+          "id": "smith2024",
+          "citeKey": "smith2024",
+          "fields": {
+            "title": "A Study of Nothing",
+            "author": "Smith, John",
+            "year": "2024"
+          },
+          "bdskFiles": [
+            "Papers/whatever.pdf"
+          ]
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Papers/whatever.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Papers/whatever.pdf",
+            "citeKey": "smith2024",
+            "signal": "declared-file-field",
+            "verdict": "automatic",
+            "confidence": 1.0
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "declared/bdsk-file-name-moved",
+      "why": "The user reorganised the folder. The entry still names THIS file by name; the location no longer resolves, so it scores below an exact path but still auto-attaches.",
+      "entries": [
+        {
+          "id": "smith2024",
+          "citeKey": "smith2024",
+          "fields": {
+            "title": "A Study of Nothing",
+            "author": "Smith, John",
+            "year": "2024"
+          },
+          "bdskFiles": [
+            "Papers/whatever.pdf"
+          ]
+        }
+      ],
+      "pdfs": [
+        "/w/lib/archive/2024/whatever.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/archive/2024/whatever.pdf",
+            "citeKey": "smith2024",
+            "signal": "declared-file-field",
+            "verdict": "automatic",
+            "confidence": 0.97
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "declared/jabref-file-triple",
+      "why": "JabRef writes `Description:path:PDF` into a plain `file` field. It is still the entry naming the file.",
+      "entries": [
+        {
+          "id": "jabref1",
+          "citeKey": "jabref1",
+          "fields": {
+            "title": "Interoperability",
+            "author": "Doe, Jane",
+            "year": "2019",
+            "file": "The paper:papers/interop.pdf:PDF"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/papers/interop.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/papers/interop.pdf",
+            "citeKey": "jabref1",
+            "signal": "declared-file-field",
+            "verdict": "automatic",
+            "confidence": 1.0
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "declared/beats-a-rival-cite-key",
+      "why": "ADVERSARIAL. `einstein1905.pdf` IS the second entry's cite key (0.95), but the first entry DECLARES it (1.00). 1.00-0.95 is inside the ambiguity margin, so the margin alone would have offered both; the declaration rule is what makes this an answer instead of a question.",
+      "entries": [
+        {
+          "id": "podolsky1935",
+          "citeKey": "podolsky1935",
+          "fields": {
+            "title": "Can Quantum Mechanical Description Be Complete",
+            "author": "Podolsky, Boris",
+            "year": "1935"
+          },
+          "bdskFiles": [
+            "einstein1905.pdf"
+          ]
+        },
+        {
+          "id": "einstein1905",
+          "citeKey": "einstein1905",
+          "fields": {
+            "title": "Zur Elektrodynamik bewegter Koerper",
+            "author": "Einstein, Albert",
+            "year": "1905"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/einstein1905.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/einstein1905.pdf",
+            "citeKey": "podolsky1935",
+            "signal": "declared-file-field",
+            "verdict": "automatic",
+            "confidence": 1.0
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "declared/two-entries-claim-one-file",
+      "why": "ADVERSARIAL. Both entries declare the same PDF, so the declaration rule cannot break the tie and the margin fails. Genuinely ambiguous, so it is OFFERED — never silently attached to whichever sorted first.",
+      "entries": [
+        {
+          "id": "alpha1999",
+          "citeKey": "alpha1999",
+          "fields": {
+            "title": "Alpha",
+            "author": "Alpha, A",
+            "year": "1999"
+          },
+          "bdskFiles": [
+            "shared.pdf"
+          ]
+        },
+        {
+          "id": "beta1999",
+          "citeKey": "beta1999",
+          "fields": {
+            "title": "Beta",
+            "author": "Beta, B",
+            "year": "1999"
+          },
+          "bdskFiles": [
+            "shared.pdf"
+          ]
+        }
+      ],
+      "pdfs": [
+        "/w/lib/shared.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/shared.pdf",
+            "citeKey": "alpha1999",
+            "signal": "declared-file-field",
+            "verdict": "offer",
+            "confidence": 1.0
+          },
+          {
+            "pdf": "/w/lib/shared.pdf",
+            "citeKey": "beta1999",
+            "signal": "declared-file-field",
+            "verdict": "offer",
+            "confidence": 1.0
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "citekey/exact",
+      "why": "A cite key is unique within a .bib by construction.",
+      "entries": [
+        {
+          "id": "hubble1929",
+          "citeKey": "hubble1929",
+          "fields": {
+            "title": "A Relation between Distance and Radial Velocity",
+            "author": "Hubble, Edwin",
+            "year": "1929"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/hubble1929.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/hubble1929.pdf",
+            "citeKey": "hubble1929",
+            "signal": "cite-key",
+            "verdict": "automatic",
+            "confidence": 0.95
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "citekey/case-insensitive",
+      "why": "HFS+ is case-insensitive and users capitalise. The claim is the same claim.",
+      "entries": [
+        {
+          "id": "noether1918",
+          "citeKey": "noether1918",
+          "fields": {
+            "title": "Invariante Variationsprobleme",
+            "author": "Noether, Emmy",
+            "year": "1918"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Noether1918.PDF"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Noether1918.PDF",
+            "citeKey": "noether1918",
+            "signal": "cite-key",
+            "verdict": "automatic",
+            "confidence": 0.95
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "citekey/spaces-for-a-camel-case-key",
+      "why": "SPACES VS UNDERSCORES, the first of two shapes. A human typing the cite key with separators is making the same statement a program would.",
+      "entries": [
+        {
+          "id": "Noether1918",
+          "citeKey": "Noether1918",
+          "fields": {
+            "title": "Invariante Variationsprobleme",
+            "author": "Noether, Emmy",
+            "year": "1918"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Noether 1918.pdf",
+        "/w/lib/Noether_1918.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Noether 1918.pdf",
+            "citeKey": "Noether1918",
+            "signal": "cite-key",
+            "verdict": "automatic",
+            "confidence": 0.93
+          },
+          {
+            "pdf": "/w/lib/Noether_1918.pdf",
+            "citeKey": "Noether1918",
+            "signal": "cite-key",
+            "verdict": "automatic",
+            "confidence": 0.93
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "house/exact-imbib-naming",
+      "why": "imbib's OWN convention (imbib ADR-004), produced by imbib's own generator. Either imbib named this file or the user followed the documented scheme.",
+      "entries": [
+        {
+          "id": "einstein1905",
+          "citeKey": "einstein1905",
+          "fields": {
+            "title": "Zur Elektrodynamik bewegter Koerper",
+            "author": "Einstein, Albert",
+            "year": "1905"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Einstein_1905_Zur_Elektrodynamik_bewegter.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Einstein_1905_Zur_Elektrodynamik_bewegter.pdf",
+            "citeKey": "einstein1905",
+            "signal": "house-naming",
+            "verdict": "automatic",
+            "confidence": 0.92
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "house/spaces-instead-of-underscores",
+      "why": "SPACES VS UNDERSCORES, the second shape. The convention is Author-Year-Title; the separator a user typed is not part of the claim.",
+      "entries": [
+        {
+          "id": "einstein1905",
+          "citeKey": "einstein1905",
+          "fields": {
+            "title": "Zur Elektrodynamik bewegter Koerper",
+            "author": "Einstein, Albert",
+            "year": "1905"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Einstein 1905 Zur Elektrodynamik bewegter.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Einstein 1905 Zur Elektrodynamik bewegter.pdf",
+            "citeKey": "einstein1905",
+            "signal": "house-naming",
+            "verdict": "automatic",
+            "confidence": 0.92
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "unicode/diacritics-survive-house-naming",
+      "why": "UNICODE. The .bib says Müller/Über; the filename says the same thing. Both are folded through the dedup crate's NFKD-then-ASCII rule, so the match holds.",
+      "entries": [
+        {
+          "id": "muller2020",
+          "citeKey": "muller2020",
+          "fields": {
+            "title": "Über Etwas Wichtiges",
+            "author": "Müller, Hans",
+            "year": "2020"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Müller_2020_Über_Etwas_Wichtiges.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Müller_2020_Über_Etwas_Wichtiges.pdf",
+            "citeKey": "muller2020",
+            "signal": "house-naming",
+            "verdict": "automatic",
+            "confidence": 0.92
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "unicode/nfd-on-disk-vs-nfc-in-the-bib",
+      "why": "UNICODE, the macOS trap. The same name, decomposed on disk (u + combining diaeresis) and composed in the .bib. A byte comparison fails; the matcher must not.",
+      "entries": [
+        {
+          "id": "muller2020",
+          "citeKey": "muller2020",
+          "fields": {
+            "title": "Über Etwas Wichtiges",
+            "author": "Müller, Hans",
+            "year": "2020"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Müller_2020_Über_Etwas_Wichtiges.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Müller_2020_Über_Etwas_Wichtiges.pdf",
+            "citeKey": "muller2020",
+            "signal": "house-naming",
+            "verdict": "automatic",
+            "confidence": 0.92
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "unicode/latex-escapes-in-the-bib",
+      "why": "UNICODE, the BibTeX shape: the .bib carries K\\\"orper, the file carries Körper. Decoding is the bibtex crate's job and this pins that it happens before matching.",
+      "entries": [
+        {
+          "id": "einstein1905",
+          "citeKey": "einstein1905",
+          "fields": {
+            "title": "Zur Elektrodynamik bewegter K\\\"orper",
+            "author": "Einstein, Albert",
+            "year": "1905"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Einstein_1905_Zur_Elektrodynamik_bewegter.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Einstein_1905_Zur_Elektrodynamik_bewegter.pdf",
+            "citeKey": "einstein1905",
+            "signal": "house-naming",
+            "verdict": "automatic",
+            "confidence": 0.92
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "adversarial/same-author-same-year",
+      "why": "ADVERSARIAL. Two 1905 Einstein papers and a PDF named for neither in particular. Both are FUZZY, so the ceiling alone already forbids attaching — this case pins that author+year with no title words still clears OFFER_CONFIDENCE, i.e. the user is asked rather than told nothing was found. The MARGIN is exercised by the case below it.",
+      "entries": [
+        {
+          "id": "einstein1905a",
+          "citeKey": "einstein1905a",
+          "fields": {
+            "title": "Zur Elektrodynamik bewegter Koerper",
+            "author": "Einstein, Albert",
+            "year": "1905"
+          }
+        },
+        {
+          "id": "einstein1905b",
+          "citeKey": "einstein1905b",
+          "fields": {
+            "title": "Ueber einen die Erzeugung und Verwandlung des Lichtes",
+            "author": "Einstein, Albert",
+            "year": "1905"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Einstein 1905.pdf"
+      ],
+      "expected": {
+        "matchCount": 2,
+        "allVerdicts": "offer",
+        "allSignals": "fuzzy",
+        "citeKeys": [
+          "einstein1905b",
+          "einstein1905a"
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "adversarial/house-naming-collides-on-two-entries",
+      "why": "ADVERSARIAL, and THE case AMBIGUITY_MARGIN exists for. Two papers by one author in one year whose first three title words are identical (a two-part paper) generate the SAME Author_Year_Title name, so both score 0.92 — above the auto threshold. Only the margin stops this from silently attaching to whichever sorted first, which would be a wrong answer written to the user's library with no question asked.",
+      "entries": [
+        {
+          "id": "weyl1918a",
+          "citeKey": "weyl1918a",
+          "fields": {
+            "title": "Gravitation und Elektrizitaet, Teil I",
+            "author": "Weyl, Hermann",
+            "year": "1918"
+          }
+        },
+        {
+          "id": "weyl1918b",
+          "citeKey": "weyl1918b",
+          "fields": {
+            "title": "Gravitation und Elektrizitaet, Teil II",
+            "author": "Weyl, Hermann",
+            "year": "1918"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Weyl_1918_Gravitation_und_Elektrizitaet.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/Weyl_1918_Gravitation_und_Elektrizitaet.pdf",
+            "citeKey": "weyl1918a",
+            "signal": "house-naming",
+            "verdict": "offer",
+            "confidence": 0.92
+          },
+          {
+            "pdf": "/w/lib/Weyl_1918_Gravitation_und_Elektrizitaet.pdf",
+            "citeKey": "weyl1918b",
+            "signal": "house-naming",
+            "verdict": "offer",
+            "confidence": 0.92
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "adversarial/a-pdf-that-matches-nothing",
+      "why": "A watched folder legitimately contains PDFs that are not in its .bib. Saying so plainly beats offering a 0.2 candidate, which trains the user to dismiss the offer surface.",
+      "entries": [
+        {
+          "id": "einstein1905",
+          "citeKey": "einstein1905",
+          "fields": {
+            "title": "Zur Elektrodynamik bewegter Koerper",
+            "author": "Einstein, Albert",
+            "year": "1905"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/tax-return-2019.pdf"
+      ],
+      "expected": {
+        "matches": [],
+        "unmatched": [
+          "/w/lib/tax-return-2019.pdf"
+        ]
+      }
+    },
+    {
+      "name": "adversarial/surname-is-a-substring-of-another",
+      "why": "`ell` must not match `Russell`. Word-boundary containment, not substring — a bibliography of short surnames is exactly where substring matching misfires.",
+      "entries": [
+        {
+          "id": "russell1905",
+          "citeKey": "russell1905",
+          "fields": {
+            "title": "On Denoting",
+            "author": "Russell, Bertrand",
+            "year": "1905"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Ell_2001_Something_Else.pdf"
+      ],
+      "expected": {
+        "matches": [],
+        "unmatched": [
+          "/w/lib/Ell_2001_Something_Else.pdf"
+        ]
+      }
+    },
+    {
+      "name": "adversarial/declared-path-needs-a-component-boundary",
+      "why": "A declaration of `per.pdf` must not be satisfied by `paper.pdf`. Without the boundary rule, a bare ends_with would attach the wrong file with confidence 1.0 — the worst failure this module can have.",
+      "entries": [
+        {
+          "id": "boundary1",
+          "citeKey": "boundary1",
+          "fields": {
+            "title": "Boundaries",
+            "author": "Edge, Case",
+            "year": "2001"
+          },
+          "bdskFiles": [
+            "per.pdf"
+          ]
+        }
+      ],
+      "pdfs": [
+        "/w/lib/paper.pdf"
+      ],
+      "expected": {
+        "matches": [],
+        "unmatched": [
+          "/w/lib/paper.pdf"
+        ]
+      }
+    },
+    {
+      "name": "adversarial/two-pdfs-one-entry",
+      "why": "BibDesk's model is Bdsk-File-1..N: an entry may legitimately have several attachments. Uniqueness is a property of the PDF, not of the entry, so both attach.",
+      "entries": [
+        {
+          "id": "twofile2022",
+          "citeKey": "twofile2022",
+          "fields": {
+            "title": "Main Paper",
+            "author": "Author, An",
+            "year": "2022"
+          },
+          "bdskFiles": [
+            "main.pdf",
+            "supplement.pdf"
+          ]
+        }
+      ],
+      "pdfs": [
+        "/w/lib/main.pdf",
+        "/w/lib/supplement.pdf"
+      ],
+      "expected": {
+        "matches": [
+          {
+            "pdf": "/w/lib/main.pdf",
+            "citeKey": "twofile2022",
+            "signal": "declared-file-field",
+            "verdict": "automatic",
+            "confidence": 1.0
+          },
+          {
+            "pdf": "/w/lib/supplement.pdf",
+            "citeKey": "twofile2022",
+            "signal": "declared-file-field",
+            "verdict": "automatic",
+            "confidence": 1.0
+          }
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "adversarial/an-entry-with-no-title-cannot-be-guessed-at",
+      "why": "Fuzzy scoring needs something about the WORK to compare. An entry with only a cite key is matchable by cite key and by nothing else — inventing a score from the year alone would be noise.",
+      "entries": [
+        {
+          "id": "bare2015",
+          "citeKey": "bare2015",
+          "fields": {
+            "year": "2015"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Somebody_2015_Something.pdf"
+      ],
+      "expected": {
+        "matches": [],
+        "unmatched": [
+          "/w/lib/Somebody_2015_Something.pdf"
+        ]
+      }
+    },
+    {
+      "name": "fuzzy/a-truncated-title-is-offered-never-attached",
+      "why": "THE structural rule. A good fuzzy match is still a guess, and the fuzzy ceiling sits below the auto threshold so no amount of re-tuning can turn one into a silent write.",
+      "entries": [
+        {
+          "id": "hubble1929",
+          "citeKey": "hubble1929",
+          "fields": {
+            "title": "A Relation between Distance and Radial Velocity among Extra-Galactic Nebulae",
+            "author": "Hubble, Edwin",
+            "year": "1929"
+          }
+        }
+      ],
+      "pdfs": [
+        "/w/lib/Hubble 1929 A Relation between Distance and Radial Velocity.pdf"
+      ],
+      "expected": {
+        "matchCount": 1,
+        "allVerdicts": "offer",
+        "allSignals": "fuzzy",
+        "citeKeys": [
+          "hubble1929"
+        ],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "scope/an-empty-folder-produces-an-empty-report",
+      "why": "The zero case, pinned so the caller can trust an empty report rather than defending against one.",
+      "entries": [
+        {
+          "id": "einstein1905",
+          "citeKey": "einstein1905",
+          "fields": {
+            "title": "Zur Elektrodynamik bewegter Koerper",
+            "author": "Einstein, Albert",
+            "year": "1905"
+          }
+        }
+      ],
+      "pdfs": [],
+      "expected": {
+        "matches": [],
+        "unmatched": []
+      }
+    },
+    {
+      "name": "scope/no-entries-means-every-pdf-is-unmatched",
+      "why": "A watched folder whose .bib has not been imported yet. Every PDF is unclaimed; none is forced onto nothing.",
+      "entries": [],
+      "pdfs": [
+        "/w/lib/a.pdf",
+        "/w/lib/b.pdf"
+      ],
+      "expected": {
+        "matches": [],
+        "unmatched": [
+          "/w/lib/a.pdf",
+          "/w/lib/b.pdf"
+        ]
+      }
+    }
+  ]
+}

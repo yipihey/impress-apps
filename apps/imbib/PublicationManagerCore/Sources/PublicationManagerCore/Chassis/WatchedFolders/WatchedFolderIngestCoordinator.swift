@@ -422,6 +422,27 @@ public final class WatchedFolderIngestCoordinator {
     /// source" without re-querying.
     public private(set) var removedFromSource: [WatchedFolderID: [UUID]] = [:]
 
+    /// PDFs this folder discovered that were NOT attached automatically —
+    /// ambiguous candidates and unclaimed files (ADR-0023 W5).
+    ///
+    /// The review surface's whole content. `public private(set)` and
+    /// `@Observable`, so the pane redraws when a scan finishes without asking
+    /// anything.
+    public internal(set) var attachmentOffers: [WatchedFolderID: [WatchedAttachmentOffer]] = [:]
+
+    /// What the most recent attachment pass did, per folder. For the row's
+    /// detail line, for logs, and for the tests that pin idempotency.
+    public internal(set) var attachmentPasses: [WatchedFolderID: WatchedAttachmentPass] = [:]
+
+    /// The attachment side of the wiring (ADR-0023 W5), or `nil` for a
+    /// coordinator whose kind has no attachment unit.
+    ///
+    /// Separate from `hooks` because it is imbib's alone: no other watched kind
+    /// declares `attachmentTypes`, so folding these four closures into the
+    /// per-kind `WatchedFolderImportHooks` would have put three apps' worth of
+    /// `nil` into a struct they all construct.
+    @ObservationIgnored let attachmentHooks: WatchedAttachmentHooks?
+
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     /// Store-side folder id (kernel-derived, from path+scope) per watcher id.
     @ObservationIgnored private var storeFolderIDs: [WatchedFolderID: String] = [:]
@@ -435,12 +456,21 @@ public final class WatchedFolderIngestCoordinator {
         kindScope: String = WatchedFolderIngestCoordinator.kindScope,
         watcher: FolderWatchService = FolderWatchService(),
         store: WatchedFolderStoreAdapter = .shared,
-        hooks: WatchedFolderImportHooks = .live
+        hooks: WatchedFolderImportHooks = .live,
+        attachmentHooks: WatchedAttachmentHooks? = .live
     ) {
         self.kindScope = kindScope
         self.watcher = watcher
         self.store = store
         self.hooks = hooks
+        // A kind that declares no attachment types gets none, whatever the
+        // caller passed: the pass would find no candidates anyway, and refusing
+        // here keeps `coordinator(forKindScope:)` from handing imbib's wiring
+        // to impart's coordinator.
+        let declaresAttachments =
+            !(BuiltinRecordKinds.fileDiscovery(forKindScope: kindScope)?
+                .attachmentExtensions.isEmpty ?? true)
+        self.attachmentHooks = declaresAttachments ? attachmentHooks : nil
     }
 
     deinit { pumpTask?.cancel() }
@@ -649,6 +679,18 @@ public final class WatchedFolderIngestCoordinator {
         }
     }
 
+    /// One page of a folder's `watched-file` rows (ADR-0023 W5).
+    ///
+    /// `files(in:)` takes the store's DEFAULT page, which is right for a list a
+    /// human scrolls and wrong for a matcher that must see every candidate —
+    /// this is the seam `allFiles(in:)` pages through. It lives here rather
+    /// than in the W5 extension only because `store` is private to this file.
+    func attachmentFilesPage(
+        folderID: String, limit: Int, offset: Int
+    ) throws -> (files: [WatchedFileRecord], total: Int) {
+        try store.files(folderID: folderID, state: nil, limit: limit, offset: offset)
+    }
+
     /// A display name no other watched folder is using.
     ///
     /// Not cosmetic: the name is the provenance tag's leaf, and therefore the
@@ -723,7 +765,16 @@ public final class WatchedFolderIngestCoordinator {
                 category: "watched-folders")
         }
 
-        let owed = report.needingImport
+        // ADR-0023 W5: attachment-unit files are recorded (the `watched-file`
+        // row above already happened — that is where the hash tracking and the
+        // missing sweep come from) but they are NOT handed to the fan-out. A
+        // PDF produces no publication; it JOINS one, at the end of the scan,
+        // once every entry exists. Handing one to `produceRows` would put a
+        // PDF's bytes through the BibTeX reader.
+        let capability = BuiltinRecordKinds.fileDiscovery(forKindScope: kindScope)
+        let owed = report.needingImport.filter {
+            capability?.ingestUnit(forFileName: $0.path) != .attachment
+        }
         guard !owed.isEmpty else {
             // The zero-write path. Nothing changed on disk, so nothing is
             // parsed, nothing is imported and no store mutation fires.
@@ -817,6 +868,16 @@ public final class WatchedFolderIngestCoordinator {
             // is right; retrying is not.
             note(error, for: id)
         }
+
+        // ADR-0023 W5, LAST and once per scan. The question "does this PDF
+        // belong to exactly one entry?" is about the folder as a whole, so it
+        // cannot be answered while entries are still arriving — and the
+        // ambiguity margin, which is the thing standing between the user and a
+        // silently wrong attachment, is only meaningful once every rival exists.
+        // It runs after the sweep, so a vanished PDF is already `missing` and
+        // the pass can report it rather than trying to attach it.
+        let pass = matchAttachments(in: id)
+        attachmentPasses[id] = pass
     }
 
     /// Mirror the watcher's live state into the store row's D6 declaration, so

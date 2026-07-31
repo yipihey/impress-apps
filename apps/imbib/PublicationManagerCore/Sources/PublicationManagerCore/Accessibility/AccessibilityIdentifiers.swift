@@ -24,6 +24,12 @@ public enum AccessibilityID {
         /// ADR-0023 W2 — the "Add Watched Folder…" entry in the iOS add menu.
         public static let addWatchedFolderButton = "sidebar.addWatchedFolderButton"
 
+        /// ADR-0023 W5 — the PDF-match review pane.
+        public static let watchedAttachmentOfferList = "watchedFolder.attachmentOffers"
+        public static func watchedAttachmentAttachButton(_ citeKey: String) -> String {
+            "watchedFolder.attachmentOffers.attach.\(citeKey)"
+        }
+
         public static func libraryRow(_ id: UUID) -> String { "sidebar.library.\(id.uuidString)" }
         public static func libraryRow(_ id: String) -> String { "sidebar.library.\(id)" }
         public static func folderRow(_ id: UUID) -> String { "sidebar.folder.\(id.uuidString)" }

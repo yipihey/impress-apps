@@ -6,11 +6,11 @@
 //! All types are defined locally with UniFFI attributes for FFI export.
 
 // Local modules with uniffi attributes
-mod bdsk_file;
+pub(crate) mod bdsk_file;
 mod entry;
 mod formatter;
 mod journal_macros;
-mod latex_decoder;
+pub(crate) mod latex_decoder;
 pub mod parser;
 
 // Re-export entry types

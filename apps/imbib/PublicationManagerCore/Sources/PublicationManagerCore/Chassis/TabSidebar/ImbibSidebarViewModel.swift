@@ -56,6 +56,11 @@ final class ImbibSidebarViewModel {
     /// `.watchedFoldersDidChange`). Held so it can be torn down.
     @ObservationIgnored var watchedFolderObserver: NSObjectProtocol?
 
+    /// The folder whose unattached PDFs the user asked to review (ADR-0023 W5),
+    /// or `nil`. Drives a `.sheet(item:)` in `TabContentView` — the same shape
+    /// `scixLibraryToShowInfo` uses, so no new presentation mechanism.
+    var attachmentReviewRequest: WatchedAttachmentReviewRequest?
+
     /// ADR-0023 W4 — whether this shell's file-unit coordinators are running.
     @ObservationIgnored private var didStartFileUnitWatchers = false
 

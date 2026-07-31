@@ -1,6 +1,6 @@
 # ADR-0023: Watched Folders — the filesystem as a feed
 
-**Status:** Accepted
+**Status:** Accepted — **fully implemented (W0–W5 shipped, 2026-07-31 / 2026-08-01)**
 **Date:** 2026-07-31
 **Depends on:** ADR-0001 (unified items), ADR-0021 (record-kind descriptors), ADR-0022 (collection kernel, docs-import service), imbib ADR-002 (BibTeX as portable format)
 
@@ -109,7 +109,7 @@ Spotlight's live updates make the steady state event-driven, not polled.
 | imprint | `manuscript_format` extensions (`.typ`, `.tex`, `.md`, `.txt`) | file, reference-in-place |
 | impart | `.mbox`, `.eml` | file, index-only — **the fan-out is declined** (W4) |
 | implore | `.vsz` | file, reference-in-place — **no figure row minted** (W4) |
-| **Phase 2 (imbib)** | PDFs adjacent to a watched `.bib`, matched to entries | attachment (`Bdsk-File` model) |
+| **Phase 2 (imbib)** | PDFs adjacent to a watched `.bib`, matched to entries | attachment (`Bdsk-File` model) — **W5, shipped** |
 
 ## Work packages
 
@@ -120,10 +120,15 @@ Spotlight's live updates make the steady state event-driven, not polled.
 | W2 | **imbib phase**: watched `.bib`/`.ris` folders end-to-end — add folder (panel + bookmark), live discovery, entry ingest with dedup + provenance, missing-file handling, folder badge/refresh | **SHIPPED 2026-07-31.** `SharedStore.watched*` (the eight verbs, Swift twin of the service's); `WatchedFolderIngestCoordinator` (watcher → `import_discovered` → imbib's real importer → `record_produced_rows` → `finish_watched_scan`); NSOpenPanel (macOS) / `fileImporter` (iOS); sidebar rows both platforms; provenance tag = the folder's list scope; Source File row in both Info tabs. 6 headless end-to-end tests + 2 simulator UI tests (live drop, deduped) + 8 FFI tests |
 | W3 | **imprint phase**: watched manuscript folders, reference-in-place rows, open-in-place vs import-copy affordance, `missing` state | **SHIPPED 2026-07-31.** `external_source` (a new OPTIONAL `manuscript` payload field, declared in Rust); `ExternalManuscriptSource` + `ManuscriptStoreAdapter.upsertExternalManuscript` / `markExternalManuscript{Missing,Present}` / `importCopyOfExternalManuscript`; `WatchedManuscriptFolders` supplies the per-kind `produceRows` fan-out to W4's coordinator registry; sidebar rows both platforms (macOS `watchedFileFolder` node under Manuscripts, iOS via `RecordSidebarSectionContent.additionalNodes`); folder scope = `watched/<folder name>` (W2's tag), as `ManuscriptListScope.tag` / `ManuscriptStoreScope.tag`; 7 headless tests + 3 simulator UI tests |
 | W4 | **impart + implore phase**: watched `.mbox`/`.eml` and `.vsz` folders, file unit, index-only | **SHIPPED 2026-07-31.** The coordinator became per-KIND (`WatchedFolderImportHooks.produceRows`, one closure; `WatchedFolderIngestCoordinator.coordinator(forKindScope:)`, a registry); `.recordingOnly` is W4's fan-out and is the DECISION, not a stub. `ImbibSidebarNodeType.watchedFileFolder` rows in the Mail and Figures sections; they resolve to `.record(RecordRoute)` on W1's `.host` scope, so no new tab or content-route case. `WatchedFilesPane` is the surface (files, sizes, missing state, per-kind explanation, `Count Messages` through the real Rust mbox parser). iOS iCloud spike recorded below. 13 headless tests |
-| W5 | imbib phase 2: adjacent-PDF matching → attachments | golden matches; Bdsk round-trip preserved |
+| W5 | imbib phase 2: adjacent-PDF matching → attachments | **SHIPPED 2026-08-01.** `imbib_core::attachments` (the matcher — four signals, named thresholds, 23 golden cases); a third `FileIngestUnit`, `.attachment`, declared as `FileDiscoveryCapability.attachmentTypes` on the publication kind (`.pdf`, pinned to `UTType.pdf`), so ONE folder registration discovers the `.bib` and its PDFs together; the role marker is DERIVED (`ingestUnit(forFileName:)`), not a `watched-file` column; `WatchedAttachmentMatching` runs the pass at scan close, attaches unique high-confidence matches reference-in-place through `AttachmentManager.linkExistingPDF`, and publishes the rest as `WatchedAttachmentOffer`s; `ImbibStore::export_bibtex` now emits `Bdsk-File-*` from linked-file rows, which is what makes export-after-attach true. 23 Rust golden cases + 12 headless end-to-end tests + 5 new parity tests + a Rust export round-trip test |
 
 Sequencing: W0 → W1 → W2 ship together as the feature's proof; W3–W5 follow
 independently. Every WP updates the capability matrix row for its surface.
+
+**All five work packages are shipped.** The remaining open items are the ones
+each phase recorded as debt below (W3's editor deferral and imprint-iOS folder
+add, W5's PDF-content signal and its iOS surface) and the D6 iOS spike, which is
+research rather than a work package. Nothing in this table is outstanding.
 
 ### What W2 settled that W0 and W1 left open
 
@@ -336,6 +341,223 @@ case and a prefix arm in the kind's viewer factory; `ImbibTab`,
 DID need care: a host scope the kind's list scope correctly declines to parse
 would otherwise fall through to the registry's `EmptyView()` — a selectable
 sidebar row that opens nothing.
+
+### What W5 settled that the ingest map left open
+
+The ingest map's phase-2 row said "PDFs adjacent to a watched `.bib`, matched to
+entries — attachment (`Bdsk-File` model)" and left every mechanism open. Here is
+each answer and the argument for it.
+
+**The matcher is Rust, in imbib-core, and it reuses rather than reinvents.**
+`imbib_core::attachments` takes (entries with their fields, candidate PDF paths)
+and returns per-pairing verdicts. It lives in imbib-core rather than beside the
+watched-folder kernel because every signal it needs is already there —
+`bibtex::bdsk_file` decodes what BibDesk wrote, `deduplication::{normalization,
+similarity}` owns the suite's NFKD-then-ASCII title/author folding and its
+0.6·Jaro-Winkler + 0.4·Levenshtein blend, and `filename` owns imbib's own
+`Author_Year_Title.pdf` scheme (imbib ADR-004). `impress_core`, where the kernel
+lives, depends on none of those and must not: it is the suite-wide store crate.
+The one change to the machinery being reused was to widen
+`similarity::title_similarity` from private to `pub(crate)` — the thresholded
+`titles_match` bool is the wrong granularity for a scorer, and writing a second
+blend would have been a second answer to "how alike are two titles".
+
+**Four signals, in credibility order, with the boundary as the point.**
+
+| Signal | Confidence | Why it ranks there |
+|---|---|---|
+| `Bdsk-File-*` / `file` / `local-file` naming the PDF | 1.00 exact path, 0.97 basename-only | The entry names the file. This is BibDesk's data, written by the user's own tool. |
+| filename stem = cite key | 0.95 exact, 0.93 normalised | A cite key is unique within a `.bib` by construction. |
+| filename = imbib's own `Author_Year_Title` | 0.92 | imbib named it, or a user followed imbib's documented scheme. |
+| title/author/year similarity | ≤ 0.88 | A guess, however good. |
+
+`AUTO_ATTACH_CONFIDENCE` is **0.90**, and it sits deliberately *between* house
+naming and the fuzzy ceiling. That is the design, not a tuned number: the three
+signals above the line are cases where somebody **stated** the association, the
+one below it is a case where we **inferred** it, and assertion gets acted on
+while inference gets offered. A consequence worth naming — **no re-tuning of the
+fuzzy weights can ever turn a guess into a silent write to a user's library**,
+because the ceiling is a hard clamp below the threshold. `OFFER_CONFIDENCE`
+(0.55) is the floor below which a candidate is not shown at all: offering a 0.2
+match trains a user to dismiss the offer surface, which costs more than the
+occasional missed match.
+
+Two rules make uniqueness work. `AMBIGUITY_MARGIN` (0.08): a leader must be
+clear of its runner-up or nothing is automatic. And a **declaration outranks
+every inference categorically** — 1.00 vs 0.95 is inside the margin, so without
+this rule an entry's explicit `Bdsk-File-1` would lose an argument to another
+entry that merely happened to share the file's name. Two entries that BOTH
+declare the same file are genuinely ambiguous and fall through to the margin,
+which they fail, so they are offered.
+
+**The golden corpus is 23 cases** (`test_fixtures/golden/pdf_match_golden.json`,
+`tests/pdf_match_golden.rs`), size-pinned, every case carrying a `why` the test
+itself asserts is present — a golden number with no argument beside it is a
+number that gets changed to make a test pass. Writing it found three real
+defects before any Swift existed:
+
+- **`Noether 1918.pdf` did not match cite key `Noether1918`.** The name
+  comparison collapsed separators to spaces, which is right for
+  `Author_Year_Title` and wrong for a cite key, which is ONE token. Cite keys
+  now compare in a squashed form.
+- **The fuzzy blend could not serve both of its jobs.** The original
+  `0.6·title + 0.25·surname + 0.15·year`, scaled by the ceiling, put
+  `Einstein 1905.pdf` at 0.48 — below the offer floor — so the classic
+  two-papers-one-author case produced *no offer at all*, which is worse than a
+  wrong one. Reweighted to `0.55·title + 0.30·surname + 0.15·year` summing to
+  exactly 1.0 and clamped by the ceiling: a file named for the title alone and a
+  file named `Author Year.pdf` both now clear the floor, which are the two
+  shapes real filenames take.
+- **The same-author-same-year case was testing the wrong rule.** A fuzzy leader
+  can never auto-attach anyway, so that case exercises the *ceiling*, not the
+  *margin*. The margin needed a case where the leader is above 0.90:
+  `adversarial/house-naming-collides-on-two-entries` — a two-part paper whose
+  halves generate an identical `Author_Year_Title` name, both at 0.92. Only the
+  margin stops that from attaching to whichever sorted first.
+
+The corpus's adversarial half also pins: a PDF matching nothing (unmatched, not
+forced), `ell` not matching `Russell` (word-boundary containment, not
+substring), a declared `per.pdf` not being satisfied by `paper.pdf` (path
+components, not `ends_with` — the worst failure this module could have is a
+wrong file at confidence 1.0), NFD-on-disk vs NFC-in-the-`.bib`, LaTeX escapes
+(`K\"orper` vs `Körper`), spaces-vs-underscores in both the cite-key and
+house-naming shapes, an entry with no title being unguessable, and two entries
+claiming one file.
+
+**Discovery scope: a declared attachment TYPE, a derived role, and no schema
+change.** The ADR left this as a choice between a `watched-file` row per PDF
+with a role marker and a coordinator-internal second filter. The answer is
+neither exactly:
+
+- The publication kind's `FileDiscoveryCapability` grew
+  **`attachmentTypes: [FileTypeSpec]`** — a second list beside `types`, not two
+  more rows in it. `types` is pinned against
+  `impress_core::bibliography_format`, whose own test freezes it to the
+  BibTeX/RIS pair, and **a PDF is not a bibliography interchange format**;
+  adding a row saying it is would make the authority table lie in order to move
+  a file through a filter. The two lists also answer different questions and
+  callers depend on the difference: `fileExtensions` means "becomes a record of
+  this kind" and is what `descriptor(forFileExtension:)` reads, which must keep
+  returning `nil` for `.pdf` (dropping a PDF on imbib is not "import a
+  publication"). `discoveryExtensions`, the union, is what the watcher's filter
+  is built from — so it really is **one folder, one registration, one gather**.
+- PDFs therefore **do** get full `watched-file` rows (`kind_scope: publication`),
+  which is where their hash tracking, their re-scan diffing and their missing
+  sweep come from for free. W0 built that bookkeeping unit-agnostically and this
+  is the payoff.
+- **The role marker is DERIVED, not stored.** `FileDiscoveryCapability
+  .ingestUnit(forFileName:)` answers "`.bib` → entries, `.pdf` → attachment"
+  from the declaration. A `role` column on `watched-file@1.0.0` was rejected for
+  the reason the schema's own test already encodes: `folder_does_not_restate_the
+  _capability` refuses to let a watched-folder row carry the extensions or the
+  ingest unit, on the grounds that the capability is the authority and a column
+  would be a second one — and a per-file role is that same restatement one row
+  down. Deriving also means **no migration and no backfill**: every row W2 wrote
+  reads correctly under W5.
+- The PDF's UTI is `UTType.pdf.identifier`, read from `UniformTypeIdentifiers`
+  rather than spelled. D1's "reference the authority, do not restate it" applies
+  to Apple's tables exactly as it applies to ours, and unlike
+  `com.impress.bibtex-entry` it needs no `project.yml` claim of ours.
+
+**Attachment mechanics, and the round-trip defect this surfaced.** A matched PDF
+attaches through `AttachmentManager.linkExistingPDF` — reference-in-place, the
+absolute path on an ordinary `imbib/linked-file` row, no copy into imbib's
+`Papers/` directory. That verb had existed since imbib ADR-004 with **no caller
+anywhere**; W5 is what it was for. Two things had to change for it to work:
+
+- **`resolveURL` could not resolve what it linked.** Every other linked file in
+  imbib lives inside the library container, so `relativePath` is relative to
+  that container; appending an absolute path to it yields `<container>//Users/…`,
+  which exists nowhere. The ladder would have missed every candidate and handed
+  back a URL that cannot open — indistinguishable from "the PDF is missing".
+  An absolute path is now resolved as itself, in both `resolveURL` and
+  `linkExistingPDF`.
+- **`ImbibStore::export_bibtex` never emitted `Bdsk-File-*` from an
+  attachment.** The only code in the suite that did was `UnifiedExportView`,
+  splicing text into an exported string, opt-in, in one SwiftUI view — so
+  attaching a PDF and then reading the entry's BibTeX anywhere else (the detail
+  tab, the CLI, the MCP tool, an agent) produced a `.bib` that silently did not
+  mention the file. W5's gate is *export-after-attach*, and it cannot be met by
+  a code path one window can reach. `export_bibtex` and `export_all_bibtex` now
+  join the publication's `imbib/linked-file` children and encode each path with
+  `bdsk_file_encode`. One deliberate asymmetry: an entry that arrived carrying
+  `Bdsk-File-1` keeps it **verbatim**, and only attachments it does not already
+  declare are added — re-encoding a field we did not write would replace the
+  user's BibDesk alias data (which carries a bookmark and a container path) with
+  our smaller `relativePath`-only plist.
+
+**A silent defect the phase found: the strongest signal was unreachable.** The
+matcher's top-ranked signal is the entry's own `Bdsk-File-*`, and it worked in
+every unit test and would have done nothing in the app. `bibtex_entry_to
+_publication`'s catch-all puts unrecognised fields into `extra_fields`, which
+persists as a **nested payload object**, and `item_to_publication_detail`
+flattens only *top-level* `Value::String`/`Value::Int` entries into `fields` —
+so a publication imported from a BibDesk `.bib` carries its `Bdsk-File-1`
+faithfully in the store and shows none of it to any Swift caller. Every test
+that builds a matcher input by hand passes regardless, which is exactly the
+shape of bug this campaign has hit before (the schema-ref class: a reader that
+returns nothing, silently, looking like "there is no data"). The fix is narrow —
+`AttachmentEntry(publication:)` recovers the file fields from `raw_bibtex`,
+which IS a top-level string, when the flat bag has none — and the guard is a
+test that goes through the **real importer** rather than constructing an entry
+(`testABibDeskFileFieldAttachesItsPDFThroughTheRealImporter`). Re-flattening
+`extra_fields` into `PublicationDetail.fields` would be the deeper fix and is
+not W5's to make: half the app reads that bag.
+
+**The offer surface, and its honest limit.** Ambiguous and unmatched PDFs become
+`WatchedAttachmentOffer` values the coordinator publishes per folder; the macOS
+watched-folder row's context menu gains **"Review N PDF Matches…"**, which is
+**omitted entirely when there is nothing to review** — the same "omit a dead
+affordance, never show one" rule that row's Refresh and Choose Again… already
+follow. The sheet lists each file with its candidates, each candidate's
+confidence and the sentence explaining it, and Reveal in Finder; confirming
+runs the same `linkExistingPDF` the automatic path runs, so there is no second
+kind of attachment. **iOS gets no surface in v1**, and this is the honest note
+rather than an oversight: imbib-iOS's watched-folder rows have no row menu at
+all (W2's decision, recorded in the capability matrix), so the review verb has
+nowhere to hang, and inventing an iOS-only presentation for it would be a
+surface with no sibling. The matching itself is platform-neutral and runs on
+both; only the review affordance is macOS-only.
+
+**Provenance and missing.** An attached PDF that vanishes keeps its
+`watched-file` row (W0's sweep marks it `missing`) **and keeps its
+attachment**. Detaching would erase a fact the user established because a disk
+was unplugged; the row says the file is gone, which is honest and is what
+`PublicationPDFAvailability.fileMissing` already renders. A missing PDF is also
+not re-offered — it is missing, not unclaimed.
+
+**Idempotency is checked against the store, not against memory.** The attach
+step skips any PDF the publication already links, read back through
+`listLinkedFiles`. That holds on a re-scan even if the coordinator's "did
+anything move?" reasoning is wrong, which is the only kind of guarantee worth
+having when the failure mode is a duplicate row in a user's library. The
+zero-write property W2 proved for the importer covers this for free in the
+common case — an unchanged folder produces no discovery event, so the pass does
+not even run.
+
+W5's recorded debt:
+
+- **The strongest signal is not used.** A DOI or arXiv id extracted from page 1
+  of the PDF would outrank every filename heuristic here, and
+  `im_identifiers::extract_all` plus `imbib_core::pdf` already supply both
+  halves. It is deferred because it costs a full text extraction per candidate
+  *at scan time*, which is D7's burst hazard spent on a subtitle. The right
+  shape when it is built is on-demand per offer ("Identify this PDF"), not on
+  gather.
+- **`bdsk_file_encode` writes a `relativePath`-only plist.** Real BibDesk writes
+  an `NSURL`-archived dict with `relativePath`, `containerPath` and bookmark
+  data. imbib READS BibDesk's files correctly (it picks `relativePath` out and
+  ignores the rest); what imbib WRITES is lossy by comparison. Pre-existing, not
+  W5's, but W5 made it reachable from a new path and it should be recorded.
+- **Two Swift `Bdsk-File` codecs.** `RustBdskFileCodec` (over the FFI) has no
+  production callers; `BdskFileCodec` (a hand-written `PropertyListSerialization`
+  implementation in `BibTeXExporter.swift`) is the one everything uses. A live
+  Rust-first violation, found while mapping the model. W5 did not consolidate
+  them because the export path it changed is the Rust one, and swapping the
+  Swift codec is a separate change with its own blast radius.
+- **`linkExistingPDF` writes `fileSize: 0`**, which defeats
+  `checkForDuplicate`'s size pre-filter. Pre-existing on a verb that had no
+  callers; now it has one.
 
 ### D6 follow-up: watched folders on iOS (spike, recorded — not built)
 

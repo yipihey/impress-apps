@@ -66,8 +66,8 @@ public extension FileDiscoveryFilter {
         guard let capability = descriptor.fileDiscovery else { return nil }
         self.init(
             id: descriptor.id.rawValue,
-            contentTypeIdentifiers: capability.utiIdentifiers,
-            filenameExtensions: capability.fileExtensions)
+            contentTypeIdentifiers: capability.discoveryUTIIdentifiers,
+            filenameExtensions: capability.discoveryExtensions)
     }
 
     /// The filter for one kind scope, resolved through the same authority the
@@ -83,8 +83,8 @@ public extension FileDiscoveryFilter {
         }
         return FileDiscoveryFilter(
             id: kindScope,
-            contentTypeIdentifiers: capability.utiIdentifiers,
-            filenameExtensions: capability.fileExtensions)
+            contentTypeIdentifiers: capability.discoveryUTIIdentifiers,
+            filenameExtensions: capability.discoveryExtensions)
     }
 
     /// Every watchable kind's filter, in declaration order.

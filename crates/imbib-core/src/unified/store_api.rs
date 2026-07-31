@@ -1527,7 +1527,8 @@ impl ImbibStore {
             let uuid = parse_uuid(id_str)?;
             if let Some(item) = self.store.get(uuid)? {
                 let publication = conversion::item_to_publication(&item);
-                let entry = crate::domain::publication_to_bibtex(&publication);
+                let mut entry = crate::domain::publication_to_bibtex(&publication);
+                self.with_attachment_fields(&item, &mut entry)?;
                 entries.push(entry);
             }
         }
@@ -1542,13 +1543,13 @@ impl ImbibStore {
             ..Default::default()
         };
         let items = self.store.query(&q)?;
-        let entries: Vec<_> = items
-            .iter()
-            .map(|item| {
-                let publication = conversion::item_to_publication(item);
-                crate::domain::publication_to_bibtex(&publication)
-            })
-            .collect();
+        let mut entries = Vec::with_capacity(items.len());
+        for item in &items {
+            let publication = conversion::item_to_publication(item);
+            let mut entry = crate::domain::publication_to_bibtex(&publication);
+            self.with_attachment_fields(item, &mut entry)?;
+            entries.push(entry);
+        }
         Ok(crate::bibtex::format_entries(entries))
     }
 
@@ -4454,6 +4455,74 @@ impl ImbibStore {
 
 // Internal helpers (not exposed via UniFFI)
 impl ImbibStore {
+    /// Give one entry the `Bdsk-File-*` fields its attachments imply
+    /// (ADR-0023 W5).
+    ///
+    /// ## Why this lives here and not in the exporter
+    ///
+    /// `publication_to_bibtex` works from a `Publication`, and
+    /// `item_to_publication` sets `linked_files: vec![]` on purpose — an
+    /// attachment is a CHILD ITEM (`imbib/linked-file`, parented to the
+    /// publication), not a payload field, so only a function holding the store
+    /// can see one. This is that function.
+    ///
+    /// ## Why it had to exist
+    ///
+    /// Before ADR-0023 W5, `export_bibtex` never emitted a `Bdsk-File-*` field
+    /// from an attachment. The only place in the suite that did was
+    /// `UnifiedExportView`, by splicing text into the exported string, opt-in,
+    /// in the Swift UI layer — so attaching a PDF and then copying the entry's
+    /// BibTeX (the detail tab, the CLI, the MCP tool, an agent) produced a
+    /// `.bib` that silently did not mention the file. W5's gate is
+    /// "export-after-attach", and it cannot be met by a code path only one
+    /// window can reach.
+    ///
+    /// ## The one deliberate asymmetry
+    ///
+    /// An entry that came IN carrying `Bdsk-File-1` keeps it verbatim: it
+    /// survives as an `extra_fields` value and is re-emitted by
+    /// `publication_to_bibtex`. So this only ADDS fields for attachments the
+    /// entry does not already declare, matched by the path BibDesk would have
+    /// written. Re-encoding a field we did not write would replace the user's
+    /// BibDesk alias data (which carries a bookmark and a container path) with
+    /// our smaller `relativePath`-only plist — a lossy rewrite of a field
+    /// nobody asked us to touch.
+    fn with_attachment_fields(
+        &self,
+        item: &impress_core::item::Item,
+        entry: &mut crate::bibtex::BibTeXEntry,
+    ) -> Result<(), StoreApiError> {
+        let linked = self.list_linked_files(item.id.to_string())?;
+        if linked.is_empty() {
+            return Ok(());
+        }
+
+        let already: Vec<String> =
+            crate::bibtex::bdsk_file::bdsk_file_extract_all_internal(entry.fields_map());
+        let mut next_index = entry
+            .fields
+            .iter()
+            .filter(|f| f.key.to_lowercase().starts_with("bdsk-file-"))
+            .count()
+            + 1;
+
+        for file in linked {
+            let Some(path) = file.relative_path.filter(|p| !p.is_empty()) else {
+                // A linked file with no path is a row we cannot name in a
+                // `.bib`; skipping is the honest answer, inventing one is not.
+                continue;
+            };
+            if already.iter().any(|declared| declared == &path) {
+                continue;
+            }
+            if let Some(encoded) = crate::bibtex::bdsk_file::bdsk_file_encode_internal(path) {
+                entry.add_field(format!("Bdsk-File-{next_index}"), encoded);
+                next_index += 1;
+            }
+        }
+        Ok(())
+    }
+
     /// Count revision snapshots of a manuscript.
     fn count_revisions(&self, manuscript_id: Uuid) -> Result<i32, StoreApiError> {
         let q = ItemQuery {
@@ -5719,6 +5788,86 @@ mod tests {
         store.set_library_default(lib2.id.clone()).unwrap();
         let old = store.get_library(lib.id.clone()).unwrap().unwrap();
         assert!(!old.is_default);
+    }
+
+    /// ADR-0023 W5's gate: **export after attach**.
+    ///
+    /// A PDF attached to a publication must come back out of `export_bibtex`
+    /// as a `Bdsk-File-*` field BibDesk can read. Before W5 it did not — the
+    /// only code in the suite that emitted one was a SwiftUI view splicing
+    /// text into the exported string, so every other reader of the entry (the
+    /// BibTeX detail tab, the CLI, the MCP tool, an agent) saw a `.bib` that
+    /// did not mention the file.
+    #[test]
+    fn attaching_a_file_survives_a_bibtex_export_round_trip() {
+        let store = make_store();
+        let lib = store.create_library("Round trip".into()).unwrap();
+        let ids = store
+            .import_bibtex(
+                "@article{smith2024, title={A Study}, author={Smith, John}, year={2024}}".into(),
+                lib.id.clone(),
+            )
+            .unwrap();
+
+        let before = store.export_bibtex(vec![ids[0].clone()]).unwrap();
+        assert!(
+            !before.to_lowercase().contains("bdsk-file"),
+            "an entry with no attachment must not claim one:\n{before}"
+        );
+
+        store
+            .add_linked_file(
+                ids[0].clone(),
+                "paper.pdf".into(),
+                Some("Papers/Smith_2024_A_Study.pdf".into()),
+                Some("pdf".into()),
+                2048,
+                None,
+                true,
+            )
+            .unwrap();
+
+        let exported = store.export_bibtex(vec![ids[0].clone()]).unwrap();
+        let parsed = crate::bibtex::parse(exported.clone()).expect("re-parse the export");
+        let entry = parsed
+            .entries
+            .iter()
+            .find(|e| e.cite_key == "smith2024")
+            .unwrap_or_else(|| panic!("cite key vanished from the export:\n{exported}"));
+
+        let declared = crate::bibtex::bdsk_file::bdsk_file_extract_all_internal(entry.fields_map());
+        assert_eq!(
+            declared,
+            vec!["Papers/Smith_2024_A_Study.pdf".to_string()],
+            "export → parse → decode must return the path that was attached:\n{exported}"
+        );
+
+        // Idempotent: exporting twice does not accumulate Bdsk-File-2, -3, …
+        let again = store.export_bibtex(vec![ids[0].clone()]).unwrap();
+        assert_eq!(again, exported);
+
+        // And a second attachment gets the NEXT index rather than overwriting.
+        store
+            .add_linked_file(
+                ids[0].clone(),
+                "supplement.pdf".into(),
+                Some("Papers/supplement.pdf".into()),
+                Some("pdf".into()),
+                512,
+                None,
+                true,
+            )
+            .unwrap();
+        let two = store.export_bibtex(vec![ids[0].clone()]).unwrap();
+        let parsed_two = crate::bibtex::parse(two.clone()).expect("re-parse");
+        let declared_two = crate::bibtex::bdsk_file::bdsk_file_extract_all_internal(
+            parsed_two.entries[0].fields_map(),
+        );
+        assert_eq!(
+            declared_two.len(),
+            2,
+            "both attachments must serialize:\n{two}"
+        );
     }
 
     #[test]

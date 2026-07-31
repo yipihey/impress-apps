@@ -13,6 +13,8 @@
 //  the legacy DetailTab.ItemKind behavior before the enum is deleted.
 //
 
+import UniformTypeIdentifiers
+
 public enum PublicationRecordKind {
     public static let descriptor = RecordKindDescriptor(
         id: .publication,
@@ -113,8 +115,32 @@ public enum PublicationRecordKind {
                     utiIdentifier: "com.impress.bibtex-entry"),
                 FileTypeSpec(id: "ris", fileExtensions: ["ris"], utiIdentifier: nil),
             ],
-            ingestUnit: .entries)
+            ingestUnit: .entries,
+            // ADR-0023 W5. A PDF beside a watched `.bib` is not a publication
+            // and never becomes one — it ATTACHES to an entry that already
+            // exists, which is BibDesk's `Bdsk-File` model and the reason this
+            // is a separate list from `types` (see `attachmentTypes`).
+            //
+            // The UTI is the SYSTEM's. `com.adobe.pdf` is `UTType.pdf`, which
+            // every Mac has declared since before imbib existed, so unlike
+            // `com.impress.bibtex-entry` it needs no `project.yml` claim of
+            // ours — and it must not get one. Pinned to
+            // `UTType.pdf.identifier` by `FileDiscoveryCapabilityParityTests`
+            // rather than trusted as a literal, because "the authority is
+            // referenced, not restated" (ADR-0023 D1) applies to Apple's
+            // tables exactly as it applies to ours.
+            attachmentTypes: [
+                FileTypeSpec(
+                    id: "pdf",
+                    fileExtensions: ["pdf"],
+                    utiIdentifier: PublicationRecordKind.pdfUTIIdentifier)
+            ])
     )
+
+    /// The system UTI for PDF, read from `UniformTypeIdentifiers` rather than
+    /// spelled — the same discipline the manuscript kind follows for the Rust
+    /// format table.
+    static let pdfUTIIdentifier: String = UTType.pdf.identifier
 }
 
 public enum ManuscriptRecordKind {

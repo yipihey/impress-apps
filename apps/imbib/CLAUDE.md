@@ -352,6 +352,48 @@ to get wrong later:
   in-memory opens are two databases; provenance is a cross-handle claim and the
   kernel correctly refuses to attribute rows it cannot see.
 
+**W5 added a THIRD ingest unit, `.attachment`** (PDFs beside a watched `.bib`).
+Four things about it are easy to get wrong later:
+
+- **A PDF is discovered by the SAME folder, but it is NOT in `fileExtensions`.**
+  The publication kind declares `FileDiscoveryCapability.attachmentTypes`
+  separately from `types`, and the watcher's filter is built from
+  `discoveryExtensions` (the union). `types` stays pinned to
+  `impress_core::bibliography_format`, which is frozen to the BibTeX/RIS pair —
+  a PDF is not a bibliography interchange format. `RecordKindRegistry
+  .descriptor(forFileExtension: "pdf")` must keep returning `nil`: dropping a
+  PDF on imbib is not "import a publication".
+- **The role marker is DERIVED**
+  (`FileDiscoveryCapability.ingestUnit(forFileName:)`), not a column on
+  `watched-file@1.0.0`. The schema's own test already forbids a row restating
+  the capability; a per-file `role` is that restatement one row down. Deriving
+  also means no migration — every row W2 wrote reads correctly under W5.
+- **A watched PDF attaches REFERENCE-IN-PLACE**, through
+  `AttachmentManager.linkExistingPDF` and never `importAttachment` (which
+  copies). Its `relativePath` is therefore an ABSOLUTE path, and both
+  `resolveURL` and `linkExistingPDF` have a branch for that — every other
+  linked file in imbib is relative to the library container, and appending an
+  absolute path to a container yields a path that exists nowhere.
+- **`ImbibStore::export_bibtex` now emits `Bdsk-File-*` from linked-file rows.**
+  It did not before: the only code in the suite that did was `UnifiedExportView`
+  splicing text into an exported string. An entry that arrived carrying its own
+  `Bdsk-File-1` keeps it verbatim — re-encoding would replace BibDesk's alias
+  data with our smaller `relativePath`-only plist.
+
+- **`Bdsk-File-*` does NOT reach `PublicationModel.fields`.** It lands in the
+  payload's nested `extra_fields` object, and `item_to_publication_detail`
+  flattens only top-level payload strings. `AttachmentEntry(publication:)`
+  recovers it from `rawBibTeX`. Any future reader of a BibDesk-only field has
+  the same problem and will pass every hand-built unit test while doing nothing
+  in the app.
+
+**Never auto-attach an ambiguous match.** The thresholds live in
+`imbib_core::attachments` and are read over the FFI
+(`ImbibRustCore.attachmentThresholds()`), never restated in Swift. The
+structural rule: `CONFIDENCE_FUZZY_CEILING` (0.88) is below
+`AUTO_ATTACH_CONFIDENCE` (0.90), so a fuzzy match can never auto-attach no
+matter how the weights are tuned.
+
 **W4 made the coordinator per-KIND** (`WatchedFolderIngestCoordinator
 .coordinator(forKindScope:)`, a registry; `.shared` is still imbib's
 publication one and every W2 call site is unchanged). Three things that are

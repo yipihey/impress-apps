@@ -36,7 +36,9 @@
 //  binary regenerates is a parity test people learn to skip.
 //
 
+import UniformTypeIdentifiers
 import XCTest
+
 @testable import PublicationManagerCore
 
 final class FileDiscoveryCapabilityParityTests: XCTestCase {
@@ -291,7 +293,95 @@ final class FileDiscoveryCapabilityParityTests: XCTestCase {
         XCTAssertFalse(publications.matches(fileName: "refs"), "no extension is not a match")
         XCTAssertFalse(publications.matches(fileName: "refs."), "an empty extension is not a match")
         XCTAssertFalse(publications.matches(fileName: "bib"), "the NAME 'bib' is not a .bib file")
-        XCTAssertFalse(publications.matches(fileExtension: "pdf"), "phase 2, not phase 1")
+        XCTAssertFalse(
+            publications.matches(fileExtension: "pdf"),
+            "a PDF ATTACHES to a publication (ADR-0023 W5); it never becomes one")
+    }
+
+    // MARK: - ADR-0023 W5: the attachment half
+
+    /// The attachment types are a SECOND list, and the ingest list is untouched
+    /// by them. This is the assertion that keeps W5 from having widened what a
+    /// `.bib` folder ingests.
+    func testAttachmentTypesDoNotEnterTheIngestList() throws {
+        let capability = try XCTUnwrap(PublicationRecordKind.descriptor.fileDiscovery)
+        XCTAssertEqual(
+            capability.fileExtensions, ["bib", "bibtex", "ris"],
+            """
+            `fileExtensions` is the INGEST half and is pinned to \
+            impress_core::bibliography_format, whose own test freezes it to the \
+            BibTeX/RIS pair. A PDF is not a bibliography interchange format, and \
+            adding one here would make that authority table lie in order to move a \
+            file through a filter.
+            """)
+        XCTAssertEqual(capability.attachmentExtensions, ["pdf"])
+        XCTAssertEqual(capability.attachmentTypes.map(\.id), ["pdf"])
+        XCTAssertEqual(capability.discoveryExtensions, ["bib", "bibtex", "ris", "pdf"])
+    }
+
+    /// The PDF UTI is Apple's, read from `UniformTypeIdentifiers` — never
+    /// spelled. ADR-0023 D1's "reference the authority, do not restate it"
+    /// applies to the system's tables exactly as it applies to ours.
+    func testThePDFUTIIsTheSystemsAndIsReadNotSpelled() throws {
+        let capability = try XCTUnwrap(PublicationRecordKind.descriptor.fileDiscovery)
+        XCTAssertEqual(capability.attachmentUTIIdentifiers, [UTType.pdf.identifier])
+        XCTAssertEqual(
+            capability.utiIdentifiers, ["com.impress.bibtex-entry"],
+            "the INGEST UTI list must not have gained the PDF type")
+        XCTAssertEqual(
+            capability.discoveryUTIIdentifiers,
+            ["com.impress.bibtex-entry", UTType.pdf.identifier],
+            "a discovery query names both halves — that is how one gather finds both")
+        XCTAssertEqual(
+            UTType.pdf.preferredFilenameExtension, "pdf",
+            "the extension is the system's too; if this ever changed the declaration would be wrong")
+    }
+
+    /// **The role marker, and the reason there is no `role` column.** W5's
+    /// choice was between storing a role on `watched-file@1.0.0` and deriving
+    /// it. The schema's own test (`folder_does_not_restate_the_capability`)
+    /// already refuses to let a watched-folder row restate the extensions or
+    /// the ingest unit; a per-file role is that same restatement one row down.
+    func testTheIngestUnitOfADiscoveredFileIsDerivedFromTheDeclaration() throws {
+        let capability = try XCTUnwrap(PublicationRecordKind.descriptor.fileDiscovery)
+        XCTAssertEqual(capability.ingestUnit(forExtension: "bib"), .entries)
+        XCTAssertEqual(capability.ingestUnit(forExtension: "RIS"), .entries)
+        XCTAssertEqual(capability.ingestUnit(forExtension: "pdf"), .attachment)
+        XCTAssertEqual(capability.ingestUnit(forExtension: "PDF"), .attachment)
+        XCTAssertNil(capability.ingestUnit(forExtension: "typ"), "not a type this kind watches")
+
+        XCTAssertEqual(capability.ingestUnit(forFileName: "/w/refs.bib"), .entries)
+        XCTAssertEqual(
+            capability.ingestUnit(forFileName: "/w/Papers/Einstein_1905_Zur.pdf"), .attachment)
+        XCTAssertNil(capability.ingestUnit(forFileName: "README"), "no extension is no answer")
+        XCTAssertNil(capability.ingestUnit(forFileName: "trailing."), "an empty extension is none")
+    }
+
+    /// Only publications have an attachment unit, and the others' emptiness is
+    /// a decision rather than a gap: a manuscript folder has no attachment
+    /// concept, and a `.vsz`'s data files are implore's `dataset_source`.
+    func testOnlyPublicationsDeclareAttachmentTypes() {
+        for descriptor in BuiltinRecordKinds.fileDiscoverable where descriptor.id != .publication {
+            XCTAssertTrue(
+                descriptor.fileDiscovery?.attachmentTypes.isEmpty ?? true,
+                "\(descriptor.id.rawValue) grew an attachment unit with no ADR row")
+            XCTAssertEqual(
+                descriptor.fileDiscovery?.discoveryExtensions,
+                descriptor.fileDiscovery?.fileExtensions,
+                "with no attachments, what a folder LOOKS for is what it ingests")
+        }
+    }
+
+    /// The filter a watched folder actually runs on is built from the UNION.
+    /// This is the whole mechanism behind "the PDFs come from the SAME watched
+    /// folder's discovery" — one folder, one registration, one gather.
+    func testTheWatchedFolderFilterLooksForBothHalves() throws {
+        let filter = try XCTUnwrap(FileDiscoveryFilter.forKindScope("publication"))
+        XCTAssertEqual(filter.filenameExtensions, ["bib", "bibtex", "ris", "pdf"])
+        XCTAssertTrue(filter.contentTypeIdentifiers.contains(UTType.pdf.identifier))
+        XCTAssertEqual(
+            filter, FileDiscoveryFilter.publications,
+            "the two construction paths must agree; they are the same declaration")
     }
 
     /// `requiresFilenameFallback` is derived from the specs, never declared.

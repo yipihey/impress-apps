@@ -5009,6 +5009,399 @@ public func FfiConverterTypeAssignmentRow_lower(_ value: AssignmentRow) -> RustB
 
 
 /**
+ * One bibliography entry a PDF might belong to.
+ *
+ * `fields` is the entry's fields verbatim (keys as written), because the
+ * matcher reads several of them — `title`, `author`, `year`, every
+ * `Bdsk-File-*`, and the plain `file`/`local-file` forms other tools write —
+ * and a caller pre-extracting them would be a caller deciding which signals
+ * exist.
+ */
+public struct AttachmentEntry {
+    /**
+     * The caller's handle for this entry, echoed back in every verdict. imbib
+     * passes the publication's UUID string; a `.bib`-only caller can pass the
+     * cite key.
+     */
+    public var id: String
+    public var citeKey: String
+    public var fields: [BibTeXField]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The caller's handle for this entry, echoed back in every verdict. imbib
+         * passes the publication's UUID string; a `.bib`-only caller can pass the
+         * cite key.
+         */id: String, citeKey: String, fields: [BibTeXField]) {
+        self.id = id
+        self.citeKey = citeKey
+        self.fields = fields
+    }
+}
+
+
+
+extension AttachmentEntry: Equatable, Hashable {
+    public static func ==(lhs: AttachmentEntry, rhs: AttachmentEntry) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.citeKey != rhs.citeKey {
+            return false
+        }
+        if lhs.fields != rhs.fields {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(citeKey)
+        hasher.combine(fields)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentEntry {
+        return
+            try AttachmentEntry(
+                id: FfiConverterString.read(from: &buf), 
+                citeKey: FfiConverterString.read(from: &buf), 
+                fields: FfiConverterSequenceTypeBibTeXField.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AttachmentEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.citeKey, into: &buf)
+        FfiConverterSequenceTypeBibTeXField.write(value.fields, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentEntry_lift(_ buf: RustBuffer) throws -> AttachmentEntry {
+    return try FfiConverterTypeAttachmentEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentEntry_lower(_ value: AttachmentEntry) -> RustBuffer {
+    return FfiConverterTypeAttachmentEntry.lower(value)
+}
+
+
+/**
+ * One (PDF, entry) pairing the matcher is prepared to defend.
+ */
+public struct AttachmentMatch {
+    /**
+     * The candidate path, exactly as it was handed in.
+     */
+    public var pdfPath: String
+    /**
+     * [`AttachmentEntry::id`] of the entry it belongs to.
+     */
+    public var entryId: String
+    public var citeKey: String
+    public var confidence: Double
+    public var signal: AttachmentSignal
+    public var verdict: AttachmentVerdict
+    /**
+     * One line a human can read on the offer row.
+     */
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The candidate path, exactly as it was handed in.
+         */pdfPath: String, 
+        /**
+         * [`AttachmentEntry::id`] of the entry it belongs to.
+         */entryId: String, citeKey: String, confidence: Double, signal: AttachmentSignal, verdict: AttachmentVerdict, 
+        /**
+         * One line a human can read on the offer row.
+         */reason: String) {
+        self.pdfPath = pdfPath
+        self.entryId = entryId
+        self.citeKey = citeKey
+        self.confidence = confidence
+        self.signal = signal
+        self.verdict = verdict
+        self.reason = reason
+    }
+}
+
+
+
+extension AttachmentMatch: Equatable, Hashable {
+    public static func ==(lhs: AttachmentMatch, rhs: AttachmentMatch) -> Bool {
+        if lhs.pdfPath != rhs.pdfPath {
+            return false
+        }
+        if lhs.entryId != rhs.entryId {
+            return false
+        }
+        if lhs.citeKey != rhs.citeKey {
+            return false
+        }
+        if lhs.confidence != rhs.confidence {
+            return false
+        }
+        if lhs.signal != rhs.signal {
+            return false
+        }
+        if lhs.verdict != rhs.verdict {
+            return false
+        }
+        if lhs.reason != rhs.reason {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(pdfPath)
+        hasher.combine(entryId)
+        hasher.combine(citeKey)
+        hasher.combine(confidence)
+        hasher.combine(signal)
+        hasher.combine(verdict)
+        hasher.combine(reason)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentMatch: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentMatch {
+        return
+            try AttachmentMatch(
+                pdfPath: FfiConverterString.read(from: &buf), 
+                entryId: FfiConverterString.read(from: &buf), 
+                citeKey: FfiConverterString.read(from: &buf), 
+                confidence: FfiConverterDouble.read(from: &buf), 
+                signal: FfiConverterTypeAttachmentSignal.read(from: &buf), 
+                verdict: FfiConverterTypeAttachmentVerdict.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AttachmentMatch, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.pdfPath, into: &buf)
+        FfiConverterString.write(value.entryId, into: &buf)
+        FfiConverterString.write(value.citeKey, into: &buf)
+        FfiConverterDouble.write(value.confidence, into: &buf)
+        FfiConverterTypeAttachmentSignal.write(value.signal, into: &buf)
+        FfiConverterTypeAttachmentVerdict.write(value.verdict, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentMatch_lift(_ buf: RustBuffer) throws -> AttachmentMatch {
+    return try FfiConverterTypeAttachmentMatch.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentMatch_lower(_ value: AttachmentMatch) -> RustBuffer {
+    return FfiConverterTypeAttachmentMatch.lower(value)
+}
+
+
+/**
+ * Everything the matcher concluded about one folder's PDFs.
+ */
+public struct AttachmentMatchReport {
+    /**
+     * Every pairing at or above [`OFFER_CONFIDENCE`]. A PDF with an
+     * `Automatic` verdict appears exactly once; an ambiguous one appears once
+     * per candidate, best first.
+     */
+    public var matches: [AttachmentMatch]
+    /**
+     * PDFs no entry claimed at all, in input order. Not a failure — a folder
+     * legitimately contains PDFs that are not in its `.bib`.
+     */
+    public var unmatchedPdfs: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Every pairing at or above [`OFFER_CONFIDENCE`]. A PDF with an
+         * `Automatic` verdict appears exactly once; an ambiguous one appears once
+         * per candidate, best first.
+         */matches: [AttachmentMatch], 
+        /**
+         * PDFs no entry claimed at all, in input order. Not a failure — a folder
+         * legitimately contains PDFs that are not in its `.bib`.
+         */unmatchedPdfs: [String]) {
+        self.matches = matches
+        self.unmatchedPdfs = unmatchedPdfs
+    }
+}
+
+
+
+extension AttachmentMatchReport: Equatable, Hashable {
+    public static func ==(lhs: AttachmentMatchReport, rhs: AttachmentMatchReport) -> Bool {
+        if lhs.matches != rhs.matches {
+            return false
+        }
+        if lhs.unmatchedPdfs != rhs.unmatchedPdfs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(matches)
+        hasher.combine(unmatchedPdfs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentMatchReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentMatchReport {
+        return
+            try AttachmentMatchReport(
+                matches: FfiConverterSequenceTypeAttachmentMatch.read(from: &buf), 
+                unmatchedPdfs: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AttachmentMatchReport, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeAttachmentMatch.write(value.matches, into: &buf)
+        FfiConverterSequenceString.write(value.unmatchedPdfs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentMatchReport_lift(_ buf: RustBuffer) throws -> AttachmentMatchReport {
+    return try FfiConverterTypeAttachmentMatchReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentMatchReport_lower(_ value: AttachmentMatchReport) -> RustBuffer {
+    return FfiConverterTypeAttachmentMatchReport.lower(value)
+}
+
+
+/**
+ * The thresholds, as data, so a UI can explain itself without a second copy
+ * of the numbers.
+ */
+public struct AttachmentThresholds {
+    public var autoAttach: Double
+    public var offer: Double
+    public var ambiguityMargin: Double
+    public var fuzzyCeiling: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(autoAttach: Double, offer: Double, ambiguityMargin: Double, fuzzyCeiling: Double) {
+        self.autoAttach = autoAttach
+        self.offer = offer
+        self.ambiguityMargin = ambiguityMargin
+        self.fuzzyCeiling = fuzzyCeiling
+    }
+}
+
+
+
+extension AttachmentThresholds: Equatable, Hashable {
+    public static func ==(lhs: AttachmentThresholds, rhs: AttachmentThresholds) -> Bool {
+        if lhs.autoAttach != rhs.autoAttach {
+            return false
+        }
+        if lhs.offer != rhs.offer {
+            return false
+        }
+        if lhs.ambiguityMargin != rhs.ambiguityMargin {
+            return false
+        }
+        if lhs.fuzzyCeiling != rhs.fuzzyCeiling {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(autoAttach)
+        hasher.combine(offer)
+        hasher.combine(ambiguityMargin)
+        hasher.combine(fuzzyCeiling)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentThresholds: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentThresholds {
+        return
+            try AttachmentThresholds(
+                autoAttach: FfiConverterDouble.read(from: &buf), 
+                offer: FfiConverterDouble.read(from: &buf), 
+                ambiguityMargin: FfiConverterDouble.read(from: &buf), 
+                fuzzyCeiling: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AttachmentThresholds, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.autoAttach, into: &buf)
+        FfiConverterDouble.write(value.offer, into: &buf)
+        FfiConverterDouble.write(value.ambiguityMargin, into: &buf)
+        FfiConverterDouble.write(value.fuzzyCeiling, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentThresholds_lift(_ buf: RustBuffer) throws -> AttachmentThresholds {
+    return try FfiConverterTypeAttachmentThresholds.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentThresholds_lower(_ value: AttachmentThresholds) -> RustBuffer {
+    return FfiConverterTypeAttachmentThresholds.lower(value)
+}
+
+
+/**
  * Represents an author of a publication
  */
 public struct Author {
@@ -20153,6 +20546,175 @@ extension AnnotationType: Equatable, Hashable {}
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Why the matcher thinks this PDF belongs to this entry.
+ */
+
+public enum AttachmentSignal {
+    
+    /**
+     * The entry's own `Bdsk-File-*` (or `file` / `local-file`) field names the
+     * file. BibDesk's data, honoured first and exactly.
+     */
+    case declaredFileField
+    /**
+     * The filename stem is the entry's cite key.
+     */
+    case citeKey
+    /**
+     * The filename is imbib's own `Author_Year_Title.pdf` convention.
+     */
+    case houseNaming
+    /**
+     * Title / author / year similarity. Never enough to attach on its own.
+     */
+    case fuzzy
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentSignal: FfiConverterRustBuffer {
+    typealias SwiftType = AttachmentSignal
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentSignal {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .declaredFileField
+        
+        case 2: return .citeKey
+        
+        case 3: return .houseNaming
+        
+        case 4: return .fuzzy
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AttachmentSignal, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .declaredFileField:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .citeKey:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .houseNaming:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .fuzzy:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentSignal_lift(_ buf: RustBuffer) throws -> AttachmentSignal {
+    return try FfiConverterTypeAttachmentSignal.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentSignal_lower(_ value: AttachmentSignal) -> RustBuffer {
+    return FfiConverterTypeAttachmentSignal.lower(value)
+}
+
+
+
+extension AttachmentSignal: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What the caller should DO with a match.
+ */
+
+public enum AttachmentVerdict {
+    
+    /**
+     * At or above [`AUTO_ATTACH_CONFIDENCE`] and clear of every rival by more
+     * than [`AMBIGUITY_MARGIN`]. Attach it; that is the feature.
+     */
+    case automatic
+    /**
+     * Plausible, but either below the auto threshold or not unique. **Never
+     * attach one of these without a human saying so** (ADR-0023 W5).
+     */
+    case offer
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentVerdict: FfiConverterRustBuffer {
+    typealias SwiftType = AttachmentVerdict
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentVerdict {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .automatic
+        
+        case 2: return .offer
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AttachmentVerdict, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .automatic:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .offer:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentVerdict_lift(_ buf: RustBuffer) throws -> AttachmentVerdict {
+    return try FfiConverterTypeAttachmentVerdict.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentVerdict_lower(_ value: AttachmentVerdict) -> RustBuffer {
+    return FfiConverterTypeAttachmentVerdict.lower(value)
+}
+
+
+
+extension AttachmentVerdict: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Supported automation commands
  */
 
@@ -24330,6 +24892,56 @@ fileprivate struct FfiConverterSequenceTypeAssignmentRow: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeAttachmentEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [AttachmentEntry]
+
+    public static func write(_ value: [AttachmentEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAttachmentEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AttachmentEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AttachmentEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAttachmentEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAttachmentMatch: FfiConverterRustBuffer {
+    typealias SwiftType = [AttachmentMatch]
+
+    public static func write(_ value: [AttachmentMatch], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAttachmentMatch.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AttachmentMatch] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AttachmentMatch]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAttachmentMatch.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeAuthor: FfiConverterRustBuffer {
     typealias SwiftType = [Author]
 
@@ -26283,6 +26895,12 @@ public func arxivIdFromFields(fields: [String: String]) -> String? {
     )
 })
 }
+public func attachmentThresholds() -> AttachmentThresholds {
+    return try!  FfiConverterTypeAttachmentThresholds.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_attachment_thresholds($0
+    )
+})
+}
 public func authorsOverlap(authors1: String, authors2: String) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_imbib_core_fn_func_authors_overlap(
@@ -27608,6 +28226,17 @@ public func manuscriptFormatGrammar() -> [ManuscriptFormatDescriptor] {
 })
 }
 /**
+ * UniFFI surface — the shape Swift calls (ADR-0023 D5's Rust half).
+ */
+public func matchAttachments(entries: [AttachmentEntry], pdfPaths: [String]) -> AttachmentMatchReport {
+    return try!  FfiConverterTypeAttachmentMatchReport.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_match_attachments(
+        FfiConverterSequenceTypeAttachmentEntry.lower(entries),
+        FfiConverterSequenceString.lower(pdfPaths),$0
+    )
+})
+}
+/**
  * Parse a whole mbox document into messages.
  */
 public func mboxParse(content: String) -> [FfiMboxMessage] {
@@ -28649,6 +29278,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_arxiv_id_from_fields() != 58660) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_attachment_thresholds() != 59415) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_authors_overlap() != 34149) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29043,6 +29675,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_manuscript_format_grammar() != 7794) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_match_attachments() != 58171) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_func_mbox_parse() != 8145) {

@@ -467,6 +467,18 @@ public enum FileIngestUnit: String, Sendable, Equatable, Codable, CaseIterable {
     /// the store row is an index entry carrying a bookmark, a path, a hash and
     /// an mtime, and the file stays the user's. No write-back, ever.
     case file
+    /// The file mints **no record of its own**: it ATTACHES to one that already
+    /// exists (ADR-0023 W5 — PDFs beside a watched `.bib`).
+    ///
+    /// The third unit, and the one that needed a name of its own rather than
+    /// reusing `file`. A `file`-unit row IS the record and answers "what is
+    /// this?"; an attachment-unit file answers "what is this a copy OF?", and
+    /// the whole question is which existing row it belongs to. It still gets
+    /// the complete `watched-file` index row — hash-tracked, swept, flagged
+    /// `missing` when it vanishes — because that bookkeeping is unit-agnostic
+    /// and W0 already built it. What it does NOT get is a fan-out: a discovered
+    /// PDF never produces a publication, it only ever joins one.
+    case attachment
 }
 
 /// One watchable file type: its extensions, and the UTI that identifies it if
@@ -516,22 +528,99 @@ public struct FileTypeSpec: Sendable, Equatable, Identifiable {
 ///
 /// `FileDiscoveryCapabilityParityTests` is the interlock for all three.
 public struct FileDiscoveryCapability: Sendable, Equatable {
-    /// The watchable types, in authority-table order.
+    /// The watchable types, in authority-table order. These are the types that
+    /// become RECORDS — a `.bib` fans out to publications, a `.typ` is a
+    /// manuscript. See `attachmentTypes` for the other half.
     public let types: [FileTypeSpec]
-    /// How a discovered file becomes rows (ADR-0023 D3).
+    /// How a discovered file becomes rows (ADR-0023 D3). Applies to `types`;
+    /// `attachmentTypes` are `.attachment` by construction.
     public let ingestUnit: FileIngestUnit
 
-    public init(types: [FileTypeSpec], ingestUnit: FileIngestUnit) {
+    /// Types a watched folder ALSO discovers, which mint no record of their own
+    /// and instead attach to one (ADR-0023 W5 — PDFs beside a watched `.bib`).
+    ///
+    /// ── Why a second list and not two more rows in `types` ──────────────────
+    ///
+    /// `types` is pinned, row for row, against an authority table: the
+    /// publication kind's is `impress_core::bibliography_format`, whose own
+    /// test freezes it to exactly the BibTeX/RIS pair
+    /// (`the_table_is_the_frozen_bibtex_ris_pair`). That freeze is correct and
+    /// worth keeping — a PDF is **not a bibliography interchange format**, and
+    /// adding a row saying it is would make the authority table lie in order
+    /// to move a file through a filter.
+    ///
+    /// The two lists also answer genuinely different questions, and code
+    /// downstream depends on the difference:
+    ///
+    /// * `fileExtensions` / `matches(fileName:)` mean *"a file of this type
+    ///   BECOMES a record of this kind"*. `RecordKindRegistry
+    ///   .descriptor(forFileExtension:)` is the drag-and-drop and open-panel
+    ///   answer, and it must keep returning `nil` for `.pdf`: dropping a PDF on
+    ///   imbib is not "import a publication".
+    /// * `discoveryExtensions` means *"a watched folder LOOKS for this"*, which
+    ///   is the union, and is what `FileDiscoveryFilter` is built from.
+    ///
+    /// Empty for every kind but publications, and that is the honest state
+    /// rather than a gap: a manuscript folder has no attachment concept, and a
+    /// `.vsz`'s data files are implore's `dataset_source`, not the watcher's.
+    public let attachmentTypes: [FileTypeSpec]
+
+    public init(
+        types: [FileTypeSpec],
+        ingestUnit: FileIngestUnit,
+        attachmentTypes: [FileTypeSpec] = []
+    ) {
         self.types = types
         self.ingestUnit = ingestUnit
+        self.attachmentTypes = attachmentTypes
     }
 
-    /// Every extension this kind watches, in table order. Bare and lowercase.
+    /// Every extension this kind INGESTS, in table order. Bare and lowercase.
+    /// Attachments are not here — see `discoveryExtensions`.
     public var fileExtensions: [String] { types.flatMap(\.fileExtensions) }
 
     /// Every DECLARED UTI. Shorter than `types` whenever a type has none —
     /// which is the point of it being separate.
     public var utiIdentifiers: [String] { types.compactMap(\.utiIdentifier) }
+
+    /// Every extension the attachment half declares.
+    public var attachmentExtensions: [String] { attachmentTypes.flatMap(\.fileExtensions) }
+
+    /// Every declared attachment UTI.
+    public var attachmentUTIIdentifiers: [String] { attachmentTypes.compactMap(\.utiIdentifier) }
+
+    /// Everything a watched folder for this kind looks for: ingest types first,
+    /// then attachments. **This is what a discovery query is built from.**
+    public var discoveryExtensions: [String] { fileExtensions + attachmentExtensions }
+
+    /// Every UTI a discovery query should name.
+    public var discoveryUTIIdentifiers: [String] { utiIdentifiers + attachmentUTIIdentifiers }
+
+    /// The unit a discovered file falls under, or `nil` when this kind does not
+    /// watch for it at all.
+    ///
+    /// **This is the role marker, and it is DERIVED.** ADR-0023 W5 chose it
+    /// over a `role` column on `watched-file@1.0.0` because the schema's own
+    /// test (`folder_does_not_restate_the_capability`) already refuses to let a
+    /// watched-folder row restate the capability's extensions or ingest unit —
+    /// and a per-file `role` would be exactly that, one row down. The
+    /// capability knows that `.pdf` is an attachment; a stored copy of the fact
+    /// is a second authority that goes stale the day the declaration changes,
+    /// on rows already written.
+    public func ingestUnit(forExtension fileExtension: String) -> FileIngestUnit? {
+        let needle = fileExtension.lowercased()
+        if fileExtensions.contains(needle) { return ingestUnit }
+        if attachmentExtensions.contains(needle) { return .attachment }
+        return nil
+    }
+
+    /// The unit a discovered PATH falls under. Takes the substring after the
+    /// last dot, which is what `URL.pathExtension` yields.
+    public func ingestUnit(forFileName fileName: String) -> FileIngestUnit? {
+        guard let dot = fileName.lastIndex(of: ".") else { return nil }
+        let ext = String(fileName[fileName.index(after: dot)...])
+        return ext.isEmpty ? nil : ingestUnit(forExtension: ext)
+    }
 
     /// True when at least one watched type has no UTI, so a discovery query
     /// must OR its type clause with a filename clause or it will match nothing
