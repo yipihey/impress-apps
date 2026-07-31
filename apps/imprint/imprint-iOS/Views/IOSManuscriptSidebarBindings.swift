@@ -94,9 +94,16 @@ enum ImprintSidebarBindings {
         case .flagged(_, let color): return .flagged(color)
         // `.host` is the chassis's seam for rows only the HOST can name
         // (imbib's libraries, saved searches, search forms — see
-        // `RecordSidebarScope.host`). imprint resolves every one of its rows
-        // from the declarations, so it never emits one and has no list for it.
-        case .section, .host, nil: return nil
+        // `RecordSidebarScope.host`). ADR-0023 W3 gave imprint its first one:
+        // a watched manuscript folder, whose key space is the CHASSIS's
+        // (`WatchedFolderRoute`, whose `keyPrefix` is public exactly so a host
+        // can recognise keys it did not build).
+        case .host(_, let key):
+            guard case .folder(let folderID)? = WatchedFolderRoute(key: key) else { return nil }
+            // The folder's manuscripts ARE its provenance tag — W2's answer,
+            // reused rather than re-decided.
+            return WatchedManuscriptFolders.storeScope(forFolder: folderID)
+        case .section, nil: return nil
         }
     }
 
@@ -143,9 +150,15 @@ enum ImprintSidebarBindings {
                             && (color == nil || $0.flagColor == color)
                     }.count
                 // `.host` = a row only the host can name (see
-                // `RecordSidebarScope.host`). imprint declares none, and a
-                // badge for a row that does not exist is nil, like `.folder`
-                // (whose counts come from `folderCounts` above).
+                // `RecordSidebarScope.host`). imprint's one host row is a
+                // watched folder, and its badge is DELIBERATELY not computed
+                // here: `WatchedFolderRowState.badgeCount` already decides
+                // whether this folder can honestly claim a total (it is nil for
+                // any degraded state — D6's whole point), and `sidebarNodes`
+                // carries that decision through verbatim. Recomputing it from
+                // the tag would put a number on a row that has just declared it
+                // cannot count, which is the "Spotlight blind spots read as
+                // data loss" risk arriving through the back door.
                 case .folder, .section, .host:
                     return nil
                 }
@@ -164,6 +177,22 @@ enum ImprintSidebarBindings {
                 // gained the pane. Nothing in this closure changed to let it
                 // in, which is the property the capability set exists to have.
                 true
+            },
+            sectionContent: { section, kind in
+                // ADR-0023 W3 — the ONE thing imprint's sidebar resolves for
+                // itself. Everything else in this file answers "where does the
+                // data come from"; this answers "and there are also these rows",
+                // which is what `RecordSidebarSectionContent` exists for.
+                //
+                // `runningCoordinator` (not `coordinator`) on purpose: rendering
+                // a section must never be the thing that starts a watcher.
+                guard section == .manuscripts, kind == descriptor.id,
+                    let rows = WatchedManuscriptFolders.runningCoordinator?.rows, !rows.isEmpty
+                else { return nil }
+                // `additionalNodes`, not `nodes`: All / the declared statuses /
+                // the user's folders are the DESCRIPTOR's and must stay derived.
+                return RecordSidebarSectionContent(
+                    additionalNodes: rows.sidebarNodes(kind: descriptor.id))
             })
     }
 

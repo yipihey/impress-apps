@@ -102,6 +102,22 @@ enum ImbibSidebarNodeType: Hashable {
     /// view body has to consult the coordinator to resolve a selection.
     case watchedFolder(folderID: WatchedFolderID, tagPath: String)
 
+    /// A watched folder of a `file`-unit kind (ADR-0023 W4) — impart's mail
+    /// archives, implore's Veusz documents.
+    ///
+    /// A SECOND case rather than a `kindScope` on the one above, because the
+    /// two resolve to different surfaces and the difference is not a parameter:
+    /// an `entries` folder opens the RECORDS its files produced (a publication
+    /// list scoped by the provenance tag), a `file` folder opens the FILES,
+    /// because for that unit the file is the record (D3). Carrying the scope in
+    /// the payload of a case that means "show me the tag" would make the tag
+    /// meaningless for two of its three callers.
+    ///
+    /// `kindScope` is the record kind's raw value — `FileDiscoveryFilter.id`,
+    /// the store's `kind_scope` and the coordinator's registry key, which are
+    /// the same string by construction.
+    case watchedFileFolder(folderID: WatchedFolderID, kindScope: String)
+
     // App-owned whole-pane surface (Stage 2 WP-X0, ADR-0021)
     case customSurface(String)  // CustomSurfaceDescriptor.id
 }
@@ -271,6 +287,14 @@ extension ImbibSidebarNode {
             return .record(.status(.task, state))
         case .watchedFolder(let folderID, let tagPath):
             return .watchedFolder(folderID, tagPath: tagPath)
+        case .watchedFileFolder(let folderID, let kindScope):
+            // No new tab case and no new content route: W1 already gave the row
+            // a chassis scope (`RecordSidebarScope.host`), and Stage 3 already
+            // made `.record(RecordRoute)` the ONE destination every kind's rows
+            // resolve to. The kind's viewer factory recognises the host key.
+            let kind = RecordKindID(kindScope)
+            return .record(
+                RecordRoute(kind: kind, scope: WatchedFolderRoute.folder(folderID).scope(kind: kind)))
         case .customSurface(let id):
             return .customSurface(id)
         }
@@ -433,6 +457,16 @@ enum ImbibSidebarNodeID {
     /// moved, silently reshuffling the outline).
     static func watchedFolder(_ folderID: WatchedFolderID) -> UUID {
         stable("watched.folder.\(folderID.storageKey)")
+    }
+
+    /// Node id for a `file`-unit watched folder (ADR-0023 W4).
+    ///
+    /// A DIFFERENT key space from the row above even though the folder id is
+    /// the same shape: the two node types resolve to different surfaces, and
+    /// `tabToNodeID` is a dictionary keyed by node id, so a shared id would
+    /// make a selection in one host restore as the other's row.
+    static func watchedFileFolder(_ folderID: WatchedFolderID, kindScope: String) -> UUID {
+        stable("watched.files.\(kindScope).\(folderID.storageKey)")
     }
 }
 #endif

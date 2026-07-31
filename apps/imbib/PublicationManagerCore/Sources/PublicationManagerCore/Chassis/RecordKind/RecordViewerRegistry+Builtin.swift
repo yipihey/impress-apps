@@ -19,11 +19,35 @@ import SwiftUI
 
 extension RecordViewerRegistry {
 
+    /// A watched `file`-unit folder's pane, when the scope names one
+    /// (ADR-0023 W4).
+    ///
+    /// Checked BEFORE the kind's own list scope, and returning nil otherwise,
+    /// so the arm is a prefix rather than a branch: the folder's route is a
+    /// `RecordSidebarScope.host` key that `FigureListScope` / `MessageListScope`
+    /// correctly decline to parse (they own their kind's RECORD subsets, and a
+    /// watched folder is not one). Without this the row would resolve to the
+    /// factory's `EmptyView()` fallback — a selectable sidebar row that opens
+    /// nothing, which is the exact failure the registry's "degrade quietly"
+    /// default is otherwise right about.
+    @MainActor
+    private static func watchedFilesPane(
+        _ context: RecordSectionContext, kind: RecordKindID
+    ) -> AnyView? {
+        guard case .host(.some(kind), let key) = context.scope,
+            case .folder(let folderID)? = WatchedFolderRoute(key: key)
+        else { return nil }
+        return AnyView(
+            WatchedFilesPane(folderID: folderID, kindScope: kind.rawValue)
+                .id(key))
+    }
+
     /// The factories `RecordViewerRegistry.builtin` is built from on macOS.
     static let macOSBuiltinFactories: [RecordViewerFactory] = [
         RecordViewerFactory(
             kind: .figure,
             makeSectionView: { context in
+                if let pane = watchedFilesPane(context, kind: .figure) { return pane }
                 guard let scope = context.scope(as: FigureListScope.self) else {
                     return AnyView(EmptyView())
                 }
@@ -33,6 +57,7 @@ extension RecordViewerRegistry {
         RecordViewerFactory(
             kind: .message,
             makeSectionView: { context in
+                if let pane = watchedFilesPane(context, kind: .message) { return pane }
                 guard let scope = context.scope(as: MessageListScope.self) else {
                     return AnyView(EmptyView())
                 }

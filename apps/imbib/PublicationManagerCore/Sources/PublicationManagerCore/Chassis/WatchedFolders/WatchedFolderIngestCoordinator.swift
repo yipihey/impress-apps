@@ -125,38 +125,97 @@ public enum WatchedFolderProvenanceTag {
 
 // MARK: - Injection
 
-/// The three things the coordinator needs from imbib, as closures.
+/// The things the coordinator needs from its HOST APP, as closures.
 ///
 /// A struct of closures rather than a protocol: the live value is three lines
 /// over `RustStoreAdapter.shared`, and a test wants to substitute exactly one
 /// of them (usually none — the headless test runs the REAL importer against an
 /// in-memory store, which is the only way the dedup claim gets proven).
 /// `FolderWatchEngineFactory` is the same shape one layer down.
+///
+/// ── The per-kind fan-out (ADR-0023 W4) ──────────────────────────────────────
+///
+/// W2 hard-wired one verb here (`importBibTeX`) because one kind existed. D3
+/// says the ingest UNIT differs by kind, so what varies between apps is exactly
+/// one closure: **one discovered file → the store rows it accounts for**.
+/// Everything around it — recording the discovery, deciding by hash whether the
+/// fan-out is owed, attributing the produced rows, sweeping what vanished — is
+/// kind-agnostic and stays in the coordinator.
+///
+/// `produceRows` is that closure. imbib's reads the file as BibTeX and runs the
+/// real importer (`entries` unit); a `file`-unit kind whose v1 mints nothing
+/// returns `([], [])` and the watched-FILE row IS the record. The BibTeX
+/// initializer below is kept verbatim so imbib's call sites and its six
+/// end-to-end tests are untouched by the generalization.
 @MainActor
 public struct WatchedFolderImportHooks {
 
-    /// Import one file's worth of BibTeX. Returns the ids the file accounts
-    /// for: `imported` are new rows, `existing` deduped onto papers already in
-    /// the library — and BOTH are produced by this file.
-    public var importBibTeX: (String, UUID) -> (imported: [UUID], existing: [UUID])
+    /// One discovered file → the store rows it accounts for.
+    ///
+    /// `imported` are rows this pass created; `existing` are rows the file's
+    /// content deduped onto. **Both** are produced by this file — an omitted id
+    /// is reported to `record_produced_rows` as an id the source DROPPED, which
+    /// is the claim that must not be made by accident (see `importOne` step 3).
+    ///
+    /// `libraryID` is nil for kinds that ingest without one; a hook that needs
+    /// a library declares `requiresLibrary` and is never called with nil.
+    public var produceRows: (
+        _ path: String, _ libraryID: UUID?
+    ) throws -> (imported: [UUID], existing: [UUID])
 
     /// The library watched folders import into. `nil` refuses the import
-    /// rather than inventing a parent id.
+    /// rather than inventing a parent id — when `requiresLibrary`.
     public var defaultLibraryID: () -> UUID?
+
+    /// Whether a nil library must refuse the pass.
+    ///
+    /// True for entry-unit kinds (imbib: an entry has to land IN something).
+    /// False for file-unit kinds, whose row is the file itself and whose store
+    /// rows, if any, are parented by their own kind's rules.
+    public var requiresLibrary: Bool
 
     public var addTag: ([UUID], String) -> Void
     public var removeTag: ([UUID], String) -> Void
 
+    /// The general initializer: any kind, its own fan-out.
+    public init(
+        produceRows: @escaping (
+            _ path: String, _ libraryID: UUID?
+        ) throws -> (imported: [UUID], existing: [UUID]),
+        defaultLibraryID: @escaping () -> UUID? = { nil },
+        requiresLibrary: Bool = false,
+        addTag: @escaping ([UUID], String) -> Void = { _, _ in },
+        removeTag: @escaping ([UUID], String) -> Void = { _, _ in }
+    ) {
+        self.produceRows = produceRows
+        self.defaultLibraryID = defaultLibraryID
+        self.requiresLibrary = requiresLibrary
+        self.addTag = addTag
+        self.removeTag = removeTag
+    }
+
+    /// The ENTRY-unit initializer (imbib): the file is read as bibliography
+    /// text and handed to the app's importer whole, one blob per file, so the
+    /// identifier dedup runs once per file rather than once per entry — which
+    /// is what the manual drag does too.
     public init(
         importBibTeX: @escaping (String, UUID) -> (imported: [UUID], existing: [UUID]),
         defaultLibraryID: @escaping () -> UUID?,
         addTag: @escaping ([UUID], String) -> Void,
         removeTag: @escaping ([UUID], String) -> Void
     ) {
-        self.importBibTeX = importBibTeX
-        self.defaultLibraryID = defaultLibraryID
-        self.addTag = addTag
-        self.removeTag = removeTag
+        self.init(
+            produceRows: { path, libraryID in
+                // `requiresLibrary` is true, so the coordinator has already
+                // refused the pass if this is nil. Throwing rather than
+                // force-unwrapping keeps a direct caller honest.
+                guard let libraryID else { throw WatchedIngestError.noLibrary }
+                return importBibTeX(try BibliographyFileText.bibtex(atPath: path), libraryID)
+            },
+            defaultLibraryID: defaultLibraryID,
+            requiresLibrary: true,
+            addTag: addTag,
+            removeTag: removeTag)
     }
 
     /// imbib's real import path.
@@ -174,6 +233,19 @@ public struct WatchedFolderImportHooks {
                 guard !ids.isEmpty else { return }
                 RustStoreAdapter.shared.removeTag(ids: ids, tagPath: path)
             })
+    }
+
+    /// The fan-out that mints nothing (ADR-0023 W4, impart + implore v1).
+    ///
+    /// The file is discovered, hashed, given its `watched-file` row, re-hashed
+    /// on every later pass and swept when it vanishes — and NO record of the
+    /// app's own kind is created. This is not a stub: for a `file`-unit kind
+    /// (D3) the file IS the record, and D4 already says the store row is an
+    /// index entry rather than a copy. What it withholds is the SECOND
+    /// fan-out — mbox → messages, `.vsz` → figure — which each app's W4 row in
+    /// ADR-0023 decides on its own terms.
+    public static var recordingOnly: WatchedFolderImportHooks {
+        WatchedFolderImportHooks(produceRows: { _, _ in ([], []) })
     }
 }
 
@@ -213,7 +285,117 @@ public final class WatchedFolderIngestCoordinator {
     /// what the filters are derived from.
     public static let kindScope = RecordKindID.publication.rawValue
 
+    // MARK: The per-kind registry (ADR-0023 W4)
+
+    /// The coordinators this process is running, one per `kind_scope`.
+    ///
+    /// `shared` stays imbib's, so every W2 call site is unchanged; a host that
+    /// watches a DIFFERENT kind's folders asks for that kind's coordinator by
+    /// scope. One per scope and not one per app, for the reason `shared`'s own
+    /// comment gives: two `FolderWatchService` instances over the same bookmarks
+    /// would run two engines per directory. Scopes are disjoint by construction
+    /// — a watched folder's store id is derived from `(path, kind_scope)` — so
+    /// two coordinators never contend for one row.
+    @ObservationIgnored private static var registry: [String: WatchedFolderIngestCoordinator] = [
+        WatchedFolderIngestCoordinator.kindScope: .shared
+    ]
+
+    /// The coordinator for one record kind, created on first ask.
+    ///
+    /// `hooks` is only consulted when the coordinator does not exist yet: the
+    /// SECOND caller for a scope gets the one that is already running, which is
+    /// the whole point of a registry. `nil` for a kind that declares no
+    /// `FileDiscoveryCapability` — refusing is honest, since a coordinator with
+    /// no filter can only ever produce an empty folder.
+    public static func coordinator(
+        forKindScope kindScope: String,
+        hooks: @autoclosure () -> WatchedFolderImportHooks = .recordingOnly
+    ) -> WatchedFolderIngestCoordinator? {
+        if let existing = registry[kindScope] { return existing }
+        guard BuiltinRecordKinds.fileDiscovery(forKindScope: kindScope) != nil else { return nil }
+        let made = WatchedFolderIngestCoordinator(
+            kindScope: kindScope,
+            watcher: FolderWatchService(startupGate: Self.startupGate),
+            hooks: hooks())
+        registry[kindScope] = made
+        return made
+    }
+
+    /// The coordinator already running for a scope, without creating one.
+    ///
+    /// What a SIDEBAR asks: a section that renders rows must not be the thing
+    /// that starts a watcher, or the rows appear before the host has decided it
+    /// wants them.
+    public static func runningCoordinator(
+        forKindScope kindScope: String
+    ) -> WatchedFolderIngestCoordinator? {
+        registry[kindScope]
+    }
+
+    /// Test seam: forget every registered coordinator except imbib's.
+    static func resetRegistryForTesting() {
+        registry = [WatchedFolderIngestCoordinator.kindScope: .shared]
+    }
+
+    // MARK: The nonisolated snapshot
+
+    /// One watched folder's provenance tag path, resolvable **without the main
+    /// actor**.
+    ///
+    /// This exists for `RecordRouteScope.init?(routeScope:)` — the protocol
+    /// requirement that turns a sidebar selection into a kind's list scope, and
+    /// which is nonisolated. A watched folder's route carries the folder's ID,
+    /// but its list scope is the provenance TAG, whose leaf is the folder's
+    /// display name; only the coordinator knows that mapping (the name is an
+    /// identity, uniquified at add time). The coordinator is `@MainActor`, so a
+    /// nonisolated caller cannot read `rows` at all.
+    ///
+    /// The honest fix is to PUBLISH the mapping rather than to hop (the
+    /// initializer is synchronous), block (it runs during a view body), or
+    /// `assumeIsolated` (it is called from wherever a route is decoded, and an
+    /// assumption that is wrong once traps). `WatchedFolderRowState` is
+    /// `Sendable` by construction — W1 made the row a snapshot value precisely
+    /// so it could cross boundaries — and the published map is a tiny
+    /// `[WatchedFolderID: String]` behind a lock, the same shape
+    /// `RecordViewerRegistry` uses for the same reason.
+    ///
+    /// `nil` when no coordinator for that kind is running, or the folder is not
+    /// one of its — which renders the "viewer unavailable" state rather than an
+    /// empty list that reads as "this folder found nothing".
+    public nonisolated static func provenanceTagPath(
+        ofFolder id: WatchedFolderID, kindScope: String
+    ) -> String? {
+        publishedNamesLock.lock()
+        defer { publishedNamesLock.unlock() }
+        return publishedNames[kindScope]?[id]
+            .map(WatchedFolderProvenanceTag.path(forFolderNamed:))
+    }
+
+    /// Display names by folder id, per kind scope. Written only by
+    /// `publishNames()` below, on every change the sidebar is told about.
+    private nonisolated static let publishedNamesLock = NSLock()
+    nonisolated(unsafe) private static var publishedNames: [String: [WatchedFolderID: String]] = [:]
+
+    /// Republish this coordinator's id → name map for nonisolated readers.
+    /// Called from exactly the places that post `.watchedFoldersDidChange`, so
+    /// the snapshot and the redraw can never disagree.
+    private func publishNames() {
+        var names = folderNames
+        for row in watcher.rows where names[row.id] == nil {
+            names[row.id] = row.displayName
+        }
+        let scope = kindScope
+        Self.publishedNamesLock.lock()
+        Self.publishedNames[scope] = names
+        Self.publishedNamesLock.unlock()
+    }
+
     // MARK: Dependencies
+
+    /// The record kind this coordinator watches for — the store's `kind_scope`
+    /// and the `FileDiscoveryFilter.id` in one, exactly as
+    /// `FileDiscoveryFilter+RecordKind`'s header requires.
+    public let kindScope: String
 
     public let watcher: FolderWatchService
     private let store: WatchedFolderStoreAdapter
@@ -250,10 +432,12 @@ public final class WatchedFolderIngestCoordinator {
     @ObservationIgnored private var pendingChanged: [WatchedFolderID: Int] = [:]
 
     public init(
+        kindScope: String = WatchedFolderIngestCoordinator.kindScope,
         watcher: FolderWatchService = FolderWatchService(),
         store: WatchedFolderStoreAdapter = .shared,
         hooks: WatchedFolderImportHooks = .live
     ) {
+        self.kindScope = kindScope
         self.watcher = watcher
         self.store = store
         self.hooks = hooks
@@ -285,6 +469,7 @@ public final class WatchedFolderIngestCoordinator {
         }
         startPump()
         await restore()
+        publishNames()
         await watcher.startAll()
     }
 
@@ -320,15 +505,21 @@ public final class WatchedFolderIngestCoordinator {
     /// kind gained an extension gains it here, with no migration (see
     /// `FileDiscoveryFilter+RecordKind`).
     private func restore() async {
+        // W4: a process can run more than one coordinator (one per record kind)
+        // and the bookmark store is ONE suite shared by all of them, so each
+        // adopts only the bookmarks its own kind asked for. Without the
+        // narrowing, impart's coordinator would claim imbib's `.bib` folder and
+        // write it into the store a SECOND time under `kind_scope: message`.
         let restored = await watcher.restorePersistedFolders(
-            filtersByID: FileDiscoveryFilter.builtinFiltersByID)
+            filtersByID: FileDiscoveryFilter.builtinFiltersByID,
+            limitedToFilterIDs: [kindScope])
         for row in restored {
             folderNames[row.id] = row.displayName
             guard let path = row.path else { continue }
             do {
                 let outcome = try store.addFolder(
                     path: path,
-                    kindScope: Self.kindScope,
+                    kindScope: kindScope,
                     displayName: row.displayName,
                     bookmarkBase64: nil,
                     recursive: true)
@@ -350,7 +541,10 @@ public final class WatchedFolderIngestCoordinator {
     /// renders forever with nothing behind it.
     @discardableResult
     public func addFolder(at url: URL) async throws -> WatchedFolderRowState {
-        guard let filter = FileDiscoveryFilter.publications else {
+        // Derived from THIS coordinator's kind, never spelled: the filter id,
+        // the persisted bookmark key and the store's `kind_scope` are the same
+        // string by construction (FileDiscoveryFilter+RecordKind's "Identity").
+        guard let filter = FileDiscoveryFilter.forKindScope(kindScope) else {
             throw FolderWatchFailure.noFilters
         }
         startPump()
@@ -367,6 +561,7 @@ public final class WatchedFolderIngestCoordinator {
                 "watched folder: \(standardized.path) is already watched, reusing its row",
                 category: "watched-folders")
             await watcher.start(existing.id)
+            publishNames()
             return existing
         }
         let name = uniqueDisplayName(for: standardized)
@@ -376,13 +571,14 @@ public final class WatchedFolderIngestCoordinator {
 
         let outcome = try store.addFolder(
             path: url.standardizedFileURL.path,
-            kindScope: Self.kindScope,
+            kindScope: kindScope,
             displayName: registration.displayName,
             bookmarkBase64: nil,
             recursive: true)
         storeFolderIDs[registration.id] = outcome.folder.id
 
         await watcher.start(registration.id)
+        publishNames()
         NotificationCenter.default.post(name: .watchedFoldersDidChange, object: nil)
         return watcher.row(for: registration.id)
             ?? WatchedFolderRowState(
@@ -407,6 +603,7 @@ public final class WatchedFolderIngestCoordinator {
         ingestErrors.removeValue(forKey: id)
         producedCounts.removeValue(forKey: id)
         removedFromSource.removeValue(forKey: id)
+        publishNames()
         NotificationCenter.default.post(name: .watchedFoldersDidChange, object: nil)
     }
 
@@ -427,6 +624,31 @@ public final class WatchedFolderIngestCoordinator {
         return .tag(WatchedFolderProvenanceTag.path(forFolderNamed: name))
     }
 
+    /// The store id of one watcher row's folder, once it has one.
+    ///
+    /// The two ids are deliberately different things: the watcher's is a launch
+    /// identity minted with the bookmark, the store's is derived by the kernel
+    /// from `(path, kind_scope)`. A surface that needs the folder's FILES needs
+    /// the second, and this is the only place the mapping lives.
+    public func storeFolderID(for id: WatchedFolderID) -> String? { storeFolderIDs[id] }
+
+    /// The files one folder has discovered, newest page first (ADR-0023 W4).
+    ///
+    /// The `file`-unit answer to `publicationSource(for:)`: where an entry-unit
+    /// kind's folder resolves to a list of the RECORDS it produced, a file-unit
+    /// kind's folder resolves to the FILES themselves, because for that unit
+    /// the file is the record (D3) and the row is an index entry (D4).
+    public func files(in id: WatchedFolderID, includingMissing: Bool = true) -> [WatchedFileRecord] {
+        guard let storeID = storeFolderIDs[id] else { return [] }
+        do {
+            let page = try store.files(folderID: storeID, state: includingMissing ? nil : "present")
+            return page.files
+        } catch {
+            note(error, for: id)
+            return []
+        }
+    }
+
     /// A display name no other watched folder is using.
     ///
     /// Not cosmetic: the name is the provenance tag's leaf, and therefore the
@@ -444,7 +666,10 @@ public final class WatchedFolderIngestCoordinator {
     // MARK: The loop
 
     private func handle(_ event: FolderWatchEvent) async {
-        defer { NotificationCenter.default.post(name: .watchedFoldersDidChange, object: nil) }
+        defer {
+            publishNames()
+            NotificationCenter.default.post(name: .watchedFoldersDidChange, object: nil)
+        }
         switch event {
         case .gatheredBatch(let id, let files, _, let isFinal):
             await ingest(files.map(\.url.path), for: id)
@@ -509,7 +734,8 @@ public final class WatchedFolderIngestCoordinator {
             return
         }
 
-        guard let library = hooks.defaultLibraryID() else {
+        let library = hooks.defaultLibraryID()
+        if hooks.requiresLibrary, library == nil {
             note(WatchedIngestError.noLibrary, for: id)
             return
         }
@@ -536,15 +762,15 @@ public final class WatchedFolderIngestCoordinator {
         }
     }
 
-    /// One file, all the way through: read → import → attribute → tag.
+    /// One file, all the way through: fan out → attribute → tag.
     private func importOne(
-        _ file: WatchedDiscoveryReport.Outcome, into library: UUID, folder id: WatchedFolderID
+        _ file: WatchedDiscoveryReport.Outcome, into library: UUID?, folder id: WatchedFolderID
     ) async throws -> (produced: Int, orphaned: [UUID]) {
-        // 1. The file, as BibTeX. (.ris is converted; .bib passes through.)
-        let bibtex = try BibliographyFileText.bibtex(atPath: file.path)
-
-        // 2. imbib's REAL importer, with its whole-library identifier dedup.
-        let (imported, existing) = hooks.importBibTeX(bibtex, library)
+        // 1+2. The per-kind fan-out (D3). imbib reads the file as BibTeX and
+        //      runs its REAL importer with the whole-library identifier dedup;
+        //      a file-unit kind that mints nothing returns no ids and the steps
+        //      below all no-op, leaving the watched-FILE row as the record.
+        let (imported, existing) = try hooks.produceRows(file.path, library)
         let accounted = imported + existing
 
         // 3. Attribution. `replace: true` is what makes a dropped entry

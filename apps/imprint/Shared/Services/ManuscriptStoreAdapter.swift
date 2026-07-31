@@ -23,6 +23,9 @@ import ImpressLogging
 import ImpressRustCore
 import ImpressStoreKit
 import OSLog
+// `UITestingEnvironment` (the ONE scratch-database path every handle in a
+// UI-testing process shares — see `shared`).
+import PublicationManagerCore
 
 // MARK: - Domain model
 
@@ -47,6 +50,13 @@ public struct ManuscriptModel: Sendable, Identifiable, Equatable {
     public let tags: [String]
     public let flagColor: String?
     public let importSource: ImportSource?
+
+    /// The raw `external_source` JSON, or nil for an ordinary manuscript
+    /// (ADR-0023 D4). Decoded on demand by `ManuscriptModel.externalSource` in
+    /// `ManuscriptStoreAdapter+External.swift`; carried raw here so a read that
+    /// never asks the question pays nothing for it, which matters because
+    /// EVERY list read decodes every row.
+    public let externalSourceJSON: String?
 
     /// imbib bridge fields — mirror the manuscript payload's
     /// `linked_imbib_manuscript_id` / `linked_imbib_library_id`. Maintained
@@ -147,6 +157,14 @@ public enum ManuscriptStoreScope: Hashable, Sendable {
     case folder(UUID)
     /// Flagged manuscripts; `nil` colour = any flag.
     case flagged(String?)
+    /// Every manuscript carrying one tag path (ADR-0023 W3).
+    ///
+    /// The scope a watched folder's row resolves to, reusing W2's answer
+    /// verbatim: a folder's records ARE its provenance tag
+    /// (`watched/<folder name>`), so the folder row needs no new store concept
+    /// — no per-folder collection, no new query, no second membership truth.
+    /// A tag is also what the user can already see, remove and re-apply.
+    case tag(String)
 
     /// The status this scope explicitly asks for, if any. Drives the
     /// dismissed-exclusion rule: only a scope that NAMES `dismissed` sees
@@ -172,8 +190,26 @@ public final class ManuscriptStoreAdapter {
     /// off-main (e.g., `sharedStore`).
     public static let shared: ManuscriptStoreAdapter = {
         do {
-            let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
-            return try ManuscriptStoreAdapter(inMemory: isUITesting)
+            // ADR-0023 W3: under UI testing this opens the ONE scratch FILE
+            // every other handle in the process opens, not `openInMemory()`.
+            //
+            // Two `openInMemory()` calls are two DATABASES, not two handles on
+            // one — the "imprint seed lesson" `RustStoreAdapter.init(inMemory:)`
+            // names, and the provenance bug W2 fixed on the imbib side. It
+            // matters here because attribution is a CROSS-HANDLE claim: the
+            // watched-folder kernel refuses to record that a file produced a
+            // manuscript row it cannot see, and `WatchedFolderStoreAdapter`
+            // already opens the scratch file. The path is keyed by process id,
+            // so each launch still gets a fresh, hermetic database — the
+            // property `openInMemory()` was chosen for is kept, and the one it
+            // accidentally also had (isolation from the app's OTHER adapter) is
+            // exactly what had to go.
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                UITestingEnvironment.prepareScratchDatabaseDirectory()
+                return try ManuscriptStoreAdapter(
+                    path: UITestingEnvironment.scratchDatabasePath)
+            }
+            return try ManuscriptStoreAdapter(inMemory: false)
         } catch {
             fatalError("Failed to initialize ManuscriptStoreAdapter: \(error)")
         }
@@ -298,6 +334,17 @@ public final class ManuscriptStoreAdapter {
     /// The work here is FFI-only — opening a SharedStore handle — and the
     /// resulting instance is then accessed on `@MainActor` like any other
     /// `@Observable` class.
+    /// A handle on ONE named database file — the UI-testing lane (see
+    /// `shared`). Separate from `init(inMemory:)` because "a file that is not
+    /// the workspace's" is a third case, and folding it into a Bool would make
+    /// the call site read as its opposite.
+    private nonisolated init(path: String) throws {
+        self.sharedStore = try SharedStore.open(path: path)
+        Logger.sharedStore.infoCapture(
+            "ManuscriptStoreAdapter initialized (scratch file: \(path))",
+            category: "manuscript-store")
+    }
+
     private nonisolated init(inMemory: Bool) throws {
         if inMemory {
             self.sharedStore = try SharedStore.openInMemory()
@@ -336,6 +383,16 @@ public final class ManuscriptStoreAdapter {
             affectedIDs: affectedIDs,
             kind: kind
         )
+    }
+
+    /// `didMutate` for the reference-in-place verbs, which live in
+    /// `ManuscriptStoreAdapter+External.swift` because they are ADR-0023's
+    /// surface and not the CRUD surface. An extension cannot reach a private
+    /// method; this is the one line of access it needs, and it is narrow on
+    /// purpose — an external write is never a metadata edit and never a body
+    /// edit, it is a re-read.
+    func noteExternalMutation(id: UUID, structural: Bool) {
+        didMutate(structural: structural, affectedIDs: [id], kind: .otherField)
     }
 
     // MARK: - Manuscript CRUD
@@ -557,6 +614,12 @@ public final class ManuscriptStoreAdapter {
                 guard let flag = model.flagColor else { return false }
                 if let color, flag != color { return false }
             }
+            // Tags live on the ENVELOPE (`row.tags`), not the payload, so this
+            // is a post-filter rather than a `payloadEq` — the same shape the
+            // flag filter above already takes, for the same reason.
+            if case .tag(let path) = scope {
+                guard model.tags.contains(path) else { return false }
+            }
             return true
         })
     }
@@ -734,6 +797,7 @@ public final class ManuscriptStoreAdapter {
             tags: row.tags,
             flagColor: row.flagColor,
             importSource: importSource,
+            externalSourceJSON: payload["external_source"] as? String,
             linkedImbibManuscriptID: linkedImbibManuscriptID,
             linkedImbibLibraryID: linkedImbibLibraryID,
             orcid: orcid,

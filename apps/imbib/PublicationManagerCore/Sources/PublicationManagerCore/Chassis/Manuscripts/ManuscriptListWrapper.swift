@@ -326,6 +326,7 @@ public struct ManuscriptListWrapper: View {
         case .status(let s): return "status-\(s.rawValue)"
         case .folder(let id): return "folder-\(id.uuidString)"
         case .flagged(let color): return "flagged-\(color?.rawValue ?? "any")"
+        case .tag(let path): return "tag-\(path)"
         }
     }
 
@@ -344,6 +345,14 @@ public struct ManuscriptListWrapper: View {
             )
         }
         var mapped = fetched.compactMap { ManuscriptRowData(from: $0) }
+        // ADR-0023 W3 — a watched folder's rows. Tags live on the item
+        // ENVELOPE, not the payload, so this is a post-filter rather than a
+        // query parameter: the same shape the flag path above takes, and the
+        // reason `listManuscripts` needs no new argument (nor a new FFI verb
+        // whose only caller would be this one row kind).
+        if let tagPath = scope.tagPath {
+            mapped = mapped.filter { $0.tagDisplays.contains { $0.path == tagPath } }
+        }
         // Dismissed manuscripts live only under Dismissed — they must not
         // clutter All Manuscripts, folders, or flag views (imbib's convention).
         if scope.statusString != JournalManuscriptStatus.dismissed.rawValue {

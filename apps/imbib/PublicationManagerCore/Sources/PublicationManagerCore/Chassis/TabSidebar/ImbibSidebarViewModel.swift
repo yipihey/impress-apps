@@ -56,6 +56,9 @@ final class ImbibSidebarViewModel {
     /// `.watchedFoldersDidChange`). Held so it can be torn down.
     @ObservationIgnored var watchedFolderObserver: NSObjectProtocol?
 
+    /// ADR-0023 W4 — whether this shell's file-unit coordinators are running.
+    @ObservationIgnored private var didStartFileUnitWatchers = false
+
     // MARK: - Section State
 
     var sectionOrder: [SidebarSectionType]
@@ -189,6 +192,7 @@ final class ImbibSidebarViewModel {
 
         selectDefaultSectionLeaf()
         startWatchingFolders()
+        startFileUnitWatchers()
     }
 
     /// ADR-0023 W2: restore the persisted watched folders and begin watching.
@@ -209,6 +213,55 @@ final class ImbibSidebarViewModel {
             await WatchedFolderIngestCoordinator.shared.start()
             self?.bumpDataVersion()
         }
+    }
+
+    /// ADR-0023 W4: start the coordinators for the FILE-unit kinds this shell
+    /// shows a section for.
+    ///
+    /// Separate from `startWatchingFolders()` and called from `configure(_:)`
+    /// rather than from `init`, because the shell preset is applied AFTER
+    /// construction (`TabContentView`'s `.task` sets `shellConfiguration`, then
+    /// calls `configure`). Reading it in `init` would give every host imbib's
+    /// preset and start nothing. Idempotent: `configure` runs on every `.task`
+    /// re-evaluation, and the coordinator registry hands back the running one.
+    private func startFileUnitWatchers() {
+        let scopes = Self.watchedKindScopes(for: shellConfiguration)
+            .filter { $0 != WatchedFolderIngestCoordinator.kindScope }
+        guard !scopes.isEmpty, !didStartFileUnitWatchers else { return }
+        didStartFileUnitWatchers = true
+        Task { @MainActor [weak self] in
+            for scope in scopes {
+                await WatchedFolderIngestCoordinator.coordinator(forKindScope: scope)?.start()
+            }
+            self?.bumpDataVersion()
+        }
+    }
+
+    /// The sidebar section each `file`-unit kind's watched folders appear in.
+    ///
+    /// DECLARED rather than derived, and small on purpose. The chassis has no
+    /// section→kind table — a section's kind is a per-shell BINDING
+    /// (`sectionBindings`) and most sections carry none — so deriving one here
+    /// would be inventing a second answer to a question the preset half-answers
+    /// already. imbib's publications are absent because their folders ride the
+    /// Libraries section through `watchedFolderNodes()`, which is W2's row and
+    /// a different surface.
+    ///
+    /// W3 (imprint) landed and added `.manuscript: .manuscripts`.
+    static let watchedFileSections: [String: SidebarSectionType] = [
+        RecordKindID.message.rawValue: .mail,
+        RecordKindID.figure.rawValue: .figures,
+        RecordKindID.manuscript.rawValue: .manuscripts,
+    ]
+
+    /// The kind scopes a shell watches: publications always (W2's behaviour,
+    /// unchanged), plus every file-unit kind whose section this shell shows.
+    static func watchedKindScopes(for configuration: AppShellConfiguration) -> [String] {
+        [WatchedFolderIngestCoordinator.kindScope]
+            + watchedFileSections
+                .filter { configuration.permits($0.value) }
+                .keys
+                .sorted()
     }
 
     /// Select the app-shell's default section (imbib = inbox, imprint =
@@ -776,6 +829,10 @@ final class ImbibSidebarViewModel {
                 nodes.append(folderNode)
             }
         }
+        // ADR-0023 W4: watched archive folders come LAST, so adding one never
+        // reshuffles the account rows a user has learned the position of — the
+        // same rule `librariesChildren()` follows for imbib's.
+        nodes.append(contentsOf: watchedFileFolderNodes(kindScope: RecordKindID.message.rawValue))
         return nodes
     }
 
@@ -803,6 +860,8 @@ final class ImbibSidebarViewModel {
             ),
         ]
         nodes.append(contentsOf: figureFolderNodes(figures: figures))
+        // ADR-0023 W4 — implore's watched `.vsz` folders, last (see mailChildren).
+        nodes.append(contentsOf: watchedFileFolderNodes(kindScope: RecordKindID.figure.rawValue))
         return nodes
     }
 
@@ -925,7 +984,11 @@ final class ImbibSidebarViewModel {
                 iconName: "tray.and.arrow.down"
             ))
         }
+        // ADR-0023 W3 — imprint's watched manuscript folders, after the user's
+        // own folders (the rule `mailChildren`/`figuresChildren` follow: a
+        // folder the user adds must never reshuffle the rows above it).
         return nodes + manuscriptFolderNodes()
+            + watchedFileFolderNodes(kindScope: RecordKindID.manuscript.rawValue)
     }
 
     /// User folders (manuscript-collection items) as sidebar children of the
@@ -1634,6 +1697,11 @@ final class ImbibSidebarViewModel {
         case .agentTasksAll, .agentRunsAll, .agentTaskState:
             // Stage 2-C: the kernel owns task lifecycle — agent nodes are
             // read-only fixed rows (no rename/delete/drag/drop; matrix ➖).
+            return .readOnly
+        case .watchedFileFolder:
+            // ADR-0023 W4, for the same four reasons as the row below — with
+            // drop even less meaningful: for a file-unit kind there is no
+            // record to drop ONTO a folder, only files the user puts there.
             return .readOnly
         case .watchedFolder:
             // ADR-0023 W2. Deliberately read-only in the OUTLINE's sense:
@@ -2496,6 +2564,9 @@ final class ImbibSidebarViewModel {
         case .watchedFolder(let folderID, _):
             buildWatchedFolderContextMenu(menu, folderID: folderID)
 
+        case .watchedFileFolder(let folderID, let kindScope):
+            buildWatchedFileFolderContextMenu(menu, folderID: folderID, kindScope: kindScope)
+
         case .libraryCollection(_, let libID):
             // ADR-0022 C2: the SAME builder as manuscript/figure folders. The
             // per-row smart predicate and the owning library are arguments now,
@@ -2763,6 +2834,23 @@ final class ImbibSidebarViewModel {
             menu.addItem(newFolderItem)
         }
 
+        // ADR-0023 W4 — "Watch Folder…" on any section that hosts a FILE-unit
+        // kind's watched folders. Appended after the switch rather than in an
+        // arm of it, because the sections that qualify are declared data
+        // (`watchedFileSections`) and the `default:` arm above already returns
+        // for two of the three.
+        if let kindScope = Self.watchedFileSections.first(where: { $0.value == section })?.key,
+            let capability = BuiltinRecordKinds.fileDiscovery(forKindScope: kindScope) {
+            if menu.numberOfItems > 0 { menu.addItem(.separator()) }
+            let extensions = capability.fileExtensions.map { ".\($0)" }.joined(separator: " / ")
+            let watchItem = NSMenuItem(
+                title: "Watch Folder for \(extensions) Files…",
+                action: #selector(ContextMenuActions.addWatchedFileFolder(_:)),
+                keyEquivalent: "")
+            watchItem.target = ContextMenuActions.shared
+            watchItem.representedObject = kindScope
+            menu.addItem(watchItem)
+        }
     }
 
     private func buildLibraryContextMenu(_ menu: NSMenu, libraryID: UUID) {

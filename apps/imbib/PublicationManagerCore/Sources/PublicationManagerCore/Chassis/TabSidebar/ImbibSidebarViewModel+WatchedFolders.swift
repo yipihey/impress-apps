@@ -83,6 +83,143 @@ extension ImbibSidebarViewModel {
         }
     }
 
+    // MARK: - ADR-0023 W4: the file-unit half
+
+    /// The rows of ONE non-publication kind's coordinator.
+    ///
+    /// `runningCoordinator` and not `coordinator(forKindScope:)`: a sidebar
+    /// section that RENDERS rows must never be the thing that starts a watcher,
+    /// or the rows appear before the host has decided it wants them. The shell
+    /// starts its coordinators in `configure`; this only reads them.
+    func watchedFileFolderRows(kindScope: String) -> [WatchedFolderRowState] {
+        WatchedFolderIngestCoordinator.runningCoordinator(forKindScope: kindScope)?.rows ?? []
+    }
+
+    /// A file-unit kind's watched folders as sidebar nodes.
+    ///
+    /// Rendered by exactly the same rules as the publication row above —
+    /// `badgeCount` (never `discoveredCount`), the state in the title when
+    /// degraded, the state's own glyph — because those rules are D6's and D6
+    /// does not know which kind it is looking at.
+    func watchedFileFolderNodes(kindScope: String) -> [ImbibSidebarNode] {
+        watchedFileFolderRows(kindScope: kindScope).map { row in
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.watchedFileFolder(row.id, kindScope: kindScope),
+                nodeType: .watchedFileFolder(folderID: row.id, kindScope: kindScope),
+                displayName: row.state.isDegraded || !row.isEnabled
+                    ? "\(row.displayName) — \(row.statusLine)"
+                    : row.displayName,
+                iconName: row.systemImage,
+                displayCount: row.badgeCount,
+                starCount: nil,
+                iconColor: row.state.isDegraded ? .secondary : nil)
+        }
+    }
+
+    /// "Watch Folder for Archives…" / "…for Veusz Documents…" — the same panel,
+    /// pointed at a different record kind.
+    ///
+    /// The prompt text is DERIVED from the kind's declaration rather than
+    /// written per app: the extensions in the sentence are the ones the
+    /// discovery query is actually built from, so a kind that gains one gains
+    /// it in the panel too, with no edit here (ADR-0023 D1).
+    func addWatchedFileFolder(kindScope: String) {
+        guard let capability = BuiltinRecordKinds.fileDiscovery(forKindScope: kindScope),
+            let descriptor = BuiltinRecordKinds.all.first(where: { $0.id.rawValue == kindScope })
+        else { return }
+        let extensions = capability.fileExtensions.map { ".\($0)" }.joined(separator: ", ")
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.prompt = "Watch"
+        panel.message = "Choose a folder to watch for \(extensions) files. "
+            + "\(descriptor.displayName) files found there are indexed in place — "
+            + "nothing is copied, moved or imported."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        adoptWatchedFileFolder(at: url, kindScope: kindScope)
+    }
+
+    /// The half with no panel in it, so a test drives the identical path.
+    func adoptWatchedFileFolder(at url: URL, kindScope: String) {
+        guard let coordinator = WatchedFolderIngestCoordinator.coordinator(
+            forKindScope: kindScope, hooks: .recordingOnly)
+        else { return }
+        Task { @MainActor in
+            do {
+                let row = try await coordinator.addFolder(at: url)
+                if let section = Self.watchedFileSections[kindScope] {
+                    expansionState.expand(ImbibSidebarNodeID.section(section))
+                }
+                bumpDataVersion()
+                selectedNodeID = ImbibSidebarNodeID.watchedFileFolder(row.id, kindScope: kindScope)
+            } catch {
+                Logger.files.errorCapture(
+                    "Add watched \(kindScope) folder failed for \(url.path): "
+                        + error.localizedDescription,
+                    category: "watched-folders")
+                let alert = NSAlert()
+                alert.messageText = "That folder could not be watched."
+                alert.informativeText =
+                    (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    func buildWatchedFileFolderContextMenu(
+        _ menu: NSMenu, folderID: WatchedFolderID, kindScope: String
+    ) {
+        guard let row = watchedFileFolderRows(kindScope: kindScope)
+            .first(where: { $0.id == folderID })
+        else { return }
+        let token = WatchedFileFolderToken(folderID: folderID, kindScope: kindScope)
+
+        // Same rule as the publication row: OMIT a dead affordance.
+        if row.offersRefresh {
+            let item = NSMenuItem(
+                title: "Refresh",
+                action: #selector(ContextMenuActions.refreshWatchedFileFolder(_:)),
+                keyEquivalent: "")
+            item.target = ContextMenuActions.shared
+            item.representedObject = token
+            menu.addItem(item)
+        }
+        if row.offersReauthorization {
+            let item = NSMenuItem(
+                title: "Choose Again…",
+                action: #selector(ContextMenuActions.reauthorizeWatchedFileFolder(_:)),
+                keyEquivalent: "")
+            item.target = ContextMenuActions.shared
+            item.representedObject = token
+            menu.addItem(item)
+        }
+
+        let reveal = NSMenuItem(
+            title: "Reveal in Finder",
+            action: #selector(ContextMenuActions.revealWatchedFileFolder(_:)),
+            keyEquivalent: "")
+        reveal.target = ContextMenuActions.shared
+        reveal.representedObject = token
+        menu.addItem(reveal)
+
+        menu.addItem(.separator())
+        let explanation = NSMenuItem(title: row.explanation, action: nil, keyEquivalent: "")
+        explanation.isEnabled = false
+        menu.addItem(explanation)
+        menu.addItem(.separator())
+
+        let stop = NSMenuItem(
+            title: "Stop Watching",
+            action: #selector(ContextMenuActions.stopWatchingFileFolder(_:)),
+            keyEquivalent: "")
+        stop.target = ContextMenuActions.shared
+        stop.representedObject = token
+        menu.addItem(stop)
+    }
+
     // MARK: - Verbs
 
     /// "Add Watched Folder…" — the macOS picker.
@@ -210,10 +347,76 @@ extension ImbibSidebarViewModel {
     }
 }
 
+/// The (folder, kind) pair a file-unit menu item carries.
+///
+/// `representedObject` is `Any?`, so the publication row could get away with a
+/// bare `WatchedFolderID`. A file-unit row cannot: the coordinator is looked up
+/// BY kind scope, and a menu item that knew only the folder id would have to
+/// guess which of the process's coordinators owns it.
+final class WatchedFileFolderToken: NSObject {
+    let folderID: WatchedFolderID
+    let kindScope: String
+
+    init(folderID: WatchedFolderID, kindScope: String) {
+        self.folderID = folderID
+        self.kindScope = kindScope
+    }
+}
+
 extension ContextMenuActions {
 
     @objc func addWatchedFolder(_ sender: NSMenuItem) {
         viewModel?.addWatchedFolder()
+    }
+
+    // MARK: ADR-0023 W4
+
+    /// Section context-menu entry: "Watch Folder…", carrying the kind scope in
+    /// `representedObject` so ONE selector serves impart and implore.
+    @objc func addWatchedFileFolder(_ sender: NSMenuItem) {
+        guard let kindScope = sender.representedObject as? String else { return }
+        viewModel?.addWatchedFileFolder(kindScope: kindScope)
+    }
+
+    @objc func refreshWatchedFileFolder(_ sender: NSMenuItem) {
+        guard let token = sender.representedObject as? WatchedFileFolderToken else { return }
+        Task { @MainActor in
+            await WatchedFolderIngestCoordinator
+                .runningCoordinator(forKindScope: token.kindScope)?.refresh(token.folderID)
+            viewModel?.bumpDataVersion()
+        }
+    }
+
+    @objc func reauthorizeWatchedFileFolder(_ sender: NSMenuItem) {
+        guard let token = sender.representedObject as? WatchedFileFolderToken else { return }
+        viewModel?.addWatchedFileFolder(kindScope: token.kindScope)
+    }
+
+    @objc func revealWatchedFileFolder(_ sender: NSMenuItem) {
+        guard let token = sender.representedObject as? WatchedFileFolderToken,
+            let path = WatchedFolderIngestCoordinator
+                .runningCoordinator(forKindScope: token.kindScope)?
+                .rows.first(where: { $0.id == token.folderID })?.path
+        else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    /// Stop watching. Keeps every `watched-file` row's history? No — the folder
+    /// row goes and its file rows go with it, because for a file-unit kind
+    /// those rows ARE the folder's content and nothing was produced from them
+    /// that could be stranded. Nothing on disk is touched (D4).
+    @objc func stopWatchingFileFolder(_ sender: NSMenuItem) {
+        guard let token = sender.representedObject as? WatchedFileFolderToken else { return }
+        Task { @MainActor in
+            await WatchedFolderIngestCoordinator
+                .runningCoordinator(forKindScope: token.kindScope)?.removeFolder(token.folderID)
+            if viewModel?.selectedNodeID
+                == ImbibSidebarNodeID.watchedFileFolder(
+                    token.folderID, kindScope: token.kindScope) {
+                viewModel?.selectDefaultSectionLeaf()
+            }
+            viewModel?.bumpDataVersion()
+        }
     }
 
     @objc func refreshWatchedFolder(_ sender: NSMenuItem) {

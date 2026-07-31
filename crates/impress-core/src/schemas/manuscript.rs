@@ -158,6 +158,37 @@ pub fn manuscript_schema() -> Schema {
                         .into(),
                 ),
             },
+            // -----------------------------------------------------------------
+            // Reference-in-place (ADR-0023 D4, W3).
+            //
+            // `import_source` and `external_source` are OPPOSITES and must not
+            // be confused: `import_source` says "a copy was taken and the
+            // original is DETACHED"; `external_source` says "the file on disk
+            // is still authoritative and this row is an INDEX ENTRY".
+            // -----------------------------------------------------------------
+            FieldDef {
+                name: "external_source".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "JSON-encoded `{ path: String, bookmark_base64: String?, \
+                     content_hash: String, size_bytes: Int?, \
+                     watched_file_id: String?, watched_folder_id: String?, \
+                     folder_name: String?, read_at: String?, state: \
+                     \"present\"|\"missing\" }`. Present ⇒ this manuscript is \
+                     REFERENCE-IN-PLACE (ADR-0023 D4): the file named by `path` \
+                     is authoritative for the body, `body_content` holds only \
+                     the snapshot read at `read_at`, and `content_hash` is the \
+                     hash of the FILE (not of `body_content`) as of that read. \
+                     Nothing in the suite writes the file back; a row carrying \
+                     this field takes no editor session, so no debounced \
+                     compare-and-set save can resurrect a stale body over an \
+                     externally-edited file. `state: \"missing\"` mirrors the \
+                     `watched-file` row's own state — the row is kept and \
+                     flagged, never deleted."
+                        .into(),
+                ),
+            },
             FieldDef {
                 name: "import_source".into(),
                 field_type: FieldType::String,
@@ -315,5 +346,45 @@ mod tests {
                 name
             );
         }
+    }
+
+    /// ADR-0023 D4/W3. A reference-in-place manuscript declares its file
+    /// through `external_source`; the field must exist, be optional (every
+    /// manuscript written before W3 has none) and be distinct from
+    /// `import_source`, whose meaning is the opposite.
+    #[test]
+    fn manuscript_schema_declares_optional_external_source() {
+        let s = manuscript_schema();
+        let external = s
+            .fields
+            .iter()
+            .find(|f| f.name == "external_source")
+            .expect("external_source must be declared (ADR-0023 D4)");
+        assert!(
+            !external.required,
+            "external_source must be optional: an ordinary manuscript has none"
+        );
+        assert_eq!(external.field_type, FieldType::String);
+        assert!(
+            s.fields.iter().any(|f| f.name == "import_source"),
+            "import_source stays: a reference and a detached copy are different claims"
+        );
+    }
+
+    /// The whole no-write-back argument lives in the field's own description,
+    /// because a payload field is where the next reader looks. If the
+    /// description stops saying it, the invariant has quietly become folklore.
+    #[test]
+    fn external_source_description_states_the_no_write_back_rule() {
+        let s = manuscript_schema();
+        let description = s
+            .fields
+            .iter()
+            .find(|f| f.name == "external_source")
+            .and_then(|f| f.description.clone())
+            .unwrap_or_default();
+        assert!(description.contains("authoritative"));
+        assert!(description.contains("no editor session"));
+        assert!(description.contains("never deleted"));
     }
 }

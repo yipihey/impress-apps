@@ -41,9 +41,22 @@ struct IOSManuscriptEditorHost: View {
     @State private var debounceTask: Task<Void, Never>?
     private static let debounceInterval: Duration = .milliseconds(300)
 
+    /// ADR-0023 D4 — the no-write-back gate.
+    ///
+    /// This host has its OWN 300 ms debounce into `setBody`, so it carries its
+    /// own copy of the risk the chassis session carries: a save landing after
+    /// (or against) an external edit. For a manuscript whose file is
+    /// authoritative the editor is never mounted at all, which is the only
+    /// version of this guard that cannot be defeated by a race — there is no
+    /// buffer, so `scheduleSave` is never scheduled and `onDisappear`'s flush
+    /// has nothing to flush. See `WatchedManuscriptGuard`.
+    private var isExternal: Bool { !WatchedManuscriptGuard.allowsEditorSession(manuscript) }
+
     var body: some View {
         Group {
-            if hasLoaded {
+            if hasLoaded, isExternal, let manuscript {
+                IOSExternalManuscriptPane(manuscript: manuscript)
+            } else if hasLoaded {
                 IOSContentView(document: $bridge)
             } else {
                 VStack(spacing: 12) {
@@ -82,7 +95,12 @@ struct IOSManuscriptEditorHost: View {
             // Flush any pending edit immediately so navigating back never
             // drops the last keystrokes.
             debounceTask?.cancel()
-            if hasLoaded {
+            // `!isExternal` is belt and braces — an external manuscript never
+            // mounted the editor, so `bridge.source` is the snapshot as loaded
+            // — but writing it back would be a store write claiming an edit
+            // nobody made, and the D4 rule is worth spelling at the one site
+            // that writes unconditionally.
+            if hasLoaded, !isExternal {
                 try? adapter.setBody(id: manuscriptID, text: bridge.source)
             }
         }

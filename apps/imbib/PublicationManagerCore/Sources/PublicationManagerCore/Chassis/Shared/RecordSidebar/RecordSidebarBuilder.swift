@@ -61,6 +61,21 @@ public struct RecordSidebarSectionContent: Sendable {
     /// nil for Flagged and Dismissed, which the declarations already get right).
     public var nodes: [RecordSidebarNode]?
 
+    /// Rows to APPEND after the role-derived ones, keeping them.
+    ///
+    /// ADR-0023 W3. `nodes` replaces — right for imbib's Libraries, whose rows
+    /// no declaration can derive — but wrong for a host that wants to CONTRIBUTE
+    /// to a section the chassis already gets right. imprint's Manuscripts
+    /// section is exactly that: All / the declared statuses / the user's folders
+    /// all come from `ManuscriptRecordKind.descriptor`, and a watched folder is
+    /// one more row beside them. Supplying `nodes` there would mean
+    /// re-implementing the descriptor's rows in the host — three copies of the
+    /// status list, which is the thing the descriptor exists to prevent.
+    ///
+    /// Ignored when `nodes` is supplied: a host that took the section over owns
+    /// all of it.
+    public var additionalNodes: [RecordSidebarNode]?
+
     /// Make the section HEADER a selectable destination (see
     /// `RecordSidebarSectionModel.headerScope`).
     public var headerScope: RecordSidebarScope?
@@ -79,11 +94,13 @@ public struct RecordSidebarSectionContent: Sendable {
 
     public init(
         nodes: [RecordSidebarNode]? = nil,
+        additionalNodes: [RecordSidebarNode]? = nil,
         headerScope: RecordSidebarScope? = nil,
         canOrganizeFolders: Bool? = nil,
         offersRootFolderCreation: Bool? = nil
     ) {
         self.nodes = nodes
+        self.additionalNodes = additionalNodes
         self.headerScope = headerScope
         self.canOrganizeFolders = canOrganizeFolders
         self.offersRootFolderCreation = offersRootFolderCreation
@@ -290,7 +307,7 @@ public enum RecordSidebarBuilder {
                 offersRootFolderCreation: hostContent?.offersRootFolderCreation)
         }
 
-        let nodes: [RecordSidebarNode]
+        var nodes: [RecordSidebarNode]
         switch role {
         case .primary:
             nodes = primaryNodes(
@@ -312,6 +329,13 @@ public enum RecordSidebarBuilder {
                     systemImage: section.icon,
                     count: dataSource.count(.section(section, kindID)))
             ]
+        }
+
+        // ADR-0023 W3 — the host's CONTRIBUTED rows, after the derived ones so
+        // adding a watched folder never reshuffles rows above it (the same rule
+        // macOS's `journalChildren` follows).
+        if let extra = hostContent?.additionalNodes, !extra.isEmpty {
+            nodes.append(contentsOf: extra)
         }
 
         guard !nodes.isEmpty || hostContent?.headerScope != nil else { return nil }

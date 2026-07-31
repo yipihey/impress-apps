@@ -26,9 +26,23 @@ public enum ManuscriptListScope: Hashable, Sendable {
     case status(JournalManuscriptStatus)
     case folder(UUID)
     case flagged(FlagColor?)
+    /// Every manuscript carrying one tag path (ADR-0023 W3).
+    ///
+    /// The scope a watched manuscript folder's sidebar row resolves to. W2
+    /// settled this for imbib — a folder's records ARE its provenance tag,
+    /// `watched/<folder name>` — and W3 reuses the answer rather than minting a
+    /// second membership truth: no per-folder collection, no new store concept,
+    /// and a list the user can already inspect, remove from and re-apply.
+    case tag(String)
 
     var statusString: String? {
         if case .status(let s) = self { return s.rawValue }
+        return nil
+    }
+
+    /// The tag this scope filters on, if any.
+    var tagPath: String? {
+        if case .tag(let path) = self { return path }
         return nil
     }
     var folderID: UUID? {
@@ -46,6 +60,9 @@ public enum ManuscriptListScope: Hashable, Sendable {
         case .folder: return "Folder"
         case .flagged(let color):
             return color.map { "\($0.displayName) Flag" } ?? "Flagged"
+        // The leaf, not the whole path: the column header sits under a sidebar
+        // row that already says which folder this is.
+        case .tag(let path): return path.split(separator: "/").last.map(String.init) ?? path
         }
     }
 }
@@ -144,6 +161,7 @@ extension ManuscriptListScope: RecordScopeKey {
         case .status(let s): return "manuscripts-status-\(s.rawValue)"
         case .folder(let id): return "manuscripts-folder-\(id.uuidString)"
         case .flagged(let color): return "manuscripts-flagged-\(color?.rawValue ?? "any")"
+        case .tag(let path): return "manuscripts-tag-\(path)"
         }
     }
 
@@ -226,6 +244,27 @@ extension ManuscriptListScope: RecordRouteScope {
             // `flatMap` matches the legacy conversion in SectionContentView:
             // an unknown colour degrades to "any flag", never to no rows.
             self = .flagged(raw.flatMap { FlagColor(rawValue: $0) })
+        case .host(.manuscript, let key):
+            // ADR-0023 W3 — a watched manuscript folder's row. The route
+            // carries the folder's ID; the tag's leaf is its DISPLAY NAME, and
+            // the coordinator is the only thing that knows the mapping (the
+            // name is an identity, uniquified at add time — see
+            // `WatchedFolderIngestCoordinator.uniqueDisplayName`). A folder
+            // whose coordinator is not running yields nil, which renders the
+            // "viewer unavailable" state rather than an empty list that reads
+            // as "this folder found nothing".
+            //
+            // W4 note: this initializer is NONISOLATED (the `RecordRouteScope`
+            // requirement is), and the coordinator is `@MainActor`, so the
+            // mapping is read from the coordinator's published snapshot rather
+            // than off `rows` — see `provenanceTagPath(ofFolder:kindScope:)`
+            // for why publishing beats hopping, blocking or assuming isolation
+            // here.
+            guard case .folder(let folderID)? = WatchedFolderRoute(key: key),
+                let tagPath = WatchedFolderIngestCoordinator.provenanceTagPath(
+                    ofFolder: folderID, kindScope: RecordKindID.manuscript.rawValue)
+            else { return nil }
+            self = .tag(tagPath)
         default:
             return nil
         }

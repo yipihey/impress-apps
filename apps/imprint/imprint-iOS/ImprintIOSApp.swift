@@ -5,6 +5,8 @@
 //  Created by Claude on 2026-01-27.
 //
 
+import ImpressLogging
+import OSLog
 import SwiftUI
 import ImprintCore
 import ImpressTheme
@@ -124,6 +126,93 @@ struct ImprintIOSApp: App {
 
     /// Tag paths for the seeded store — see `seedUITestDataIfNeeded`.
     private static let seedTagPaths = ["methods/simulations", "reading/priority"]
+
+    // MARK: - UI Testing seed (ADR-0023 W3 watched manuscript folder)
+
+    /// Create the directory and the `.md` manuscript an ADR-0023 W3 UI test
+    /// watches, then watch it.
+    ///
+    /// **Why the app writes the file.** Same constraint imbib's W2 seed
+    /// documents: an XCUITest runs in its own container, cannot create a
+    /// directory this app is allowed to read, and cannot drive the system
+    /// document picker. So the PICKER'S OUTPUT — a directory URL — is produced
+    /// here and everything downstream is the shipping path verbatim:
+    /// `WatchedFolderIngestCoordinator.addFolder(at:)`, the bookmark, the
+    /// ingest loop, imprint's real `upsertExternalManuscript`.
+    ///
+    /// `--uitesting-watched-folder-append` is the LIVE-EDIT half, and note what
+    /// it does that imbib's does not: it rewrites the manuscript's TEXT rather
+    /// than appending a second record, because for a file-unit kind the file IS
+    /// the record — "the file changed" and "the record changed" are the same
+    /// event, and the only way to see it is to watch the body follow the file.
+    @MainActor
+    private static func seedUITestWatchedFolder() {
+        guard UITestingEnvironment.isUITesting,
+            UITestingEnvironment.shouldSeedWatchedFolder
+        else { return }
+
+        let directory = UITestingEnvironment.watchedFolderSeedDirectory
+        let file = directory.appendingPathComponent("\(watchedSeedManuscriptName).md")
+        do {
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            let body = UITestingEnvironment.shouldAppendToWatchedFolder
+                ? watchedSeedBodyEdited
+                : watchedSeedBodyOriginal
+            try body.write(to: file, atomically: true, encoding: .utf8)
+            Logger.sharedStore.infoCapture(
+                "UI-testing watched manuscripts: wrote \(file.lastPathComponent) "
+                    + "(\(body.count) bytes)",
+                category: "watched-folders")
+        } catch {
+            Logger.sharedStore.errorCapture(
+                "UI-testing watched manuscripts: seed failed: \(error.localizedDescription)",
+                category: "watched-folders")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                guard let coordinator = WatchedManuscriptFolders.coordinator else {
+                    Logger.sharedStore.errorCapture(
+                        "UI-testing watched manuscripts: no coordinator for the manuscript kind",
+                        category: "watched-folders")
+                    return
+                }
+                _ = try await coordinator.addFolder(at: directory)
+                Logger.sharedStore.infoCapture(
+                    "UI-testing watched manuscripts: watching \(directory.path)",
+                    category: "watched-folders")
+            } catch {
+                Logger.sharedStore.errorCapture(
+                    "UI-testing watched manuscripts: addFolder failed: "
+                        + "\(error.localizedDescription)",
+                    category: "watched-folders")
+            }
+        }
+    }
+
+    static func seedUITestWatchedFolderIfNeeded() {
+        MainActor.assumeIsolated { seedUITestWatchedFolder() }
+    }
+
+    /// The seeded file's base name — also the manuscript row's title, since an
+    /// external manuscript takes its title from the file.
+    static let watchedSeedManuscriptName = "Reionization Notes"
+
+    static let watchedSeedBodyOriginal = """
+        # Reionization Notes
+
+        The neutral fraction is the observable that matters here.
+        """
+
+    static let watchedSeedBodyEdited = """
+        # Reionization Notes
+
+        The neutral fraction is the observable that matters here.
+
+        Damping wings in the highest-redshift quasars are the second probe.
+        """
 
     /// The fixture manuscript's title. Named once: three UI suites open it by
     /// this string.
@@ -307,6 +396,17 @@ struct ImprintIOSApp: App {
             IOSManuscriptLibraryView()
                 .undoEnabled()
                 .withAppearance()
+                .task {
+                    // ADR-0023 W3. Registering imprint's HOOKS is the load-
+                    // bearing half and it must happen before anything else asks
+                    // the registry for the manuscript coordinator: the registry
+                    // is first-ask-wins, and a coordinator created without them
+                    // would index nothing (`.recordingOnly` is W4's file-unit
+                    // default, right for impart/implore, wrong here — imprint's
+                    // file-unit fan-out DOES mint a row).
+                    await WatchedManuscriptFolders.start()
+                    Self.seedUITestWatchedFolderIfNeeded()
+                }
         }
     }
 }

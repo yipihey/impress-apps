@@ -241,11 +241,30 @@ public final class FolderWatchService {
     /// Folders whose bookmark will not resolve are still registered, in
     /// `inaccessible`, because D6's whole point is that a folder the app cannot
     /// currently reach must remain visible.
+    ///
+    /// **`limitedToFilterIDs` (ADR-0023 W4).** A process now runs one
+    /// coordinator per record KIND (imbib's publications, impart's mail
+    /// archives, implore's Veusz documents) while the bookmark store stays ONE
+    /// suite, so each service must adopt only the bookmarks its own kind asked
+    /// for — otherwise every coordinator would register every folder, run an
+    /// engine over it, and write it into the store under its own `kind_scope`.
+    /// `nil` (the default) restores everything, which is exactly what W2 did.
+    ///
+    /// A bookmark with NO filter ids is adopted by every narrowing caller,
+    /// deliberately: it is a broken record (its kind's declaration went away),
+    /// D6 requires it to stay visible and fixable, and a row that shows up
+    /// twice is a better failure than a row that shows up nowhere.
     @discardableResult
     public func restorePersistedFolders(
-        filtersByID: [String: FileDiscoveryFilter]
+        filtersByID: [String: FileDiscoveryFilter],
+        limitedToFilterIDs: Set<String>? = nil
     ) async -> [WatchedFolderRowState] {
         for record in await bookmarks.all() {
+            if let allowed = limitedToFilterIDs,
+                !record.filterIDs.isEmpty,
+                allowed.isDisjoint(with: record.filterIDs) {
+                continue
+            }
             let filters = record.filterIDs.compactMap { filtersByID[$0] }
             switch await bookmarks.resolveURL(for: record.id) {
             case .success(let url):

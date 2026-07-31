@@ -353,6 +353,18 @@ struct ImprintApp: App {
         ManuscriptEditorInstaller.install()
         #endif
 
+        // ADR-0023 W3 — register imprint's per-kind fan-out BEFORE anything
+        // else asks the chassis registry for the manuscript coordinator.
+        //
+        // The registry is first-ask-wins by design (one `FolderWatchService`
+        // per kind scope), and the sidebar asks during `configure(_:)`. A
+        // coordinator created there would get W4's `.recordingOnly` default —
+        // right for impart/implore, whose file-unit v1 mints no record, and
+        // silently wrong here: watched files would get their index rows and no
+        // manuscript would ever appear. Asking first is the whole fix, and the
+        // ask is cheap (no watcher starts until `start()`).
+        MainActor.assumeIsolated { _ = WatchedManuscriptFolders.coordinator }
+
         // HTTP server is started via ImprintAppDelegate.applicationDidFinishLaunching
     }
 

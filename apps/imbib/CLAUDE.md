@@ -352,6 +352,24 @@ to get wrong later:
   in-memory opens are two databases; provenance is a cross-handle claim and the
   kernel correctly refuses to attribute rows it cannot see.
 
+**W4 made the coordinator per-KIND** (`WatchedFolderIngestCoordinator
+.coordinator(forKindScope:)`, a registry; `.shared` is still imbib's
+publication one and every W2 call site is unchanged). Three things that are
+easy to get wrong in the generalized shape:
+
+- **`WatchedFolderImportHooks.produceRows` is the ONE thing that varies per
+  kind** — one discovered file → the store rows it accounts for. imbib's is the
+  BibTeX initializer, kept verbatim; impart's and implore's is `.recordingOnly`,
+  which mints nothing *by decision* (ADR-0023 W4), not as a stub.
+- **`restorePersistedFolders(limitedToFilterIDs:)` must be narrowed** when more
+  than one coordinator runs. The bookmark store is ONE suite; without the
+  narrowing every coordinator restores every bookmark, and impart writes imbib's
+  `.bib` folder into the store a second time under `kind_scope: message`.
+- **`provenanceTagPath(ofFolder:kindScope:)` is nonisolated on purpose.**
+  `RecordRouteScope.init?(routeScope:)` — the requirement that turns a sidebar
+  selection into a list scope — is nonisolated, and the coordinator is
+  `@MainActor`. Read the published snapshot; do not `assumeIsolated`.
+
 ### Critical Invariants
 
 **Dismissed papers must never re-enter the inbox.** Enforced in: `batch_import_search_results` (Rust `filter_dismissed` checks both new and existing papers), `GroupFeedRefreshService` (Swift `wasDismissed`). Risk: any new import path that doesn't check dismissed status.
@@ -363,6 +381,8 @@ to get wrong later:
 **The manuscript editor session is owned by the HOST view, never by `ManuscriptDetailPane`.** (Chassis invariant — the surface it protects is **imprint's** Manuscripts section since imbib went publications-only; it lives here because the code lives in PMC.) `ManuscriptSectionView` (and imprint's standalone `ManuscriptEditorView`) resolve the session and pass it in. Holding it as `@State` inside the pane made Source/Preview show the *previously selected* manuscript while the Info tab — which reads `manuscriptID` directly — updated correctly: the pane is reused across selection changes, so its local state outlived the input it was derived from. The pane additionally ignores a session whose `manuscriptID` doesn't match (`liveSession`). Resolution is debounced ~90 ms in the section view so holding ↓ flies through the list instead of loading an editor per row. Do NOT "fix" staleness here by adding `.id(manuscriptID)` to the pane — that rebuilds the whole NSTextView per selection and is what made the list feel sluggish.
 
 **Deleting a manuscript must discard its live editor session first** (`ManuscriptSessionRegistry.discard(id:)`, no flush) — otherwise the debounced CAS save fires after the delete and resurrects the body.
+
+**A manuscript whose payload carries `external_source` must never take an editor session** (ADR-0023 D4/W3; the predicate is `WatchedManuscriptGuard.allowsEditorSession(_:)`). It is the invariant above with a worse loser: the row indexes a FILE the user owns and edits elsewhere, so a debounced save landing late would write the store's older copy over somebody's working file. The guard is at session CREATION, not at save, because a session that is never made has no debounce to fire and no buffer to go stale. `body_content` on such a row is a SNAPSHOT — replaced wholesale on every re-read, authoritative nowhere — and imprint-iOS's `IOSManuscriptEditorHost`, which has its own 300 ms debounce rather than the shared session, reads the same guard.
 
 **Only shells that permit `.search` may read the ADS/SciX keychain credentials.** The keychain items (`com.imbib.credentials.ads.apiKey` etc.) are ACL'd to imbib's code signature; when a sibling app (impart/impel/implore, each signed differently) reads them, macOS pops a SecurityAgent password prompt and the synchronous `SecItemCopyMatching` blocks the caller's cooperative-pool thread until the user answers — impart's `/api/logs` (@MainActor route) hung on exactly this. `TabContentView`'s boot task gates the read on `shellConfiguration.permits(.search)`; `testOnlyImbibPermitsSearchSection` keeps the presets honest. Any new chassis code that touches imbib-owned keychain items needs the same gate (or the suite needs a shared keychain access group).
 

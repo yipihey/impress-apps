@@ -103,6 +103,27 @@ curl 'http://localhost:23122/api/logs?category=imap&limit=20'
 
 The MCP tool `impart_get_logs` provides the same access for AI agents. **Always verify new features by checking logs after testing.**
 
+## Watched archive folders (ADR-0023 W4)
+
+impart's Mail section can watch a folder of `.mbox` / `.eml` archives (macOS;
+"Watch Folder for .mbox / .eml Files…" in the section menu). **It indexes them
+and offers them. It does not import mail.**
+
+- Selecting the row opens `WatchedFilesPane` — the archives, their sizes, their
+  missing state, and `Count Messages`, which runs the REAL parser
+  (`imbib_core::mbox::parse_content`) **under a 64 MB ceiling** and refuses
+  above it in a sentence the row renders.
+- **There is no mbox → messages fan-out, and that is the decision, not a TODO.**
+  Three reasons, recorded in the ADR's W4 section: impart has no mbox importer
+  to hand off to (`MessageManagerCore/Mbox/MboxConversationStore` is a
+  *research-conversation* store; PMC's `MboxImporter` imports **imbib library
+  exports** that merely use mbox as a container); mail's lifecycle is IMAP-owned
+  so minted rows would have read state nothing reconciles; and a 2 GB archive
+  fanning out the moment a folder is picked is D7's burst hazard exactly.
+- If a real archive importer is ever built, it belongs behind
+  `WatchedFolderImportHooks.produceRows` for the `message` kind — that closure
+  is the only thing the coordinator needs, and nothing else changes.
+
 ## Project Status
 
 **Current Phase**: Scaffolding - directory structure and placeholder types
