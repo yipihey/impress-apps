@@ -14,11 +14,35 @@ import SwiftUI
 /// - Enter: dismiss the input (filter stays active)
 /// - ESC: clear filter and dismiss
 /// - ?: toggle syntax help
+///
+/// The four appearance knobs below exist for the second adopter, the sidebar's
+/// Tags filter, and every one of them defaults to the publication list's
+/// behaviour so that call site is unchanged. They are knobs on THIS view rather
+/// than a second small filter field because a suite whose whole argument is
+/// "same search/filter paradigm everywhere" cannot afford two of them — but the
+/// publication filter's syntax help is a lie about a field that matches tag
+/// paths, and a field that is always on screen must not steal focus.
 public struct FilterInput: View {
 
     @Binding public var isPresented: Bool
     @Binding public var text: String
     public var matchCount: Int?
+    /// The mode-indicator label. "FILTER" for a list; name the SUBJECT when a
+    /// surface has more than one filterable thing ("TAGS" in the sidebar).
+    public var label: String
+    public var placeholder: String
+    /// The `?` syntax help. It documents the publication query language, so a
+    /// field that filters something else must turn it off rather than offer
+    /// help for grammar it does not implement.
+    public var showsHelp: Bool
+    /// Take keyboard focus on appear. True for a field the user summoned (`/`);
+    /// FALSE for one that is simply part of a surface, which would otherwise
+    /// grab the keyboard every time that surface is drawn.
+    public var autoFocus: Bool
+    /// Identifier for the text FIELD itself. `.accessibilityIdentifier` on this
+    /// view names the container, and automation needs to address the thing it
+    /// types into.
+    public var fieldAccessibilityIdentifier: String?
     public var onTextChanged: ((String) -> Void)?
     public var onDismiss: (() -> Void)?
     public var onCancel: (() -> Void)?
@@ -30,6 +54,11 @@ public struct FilterInput: View {
         isPresented: Binding<Bool>,
         text: Binding<String>,
         matchCount: Int? = nil,
+        label: String = "FILTER",
+        placeholder: String? = nil,
+        showsHelp: Bool = true,
+        autoFocus: Bool = true,
+        fieldAccessibilityIdentifier: String? = nil,
         onTextChanged: ((String) -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
         onCancel: (() -> Void)? = nil
@@ -37,6 +66,12 @@ public struct FilterInput: View {
         self._isPresented = isPresented
         self._text = text
         self.matchCount = matchCount
+        self.label = label
+        self.placeholder = placeholder
+            ?? (showsHelp ? "type to filter... (click ? for help)" : "type to filter...")
+        self.showsHelp = showsHelp
+        self.autoFocus = autoFocus
+        self.fieldAccessibilityIdentifier = fieldAccessibilityIdentifier
         self.onTextChanged = onTextChanged
         self.onDismiss = onDismiss
         self.onCancel = onCancel
@@ -49,12 +84,13 @@ public struct FilterInput: View {
             }
 
             HStack(spacing: 6) {
-                ModeIndicator("FILTER", color: .purple)
+                ModeIndicator(label, color: .purple)
 
-                TextField("type to filter... (click ? for help)", text: $text)
+                TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .focused($isFocused)
+                    .accessibilityIdentifier(fieldAccessibilityIdentifier ?? "filter.field")
                     .onSubmit {
                         // Enter: keep filter active, just dismiss the input
                         isPresented = false
@@ -85,15 +121,17 @@ public struct FilterInput: View {
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
                 }
 
-                Button {
-                    showHelp.toggle()
-                } label: {
-                    Image(systemName: "questionmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(showHelp ? .purple : .secondary)
+                if showsHelp {
+                    Button {
+                        showHelp.toggle()
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(showHelp ? .purple : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Filter syntax help")
                 }
-                .buttonStyle(.plain)
-                .help("Filter syntax help")
 
                 if !text.isEmpty {
                     Button {
@@ -112,6 +150,7 @@ public struct FilterInput: View {
         .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
         .task {
+            guard autoFocus else { return }
             try? await Task.sleep(for: .milliseconds(100))
             isFocused = true
         }

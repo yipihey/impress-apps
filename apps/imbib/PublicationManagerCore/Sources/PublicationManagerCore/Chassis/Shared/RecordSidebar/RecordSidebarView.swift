@@ -189,6 +189,17 @@ public struct RecordSidebarView: View {
     @State private var collapsedSections: Set<SidebarSectionType> =
         SidebarCollapsedStateStore.loadCollapsedSync()
 
+    /// The Tags section's filter text. imbib alone has 23,916 tag definitions,
+    /// so the tree is unusable without one.
+    ///
+    /// ONE string even in composed mode, where five app groups each have their
+    /// own Tags section bound to their own kind. Five fields carrying five
+    /// texts would be five things to keep in your head for one question —
+    /// "which tags are called <this>" — and the answer is more useful across
+    /// the apps than inside one of them. The narrowing is still per-kind,
+    /// because each group's section reads its own vocabulary.
+    @State private var tagFilter = ""
+
     @State private var newFolderRequest: NewFolderRequest?
     @State private var renameRequest: RenameFolderRequest?
 
@@ -217,6 +228,7 @@ public struct RecordSidebarView: View {
         .navigationTitle(title)
         .task { rebuild() }
         .onChange(of: dataVersion) { _, _ in rebuild() }
+        .onChange(of: tagFilter) { _, _ in rebuild() }
         .sheet(item: $newFolderRequest) { request in
             RecordFolderNameSheet(
                 title: request.parent == nil
@@ -253,6 +265,7 @@ public struct RecordSidebarView: View {
         let rows = section.nodes.flattened(expanded: expandedFolders)
         Section {
             if !isCollapsed {
+                tagFilterRow(section, groupID: nil)
                 let content = ForEach(rows, id: \.node.id) { entry in
                     nodeRow(entry.node, depth: entry.depth, section: section, groupID: nil)
                 }
@@ -445,6 +458,7 @@ public struct RecordSidebarView: View {
         let isCollapsed = collapsedComposition.contains(key)
         Section {
             if !isCollapsed {
+                tagFilterRow(section, groupID: group.id)
                 ForEach(groupedRows(section, group: group)) { row in
                     nodeRow(row.node, depth: row.depth, section: section, groupID: group.id)
                 }
@@ -475,6 +489,45 @@ public struct RecordSidebarView: View {
                 id: "\(group.id).\(entry.node.scope.scopeKey)",
                 node: entry.node,
                 depth: entry.depth)
+        }
+    }
+
+    // MARK: - Tag filter
+
+    /// The Tags section's filter field, as its first row. Nothing at all for
+    /// every other section.
+    ///
+    /// A ROW rather than header chrome: a section header on iOS is a compact
+    /// label strip that a text field distorts, and the field belongs to the
+    /// rows it narrows. The shared `ImpressFTUI.FilterInput`, not a local
+    /// `TextField` — with `showsHelp: false` (its `?` documents the publication
+    /// query language, which this field does not implement) and `autoFocus:
+    /// false` (a field that is simply PART of the sidebar must not take the
+    /// keyboard every time the sidebar is drawn, which on a phone means
+    /// throwing up the keyboard over the list the user came to read).
+    ///
+    /// `isPresented` is `.constant(true)`: this field is not summoned and
+    /// cannot be dismissed, so ESC keeps its "clear the filter" half and drops
+    /// its "put the field away" half.
+    @ViewBuilder
+    private func tagFilterRow(_ section: RecordSidebarSectionModel, groupID: String?) -> some View {
+        if section.role == .tags {
+            let suffix = groupID.map { "\($0).\(section.section.rawValue)" }
+                ?? section.section.rawValue
+            FilterInput(
+                isPresented: .constant(true),
+                text: $tagFilter,
+                matchCount: tagFilter.isEmpty ? nil : section.nodes.recursiveCount,
+                label: "TAGS",
+                placeholder: "filter tags...",
+                showsHelp: false,
+                autoFocus: false,
+                fieldAccessibilityIdentifier: "sidebar.tagFilter.\(suffix)")
+                .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                // Not a destination: without this the field is a `List` row and
+                // a tap on it SELECTS, which on a phone pushes the detail column
+                // over the sidebar the moment you reach for the keyboard.
+                .selectionDisabled()
         }
     }
 
@@ -618,7 +671,8 @@ public struct RecordSidebarView: View {
                 composition: composition,
                 host: configuration,
                 order: order,
-                dataSource: dataSource)
+                dataSource: dataSource,
+                tagFilter: tagFilter)
             // The flat concatenation, in group order, is kept for the two
             // things below that are about the sidebar as a WHOLE rather than
             // about any group: the folder-tree read (one per kind, whichever
@@ -632,7 +686,8 @@ public struct RecordSidebarView: View {
             sections = RecordSidebarBuilder.sections(
                 configuration: configuration,
                 order: order,
-                dataSource: dataSource)
+                dataSource: dataSource,
+                tagFilter: tagFilter)
         }
         var folders: [RecordKindID: [RecordFolder]] = [:]
         for section in sections {
@@ -654,6 +709,17 @@ public struct RecordSidebarView: View {
             expandedFolders = Set(
                 sections.flatMap { $0.nodes.flattened(expanded: []) }
                     .map(\.node)
+                    .flatMap(Self.expandableIDs))
+        } else if TagPathFilter.normalized(tagFilter) != nil {
+            // A filtered tag tree EXPANDS to its matches. The rows that survive
+            // are mostly leaves — their parents survive only because a
+            // descendant matched (`TagPathFilter`) — so leaving the user's
+            // collapse state in force would show them a handful of ancestors
+            // and hide every row they typed to find. Only the tags sections,
+            // and only additively: nothing the user collapsed elsewhere moves.
+            expandedFolders.formUnion(
+                sections.filter { $0.role == .tags }
+                    .flatMap { $0.nodes }
                     .flatMap(Self.expandableIDs))
         }
         if selection == nil, horizontalSizeClass != .compact {

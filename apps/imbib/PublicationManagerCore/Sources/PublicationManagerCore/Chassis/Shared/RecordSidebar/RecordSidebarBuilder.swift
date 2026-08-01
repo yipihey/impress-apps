@@ -209,17 +209,26 @@ public enum RecordSidebarBuilder {
     ///   - order: section order (persisted per app); defaults to the suite
     ///     default order.
     ///   - dataSource: the app's store, behind closures.
+    ///   - tagFilter: the Tags section's filter text, or "" for none. It is a
+    ///     BUILD input rather than a post-filter on the returned rows because
+    ///     the tree is derived from the vocabulary: narrowing the paths keeps
+    ///     the parents of matching leaves for free (see `TagPathFilter`).
     @MainActor
     public static func sections(
         configuration: AppShellConfiguration,
         order: [SidebarSectionType]? = nil,
-        dataSource: RecordSidebarDataSource
+        dataSource: RecordSidebarDataSource,
+        tagFilter: String = ""
     ) -> [RecordSidebarSectionModel] {
         let sectionOrder = order ?? SidebarSectionOrderStoreWrapper.defaultOrder
         return configuration.orderedVisibleSections(order: sectionOrder)
             .filter { dataSource.sectionIsAvailable($0) }
             .compactMap { section in
-                self.section(section, configuration: configuration, dataSource: dataSource)
+                self.section(
+                    section,
+                    configuration: configuration,
+                    dataSource: dataSource,
+                    tagFilter: tagFilter)
             }
     }
 
@@ -252,7 +261,8 @@ public enum RecordSidebarBuilder {
         composition: SidebarComposition,
         host: AppShellConfiguration,
         order: [SidebarSectionType]? = nil,
-        dataSource: RecordSidebarDataSource
+        dataSource: RecordSidebarDataSource,
+        tagFilter: String = ""
     ) -> [RecordSidebarGroupModel] {
         composition.groups.map { group in
             RecordSidebarGroupModel(
@@ -260,7 +270,8 @@ public enum RecordSidebarBuilder {
                 sections: sections(
                     configuration: group.configuration(inHost: host),
                     order: order,
-                    dataSource: dataSource))
+                    dataSource: dataSource,
+                    tagFilter: tagFilter))
         }
     }
 
@@ -268,7 +279,8 @@ public enum RecordSidebarBuilder {
     private static func section(
         _ section: SidebarSectionType,
         configuration: AppShellConfiguration,
-        dataSource: RecordSidebarDataSource
+        dataSource: RecordSidebarDataSource,
+        tagFilter: String = ""
     ) -> RecordSidebarSectionModel? {
         let role = RecordSidebarSectionRole.role(for: section)
         let kindID = configuration.effectiveRecordKind(for: section)
@@ -336,7 +348,7 @@ public enum RecordSidebarBuilder {
             // offer the Tags submenu, so a kind cannot be taggable in the menu
             // and unbrowsable in the sidebar, or the reverse.
             nodes = descriptor.triage.canTag
-                ? tagNodes(kind: kindID, dataSource: dataSource)
+                ? tagNodes(kind: kindID, dataSource: dataSource, tagFilter: tagFilter)
                 : []
         case .dismissed:
             nodes = dismissedNodes(kind: kindID, descriptor: descriptor, dataSource: dataSource)
@@ -357,7 +369,14 @@ public enum RecordSidebarBuilder {
             nodes.append(contentsOf: extra)
         }
 
-        guard !nodes.isEmpty || hostContent?.headerScope != nil else { return nil }
+        // A FILTERED Tags section survives its own emptiness. Everywhere else
+        // "no rows" means "this shell cannot serve this", which is the negative
+        // space the sidebar's contract is built on — but a Tags section that
+        // vanished on the first non-matching keystroke would take the filter
+        // FIELD (and the user's focus and text) with it, and "nothing matches
+        // what you typed" is exactly what a filter field exists to say.
+        let keepEmpty = role == .tags && TagPathFilter.normalized(tagFilter) != nil
+        guard !nodes.isEmpty || keepEmpty || hostContent?.headerScope != nil else { return nil }
         return RecordSidebarSectionModel(
             section: section,
             kind: kindID,
@@ -479,12 +498,16 @@ public enum RecordSidebarBuilder {
     /// invented row — matching is descendant-inclusive (`TagPathMatch`), so the
     /// parent selects a real, non-empty set, and its badge counts what it
     /// actually shows. This is the whole reason the scope is not exact-match.
+    ///
+    /// `tagFilter` narrows the VOCABULARY, not the built rows — which is what
+    /// keeps the parents of a matching leaf on screen (see `TagPathFilter`).
     @MainActor
     private static func tagNodes(
         kind: RecordKindID,
-        dataSource: RecordSidebarDataSource
+        dataSource: RecordSidebarDataSource,
+        tagFilter: String = ""
     ) -> [RecordSidebarNode] {
-        let paths = dataSource.tags(kind)
+        let paths = TagPathFilter.retain(dataSource.tags(kind), matching: tagFilter)
         guard !paths.isEmpty else { return [] }
 
         // Every ancestor of every path, so an interior row exists even when the

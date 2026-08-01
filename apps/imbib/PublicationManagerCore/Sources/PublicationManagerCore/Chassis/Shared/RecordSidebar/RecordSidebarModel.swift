@@ -226,6 +226,60 @@ public enum TagPathMatch {
     }
 }
 
+// MARK: - Tag tree filtering
+
+/// The ONE definition of "does this tag path survive the Tags filter field".
+///
+/// imbib alone has 23,916 tag definitions, so the tree is unusable without a
+/// filter — and filtering a TREE is not filtering a list: a node must survive
+/// when IT matches or when any DESCENDANT does, or the user loses the parents
+/// of every matching leaf and the matches become unreachable.
+///
+/// The trick that buys both halves for free is to filter the VOCABULARY rather
+/// than the built rows. Every tree builder in the suite — the chassis's
+/// `RecordSidebarBuilder.tagNodes` and macOS's level-at-a-time
+/// `ImbibSidebarViewModel.tagChildren(under:)` — derives its interior rows FROM
+/// the paths it is handed, so:
+///
+///   * ancestor retention is automatic (`reading` is materialised because
+///     `reading/queue` survived), and
+///   * a query that matches an INTERIOR segment keeps that whole subtree,
+///     because a descendant's full path contains its ancestor's.
+///
+/// The second point is `TagPathMatch`'s descendant-inclusive rule showing up
+/// again on the browse side, which is why the two live next to each other.
+public enum TagPathFilter {
+
+    /// The filter, normalised. nil = no filter is active (empty or blank
+    /// input), which every caller must treat as "keep everything" rather than
+    /// as "match nothing".
+    public static func normalized(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed.lowercased()
+    }
+
+    /// Does one FULL tag path survive `query`?
+    ///
+    /// Substring, case-insensitive, over the whole slash-separated path — NOT
+    /// the leaf alone, so `reading/qu` finds `reading/queue` and typing a
+    /// parent's name keeps its children. Deliberately unlike `TagPathMatch`,
+    /// whose boundary is the separator: that answers "does this record belong
+    /// in the selected scope", where a false positive shows the user the wrong
+    /// papers. This answers "should this row stay on screen while you type",
+    /// where a substring is what a filter field means everywhere else in the
+    /// suite.
+    public static func matches(path: String, query: String) -> Bool {
+        path.lowercased().contains(query)
+    }
+
+    /// The vocabulary, narrowed. Returns `paths` unchanged when no filter is
+    /// active.
+    public static func retain(_ paths: [String], matching raw: String) -> [String] {
+        guard let query = normalized(raw) else { return paths }
+        return paths.filter { matches(path: $0, query: query) }
+    }
+}
+
 extension RecordSidebarScope: RecordScopeKey {
     public var scopeKey: String {
         switch self {
@@ -340,6 +394,16 @@ public struct RecordSidebarNode: Identifiable, Hashable, Sendable {
 }
 
 public extension Array where Element == RecordSidebarNode {
+
+    /// Every row in the tree, at every depth, regardless of what is expanded.
+    ///
+    /// What a filter's match count has to mean: the point of the number beside
+    /// the Tags field is "how much did I just narrow this to", and counting
+    /// only the visible roots would answer a different question — a query
+    /// matching 400 leaves under one parent would read as `1`.
+    var recursiveCount: Int {
+        reduce(0) { $0 + 1 + $1.children.recursiveCount }
+    }
 
     /// Pre-order flattening that stops descending at collapsed rows — the
     /// shape a SwiftUI `List` renders with a depth indent.

@@ -38,13 +38,36 @@ final class RecordSidebarBuilderTests: XCTestCase {
     private func dataSource(
         folders: [RecordFolder] = [],
         counts: [String: Int] = [:],
+        tags: [String] = [],
         available: @escaping (SidebarSectionType) -> Bool = { _ in true }
     ) -> RecordSidebarDataSource {
         RecordSidebarDataSource(
             folders: { _ in folders },
             folderCounts: { _, ids in ids.map { _ in 3 } },
             count: { scope in counts[scope.scopeKey] },
+            tags: { _ in tags },
             sectionIsAvailable: available)
+    }
+
+    /// The Tags section built from `vocabulary`, under `filter`.
+    private func tagSection(
+        _ vocabulary: [String],
+        filter: String = "",
+        configuration: AppShellConfiguration = .imbib
+    ) -> RecordSidebarSectionModel? {
+        RecordSidebarBuilder.sections(
+            configuration: configuration,
+            dataSource: dataSource(tags: vocabulary),
+            tagFilter: filter
+        ).first { $0.section == .tags }
+    }
+
+    /// Every tag path the section renders, at every depth.
+    private func tagPaths(_ section: RecordSidebarSectionModel?) -> [String] {
+        func walk(_ nodes: [RecordSidebarNode]) -> [String] {
+            nodes.flatMap { [$0.scope.tagPath].compactMap { $0 } + walk($0.children) }
+        }
+        return walk(section?.nodes ?? []).sorted()
     }
 
     // MARK: - Config drives the sections
@@ -257,6 +280,94 @@ final class RecordSidebarBuilderTests: XCTestCase {
             AppShellConfiguration.imprint.effectiveRecordKind(for: .manuscripts), .manuscript)
         // A kind the shell does not register never leaks in through the table.
         XCTAssertEqual(AppShellConfiguration.imprint.effectiveRecordKind(for: .mail), nil)
+    }
+
+    // MARK: - Tags
+
+    func testTagVocabularyBecomesATreeWithMaterialisedAncestors() {
+        let section = tagSection(["reading/queue", "reading/done", "grants"])
+        XCTAssertEqual(section?.role, .tags)
+        XCTAssertEqual(
+            tagPaths(section), ["grants", "reading", "reading/done", "reading/queue"],
+            "`reading` is materialised though nothing carries it exactly — it selects a real, "
+                + "non-empty set, because matching is descendant-inclusive")
+        // The LABEL is the leaf; the path is the identity.
+        let reading = section?.nodes.first { $0.scope.tagPath == "reading" }
+        XCTAssertEqual(reading?.title, "reading")
+        XCTAssertEqual(reading?.children.map(\.title), ["done", "queue"])
+    }
+
+    func testTagSectionIsAbsentForAKindThatCannotBeTagged() {
+        // Not a claim about today's descriptors: the gate is `triage.canTag`,
+        // the same declaration `TriageMenu` reads.
+        XCTAssertTrue(PublicationRecordKind.descriptor.triage.canTag)
+        XCTAssertNil(tagSection([]), "an empty vocabulary yields no section, not an empty one")
+    }
+
+    // MARK: - Tag filtering
+
+    func testFilterMatchesTheWholePathCaseInsensitively() {
+        XCTAssertTrue(TagPathFilter.matches(path: "Reading/Queue", query: "queue"))
+        XCTAssertTrue(TagPathFilter.matches(path: "reading/queue", query: "reading/qu"))
+        XCTAssertFalse(TagPathFilter.matches(path: "grants", query: "queue"))
+        // Unlike `TagPathMatch`, whose boundary is the separator: a filter
+        // field is a substring search, and `reading-list` is a legitimate hit
+        // for someone typing "reading".
+        XCTAssertTrue(TagPathFilter.matches(path: "reading-list", query: "reading"))
+        XCTAssertFalse(TagPathMatch.matches(recordTag: "reading-list", scopePath: "reading"))
+    }
+
+    func testBlankFilterKeepsTheWholeVocabulary() {
+        XCTAssertNil(TagPathFilter.normalized("   "))
+        XCTAssertEqual(TagPathFilter.retain(["a", "b"], matching: ""), ["a", "b"])
+        XCTAssertEqual(TagPathFilter.retain(["a", "b"], matching: "  \n "), ["a", "b"])
+    }
+
+    func testFilteringATreeKeepsTheParentsOfMatchingLeaves() {
+        let section = tagSection(
+            ["reading/queue", "reading/done", "grants/nsf"], filter: "queue")
+        XCTAssertEqual(
+            tagPaths(section), ["reading", "reading/queue"],
+            "the parent survives because a DESCENDANT matched — without it the match itself "
+                + "is unreachable, which is the whole difference between filtering a tree "
+                + "and filtering a list")
+    }
+
+    func testFilteringAnInteriorSegmentKeepsItsWholeSubtree() {
+        let section = tagSection(["reading/queue", "reading/done", "grants/nsf"], filter: "reading")
+        XCTAssertEqual(tagPaths(section), ["reading", "reading/done", "reading/queue"])
+    }
+
+    func testAFilteredTagSectionSurvivesItsOwnEmptiness() {
+        // Everywhere else "no rows" means "this shell cannot serve this" and
+        // the section is dropped. A Tags section that vanished on the first
+        // non-matching keystroke would take the filter field with it.
+        let filtered = tagSection(["reading/queue"], filter: "zzz")
+        XCTAssertNotNil(filtered)
+        XCTAssertEqual(filtered?.nodes.count, 0)
+        // A BLANK filter is no filter, so the ordinary rule is back: an empty
+        // vocabulary yields no section rather than an empty one.
+        XCTAssertNil(tagSection([], filter: "   "))
+        XCTAssertEqual(tagPaths(tagSection(["reading/queue"], filter: "   ")),
+                       ["reading", "reading/queue"])
+    }
+
+    func testMatchCountCountsEveryRowNotJustTheRoots() {
+        let section = tagSection(["reading/queue", "reading/done"], filter: "read")
+        XCTAssertEqual(section?.nodes.count, 1, "one root")
+        XCTAssertEqual(section?.nodes.recursiveCount, 3, "…standing for three rows")
+    }
+
+    func testEachPresetsTagsSectionBindsItsOwnKind() {
+        // An empty `sectionBindings` map falls back to the canonical impress
+        // table, where `.tags` is `.publication` — so a shell that forgot to
+        // bind would show PAPER tags. Every preset names its own kind.
+        XCTAssertEqual(tagSection(["a"], configuration: .imbib)?.kind, .publication)
+        XCTAssertEqual(tagSection(["a"], configuration: .imprint)?.kind, .manuscript)
+        XCTAssertEqual(tagSection(["a"], configuration: .implore)?.kind, .figure)
+        XCTAssertEqual(tagSection(["a"], configuration: .impart)?.kind, .message)
+        XCTAssertEqual(tagSection(["a"], configuration: .impel)?.kind, .task)
+        XCTAssertEqual(tagSection(["a"], configuration: .impress)?.kind, .publication)
     }
 
     // MARK: - Status presentation

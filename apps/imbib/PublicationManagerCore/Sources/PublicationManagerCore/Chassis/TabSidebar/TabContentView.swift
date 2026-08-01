@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import ImpressFTUI
 import ImpressKit
 import ImpressSidebar
 import ImpressStoreKit
@@ -55,6 +56,46 @@ public struct TabContentView: View {
     /// SciX library repository for conditional SciX section and content
     private let scixRepository = SciXLibraryRepository.shared
 
+    // MARK: - Tag filter
+
+    /// The Tags section's filter field, at the FOOT of the sidebar.
+    ///
+    /// imbib alone has 23,916 tag definitions, so the tree is unusable without
+    /// one. The foot is where a navigator's filter field lives on this platform
+    /// (Xcode's is in exactly this spot, and this sidebar is a navigator) — and
+    /// unlike the section header, it is a place an `NSOutlineView` row does not
+    /// have to become a text field to reach.
+    ///
+    /// The shared `ImpressFTUI.FilterInput`, in its always-on shape: no `?`
+    /// help (that button documents the publication query language, which this
+    /// field does not implement) and no auto-focus (a field that is simply part
+    /// of the sidebar must not take the keyboard every time the sidebar draws).
+    /// ESC therefore keeps its "clear the filter" half and drops its "put the
+    /// field away" half, because there is nowhere to put it.
+    @ViewBuilder
+    private var tagFilterField: some View {
+        if viewModel.showsTagFilter {
+            Divider()
+            FilterInput(
+                isPresented: .constant(true),
+                text: Binding(
+                    get: { viewModel.tagFilter },
+                    set: { viewModel.tagFilter = $0 }),
+                // The count is the honest report of a narrowing the user cannot
+                // otherwise see the size of — including when it is too broad to
+                // auto-reveal (`tagRevealLimit`).
+                matchCount: viewModel.tagFilter.isEmpty
+                    ? nil : viewModel.filteredTagPaths.count,
+                label: "TAGS",
+                placeholder: "filter tags...",
+                showsHelp: false,
+                autoFocus: false,
+                fieldAccessibilityIdentifier: "sidebar.tagFilter")
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+        }
+    }
+
     // MARK: - Body
 
     public var body: some View {
@@ -68,6 +109,7 @@ public struct TabContentView: View {
                     dataVersion: viewModel.dataVersion,
                     editingNodeID: $viewModel.editingNodeID
                 )
+                tagFilterField
             }
             #else
             Text("iOS sidebar not yet migrated")

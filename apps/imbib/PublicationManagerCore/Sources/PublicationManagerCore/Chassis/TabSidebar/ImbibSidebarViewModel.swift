@@ -348,6 +348,8 @@ final class ImbibSidebarViewModel {
     func refreshFromStore() {
         libraryManager?.loadLibraries()
         refreshFlagCounts()
+        // A structural refresh is exactly when a tag can have appeared or gone.
+        invalidateTagCache()
         // Pull the latest citation-usage records from the shared
         // store. Imprint writes through a separate Swift handle, so
         // imbib's in-process StoreEvent stream never sees those
@@ -590,8 +592,12 @@ final class ImbibSidebarViewModel {
             return true
         case .tags:
             // Content gate, like every other section here: an empty Tags
-            // section is a row that promises browsing and delivers none.
-            return !RustStoreAdapter.shared.listTags().isEmpty
+            // section is a row that promises browsing and delivers none. The
+            // gate is the WHOLE vocabulary, never the filtered one — a section
+            // that disappeared on the first non-matching keystroke would take
+            // the filter field's subject off screen mid-sentence, and "nothing
+            // matches what you typed" is what the field's own count is for.
+            return !tagPaths.isEmpty
         case .sharedWithMe:
             // TODO: sharedWithMeLibraries not yet implemented in LibraryManager
             return false
@@ -1356,7 +1362,89 @@ final class ImbibSidebarViewModel {
             }
     }
 
-    // MARK: Flagged
+    // MARK: Tags
+
+    /// The tag vocabulary, read ONCE per structural refresh.
+    ///
+    /// `listTags()` is an FFI round trip that builds a struct per definition,
+    /// and imbib's vocabulary is 23,916 of them. It was being called once per
+    /// section-visibility check and again for every LEVEL of the tree the user
+    /// expands — and with a filter field above it, once more per keystroke.
+    /// Invalidated by `invalidateTagCache()` on every structural refresh, which
+    /// is the same event that rebuilds the rows this feeds.
+    @ObservationIgnored private var tagPathCache: [String]?
+
+    private var tagPaths: [String] {
+        if let tagPathCache { return tagPathCache }
+        let paths = RustStoreAdapter.shared.listTags().map(\.path)
+        tagPathCache = paths
+        return paths
+    }
+
+    func invalidateTagCache() {
+        tagPathCache = nil
+    }
+
+    /// The Tags section's filter text, from the sidebar's filter field.
+    ///
+    /// Setting it rebuilds the outline and REVEALS the matches (see
+    /// `revealFilteredTags`) — a filtered tree whose matches stay behind
+    /// collapsed parents has answered the user's question and then hidden the
+    /// answer.
+    var tagFilter: String = "" {
+        didSet {
+            guard tagFilter != oldValue else { return }
+            revealFilteredTags()
+            bumpDataVersion()
+        }
+    }
+
+    /// The vocabulary the Tags rows are built from right now.
+    var filteredTagPaths: [String] {
+        TagPathFilter.retain(tagPaths, matching: tagFilter)
+    }
+
+    /// Whether this shell shows the sidebar's tag filter field.
+    ///
+    /// The field is chrome for the Tags SECTION, so it appears on exactly the
+    /// same terms: a shell that permits the section, with a vocabulary to
+    /// filter. In a composed sidebar any one group permitting `.tags` is
+    /// enough — the field narrows all of them, because "which tags are called
+    /// <this>" is a better question across the apps than inside one.
+    var showsTagFilter: Bool {
+        guard !tagPaths.isEmpty else { return false }
+        if let sidebarComposition {
+            return sidebarComposition.groups.contains {
+                $0.configuration(inHost: shellConfiguration).permits(.tags)
+            }
+        }
+        return shellConfiguration.permits(.tags)
+    }
+
+    /// How many surviving paths may be auto-revealed. Above this the user is
+    /// still typing, not yet reading: expanding 10,000 interior rows realises
+    /// them all AND walks the vocabulary once per row. The count is shown in
+    /// the filter field, so a filter too broad to reveal says so rather than
+    /// silently doing less than it appears to.
+    private static let tagRevealLimit = 200
+
+    private func revealFilteredTags() {
+        guard TagPathFilter.normalized(tagFilter) != nil else { return }
+        let surviving = filteredTagPaths
+        guard surviving.count <= Self.tagRevealLimit else { return }
+        // Every ANCESTOR of a surviving path: those are the rows that have to
+        // be open for the match itself to be on screen.
+        var ancestors = Set<UUID>()
+        for path in surviving {
+            let parts = path.split(separator: "/")
+            guard parts.count > 1 else { continue }
+            for depth in 1..<parts.count {
+                ancestors.insert(
+                    ImbibSidebarNodeID.tag(parts[0..<depth].joined(separator: "/")))
+            }
+        }
+        expansionState.expandAll(ancestors)
+    }
 
     /// One LEVEL of the tag tree — the rows directly beneath `parent`, or the
     /// roots when it is nil.
@@ -1367,10 +1455,14 @@ final class ImbibSidebarViewModel {
     /// are materialised even when nothing carries them exactly: matching is
     /// descendant-inclusive (`TagPathMatch`), so an interior row selects a real
     /// set and its badge counts what it shows.
+    ///
+    /// The filter narrows the VOCABULARY, not these rows — which is what keeps
+    /// the parents of a matching leaf on screen, since every level here is
+    /// derived from the paths that survived (`TagPathFilter`).
     private func tagChildren(under parent: String?) -> [ImbibSidebarNode] {
         let depth = parent.map { $0.split(separator: "/").count } ?? 0
         var level = Set<String>()
-        for tag in RustStoreAdapter.shared.listTags().map(\.path) {
+        for tag in filteredTagPaths {
             if let parent, !tag.hasPrefix(parent + "/") { continue }
             let parts = tag.split(separator: "/").map(String.init)
             guard parts.count > depth else { continue }
@@ -1385,6 +1477,8 @@ final class ImbibSidebarViewModel {
             )
         }
     }
+
+    // MARK: Flagged
 
     private func flaggedChildren(
         configuration: AppShellConfiguration? = nil
