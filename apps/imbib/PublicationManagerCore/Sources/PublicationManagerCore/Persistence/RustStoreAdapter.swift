@@ -1555,12 +1555,38 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// Add a tag to publications.
     public func addTag(ids: [UUID], tagPath: String) {
         do {
+            ensureTagDefinition(tagPath)
             let info = try store.addTag(ids: ids.map(\.uuidString), tagPath: tagPath)
             didMutate(structural: false, affectedIDs: Set(ids), kind: .tag)
             UndoCoordinator.shared.registerUndo(info: info)
         } catch {
             Logger.library.error("addTag failed: \(error)")
         }
+    }
+
+    /// The `imbib/tag-definition` row for a path, created when it is missing.
+    ///
+    /// A tag has TWO halves in this store: the envelope fact (`item_tags`,
+    /// written by `add_tag`) and the definition row (`imbib/tag-definition`,
+    /// written by `create_tag`, which is what `list_tags` returns). Applying a
+    /// tag wrote only the first — so a tag the user put on a paper through the
+    /// shared `TriageMenu` existed on the paper and was **invisible to every
+    /// reader of the vocabulary**: the sidebar's Tags tree, the tag manager,
+    /// the pickers. It looked exactly like "that tag isn't there", which is why
+    /// it survived: the paper showed the tag on its own row all along.
+    ///
+    /// `EnrichmentCoordinator` already paired the two calls by hand, which is
+    /// the tell that the pairing belongs below the call sites rather than at
+    /// them. The RIGHT home is `ImbibStore::add_tag` in imbib-core, so the MCP
+    /// and CLI writers get it too; this is the Swift half, done first because
+    /// the GUI is where the vocabulary is read.
+    private func ensureTagDefinition(_ path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        // `listTags` is served from imbib-core's own definitions cache, so the
+        // common case (the tag already exists) costs no query.
+        guard !listTags().contains(where: { $0.path == trimmed }) else { return }
+        createTag(path: trimmed)
     }
 
     /// Remove a tag from publications.

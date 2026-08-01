@@ -80,6 +80,11 @@ enum ImpressA11y {
     static let librariesSection = "sidebar.section.imbib.libraries"
     static let manuscriptsSection = "sidebar.section.imprint.journal"
     static let imbibFlaggedSection = "sidebar.section.imbib.flagged"
+    /// Tags is declared by every preset and BOUND PER APP — imbib's to
+    /// `.publication`, impart's to `.message` — so the composed sidebar has
+    /// five of them over five vocabularies, exactly like Flagged.
+    static let imbibTagsSection = "sidebar.section.imbib.tags"
+    static let impartTagsSection = "sidebar.section.impart.tags"
     static let imprintFlaggedSection = "sidebar.section.imprint.flagged"
     static let imbibDismissedSection = "sidebar.section.imbib.dismissed"
     static let imprintDismissedSection = "sidebar.section.imprint.dismissed"
@@ -135,6 +140,25 @@ enum ImpressA11y {
     static let imbibCitedNode = "sidebar.node.imbib.section.citedInManuscripts.publication"
     static let imprintCitedNode = "sidebar.node.imprint.section.citedInManuscripts.publication"
 
+    /// TAG rows — `sidebar.node.imbib.publication.tag.<full path>`. The row's
+    /// LABEL is the leaf; the identifier carries the whole path, because that
+    /// is the row's identity (`reading/queue` and `writing/queue` must not
+    /// collide). `readingTagNode` is the one no record carries: it exists only
+    /// because the tree materialises interior paths.
+    static let readingTagNode = "sidebar.node.imbib.publication.tag.reading"
+    static let readingQueueTagNode = "sidebar.node.imbib.publication.tag.reading/queue"
+    static let readingDoneTagNode = "sidebar.node.imbib.publication.tag.reading/done"
+    static let grantsTagNode = "sidebar.node.imbib.publication.tag.grants"
+    /// impart's Tags section reads the MESSAGE vocabulary, so this row can only
+    /// exist if the per-app binding is honoured.
+    static let messageTagNode = "sidebar.node.impart.message.tag.engine"
+
+    /// The filter field inside the imbib group's Tags section —
+    /// `sidebar.tagFilter.<group>.<section>`, the identifier on the TEXT FIELD
+    /// rather than on `FilterInput`'s container, because automation types into
+    /// the field.
+    static let imbibTagFilterField = "sidebar.tagFilter.imbib.tags"
+
     /// Library rows carry the library's UUID, which the seed does not choose
     /// (`createLibrary` does), so this is a PREFIX match — imbib's suite
     /// anchors the same way for the same reason.
@@ -181,5 +205,16 @@ enum ImpressSeed {
     static let libraryName = "Engine Papers"
     static let collectionName = "Note G"
     static let publicationTitleFragment = "Notes on the Analytical Engine"
+    static let secondPublicationTitleFragment = "On the Bernoulli Numbers"
     static let manuscriptTitle = "On the Note G Correction"
+
+    /// The tag fixture. `tagParent` is carried by NO record — it is the shared
+    /// prefix of the two leaves, and both halves of the tag contract are
+    /// visible only through it: a row for it at all means the tree materialises
+    /// interior paths, and a non-empty list under it means matching is
+    /// descendant-inclusive.
+    static let tagParent = "reading"
+    static let tagQueue = "reading/queue"
+    static let tagDone = "reading/done"
+    static let tagGrants = "grants"
 }

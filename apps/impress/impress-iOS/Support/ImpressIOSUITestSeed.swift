@@ -104,6 +104,19 @@ enum ImpressIOSUITestSeed {
     static let publicationTitleFragment = "Notes on the Analytical Engine"
     static let secondPublicationTitleFragment = "On the Bernoulli Numbers"
     static let manuscriptTitle = "On the Note G Correction"
+
+    /// The tag fixture. `tagParent` is carried by NOTHING: it exists only as
+    /// the shared prefix of the two leaves, so a Tags section that shows it has
+    /// materialised an interior row, and a list that answers it has matched
+    /// descendants.
+    static let tagParent = "reading"
+    static let tagQueue = "reading/queue"
+    static let tagDone = "reading/done"
+    /// A second root, so filtering has something to REMOVE.
+    static let tagGrants = "grants"
+    /// A message tag, so the impart group's Tags section (bound to `.message`,
+    /// not `.publication`) has its own vocabulary.
+    static let messageTag = "engine/notes"
     /// A markdown manuscript, so the read-only pane's Preview tab has a format
     /// it can actually render without a compiler.
     static let manuscriptFormat = "markdown"
@@ -135,6 +148,15 @@ enum ImpressIOSUITestSeed {
             return
         }
         // Idempotence: one probe, on the kind the shell lands on.
+        //
+        // CONSEQUENCE FOR ANYONE ADDING A FIXTURE: this probe cannot tell "not
+        // seeded" from "seeded by an older build". A simulator that already
+        // holds mail rows skips the whole seed, so a NEW fixture silently never
+        // lands and the test that needs it fails as though the feature were
+        // broken. Uninstall first — `xcrun simctl uninstall <device>
+        // com.impress.impress`, naming the DEVICE, because `booted` is
+        // ambiguous when more than one simulator is running and will happily
+        // uninstall from the other one while you debug the wrong store.
         guard MailStoreReader.shared.fetchAccounts().isEmpty else {
             logger.info("seed: store already seeded")
             return
@@ -208,7 +230,7 @@ enum ImpressIOSUITestSeed {
         // flags and tags are ENVELOPE facts (the chassis reads them off
         // `SharedItemRow`, never out of JSON).
         try store.setFlag(id: messages[1].id, color: "red", style: nil, length: nil)
-        try store.addTag(id: messages[0].id, tag: "engine/notes")
+        try store.addTag(id: messages[0].id, tag: messageTag)
     }
 
     // MARK: - Figures
@@ -310,6 +332,17 @@ enum ImpressIOSUITestSeed {
         }
         store.setStarred(ids: [ids[0]], starred: true)
         store.setFlag(ids: [ids[0]], color: "red")
+        // TAGS, through the SAME verb the shared `TriageMenu` calls — never
+        // `createTag`, which would let the fixture take a path the user cannot.
+        // A two-level path on purpose: `reading` is an INTERIOR row no record
+        // carries exactly, so the Tags section can only show it by
+        // materialising it, and selecting it can only list both papers if
+        // matching is descendant-inclusive (`TagPathMatch`). Those are the two
+        // decisions the tag tree rests on, and this is the fixture that makes
+        // a UI test able to see them.
+        store.addTag(ids: [ids[0]], tagPath: tagQueue)
+        store.addTag(ids: [ids[1]], tagPath: tagDone)
+        store.addTag(ids: [ids[0]], tagPath: tagGrants)
         if let collection = store.createCollection(
             name: collectionName, libraryId: library.id) {
             store.addToCollection(publicationIds: [ids[0]], collectionId: collection.id)
