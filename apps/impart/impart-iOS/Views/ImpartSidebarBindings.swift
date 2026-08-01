@@ -142,8 +142,17 @@ enum ImpartSidebarBindings {
                 case .folder(.message, let id):
                     return snapshot.folderCounts[id]
                 default:
+                    // No `.tag` badge: a count per tag row is one scan per row
+                    // over the message table.
                     return nil
                 }
+            },
+            tags: { kind in
+                // The kind's OWN rows, memoised on this host's version by the
+                // chassis (`RecordTagVocabulary`) — impart has no tag-definition
+                // table to read, so the vocabulary is what its messages carry.
+                guard kind == descriptor.id else { return [] }
+                return RecordTagVocabulary.inUse(kind, version: version)
             },
             sectionIsAvailable: { section in
                 // The CONTENT gate. Mail is available unconditionally: it is the
@@ -152,7 +161,14 @@ enum ImpartSidebarBindings {
                 // landing route and the app with no navigable surface at all.
                 // The empty case is handled where it belongs — the list's empty
                 // state, which says the mirror has not run yet.
-                section == .mail
+                //
+                // Tags is the second section this shell shows, and it IS gated
+                // on content: unlike Mail it is not a landing route, and a Tags
+                // section with nothing under it promises browsing it cannot do.
+                if section == .tags {
+                    return !RecordTagVocabulary.inUse(descriptor.id, version: version).isEmpty
+                }
+                return section == .mail
             },
             sectionContent: { section, _ in
                 sync()

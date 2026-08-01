@@ -133,6 +133,13 @@ public final class SidebarSectionOrderStoreWrapper: Sendable {
         .search,
         .exploration,
         .flagged,
+        // Beside Flagged, which is its sibling: both browse a mark the user put
+        // on a record. This list is not decoration — `orderedVisibleSections`
+        // FILTERS by it, so a section missing here never renders however many
+        // presets opt into it. (`.tags` was, and did not.) The persistence
+        // store back-fills sections added after a user's order was saved, so an
+        // existing install gains the row at the end rather than not at all.
+        .tags,
         .citedInManuscripts,
         .artifacts,
         .manuscripts,

@@ -340,6 +340,16 @@ struct IOSContentView: View {
                 selectedPublicationID: $selectedPublicationID
             )
 
+        case .tag(let path):
+            IOSUnifiedPublicationListWrapper(
+                source: .tag(path),
+                selectedPublicationID: $selectedPublicationID
+            )
+            // The `.id(source.id)` rule: two tag rows are the same view TYPE
+            // with different `let` inputs, so without this, switching from
+            // `reading` to `writing` keeps the first list's rows.
+            .id(PublicationSource.tag(path).viewID)
+
         case .watchedFolder(let folderID):
             if case .tag(let path)? = WatchedFolderIngestCoordinator.shared.publicationSource(
                 for: folderID) {
@@ -569,9 +579,10 @@ struct IOSContentView: View {
             return .collection(colID, "Collection")
 
         case .inbox, .search, .searchForm, .flagged, .citedInManuscripts, .recent, .manuscripts,
-             .dismissed, .watchedFolder, .none:
-            // A watched folder is a cross-library tag scope: `.global` is the
-            // honest context, exactly as `.flagged` is.
+             .dismissed, .tag, .watchedFolder, .none:
+            // A tag scope — a watched folder's or a plain one — crosses every
+            // library by design, so `.global` is the honest context, exactly as
+            // it is for `.flagged`.
             return .global
         }
     }
@@ -699,6 +710,16 @@ enum SidebarSection: Hashable {
     /// coordinator derives from the row's display name, so carrying the tag
     /// here would be a second copy of a derived value.
     case watchedFolder(WatchedFolderID)
+
+    /// Papers carrying one tag path — or any tag beneath it, because tag
+    /// matching is descendant-inclusive (`TagPathMatch`).
+    ///
+    /// The GENERIC sibling of `watchedFolder`: both resolve to
+    /// `PublicationSource.tag(_)`, which is why neither needs a new source
+    /// case. They stay separate routes because a watched folder's row owns
+    /// verbs a tag row must not and carries a folder identity a tag has no
+    /// notion of.
+    case tag(String)
 }
 
 // MARK: - iOS Search View

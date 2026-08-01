@@ -92,6 +92,10 @@ enum ImprintSidebarBindings {
         case .status(_, let status): return .status(status)
         case .folder(_, let id): return .folder(id)
         case .flagged(_, let color): return .flagged(color)
+        // The same `ManuscriptStoreScope.tag` a watched folder's row resolves
+        // to below — W3 built the scope for the folder case; the Tags section
+        // is the general door onto it.
+        case .tag(_, let path): return .tag(path)
         // `.host` is the chassis's seam for rows only the HOST can name
         // (imbib's libraries, saved searches, search forms — see
         // `RecordSidebarScope.host`). ADR-0023 W3 gave imprint its first one:
@@ -159,9 +163,20 @@ enum ImprintSidebarBindings {
                 // the tag would put a number on a row that has just declared it
                 // cannot count, which is the "Spotlight blind spots read as
                 // data loss" risk arriving through the back door.
-                case .folder, .section, .host:
+                // `.tag` badges are DELIBERATELY absent: a count per tag row is
+                // one pass over the models per row, and the vocabulary is
+                // unbounded where the flag colours and statuses above are not.
+                case .folder, .section, .host, .tag:
                     return nil
                 }
+            },
+            tags: { kind in
+                // Genuinely per-KIND, not the workspace vocabulary: the
+                // adapter's `listTags` is the kernel's `tagPathsInUse` over
+                // MANUSCRIPT rows, memoised on `dataVersion`. So imprint's Tags
+                // section offers no row that lists nothing.
+                guard kind == descriptor.id else { return [] }
+                return adapter.listTags()
             },
             sectionIsAvailable: { _ in
                 // The CONTENT gate — "is there anything in it right now" —

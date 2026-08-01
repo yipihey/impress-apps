@@ -98,6 +98,12 @@ final class ImpressSidebarSnapshot {
     private(set) var manuscriptFolders: [RecordFolder] = []
     private(set) var manuscriptCount: Int = 0
 
+    /// The publication tag vocabulary, from imbib's tag-DEFINITION rows.
+    /// Every other kind's is derived from its own rows by
+    /// `RecordTagVocabulary`; publications are the one kind with a table to
+    /// read, and reading it is both cheaper and more complete than a scan.
+    private(set) var publicationTagPaths: [String] = []
+
     func refresh(version newVersion: Int, force: Bool = false) {
         guard force || version != newVersion else { return }
         version = newVersion
@@ -152,6 +158,8 @@ final class ImpressSidebarSnapshot {
                     parentID: row.parentId.flatMap(UUID.init(uuidString:)),
                     sortOrder: Int64(row.sortOrder))
             }
+
+        publicationTagPaths = store.listTags().map(\.path)
     }
 }
 
@@ -214,8 +222,20 @@ enum ImpressSidebarBindings {
                 case .all(.manuscript): return snapshot.manuscriptCount
                 case .section(.citedInManuscripts, _):
                     return snapshot.citedCount > 0 ? snapshot.citedCount : nil
-                default: return nil
+                default:
+                    // No `.tag` badge: one count query per row, over a
+                    // vocabulary that is 23,916 paths on the publication side
+                    // alone.
+                    return nil
                 }
+            },
+            tags: { kind in
+                sync()
+                // Publications have a tag-DEFINITION table; every other kind's
+                // vocabulary is what its own rows carry, memoised by the
+                // chassis on this host's version.
+                if kind == .publication { return snapshot.publicationTagPaths }
+                return RecordTagVocabulary.inUse(kind, version: version)
             },
             // The CONTENT gate. `presenting(_:)` has already removed every
             // section bound to a kind impress-iOS cannot show; this removes the

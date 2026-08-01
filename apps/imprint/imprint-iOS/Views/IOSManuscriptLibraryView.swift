@@ -534,6 +534,11 @@ struct IOSManuscriptLibraryView: View {
             return color.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Flagged"
         case .folder(_, let id):
             return folders.first(where: { $0.id == id })?.name ?? "Folder"
+        // The LEAF, matching the sidebar row the user came from — the full
+        // path is the row's identity, not its label, and the ancestors are the
+        // rows above it.
+        case .tag(_, let path):
+            return path.split(separator: "/").last.map(String.init) ?? path
         // `.host` = a row only the host can name (see `RecordSidebarScope.host`);
         // imprint declares none, so it falls in with the other scopes that mean
         // "the whole list" here.

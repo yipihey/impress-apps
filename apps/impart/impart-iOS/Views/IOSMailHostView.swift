@@ -242,6 +242,10 @@ struct IOSMailHostView: View {
                 .first { $0.id == id }?.name ?? "Mailbox"
         case .flagged(let color):
             return color.map { "\($0.displayName) Flag" } ?? "Flagged"
+        // The LEAF, matching the sidebar row the user came from: the full path
+        // is that row's identity, and its ancestors are the rows above it.
+        case .tag(let path):
+            return path.split(separator: "/").last.map(String.init) ?? path
         case nil:
             return "Mail"
         }

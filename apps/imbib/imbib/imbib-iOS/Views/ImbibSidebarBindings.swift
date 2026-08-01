@@ -132,6 +132,12 @@ final class ImbibSidebarSnapshot {
     private(set) var citedCount: Int = 0
     private(set) var flagTotal: Int = 0
     private(set) var flagCountsByColor: [String: Int] = [:]
+    /// The tag vocabulary, flat and slash-separated — what the Tags section's
+    /// tree is derived from. Read HERE rather than in the closure because
+    /// `listTags()` is an FFI round trip that builds a struct per definition
+    /// (23,916 of them in imbib), and the sidebar's filter field asks for it
+    /// again on every keystroke.
+    private(set) var tagPaths: [String] = []
 
     /// Set by the host once the ADS credential check completes; part of the
     /// version key so the SciX section appears without waiting for a store
@@ -222,6 +228,8 @@ final class ImbibSidebarSnapshot {
         }
         flagTotal = total
         flagCountsByColor = byColor
+
+        tagPaths = store.listTags().map(\.path)
     }
 }
 
@@ -281,6 +289,9 @@ enum ImbibSidebarBindings {
         // `IOSUnifiedPublicationListWrapper(source: .collection(id))`.
         case .folder(_, let id): return .collection(id)
         case .flagged(_, let color): return .flagged(color)
+        // The same destination a watched folder's row lands on — one scope,
+        // two doors (ADR-0023 W2 built the door; this is the general one).
+        case .tag(_, let path): return .tag(path)
         case .section(.inbox, _): return .inbox
         case .section(.citedInManuscripts, _): return .citedInManuscripts
         case .section(.dismissed, _): return .dismissed
@@ -306,6 +317,7 @@ enum ImbibSidebarBindings {
         case .flagged(let color): return .flagged(.publication, color)
         case .citedInManuscripts: return .section(.citedInManuscripts, .publication)
         case .dismissed: return .section(.dismissed, .publication)
+        case .tag(let path): return .tag(.publication, path)
         case .watchedFolder(let id): return WatchedFolderRoute.folder(id).scope(kind: .publication)
         // Routes with no sidebar row of their own.
         case .search, .manuscripts: return ImbibSidebarRoute.contentOnly.scope
@@ -349,8 +361,16 @@ enum ImbibSidebarBindings {
                 case .section(.dismissed, _):
                     return snapshot.dismissedLibrary?.publicationCount
                 default:
+                    // No `.tag` badge, deliberately: a count per tag row is one
+                    // query per row over a 23,916-path vocabulary, and the rows
+                    // are built lazily precisely to avoid that shape.
                     return nil
                 }
+            },
+            tags: { kind in
+                sync()
+                guard kind == .publication else { return [] }
+                return snapshot.tagPaths
             },
             sectionIsAvailable: { section in
                 sync()
@@ -360,6 +380,12 @@ enum ImbibSidebarBindings {
                 switch section {
                 case .inbox, .libraries, .search, .flagged:
                     return true
+                case .tags:
+                    // The WHOLE vocabulary, never the filtered one: a section
+                    // that vanished on the first non-matching keystroke would
+                    // take the filter field with it (same rule as macOS's
+                    // `ImbibSidebarViewModel.shouldShowSection`).
+                    return !snapshot.tagPaths.isEmpty
                 case .sharedWithMe:
                     // `LibraryManager` has no shared-library list on EITHER
                     // platform yet. macOS returns [] here; this shell says so
@@ -502,7 +528,7 @@ enum ImbibSidebarBindings {
             // ANY flag, which is what the old sidebar's header did.
             return RecordSidebarSectionContent(headerScope: .flagged(.publication, nil))
 
-        case .dismissed, .sharedWithMe, .artifacts, .reviewQueue,
+        case .tags, .dismissed, .sharedWithMe, .artifacts, .reviewQueue,
              .manuscripts, .figures, .mail, .agents:
             // Fully declaration-derived (Dismissed: imbib's dismissal is a
             // `.libraryMove`, so the builder emits one opaque row + count) or

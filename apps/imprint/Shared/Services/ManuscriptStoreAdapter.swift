@@ -618,7 +618,13 @@ public final class ManuscriptStoreAdapter {
             // is a post-filter rather than a `payloadEq` — the same shape the
             // flag filter above already takes, for the same reason.
             if case .tag(let path) = scope {
-                guard model.tags.contains(path) else { return false }
+                // DESCENDANT-INCLUSIVE, through the chassis's one authority:
+                // selecting `reading` must list `reading/queue` too, or every
+                // interior row of the Tags tree reads as empty while its
+                // children show rows. `contains(path)` was exact — invisible
+                // while the only constructor was a watched folder's leaf tag
+                // (ADR-0023 W3), wrong the moment a tree could select a parent.
+                guard TagPathMatch.anyMatches(model.tags, scopePath: path) else { return false }
             }
             return true
         })

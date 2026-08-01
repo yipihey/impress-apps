@@ -189,6 +189,13 @@ struct IOSImpressListColumn: View {
                     guard let color else { return true }
                     return flag.color == color
                 }
+        case .tag(let path):
+            // Envelope post-filter through the one matching authority, exactly
+            // as PMC's `FigureListWrapper` does it — never a query argument,
+            // because tags are not in the payload.
+            rows = FigureStoreReader.shared.fetchFigures()
+                .filter { TagPathMatch.anyMatches($0.tags, scopePath: path) }
+                .compactMap(FigureRowData.init(from:))
         }
         return rows
     }
@@ -199,6 +206,24 @@ struct IOSImpressListColumn: View {
             return AgentStoreReader.shared.fetchTasks().compactMap(TaskRowData.init(from:))
         case .tasksByState(let state):
             return AgentStoreReader.shared.fetchTasks(state: state)
+                .compactMap(TaskRowData.init(from:))
+        case .flagged(let color):
+            // The envelope's `flag_color` is the researcher's mark, not the
+            // kernel's state — a different axis, so this crosses every
+            // lifecycle state on purpose.
+            return AgentStoreReader.shared.fetchTasks()
+                .filter { row in
+                    guard let flagColor = row.flagColor else { return false }
+                    if let color { return flagColor == color.rawValue }
+                    return true
+                }
+                .compactMap(TaskRowData.init(from:))
+        case .tag(let path):
+            // TASKS only, and that is the chassis's decision rather than this
+            // host's: an `agent-run` is immutable provenance with no user mark
+            // to browse back, so the Agents section's tag rows bind `.task`.
+            return AgentStoreReader.shared.fetchTasks()
+                .filter { TagPathMatch.anyMatches($0.tags, scopePath: path) }
                 .compactMap(TaskRowData.init(from:))
         case .runs:
             // Unreachable: `.agentRun` is not in `presentableKinds`, so no
