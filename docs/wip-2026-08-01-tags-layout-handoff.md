@@ -1,9 +1,10 @@
 # WIP handoff — 2026-08-01: tag browsing, split-view width, impress icon
 
 **Status: everything below is COMMITTED on `main` and unpushed** (`ce418527`
-→ `92c60256`, eight commits). PMC is at 1,875 tests / 0 failures; imprint's
-unit tests at 112 / 0. Every app target builds on every platform it ships on:
-imbib, imprint, impart, impress macOS + iOS; implore and impel macOS.
+→ HEAD, ten commits). PMC is at 1,881 tests / 0 failures; imprint's unit tests
+at 112 / 0; `ImpressTagsUITests` 4/4 and `ImpressShellUITests` 9/9 in the
+simulator. Every app target builds on every platform it ships on: imbib,
+imprint, impart, impress macOS + iOS; implore and impel macOS.
 
 The driving requirement, from the user:
 **"Every artifact should be flaggable and taggable"** — and tags are
@@ -110,15 +111,41 @@ Source art: `~/Downloads/Gemini_Generated_Image_ojvllsojvllsojvl.png`.
 
 ## 4. NOT DONE
 
-### 4a. RUNTIME verification — do this first
-Everything above compiles and is unit-tested; **no app has been launched to see
-a Tags row, type in the filter, or select a tag**. The repo's own rule is that
-a compile is not a confirmation. Launch imbib, expand Tags, type in the foot
-filter, select an interior row, and watch `/api/logs?category=sidebar` on
-:23120. The two things most likely to be wrong are things unit tests cannot
-see: whether the foot filter steals focus from the outline's type-select, and
-whether `expandAll` reveals matches in an `NSOutlineView` that builds children
-lazily.
+### 4a. RUNTIME verification — done on iOS, BLOCKED on macOS
+`ImpressTagsUITests` (simulator, 4 tests) drives the real app: the section
+renders as a tree with its interior row materialised, an interior row lists
+both descendants' papers, and the filter keeps the parent of a match, drops the
+rest and survives a non-matching keystroke. `MacSidebarTagsTests` (5 tests,
+headless) covers what macOS does differently — level-at-a-time rows and
+expanding a filtered match's ancestors.
+
+**Still unverified: macOS's foot filter as a VIEW** — whether it steals focus
+from the outline's type-select, and whether the reveal reads well in a lazily
+built `NSOutlineView`. Both lanes for that are blocked on this machine:
+
+- XCUITest cannot start a macOS runner — *"The test runner failed to initialize
+  for UI testing. (Underlying Error: Authentication canceled. System
+  authentication is running.)"* Reproduce with any macOS UI test, e.g.
+  `xcodebuild test -scheme imbib -destination 'platform=macOS'
+  -only-testing:imbibUITests/imbibUITests/testOutlineViewExists`.
+- `scripts/run-ui-tests-isolated.sh` (the `testrunner` GUI account over SSH,
+  which exists precisely for this) refuses to connect: **the SSH host key for
+  localhost has changed** and `known_hosts` still holds the old one. That is
+  left for a human — silently rewriting a host key entry is not a thing an
+  agent should do.
+
+Note for whoever runs the simulator suites: the seed's idempotence probe cannot
+tell "not seeded" from "seeded by an older build", so a new fixture silently
+never lands on a simulator that already holds data. Uninstall first, naming the
+DEVICE (`xcrun simctl uninstall <udid> com.impress.impress`) — `booted` is
+ambiguous when two simulators are running and will cheerfully uninstall from the
+other one.
+
+### 4a-bis. The bug that verification found
+Applying a tag did not make it browsable: `add_tag` writes the envelope fact,
+`list_tags` reads `imbib/tag-definition` rows, and nothing on the apply path
+wrote the second. Fixed in `RustStoreAdapter.addTag`; the RIGHT home is
+`ImbibStore::add_tag` in imbib-core so the MCP and CLI writers get it too.
 
 ### 4b. Tag rows are read-only, and two of those are ❌-planned
 Recorded in the matrix rather than left silent:
