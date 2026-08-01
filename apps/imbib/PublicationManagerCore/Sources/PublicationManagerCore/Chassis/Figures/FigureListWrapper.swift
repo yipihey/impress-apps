@@ -321,6 +321,15 @@ public struct FigureListWrapper: View {
                 if let color { return flagColor == color.rawValue }
                 return true
             }
+        case .tag(let path):
+            // Tags live on the item ENVELOPE, not the payload, so this is a
+            // post-filter — the same shape the flag case above takes, and the
+            // reason no store query gains an argument. Descendant-inclusive via
+            // the one authority, so the sidebar's tag tree is selectable at
+            // every level rather than only at its leaves.
+            fetched = reader.fetchFigures().filter {
+                TagPathMatch.anyMatches($0.tags, scopePath: path)
+            }
         }
         let mapped = fetched.compactMap { FigureRowData(from: $0) }
         rows = mapped

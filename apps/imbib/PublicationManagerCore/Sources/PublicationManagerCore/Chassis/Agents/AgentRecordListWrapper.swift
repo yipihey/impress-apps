@@ -338,6 +338,25 @@ public struct AgentRecordListWrapper: View {
         case .runs:
             runRows = reader.fetchRuns().compactMap { AgentRunRowData(from: $0) }
             taskRows = []
+        case .flagged(let color):
+            // TASKS only, never runs — a run is immutable provenance and
+            // carries no user mark to browse back (see the route conformance).
+            taskRows = reader.fetchTasks()
+                .filter { row in
+                    guard let flagColor = row.flagColor else { return false }
+                    if let color { return flagColor == color.rawValue }
+                    return true
+                }
+                .compactMap { TaskRowData(from: $0) }
+            runRows = []
+        case .tag(let path):
+            // Envelope post-filter, like `.flagged` above. Crosses every
+            // kernel state on purpose: a tag is the researcher's grouping and
+            // the kernel's lifecycle is a different axis entirely.
+            taskRows = reader.fetchTasks()
+                .filter { TagPathMatch.anyMatches($0.tags, scopePath: path) }
+                .compactMap { TaskRowData(from: $0) }
+            runRows = []
         }
         // Keep the current selection valid; otherwise select the first row so
         // the detail pane always has something to show.

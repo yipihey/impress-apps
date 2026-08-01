@@ -588,6 +588,10 @@ final class ImbibSidebarViewModel {
         switch section {
         case .inbox, .libraries, .search, .flagged:
             return true
+        case .tags:
+            // Content gate, like every other section here: an empty Tags
+            // section is a row that promises browsing and delivers none.
+            return !RustStoreAdapter.shared.listTags().isEmpty
         case .sharedWithMe:
             // TODO: sharedWithMeLibraries not yet implemented in LibraryManager
             return false
@@ -682,6 +686,9 @@ final class ImbibSidebarViewModel {
                 .map { makeSectionNode($0) }
         case .section(let sectionType):
             return sectionChildren(sectionType, configuration: node.appGroup?.configuration)
+        case .tag(let path):
+            // The tag tree nests to any depth, one level per expand.
+            return tagChildren(under: path)
         case .library(let libraryID):
             return libraryCollectionChildren(libraryID: libraryID)
         case .libraryCollection(let collectionID, let libraryID):
@@ -724,6 +731,8 @@ final class ImbibSidebarViewModel {
             return explorationChildren()
         case .flagged:
             return flaggedChildren(configuration: configuration)
+        case .tags:
+            return tagChildren(under: nil)
         case .artifacts:
             return artifactsChildren()
         case .dismissed:
@@ -1349,6 +1358,34 @@ final class ImbibSidebarViewModel {
 
     // MARK: Flagged
 
+    /// One LEVEL of the tag tree — the rows directly beneath `parent`, or the
+    /// roots when it is nil.
+    ///
+    /// Level-at-a-time rather than a whole tree because this sidebar builds
+    /// children lazily (`rawChildren(of:)`), which is what keeps a vocabulary
+    /// of thousands of tags from being walked on every rebuild. Interior paths
+    /// are materialised even when nothing carries them exactly: matching is
+    /// descendant-inclusive (`TagPathMatch`), so an interior row selects a real
+    /// set and its badge counts what it shows.
+    private func tagChildren(under parent: String?) -> [ImbibSidebarNode] {
+        let depth = parent.map { $0.split(separator: "/").count } ?? 0
+        var level = Set<String>()
+        for tag in RustStoreAdapter.shared.listTags().map(\.path) {
+            if let parent, !tag.hasPrefix(parent + "/") { continue }
+            let parts = tag.split(separator: "/").map(String.init)
+            guard parts.count > depth else { continue }
+            level.insert(parts[0...depth].joined(separator: "/"))
+        }
+        return level.sorted().map { path in
+            ImbibSidebarNode(
+                id: ImbibSidebarNodeID.tag(path),
+                nodeType: .tag(path: path),
+                displayName: path.split(separator: "/").last.map(String.init) ?? path,
+                iconName: "tag"
+            )
+        }
+    }
+
     private func flaggedChildren(
         configuration: AppShellConfiguration? = nil
     ) -> [ImbibSidebarNode] {
@@ -1678,6 +1715,21 @@ final class ImbibSidebarViewModel {
             return .draggable
         case .flagColor:
             return .draggable
+        case .tag:
+            // EXPLICIT rather than left to `default`, because "read-only" is a
+            // decision here and not an omission (the matrix row records both
+            // halves as ❌-planned rather than ➖):
+            //  * rename / delete — a tag path is vocabulary shared by every
+            //    kind that carries it. Renaming the ROW would fork the
+            //    vocabulary for everything this shell cannot see; the honest
+            //    verb is a store-wide rewrite that has no Rust seam yet.
+            //  * drag — tag rows are alphabetical. There is no user order to
+            //    persist, which is exactly what `.flagColor` above has.
+            //  * drop — SHOULD apply the tag, and does not yet:
+            //    `handlePublicationDrop` has no `.tag` arm, and claiming
+            //    `.droppable` before it does would give the row a drop
+            //    highlight and then swallow the papers.
+            return .readOnly
         case .scixLibrary:
             return [.draggable, .droppable]
         case .explorationSearch:

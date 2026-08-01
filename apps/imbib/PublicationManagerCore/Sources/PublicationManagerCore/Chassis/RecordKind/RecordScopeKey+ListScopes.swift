@@ -73,9 +73,16 @@ public enum FigureListScope: Hashable, Sendable {
     case unfiled
     case folder(UUID)
     case flagged(FlagColor?)
+    /// Every figure carrying one tag path. See `RecordSidebarScope.tag`.
+    case tag(String)
 
     var folderID: UUID? {
         if case .folder(let id) = self { return id }
+        return nil
+    }
+    /// The tag this scope filters on, if any.
+    var tagPath: String? {
+        if case .tag(let path) = self { return path }
         return nil
     }
     /// PUBLIC since ADR-0022 D9: a shell outside PMC labels its list column
@@ -89,6 +96,9 @@ public enum FigureListScope: Hashable, Sendable {
         case .folder: return "Folder"
         case .flagged(let color):
             return color.map { "\($0.displayName) Flag" } ?? "Flagged"
+        // The leaf, not the whole path — the sidebar row above already says
+        // which branch of the tag tree this is (same rule as manuscripts).
+        case .tag(let path): return path.split(separator: "/").last.map(String.init) ?? path
         }
     }
 }
@@ -102,6 +112,19 @@ public enum MessageListScope: Hashable, Sendable {
     /// One mail folder (envelope parentId filter).
     case folder(UUID)
     case flagged(FlagColor?)
+    /// Every message carrying one tag path. See `RecordSidebarScope.tag`.
+    ///
+    /// Tags are the one organising verb mail HAS: IMAP owns mailboxes, so
+    /// `.folder` is read-only and `MessageListWrapper` offers no move. A tag is
+    /// stored on OUR side of the boundary, which makes this the first way a
+    /// user can group mail across accounts without touching the server.
+    case tag(String)
+
+    /// The tag this scope filters on, if any.
+    var tagPath: String? {
+        if case .tag(let path) = self { return path }
+        return nil
+    }
 
     /// PUBLIC since ADR-0022 D9: a shell outside PMC labels its list column
     /// with it. impress-iOS is the first host to route more than one kind, so
@@ -114,6 +137,7 @@ public enum MessageListScope: Hashable, Sendable {
         case .folder: return "Folder"
         case .flagged(let color):
             return color.map { "\($0.displayName) Flag" } ?? "Flagged"
+        case .tag(let path): return path.split(separator: "/").last.map(String.init) ?? path
         }
     }
 }
@@ -126,6 +150,23 @@ public enum AgentListScope: Hashable, Sendable {
     case runs
     /// Tasks in one kernel lifecycle state (raw payload `state` value).
     case tasksByState(String)
+    /// Flagged tasks; nil colour = any flag.
+    ///
+    /// A flag is the user's OWN mark, which is why this is not the kernel
+    /// overreach it looks like. The kernel owns a task's `state` — that moves
+    /// only through `TaskStoreApi.transition` — but the envelope's
+    /// `flag_color` is nobody's but the researcher's, and `TriageMenu` has
+    /// offered Star/Flag/Tags on task rows since Stage 2-C. Until now there
+    /// was no scope to browse the result back.
+    case flagged(FlagColor?)
+    /// Tasks carrying one tag path. See `RecordSidebarScope.tag`.
+    case tag(String)
+
+    /// The tag this scope filters on, if any.
+    var tagPath: String? {
+        if case .tag(let path) = self { return path }
+        return nil
+    }
 
     /// PUBLIC since ADR-0022 D9: a shell outside PMC labels its list column
     /// with it. impress-iOS is the first host to route more than one kind, so
@@ -137,6 +178,9 @@ public enum AgentListScope: Hashable, Sendable {
         case .runs: return "Runs"
         case .tasksByState(let state):
             return AgentStoreReader.stateDisplayName(state)
+        case .flagged(let color):
+            return color.map { "\($0.displayName) Flag" } ?? "Flagged"
+        case .tag(let path): return path.split(separator: "/").last.map(String.init) ?? path
         }
     }
 
@@ -177,6 +221,7 @@ extension FigureListScope: RecordScopeKey {
         case .unfiled: return "figures-unfiled"
         case .folder(let id): return "figures-folder-\(id.uuidString)"
         case .flagged(let color): return "figures-flagged-\(color?.rawValue ?? "any")"
+        case .tag(let path): return "figures-tag-\(path)"
         }
     }
 
@@ -192,6 +237,7 @@ extension MessageListScope: RecordScopeKey {
         case .account(let id): return "messages-account-\(id.uuidString)"
         case .folder(let id): return "messages-folder-\(id.uuidString)"
         case .flagged(let color): return "messages-flagged-\(color?.rawValue ?? "any")"
+        case .tag(let path): return "messages-tag-\(path)"
         }
     }
 
@@ -206,6 +252,8 @@ extension AgentListScope: RecordScopeKey {
         case .tasks: return "agents-tasks"
         case .runs: return "agents-runs"
         case .tasksByState(let state): return "agents-tasks-state-\(state)"
+        case .flagged(let color): return "agents-flagged-\(color?.rawValue ?? "any")"
+        case .tag(let path): return "agents-tag-\(path)"
         }
     }
 
@@ -244,6 +292,12 @@ extension ManuscriptListScope: RecordRouteScope {
             // `flatMap` matches the legacy conversion in SectionContentView:
             // an unknown colour degrades to "any flag", never to no rows.
             self = .flagged(raw.flatMap { FlagColor(rawValue: $0) })
+        case .tag(.manuscript, let path):
+            // The GENERIC tag row. W3's watched-folder rows keep arriving as
+            // `.host` below and resolve to the same `.tag` scope — one list
+            // scope, two routes, because a watched folder's tag is discovered
+            // from its coordinator while a tag-tree row already knows its path.
+            self = .tag(path)
         case .host(.manuscript, let key):
             // ADR-0023 W3 — a watched manuscript folder's row. The route
             // carries the folder's ID; the tag's leaf is its DISPLAY NAME, and
@@ -290,6 +344,8 @@ extension FigureListScope: RecordRouteScope {
             self = .folder(id)
         case .flagged(.figure, let raw):
             self = .flagged(raw.flatMap { FlagColor(rawValue: $0) })
+        case .tag(.figure, let path):
+            self = .tag(path)
         default:
             return nil
         }
@@ -327,6 +383,8 @@ extension MessageListScope: RecordRouteScope {
             self = .folder(id)
         case .flagged(.message, let raw):
             self = .flagged(raw.flatMap { FlagColor(rawValue: $0) })
+        case .tag(.message, let path):
+            self = .tag(path)
         default:
             return nil
         }
@@ -345,6 +403,14 @@ extension AgentListScope: RecordRouteScope {
             self = .tasks
         case .status(.task, let state):
             self = .tasksByState(state)
+        // Flag and tag rows bind `.task`, never `.agentRun`: a run is immutable
+        // provenance (matrix row `agentRunsAll`), so there is no user mark on it
+        // to browse back. `isRunScope` stays false for both, which is what keeps
+        // `descriptor` resolving to the TASK descriptor for their grammar.
+        case .flagged(.task, let raw):
+            self = .flagged(raw.flatMap { FlagColor(rawValue: $0) })
+        case .tag(.task, let path):
+            self = .tag(path)
         default:
             return nil
         }
@@ -416,6 +482,12 @@ extension PublicationSource: RecordRouteScope {
             // `flatMap` matches every other conformance: an unknown colour
             // degrades to "any flag", never to no rows.
             self = .flagged(raw.flatMap { FlagColor(rawValue: $0)?.rawValue })
+        case .tag(.publication, let path):
+            // `PublicationSource.tag` has existed and been Rust-backed since
+            // ADR-0023 W2 — the watched-folder rows are its only constructor
+            // today. This is the generic route onto the same scope, so imbib's
+            // tag tree and a watched folder land on one list path.
+            self = .tag(path)
         case .section(.citedInManuscripts, _):
             self = .citedInManuscripts
         case .section(.dismissed, _):

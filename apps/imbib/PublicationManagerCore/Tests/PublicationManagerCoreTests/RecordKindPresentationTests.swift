@@ -179,7 +179,7 @@ final class RecordKindPresentationTests: XCTestCase {
             (.flagged, .flagged), (.citedInManuscripts, .opaque),
             (.artifacts, .primary), (.manuscripts, .primary), (.figures, .primary),
             (.mail, .primary), (.agents, .primary), (.reviewQueue, .opaque),
-            (.dismissed, .dismissed),
+            (.dismissed, .dismissed), (.tags, .tags),
         ]
         XCTAssertEqual(
             frozen.count, SidebarSectionType.allCases.count,

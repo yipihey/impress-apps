@@ -260,7 +260,7 @@ final class MessageRecordKindTests: XCTestCase {
     func testImpartPresetMatchesContract() {
         let c = AppShellConfiguration.impart
         XCTAssertEqual(c.appID, "impart")
-        XCTAssertEqual(c.visibleSections, [.mail], "Flagged is deliberately skipped in v1")
+        XCTAssertEqual(c.visibleSections, [.mail, .tags], "Flagged is deliberately skipped in v1; Tags is not — every artifact is taggable")
         XCTAssertEqual(c.defaultSection, .mail)
         XCTAssertEqual(c.defaultDetailTab, .info)
         XCTAssertEqual(c.openBehavior(for: .message), .detailPane)
@@ -291,7 +291,7 @@ final class MessageRecordKindTests: XCTestCase {
             makeView: { AnyView(EmptyView()) })
         let extended = AppShellConfiguration.impart.withCustomSurfaces([surface])
         XCTAssertEqual(extended.appID, "impart")
-        XCTAssertEqual(extended.visibleSections, [.mail])
+        XCTAssertEqual(extended.visibleSections, [.mail, .tags])
         XCTAssertEqual(extended.defaultSection, .mail)
         XCTAssertEqual(extended.customSurfaces["chat"]?.title, "Chat")
         XCTAssertNotEqual(extended, .impart, "surface ids participate in equality")

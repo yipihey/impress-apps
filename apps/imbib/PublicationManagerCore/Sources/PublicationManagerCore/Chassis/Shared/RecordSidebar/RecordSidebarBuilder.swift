@@ -126,6 +126,16 @@ public struct RecordSidebarDataSource {
     /// Badge count for a non-folder scope, or nil for "no badge".
     public var count: (RecordSidebarScope) -> Int?
 
+    /// Every tag path in use, flat and slash-separated; the builder assembles
+    /// the tree the same way `folders` becomes one. Defaults to empty, so a
+    /// host that has not wired tags yet simply shows no Tags section rather
+    /// than an empty one.
+    ///
+    /// It is per-KIND because a shell showing three kinds should not offer a
+    /// figure tag under Mail. A host that cannot cheaply narrow may return the
+    /// whole vocabulary; the counts will then be honest and some rows zero.
+    public var tags: (RecordKindID) -> [String]
+
     /// The host's CONTENT gate, on top of the configuration's
     /// `permits`/`passesFacetGate` — visibility is the intersection of all
     /// three, exactly as on macOS (`ImbibSidebarViewModel.shouldShowSection`
@@ -145,6 +155,7 @@ public struct RecordSidebarDataSource {
             ids.map { _ in 0 }
         },
         count: @escaping (RecordSidebarScope) -> Int? = { _ in nil },
+        tags: @escaping (RecordKindID) -> [String] = { _ in [] },
         sectionIsAvailable: @escaping (SidebarSectionType) -> Bool = { _ in true },
         sectionContent: @escaping (SidebarSectionType, RecordKindID?)
             -> RecordSidebarSectionContent? = { _, _ in nil }
@@ -152,6 +163,7 @@ public struct RecordSidebarDataSource {
         self.folders = folders
         self.folderCounts = folderCounts
         self.count = count
+        self.tags = tags
         self.sectionIsAvailable = sectionIsAvailable
         self.sectionContent = sectionContent
     }
@@ -319,6 +331,13 @@ public enum RecordSidebarBuilder {
             nodes = descriptor.triage.canFlag
                 ? flaggedNodes(kind: kindID, dataSource: dataSource)
                 : []
+        case .tags:
+            // `canTag` is the SAME declaration the shared TriageMenu reads to
+            // offer the Tags submenu, so a kind cannot be taggable in the menu
+            // and unbrowsable in the sidebar, or the reverse.
+            nodes = descriptor.triage.canTag
+                ? tagNodes(kind: kindID, dataSource: dataSource)
+                : []
         case .dismissed:
             nodes = dismissedNodes(kind: kindID, descriptor: descriptor, dataSource: dataSource)
         case .opaque:
@@ -448,6 +467,60 @@ public enum RecordSidebarBuilder {
                 // renderer has nothing to tint from and every flag reads grey.
                 flagColor: color)
         }
+    }
+
+    // MARK: Tags
+
+    /// The kind's tag vocabulary as a TREE, derived from the slash-separated
+    /// paths the way `folderNodes` derives one from `parentID`.
+    ///
+    /// Interior paths are materialised even when no record carries them
+    /// exactly: `reading/queue` alone yields a `reading` parent. That is not an
+    /// invented row — matching is descendant-inclusive (`TagPathMatch`), so the
+    /// parent selects a real, non-empty set, and its badge counts what it
+    /// actually shows. This is the whole reason the scope is not exact-match.
+    @MainActor
+    private static func tagNodes(
+        kind: RecordKindID,
+        dataSource: RecordSidebarDataSource
+    ) -> [RecordSidebarNode] {
+        let paths = dataSource.tags(kind)
+        guard !paths.isEmpty else { return [] }
+
+        // Every ancestor of every path, so an interior row exists even when the
+        // store's vocabulary only names leaves.
+        var allPaths = Set<String>()
+        for path in paths {
+            let parts = path.split(separator: "/").map(String.init)
+            guard !parts.isEmpty else { continue }
+            for depth in 1...parts.count {
+                allPaths.insert(parts[0..<depth].joined(separator: "/"))
+            }
+        }
+
+        func children(of parent: String?) -> [RecordSidebarNode] {
+            let depth = parent.map { $0.split(separator: "/").count } ?? 0
+            return allPaths
+                .filter { path in
+                    let parts = path.split(separator: "/")
+                    guard parts.count == depth + 1 else { return false }
+                    guard let parent else { return true }
+                    return path.hasPrefix(parent + "/")
+                }
+                .sorted()
+                .map { path in
+                    let scope = RecordSidebarScope.tag(kind, path)
+                    return RecordSidebarNode(
+                        scope: scope,
+                        // The LEAF: the row's ancestors are its parent rows, so
+                        // repeating the path would restate the tree in text.
+                        title: path.split(separator: "/").last.map(String.init) ?? path,
+                        systemImage: "tag",
+                        count: dataSource.count(scope),
+                        children: children(of: path))
+                }
+        }
+        return children(of: nil)
     }
 
     @MainActor

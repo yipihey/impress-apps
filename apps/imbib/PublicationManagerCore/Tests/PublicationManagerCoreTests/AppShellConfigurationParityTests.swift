@@ -37,7 +37,7 @@ final class AppShellConfigurationParityTests: XCTestCase {
             c.visibleSections,
             [
                 .inbox, .libraries, .sharedWithMe, .scixLibraries, .search,
-                .exploration, .flagged, .citedInManuscripts, .artifacts,
+                .exploration, .flagged, .tags, .citedInManuscripts, .artifacts,
                 .reviewQueue, .dismissed,
             ],
             "imbib surfaces publication-centric sections only"
@@ -88,7 +88,7 @@ final class AppShellConfigurationParityTests: XCTestCase {
         XCTAssertEqual(c.openBehavior(for: .manuscript), .window(id: "manuscript-editor"))
         XCTAssertEqual(
             c.visibleSections,
-            [.manuscripts, .citedInManuscripts, .flagged, .dismissed]
+            [.manuscripts, .citedInManuscripts, .flagged, .tags, .dismissed]
         )
         XCTAssertEqual(c.defaultSection, .manuscripts)
         XCTAssertEqual(c.defaultDetailTab, .source)

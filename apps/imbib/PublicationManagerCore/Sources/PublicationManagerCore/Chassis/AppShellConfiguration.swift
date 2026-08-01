@@ -208,6 +208,7 @@ public struct AppShellConfiguration: Sendable {
             .search,
             .exploration,
             .flagged,
+            .tags,
             .citedInManuscripts,
             .artifacts,
             .reviewQueue,
@@ -217,6 +218,7 @@ public struct AppShellConfiguration: Sendable {
         defaultDetailTab: .info,
         sectionBindings: [
             .flagged: .publication,
+            .tags: .publication,
             .dismissed: .publication,
         ],
         auxiliaryRoutes: [.submissionsInbox],
@@ -228,11 +230,12 @@ public struct AppShellConfiguration: Sendable {
     /// the Source tab. No libraries / Inbox / SciX / search forms.
     public static let imprint = AppShellConfiguration(
         appID: "imprint",
-        visibleSections: [.manuscripts, .citedInManuscripts, .flagged, .dismissed],
+        visibleSections: [.manuscripts, .citedInManuscripts, .flagged, .tags, .dismissed],
         defaultSection: .manuscripts,
         defaultDetailTab: .source,
         sectionBindings: [
             .flagged: .manuscript,
+            .tags: .manuscript,
             .dismissed: .manuscript,
         ],
         auxiliaryRoutes: [],
@@ -247,7 +250,7 @@ public struct AppShellConfiguration: Sendable {
     /// `withCustomSurfaces(_:)` in ImploreChassisRoot.
     public static let implore = AppShellConfiguration(
         appID: "implore",
-        visibleSections: [.figures],
+        visibleSections: [.figures, .tags],
         defaultSection: .figures,
         defaultDetailTab: .info,
         recordKinds: RecordKindRegistry([
@@ -256,7 +259,10 @@ public struct AppShellConfiguration: Sendable {
             ArtifactRecordKind.descriptor,
             FigureRecordKind.descriptor,
         ]),
-        sectionBindings: [:],
+        // Tags must bind THIS app's kind: an empty map falls back to the
+        // canonical impress table, where `.tags` is `.publication` — so a
+        // silent inherit would put paper tags in this shell's sidebar.
+        sectionBindings: [.tags: .figure],
         auxiliaryRoutes: [],
         openOverrides: [:]   // figure's descriptor default is .window(id: "canvas")
     )
@@ -269,7 +275,7 @@ public struct AppShellConfiguration: Sendable {
     /// a `.flagged: .message` binding + routing).
     public static let impart = AppShellConfiguration(
         appID: "impart",
-        visibleSections: [.mail],
+        visibleSections: [.mail, .tags],
         defaultSection: .mail,
         defaultDetailTab: .info,
         recordKinds: RecordKindRegistry([
@@ -278,7 +284,10 @@ public struct AppShellConfiguration: Sendable {
             ArtifactRecordKind.descriptor,
             MessageRecordKind.descriptor,
         ]),
-        sectionBindings: [:],
+        // Tags must bind THIS app's kind: an empty map falls back to the
+        // canonical impress table, where `.tags` is `.publication` — so a
+        // silent inherit would put paper tags in this shell's sidebar.
+        sectionBindings: [.tags: .message],
         auxiliaryRoutes: [],
         openOverrides: [:]   // message's descriptor default is .detailPane
     )
@@ -292,7 +301,7 @@ public struct AppShellConfiguration: Sendable {
     /// `.flagged: .task` binding + routing).
     public static let impel = AppShellConfiguration(
         appID: "impel",
-        visibleSections: [.agents],
+        visibleSections: [.agents, .tags],
         defaultSection: .agents,
         defaultDetailTab: .info,
         recordKinds: RecordKindRegistry([
@@ -302,7 +311,10 @@ public struct AppShellConfiguration: Sendable {
             TaskRecordKind.descriptor,
             AgentRunRecordKind.descriptor,
         ]),
-        sectionBindings: [:],
+        // Tags must bind THIS app's kind: an empty map falls back to the
+        // canonical impress table, where `.tags` is `.publication` — so a
+        // silent inherit would put paper tags in this shell's sidebar.
+        sectionBindings: [.tags: .task],
         auxiliaryRoutes: [],
         openOverrides: [:]   // task/agent-run descriptor default is .detailPane
     )
@@ -375,6 +387,7 @@ public struct AppShellConfiguration: Sendable {
             .search,
             .exploration,
             .flagged,
+            .tags,
             .citedInManuscripts,
             .artifacts,
             .manuscripts,
@@ -395,6 +408,7 @@ public struct AppShellConfiguration: Sendable {
             .search: .publication,
             .exploration: .publication,
             .flagged: .publication,
+            .tags: .publication,
             .citedInManuscripts: .publication,
             .artifacts: .artifact,
             .manuscripts: .manuscript,

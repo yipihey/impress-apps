@@ -19,6 +19,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
     case search
     case exploration
     case flagged
+    case tags
     case citedInManuscripts
     case artifacts
     /// The Manuscripts section (GUI-meld plan §5): one section absorbing the
@@ -53,6 +54,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .search: return "Search"
         case .exploration: return "Exploration"
         case .flagged: return "Flagged"
+        case .tags: return "Tags"
         case .citedInManuscripts: return "Cited in Manuscripts"
         case .artifacts: return "Artifacts"
         case .manuscripts: return "Manuscripts"
@@ -73,6 +75,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .search: return "magnifyingglass"
         case .exploration: return "sparkle.magnifyingglass"
         case .flagged: return "flag.fill"
+        case .tags: return "tag.fill"
         case .citedInManuscripts: return "text.book.closed.fill"
         case .artifacts: return "archivebox"
         case .manuscripts: return "doc.text.image"
@@ -96,6 +99,8 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         switch self {
         case .flagged:
             return .flagged
+        case .tags:
+            return .tags
         case .dismissed:
             return .dismissed
         // Sections whose rows the HOST resolves: they have no finer

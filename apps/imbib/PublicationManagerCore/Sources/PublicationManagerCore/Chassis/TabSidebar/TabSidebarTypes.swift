@@ -57,6 +57,16 @@ public enum ImbibTab: Hashable {
     /// resolves to `.publicationList(.tag(_))` with no lookup and no new
     /// `PublicationSource` case.
     case watchedFolder(WatchedFolderID, tagPath: String)
+
+    /// One row of the Tags section — papers carrying a tag path (or any tag
+    /// beneath it; see `TagPathMatch`).
+    ///
+    /// The GENERIC sibling of `watchedFolder` above: both resolve to
+    /// `.publicationList(.tag(_))`, which is why neither needs a new
+    /// `PublicationSource` case. They stay separate tabs because a watched
+    /// folder's row owns verbs a tag row must not (Refresh, Stop Watching,
+    /// Reveal in Finder) and carries a folder identity a tag has no notion of.
+    case tag(path: String)
     case allArtifacts
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed

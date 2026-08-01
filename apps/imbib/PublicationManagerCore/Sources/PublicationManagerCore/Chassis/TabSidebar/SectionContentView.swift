@@ -232,6 +232,10 @@ struct SectionContentView: View {
             return .citedInManuscripts
         case .recent:
             return .recent
+        case .tag(let path):
+            // The Tags section's rows land on the SAME source as a watched
+            // folder's below — one scope, two ways in.
+            return .tag(path)
         case .watchedFolder(_, let tagPath):
             // ADR-0023 W2: a folder's papers ARE its provenance tag. No new
             // `PublicationSource` case, no new query — `.tag` is fully
@@ -275,11 +279,13 @@ struct SectionContentView: View {
         case .citedInManuscripts, .recent:
             // Cross-library pseudo source — no owning library.
             return nil
-        case .watchedFolder:
+        case .tag, .watchedFolder:
             // A watched folder imports INTO the default library, but its list
             // is a cross-library tag scope: naming an owning library here would
             // scope the toolbar's per-library affordances to a library the
-            // folder does not own.
+            // folder does not own. A plain tag row is the same story without
+            // even a default library to be tempted by — a tag crosses every
+            // library by design, which is much of why it is useful.
             return nil
         case .allArtifacts, .artifactType, .reviewQueue:
             return nil

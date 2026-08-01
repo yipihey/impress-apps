@@ -208,7 +208,7 @@ struct IOSImpressListColumn: View {
     }
 
     /// PMC's OWN manuscript reads (`RustStoreAdapter`), not ImprintCore's
-    /// adapter — impress links no imprint core. The four cases are the four
+    /// adapter — impress links no imprint core. The five cases are the five
     /// `ManuscriptListScope` cases, one query each.
     @MainActor
     private static func loadManuscripts(_ scope: ManuscriptListScope) -> [ManuscriptRowData] {
@@ -225,6 +225,16 @@ struct IOSImpressListColumn: View {
         case .flagged(let color):
             return store.getFlaggedManuscripts(color: color)
                 .compactMap(ManuscriptRowData.init(from:))
+        case .tag(let path):
+            // ADR-0023 W3 — a watched folder's rows. Tags live on the item
+            // ENVELOPE, not the payload, so this is a post-filter rather than
+            // a query parameter: the same shape the flagged path above takes,
+            // and the reason `listManuscripts` needs no new argument (nor a
+            // new FFI verb whose only caller would be this one row kind).
+            // Mirrors `ManuscriptListWrapper.reload()`.
+            return store.queryManuscripts()
+                .compactMap(ManuscriptRowData.init(from:))
+                .filter { $0.tagDisplays.contains { $0.path == path } }
         }
     }
 }

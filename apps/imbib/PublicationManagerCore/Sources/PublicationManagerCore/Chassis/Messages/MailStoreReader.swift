@@ -237,6 +237,15 @@ public final class MailStoreReader {
                 if let color { return flagColor == color.rawValue }
                 return true
             }
+        case .tag(let path):
+            // Envelope post-filter, like `.flagged` above. Deliberately over
+            // ALL messages rather than the inboxes: a tag is the user's own
+            // grouping and must not stop at an account or mailbox boundary —
+            // that is the whole reason it is useful for mail, where the folder
+            // tree is IMAP's rather than theirs.
+            fetched = fetchAllMessages(limit: limit).filter {
+                TagPathMatch.anyMatches($0.tags, scopePath: path)
+            }
         }
         // Thread grouping: collapse to the newest message per thread with a
         // "(n)" badge; the detail pane shows the full thread.

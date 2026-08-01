@@ -111,6 +111,26 @@ public enum RecordSidebarScope: Hashable, Sendable {
     case folder(RecordKindID, UUID)
     /// Flagged records; nil colour = any flag.
     case flagged(RecordKindID, String?)
+    /// Records carrying one tag path ("reading/queue").
+    ///
+    /// Admitted to the closed vocabulary by the SAME test `.flagged` passes and
+    /// `.unfiled` fails: it is a subset EVERY kind can be sliced by, and the
+    /// store guarantees it rather than any one app — `item_tags` joins any item
+    /// id and `items.flag_color` is a column on every row, so no kind has to
+    /// opt in and none can be structurally incapable. "Every artifact should be
+    /// flaggable and taggable" (2026-08-01); this case is the browse half of
+    /// that, the shared `TriageMenu` having long been the apply half.
+    ///
+    /// The path is hierarchical and slash-separated, matching the store's tag
+    /// vocabulary, and matching is DESCENDANT-INCLUSIVE: `.tag(kind, "reading")`
+    /// returns rows tagged `reading` AND `reading/queue`. See `TagPathMatch`,
+    /// which is the single authority for the rule.
+    ///
+    /// The alternative (exact match) makes the tree decorative — selecting a
+    /// parent would show nothing while its children showed rows, so every
+    /// interior row would read as empty. The hierarchy is only worth rendering
+    /// if it is also worth selecting.
+    case tag(RecordKindID, String)
     /// A section with no finer semantics in this shell (Cited in Manuscripts,
     /// Review Queue, a custom surface): the host decides what to show.
     case section(SidebarSectionType, RecordKindID?)
@@ -146,9 +166,17 @@ public enum RecordSidebarScope: Hashable, Sendable {
 
     public var kind: RecordKindID? {
         switch self {
-        case .all(let k), .status(let k, _), .folder(let k, _), .flagged(let k, _): return k
+        case .all(let k), .status(let k, _), .folder(let k, _), .flagged(let k, _),
+            .tag(let k, _):
+            return k
         case .section(_, let k), .host(let k, _): return k
         }
+    }
+
+    /// The tag path this scope filters on, if it is a tag scope.
+    public var tagPath: String? {
+        if case .tag(_, let path) = self { return path }
+        return nil
     }
 
     /// The host route key this scope carries, if it is a host row.
@@ -174,6 +202,30 @@ public enum RecordSidebarScope: Hashable, Sendable {
     }
 }
 
+// MARK: - Tag path matching
+
+/// The ONE definition of "does this record satisfy that tag scope".
+///
+/// Every reader that filters by tag calls this — `FigureListWrapper`,
+/// `MailStoreReader`, `AgentRecordListWrapper`, the manuscript and publication
+/// lists — because a matching rule spelled per call site is a rule that can
+/// disagree with itself, and this one has a subtlety worth not re-deriving:
+/// the boundary is the SEPARATOR, not the character count. `reading` must match
+/// `reading/queue` and must NOT match `reading-list`, so the prefix test has to
+/// include the slash.
+public enum TagPathMatch {
+
+    /// Does one tag a record carries satisfy a `.tag(_, scopePath)` scope?
+    public static func matches(recordTag: String, scopePath: String) -> Bool {
+        recordTag == scopePath || recordTag.hasPrefix(scopePath + "/")
+    }
+
+    /// Does ANY of a record's tags satisfy the scope?
+    public static func anyMatches(_ recordTags: [String], scopePath: String) -> Bool {
+        recordTags.contains { matches(recordTag: $0, scopePath: scopePath) }
+    }
+}
+
 extension RecordSidebarScope: RecordScopeKey {
     public var scopeKey: String {
         switch self {
@@ -181,6 +233,7 @@ extension RecordSidebarScope: RecordScopeKey {
         case .status(let k, let s): return "\(k.rawValue).status.\(s)"
         case .folder(let k, let id): return "\(k.rawValue).folder.\(id.uuidString.lowercased())"
         case .flagged(let k, let c): return "\(k.rawValue).flagged.\(c ?? "any")"
+        case .tag(let k, let path): return "\(k.rawValue).tag.\(path)"
         case .section(let section, let k):
             return "section.\(section.rawValue).\(k?.rawValue ?? "none")"
         case .host(let k, let key):
@@ -315,6 +368,14 @@ public enum RecordSidebarSectionRole: Sendable, Equatable {
     case primary
     /// Per-flag-colour children.
     case flagged
+    /// The kind's tag vocabulary, as a tree.
+    ///
+    /// Sibling of `.flagged` on purpose: both browse a mark the user put on the
+    /// record rather than a property the record has. The difference is only
+    /// that flags are a closed set the chassis knows and tags are an open one
+    /// the store reports, which is why this role needs a data-source call and
+    /// `.flagged` does not.
+    case tags
     /// The kind's dismissed status.
     case dismissed
     /// One opaque selectable row (the host owns what it shows).

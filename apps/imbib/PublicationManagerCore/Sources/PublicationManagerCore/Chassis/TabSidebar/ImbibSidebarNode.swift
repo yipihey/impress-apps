@@ -40,6 +40,13 @@ enum ImbibSidebarNodeType: Hashable {
     case explorationCollection(collectionID: UUID)
     case anyFlag
     case flagColor(FlagColor)
+    /// One row of the Tags section's tree, carrying its FULL slash-separated
+    /// path (the row's label is the leaf; the path is its identity).
+    ///
+    /// Selecting it resolves to `PublicationSource.tag(path)`, the scope that
+    /// has been Rust-backed since ADR-0023 W2 and whose only constructor until
+    /// now was a watched folder's provenance row.
+    case tag(path: String)
     case allArtifacts
     case artifactType(String)   // ArtifactType.rawValue
     case dismissed
@@ -241,6 +248,8 @@ extension ImbibSidebarNode {
             return .flagged(nil)
         case .flagColor(let color):
             return .flagged(color.rawValue)
+        case .tag(let path):
+            return .tag(path: path)
         case .allArtifacts:
             return .allArtifacts
         case .artifactType(let rawValue):
@@ -387,6 +396,12 @@ enum ImbibSidebarNodeID {
 
     static func flagColor(_ color: FlagColor) -> UUID {
         stable("flagColor.\(color.rawValue)")
+    }
+
+    /// Keyed by the FULL path, not the leaf: `reading/queue` and `writing/queue`
+    /// are two rows and must not collide.
+    static func tag(_ path: String) -> UUID {
+        stable("tag.\(path)")
     }
 
     static let allArtifacts = stable("allArtifacts")

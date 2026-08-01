@@ -272,7 +272,7 @@ final class AgentRecordKindTests: XCTestCase {
     func testImpelPresetMatchesContract() {
         let c = AppShellConfiguration.impel
         XCTAssertEqual(c.appID, "impel")
-        XCTAssertEqual(c.visibleSections, [.agents],
+        XCTAssertEqual(c.visibleSections, [.agents, .tags],
                        "Flagged is deliberately skipped in v1")
         XCTAssertEqual(c.defaultSection, .agents)
         XCTAssertEqual(c.defaultDetailTab, .info)
@@ -308,7 +308,7 @@ final class AgentRecordKindTests: XCTestCase {
             makeView: { AnyView(EmptyView()) })
         let extended = AppShellConfiguration.impel.withCustomSurfaces([surface])
         XCTAssertEqual(extended.appID, "impel")
-        XCTAssertEqual(extended.visibleSections, [.agents])
+        XCTAssertEqual(extended.visibleSections, [.agents, .tags])
         XCTAssertEqual(extended.defaultSection, .agents)
         XCTAssertEqual(extended.customSurfaces["dashboard"]?.title, "Dashboard")
         XCTAssertNotEqual(extended, .impel, "surface ids participate in equality")

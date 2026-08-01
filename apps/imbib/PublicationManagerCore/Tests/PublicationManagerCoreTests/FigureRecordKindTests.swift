@@ -168,7 +168,7 @@ final class FigureRecordKindTests: XCTestCase {
     func testImplorePresetMatchesContract() {
         let c = AppShellConfiguration.implore
         XCTAssertEqual(c.appID, "implore")
-        XCTAssertEqual(c.visibleSections, [.figures], "Flagged is deliberately skipped in v1")
+        XCTAssertEqual(c.visibleSections, [.figures, .tags], "Flagged is deliberately skipped in v1; Tags is not — every artifact is taggable")
         XCTAssertEqual(c.defaultSection, .figures)
         XCTAssertEqual(c.defaultDetailTab, .info)
         XCTAssertEqual(c.openBehavior(for: .figure), .window(id: "canvas"))
@@ -186,7 +186,7 @@ final class FigureRecordKindTests: XCTestCase {
             makeView: { AnyView(EmptyView()) })
         let extended = AppShellConfiguration.implore.withCustomSurfaces([surface])
         XCTAssertEqual(extended.appID, "implore")
-        XCTAssertEqual(extended.visibleSections, [.figures])
+        XCTAssertEqual(extended.visibleSections, [.figures, .tags])
         XCTAssertEqual(extended.defaultSection, .figures)
         XCTAssertEqual(extended.customSurfaces["generate"]?.title, "Generate")
         XCTAssertNotEqual(extended, .implore, "surface ids participate in equality")
