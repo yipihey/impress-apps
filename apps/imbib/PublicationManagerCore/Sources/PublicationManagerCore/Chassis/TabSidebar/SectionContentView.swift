@@ -455,7 +455,11 @@ struct SectionContentView: View {
         Group {
             let layout = PaneLayoutStore.shared.current
             if layout.listPaneVisible && layout.detailPaneVisible {
-                ImpressSplitView(listMinWidth: 200, listIdealWidth: 300, detailMinWidth: 300) {
+                ImpressSplitView(
+                    listMinWidth: 200,
+                    fractionStorageKey: "impress.split.publications",
+                    detailMinWidth: 300
+                ) {
                     leftPane(route)
                 } detail: {
                     detailView

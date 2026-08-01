@@ -31,8 +31,7 @@ public struct ImpressSplitView<ListContent: View, DetailContent: View>: View {
     private let listContent: ListContent
     private let detailContent: DetailContent
     private let listMinWidth: CGFloat
-    private let listIdealWidth: CGFloat
-    private let listIdealFraction: CGFloat?
+    private let listIdealFraction: CGFloat
     private let detailMinWidth: CGFloat
 
     /// User-dragged list width as a fraction of the container, persisted per
@@ -41,15 +40,25 @@ public struct ImpressSplitView<ListContent: View, DetailContent: View>: View {
 
     private let fractionStorageKey: String
 
-    /// `listIdealFraction`: when set, the list pane gets an EXPLICIT width of
-    /// that fraction of the container (e.g. `1/3`) with a draggable divider,
-    /// instead of `HSplitView`'s `idealWidth` — which AppKit treats as a hint
-    /// and in practice ignored, leaving the list at ~half the window.
-    /// Existing callers (no fraction) keep the plain HSplitView behavior.
+    /// The list pane gets an EXPLICIT width — `listIdealFraction` of the
+    /// container — with a draggable divider whose result persists under
+    /// `fractionStorageKey`.
+    ///
+    /// **`listIdealFraction` has no "off" any more, and that is the fix.** It
+    /// used to be `CGFloat?`, defaulting to nil, and nil meant `HSplitView` +
+    /// `idealWidth` — which AppKit treats as a hint and in practice ignores,
+    /// leaving the list at ~half the window. So the broken layout was what a
+    /// caller got by SAYING NOTHING, and imbib's publication surface (the
+    /// largest in the suite) said nothing. A default of 0.25 means omission now
+    /// yields the intended quarter instead of the accident.
+    ///
+    /// **`fractionStorageKey` should be distinct per surface.** It defaulted to
+    /// one shared key, so the four surfaces that had opted in were writing to
+    /// the same slot: dragging the divider in Mail silently moved Figures. A
+    /// width is a property of the surface the user dragged, not of the app.
     public init(
         listMinWidth: CGFloat = 200,
-        listIdealWidth: CGFloat = 300,
-        listIdealFraction: CGFloat? = nil,
+        listIdealFraction: CGFloat = 0.25,
         fractionStorageKey: String = "impress.split.listFraction",
         detailMinWidth: CGFloat = 300,
         @ViewBuilder list: () -> ListContent,
@@ -58,7 +67,6 @@ public struct ImpressSplitView<ListContent: View, DetailContent: View>: View {
         self.listContent = list()
         self.detailContent = detail()
         self.listMinWidth = listMinWidth
-        self.listIdealWidth = listIdealWidth
         self.listIdealFraction = listIdealFraction
         self.fractionStorageKey = fractionStorageKey
         self.detailMinWidth = detailMinWidth
@@ -66,12 +74,8 @@ public struct ImpressSplitView<ListContent: View, DetailContent: View>: View {
 
     public var body: some View {
         #if os(macOS)
-        if let fraction = listIdealFraction {
-            GeometryReader { geo in
-                fractionSplit(container: geo.size.width, defaultFraction: fraction)
-            }
-        } else {
-            splitBody(listIdeal: listIdealWidth)
+        GeometryReader { geo in
+            fractionSplit(container: geo.size.width, defaultFraction: listIdealFraction)
         }
         #else
         // On iOS, use a simple horizontal layout or NavigationSplitView
@@ -141,28 +145,6 @@ public struct ImpressSplitView<ListContent: View, DetailContent: View>: View {
             )
     }
 
-    private func splitBody(listIdeal: CGFloat) -> some View {
-        HSplitView {
-            // ZStack provides a stable NSView container so NSSplitView never
-            // sees its subview replaced when the left pane content switches.
-            ZStack {
-                listContent
-            }
-            .frame(minWidth: listMinWidth, idealWidth: listIdeal)
-            .frame(maxHeight: .infinity)
-            .clipped()
-
-            ZStack {
-                detailContent
-            }
-            .transaction { $0.animation = nil }
-            .frame(minWidth: detailMinWidth)
-            .frame(maxHeight: .infinity)
-            .clipped()
-            .ignoresSafeArea(.container, edges: .top)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
     #endif
 }
 

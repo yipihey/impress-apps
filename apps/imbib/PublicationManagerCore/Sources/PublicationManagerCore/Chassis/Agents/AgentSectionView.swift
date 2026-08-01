@@ -37,7 +37,9 @@ public struct AgentSectionView: View {
             if layout.listPaneVisible && layout.detailPaneVisible {
                 ImpressSplitView(
                     listMinWidth: 220,
-                    listIdealFraction: 1.0 / 3.0,
+                    // Quarter by default (the shared default); the user's drag
+                    // wins and persists under this surface's OWN key.
+                    fractionStorageKey: "impress.split.agents",
                     detailMinWidth: 320
                 ) {
                     listPane
