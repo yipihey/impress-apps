@@ -159,7 +159,9 @@ final class ImpressSidebarSnapshot {
                     sortOrder: Int64(row.sortOrder))
             }
 
-        publicationTagPaths = store.listTags().map(\.path)
+        // De-duplicated, like imbib-iOS's: one path may have several definition
+        // rows (23,916 rows for 9,090 paths in the real library).
+        publicationTagPaths = Array(Set(store.listTags().map(\.path)))
     }
 }
 

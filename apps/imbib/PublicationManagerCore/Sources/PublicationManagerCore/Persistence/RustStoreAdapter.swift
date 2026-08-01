@@ -1530,8 +1530,24 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
-    /// Create a tag definition (undoable).
+    /// Create a tag definition (undoable), or do nothing when the path already
+    /// has one.
+    ///
+    /// IDEMPOTENT since 2026-08-01, and the real library says why: it held
+    /// **23,916 definition rows for 9,090 distinct paths** — 14,826 duplicates,
+    /// `ai/field/cosmology` defined 1,728 times. `create_tag` inserts
+    /// unconditionally, and `EnrichmentCoordinator` calls this once per
+    /// enriched paper per topic, so every re-enrichment minted another row for
+    /// a tag that already existed. Nothing downstream broke (readers dedupe by
+    /// path), which is why it grew to 2.6× for years: it only showed up as the
+    /// sidebar doing 2.6× the string work on every rebuild and every keystroke
+    /// of the tag filter.
+    ///
+    /// The early return is BEFORE the undo registration on purpose — a call
+    /// that changed nothing must not put an entry on the undo stack whose ⌘Z
+    /// would delete a tag the user has been using.
     public func createTag(path: String, colorLight: String? = nil, colorDark: String? = nil) {
+        guard !listTags().contains(where: { $0.path == path }) else { return }
         do {
             try store.createTag(path: path, colorLight: colorLight, colorDark: colorDark)
             didMutate()
@@ -1583,9 +1599,9 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     private func ensureTagDefinition(_ path: String) {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        // `listTags` is served from imbib-core's own definitions cache, so the
-        // common case (the tag already exists) costs no query.
-        guard !listTags().contains(where: { $0.path == trimmed }) else { return }
+        // `createTag` is itself idempotent, and its guard reads imbib-core's own
+        // definitions cache — so the common case (the tag already exists) costs
+        // no query and mints no duplicate.
         createTag(path: trimmed)
     }
 

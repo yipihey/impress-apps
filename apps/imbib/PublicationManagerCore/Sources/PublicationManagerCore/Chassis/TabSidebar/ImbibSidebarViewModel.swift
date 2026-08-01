@@ -1376,7 +1376,14 @@ final class ImbibSidebarViewModel {
 
     private var tagPaths: [String] {
         if let tagPathCache { return tagPathCache }
-        let paths = RustStoreAdapter.shared.listTags().map(\.path)
+        // DE-DUPLICATED at the read. The definitions table is allowed to hold
+        // the same path more than once — the real library had 23,916 rows for
+        // 9,090 paths — and while the tree builder below dedupes anyway (it
+        // works through a `Set`), it would do so over 2.6× the strings on every
+        // rebuild and every keystroke of the filter. `createTag` no longer
+        // mints duplicates; this is what makes the rows already in a user's
+        // store cost nothing.
+        let paths = Array(Set(RustStoreAdapter.shared.listTags().map(\.path)))
         tagPathCache = paths
         return paths
     }

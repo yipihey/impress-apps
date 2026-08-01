@@ -49,4 +49,22 @@ final class TagVocabularyTests: XCTestCase {
             "the VOCABULARY half: a tag nothing has defined cannot be browsed, so the "
                 + "sidebar's Tags tree would not show a tag the user just applied")
     }
+
+    /// The real library held **23,916 definition rows for 9,090 distinct
+    /// paths** — `ai/field/cosmology` defined 1,728 times — because
+    /// `create_tag` inserted unconditionally and the enrichment pass called it
+    /// once per paper per topic. Nothing broke downstream (every reader dedupes
+    /// by path), which is exactly why it grew to 2.6× unnoticed.
+    func testDefiningATagTwiceDoesNotMintASecondRow() throws {
+        let adapter = RustStoreAdapter.shared
+        let path = "tests/idempotent-\(UUID().uuidString.prefix(8))"
+
+        adapter.createTag(path: path)
+        adapter.createTag(path: path)
+        adapter.createTag(path: path)
+
+        XCTAssertEqual(
+            adapter.listTags().filter { $0.path == path }.count, 1,
+            "a definition that already exists must not be minted again")
+    }
 }

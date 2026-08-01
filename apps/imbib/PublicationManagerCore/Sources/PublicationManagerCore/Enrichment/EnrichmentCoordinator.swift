@@ -450,7 +450,13 @@ extension EnrichmentCoordinator {
             store.beginBatchMutation()
             for entry in tagPlan {
                 for tagPath in entry.tags {
-                    store.createTag(path: tagPath)
+                    // `addTag` ensures the DEFINITION itself now, so the
+                    // hand-paired `createTag` that used to sit here is gone.
+                    // This loop is what minted 14,826 duplicate definition rows
+                    // in the real library (`ai/field/cosmology` 1,728 times):
+                    // it ran once per enriched paper per topic, and `createTag`
+                    // inserted unconditionally. Both halves are fixed — the
+                    // call is redundant, and the verb it called is idempotent.
                     store.addTag(ids: [entry.pubID], tagPath: tagPath)
                 }
             }

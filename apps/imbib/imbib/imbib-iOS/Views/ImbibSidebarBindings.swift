@@ -229,7 +229,10 @@ final class ImbibSidebarSnapshot {
         flagTotal = total
         flagCountsByColor = byColor
 
-        tagPaths = store.listTags().map(\.path)
+        // De-duplicated: the definitions table may hold a path more than once
+        // (the real library had 23,916 rows for 9,090 paths), and the tree
+        // builder should not pay for that on every rebuild.
+        tagPaths = Array(Set(store.listTags().map(\.path)))
     }
 }
 
