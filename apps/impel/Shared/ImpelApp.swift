@@ -51,6 +51,7 @@ struct ImpelApp: App {
     var body: some Scene {
         WindowGroup {
             chassisRoot
+                .persistentWindowFrame("impel.main")
                 .task {
                     // Wire client reference for HTTP router
                     ImpelHTTPRouterState.shared.client = client
