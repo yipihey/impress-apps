@@ -381,19 +381,40 @@ fn handle_tools_list(id: &Value) -> Value {
 /// Build the combined `tools/list` payload: legacy hand-written tools
 /// (semantic search over indexed PDFs) followed by every tool
 /// auto-registered via the `#[impress_service]` codegen pipeline.
+///
+/// Which *rendering* of that inventory a client gets is `surface::projection`
+/// (ADR-0024). `Flat` is the historical shape and what impel consumes;
+/// `Grouped` folds the long tail behind domain tools. Both are views of the
+/// same descriptors — see `surface` for why that distinction matters.
 fn tool_definitions() -> Value {
-    let mut tools: Vec<Value> = match legacy_tool_definitions() {
+    tool_definitions_in(crate::surface::projection())
+}
+
+/// The rendering, with the projection passed in rather than read from the
+/// environment. Tests take this path: `IMPRESS_MCP_SURFACE` is process-global,
+/// and a test that set it would change what every other test in the binary sees.
+fn tool_definitions_in(projection: crate::surface::Projection) -> Value {
+    let legacy: Vec<Value> = match legacy_tool_definitions() {
         Value::Array(items) => items,
         other => vec![other],
     };
-    // Withhold tools whose app is closed — see `reachability`.
-    tools.extend(inventory_tool_definitions().into_iter().filter(|t| {
-        t.get("name")
-            .and_then(|n| n.as_str())
-            .map(crate::reachability::is_available)
-            .unwrap_or(true)
-    }));
-    Value::Array(tools)
+
+    match projection {
+        crate::surface::Projection::Grouped => {
+            Value::Array(crate::surface::grouped_definitions(legacy))
+        }
+        crate::surface::Projection::Flat => {
+            let mut tools = legacy;
+            // Withhold tools whose app is closed — see `reachability`.
+            tools.extend(inventory_tool_definitions().into_iter().filter(|t| {
+                t.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(crate::reachability::is_available)
+                    .unwrap_or(true)
+            }));
+            Value::Array(tools)
+        }
+    }
 }
 
 /// How many tools a client would see right now — after withholding.
@@ -495,6 +516,28 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
 
     if tool_name == "render_pdf_page" {
         return handle_render_pdf_page(id, request);
+    }
+
+    // The grouped projection's synthetic tools (ADR-0024). Returns None for
+    // everything else, so the flat path below is unchanged.
+    if let Some(result) = crate::surface::dispatch(tool_name, args) {
+        return match result {
+            Ok(value) => {
+                let text = match &value {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [{ "type": "text", "text": text }],
+                        "structuredContent": value,
+                    }
+                })
+            }
+            Err(e) => wrap_text_result(id, Err(e)),
+        };
     }
 
     // Try legacy hand-written tools first.
@@ -648,7 +691,10 @@ mod tests {
     fn test_tool_definitions_includes_legacy_and_inventory() {
         // Combined list is legacy (3) + every `#[impress_service]` method.
         // imbib-service contributes 5 ImbibTextService methods at minimum.
-        let tools = tool_definitions();
+        // Pinned flat: the grouped projection deliberately folds most of these
+        // behind domain tools (ADR-0024), and what this test is about is that
+        // the inventory reaches the listing at all.
+        let tools = tool_definitions_in(crate::surface::Projection::Flat);
         let arr = tools.as_array().expect("tools is array");
         assert!(
             arr.len() >= 3 + 5,
@@ -679,12 +725,39 @@ mod tests {
 
     #[test]
     fn test_tools_list_keeps_legacy_names_at_front() {
-        let resp = handle_tools_list(&json!(1));
-        let tools = resp["result"]["tools"].as_array().unwrap();
+        let tools = tool_definitions_in(crate::surface::Projection::Flat);
+        let tools = tools.as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
             &names[..3],
             &["search_papers", "get_paper_chunks", "list_indexed_papers"]
+        );
+    }
+
+    /// The grouped projection leads with the root tool, then keeps the legacy
+    /// three flat. They are pre-codegen and unclassifiable (ADR-0024 D7), so
+    /// folding them away would drop them entirely rather than group them.
+    #[test]
+    fn grouped_leads_with_the_root_tool_and_keeps_legacy_flat() {
+        let tools = tool_definitions_in(crate::surface::Projection::Grouped);
+        let tools = tools.as_array().unwrap();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(
+            &names[..4],
+            &[
+                crate::surface::CAPABILITIES_TOOL,
+                "search_papers",
+                "get_paper_chunks",
+                "list_indexed_papers"
+            ]
+        );
+        assert!(
+            names.len()
+                < tool_definitions_in(crate::surface::Projection::Flat)
+                    .as_array()
+                    .unwrap()
+                    .len(),
+            "grouped should be smaller than flat: {names:?}"
         );
     }
 

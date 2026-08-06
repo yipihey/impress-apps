@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- The server and Impart must resolve the same canonical item graph. -->
+    <key>com.apple.application-identifier</key>
+    <string>QG3MEYVHMS.com.imbib.impart</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>QG3MEYVHMS</string>
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>QG3MEYVHMS.com.impress.suite</string>
+    </array>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+</dict>
+</plist>

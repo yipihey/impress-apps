@@ -29,8 +29,9 @@
 //  CloudKit rejects records whose total field size exceeds ~1MB. Manuscript
 //  bodies can approach that, so `payload_json` above `assetSpillThreshold`
 //  (700KB) moves into a `CKAsset` (`payload_asset`) with `payload_in_asset`
-//  set; decode reverses it transparently. Bodies beyond ~1MB live in the blob
-//  store, which does not sync in 3.0 — a documented limitation.
+//  set; decode reverses it transparently. `content-blob@1.0.0` records also
+//  carry their immutable bytes in `content_asset`; Rust verifies SHA-256 and
+//  length before accepting a fetched asset into the local CAS.
 //
 
 import Foundation
@@ -73,6 +74,7 @@ public enum SyncRecordCodec {
         static let payloadJSON = "payload_json"
         static let payloadAsset = "payload_asset"
         static let payloadInAsset = "payload_in_asset"
+        static let contentAsset = "content_asset"
         static let logicalClock = "logical_clock"
         static let authorKind = "author_kind"
         static let authorID = "author_id"
@@ -125,7 +127,8 @@ public enum SyncRecordCodec {
         item: SyncItemRecord,
         zoneID: CKRecordZone.ID,
         existing: CKRecord? = nil,
-        assetDirectory: URL? = nil
+        assetDirectory: URL? = nil,
+        contentBlobURL: URL? = nil
     ) throws -> CKRecord {
         let record = existing ?? CKRecord(
             recordType: RecordType.item,
@@ -180,6 +183,12 @@ public enum SyncRecordCodec {
             record[ItemField.payloadAsset] = nil
         }
 
+        // Availability is device-local. A device without the bytes must not
+        // clear an existing server asset while updating the item envelope.
+        if item.schemaRef == "content-blob@1.0.0", let contentBlobURL {
+            record[ItemField.contentAsset] = CKAsset(fileURL: contentBlobURL)
+        }
+
         return record
     }
 
@@ -230,6 +239,15 @@ public enum SyncRecordCodec {
             priority: record[ItemField.priority] as? String ?? "normal",
             parentId: record[ItemField.parentID] as? String,
             envelopeJson: record[ItemField.envelopeJSON] as? String ?? "{}")
+    }
+
+    /// CloudKit's temporary download URL. The caller must copy it into the
+    /// durable CAS before the fetched-change callback returns.
+    public static func contentBlobAssetURL(_ record: CKRecord) -> URL? {
+        guard record.recordType == RecordType.item,
+              let asset = record[ItemField.contentAsset] as? CKAsset
+        else { return nil }
+        return asset.fileURL
     }
 
     // MARK: - Reference

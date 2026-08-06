@@ -143,6 +143,32 @@ pub fn agent_run_schema() -> Schema {
                 field("round_number", FieldType::Int, false),
                 "Which tool-use round within the containing task this run is",
             ),
+            described(optional_string("provider"), "Inference provider identifier"),
+            described(
+                optional_string("endpoint"),
+                "Non-secret logical endpoint identifier used for this run",
+            ),
+            described(
+                optional_string("request_hash"),
+                "Hash of the canonical model request for reproducibility",
+            ),
+            field("parameters", FieldType::Object, false),
+            field("usage", FieldType::Object, false),
+            field("input_token_count", FieldType::Int, false),
+            field("output_token_count", FieldType::Int, false),
+            field("enabled_tools", FieldType::StringArray, false),
+            described(
+                optional_string("preview_text"),
+                "First coherent response block published while generation is still running",
+            ),
+            described(
+                field("preview_complete", FieldType::Bool, false),
+                "Whether preview_text ended at a paragraph boundary rather than a sentence fallback",
+            ),
+            field("preview_updated_at", FieldType::DateTime, false),
+            optional_string("error"),
+            field("started_at", FieldType::DateTime, false),
+            field("finished_at", FieldType::DateTime, false),
         ],
         expected_edges: vec![
             EdgeType::ProducedBy,
@@ -312,6 +338,20 @@ mod tests {
             "status",
             "finish_reason",
             "round_number",
+            "provider",
+            "endpoint",
+            "request_hash",
+            "parameters",
+            "usage",
+            "input_token_count",
+            "output_token_count",
+            "enabled_tools",
+            "preview_text",
+            "preview_complete",
+            "preview_updated_at",
+            "error",
+            "started_at",
+            "finished_at",
         ] {
             assert!(names.contains(&key), "a writer emits {key:?}");
         }

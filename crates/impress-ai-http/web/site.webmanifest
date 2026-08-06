@@ -1,0 +1,9 @@
+{
+  "name": "LocalModels",
+  "short_name": "LocalModels",
+  "description": "Private Impress threads with models running on your Mac.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111411",
+  "theme_color": "#111411"
+}

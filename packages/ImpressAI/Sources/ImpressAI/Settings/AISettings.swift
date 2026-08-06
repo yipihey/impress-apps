@@ -33,6 +33,19 @@ import Foundation
         }
     }
 
+    /// Whether explicit requests may launch the oMLX companion application
+    /// when its conventional local endpoint is unavailable.
+    public var automaticallyStartOMLX = true {
+        didSet {
+            if oldValue != automaticallyStartOMLX {
+                let enabled = automaticallyStartOMLX
+                Task {
+                    await providerManager.setAutomaticallyStartOMLX(enabled)
+                }
+            }
+        }
+    }
+
     /// Metadata for all available providers.
     public private(set) var availableProviders: [AIProviderMetadata] = []
 
@@ -79,6 +92,10 @@ import Foundation
         availableProviders = allMetadata
         providersByCategory = byCategory
         credentialStatus = status
+
+        selectedProviderId = await providerManager.defaultProviderId
+        selectedModelId = await providerManager.defaultModelId
+        automaticallyStartOMLX = await providerManager.automaticallyStartOMLX
 
         // Set default selection
         if selectedProviderId == nil {
@@ -152,6 +169,9 @@ import Foundation
         }
 
         do {
+            if let activatingProvider = provider as? any AIServiceActivatingProvider {
+                try await activatingProvider.activateServiceIfNeeded()
+            }
             return try await provider.validate()
         } catch {
             return .error(error.localizedDescription)
@@ -176,7 +196,13 @@ import Foundation
         }
 
         selectedProviderMetadata = provider.metadata
-        availableModels = provider.metadata.models
+        if let discoveringProvider = provider as? any AIModelDiscoveringProvider,
+           let discovered = try? await discoveringProvider.discoverModels(),
+           !discovered.isEmpty {
+            availableModels = discovered
+        } else {
+            availableModels = provider.metadata.models
+        }
 
         // Set default model if not selected
         if selectedModelId == nil || !availableModels.contains(where: { $0.id == selectedModelId }) {
@@ -197,6 +223,7 @@ import Foundation
 public enum AISettingsKey {
     public static let selectedProviderId = "impressai.selectedProviderId"
     public static let selectedModelId = "impressai.selectedModelId"
+    public static let automaticallyStartOMLX = "impressai.automaticallyStartOMLX"
     public static let categoryAssignments = "impressai.categoryAssignments"
 }
 
@@ -207,7 +234,8 @@ extension AISettings {
     public var availableModelReferences: [AIModelReference] {
         var references: [AIModelReference] = []
         for provider in availableProviders {
-            for model in provider.models {
+            let models = provider.id == selectedProviderId ? availableModels : provider.models
+            for model in models {
                 references.append(AIModelReference.from(provider: provider, model: model))
             }
         }
@@ -218,7 +246,7 @@ extension AISettings {
     public var currentModelReference: AIModelReference? {
         guard let provider = selectedProviderMetadata,
               let modelId = selectedModelId,
-              let model = provider.models.first(where: { $0.id == modelId })
+              let model = availableModels.first(where: { $0.id == modelId })
         else { return nil }
         return AIModelReference.from(provider: provider, model: model)
     }

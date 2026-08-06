@@ -12,19 +12,23 @@ public enum ToolProgressEvent: Sendable {
     case toolComplete(toolName: String, outputSummary: String, durationMs: Int)
 }
 
-/// Native agentic loop that replaces ClaudeCLIClient with direct Anthropic API calls.
+/// Native agentic loop that replaces command-line clients with direct provider calls.
 ///
-/// Uses `AnthropicProvider` for completions and `CounselToolRegistry` for tool execution
-/// via HTTP to sibling apps. This is fully App Store compliant — no `Process()` calls.
+/// Uses the suite-wide ImpressAI provider by default and `CounselToolRegistry`
+/// for tool execution via HTTP to sibling apps. This is fully App Store
+/// compliant — no `Process()` calls.
 public actor NativeAgentLoop {
-    private let provider: AnthropicProvider
+    private let provider: any AIProvider
     private let toolRegistry: CounselToolRegistry
     private let logger = Logger(subsystem: "com.impress.impel", category: "native-agent-loop")
 
     /// Optional callback for progress events during tool execution.
     private var onProgress: ToolProgressCallback?
 
-    public init(provider: AnthropicProvider = AnthropicProvider(), toolRegistry: CounselToolRegistry = CounselToolRegistry()) {
+    public init(
+        provider: any AIProvider = ConfiguredAIProvider(),
+        toolRegistry: CounselToolRegistry = CounselToolRegistry()
+    ) {
         self.provider = provider
         self.toolRegistry = toolRegistry
     }
@@ -36,8 +40,8 @@ public actor NativeAgentLoop {
 
     /// Run the agentic loop with tool use.
     ///
-    /// Sends messages to Claude, executes any tool calls via HTTP bridges,
-    /// and loops until Claude stops requesting tools or maxTurns is reached.
+    /// Sends messages to the configured model, executes tool calls via HTTP bridges,
+    /// and loops until the model stops requesting tools or maxTurns is reached.
     public func run(
         systemPrompt: String,
         messages: [AIMessage],

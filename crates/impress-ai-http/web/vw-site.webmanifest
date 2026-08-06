@@ -1,0 +1,9 @@
+{
+  "name": "VW Type 2 Knowledge",
+  "short_name": "VW Knowledge",
+  "description": "Private, cited VW Type 2 manual lookup using models running on your Mac.",
+  "start_url": "/vw",
+  "display": "standalone",
+  "background_color": "#111411",
+  "theme_color": "#111411"
+}

@@ -457,6 +457,10 @@ impl ThroughlineSyncExecutor {
             "expected_throughline_hash".into(),
             Value::String(paragraph.content_hash.clone()),
         );
+        context.insert(
+            "expected_throughline_order".into(),
+            Value::Int(paragraph.order_index),
+        );
         if let Some(text) = &draft.paragraph_text {
             context.insert("proposed_paragraph".into(), Value::String(text.clone()));
         }
@@ -548,6 +552,13 @@ impl ThroughlineSyncExecutor {
         {
             let current_hash = current_paragraph.map(|p| p.content_hash.as_str());
             if !expected.is_empty() && current_hash != Some(expected.as_str()) {
+                return Ok(false);
+            }
+        }
+        if let Some(Value::Int(expected)) = review.payload.get("context_expected_throughline_order")
+        {
+            let current_order = current_paragraph.map(|p| p.order_index);
+            if current_order != Some(*expected) {
                 return Ok(false);
             }
         }
@@ -735,6 +746,7 @@ impl ThroughlineSyncExecutor {
         store: &dyn TaskStoreApi,
     ) -> Result<(), TaskError> {
         let paragraphs = extract_paragraphs(new_source);
+        let mut accepted_order = None;
         if let Some(entry) = map.anchors.get_mut(label) {
             let mut hashes = BTreeMap::new();
             for key in &entry.section_keys {
@@ -745,7 +757,11 @@ impl ThroughlineSyncExecutor {
             entry.manuscript_hashes = hashes;
             if let Some(p) = paragraphs.iter().find(|p| p.label == label) {
                 entry.throughline_hash = p.content_hash.clone();
+                accepted_order = Some(p.order_index);
             }
+        }
+        if let Some(order_index) = accepted_order {
+            map.narrative_order.insert(label.to_string(), order_index);
         }
         let map_json = map
             .serialize()

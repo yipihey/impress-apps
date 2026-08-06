@@ -295,7 +295,7 @@ public final class AIContextMenuService {
 
     /// Get the current AI provider name for display.
     public var currentProviderName: String {
-        aiService.provider.displayName
+        aiService.currentProviderName
     }
 
     // MARK: - Imbib Integration

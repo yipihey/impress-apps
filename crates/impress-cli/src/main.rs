@@ -33,6 +33,9 @@ use impress_service_core::cli;
 const _STORE_SERVICE_FORCE_LINK: fn() -> impress_store_service::DefaultCollectionService =
     impress_store_service::DefaultCollectionService::new;
 #[allow(dead_code)]
+const _AI_SERVICE_FORCE_LINK: fn(serde_json::Value) -> impress_service_core::ServiceFuture =
+    impress_ai_service::__impress_ImpressAiService_list_models_invoke;
+#[allow(dead_code)]
 const _DOCS_IMPORT_FORCE_LINK: fn() -> impress_store_service::DefaultDocsImportService =
     impress_store_service::DefaultDocsImportService::new;
 #[allow(dead_code)]

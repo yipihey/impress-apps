@@ -1,0 +1,27 @@
+[package]
+name = "vw-mcp"
+description = "Focused MCP server for the VW diagnostic expert system"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "vw-mcp"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { workspace = true }
+impress-core = { workspace = true, features = ["sqlite"] }
+impress-mcp-host = { path = "../impress-mcp-host" }
+impress-service-core = { workspace = true }
+impress-store-service = { workspace = true }
+rusqlite = { workspace = true }
+sha2 = "0.10"
+vw-impress-adapter = { path = "../vw-impress-adapter" }
+vw-domain = { path = "../vw-domain" }
+serde_json = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5"] }
+
+[dev-dependencies]

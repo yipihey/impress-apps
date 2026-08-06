@@ -243,6 +243,26 @@ public extension AITaskCategory {
         supportsComparison: true
     )
 
+    static let researchCompare = AITaskCategory(
+        id: "research.compare",
+        name: "Paper Comparison",
+        icon: "rectangle.2.swap",
+        description: "Compare methods, evidence, and conclusions across publications",
+        parentId: "research",
+        supportedApps: ["imbib"],
+        supportsComparison: true
+    )
+
+    static let researchRAG = AITaskCategory(
+        id: "research.rag",
+        name: "Library Q&A",
+        icon: "books.vertical",
+        description: "Answer questions grounded in the selected publication corpus",
+        parentId: "research",
+        supportedApps: ["imbib"],
+        supportsComparison: true
+    )
+
     // MARK: Citation Subcategories
 
     static let citationFind = AITaskCategory(
@@ -319,7 +339,7 @@ public extension AITaskCategory {
     /// All leaf categories (the ones that can have models assigned).
     static let leafCategories: [AITaskCategory] = [
         .writingRewrite, .writingGrammar,
-        .researchSearch, .researchSummarize, .researchDiscover,
+        .researchSearch, .researchSummarize, .researchDiscover, .researchCompare, .researchRAG,
         .citationFind, .citationFormat,
         .analysisReview, .analysisExplain,
         .dataGenerate, .dataInterpret

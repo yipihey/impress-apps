@@ -2,7 +2,7 @@
 //  ViewModeTypes.swift
 //  MessageManagerCore
 //
-//  View mode types for impart's three-mode display system.
+//  View mode types for impart's first-class chassis surfaces.
 //
 
 import Foundation
@@ -27,6 +27,9 @@ public enum MessageViewMode: String, CaseIterable, Sendable {
     /// Development conversations for Claude Code integration.
     case development
 
+    /// Provenance-first conversations backed by the shared Rust AI core.
+    case localAI
+
     /// Display name for UI.
     public var displayName: String {
         switch self {
@@ -35,6 +38,7 @@ public enum MessageViewMode: String, CaseIterable, Sendable {
         case .category: return "Category"
         case .research: return "Research"
         case .development: return "Development"
+        case .localAI: return "Local AI"
         }
     }
 
@@ -46,10 +50,11 @@ public enum MessageViewMode: String, CaseIterable, Sendable {
         case .category: return "tray.2"
         case .research: return "brain.head.profile"
         case .development: return "hammer"
+        case .localAI: return "sparkles"
         }
     }
 
-    /// Keyboard shortcut (⌘1, ⌘2, ⌘3, ⌘4, ⌘5).
+    /// Keyboard shortcut (⌘1 through ⌘6).
     public var keyboardShortcut: KeyEquivalent {
         switch self {
         case .email: return "1"
@@ -57,6 +62,7 @@ public enum MessageViewMode: String, CaseIterable, Sendable {
         case .category: return "3"
         case .research: return "4"
         case .development: return "5"
+        case .localAI: return "6"
         }
     }
 }

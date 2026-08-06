@@ -39,6 +39,21 @@ public protocol AIProvider: Sendable {
     func validate() async throws -> AIProviderStatus
 }
 
+/// Optional capability for providers whose model inventory is supplied by a
+/// running service rather than compiled into the app.
+public protocol AIModelDiscoveringProvider: AIProvider {
+    func discoverModels() async throws -> [AIModel]
+}
+
+/// Optional capability for providers backed by a companion process that may
+/// be started in response to an explicit user operation.
+///
+/// Passive availability checks must continue to use `validate()` so opening a
+/// settings screen never launches another application.
+public protocol AIServiceActivatingProvider: AIProvider {
+    func activateServiceIfNeeded() async throws
+}
+
 /// Default implementations for AIProvider.
 public extension AIProvider {
     /// Default streaming implementation that wraps the non-streaming complete method.

@@ -1,0 +1,15 @@
+{
+  "manifest": {
+    "id": "vw-type2-1978-ca-ljet-bootstrap",
+    "version": "0.1.0",
+    "content_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "domain_schema_version": "1.0.0",
+    "created_at": "2026-08-05T00:00:00Z",
+    "source_hashes": {},
+    "validator_version": "vw-domain/1"
+  },
+  "components": [],
+  "hypotheses": [],
+  "procedures": [],
+  "rules": []
+}

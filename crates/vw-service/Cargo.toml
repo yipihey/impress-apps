@@ -1,0 +1,15 @@
+[package]
+name = "vw-service"
+description = "Semantic service contract for VW expert-system operations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+vw-domain = { path = "../vw-domain" }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+schemars = { workspace = true }
+

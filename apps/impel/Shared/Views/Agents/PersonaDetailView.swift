@@ -11,6 +11,7 @@ import SwiftUI
 import ImpelCore
 import ImpelMail
 import CounselEngine
+import ImpressAI
 import ImpressKeyboard
 import ImpressKit
 
@@ -20,7 +21,7 @@ struct PersonaDetailView: View {
     let persona: Persona
     @EnvironmentObject var mailGateway: MailGatewayState
     @AppStorage("counselSystemPrompt") private var counselSystemPrompt = ""
-    @AppStorage("counselModel") private var counselModelRaw = CounselDefaults.defaultModel
+    @State private var aiSettings = AISettings.shared
     @State private var editedPrompt = ""
     @State private var hasLoaded = false
     @State private var expandedThreadID: String?
@@ -29,7 +30,11 @@ struct PersonaDetailView: View {
     private var isCounsel: Bool { persona.id == "counsel" }
 
     private var selectedModelDescription: String {
-        CounselModel(rawValue: counselModelRaw)?.description ?? ""
+        let provider = aiSettings.selectedProviderMetadata?.name ?? "No provider"
+        let model = aiSettings.availableModels.first { $0.id == aiSettings.selectedModelId }?.name
+            ?? aiSettings.selectedModelId
+            ?? "No model"
+        return "\(provider) — \(model)"
     }
 
     /// The effective prompt: for counsel, use the persisted value; for others, show the persona's built-in prompt.
@@ -87,26 +92,19 @@ struct PersonaDetailView: View {
                     }
                 }
 
-                // Model picker for counsel
+                // Suite-wide model selection for counsel
                 if isCounsel {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Model")
                             .font(.headline)
 
-                        Picker("Model", selection: $counselModelRaw) {
-                            ForEach(CounselModel.allCases) { model in
-                                VStack(alignment: .leading) {
-                                    Text(model.displayName)
-                                }
-                                .tag(model.rawValue)
-                            }
-                        }
-                        .pickerStyle(.radioGroup)
-
                         Text(selectedModelDescription)
+                            .font(.body)
+                        Text("Configure the shared provider and model in Settings → AI.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .task { await aiSettings.load() }
                 }
 
                 Divider()

@@ -168,6 +168,30 @@ final class SyncEngineCodecTests: XCTestCase {
         XCTAssertNotNil(record[SyncRecordCodec.ItemField.payloadJSON] as? String)
     }
 
+    func testContentBlobAssetTravelsWithDescriptorAndIsNotClearedByMissingPeer() throws {
+        let assetURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sync-content-\(UUID().uuidString).bin")
+        try Data("immutable bytes".utf8).write(to: assetURL)
+        defer { try? FileManager.default.removeItem(at: assetURL) }
+
+        let base = makeItem(payload: #"{"sha256":"abc","byte_length":15,"storage_kind":"local-cas","locator":"ab/abc"}"#)
+        let blob = SyncItemRecord(
+            id: base.id, schemaRef: "content-blob@1.0.0", payloadJson: base.payloadJson,
+            logicalClock: base.logicalClock, authorKind: base.authorKind, authorId: base.authorId,
+            origin: base.origin, createdMs: base.createdMs, modifiedMs: base.modifiedMs,
+            tagPaths: [], isRead: false, isStarred: false, flagColor: nil, flagStyle: nil,
+            flagLength: nil, priority: "normal", parentId: nil, envelopeJson: "{}")
+
+        let record = try SyncRecordCodec.encode(
+            item: blob, zoneID: zoneID, contentBlobURL: assetURL)
+        XCTAssertEqual(SyncRecordCodec.contentBlobAssetURL(record), assetURL)
+
+        // A metadata-only peer updating this same server record must preserve
+        // the existing asset rather than publishing its local `missing` state.
+        let updated = try SyncRecordCodec.encode(item: blob, zoneID: zoneID, existing: record)
+        XCTAssertEqual(SyncRecordCodec.contentBlobAssetURL(updated), assetURL)
+    }
+
     func testAssetScratchPruningRemovesOnlyOldFiles() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("sync-prune-\(UUID().uuidString)")

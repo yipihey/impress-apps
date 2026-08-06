@@ -8,6 +8,7 @@ mod raster;
 mod reachability;
 mod server;
 mod store;
+mod surface;
 mod tools;
 
 // Phase 3B: force the linker to retain the `inventory::submit!` entries
@@ -21,6 +22,8 @@ use impart_service as _force_link_impart_service;
 #[allow(unused_imports)]
 use implore_service as _force_link_implore_service;
 #[allow(unused_imports)]
+use impress_ai_service as _force_link_ai_service;
+#[allow(unused_imports)]
 use impress_bridges_service as _force_link_bridges;
 #[allow(unused_imports)]
 use impress_parsers_service as _force_link_parsers_service;
@@ -32,6 +35,8 @@ use impress_store_service as _force_link_store_service;
 use imprint_selftest as _force_link_imprint_selftest;
 #[allow(unused_imports)]
 use imprint_service as _force_link_imprint_service;
+#[allow(unused_imports)]
+use vw_impress_adapter as _force_link_vw_diagnostic_service;
 
 use std::path::PathBuf;
 use tools::ToolContext;

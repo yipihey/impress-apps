@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod artifact;
 pub mod bibliography;
 pub mod citation_usage;
@@ -14,11 +15,16 @@ pub mod manuscript_revision;
 pub mod manuscript_section;
 pub mod manuscript_submission;
 pub mod plot_spec;
+pub mod source;
 pub mod task;
 pub mod throughline;
 pub mod veusz_plot;
 pub mod watched_folder;
 
+pub use ai::{
+    register_ai_schemas, AI_IMPORT_LEDGER_SCHEMA, CONTENT_BLOB_SCHEMA, CONVERSATION_SCHEMA,
+    TOOL_INVOCATION_SCHEMA,
+};
 pub use artifact::register_artifact_schemas;
 pub use bibliography::register_bibliography_schemas;
 pub use citation_usage::register_citation_usage_schema;
@@ -34,6 +40,9 @@ pub use manuscript_revision::register_manuscript_revision_schema;
 pub use manuscript_section::register_imprint_schemas;
 pub use manuscript_submission::register_manuscript_submission_schema;
 pub use plot_spec::register_plot_spec_schema;
+pub use source::{
+    register_source_schemas, CONTENT_CHUNK_SCHEMA, EXTRACTION_RUN_SCHEMA, SOURCE_CITATION_SCHEMA,
+};
 pub use task::{
     register_task_schemas, register_task_schemas_if_absent, AGENT_RUN_SCHEMA, TASK_SCHEMA,
 };
@@ -51,6 +60,7 @@ pub use watched_folder::{
 /// registrations. The order within this function follows the dependency graph:
 /// base schemas before derived schemas (e.g., chat-message before email-message).
 pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
+    register_ai_schemas(registry);
     register_bibliography_schemas(registry);
     register_communication_schemas(registry);
     register_task_schemas(registry);
@@ -78,6 +88,7 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     register_collection_schema(registry);
     register_veusz_plot_schema(registry);
     register_plot_spec_schema(registry);
+    register_source_schemas(registry);
     register_knowledge_object_schemas(registry);
     // Throughline (ADR-0016): narrative companion documents. Depends on
     // nothing; registered after manuscript for reading order only.

@@ -33,18 +33,30 @@ public final class AIAssistantService {
 
     // MARK: - Dependencies
 
-    private let completionService = AITextCompletionService.shared
+    private let providerManager = AIProviderManager.shared
+    private let settings = AISettings.shared
+    public private(set) var isLoading = false
 
     // MARK: - Published State
 
     /// Current AI provider
     public var provider: AIProvider {
-        get { AIProvider(fromTextProvider: completionService.selectedProvider) }
-        set { completionService.selectedProvider = newValue.toTextProvider }
+        get {
+            switch settings.selectedProviderId {
+            case "anthropic": return .claude
+            case "openai": return .openai
+            default: return .apple
+            }
+        }
+        set {
+            settings.selectedProviderId = newValue.impressProviderId
+        }
     }
 
-    /// Whether a request is in progress
-    public var isLoading: Bool { completionService.isLoading }
+    /// Name of the suite-wide provider used by authoring tasks.
+    public var currentProviderName: String {
+        settings.selectedProviderMetadata?.name ?? "the configured Impress AI provider"
+    }
 
     /// Last error encountered
     public var lastError: AIAssistantError?
@@ -54,41 +66,38 @@ public final class AIAssistantService {
 
     // MARK: - Initialization
 
-    private init() {}
+    private init() {
+        Task { await settings.load() }
+    }
 
     // MARK: - Configuration
 
     /// Check if API key is configured for current provider
     public var isConfigured: Bool {
         get async {
-            await completionService.isConfigured
+            settings.isProviderReady
         }
     }
 
     /// Synchronous check for UI (uses cached state). On-device Apple needs no
     /// key — it's configured whenever Apple Intelligence is available.
     public var isConfiguredSync: Bool {
-        switch provider {
-        case .apple:
-            return completionService.isAppleOnDeviceAvailable
-        case .claude:
-            return UserDefaults.standard.bool(forKey: "ai.anthropic.hasKey")
-        case .openai:
-            return UserDefaults.standard.bool(forKey: "ai.openai.hasKey")
-        }
+        settings.isProviderReady
     }
 
     /// Set API key for a provider (uses ImpressAI credential manager)
     public func setAPIKey(_ key: String, for provider: AIProvider) async throws {
-        try await completionService.setAPIKey(key, for: provider.toTextProvider)
-
-        // Update cached state for sync checks
-        UserDefaults.standard.set(!key.isEmpty, forKey: "ai.\(provider.toTextProvider.rawValue).hasKey")
+        await settings.storeCredential(key, for: provider.impressProviderId, field: "apiKey")
     }
 
     /// Get API key for a provider (masked for display)
     public func maskedAPIKey(for provider: AIProvider) async -> String {
-        await completionService.maskedAPIKey(for: provider.toTextProvider)
+        guard let key = await settings.retrieveCredential(
+            for: provider.impressProviderId,
+            field: "apiKey"
+        ), !key.isEmpty else { return "" }
+        if key.count <= 8 { return "••••••••" }
+        return "\(key.prefix(4))••••\(key.suffix(4))"
     }
 
     // MARK: - Writing Actions
@@ -204,36 +213,53 @@ public final class AIAssistantService {
         userMessage: String,
         maxTokens: Int = 2000
     ) -> AsyncThrowingStream<String, Error> {
-        completionService.stream(
-            systemPrompt: systemPrompt,
-            userMessage: userMessage,
-            maxTokens: maxTokens
-        )
+        let providerId = settings.selectedProviderId
+        let modelId = settings.selectedModelId
+        let manager = providerManager
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let request = AICompletionRequest(
+                        providerId: providerId,
+                        modelId: modelId,
+                        messages: [AIMessage(role: .user, text: userMessage)],
+                        systemPrompt: systemPrompt,
+                        maxTokens: maxTokens,
+                        stream: true
+                    )
+                    let stream = try await manager.stream(request)
+                    for try await chunk in stream where !chunk.text.isEmpty {
+                        continuation.yield(chunk.text)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     // MARK: - API Communication
 
     private func sendRequest(systemPrompt: String, userMessage: String, maxTokens: Int) async throws -> String {
         lastError = nil
+        isLoading = true
+        defer { isLoading = false }
 
         do {
-            let response = try await completionService.complete(
+            let request = AICompletionRequest(
+                providerId: settings.selectedProviderId,
+                modelId: settings.selectedModelId,
+                messages: [AIMessage(role: .user, text: userMessage)],
                 systemPrompt: systemPrompt,
-                userMessage: userMessage,
                 maxTokens: maxTokens
             )
-            Logger.ai.infoCapture("AI response received: \(response.prefix(100))...", category: "ai")
-            return response
+            let response = try await providerManager.complete(request)
+            Logger.ai.infoCapture("AI response received: \(response.text.prefix(100))...", category: "ai")
+            return response.text
         } catch {
             let aiError: AIAssistantError
-            if let textError = error as? AITextCompletionError {
-                switch textError {
-                case .notConfigured:
-                    aiError = .notConfigured
-                case .requestFailed(let msg):
-                    aiError = .requestFailed(msg)
-                }
-            } else if let impressError = error as? AIError {
+            if let impressError = error as? AIError {
                 aiError = AIAssistantError.from(impressError)
             } else {
                 aiError = .requestFailed(error.localizedDescription)
@@ -284,6 +310,14 @@ public enum AIProvider: String, CaseIterable, Identifiable {
         case .apple: return .appleOnDevice
         case .claude: return .anthropic
         case .openai: return .openai
+        }
+    }
+
+    var impressProviderId: String {
+        switch self {
+        case .apple: return appleOnDeviceProviderId
+        case .claude: return "anthropic"
+        case .openai: return "openai"
         }
     }
 }

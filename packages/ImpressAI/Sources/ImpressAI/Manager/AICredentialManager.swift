@@ -7,19 +7,35 @@ public actor AICredentialManager {
     public static let shared = AICredentialManager()
 
     private var _keychain: KeychainSwift?
+    private var _legacyKeychain: KeychainSwift?
     private let keychainPrefix = "com.impressai.credentials"
+    private let accessGroup: String?
 
     /// Lazily initialized Keychain to defer permission dialog.
     private var keychain: KeychainSwift {
         if _keychain == nil {
             let keychain = KeychainSwift()
+            keychain.accessGroup = accessGroup
             keychain.synchronizable = false
             _keychain = keychain
         }
         return _keychain!
     }
 
-    public init() {}
+    /// Per-app keychain used only to migrate credentials written by releases
+    /// before ImpressAI adopted the suite-wide access group.
+    private var legacyKeychain: KeychainSwift {
+        if _legacyKeychain == nil {
+            let keychain = KeychainSwift()
+            keychain.synchronizable = false
+            _legacyKeychain = keychain
+        }
+        return _legacyKeychain!
+    }
+
+    public init(accessGroup: String? = "QG3MEYVHMS.com.impress.suite") {
+        self.accessGroup = accessGroup
+    }
 
     /// Stores a credential value for a provider field.
     ///
@@ -48,7 +64,16 @@ public actor AICredentialManager {
     /// - Returns: The credential value, or nil if not found.
     public func retrieve(for providerId: String, field: String) async -> String? {
         let key = makeKey(providerId: providerId, field: field)
-        return keychain.get(key)
+        if let value = keychain.get(key) {
+            return value
+        }
+
+        // One-time, best-effort migration from the calling app's old keychain.
+        if accessGroup != nil, let legacyValue = legacyKeychain.get(key) {
+            _ = keychain.set(legacyValue, forKey: key)
+            return legacyValue
+        }
+        return nil
     }
 
     /// Checks if a credential exists for a provider field.

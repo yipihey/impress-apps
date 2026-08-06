@@ -324,6 +324,30 @@ public struct ImpartKeyboardShortcutsSettings: Codable, Equatable, Sendable {
             notificationName: "switchToCategoryView"
         ),
         ImpartKeyboardShortcutBinding(
+            id: "showResearchView",
+            displayName: "Research View",
+            category: .viewModes,
+            key: .character("4"),
+            modifiers: .command,
+            notificationName: "switchToResearchView"
+        ),
+        ImpartKeyboardShortcutBinding(
+            id: "showDevelopmentView",
+            displayName: "Development View",
+            category: .viewModes,
+            key: .character("5"),
+            modifiers: .command,
+            notificationName: "switchToDevelopmentView"
+        ),
+        ImpartKeyboardShortcutBinding(
+            id: "showLocalAIView",
+            displayName: "Local AI View",
+            category: .viewModes,
+            key: .character("6"),
+            modifiers: .command,
+            notificationName: "switchToLocalAIView"
+        ),
+        ImpartKeyboardShortcutBinding(
             id: "toggleThreads",
             displayName: "Toggle Threads",
             category: .viewModes,

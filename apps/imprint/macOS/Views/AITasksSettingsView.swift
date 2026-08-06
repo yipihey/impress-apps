@@ -64,7 +64,7 @@ struct AITasksSettingsView: View {
         Form {
             Section {
                 Label(
-                    "Tasks run on \(aiService.provider.displayName). Turn tasks on or off, or edit a task's prompt. Disabled ones are hidden from the editor's cell-bracket and selection AI menus.",
+                    "Tasks run on \(aiService.currentProviderName). Turn tasks on or off, or edit a task's prompt. Disabled ones are hidden from the editor's cell-bracket and selection AI menus.",
                     systemImage: "sparkles"
                 )
                 .font(.caption)

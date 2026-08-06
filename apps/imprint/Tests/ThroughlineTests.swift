@@ -136,6 +136,38 @@ final class ThroughlineTests: XCTestCase {
         XCTAssertEqual(ThroughlineText.sectionKey(forHeading: "———"), "untitled")
     }
 
+    func testNarrativeReorderIsThroughlineAheadWithoutChangingWords() {
+        let original = ThroughlineText.extractParagraphs(
+            "First. <tl-a>\n\nSecond. <tl-b>\n")
+        let reordered = ThroughlineText.extractParagraphs(
+            "Second. <tl-b>\n\nFirst. <tl-a>\n")
+        var map = ThroughlineAnchorMap(documentID: UUID())
+        for paragraph in original {
+            map.anchors[paragraph.label] = ThroughlineAnchorEntry(
+                throughlineHash: paragraph.contentHash)
+            map.narrativeOrder[paragraph.label] = paragraph.orderIndex
+        }
+
+        let states = ThroughlineDerivation.anchorStates(
+            map: map, sectionHashes: [:], paragraphs: reordered)
+        XCTAssertTrue(states.allSatisfy(\.orderAhead))
+        XCTAssertTrue(states.allSatisfy(\.throughlineAhead))
+        XCTAssertTrue(states.allSatisfy { $0.state == "throughline-ahead" })
+    }
+
+    func testReorderParagraphMovesTheLabeledSourceRun() throws {
+        let source = "= Story\n\nFirst. <tl-a>\n\nSecond. <tl-b>\n"
+        let reordered = try XCTUnwrap(
+            ThroughlineText.reorderParagraph(source, label: "tl-b", beforeLabel: "tl-a"))
+        XCTAssertTrue(reordered.hasPrefix("= Story\n\n"))
+        XCTAssertEqual(
+            ThroughlineText.extractParagraphs(reordered).map(\.label),
+            ["tl-b", "tl-a"])
+        XCTAssertEqual(
+            ThroughlineText.extractParagraphs(reordered).map(\.body),
+            ["Second.", "First."])
+    }
+
     // MARK: - PaneLayoutState lenient decoding (saved layouts survive)
 
     func testPaneLayoutStateDecodesLegacyJSONWithoutThroughlineKey() throws {

@@ -4,6 +4,11 @@ members = [
     "crates/im-bibtex",
     "crates/im-identifiers",
     "crates/impress-domain",
+    "crates/vw-domain",
+    "crates/vw-service",
+    "crates/vw-impress-adapter",
+    "crates/impress-mcp-host",
+    "crates/vw-mcp",
     "crates/impress-bibtex",
     "crates/impress-identifiers",
     "crates/impress-collab",
@@ -13,6 +18,11 @@ members = [
     "crates/imbib-core",
     # impress-llm - extended LLM provider support via graniet/llm
     "crates/impress-llm",
+    # provenance-first local/remote inference over the shared item graph
+    "crates/impress-ai",
+    "crates/impress-ai-service",
+    "crates/impress-ai-tools",
+    "crates/impress-ai-http",
     # implore - scientific data visualization
     "crates/implore-core",
     "crates/implore-stats",
@@ -119,7 +129,7 @@ uniffi = { version = "0.28", features = ["cli"] }
 # Async trait support (HTTP source plugins, service traits)
 async-trait = "0.1"
 # HTTP client (rustls so no OpenSSL dependency on macOS/Linux/CI)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # XML parsing (arXiv Atom feed, PubMed)
 quick-xml = "0.31"
 # HTTP mocking for source-client tests
@@ -150,6 +160,10 @@ impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
 impress-llm = { path = "crates/impress-llm" }
+impress-ai = { path = "crates/impress-ai" }
+impress-ai-service = { path = "crates/impress-ai-service" }
+impress-ai-tools = { path = "crates/impress-ai-tools" }
+impress-ai-http = { path = "crates/impress-ai-http" }
 
 # implore crates
 implore-core = { path = "crates/implore-core" }

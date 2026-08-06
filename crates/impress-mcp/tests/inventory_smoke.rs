@@ -55,6 +55,12 @@ fn list_and_call_inventory_tool_via_stdio() {
         .arg(&embeddings)
         .args(["--store-path"])
         .arg(&store)
+        // This test is about static-init wiring — that depending on a service
+        // crate lights its entries up in the shipped binary. That is a property
+        // of the inventory, not of how the inventory is rendered, so it pins the
+        // flat projection explicitly (ADR-0024 D6). `grouped_surface_via_stdio`
+        // covers the default rendering.
+        .env("IMPRESS_MCP_SURFACE", "flat")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -157,6 +163,13 @@ fn list_and_call_inventory_tool_via_stdio() {
         "parsers-service_resolve-publisher-pdf",
         "parsers-service_list-publisher-rules",
         "parsers-service_extract-landing-page-pdf",
+        // Expert-system semantic surface. These operate directly on the
+        // shared store and remain available with every native app closed.
+        "vw-diagnostic-service_get-capabilities",
+        "vw-diagnostic-service_create-session",
+        "vw-diagnostic-service_record-observation",
+        "vw-diagnostic-service_evaluate-session",
+        "vw-diagnostic-service_recommend-next-test",
     ] {
         assert!(names.contains(&inv), "missing inventory {inv} in {names:?}");
     }
@@ -230,4 +243,127 @@ fn list_and_call_inventory_tool_via_stdio() {
     assert_eq!(listed["ok"], true, "list_items failed: {v7}");
     assert_eq!(listed["total"], 0);
     assert!(listed["items"].as_array().expect("items array").is_empty());
+}
+
+/// The default (grouped) projection, end to end against the shipped binary
+/// (ADR-0024 D2).
+///
+/// The in-process tests in `src/surface.rs` prove the projection is internally
+/// consistent; this proves the binary actually serves it, and — the part that
+/// cannot be checked in-process — that a capability reached through a domain
+/// tool produces the same answer as calling it flat. A projection that lists
+/// correctly but dispatches wrong would pass every unit test in the module.
+#[test]
+#[ignore = "spawns full binary (initializes fastembed); run with --ignored"]
+fn grouped_surface_via_stdio() {
+    let (_tmp, embeddings, store) = temp_paths();
+
+    let mut child = Command::new(binary_path())
+        .args(["--embeddings-path"])
+        .arg(&embeddings)
+        .args(["--store-path"])
+        .arg(&store)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn impress-mcp");
+
+    let requests = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        "\n",
+        // The root tool: can an agent rule the suite in or out in one read?
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"impress_capabilities","arguments":{}}}"#,
+        "\n",
+        // A capability that is NOT primary, reached through its domain tool.
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"imbib","arguments":{"action":"text.decode-latex","args":{"input":"Caf\\'{e}"}}}}"#,
+        "\n",
+        // The same capability called flat: the two must agree.
+        r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"imbib-text-service_decode-latex","arguments":{"input":"Caf\\'{e}"}}}"#,
+        "\n",
+        // describe returns a schema instead of invoking.
+        r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"imbib","arguments":{"action":"text.decode-latex","describe":true}}}"#,
+        "\n",
+        // An action that does not exist must refuse, not answer emptily.
+        r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"imbib","arguments":{"action":"not-a-real-action"}}}"#,
+        "\n",
+    );
+
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin")
+        .write_all(requests.as_bytes())
+        .expect("write requests");
+
+    let output = child.wait_with_output().expect("wait for child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(lines.len() >= 7, "expected >=7 responses; got: {stdout}");
+
+    // The grouped listing is small, and small is the entire point.
+    let v2: serde_json::Value = serde_json::from_str(lines[1]).expect("parse tools/list");
+    let tools = v2["result"]["tools"].as_array().expect("tools array");
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+
+    assert!(
+        names.contains(&"impress_capabilities"),
+        "no root tool in {names:?}"
+    );
+    assert!(
+        names.contains(&"imbib"),
+        "no imbib domain tool in {names:?}"
+    );
+    assert!(
+        names.contains(&"store-query-service_search-all"),
+        "primary tool was folded away: {names:?}"
+    );
+    assert!(
+        !names.contains(&"imbib-text-service_decode-latex"),
+        "non-primary tool is still flat: {names:?}"
+    );
+    assert!(
+        tools.len() < 60,
+        "grouped surface should be small, got {} tools",
+        tools.len()
+    );
+
+    // The root tool answers without needing any domain named.
+    let v3: serde_json::Value = serde_json::from_str(lines[2]).expect("parse capabilities");
+    let caps = &v3["result"]["structuredContent"];
+    assert!(
+        caps["domains"].as_array().map(|d| !d.is_empty()) == Some(true),
+        "capabilities listed no domains: {v3}"
+    );
+
+    // Grouped dispatch and flat dispatch must produce the same answer.
+    let v4: serde_json::Value = serde_json::from_str(lines[3]).expect("parse grouped call");
+    let v5: serde_json::Value = serde_json::from_str(lines[4]).expect("parse flat call");
+    assert_eq!(
+        v4["result"]["structuredContent"], v5["result"]["structuredContent"],
+        "grouped and flat disagree: {v4} vs {v5}"
+    );
+    assert_eq!(v5["result"]["structuredContent"].as_str(), Some("Café"));
+
+    // describe returns the schema and does not invoke.
+    let v6: serde_json::Value = serde_json::from_str(lines[5]).expect("parse describe");
+    let described = &v6["result"]["structuredContent"];
+    assert_eq!(
+        described["tool"].as_str(),
+        Some("imbib-text-service_decode-latex")
+    );
+    assert!(
+        described["inputSchema"]["properties"].is_object(),
+        "describe returned no schema: {v6}"
+    );
+
+    // An unknown action refuses, and says how to find the real ones.
+    let v7: serde_json::Value = serde_json::from_str(lines[6]).expect("parse bad action");
+    let text = v7["result"]["content"][0]["text"].as_str().unwrap_or("");
+    assert!(
+        text.contains("unknown action"),
+        "bad action did not refuse clearly: {v7}"
+    );
 }

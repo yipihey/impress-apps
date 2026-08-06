@@ -8,11 +8,8 @@
 
 import Foundation
 import CoreGraphics
+import ImpressOCR
 import OSLog
-
-#if canImport(Vision)
-import Vision
-#endif
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "remarkableOCR")
 
@@ -50,11 +47,29 @@ public actor RemarkableOCRService {
     /// - Parameter image: Rendered image of the strokes
     /// - Returns: OCR result with text and confidence
     public func recognizeText(from image: CGImage) async throws -> OCRResult {
-        #if canImport(Vision)
-        return try await performVisionOCR(image: image)
-        #else
-        throw OCRError.notSupported
-        #endif
+        let configuration = AppleVisionOCRConfiguration(
+            mode: .text,
+            recognitionLevel: usesAccurateRecognition ? .accurate : .fast,
+            recognitionLanguages: recognitionLanguages,
+            automaticallyDetectsLanguage: false,
+            usesLanguageCorrection: true
+        )
+        do {
+            let result = try await AppleVisionOCR(configuration: configuration).recognize(image)
+            return OCRResult(
+                text: result.text,
+                confidence: Float(result.meanConfidence / 100),
+                observations: result.observations.map {
+                    TextObservation(
+                        text: $0.text,
+                        confidence: $0.confidence,
+                        boundingBox: $0.boundingBox.cgRect
+                    )
+                }
+            )
+        } catch {
+            throw OCRError.recognitionFailed(error.localizedDescription)
+        }
     }
 
     /// Perform OCR on an RMFile.
@@ -107,73 +122,6 @@ public actor RemarkableOCRService {
         return results
     }
 
-    // MARK: - Vision OCR
-
-    #if canImport(Vision)
-    private func performVisionOCR(image: CGImage) async throws -> OCRResult {
-        return try await withCheckedThrowingContinuation { continuation in
-            // Guard against double-resume: the callback may fire before handler.perform() throws
-            var hasResumed = false
-
-            let request = VNRecognizeTextRequest { request, error in
-                guard !hasResumed else { return }
-                hasResumed = true
-
-                if let error = error {
-                    continuation.resume(throwing: OCRError.recognitionFailed(error.localizedDescription))
-                    return
-                }
-
-                guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                    continuation.resume(returning: OCRResult(text: "", confidence: 0, observations: []))
-                    return
-                }
-
-                // Combine all recognized text
-                var allText: [String] = []
-                var totalConfidence: Float = 0
-                var observationResults: [TextObservation] = []
-
-                for observation in observations {
-                    guard let topCandidate = observation.topCandidates(1).first else { continue }
-
-                    allText.append(topCandidate.string)
-                    totalConfidence += topCandidate.confidence
-
-                    observationResults.append(TextObservation(
-                        text: topCandidate.string,
-                        confidence: topCandidate.confidence,
-                        boundingBox: observation.boundingBox
-                    ))
-                }
-
-                let averageConfidence = observations.isEmpty ? 0 : totalConfidence / Float(observations.count)
-                let combinedText = allText.joined(separator: "\n")
-
-                continuation.resume(returning: OCRResult(
-                    text: combinedText,
-                    confidence: averageConfidence,
-                    observations: observationResults
-                ))
-            }
-
-            // Configure recognition
-            request.recognitionLevel = usesAccurateRecognition ? .accurate : .fast
-            request.recognitionLanguages = recognitionLanguages
-            request.usesLanguageCorrection = true
-
-            // Perform request
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume(throwing: OCRError.recognitionFailed(error.localizedDescription))
-            }
-        }
-    }
-    #endif
 }
 
 // MARK: - OCR Result Types

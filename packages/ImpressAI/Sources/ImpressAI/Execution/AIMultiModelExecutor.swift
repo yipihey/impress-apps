@@ -173,7 +173,8 @@ public actor AIMultiModelExecutor {
         _ request: AICompletionRequest,
         for categoryId: String
     ) async throws -> AIComparisonResult {
-        let models = await categoryManager.modelsForExecution(categoryId: categoryId)
+        await prepareForExecution()
+        let models = await modelsForExecution(categoryId: categoryId)
 
         guard !models.isEmpty else {
             throw AIError.providerNotConfigured("No models configured for category '\(categoryId)'")
@@ -259,7 +260,8 @@ public actor AIMultiModelExecutor {
         _ request: AICompletionRequest,
         for categoryId: String
     ) async throws -> AsyncThrowingStream<AIStreamingProgress, Error> {
-        let models = await categoryManager.modelsForExecution(categoryId: categoryId)
+        await prepareForExecution()
+        let models = await modelsForExecution(categoryId: categoryId)
 
         guard !models.isEmpty else {
             throw AIError.providerNotConfigured("No models configured for category '\(categoryId)'")
@@ -294,7 +296,7 @@ public actor AIMultiModelExecutor {
                     }
                 }
                 continuation.finish()
-                await self.removeTask(executionId)
+                self.removeTask(executionId)
             }
 
             self.registerTask(executionId, task: task)
@@ -323,6 +325,25 @@ public actor AIMultiModelExecutor {
 
     private func removeTask(_ id: UUID) {
         activeTasks.removeValue(forKey: id)
+    }
+
+    private func prepareForExecution() async {
+        await providerManager.registerAllProviders()
+        await categoryManager.ensureAssignmentsLoaded()
+    }
+
+    private func defaultModelReference() async -> AIModelReference? {
+        guard let provider = await providerManager.effectiveDefaultProvider(),
+              let model = await providerManager.effectiveDefaultModel(for: provider.metadata.id)
+        else { return nil }
+        return AIModelReference.from(provider: provider.metadata, model: model)
+    }
+
+    private func modelsForExecution(categoryId: String) async -> [AIModelReference] {
+        let configured = await categoryManager.modelsForExecution(categoryId: categoryId)
+        if !configured.isEmpty { return configured }
+        if let fallback = await defaultModelReference() { return [fallback] }
+        return []
     }
 
     private func executeForModel(
@@ -472,7 +493,14 @@ public extension AIMultiModelExecutor {
         _ request: AICompletionRequest,
         categoryId: String
     ) async throws -> AIModelExecutionResult? {
-        guard let model = await categoryManager.primaryModel(for: categoryId) else {
+        await prepareForExecution()
+        let configuredModel = await categoryManager.primaryModel(for: categoryId)
+        let model = if let configuredModel {
+            configuredModel
+        } else {
+            await defaultModelReference()
+        }
+        guard let model else {
             return nil
         }
 

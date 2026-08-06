@@ -64,7 +64,7 @@ final class ImpartSurfaceContext {
 }
 
 /// impart's chassis root: the shared chassis (`TabContentView`) restricted
-/// to the Mail facet, with Chat/Research/Development registered as custom
+/// to the Mail facet, with Chat/Research/Development/Local AI registered as custom
 /// surfaces. Gated behind an off-main store warm-up so the window never
 /// blocks on the shared store open.
 struct ImpartChassisRoot: View {
@@ -72,7 +72,7 @@ struct ImpartChassisRoot: View {
     /// The impart shell: PMC's `.impart` preset (Mail section, detail-pane
     /// open behavior) EXTENDED app-side with the custom surfaces — the
     /// preset cannot hold app-target views (WP-X0 seam).
-    /// Internal, not private, so `impartTests` can assert that every ⌘1-5
+    /// Internal, not private, so `impartTests` can assert that every ⌘1-6
     /// destination (`MailChassisHost.chassisDestination(for:)`) names a surface
     /// that is actually REGISTERED — the failure mode of a string-keyed
     /// navigation seam is a chord that silently navigates nowhere.
@@ -90,6 +90,9 @@ struct ImpartChassisRoot: View {
             CustomSurfaceDescriptor(
                 id: "development", title: "Development", systemImage: "hammer",
                 makeView: { AnyView(DevelopmentSurface()) }),
+            CustomSurfaceDescriptor(
+                id: "local-ai", title: "Local AI", systemImage: "sparkles",
+                makeView: { AnyView(AIConversationWorkspaceView()) }),
         ])
 
     var body: some View {

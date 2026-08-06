@@ -77,6 +77,12 @@ pub struct AnchorMap {
     /// Section keys deliberately excluded from the narrative (ADR-0016 D7).
     #[serde(default)]
     pub supporting: Vec<String>,
+    /// Accepted narrative position of each paragraph label. Missing entries
+    /// are legacy/unknown baselines and intentionally do not derive drift.
+    /// This stays label-keyed so inserting a new beat does not renumber the
+    /// ledger until a human accepts or explicitly reorders it.
+    #[serde(default)]
+    pub narrative_order: BTreeMap<String, i64>,
 }
 
 impl AnchorMap {
@@ -86,6 +92,7 @@ impl AnchorMap {
             document_id: document_id.to_string(),
             anchors: BTreeMap::new(),
             supporting: Vec::new(),
+            narrative_order: BTreeMap::new(),
         }
     }
 
@@ -219,6 +226,8 @@ pub struct AnchorAssessment {
     pub manuscript_ahead: Vec<String>,
     /// True when the paragraph's current hash differs from the ledger.
     pub throughline_ahead: bool,
+    /// True when the paragraph moved from its accepted narrative position.
+    pub order_ahead: bool,
     /// Section keys in the ledger that no longer resolve to a section.
     pub broken: Vec<String>,
     /// True when the label exists in the ledger but not in the source
@@ -269,11 +278,6 @@ pub fn derive_anchor_states(
         .iter()
         .map(|s| (s.section_key.as_str(), section_body_hash(s)))
         .collect();
-    let paragraph_hashes: BTreeMap<&str, &str> = paragraphs
-        .iter()
-        .map(|p| (p.label.as_str(), p.content_hash.as_str()))
-        .collect();
-
     map.anchors
         .iter()
         .map(|(label, entry)| {
@@ -290,15 +294,22 @@ pub fn derive_anchor_states(
                     }
                 }
             }
-            let (throughline_ahead, missing_paragraph) = match paragraph_hashes.get(label.as_str())
-            {
-                None => (false, true),
-                Some(current) => (*current != entry.throughline_hash, false),
+            let paragraph = paragraphs.iter().find(|p| p.label == *label);
+            let (content_ahead, order_ahead, missing_paragraph) = match paragraph {
+                None => (false, false, true),
+                Some(current) => (
+                    current.content_hash != entry.throughline_hash,
+                    map.narrative_order
+                        .get(label)
+                        .is_some_and(|accepted| *accepted != current.order_index),
+                    false,
+                ),
             };
             AnchorAssessment {
                 label: label.clone(),
                 manuscript_ahead,
-                throughline_ahead,
+                throughline_ahead: content_ahead || order_ahead,
+                order_ahead,
                 broken,
                 missing_paragraph,
             }
@@ -527,6 +538,7 @@ impl ThroughlineStore {
         // Baseline the scaffold paragraph so it starts `synced` with no
         // anchored sections.
         for p in extract_paragraphs(&source) {
+            map.narrative_order.insert(p.label.clone(), p.order_index);
             map.anchors.insert(
                 p.label.clone(),
                 AnchorEntry {
@@ -650,6 +662,8 @@ impl ThroughlineStore {
                 throughline_hash: paragraph.content_hash.clone(),
             },
         );
+        map.narrative_order
+            .insert(label.to_string(), paragraph.order_index);
         // Anchoring a section supersedes any "supporting" marking.
         map.supporting.retain(|k| !section_keys.contains(k));
         self.put_throughline(document_id, &rec.title, &rec.source, &map)
@@ -668,6 +682,7 @@ impl ThroughlineStore {
         };
         let mut map = rec.anchor_map.clone();
         map.anchors.remove(label);
+        map.narrative_order.remove(label);
         self.put_throughline(document_id, &rec.title, &rec.source, &map)
     }
 
@@ -721,6 +736,7 @@ impl ThroughlineStore {
         label: &str,
         expected_section_hashes: &BTreeMap<String, String>,
         expected_throughline_hash: Option<&str>,
+        expected_throughline_order: Option<i64>,
     ) -> Result<ThroughlineRecord, ServiceError> {
         let Some(rec) = self.get_throughline(document_id)? else {
             return Err(ServiceError::InvalidArgument(format!(
@@ -765,6 +781,15 @@ impl ThroughlineStore {
                 ));
             }
         }
+        if let Some(expected) = expected_throughline_order {
+            if paragraph.order_index != expected {
+                return Err(ServiceError::InvalidArgument(
+                    "throughline narrative order changed since the proposal was computed; \
+                     proposal must be recomputed"
+                        .into(),
+                ));
+            }
+        }
 
         let mut manuscript_hashes = BTreeMap::new();
         for key in &entry.section_keys {
@@ -774,6 +799,8 @@ impl ThroughlineStore {
         }
         entry.manuscript_hashes = manuscript_hashes;
         entry.throughline_hash = paragraph.content_hash.clone();
+        map.narrative_order
+            .insert(label.to_string(), paragraph.order_index);
         self.put_throughline(document_id, &rec.title, &rec.source, &map)
     }
 }
@@ -939,6 +966,32 @@ mod tests {
     }
 
     #[test]
+    fn narrative_reorder_is_throughline_ahead_without_changing_words() {
+        let doc = Uuid::new_v4();
+        let original = extract_paragraphs("First. <tl-a>\n\nSecond. <tl-b>\n");
+        let reordered = extract_paragraphs("Second. <tl-b>\n\nFirst. <tl-a>\n");
+        let mut map = AnchorMap::new(doc);
+        for paragraph in &original {
+            map.anchors.insert(
+                paragraph.label.clone(),
+                AnchorEntry {
+                    throughline_hash: paragraph.content_hash.clone(),
+                    ..Default::default()
+                },
+            );
+            map.narrative_order
+                .insert(paragraph.label.clone(), paragraph.order_index);
+        }
+
+        let states = derive_anchor_states(&map, &[], &reordered);
+        assert!(states.iter().all(|state| state.order_ahead));
+        assert!(states.iter().all(|state| state.throughline_ahead));
+        assert!(states
+            .iter()
+            .all(|state| state.state() == "throughline-ahead"));
+    }
+
+    #[test]
     fn coverage_excludes_anchored_and_supporting() {
         let doc = Uuid::new_v4();
         let (_tl, sections, _tmp) = test_store();
@@ -1044,12 +1097,27 @@ mod tests {
         let stale: BTreeMap<String, String> =
             [("intro".to_string(), "not-the-current-hash".to_string())].into();
         assert!(tl
-            .record_sync_accepted(doc, "tl-overview", &stale, None)
+            .record_sync_accepted(doc, "tl-overview", &stale, None, None)
+            .is_err());
+
+        // Narrative order is part of the expected-state snapshot too: a
+        // proposal computed before a beat move must never rebaseline it.
+        let before_move = tl.get_throughline(doc).unwrap().unwrap();
+        let overview_hash = extract_paragraphs(&before_move.source)[0]
+            .content_hash
+            .clone();
+        tl.update_source(
+            doc,
+            &format!("Prelude. <tl-prelude>\n\n{}", before_move.source),
+        )
+        .unwrap();
+        let expected: BTreeMap<String, String> = [("intro".to_string(), v2_hash.clone())].into();
+        assert!(tl
+            .record_sync_accepted(doc, "tl-overview", &expected, Some(&overview_hash), Some(0),)
             .is_err());
 
         // Accept with correct expectations → synced.
-        let expected: BTreeMap<String, String> = [("intro".to_string(), v2_hash)].into();
-        tl.record_sync_accepted(doc, "tl-overview", &expected, None)
+        tl.record_sync_accepted(doc, "tl-overview", &expected, Some(&overview_hash), Some(1))
             .unwrap();
         let states = tl.anchor_states(doc).unwrap().unwrap();
         assert_eq!(states[0].state(), "synced");

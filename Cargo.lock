@@ -3862,6 +3862,8 @@ dependencies = [
  "impel-core",
  "impel-enrichment",
  "impel-throughline",
+ "impress-ai",
+ "impress-ai-tools",
  "impress-core",
  "impress-sources",
  "imprint-service",
@@ -4010,6 +4012,91 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-ai"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "html-escape",
+ "impel-core",
+ "impress-core",
+ "mockito",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "impress-ai-http"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "dirs 5.0.1",
+ "impress-ai",
+ "impress-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "uuid",
+]
+
+[[package]]
+name = "impress-ai-service"
+version = "0.1.0"
+dependencies = [
+ "impress-ai",
+ "impress-core",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "schemars 0.8.22",
+ "serde",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "impress-ai-tools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "imbib-service",
+ "imbib-service-http",
+ "impart-service",
+ "impart-service-http",
+ "implore-service",
+ "implore-service-http",
+ "impress-ai",
+ "impress-ai-service",
+ "impress-bridges-service",
+ "impress-parsers-service",
+ "impress-service-core",
+ "impress-smart-search-service",
+ "impress-store-service",
+ "imprint-service",
+ "imprint-service-http",
+ "serde_json",
+ "tokio",
+ "vw-impress-adapter",
+]
+
+[[package]]
 name = "impress-app-client"
 version = "0.1.0"
 dependencies = [
@@ -4061,6 +4148,7 @@ dependencies = [
 name = "impress-cli"
 version = "0.1.0"
 dependencies = [
+ "impress-ai-service",
  "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",
@@ -4178,6 +4266,7 @@ dependencies = [
  "impart-service-http",
  "implore-service",
  "implore-service-http",
+ "impress-ai-service",
  "impress-bridges-service",
  "impress-parsers-service",
  "impress-service-core",
@@ -4189,6 +4278,18 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "vw-impress-adapter",
+]
+
+[[package]]
+name = "impress-mcp-host"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "impress-service-core",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -4291,10 +4392,12 @@ name = "impress-store-ffi"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "impress-ai",
  "impress-core",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "tokio",
  "uniffi",
  "uuid",
 ]
@@ -4443,6 +4546,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "impress-app-client",
+ "imprint-core",
  "imprint-service",
  "tokio",
  "url",
@@ -10216,6 +10320,66 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vw-domain"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
+name = "vw-impress-adapter"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "impress-core",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "vw-domain",
+ "vw-service",
+]
+
+[[package]]
+name = "vw-mcp"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "impress-core",
+ "impress-mcp-host",
+ "impress-service-core",
+ "impress-store-service",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "uuid",
+ "vw-domain",
+ "vw-impress-adapter",
+]
+
+[[package]]
+name = "vw-service"
+version = "0.1.0"
+dependencies = [
+ "impress-service-core",
+ "impress-service-macros",
+ "schemars 0.8.22",
+ "serde",
+ "vw-domain",
+]
 
 [[package]]
 name = "wait-timeout"

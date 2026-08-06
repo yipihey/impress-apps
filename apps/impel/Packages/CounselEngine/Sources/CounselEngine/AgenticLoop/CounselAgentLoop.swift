@@ -37,7 +37,7 @@ public enum AgentLoopFinishReason: String, Sendable {
     case error
 }
 
-/// Core agentic tool-use cycle using the NativeAgentLoop with direct Anthropic API calls.
+/// Core agentic tool-use cycle using the suite-wide ImpressAI provider.
 ///
 /// Tool use is dispatched via HTTP to sibling apps through CounselToolRegistry.
 /// No Process() calls — fully App Store compliant.
@@ -64,7 +64,7 @@ public actor CounselAgentLoop {
 
     /// Run the agentic loop for a conversation.
     ///
-    /// Delegates to NativeAgentLoop which uses AnthropicProvider + CounselToolRegistry
+    /// Delegates to NativeAgentLoop, which uses the configured provider + CounselToolRegistry
     /// for multi-turn tool use via HTTP bridges to sibling apps.
     public func run(
         conversationID: String,

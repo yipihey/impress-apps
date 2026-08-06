@@ -562,6 +562,386 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 
+public protocol SharedAiStoreProtocol : AnyObject {
+    
+    /**
+     * Resolve and verify a content-blob payload to a stable CKAsset path.
+     */
+    func blobAssetPath(payloadJson: String) throws  -> String?
+    
+    func blobAvailability(payloadJson: String) throws  -> AiBlobAvailability
+    
+    func conversationRows(includeArchived: Bool) throws  -> [AiConversationRow]
+    
+    func conversationSnapshotJson(conversationId: String) throws  -> String
+    
+    func conversationView(conversationId: String) throws  -> AiConversationView
+    
+    func createConversation(draft: AiConversationDraft) throws  -> String
+    
+    /**
+     * Accept a fetched CKAsset only when it matches the graph descriptor.
+     */
+    func importBlobAsset(payloadJson: String, sourcePath: String) throws  -> AiBlobAvailability
+    
+    func ingestBlob(bytes: Data, mimeType: String, fileName: String?) throws  -> AiAttachment
+    
+    /**
+     * Inspect the configured oMLX host through the Rust provider client.
+     * Network failures are normal device-local state and therefore return an
+     * `unreachable` projection; malformed configuration still returns an
+     * argument error.
+     */
+    func inspectOmlxHost(endpoint: String, apiKey: String?) throws  -> AiModelHostStatus
+    
+    func listConversationsJson(includeArchived: Bool) throws  -> String
+    
+    /**
+     * Import the retired LocalModels DB. The source is read-only; each
+     * conversation and its ledger commit in one transaction.
+     */
+    func migrateLocalmodelsJson(sourceDatabasePath: String, dryRun: Bool) throws  -> String
+    
+    /**
+     * Inspect the device-local model worker heartbeat. Absence and staleness
+     * are normal states: queued graph tasks remain durable and syncable.
+     */
+    func modelWorkerStatus()  -> AiWorkerStatus
+    
+    func queueTitleSuggestion(conversationId: String) throws  -> String
+    
+    func queueUserTurn(conversationId: String, body: String, attachmentIds: [String]) throws  -> AiQueuedTurn
+    
+    func runProvenanceJson(runId: String) throws  -> String
+    
+    func setConversationModel(conversationId: String, model: String) throws 
+    
+    func setConversationTitle(conversationId: String, title: String) throws 
+    
+    func setEnabledTools(conversationId: String, enabledTools: [String]) throws 
+    
+    func taskProgressJson(taskId: String) throws  -> String
+    
+    func taskState(taskId: String) throws  -> String
+    
+    func toolOptions(enabledTools: [String])  -> [AiToolOption]
+    
+}
+
+open class SharedAiStore:
+    SharedAiStoreProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_impress_store_ffi_fn_clone_sharedaistore(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_impress_store_ffi_fn_free_sharedaistore(pointer, $0) }
+    }
+
+    
+    /**
+     * Open the same shared SQLite graph as `SharedStore`, plus the suite CAS.
+     */
+public static func `open`(databasePath: String, blobRoot: String, actor: String)throws  -> SharedAiStore {
+    return try  FfiConverterTypeSharedAiStore.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_constructor_sharedaistore_open(
+        FfiConverterString.lower(databasePath),
+        FfiConverterString.lower(blobRoot),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Resolve and verify a content-blob payload to a stable CKAsset path.
+     */
+open func blobAssetPath(payloadJson: String)throws  -> String? {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_blob_asset_path(self.uniffiClonePointer(),
+        FfiConverterString.lower(payloadJson),$0
+    )
+})
+}
+    
+open func blobAvailability(payloadJson: String)throws  -> AiBlobAvailability {
+    return try  FfiConverterTypeAiBlobAvailability.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_blob_availability(self.uniffiClonePointer(),
+        FfiConverterString.lower(payloadJson),$0
+    )
+})
+}
+    
+open func conversationRows(includeArchived: Bool)throws  -> [AiConversationRow] {
+    return try  FfiConverterSequenceTypeAiConversationRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_conversation_rows(self.uniffiClonePointer(),
+        FfiConverterBool.lower(includeArchived),$0
+    )
+})
+}
+    
+open func conversationSnapshotJson(conversationId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_conversation_snapshot_json(self.uniffiClonePointer(),
+        FfiConverterString.lower(conversationId),$0
+    )
+})
+}
+    
+open func conversationView(conversationId: String)throws  -> AiConversationView {
+    return try  FfiConverterTypeAiConversationView.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_conversation_view(self.uniffiClonePointer(),
+        FfiConverterString.lower(conversationId),$0
+    )
+})
+}
+    
+open func createConversation(draft: AiConversationDraft)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_create_conversation(self.uniffiClonePointer(),
+        FfiConverterTypeAiConversationDraft.lower(draft),$0
+    )
+})
+}
+    
+    /**
+     * Accept a fetched CKAsset only when it matches the graph descriptor.
+     */
+open func importBlobAsset(payloadJson: String, sourcePath: String)throws  -> AiBlobAvailability {
+    return try  FfiConverterTypeAiBlobAvailability.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_import_blob_asset(self.uniffiClonePointer(),
+        FfiConverterString.lower(payloadJson),
+        FfiConverterString.lower(sourcePath),$0
+    )
+})
+}
+    
+open func ingestBlob(bytes: Data, mimeType: String, fileName: String?)throws  -> AiAttachment {
+    return try  FfiConverterTypeAiAttachment.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_ingest_blob(self.uniffiClonePointer(),
+        FfiConverterData.lower(bytes),
+        FfiConverterString.lower(mimeType),
+        FfiConverterOptionString.lower(fileName),$0
+    )
+})
+}
+    
+    /**
+     * Inspect the configured oMLX host through the Rust provider client.
+     * Network failures are normal device-local state and therefore return an
+     * `unreachable` projection; malformed configuration still returns an
+     * argument error.
+     */
+open func inspectOmlxHost(endpoint: String, apiKey: String?)throws  -> AiModelHostStatus {
+    return try  FfiConverterTypeAiModelHostStatus.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_inspect_omlx_host(self.uniffiClonePointer(),
+        FfiConverterString.lower(endpoint),
+        FfiConverterOptionString.lower(apiKey),$0
+    )
+})
+}
+    
+open func listConversationsJson(includeArchived: Bool)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_list_conversations_json(self.uniffiClonePointer(),
+        FfiConverterBool.lower(includeArchived),$0
+    )
+})
+}
+    
+    /**
+     * Import the retired LocalModels DB. The source is read-only; each
+     * conversation and its ledger commit in one transaction.
+     */
+open func migrateLocalmodelsJson(sourceDatabasePath: String, dryRun: Bool)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_migrate_localmodels_json(self.uniffiClonePointer(),
+        FfiConverterString.lower(sourceDatabasePath),
+        FfiConverterBool.lower(dryRun),$0
+    )
+})
+}
+    
+    /**
+     * Inspect the device-local model worker heartbeat. Absence and staleness
+     * are normal states: queued graph tasks remain durable and syncable.
+     */
+open func modelWorkerStatus() -> AiWorkerStatus {
+    return try!  FfiConverterTypeAiWorkerStatus.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_model_worker_status(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func queueTitleSuggestion(conversationId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_queue_title_suggestion(self.uniffiClonePointer(),
+        FfiConverterString.lower(conversationId),$0
+    )
+})
+}
+    
+open func queueUserTurn(conversationId: String, body: String, attachmentIds: [String])throws  -> AiQueuedTurn {
+    return try  FfiConverterTypeAiQueuedTurn.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_queue_user_turn(self.uniffiClonePointer(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(body),
+        FfiConverterSequenceString.lower(attachmentIds),$0
+    )
+})
+}
+    
+open func runProvenanceJson(runId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_run_provenance_json(self.uniffiClonePointer(),
+        FfiConverterString.lower(runId),$0
+    )
+})
+}
+    
+open func setConversationModel(conversationId: String, model: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_set_conversation_model(self.uniffiClonePointer(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(model),$0
+    )
+}
+}
+    
+open func setConversationTitle(conversationId: String, title: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_set_conversation_title(self.uniffiClonePointer(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(title),$0
+    )
+}
+}
+    
+open func setEnabledTools(conversationId: String, enabledTools: [String])throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_set_enabled_tools(self.uniffiClonePointer(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterSequenceString.lower(enabledTools),$0
+    )
+}
+}
+    
+open func taskProgressJson(taskId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_task_progress_json(self.uniffiClonePointer(),
+        FfiConverterString.lower(taskId),$0
+    )
+})
+}
+    
+open func taskState(taskId: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_task_state(self.uniffiClonePointer(),
+        FfiConverterString.lower(taskId),$0
+    )
+})
+}
+    
+open func toolOptions(enabledTools: [String]) -> [AiToolOption] {
+    return try!  FfiConverterSequenceTypeAiToolOption.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedaistore_tool_options(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(enabledTools),$0
+    )
+})
+}
+    
+
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedAiStore: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = SharedAiStore
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> SharedAiStore {
+        return SharedAiStore(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: SharedAiStore) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedAiStore {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: SharedAiStore, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedAiStore_lift(_ pointer: UnsafeMutableRawPointer) throws -> SharedAiStore {
+    return try FfiConverterTypeSharedAiStore.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedAiStore_lower(_ value: SharedAiStore) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeSharedAiStore.lower(value)
+}
+
+
+
+
 /**
  * A handle to the shared impress-core SQLite database.
  *
@@ -2297,6 +2677,1581 @@ public func FfiConverterTypeSharedStore_lift(_ pointer: UnsafeMutableRawPointer)
 #endif
 public func FfiConverterTypeSharedStore_lower(_ value: SharedStore) -> UnsafeMutableRawPointer {
     return FfiConverterTypeSharedStore.lower(value)
+}
+
+
+public struct AiAttachment {
+    public var itemId: String
+    public var mimeType: String
+    public var sha256: String
+    public var fileName: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(itemId: String, mimeType: String, sha256: String, fileName: String?) {
+        self.itemId = itemId
+        self.mimeType = mimeType
+        self.sha256 = sha256
+        self.fileName = fileName
+    }
+}
+
+
+
+extension AiAttachment: Equatable, Hashable {
+    public static func ==(lhs: AiAttachment, rhs: AiAttachment) -> Bool {
+        if lhs.itemId != rhs.itemId {
+            return false
+        }
+        if lhs.mimeType != rhs.mimeType {
+            return false
+        }
+        if lhs.sha256 != rhs.sha256 {
+            return false
+        }
+        if lhs.fileName != rhs.fileName {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(itemId)
+        hasher.combine(mimeType)
+        hasher.combine(sha256)
+        hasher.combine(fileName)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiAttachment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiAttachment {
+        return
+            try AiAttachment(
+                itemId: FfiConverterString.read(from: &buf), 
+                mimeType: FfiConverterString.read(from: &buf), 
+                sha256: FfiConverterString.read(from: &buf), 
+                fileName: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiAttachment, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.itemId, into: &buf)
+        FfiConverterString.write(value.mimeType, into: &buf)
+        FfiConverterString.write(value.sha256, into: &buf)
+        FfiConverterOptionString.write(value.fileName, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiAttachment_lift(_ buf: RustBuffer) throws -> AiAttachment {
+    return try FfiConverterTypeAiAttachment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiAttachment_lower(_ value: AiAttachment) -> RustBuffer {
+    return FfiConverterTypeAiAttachment.lower(value)
+}
+
+
+public struct AiAttachmentRow {
+    public var id: String
+    public var mimeType: String
+    public var fileName: String?
+    public var byteLength: UInt64
+    public var sha256: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, mimeType: String, fileName: String?, byteLength: UInt64, sha256: String) {
+        self.id = id
+        self.mimeType = mimeType
+        self.fileName = fileName
+        self.byteLength = byteLength
+        self.sha256 = sha256
+    }
+}
+
+
+
+extension AiAttachmentRow: Equatable, Hashable {
+    public static func ==(lhs: AiAttachmentRow, rhs: AiAttachmentRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.mimeType != rhs.mimeType {
+            return false
+        }
+        if lhs.fileName != rhs.fileName {
+            return false
+        }
+        if lhs.byteLength != rhs.byteLength {
+            return false
+        }
+        if lhs.sha256 != rhs.sha256 {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(mimeType)
+        hasher.combine(fileName)
+        hasher.combine(byteLength)
+        hasher.combine(sha256)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiAttachmentRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiAttachmentRow {
+        return
+            try AiAttachmentRow(
+                id: FfiConverterString.read(from: &buf), 
+                mimeType: FfiConverterString.read(from: &buf), 
+                fileName: FfiConverterOptionString.read(from: &buf), 
+                byteLength: FfiConverterUInt64.read(from: &buf), 
+                sha256: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiAttachmentRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.mimeType, into: &buf)
+        FfiConverterOptionString.write(value.fileName, into: &buf)
+        FfiConverterUInt64.write(value.byteLength, into: &buf)
+        FfiConverterString.write(value.sha256, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiAttachmentRow_lift(_ buf: RustBuffer) throws -> AiAttachmentRow {
+    return try FfiConverterTypeAiAttachmentRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiAttachmentRow_lower(_ value: AiAttachmentRow) -> RustBuffer {
+    return FfiConverterTypeAiAttachmentRow.lower(value)
+}
+
+
+/**
+ * Device-local byte availability. This is deliberately never written into
+ * the synced item payload: one offline phone must not mark a Mac's bytes
+ * unavailable for the whole graph.
+ */
+public struct AiBlobAvailability {
+    public var sha256: String
+    public var byteLength: UInt64
+    public var state: String
+    public var localPath: String?
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sha256: String, byteLength: UInt64, state: String, localPath: String?, error: String?) {
+        self.sha256 = sha256
+        self.byteLength = byteLength
+        self.state = state
+        self.localPath = localPath
+        self.error = error
+    }
+}
+
+
+
+extension AiBlobAvailability: Equatable, Hashable {
+    public static func ==(lhs: AiBlobAvailability, rhs: AiBlobAvailability) -> Bool {
+        if lhs.sha256 != rhs.sha256 {
+            return false
+        }
+        if lhs.byteLength != rhs.byteLength {
+            return false
+        }
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.localPath != rhs.localPath {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(sha256)
+        hasher.combine(byteLength)
+        hasher.combine(state)
+        hasher.combine(localPath)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiBlobAvailability: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiBlobAvailability {
+        return
+            try AiBlobAvailability(
+                sha256: FfiConverterString.read(from: &buf), 
+                byteLength: FfiConverterUInt64.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                localPath: FfiConverterOptionString.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiBlobAvailability, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sha256, into: &buf)
+        FfiConverterUInt64.write(value.byteLength, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterOptionString.write(value.localPath, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiBlobAvailability_lift(_ buf: RustBuffer) throws -> AiBlobAvailability {
+    return try FfiConverterTypeAiBlobAvailability.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiBlobAvailability_lower(_ value: AiBlobAvailability) -> RustBuffer {
+    return FfiConverterTypeAiBlobAvailability.lower(value)
+}
+
+
+public struct AiConversationDraft {
+    public var title: String
+    public var summary: String?
+    public var systemPrompt: String?
+    public var provider: String
+    public var model: String
+    public var temperature: Double
+    public var maxTokens: UInt32
+    public var thinking: Bool
+    public var webAccess: Bool
+    public var enabledTools: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, summary: String?, systemPrompt: String?, provider: String, model: String, temperature: Double, maxTokens: UInt32, thinking: Bool, webAccess: Bool, enabledTools: [String]) {
+        self.title = title
+        self.summary = summary
+        self.systemPrompt = systemPrompt
+        self.provider = provider
+        self.model = model
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.thinking = thinking
+        self.webAccess = webAccess
+        self.enabledTools = enabledTools
+    }
+}
+
+
+
+extension AiConversationDraft: Equatable, Hashable {
+    public static func ==(lhs: AiConversationDraft, rhs: AiConversationDraft) -> Bool {
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.summary != rhs.summary {
+            return false
+        }
+        if lhs.systemPrompt != rhs.systemPrompt {
+            return false
+        }
+        if lhs.provider != rhs.provider {
+            return false
+        }
+        if lhs.model != rhs.model {
+            return false
+        }
+        if lhs.temperature != rhs.temperature {
+            return false
+        }
+        if lhs.maxTokens != rhs.maxTokens {
+            return false
+        }
+        if lhs.thinking != rhs.thinking {
+            return false
+        }
+        if lhs.webAccess != rhs.webAccess {
+            return false
+        }
+        if lhs.enabledTools != rhs.enabledTools {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(title)
+        hasher.combine(summary)
+        hasher.combine(systemPrompt)
+        hasher.combine(provider)
+        hasher.combine(model)
+        hasher.combine(temperature)
+        hasher.combine(maxTokens)
+        hasher.combine(thinking)
+        hasher.combine(webAccess)
+        hasher.combine(enabledTools)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiConversationDraft: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiConversationDraft {
+        return
+            try AiConversationDraft(
+                title: FfiConverterString.read(from: &buf), 
+                summary: FfiConverterOptionString.read(from: &buf), 
+                systemPrompt: FfiConverterOptionString.read(from: &buf), 
+                provider: FfiConverterString.read(from: &buf), 
+                model: FfiConverterString.read(from: &buf), 
+                temperature: FfiConverterDouble.read(from: &buf), 
+                maxTokens: FfiConverterUInt32.read(from: &buf), 
+                thinking: FfiConverterBool.read(from: &buf), 
+                webAccess: FfiConverterBool.read(from: &buf), 
+                enabledTools: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiConversationDraft, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterOptionString.write(value.summary, into: &buf)
+        FfiConverterOptionString.write(value.systemPrompt, into: &buf)
+        FfiConverterString.write(value.provider, into: &buf)
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterDouble.write(value.temperature, into: &buf)
+        FfiConverterUInt32.write(value.maxTokens, into: &buf)
+        FfiConverterBool.write(value.thinking, into: &buf)
+        FfiConverterBool.write(value.webAccess, into: &buf)
+        FfiConverterSequenceString.write(value.enabledTools, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiConversationDraft_lift(_ buf: RustBuffer) throws -> AiConversationDraft {
+    return try FfiConverterTypeAiConversationDraft.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiConversationDraft_lower(_ value: AiConversationDraft) -> RustBuffer {
+    return FfiConverterTypeAiConversationDraft.lower(value)
+}
+
+
+/**
+ * Display-ready list row shaped by the Rust core.
+ */
+public struct AiConversationRow {
+    public var id: String
+    public var title: String
+    public var summary: String?
+    public var state: String
+    public var provider: String
+    public var model: String
+    public var createdAtMs: Int64
+    public var modifiedAtMs: Int64
+    public var lastActivityAtMs: Int64
+    public var messageCount: UInt32
+    public var pendingTaskCount: UInt32
+    public var enabledTools: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, summary: String?, state: String, provider: String, model: String, createdAtMs: Int64, modifiedAtMs: Int64, lastActivityAtMs: Int64, messageCount: UInt32, pendingTaskCount: UInt32, enabledTools: [String]) {
+        self.id = id
+        self.title = title
+        self.summary = summary
+        self.state = state
+        self.provider = provider
+        self.model = model
+        self.createdAtMs = createdAtMs
+        self.modifiedAtMs = modifiedAtMs
+        self.lastActivityAtMs = lastActivityAtMs
+        self.messageCount = messageCount
+        self.pendingTaskCount = pendingTaskCount
+        self.enabledTools = enabledTools
+    }
+}
+
+
+
+extension AiConversationRow: Equatable, Hashable {
+    public static func ==(lhs: AiConversationRow, rhs: AiConversationRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.summary != rhs.summary {
+            return false
+        }
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.provider != rhs.provider {
+            return false
+        }
+        if lhs.model != rhs.model {
+            return false
+        }
+        if lhs.createdAtMs != rhs.createdAtMs {
+            return false
+        }
+        if lhs.modifiedAtMs != rhs.modifiedAtMs {
+            return false
+        }
+        if lhs.lastActivityAtMs != rhs.lastActivityAtMs {
+            return false
+        }
+        if lhs.messageCount != rhs.messageCount {
+            return false
+        }
+        if lhs.pendingTaskCount != rhs.pendingTaskCount {
+            return false
+        }
+        if lhs.enabledTools != rhs.enabledTools {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(summary)
+        hasher.combine(state)
+        hasher.combine(provider)
+        hasher.combine(model)
+        hasher.combine(createdAtMs)
+        hasher.combine(modifiedAtMs)
+        hasher.combine(lastActivityAtMs)
+        hasher.combine(messageCount)
+        hasher.combine(pendingTaskCount)
+        hasher.combine(enabledTools)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiConversationRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiConversationRow {
+        return
+            try AiConversationRow(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                summary: FfiConverterOptionString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                provider: FfiConverterString.read(from: &buf), 
+                model: FfiConverterString.read(from: &buf), 
+                createdAtMs: FfiConverterInt64.read(from: &buf), 
+                modifiedAtMs: FfiConverterInt64.read(from: &buf), 
+                lastActivityAtMs: FfiConverterInt64.read(from: &buf), 
+                messageCount: FfiConverterUInt32.read(from: &buf), 
+                pendingTaskCount: FfiConverterUInt32.read(from: &buf), 
+                enabledTools: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiConversationRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterOptionString.write(value.summary, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterString.write(value.provider, into: &buf)
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterInt64.write(value.createdAtMs, into: &buf)
+        FfiConverterInt64.write(value.modifiedAtMs, into: &buf)
+        FfiConverterInt64.write(value.lastActivityAtMs, into: &buf)
+        FfiConverterUInt32.write(value.messageCount, into: &buf)
+        FfiConverterUInt32.write(value.pendingTaskCount, into: &buf)
+        FfiConverterSequenceString.write(value.enabledTools, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiConversationRow_lift(_ buf: RustBuffer) throws -> AiConversationRow {
+    return try FfiConverterTypeAiConversationRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiConversationRow_lower(_ value: AiConversationRow) -> RustBuffer {
+    return FfiConverterTypeAiConversationRow.lower(value)
+}
+
+
+/**
+ * One native conversation screen. SwiftUI renders this projection and sends
+ * commands back through `SharedAiStore`; it owns no policy derivation.
+ */
+public struct AiConversationView {
+    public var conversation: AiConversationRow
+    public var messages: [AiMessageRow]
+    public var tasks: [AiTaskRow]
+    public var toolOptions: [AiToolOption]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversation: AiConversationRow, messages: [AiMessageRow], tasks: [AiTaskRow], toolOptions: [AiToolOption]) {
+        self.conversation = conversation
+        self.messages = messages
+        self.tasks = tasks
+        self.toolOptions = toolOptions
+    }
+}
+
+
+
+extension AiConversationView: Equatable, Hashable {
+    public static func ==(lhs: AiConversationView, rhs: AiConversationView) -> Bool {
+        if lhs.conversation != rhs.conversation {
+            return false
+        }
+        if lhs.messages != rhs.messages {
+            return false
+        }
+        if lhs.tasks != rhs.tasks {
+            return false
+        }
+        if lhs.toolOptions != rhs.toolOptions {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(conversation)
+        hasher.combine(messages)
+        hasher.combine(tasks)
+        hasher.combine(toolOptions)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiConversationView: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiConversationView {
+        return
+            try AiConversationView(
+                conversation: FfiConverterTypeAiConversationRow.read(from: &buf), 
+                messages: FfiConverterSequenceTypeAiMessageRow.read(from: &buf), 
+                tasks: FfiConverterSequenceTypeAiTaskRow.read(from: &buf), 
+                toolOptions: FfiConverterSequenceTypeAiToolOption.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiConversationView, into buf: inout [UInt8]) {
+        FfiConverterTypeAiConversationRow.write(value.conversation, into: &buf)
+        FfiConverterSequenceTypeAiMessageRow.write(value.messages, into: &buf)
+        FfiConverterSequenceTypeAiTaskRow.write(value.tasks, into: &buf)
+        FfiConverterSequenceTypeAiToolOption.write(value.toolOptions, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiConversationView_lift(_ buf: RustBuffer) throws -> AiConversationView {
+    return try FfiConverterTypeAiConversationView.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiConversationView_lower(_ value: AiConversationView) -> RustBuffer {
+    return FfiConverterTypeAiConversationView.lower(value)
+}
+
+
+public struct AiMessageRow {
+    public var id: String
+    public var role: String
+    public var body: String
+    public var format: String
+    public var sender: String
+    public var status: String
+    public var sequence: Int64
+    public var createdAtMs: Int64
+    public var reasoning: String?
+    public var model: String?
+    public var inResponseToId: String?
+    public var producedByRunId: String?
+    public var attachments: [AiAttachmentRow]
+    public var sources: [AiWebSourceRow]
+    public var toolInvocations: [AiToolInvocationRow]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, role: String, body: String, format: String, sender: String, status: String, sequence: Int64, createdAtMs: Int64, reasoning: String?, model: String?, inResponseToId: String?, producedByRunId: String?, attachments: [AiAttachmentRow], sources: [AiWebSourceRow], toolInvocations: [AiToolInvocationRow]) {
+        self.id = id
+        self.role = role
+        self.body = body
+        self.format = format
+        self.sender = sender
+        self.status = status
+        self.sequence = sequence
+        self.createdAtMs = createdAtMs
+        self.reasoning = reasoning
+        self.model = model
+        self.inResponseToId = inResponseToId
+        self.producedByRunId = producedByRunId
+        self.attachments = attachments
+        self.sources = sources
+        self.toolInvocations = toolInvocations
+    }
+}
+
+
+
+extension AiMessageRow: Equatable, Hashable {
+    public static func ==(lhs: AiMessageRow, rhs: AiMessageRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.role != rhs.role {
+            return false
+        }
+        if lhs.body != rhs.body {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.sender != rhs.sender {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.sequence != rhs.sequence {
+            return false
+        }
+        if lhs.createdAtMs != rhs.createdAtMs {
+            return false
+        }
+        if lhs.reasoning != rhs.reasoning {
+            return false
+        }
+        if lhs.model != rhs.model {
+            return false
+        }
+        if lhs.inResponseToId != rhs.inResponseToId {
+            return false
+        }
+        if lhs.producedByRunId != rhs.producedByRunId {
+            return false
+        }
+        if lhs.attachments != rhs.attachments {
+            return false
+        }
+        if lhs.sources != rhs.sources {
+            return false
+        }
+        if lhs.toolInvocations != rhs.toolInvocations {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(role)
+        hasher.combine(body)
+        hasher.combine(format)
+        hasher.combine(sender)
+        hasher.combine(status)
+        hasher.combine(sequence)
+        hasher.combine(createdAtMs)
+        hasher.combine(reasoning)
+        hasher.combine(model)
+        hasher.combine(inResponseToId)
+        hasher.combine(producedByRunId)
+        hasher.combine(attachments)
+        hasher.combine(sources)
+        hasher.combine(toolInvocations)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiMessageRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiMessageRow {
+        return
+            try AiMessageRow(
+                id: FfiConverterString.read(from: &buf), 
+                role: FfiConverterString.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                sender: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                sequence: FfiConverterInt64.read(from: &buf), 
+                createdAtMs: FfiConverterInt64.read(from: &buf), 
+                reasoning: FfiConverterOptionString.read(from: &buf), 
+                model: FfiConverterOptionString.read(from: &buf), 
+                inResponseToId: FfiConverterOptionString.read(from: &buf), 
+                producedByRunId: FfiConverterOptionString.read(from: &buf), 
+                attachments: FfiConverterSequenceTypeAiAttachmentRow.read(from: &buf), 
+                sources: FfiConverterSequenceTypeAiWebSourceRow.read(from: &buf), 
+                toolInvocations: FfiConverterSequenceTypeAiToolInvocationRow.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiMessageRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.role, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterString.write(value.sender, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterInt64.write(value.sequence, into: &buf)
+        FfiConverterInt64.write(value.createdAtMs, into: &buf)
+        FfiConverterOptionString.write(value.reasoning, into: &buf)
+        FfiConverterOptionString.write(value.model, into: &buf)
+        FfiConverterOptionString.write(value.inResponseToId, into: &buf)
+        FfiConverterOptionString.write(value.producedByRunId, into: &buf)
+        FfiConverterSequenceTypeAiAttachmentRow.write(value.attachments, into: &buf)
+        FfiConverterSequenceTypeAiWebSourceRow.write(value.sources, into: &buf)
+        FfiConverterSequenceTypeAiToolInvocationRow.write(value.toolInvocations, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiMessageRow_lift(_ buf: RustBuffer) throws -> AiMessageRow {
+    return try FfiConverterTypeAiMessageRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiMessageRow_lower(_ value: AiMessageRow) -> RustBuffer {
+    return FfiConverterTypeAiMessageRow.lower(value)
+}
+
+
+/**
+ * Device-local reachability snapshot for an oMLX laptop/server. It is never
+ * persisted into the shared graph because different devices can legitimately
+ * observe different reachability at the same time.
+ */
+public struct AiModelHostStatus {
+    public var endpoint: String
+    public var state: String
+    public var checkedAtMs: Int64
+    public var models: [AiModelRow]
+    public var detail: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(endpoint: String, state: String, checkedAtMs: Int64, models: [AiModelRow], detail: String) {
+        self.endpoint = endpoint
+        self.state = state
+        self.checkedAtMs = checkedAtMs
+        self.models = models
+        self.detail = detail
+    }
+}
+
+
+
+extension AiModelHostStatus: Equatable, Hashable {
+    public static func ==(lhs: AiModelHostStatus, rhs: AiModelHostStatus) -> Bool {
+        if lhs.endpoint != rhs.endpoint {
+            return false
+        }
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.checkedAtMs != rhs.checkedAtMs {
+            return false
+        }
+        if lhs.models != rhs.models {
+            return false
+        }
+        if lhs.detail != rhs.detail {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(endpoint)
+        hasher.combine(state)
+        hasher.combine(checkedAtMs)
+        hasher.combine(models)
+        hasher.combine(detail)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiModelHostStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiModelHostStatus {
+        return
+            try AiModelHostStatus(
+                endpoint: FfiConverterString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                checkedAtMs: FfiConverterInt64.read(from: &buf), 
+                models: FfiConverterSequenceTypeAiModelRow.read(from: &buf), 
+                detail: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiModelHostStatus, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.endpoint, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterInt64.write(value.checkedAtMs, into: &buf)
+        FfiConverterSequenceTypeAiModelRow.write(value.models, into: &buf)
+        FfiConverterString.write(value.detail, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiModelHostStatus_lift(_ buf: RustBuffer) throws -> AiModelHostStatus {
+    return try FfiConverterTypeAiModelHostStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiModelHostStatus_lower(_ value: AiModelHostStatus) -> RustBuffer {
+    return FfiConverterTypeAiModelHostStatus.lower(value)
+}
+
+
+/**
+ * One model advertised by the configured oMLX host. This is deliberately a
+ * native projection rather than raw `/v1/models` JSON.
+ */
+public struct AiModelRow {
+    public var id: String
+    public var loaded: Bool
+    public var maxContextWindow: UInt64?
+    public var modalities: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, loaded: Bool, maxContextWindow: UInt64?, modalities: [String]) {
+        self.id = id
+        self.loaded = loaded
+        self.maxContextWindow = maxContextWindow
+        self.modalities = modalities
+    }
+}
+
+
+
+extension AiModelRow: Equatable, Hashable {
+    public static func ==(lhs: AiModelRow, rhs: AiModelRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.loaded != rhs.loaded {
+            return false
+        }
+        if lhs.maxContextWindow != rhs.maxContextWindow {
+            return false
+        }
+        if lhs.modalities != rhs.modalities {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(loaded)
+        hasher.combine(maxContextWindow)
+        hasher.combine(modalities)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiModelRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiModelRow {
+        return
+            try AiModelRow(
+                id: FfiConverterString.read(from: &buf), 
+                loaded: FfiConverterBool.read(from: &buf), 
+                maxContextWindow: FfiConverterOptionUInt64.read(from: &buf), 
+                modalities: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiModelRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterBool.write(value.loaded, into: &buf)
+        FfiConverterOptionUInt64.write(value.maxContextWindow, into: &buf)
+        FfiConverterSequenceString.write(value.modalities, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiModelRow_lift(_ buf: RustBuffer) throws -> AiModelRow {
+    return try FfiConverterTypeAiModelRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiModelRow_lower(_ value: AiModelRow) -> RustBuffer {
+    return FfiConverterTypeAiModelRow.lower(value)
+}
+
+
+public struct AiQueuedTurn {
+    public var conversationId: String
+    public var messageId: String
+    public var taskId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: String, messageId: String, taskId: String) {
+        self.conversationId = conversationId
+        self.messageId = messageId
+        self.taskId = taskId
+    }
+}
+
+
+
+extension AiQueuedTurn: Equatable, Hashable {
+    public static func ==(lhs: AiQueuedTurn, rhs: AiQueuedTurn) -> Bool {
+        if lhs.conversationId != rhs.conversationId {
+            return false
+        }
+        if lhs.messageId != rhs.messageId {
+            return false
+        }
+        if lhs.taskId != rhs.taskId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(conversationId)
+        hasher.combine(messageId)
+        hasher.combine(taskId)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiQueuedTurn: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiQueuedTurn {
+        return
+            try AiQueuedTurn(
+                conversationId: FfiConverterString.read(from: &buf), 
+                messageId: FfiConverterString.read(from: &buf), 
+                taskId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiQueuedTurn, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.conversationId, into: &buf)
+        FfiConverterString.write(value.messageId, into: &buf)
+        FfiConverterString.write(value.taskId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiQueuedTurn_lift(_ buf: RustBuffer) throws -> AiQueuedTurn {
+    return try FfiConverterTypeAiQueuedTurn.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiQueuedTurn_lower(_ value: AiQueuedTurn) -> RustBuffer {
+    return FfiConverterTypeAiQueuedTurn.lower(value)
+}
+
+
+public struct AiTaskRow {
+    public var id: String
+    public var title: String
+    public var state: String
+    public var createdAtMs: Int64
+    public var runId: String?
+    public var responseMessageId: String?
+    public var previewText: String?
+    public var previewComplete: Bool
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, state: String, createdAtMs: Int64, runId: String?, responseMessageId: String?, previewText: String?, previewComplete: Bool, error: String?) {
+        self.id = id
+        self.title = title
+        self.state = state
+        self.createdAtMs = createdAtMs
+        self.runId = runId
+        self.responseMessageId = responseMessageId
+        self.previewText = previewText
+        self.previewComplete = previewComplete
+        self.error = error
+    }
+}
+
+
+
+extension AiTaskRow: Equatable, Hashable {
+    public static func ==(lhs: AiTaskRow, rhs: AiTaskRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.createdAtMs != rhs.createdAtMs {
+            return false
+        }
+        if lhs.runId != rhs.runId {
+            return false
+        }
+        if lhs.responseMessageId != rhs.responseMessageId {
+            return false
+        }
+        if lhs.previewText != rhs.previewText {
+            return false
+        }
+        if lhs.previewComplete != rhs.previewComplete {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(state)
+        hasher.combine(createdAtMs)
+        hasher.combine(runId)
+        hasher.combine(responseMessageId)
+        hasher.combine(previewText)
+        hasher.combine(previewComplete)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiTaskRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiTaskRow {
+        return
+            try AiTaskRow(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                createdAtMs: FfiConverterInt64.read(from: &buf), 
+                runId: FfiConverterOptionString.read(from: &buf), 
+                responseMessageId: FfiConverterOptionString.read(from: &buf), 
+                previewText: FfiConverterOptionString.read(from: &buf), 
+                previewComplete: FfiConverterBool.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiTaskRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterInt64.write(value.createdAtMs, into: &buf)
+        FfiConverterOptionString.write(value.runId, into: &buf)
+        FfiConverterOptionString.write(value.responseMessageId, into: &buf)
+        FfiConverterOptionString.write(value.previewText, into: &buf)
+        FfiConverterBool.write(value.previewComplete, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiTaskRow_lift(_ buf: RustBuffer) throws -> AiTaskRow {
+    return try FfiConverterTypeAiTaskRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiTaskRow_lower(_ value: AiTaskRow) -> RustBuffer {
+    return FfiConverterTypeAiTaskRow.lower(value)
+}
+
+
+public struct AiToolInvocationRow {
+    public var id: String
+    public var tool: String
+    public var provider: String
+    public var state: String
+    public var resultSummary: String?
+    public var error: String?
+    public var durationMs: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, tool: String, provider: String, state: String, resultSummary: String?, error: String?, durationMs: UInt64?) {
+        self.id = id
+        self.tool = tool
+        self.provider = provider
+        self.state = state
+        self.resultSummary = resultSummary
+        self.error = error
+        self.durationMs = durationMs
+    }
+}
+
+
+
+extension AiToolInvocationRow: Equatable, Hashable {
+    public static func ==(lhs: AiToolInvocationRow, rhs: AiToolInvocationRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.tool != rhs.tool {
+            return false
+        }
+        if lhs.provider != rhs.provider {
+            return false
+        }
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.resultSummary != rhs.resultSummary {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(tool)
+        hasher.combine(provider)
+        hasher.combine(state)
+        hasher.combine(resultSummary)
+        hasher.combine(error)
+        hasher.combine(durationMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiToolInvocationRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiToolInvocationRow {
+        return
+            try AiToolInvocationRow(
+                id: FfiConverterString.read(from: &buf), 
+                tool: FfiConverterString.read(from: &buf), 
+                provider: FfiConverterString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                resultSummary: FfiConverterOptionString.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf), 
+                durationMs: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiToolInvocationRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.tool, into: &buf)
+        FfiConverterString.write(value.provider, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterOptionString.write(value.resultSummary, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+        FfiConverterOptionUInt64.write(value.durationMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiToolInvocationRow_lift(_ buf: RustBuffer) throws -> AiToolInvocationRow {
+    return try FfiConverterTypeAiToolInvocationRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiToolInvocationRow_lower(_ value: AiToolInvocationRow) -> RustBuffer {
+    return FfiConverterTypeAiToolInvocationRow.lower(value)
+}
+
+
+public struct AiToolOption {
+    public var id: String
+    public var label: String
+    public var description: String
+    public var enabled: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, label: String, description: String, enabled: Bool) {
+        self.id = id
+        self.label = label
+        self.description = description
+        self.enabled = enabled
+    }
+}
+
+
+
+extension AiToolOption: Equatable, Hashable {
+    public static func ==(lhs: AiToolOption, rhs: AiToolOption) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.label != rhs.label {
+            return false
+        }
+        if lhs.description != rhs.description {
+            return false
+        }
+        if lhs.enabled != rhs.enabled {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(label)
+        hasher.combine(description)
+        hasher.combine(enabled)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiToolOption: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiToolOption {
+        return
+            try AiToolOption(
+                id: FfiConverterString.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                enabled: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiToolOption, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterBool.write(value.enabled, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiToolOption_lift(_ buf: RustBuffer) throws -> AiToolOption {
+    return try FfiConverterTypeAiToolOption.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiToolOption_lower(_ value: AiToolOption) -> RustBuffer {
+    return FfiConverterTypeAiToolOption.lower(value)
+}
+
+
+public struct AiWebSourceRow {
+    public var id: String
+    public var title: String
+    public var url: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, url: String) {
+        self.id = id
+        self.title = title
+        self.url = url
+    }
+}
+
+
+
+extension AiWebSourceRow: Equatable, Hashable {
+    public static func ==(lhs: AiWebSourceRow, rhs: AiWebSourceRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.url != rhs.url {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(url)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiWebSourceRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiWebSourceRow {
+        return
+            try AiWebSourceRow(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                url: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiWebSourceRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.url, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiWebSourceRow_lift(_ buf: RustBuffer) throws -> AiWebSourceRow {
+    return try FfiConverterTypeAiWebSourceRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiWebSourceRow_lower(_ value: AiWebSourceRow) -> RustBuffer {
+    return FfiConverterTypeAiWebSourceRow.lower(value)
+}
+
+
+/**
+ * Device-local health of the Rust task worker that consumes synced AI turns.
+ * This projection is read from the worker heartbeat and is never synced.
+ */
+public struct AiWorkerStatus {
+    public var state: String
+    public var checkedAtMs: Int64
+    public var workerId: String?
+    public var pid: UInt32?
+    public var startedAtMs: Int64?
+    public var heartbeatAtMs: Int64?
+    public var lastPassAtMs: Int64?
+    public var completedTotal: UInt64
+    public var failedTotal: UInt64
+    public var detail: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(state: String, checkedAtMs: Int64, workerId: String?, pid: UInt32?, startedAtMs: Int64?, heartbeatAtMs: Int64?, lastPassAtMs: Int64?, completedTotal: UInt64, failedTotal: UInt64, detail: String) {
+        self.state = state
+        self.checkedAtMs = checkedAtMs
+        self.workerId = workerId
+        self.pid = pid
+        self.startedAtMs = startedAtMs
+        self.heartbeatAtMs = heartbeatAtMs
+        self.lastPassAtMs = lastPassAtMs
+        self.completedTotal = completedTotal
+        self.failedTotal = failedTotal
+        self.detail = detail
+    }
+}
+
+
+
+extension AiWorkerStatus: Equatable, Hashable {
+    public static func ==(lhs: AiWorkerStatus, rhs: AiWorkerStatus) -> Bool {
+        if lhs.state != rhs.state {
+            return false
+        }
+        if lhs.checkedAtMs != rhs.checkedAtMs {
+            return false
+        }
+        if lhs.workerId != rhs.workerId {
+            return false
+        }
+        if lhs.pid != rhs.pid {
+            return false
+        }
+        if lhs.startedAtMs != rhs.startedAtMs {
+            return false
+        }
+        if lhs.heartbeatAtMs != rhs.heartbeatAtMs {
+            return false
+        }
+        if lhs.lastPassAtMs != rhs.lastPassAtMs {
+            return false
+        }
+        if lhs.completedTotal != rhs.completedTotal {
+            return false
+        }
+        if lhs.failedTotal != rhs.failedTotal {
+            return false
+        }
+        if lhs.detail != rhs.detail {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(state)
+        hasher.combine(checkedAtMs)
+        hasher.combine(workerId)
+        hasher.combine(pid)
+        hasher.combine(startedAtMs)
+        hasher.combine(heartbeatAtMs)
+        hasher.combine(lastPassAtMs)
+        hasher.combine(completedTotal)
+        hasher.combine(failedTotal)
+        hasher.combine(detail)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiWorkerStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiWorkerStatus {
+        return
+            try AiWorkerStatus(
+                state: FfiConverterString.read(from: &buf), 
+                checkedAtMs: FfiConverterInt64.read(from: &buf), 
+                workerId: FfiConverterOptionString.read(from: &buf), 
+                pid: FfiConverterOptionUInt32.read(from: &buf), 
+                startedAtMs: FfiConverterOptionInt64.read(from: &buf), 
+                heartbeatAtMs: FfiConverterOptionInt64.read(from: &buf), 
+                lastPassAtMs: FfiConverterOptionInt64.read(from: &buf), 
+                completedTotal: FfiConverterUInt64.read(from: &buf), 
+                failedTotal: FfiConverterUInt64.read(from: &buf), 
+                detail: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiWorkerStatus, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterInt64.write(value.checkedAtMs, into: &buf)
+        FfiConverterOptionString.write(value.workerId, into: &buf)
+        FfiConverterOptionUInt32.write(value.pid, into: &buf)
+        FfiConverterOptionInt64.write(value.startedAtMs, into: &buf)
+        FfiConverterOptionInt64.write(value.heartbeatAtMs, into: &buf)
+        FfiConverterOptionInt64.write(value.lastPassAtMs, into: &buf)
+        FfiConverterUInt64.write(value.completedTotal, into: &buf)
+        FfiConverterUInt64.write(value.failedTotal, into: &buf)
+        FfiConverterString.write(value.detail, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiWorkerStatus_lift(_ buf: RustBuffer) throws -> AiWorkerStatus {
+    return try FfiConverterTypeAiWorkerStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiWorkerStatus_lower(_ value: AiWorkerStatus) -> RustBuffer {
+    return FfiConverterTypeAiWorkerStatus.lower(value)
 }
 
 
@@ -6268,6 +8223,54 @@ extension SharedStoreError: Foundation.LocalizedError {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = UInt32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
     typealias SwiftType = Int64?
 
@@ -6527,6 +8530,206 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAiAttachmentRow: FfiConverterRustBuffer {
+    typealias SwiftType = [AiAttachmentRow]
+
+    public static func write(_ value: [AiAttachmentRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAiAttachmentRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AiAttachmentRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AiAttachmentRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAiAttachmentRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAiConversationRow: FfiConverterRustBuffer {
+    typealias SwiftType = [AiConversationRow]
+
+    public static func write(_ value: [AiConversationRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAiConversationRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AiConversationRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AiConversationRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAiConversationRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAiMessageRow: FfiConverterRustBuffer {
+    typealias SwiftType = [AiMessageRow]
+
+    public static func write(_ value: [AiMessageRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAiMessageRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AiMessageRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AiMessageRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAiMessageRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAiModelRow: FfiConverterRustBuffer {
+    typealias SwiftType = [AiModelRow]
+
+    public static func write(_ value: [AiModelRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAiModelRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AiModelRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AiModelRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAiModelRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAiTaskRow: FfiConverterRustBuffer {
+    typealias SwiftType = [AiTaskRow]
+
+    public static func write(_ value: [AiTaskRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAiTaskRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AiTaskRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AiTaskRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAiTaskRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAiToolInvocationRow: FfiConverterRustBuffer {
+    typealias SwiftType = [AiToolInvocationRow]
+
+    public static func write(_ value: [AiToolInvocationRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAiToolInvocationRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AiToolInvocationRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AiToolInvocationRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAiToolInvocationRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAiToolOption: FfiConverterRustBuffer {
+    typealias SwiftType = [AiToolOption]
+
+    public static func write(_ value: [AiToolOption], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAiToolOption.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AiToolOption] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AiToolOption]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAiToolOption.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAiWebSourceRow: FfiConverterRustBuffer {
+    typealias SwiftType = [AiWebSourceRow]
+
+    public static func write(_ value: [AiWebSourceRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAiWebSourceRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AiWebSourceRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AiWebSourceRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAiWebSourceRow.read(from: &buf))
         }
         return seq
     }
@@ -7058,6 +9261,69 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_func_supported_manuscript_formats() != 37034) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_blob_asset_path() != 35867) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_blob_availability() != 59081) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_conversation_rows() != 64182) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_conversation_snapshot_json() != 60604) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_conversation_view() != 3338) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_create_conversation() != 63344) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_import_blob_asset() != 46361) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_ingest_blob() != 2714) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_inspect_omlx_host() != 2092) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_list_conversations_json() != 19475) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_migrate_localmodels_json() != 28595) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_model_worker_status() != 62939) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_queue_title_suggestion() != 54878) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_queue_user_turn() != 28620) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_run_provenance_json() != 37539) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_set_conversation_model() != 5004) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_set_conversation_title() != 54461) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_set_enabled_tools() != 29801) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_task_progress_json() != 11994) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_task_state() != 37362) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedaistore_tool_options() != 34205) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_add_reference() != 26356) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7251,6 +9517,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_watched_record_produced() != 53538) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_constructor_sharedaistore_open() != 30140) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open() != 6376) {

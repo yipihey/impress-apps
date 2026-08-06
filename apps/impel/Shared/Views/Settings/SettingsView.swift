@@ -28,6 +28,7 @@
 
 import SwiftUI
 import ImpelCore
+import ImpressAI
 import ImpelMail
 import CounselEngine
 import ImpressKeyboard
@@ -90,15 +91,14 @@ struct GeneralSettingsTab: View {
 
 struct ImpelAISettingsTab: View {
     @EnvironmentObject var mailGateway: MailGatewayState
-    @AppStorage("counselModel") private var modelName = ""
     @AppStorage("counselSystemPrompt") private var systemPrompt = ""
     @State private var engineAvailable = false
 
     var body: some View {
-        Form {
-            Section("Anthropic API") {
+        AISettingsView {
+            Section("Impel Counsel") {
                 HStack {
-                    Text("Status")
+                    Text("Agent engine")
                     Spacer()
                     if engineAvailable {
                         Label("Ready", systemImage: "checkmark.circle.fill")
@@ -108,17 +108,6 @@ struct ImpelAISettingsTab: View {
                             .foregroundStyle(.red)
                     }
                 }
-
-                Text("Counsel uses the Anthropic API directly for AI responses. Configure your API key in Settings > AI to enable counsel.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Model") {
-                TextField("Model (default: sonnet)", text: $modelName)
-                Text("The model identifier for the Anthropic API. Leave blank for the default.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("System Prompt") {
@@ -130,7 +119,6 @@ struct ImpelAISettingsTab: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
         .task {
             engineAvailable = mailGateway.counselEngine != nil
         }
@@ -158,7 +146,7 @@ struct CounselSettingsTab: View {
 
             Section("Agent Loop") {
                 Stepper("Max Turns: \(maxTurns)", value: $maxTurns, in: 1...50)
-                Text("Counsel uses the Anthropic API directly with tool use via HTTP bridges to sibling apps.")
+                Text("Counsel uses the suite-wide AI provider with tool use via HTTP bridges to sibling apps.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -712,31 +712,4 @@ enum CounselDefaults {
         You communicate with the user via email. Respond helpfully and concisely. \
         Format your response as a plain-text email reply.
         """
-
-    static let defaultModel = "sonnet"
-}
-
-/// Available models for the counsel persona.
-enum CounselModel: String, CaseIterable, Identifiable {
-    case haiku = "haiku"
-    case sonnet = "sonnet"
-    case opus = "opus"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .haiku: return "Claude Haiku"
-        case .sonnet: return "Claude Sonnet"
-        case .opus: return "Claude Opus"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .haiku: return "Fastest, most cost-efficient"
-        case .sonnet: return "Balanced speed and intelligence"
-        case .opus: return "Most capable, deepest reasoning"
-        }
-    }
 }

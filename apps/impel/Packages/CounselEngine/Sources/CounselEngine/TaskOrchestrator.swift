@@ -428,8 +428,9 @@ public actor TaskOrchestrator {
         )
 
         // Read config
+        let legacyAnthropicAliases: Set<String> = ["haiku", "sonnet", "opus"]
         let modelId = UserDefaults.standard.string(forKey: "counselModel")
-            .flatMap { $0.isEmpty ? nil : $0 }
+            .flatMap { $0.isEmpty || legacyAnthropicAliases.contains($0) ? nil : $0 }
         let maxTurns = UserDefaults.standard.integer(forKey: "counselMaxTurns")
         let effectiveMaxTurns = maxTurns > 0 ? maxTurns : 40
 
@@ -475,7 +476,7 @@ public actor TaskOrchestrator {
 
         // Record agent run provenance in the shared impress-core store.
         let agentRunTaskID = taskID
-        let agentRunModel = modelId ?? "claude-opus-4-6"
+        let agentRunModel = modelId ?? "suite-default"
         let agentRunTokenCount = result.totalTokensUsed
         let agentRunRounds = result.roundsUsed
         let agentRunFinishReason = result.finishReason.rawValue

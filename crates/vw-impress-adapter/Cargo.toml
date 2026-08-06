@@ -1,0 +1,23 @@
+[package]
+name = "vw-impress-adapter"
+description = "Impress persistence and generated-service adapter for the VW expert system"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+vw-domain = { path = "../vw-domain" }
+vw-service = { path = "../vw-service" }
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
+impress-store-service = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5"] }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

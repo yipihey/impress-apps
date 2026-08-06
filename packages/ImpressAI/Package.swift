@@ -11,11 +11,15 @@ let impressLLMAvailable = FileManager.default.fileExists(
 
 // Build dependencies list
 var dependencies: [Package.Dependency] = [
+    .package(path: "../ImpressKit"),
+    .package(path: "../ImpressLogging"),
     .package(url: "https://github.com/evgenyneu/keychain-swift.git", from: "21.0.0"),
 ]
 
 // Build target dependencies list
 var targetDependencies: [Target.Dependency] = [
+    .product(name: "ImpressKit", package: "ImpressKit"),
+    .product(name: "ImpressLogging", package: "ImpressLogging"),
     .product(name: "KeychainSwift", package: "keychain-swift"),
 ]
 

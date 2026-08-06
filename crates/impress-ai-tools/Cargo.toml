@@ -1,0 +1,30 @@
+[package]
+name = "impress-ai-tools"
+description = "Grouped local-model projection of the generated Impress service inventory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+impress-ai.workspace = true
+impress-ai-service.workspace = true
+impress-service-core.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+# These dependencies populate the one generated McpToolDescriptor inventory.
+imbib-service.workspace = true
+imbib-service-http.workspace = true
+impart-service.workspace = true
+impart-service-http.workspace = true
+implore-service.workspace = true
+implore-service-http.workspace = true
+imprint-service.workspace = true
+imprint-service-http.workspace = true
+impress-bridges-service.workspace = true
+impress-parsers-service.workspace = true
+impress-smart-search-service.workspace = true
+impress-store-service.workspace = true
+vw-impress-adapter = { path = "../vw-impress-adapter" }

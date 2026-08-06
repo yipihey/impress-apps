@@ -1,15 +1,39 @@
 import SwiftUI
 
 /// SwiftUI view for configuring AI providers.
+@MainActor
 public struct AISettingsView: View {
     @State private var settings: AISettings
     @State private var editingCredentials: [String: String] = [:]
     @State private var showingAPIKeyField: String? = nil
     @State private var isTestingConnection = false
     @State private var testResult: AIProviderStatus?
+    private let additionalSections: AnyView
 
-    public init(settings: AISettings = .shared) {
+    public init() {
+        _settings = State(wrappedValue: AISettings.shared)
+        additionalSections = AnyView(EmptyView())
+    }
+
+    public init(settings: AISettings) {
         _settings = State(wrappedValue: settings)
+        additionalSections = AnyView(EmptyView())
+    }
+
+    /// Creates the common settings form with app-specific sections appended.
+    public init<Content: View>(
+        @ViewBuilder additionalSections: () -> Content
+    ) {
+        _settings = State(wrappedValue: AISettings.shared)
+        self.additionalSections = AnyView(additionalSections())
+    }
+
+    public init<Content: View>(
+        settings: AISettings,
+        @ViewBuilder additionalSections: () -> Content
+    ) {
+        _settings = State(wrappedValue: settings)
+        self.additionalSections = AnyView(additionalSections())
     }
 
     @State private var showingCategorySettings = false
@@ -19,7 +43,13 @@ public struct AISettingsView: View {
             providerSection
             modelSection
             credentialSection
+            #if os(macOS)
+            if settings.selectedProviderId == OpenAICompatibleProvider.providerId {
+                localServiceSection
+            }
+            #endif
             categorySection
+            additionalSections
 
             if let error = settings.errorMessage {
                 Section {
@@ -127,6 +157,20 @@ public struct AISettingsView: View {
         }
     }
 
+    #if os(macOS)
+    private var localServiceSection: some View {
+        Section {
+            Toggle("Start oMLX when needed", isOn: $settings.automaticallyStartOMLX)
+        } header: {
+            Text("Local Service")
+        } footer: {
+            Text(
+                "For http://127.0.0.1:8000/v1, an explicit AI request or Test Connection can start oMLX and wait for it to become ready. Passive settings checks never launch it. Disable this when port 8000 belongs to another runtime."
+            )
+        }
+    }
+    #endif
+
     // MARK: - Model Section
 
     private var modelSection: some View {
@@ -211,7 +255,7 @@ public struct AISettingsView: View {
                             Text("Test Connection")
                         }
                     }
-                    .disabled(isTestingConnection || !settings.isProviderReady)
+                    .disabled(isTestingConnection)
 
                     if let result = testResult {
                         testResultView(result)

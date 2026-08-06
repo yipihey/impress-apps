@@ -85,6 +85,32 @@ pub trait ImprintManuscriptService: Send + Sync + 'static {
         case_sensitive: bool,
     ) -> Vec<TextMatch>;
 
+    // ---- Presentation structure ----
+    /// Parse stable `#slide(id:, beat:)[…]` blocks for graphical or agentic
+    /// deck manipulation. The Typst source remains the only order authority.
+    #[impress_method]
+    async fn presentation_outline(&self, source: String) -> PresentationOutlineDto;
+
+    /// Move a slide before another slide. Pass an empty `before_slide_id` to
+    /// move it to the end. Returns the complete updated Typst source.
+    #[impress_method]
+    async fn reorder_presentation_slide(
+        &self,
+        source: String,
+        slide_id: String,
+        before_slide_id: String,
+    ) -> PresentationMutationDto;
+
+    /// Associate a slide with a stable throughline paragraph label. Pass an
+    /// empty `beat` to clear the association.
+    #[impress_method]
+    async fn set_presentation_slide_beat(
+        &self,
+        source: String,
+        slide_id: String,
+        beat: String,
+    ) -> PresentationMutationDto;
+
     // ---- Typst compile ----
     /// Compile Typst source to a PDF and return `pdf_path` (plus page count
     /// and any warnings) — NOT the bytes, which no tool result can carry. Feed
@@ -130,6 +156,82 @@ pub struct SearchHitDto {
     pub title: String,
     pub excerpt: String,
     pub score: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct PresentationSlideDto {
+    pub id: String,
+    pub beat: Option<String>,
+    pub title: Option<String>,
+    pub order_index: u32,
+    pub start: u64,
+    pub end: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct PresentationOutlineDto {
+    pub slides: Vec<PresentationSlideDto>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct PresentationMutationDto {
+    pub source: String,
+    pub error: Option<String>,
+}
+
+fn presentation_outline(source: &str) -> PresentationOutlineDto {
+    match imprint_core::presentation::extract_slides(source) {
+        Ok(slides) => PresentationOutlineDto {
+            slides: slides
+                .into_iter()
+                .map(|slide| PresentationSlideDto {
+                    id: slide.id,
+                    beat: slide.beat,
+                    title: slide.title,
+                    order_index: slide.order_index as u32,
+                    start: slide.start as u64,
+                    end: slide.end as u64,
+                })
+                .collect(),
+            error: None,
+        },
+        Err(error) => PresentationOutlineDto {
+            slides: vec![],
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+fn reorder_presentation(
+    source: String,
+    slide_id: &str,
+    before_slide_id: &str,
+) -> PresentationMutationDto {
+    let before = (!before_slide_id.is_empty()).then_some(before_slide_id);
+    match imprint_core::presentation::reorder_slide(&source, slide_id, before) {
+        Ok(source) => PresentationMutationDto {
+            source,
+            error: None,
+        },
+        Err(error) => PresentationMutationDto {
+            source,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+fn set_presentation_beat(source: String, slide_id: &str, beat: &str) -> PresentationMutationDto {
+    match imprint_core::presentation::set_slide_beat(&source, slide_id, beat) {
+        Ok(source) => PresentationMutationDto {
+            source,
+            error: None,
+        },
+        Err(error) => PresentationMutationDto {
+            source,
+            error: Some(error.to_string()),
+        },
+    }
 }
 
 impl From<&SearchHit> for SearchHitDto {
@@ -319,6 +421,28 @@ impl ImprintManuscriptService for DefaultImprintManuscriptService {
             })
     }
 
+    async fn presentation_outline(&self, source: String) -> PresentationOutlineDto {
+        presentation_outline(&source)
+    }
+
+    async fn reorder_presentation_slide(
+        &self,
+        source: String,
+        slide_id: String,
+        before_slide_id: String,
+    ) -> PresentationMutationDto {
+        reorder_presentation(source, &slide_id, &before_slide_id)
+    }
+
+    async fn set_presentation_slide_beat(
+        &self,
+        source: String,
+        slide_id: String,
+        beat: String,
+    ) -> PresentationMutationDto {
+        set_presentation_beat(source, &slide_id, &beat)
+    }
+
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult {
         match self.handlers.compile_typst(&source, options).await {
             Ok(r) => r,
@@ -428,6 +552,9 @@ impress_service_impl! {
         document_outline(source: String) -> Outline,
         document_citations(source: String) -> Vec<CitationUsage>,
         search_in_text(source: String, query: String, case_sensitive: bool) -> Vec<TextMatch>,
+        presentation_outline(source: String) -> PresentationOutlineDto,
+        reorder_presentation_slide(source: String, slide_id: String, before_slide_id: String) -> PresentationMutationDto,
+        set_presentation_slide_beat(source: String, slide_id: String, beat: String) -> PresentationMutationDto,
         compile_typst(source: String, options: CompileOptions) -> CompileResult,
         compile_latex(source: String, filesystem_root: String) -> LatexCompileResultDto,
         search(query: String, limit: u32) -> Vec<SearchHitDto>,

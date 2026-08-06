@@ -10,6 +10,7 @@ import Foundation
 /// group.com.impress.suite/
 ///   workspace/
 ///     impress.sqlite        ← shared impress-core store
+///     blobs/                 ← immutable AI/research content-addressed bytes
 /// ```
 public enum SharedWorkspace: Sendable {
     /// The canonical URL for the shared impress-core SQLite database.
@@ -24,12 +25,22 @@ public enum SharedWorkspace: Sendable {
         rootDirectory.appendingPathComponent("workspace")
     }
 
+    /// Canonical content-addressed byte store shared by all suite facets.
+    public static var aiBlobDirectory: URL {
+        workspaceDirectory.appendingPathComponent("blobs", isDirectory: true)
+    }
+
     /// Creates the workspace directory if it does not already exist.
     ///
     /// Call this at app startup before opening the database.
     public static func ensureDirectoryExists() throws {
         try FileManager.default.createDirectory(
             at: workspaceDirectory,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try FileManager.default.createDirectory(
+            at: aiBlobDirectory,
             withIntermediateDirectories: true,
             attributes: nil
         )

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressKit
 
 // MARK: - Category Manager
 
@@ -16,6 +17,7 @@ public actor AITaskCategoryManager {
     public static let shared = AITaskCategoryManager()
 
     private var assignments: [String: AITaskCategoryAssignment] = [:]
+    private var hasLoadedAssignments = false
     private let storage: AITaskCategoryStorage
 
     public init(storage: AITaskCategoryStorage = .shared) {
@@ -27,6 +29,7 @@ public actor AITaskCategoryManager {
     /// Load assignments from persistent storage.
     public func loadAssignments() async {
         assignments = await storage.loadAssignments()
+        hasLoadedAssignments = true
     }
 
     /// Save assignments to persistent storage.
@@ -121,6 +124,13 @@ public actor AITaskCategoryManager {
         return assignment.allModels
     }
 
+    /// Loads persisted assignments once before a task execution path reads
+    /// them. Settings UI is no longer required to have been opened first.
+    public func ensureAssignmentsLoaded() async {
+        guard !hasLoadedAssignments else { return }
+        await loadAssignments()
+    }
+
     /// Get the primary model for a category.
     ///
     /// - Parameter categoryId: The category ID.
@@ -192,10 +202,15 @@ public actor AITaskCategoryStorage {
     public static let shared = AITaskCategoryStorage()
 
     private let storageKey = "impressai.taskCategoryAssignments"
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = SharedDefaults.suite) {
+        self.defaults = defaults
+    }
 
     /// Load assignments from UserDefaults.
     public func loadAssignments() -> [String: AITaskCategoryAssignment] {
-        guard let data = UserDefaults.standard.data(forKey: storageKey) else {
+        guard let data = defaults.data(forKey: storageKey) else {
             return [:]
         }
 
@@ -210,7 +225,7 @@ public actor AITaskCategoryStorage {
     public func saveAssignments(_ assignments: [String: AITaskCategoryAssignment]) {
         do {
             let data = try JSONEncoder().encode(assignments)
-            UserDefaults.standard.set(data, forKey: storageKey)
+            defaults.set(data, forKey: storageKey)
         } catch {
             // Silently fail - logging would be appropriate in production
         }

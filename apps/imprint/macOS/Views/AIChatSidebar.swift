@@ -5,6 +5,7 @@
 //  AI writing assistant chat sidebar with quick actions.
 //
 
+import ImpressAI
 import SwiftUI
 
 // MARK: - AI Chat Sidebar
@@ -413,12 +414,6 @@ enum QuickAction: String, CaseIterable, Identifiable {
 
 struct AISettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Bindable private var aiService = AIAssistantService.shared
-
-    @State private var claudeKey = ""
-    @State private var openaiKey = ""
-    @State private var claudeMaskedKey = ""
-    @State private var openaiMaskedKey = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -436,83 +431,15 @@ struct AISettingsSheet: View {
 
             Divider()
 
-            Form {
-                Section("Provider") {
-                    Picker("AI Provider", selection: $aiService.provider) {
-                        ForEach(AIProvider.allCases) { provider in
-                            Text(provider.displayName).tag(provider)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-                }
-
-                Section("Claude API Key") {
-                    SecureField("sk-ant-...", text: $claudeKey)
-                        .onAppear {
-                            // Don't load actual key for security
-                        }
-                        .onSubmit {
-                            if !claudeKey.isEmpty {
-                                Task { try? await aiService.setAPIKey(claudeKey, for: .claude) }
-                            }
-                        }
-
-                    if !claudeMaskedKey.isEmpty {
-                        HStack {
-                            Text("Current: \(claudeMaskedKey)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Clear") {
-                                Task { try? await aiService.setAPIKey("", for: .claude) }
-                            }
-                            .font(.caption)
-                        }
-                    }
-
-                    Link("Get Claude API Key", destination: URL(string: "https://console.anthropic.com/")!)
-                        .font(.caption)
-                }
-
-                Section("OpenAI API Key") {
-                    SecureField("sk-...", text: $openaiKey)
-                        .onSubmit {
-                            if !openaiKey.isEmpty {
-                                Task { try? await aiService.setAPIKey(openaiKey, for: .openai) }
-                            }
-                        }
-
-                    if !openaiMaskedKey.isEmpty {
-                        HStack {
-                            Text("Current: \(openaiMaskedKey)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Clear") {
-                                Task { try? await aiService.setAPIKey("", for: .openai) }
-                            }
-                            .font(.caption)
-                        }
-                    }
-
-                    Link("Get OpenAI API Key", destination: URL(string: "https://platform.openai.com/api-keys")!)
-                        .font(.caption)
-                }
-
+            AISettingsView {
                 Section("Privacy") {
                     Text("Your text is sent to the selected AI provider's API. No data is stored on our servers.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .formStyle(.grouped)
-            .padding()
         }
-        .frame(width: 450, height: 500)
-        .task {
-            claudeMaskedKey = await aiService.maskedAPIKey(for: .claude)
-            openaiMaskedKey = await aiService.maskedAPIKey(for: .openai)
-        }
+        .frame(width: 560, height: 650)
     }
 }
 

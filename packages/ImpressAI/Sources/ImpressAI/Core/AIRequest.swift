@@ -320,12 +320,14 @@ public struct AnySendable: @unchecked Sendable, Equatable {
         switch value {
         case let s as String:
             return AnySendable(s)
+        // JSON booleans bridge through NSNumber and can also satisfy an Int
+        // cast, so test Bool before numeric cases.
+        case let b as Bool:
+            return AnySendable(b)
         case let n as Int:
             return AnySendable(n)
         case let n as Double:
             return AnySendable(n)
-        case let b as Bool:
-            return AnySendable(b)
         case let dict as [String: Any]:
             return AnySendable(dict.mapValues { fromJSON($0) })
         case let arr as [Any]:

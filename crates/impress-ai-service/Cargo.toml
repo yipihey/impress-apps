@@ -1,0 +1,21 @@
+[package]
+name = "impress-ai-service"
+description = "Generated MCP, CLI, and impel service surface for the provenance-first Impress AI core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-ai.workspace = true
+impress-core = { workspace = true, features = ["sqlite"] }
+impress-service-core.workspace = true
+impress-service-macros.workspace = true
+impress-store-service.workspace = true
+serde.workspace = true
+schemars.workspace = true
+uuid = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio.workspace = true

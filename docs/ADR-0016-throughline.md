@@ -121,12 +121,17 @@ regenerated; they are the throughline-side half of every anchor identity.
       "throughline_hash": "sha256:…"
     }
   },
+  "narrative_order": { "tl-claim": 0 },
   "supporting": ["appendix-a", "numerical-methods"]
 }
 ```
 
 Hashes are recorded **only when a sync proposal is accepted** (or at creation).
 `supporting` lists section keys deliberately excluded from the narrative (D7).
+`narrative_order` records the last accepted position of each labeled paragraph;
+order drift is throughline drift just like a paragraph-content change. The field
+was added compatibly by ADR-0025; its absence in an older version-1 ledger means
+"no order baseline yet," not position zero.
 
 The files on disk are authoritative. The store carries a derived mirror (a
 `throughline@1.0.0` item plus edges, D3) exactly as `main.typ` is mirrored into
@@ -201,7 +206,7 @@ ledger; it is never a stored flag that can rot:
 |---|---|---|
 | `synced` | both sides match ledger | nothing owed |
 | `manuscript-ahead` | anchored section hash ≠ ledger | throughline paragraph is stale; update proposal owed |
-| `throughline-ahead` | paragraph hash ≠ ledger | manuscript draft owed in anchored sections |
+| `throughline-ahead` | paragraph hash or narrative position ≠ ledger | manuscript draft owed in anchored sections |
 | `broken` | `section_key` does not resolve | repair proposal owed |
 
 If both sides drifted, `manuscript-ahead` and `throughline-ahead` coexist on the

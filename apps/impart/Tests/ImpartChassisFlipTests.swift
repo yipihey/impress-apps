@@ -17,7 +17,7 @@ import Testing
 @Suite("impart chassis flip (Stage 4c)")
 struct ImpartChassisFlipTests {
 
-    // MARK: ⌘1-5 → chassis destinations
+    // MARK: ⌘1-6 → chassis destinations
 
     @Test("every view mode has a chassis destination")
     func everyViewModeResolves() {
@@ -45,10 +45,17 @@ struct ImpartChassisFlipTests {
         }
     }
 
-    @Test("the five view modes claim ⌘1-5, one each")
+    @Test("local AI is a first-class chassis surface")
+    func localAIIsRegistered() {
+        let surface = ImpartChassisRoot.shellConfiguration.customSurfaces["local-ai"]
+        #expect(surface?.title == "Local AI")
+        #expect(surface?.systemImage == "sparkles")
+    }
+
+    @Test("the six view modes claim ⌘1-6, one each")
     func shortcutsAreDistinctAndComplete() {
         let keys = MessageViewMode.allCases.map { $0.commandShortcutKey.character }
-        #expect(keys == ["1", "2", "3", "4", "5"])
+        #expect(keys == ["1", "2", "3", "4", "5", "6"])
     }
 
     @Test("each view mode posts its own notification")
@@ -64,6 +71,7 @@ struct ImpartChassisFlipTests {
         #expect(MessageViewMode.research.switchNotification.rawValue == "switchToResearchView")
         #expect(
             MessageViewMode.development.switchNotification.rawValue == "switchToDevelopmentView")
+        #expect(MessageViewMode.localAI.switchNotification.rawValue == "switchToLocalAIView")
     }
 
     /// The keyboard store's own binding strings must keep matching the typed
@@ -75,6 +83,7 @@ struct ImpartChassisFlipTests {
         let storeViewModeNames = ImpartKeyboardShortcutsSettings.defaults.bindings
             .map(\.notificationName)
             .filter { $0.hasPrefix("switchTo") }
+        #expect(Set(storeViewModeNames) == observed)
         for name in storeViewModeNames {
             #expect(
                 observed.contains(name),

@@ -22,6 +22,7 @@ base64 = "0.22"
 # McpToolDescriptor entries link into this binary at compile time, plus
 # the core runtime helpers for descriptor iteration and `block_on`.
 impress-service-core = { workspace = true }
+impress-ai-service = { workspace = true }
 imbib-service = { workspace = true }
 imbib-service-http = { workspace = true }
 # `typst-render` is OFF by default in imprint-service (Typst linkage is heavy —
@@ -45,6 +46,8 @@ impress-bridges-service = { workspace = true }
 # Store-generic services (ADR-0022 WP G1): the collection kernel + generic
 # triage verbs. Never app-gated — they open the shared store directly.
 impress-store-service = { workspace = true }
+# VW expert-system semantic service and Impress repository adapter.
+vw-impress-adapter = { path = "../vw-impress-adapter" }
 # Pulls the ImprintSelftestService inventory (run-selftest MCP tool).
 imprint-selftest = { workspace = true }
 # Pulls the SmartSearchService inventory (pure, app-independent — no

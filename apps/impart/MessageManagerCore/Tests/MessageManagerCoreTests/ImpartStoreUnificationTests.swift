@@ -13,6 +13,125 @@ import Testing
 import ImpressRustCore
 #endif
 
+#if canImport(ImpressRustCore)
+
+@Suite("AI declarative projection")
+struct AIDeclarativeProjectionTests {
+
+    @Test("Rust shapes conversation rows, screen state, and tool options")
+    func testTypedProjection() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("impart-ai-projection-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = try SharedAiStore.open(
+            databasePath: root.appendingPathComponent("impress.sqlite").path,
+            blobRoot: root.appendingPathComponent("blobs", isDirectory: true).path,
+            actor: "user:test")
+        let conversationID = try store.createConversation(draft: AiConversationDraft(
+            title: "Research",
+            summary: nil,
+            systemPrompt: nil,
+            provider: "omlx",
+            model: "mlx-community/model",
+            temperature: 0.2,
+            maxTokens: 2_048,
+            thinking: true,
+            webAccess: true,
+            enabledTools: ["scix"]))
+
+        let initialRows = try store.conversationRows(includeArchived: false)
+        #expect(initialRows.count == 1)
+        #expect(initialRows[0].title == "Research")
+        #expect(initialRows[0].enabledTools == ["scix", "web"])
+
+        _ = try store.queueUserTurn(
+            conversationId: conversationID,
+            body: "Find the evidence",
+            attachmentIds: [])
+        let view = try store.conversationView(conversationId: conversationID)
+        #expect(view.messages.count == 1)
+        #expect(view.messages[0].body == "Find the evidence")
+        #expect(view.tasks.count == 1)
+        #expect(view.tasks[0].state == "pending")
+        #expect(view.toolOptions.contains { $0.id == "scix" && $0.enabled })
+        #expect(view.toolOptions.contains { $0.id == "web" && $0.enabled })
+
+        try store.setEnabledTools(
+            conversationId: conversationID,
+            enabledTools: ["impress-mcp"])
+        let updated = try store.conversationView(conversationId: conversationID)
+        #expect(updated.toolOptions.contains { $0.id == "web" && !$0.enabled })
+        #expect(updated.toolOptions.contains { $0.id == "impress-mcp" && $0.enabled })
+    }
+}
+
+@MainActor
+@Suite("AI conversation workspace")
+struct AIConversationWorkspaceTests {
+
+    @Test("thin model creates, queues, and updates tools through the Rust gateway")
+    func testWorkspaceRoundTrip() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("impart-ai-workspace-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = ImpartAIStore(
+            databaseURL: root.appendingPathComponent("impress.sqlite"),
+            blobDirectory: root.appendingPathComponent("blobs", isDirectory: true),
+            actor: "user:test")
+        let model = AIConversationWorkspaceModel(store: store)
+
+        await model.refreshWorker()
+        #expect(model.workerStatus?.state == "unavailable")
+
+        #expect(await model.createConversation(
+            title: "Local research",
+            model: "mlx-community/model",
+            enabledTools: ["scix"]))
+        #expect(model.conversations.count == 1)
+        #expect(model.conversation?.conversation.title == "Local research")
+        #expect(model.conversation?.toolOptions.contains { $0.id == "scix" && $0.enabled } == true)
+
+        model.composerText = "Trace this claim"
+        await model.sendComposer()
+        #expect(model.composerText.isEmpty)
+        #expect(model.conversation?.messages.map(\.body) == ["Trace this claim"])
+        #expect(model.conversation?.tasks.first?.state == "pending")
+
+        await model.setTool(id: "impress-mcp", enabled: true)
+        #expect(
+            model.conversation?.toolOptions.contains {
+                $0.id == "impress-mcp" && $0.enabled
+            } == true)
+
+        await model.setModel("mlx-community/vision-model")
+        #expect(model.conversation?.conversation.model == "mlx-community/vision-model")
+
+        await model.renameConversation("Rotation curve evidence")
+        #expect(model.conversation?.conversation.title == "Rotation curve evidence")
+        let titleTaskID = try await store.suggestConversationTitle(
+            conversationID: UUID(uuidString: model.conversation!.conversation.id)!)
+        #expect(try await store.taskState(taskID: titleTaskID) == "pending")
+        #expect(model.conversation?.tasks.count == 1)
+
+        let attachmentURL = root.appendingPathComponent("evidence.txt")
+        try Data("supporting evidence".utf8).write(to: attachmentURL)
+        await model.addAttachments(from: [attachmentURL])
+        #expect(model.pendingAttachments.count == 1)
+        #expect(model.pendingAttachments[0].sha256.count == 64)
+
+        model.composerText = ""
+        await model.sendComposer()
+        #expect(model.pendingAttachments.isEmpty)
+        #expect(model.conversation?.messages.last?.attachments.count == 1)
+    }
+}
+
+#endif
+
 // MARK: - Deterministic ID Tests
 
 @Suite("Deterministic IDs")

@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "local_database": ".local/vw-knowledge.sqlite",
+  "fallback_database": ".local/vw-knowledge-tesseract.sqlite",
+  "admission_policy": "Source text is searchable extracted evidence. It is not executable diagnostic knowledge until a reviewer creates cited, applicability-scoped published records.",
+  "sources": [
+    {
+      "key": "vw-type2-official-service-manual-1968-1979",
+      "title": "Volkswagen Official Service Manual: Station Wagon/Bus 1968-1979",
+      "authority": "manufacturer-authorized service manual",
+      "publisher": "Volkswagen / Robert Bentley Publishers",
+      "source_url": "https://www.bentleypublishers.com/volkswagen/transporter/",
+      "local_source": "/Users/tabel/Downloads/T2/VW T2 Official Service Manual 1979.pdf",
+      "ocr_index": ".local/vw-corpus/vision-manual-index/index.sqlite3",
+      "sha256": "e1e4f40183fef491077f2179ff322a6a1e978dd0bce5ef94b2d910ec5e16cd4f",
+      "pages": 492,
+      "searchable_pages": 485,
+      "source_item_id": "fa503a5f-1b7a-5855-af11-480ef231883e",
+      "extraction_run_id": "8fe66b81-ae9f-5d55-94ae-f94955db5ef5",
+      "extraction": {
+        "engine": "apple-vision",
+        "version": "text-revision3; Version 26.5.2 (Build 25F84)",
+        "mode": "text",
+        "vision_revision": "text-revision3",
+        "dpi": 220,
+        "language": "en-US",
+        "average_confidence": 97.46,
+        "retained_regions": 37185
+      },
+      "applicability": "Volkswagen Type 2 model years 1968-1979; record-level review must distinguish 1978 California L-Jetronic from other years and markets.",
+      "rights": "User-provided personal backup copy; do not redistribute.",
+      "state": "extracted_unreviewed"
+    },
+    {
+      "key": "bosch-classic-l-jetronic-training-aid",
+      "title": "Bosch Classic L-Jetronic Gasoline Injection System",
+      "authority": "component-manufacturer training aid",
+      "publisher": "Robert Bosch GmbH",
+      "source_url": "https://www.bosch-classic.com/de/media/pdfs/downloads/lehrtafeln/en/l-jetronic_lehrtafel_bosch_en.pdf",
+      "local_source": ".local/vw-corpus/bosch-l-jetronic-training-aid.pdf",
+      "ocr_index": ".local/vw-corpus/vision-bosch-text-index/index.sqlite3",
+      "sha256": "6e79c87c9f75c8311dece129b9e31dfc46671a053eb5ea4596b47b15a53fbb54",
+      "pages": 1,
+      "searchable_pages": 1,
+      "source_item_id": "ba0f6a19-1692-596e-95e8-4331e30ed537",
+      "extraction_run_id": "2d62e8a3-16fc-5a2a-bf17-6f86baf867b4",
+      "extraction": {
+        "engine": "apple-vision",
+        "version": "text-revision3; Version 26.5.2 (Build 25F84)",
+        "mode": "text",
+        "vision_revision": "text-revision3",
+        "dpi": 300,
+        "language": "en-US",
+        "average_confidence": 100.0,
+        "retained_regions": 36
+      },
+      "applicability": "Generic Bosch L-Jetronic system overview; contextual only unless a VW-specific source confirms configuration and values.",
+      "rights": "Copyright Robert Bosch GmbH; local research copy, source URL retained.",
+      "state": "extracted_unreviewed"
+    },
+    {
+      "key": "vw-afc-training-troubleshooting",
+      "title": "Volkswagen AFC Training and Troubleshooting Manual",
+      "authority": "original Volkswagen training material in a specialist archive",
+      "publisher": "Volkswagen; archived by TheSamba.com",
+      "source_url": "https://www.thesamba.com/vw/archives/manuals/afc_fi_training_troubleshooting_manual/AFC_FI_Training_Troubleshooting_Manual.pdf",
+      "archive_page": "https://www.thesamba.com/vw/archives/manuals/afc_fi_training_troubleshooting_manual.php",
+      "local_source": ".local/vw-corpus/vw-afc-training-troubleshooting.pdf",
+      "ocr_index": ".local/vw-corpus/vision-afc-index/index.sqlite3",
+      "sha256": "d7375e7cc872c232f264b52243d40ee09b476224a48f6b0ffb650266b1fd9010",
+      "pages": 46,
+      "searchable_pages": 45,
+      "source_item_id": "4fbf4067-b1f5-53f0-b07a-cf34f5a1b228",
+      "extraction_run_id": "5a3ae151-c174-5e74-9d07-3bb4a0028427",
+      "extraction": {
+        "engine": "apple-vision",
+        "version": "text-revision3; Version 26.5.2 (Build 25F84)",
+        "mode": "text",
+        "vision_revision": "text-revision3",
+        "dpi": 260,
+        "language": "en-US",
+        "average_confidence": 94.25,
+        "retained_regions": 1941
+      },
+      "applicability": "Volkswagen AFC/L-Jetronic training and troubleshooting; individual tests still require model-year and market applicability review.",
+      "rights": "Local research copy of archived original material; archive attribution and source URL retained.",
+      "state": "extracted_unreviewed"
+    }
+  ]
+}

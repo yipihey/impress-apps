@@ -35,6 +35,7 @@ pub mod browse;
 pub mod collection_service;
 pub mod docs_import_service;
 pub mod query_service;
+pub mod source_service;
 pub mod store;
 pub mod triage_service;
 
@@ -71,6 +72,11 @@ pub use query_service::{
     DefaultStoreQueryService, ItemEnvelopeDto, ItemListResult, ItemResult, RelatedItemDto,
     RelatedResult, SearchHitDto, SearchResult, StoreQueryService, DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT, MAX_PAYLOAD_BYTES,
+};
+pub use source_service::{
+    ContentChunkInput, ContentChunkSearchHit, ContentChunkSearchResult, DefaultSourceService,
+    ExtractedTextRegionInput, ExtractionRunInput, NormalizedRectInput, SourceCitationInput,
+    SourceLocatorInput, SourceRecordResult, SourceService,
 };
 pub use store::{default_store_path, install_store, set_store_path, store_instance, store_path};
 pub use triage_service::{DefaultTriageService, TriageResult, TriageService};
@@ -114,6 +120,12 @@ mod inventory_tests {
             "store-query-service_related-items",
             "store-query-service_get-item",
             "store-query-service_list-items",
+            "source-service_put-citation",
+            "source-service_get-citation",
+            "source-service_put-extraction-run",
+            "source-service_put-content-chunk",
+            "source-service_get-content-chunk",
+            "source-service_search-content-chunks",
             // Markdown-directory → manuscript-collection import (repeatable).
             "docs-import-service_import-directory",
             "docs-import-service_prune-empty-manuscripts",

@@ -6,6 +6,7 @@ pub mod reference;
 pub mod registry;
 pub mod schema;
 pub mod schemas;
+pub mod source;
 pub mod store;
 pub mod task;
 
@@ -55,6 +56,7 @@ pub use query::*;
 pub use reference::*;
 pub use registry::*;
 pub use schema::*;
+pub use source::*;
 pub use store::*;
 
 #[cfg(feature = "sqlite")]

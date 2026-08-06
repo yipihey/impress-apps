@@ -235,7 +235,7 @@ struct MailChassisHost: ViewModifier {
     @Environment(AppState.self) private var appState
     private var host: ImpartMailHost { .shared }
 
-    /// Kept in sync with `MessageViewMode` so the ⌘1-5 accelerators land where
+    /// Kept in sync with `MessageViewMode` so the ⌘1-6 accelerators land where
     /// the classic view-mode picker did: mode → the chassis destination that
     /// shows the same thing. `.email` is the Mail SECTION (the shell's default
     /// landing leaf, All Inboxes); the other four are registered surfaces.
@@ -246,6 +246,7 @@ struct MailChassisHost: ViewModifier {
         case .category: return "category"
         case .research: return "research"
         case .development: return "development"
+        case .localAI: return "local-ai"
         }
     }
 
@@ -316,12 +317,13 @@ struct MailChassisHost: ViewModifier {
                 (.markAsRead, { _ in host.setReadStateOnSelection(true) }),
                 (.markAsUnread, { _ in host.setReadStateOnSelection(false) }),
                 (.checkMail, { _ in checkMail() }),
-                // ⌘1-5 view modes → chassis navigation (ImpartApp's View menu).
+                // ⌘1-6 view modes → chassis navigation (ImpartApp's View menu).
                 (.switchToEmailView, { _ in navigate(to: .email) }),
                 (.switchToChatView, { _ in navigate(to: .chat) }),
                 (.switchToCategoryView, { _ in navigate(to: .category) }),
                 (.switchToResearchView, { _ in navigate(to: .research) }),
                 (.switchToDevelopmentView, { _ in navigate(to: .development) }),
+                (.switchToLocalAIView, { _ in navigate(to: .localAI) }),
             ])
     }
 

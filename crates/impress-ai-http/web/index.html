@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#111411">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="LocalModels">
+    <meta name="description" content="Private Impress threads with models running on your Mac.">
+    <link id="app-manifest" rel="manifest" href="/site.webmanifest">
+    <link rel="stylesheet" href="/app.css?v=12">
+    <title>LocalModels · Impress</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand" id="brand" aria-label="LocalModels">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span id="brand-name">LocalModels</span>
+        </div>
+        <div class="topbar-actions">
+          <span class="connection" id="connection"><i></i><span>Connecting</span></span>
+          <button class="icon-button" id="settings-button" type="button" aria-label="Open settings" aria-expanded="false">•••</button>
+        </div>
+      </header>
+
+      <section class="model-strip" aria-label="Model selection">
+        <label class="visually-hidden" for="model-select">Model</label>
+        <select id="model-select" aria-label="Local model"></select>
+        <button id="chats-button" class="text-button" type="button" aria-expanded="false">Chats</button>
+        <button id="new-chat" class="text-button" type="button">New chat</button>
+      </section>
+
+      <section class="chats-panel" id="chats-panel" aria-label="Shared conversations" hidden>
+        <div class="panel-heading">
+          <div><strong id="threads-title">Impart threads</strong><small id="threads-subtitle">Shared with Impart on your Mac and phone</small></div>
+          <button id="close-chats" class="icon-button close-button" type="button" aria-label="Close conversations">×</button>
+        </div>
+        <div class="conversation-list" id="conversation-list"></div>
+      </section>
+
+      <section class="settings-panel" id="settings-panel" aria-label="Generation settings" hidden>
+        <label class="field full-field">
+          <span>System instruction</span>
+          <textarea id="system-prompt" rows="3">Be precise, thoughtful, and honest about uncertainty.</textarea>
+        </label>
+        <label class="field">
+          <span>Temperature <output id="temperature-value">0.2</output></span>
+          <input id="temperature" type="range" min="0" max="1.5" step="0.1" value="0.2">
+        </label>
+        <label class="field">
+          <span>Maximum tokens</span>
+          <input id="max-tokens" type="number" min="64" max="32768" step="64" value="2048" inputmode="numeric">
+        </label>
+        <label class="toggle-field">
+          <span><strong>Thinking</strong><small>Slower, deeper reasoning</small></span>
+          <input id="thinking" type="checkbox">
+          <i aria-hidden="true"></i>
+        </label>
+        <label class="toggle-field">
+          <span><strong>Web search &amp; pages</strong><small>Search when asked; open links and domains you mention</small></span>
+          <input id="web-access" type="checkbox" checked>
+          <i aria-hidden="true"></i>
+        </label>
+      </section>
+
+      <section class="conversation" id="conversation" aria-live="polite" aria-label="Conversation">
+        <div class="welcome" id="welcome">
+          <div class="orb" aria-hidden="true"><span></span></div>
+          <p class="eyebrow" id="welcome-eyebrow">ON YOUR MAC</p>
+          <h1 id="welcome-title">Private intelligence,<br>within reach.</h1>
+          <p id="welcome-copy">Chat with Qwen or Gemma from your phone. Your conversation stays between this device and your laptop.</p>
+          <div class="suggestions">
+            <button type="button" data-prompt="Help me investigate a scientific question and identify the assumptions we should test.">Investigate a question <span>↗</span></button>
+            <button type="button" data-prompt="Review this idea critically. Ask me for the idea first, then look for failure modes.">Challenge an idea <span>↗</span></button>
+            <button type="button" data-prompt="Help me design a reproducible computational experiment.">Design an experiment <span>↗</span></button>
+          </div>
+        </div>
+        <div id="messages" class="messages"></div>
+      </section>
+
+      <footer class="composer-wrap">
+        <form class="composer" id="composer">
+          <textarea id="prompt" rows="1" placeholder="Message your local model" aria-label="Message" enterkeyhint="send"></textarea>
+          <button id="send-button" type="submit" aria-label="Send message"><span>↑</span></button>
+          <button id="stop-button" class="stop-button" type="button" aria-label="Stop generating" hidden><span></span></button>
+        </form>
+        <p class="privacy-note" id="privacy-note">Model runs on your Mac · Enabled web requests use the internet · Verify important results</p>
+      </footer>
+    </main>
+    <script src="/mathjax-config.js?v=9" defer></script>
+    <script src="/vendor/mathjax/tex-svg-full.js?v=3.2.2" defer></script>
+    <script src="/app.js?v=13" defer></script>
+  </body>
+</html>

@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use imbib_core::enrichment::priority::SourcePriority;
 use impel_core::{
-    create_task_dag, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi, TASK_SCHEMA,
+    create_task_dag, PassReport, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi, TASK_SCHEMA,
 };
 use impel_enrichment::classify::{Classifier, HeuristicClassifier};
 use impel_enrichment::metadata_resolve::ConfiguredSource;
@@ -36,6 +36,12 @@ use impel_throughline::{
     ProposalDrafter, TemplateDrafter, ThroughlineSpawnRule, ThroughlineSyncExecutor,
     MANUSCRIPT_SECTION_SCHEMA,
 };
+use impress_ai::{
+    write_worker_status, AiStore, AiTitleTaskExecutor, FileBlobStore, OmlxClient, OmlxTaskExecutor,
+    WebResearchProvider, WorkerLease, WorkerLifecycleState, WorkerStatusSnapshot,
+    WORKER_HEARTBEAT_INTERVAL_SECS,
+};
+use impress_ai_tools::ImpressToolAdapter;
 use impress_core::event::ItemEvent;
 use impress_core::item::ActorKind;
 use impress_core::query::{ItemQuery, Predicate};
@@ -45,6 +51,7 @@ use impress_core::store::ItemStore;
 use impress_sources::arxiv::ArxivSource;
 use impress_sources::crossref::CrossrefSource;
 use impress_sources::openalex::OpenAlexSource;
+use tokio::sync::RwLock;
 
 const ACTOR: &str = "impel-taskd";
 
@@ -123,12 +130,22 @@ fn parse_args() -> Args {
 }
 
 fn live_store_path() -> PathBuf {
-    dirs::home_dir()
-        .expect("home directory")
-        .join("Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite")
+    std::env::var_os("IMPRESS_STORE_PATH")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|home| !home.is_empty())
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir)
+                .expect("home directory")
+                .join(
+                    "Library/Group Containers/QG3MEYVHMS.com.impress.suite/workspace/impress.sqlite",
+                )
+        })
 }
 
-fn open_store(args: &Args) -> Arc<SqliteItemStore> {
+fn open_store(args: &Args) -> (Arc<SqliteItemStore>, PathBuf) {
     let path = match &args.workspace {
         Some(dir) => {
             std::fs::create_dir_all(dir).expect("create workspace dir");
@@ -151,10 +168,11 @@ fn open_store(args: &Args) -> Arc<SqliteItemStore> {
         author_kind: ActorKind::Agent,
         ..StoreConfig::default()
     };
-    Arc::new(
+    let store = Arc::new(
         SqliteItemStore::open_with_config(&path, config)
             .unwrap_or_else(|e| panic!("open store {}: {e}", path.display())),
-    )
+    );
+    (store, path)
 }
 
 /// Tasks already spawned for this entry? (idempotency guard)
@@ -224,10 +242,58 @@ fn scan_new_entries(store: &SqliteItemStore, since_ms: i64) -> Vec<impress_core:
     ItemStore::query(store, &q).unwrap_or_default()
 }
 
+async fn publish_worker_status(
+    status: &Arc<RwLock<WorkerStatusSnapshot>>,
+    workspace: &std::path::Path,
+    mutate: impl FnOnce(&mut WorkerStatusSnapshot),
+) {
+    let mut status = status.write().await;
+    mutate(&mut status);
+    status.heartbeat_at_ms = chrono::Utc::now().timestamp_millis();
+    if let Err(error) = write_worker_status(workspace, &status) {
+        eprintln!("impel-taskd: publish worker status failed: {error}");
+    }
+}
+
+fn accumulate_pass(status: &mut WorkerStatusSnapshot, report: &PassReport) {
+    status.last_pass_at_ms = Some(chrono::Utc::now().timestamp_millis());
+    status.last_error = None;
+    status.acquired_total += report.acquired as u64;
+    status.completed_total += report.completed as u64;
+    status.suspended_total += report.suspended as u64;
+    status.retried_total += report.retried as u64;
+    status.failed_total += report.failed as u64;
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let args = parse_args();
-    let store = open_store(&args);
+    let (store, store_path) = open_store(&args);
+    let workspace = store_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf();
+    let _worker_lease = WorkerLease::acquire(&workspace).unwrap_or_else(|error| {
+        eprintln!("impel-taskd: worker lease unavailable: {error}");
+        std::process::exit(3);
+    });
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let worker_status = Arc::new(RwLock::new(WorkerStatusSnapshot::new(
+        uuid::Uuid::new_v4().to_string(),
+        std::process::id(),
+        now_ms,
+        args.poll_secs,
+        "local-omlx".into(),
+    )));
+    publish_worker_status(&worker_status, &workspace, |_| {}).await;
+    let heartbeat_status = worker_status.clone();
+    let heartbeat_workspace = workspace.clone();
+    let heartbeat_task = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(WORKER_HEARTBEAT_INTERVAL_SECS)).await;
+            publish_worker_status(&heartbeat_status, &heartbeat_workspace, |_| {}).await;
+        }
+    });
 
     // Executors: credential-free sources by default; ADS joins when a
     // token is supplied (IMPEL_ADS_TOKEN).
@@ -264,6 +330,36 @@ async fn main() {
             poll_interval: Duration::from_secs(args.poll_secs),
         },
     );
+    if !args.dry_run {
+        // Offline-first counsel: iOS can sync a queued `impress.ai.respond`
+        // task; this Mac/server consumes it whenever oMLX becomes reachable.
+        let ai_store = Arc::new(AiStore::from_store(store.clone(), ACTOR));
+        let blob_root = store_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("blobs");
+        let blob_store = Arc::new(
+            FileBlobStore::open(&blob_root)
+                .unwrap_or_else(|e| panic!("open blob store {}: {e}", blob_root.display())),
+        );
+        let omlx_url = std::env::var("IMPRESS_OMLX_URL")
+            .unwrap_or_else(|_| impress_ai::omlx::DEFAULT_URL.into());
+        let omlx_key = std::env::var("IMPRESS_OMLX_API_KEY").ok();
+        let omlx = OmlxClient::with_endpoint_id(omlx_url, omlx_key, "local-omlx")
+            .expect("configure oMLX client");
+        let title_executor = AiTitleTaskExecutor::new(ai_store.clone(), omlx.clone());
+        let mut executor = OmlxTaskExecutor::new(ai_store, omlx, blob_store);
+        match ImpressToolAdapter::probe().await {
+            Ok(adapter) => executor = executor.with_tool_adapter(Arc::new(adapter)),
+            Err(error) => eprintln!("impel-taskd: Impress tool adapter unavailable: {error}"),
+        }
+        match WebResearchProvider::new() {
+            Ok(provider) => executor = executor.with_research_provider(Arc::new(provider)),
+            Err(error) => eprintln!("impel-taskd: web research provider unavailable: {error}"),
+        }
+        scheduler.register(Arc::new(executor));
+        scheduler.register(Arc::new(title_executor));
+    }
     scheduler.register(Arc::new(MetadataResolveExecutor::new(
         sources,
         SourcePriority::default(),
@@ -319,6 +415,10 @@ async fn main() {
         .unwrap_or(if args.workspace.is_some() { 0 } else { 90 });
     if delay > 0 {
         eprintln!("impel-taskd: start delay {delay}s (startup-settling guard)");
+        publish_worker_status(&worker_status, &workspace, |status| {
+            status.state = WorkerLifecycleState::Settling;
+        })
+        .await;
         tokio::time::sleep(Duration::from_secs(delay)).await;
     }
 
@@ -364,6 +464,10 @@ async fn main() {
         "impel-taskd: running (dry_run={}, once={}, poll={}s, backfill={}h)",
         args.dry_run, args.once, args.poll_secs, args.backfill_hours
     );
+    publish_worker_status(&worker_status, &workspace, |status| {
+        status.state = WorkerLifecycleState::Ready;
+    })
+    .await;
 
     loop {
         // Cross-process pass: entries created since the watermark. The
@@ -383,6 +487,12 @@ async fn main() {
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     eprintln!("impel-taskd: event bus disconnected; exiting");
+                    heartbeat_task.abort();
+                    publish_worker_status(&worker_status, &workspace, |status| {
+                        status.state = WorkerLifecycleState::Failed;
+                        status.last_error = Some("store event bus disconnected".into());
+                    })
+                    .await;
                     return;
                 }
             }
@@ -474,6 +584,10 @@ async fn main() {
                 Ok(_) => {}
                 Err(e) => eprintln!("impel-taskd[dry]: ready query failed: {e}"),
             }
+            publish_worker_status(&worker_status, &workspace, |status| {
+                status.last_pass_at_ms = Some(chrono::Utc::now().timestamp_millis());
+            })
+            .await;
         } else {
             match scheduler.run_once().await {
                 Ok(r) => {
@@ -484,13 +598,29 @@ async fn main() {
                             r.acquired, r.completed, r.suspended, r.resumed, r.retried, r.failed
                         );
                     }
+                    publish_worker_status(&worker_status, &workspace, |status| {
+                        accumulate_pass(status, &r);
+                    })
+                    .await;
                 }
-                Err(e) => eprintln!("impel-taskd: scheduler pass failed: {e}"),
+                Err(e) => {
+                    eprintln!("impel-taskd: scheduler pass failed: {e}");
+                    publish_worker_status(&worker_status, &workspace, |status| {
+                        status.last_pass_at_ms = Some(chrono::Utc::now().timestamp_millis());
+                        status.last_error = Some(e.to_string());
+                    })
+                    .await;
+                }
             }
         }
 
         if args.once {
             eprintln!("impel-taskd: --once pass complete; exiting");
+            heartbeat_task.abort();
+            publish_worker_status(&worker_status, &workspace, |status| {
+                status.state = WorkerLifecycleState::Stopping;
+            })
+            .await;
             return;
         }
         tokio::time::sleep(Duration::from_secs(args.poll_secs)).await;

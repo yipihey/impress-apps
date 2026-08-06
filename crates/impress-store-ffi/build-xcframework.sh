@@ -67,7 +67,8 @@ echo "=== Generating Swift bindings ==="
 BINDINGS_DIR="$FRAMEWORK_DIR/bindings"
 mkdir -p "$BINDINGS_DIR"
 
-cargo run --bin uniffi-bindgen --features native -- generate \
+CARGO_TARGET_DIR="$BUILD_DIR/uniffi-bindgen" \
+    cargo run --bin uniffi-bindgen --features native -- generate \
     --library "$BUILD_DIR/$MACOS_TARGET/release/lib${LIB_NAME}.dylib" \
     --language swift \
     --out-dir "$BINDINGS_DIR"

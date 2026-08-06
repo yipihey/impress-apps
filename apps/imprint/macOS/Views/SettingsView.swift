@@ -24,6 +24,7 @@
 //
 
 import ImpressGit
+import ImpressAI
 import SwiftUI
 import PublicationManagerCore
 
@@ -293,62 +294,10 @@ struct AutomationSettingsView: View {
 /// macOS-only: `AIAssistantService` and `InlineCompletionService` live in
 /// imprint's macOS target, and the API-key editor writes to the macOS keychain.
 struct AIAssistantSettingsView: View {
-    private let aiService = AIAssistantService.shared
     private let inlineService = InlineCompletionService.shared
 
-    @State private var claudeKeyInput = ""
-    @State private var openaiKeyInput = ""
-    @State private var showingKeys = false
-
     var body: some View {
-        SettingsForm {
-            Section("AI Provider") {
-                Picker("Provider", selection: Binding(
-                    get: { aiService.provider },
-                    set: { aiService.provider = $0 }
-                )) {
-                    ForEach(AIProvider.allCases) { provider in
-                        Text(provider.displayName).tag(provider)
-                    }
-                }
-                .accessibilityIdentifier("settings.ai.provider")
-
-                Text("Choose which AI service to use for writing assistance")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if aiService.provider == .apple {
-                    Label("Runs on-device via Apple Intelligence — private, offline, no API key needed.",
-                          systemImage: "checkmark.seal")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                } else if !aiService.isConfiguredSync {
-                    Label("No key set for this provider — author tasks fall back to the on-device Apple model.",
-                          systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("API Keys") {
-                apiKeyField(
-                    label: "Anthropic (Claude)",
-                    provider: .claude,
-                    input: $claudeKeyInput,
-                    placeholder: "sk-ant-..."
-                )
-
-                apiKeyField(
-                    label: "OpenAI",
-                    provider: .openai,
-                    input: $openaiKeyInput,
-                    placeholder: "sk-..."
-                )
-
-                Toggle("Show API keys", isOn: $showingKeys)
-                    .font(.caption)
-            }
-
+        AISettingsView {
             Section("Inline Completions") {
                 Toggle("Enable Tab completion", isOn: Binding(
                     get: { inlineService.isEnabled },
@@ -421,40 +370,6 @@ struct AIAssistantSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        }
-        .task {
-            claudeKeyInput = await aiService.maskedAPIKey(for: .claude)
-            openaiKeyInput = await aiService.maskedAPIKey(for: .openai)
-        }
-    }
-
-    @ViewBuilder
-    private func apiKeyField(
-        label: String,
-        provider: AIProvider,
-        input: Binding<String>,
-        placeholder: String
-    ) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-
-            if showingKeys {
-                SecureField(placeholder, text: input)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 200)
-            } else {
-                Text(input.wrappedValue.isEmpty ? "Not configured" : input.wrappedValue)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 200, alignment: .trailing)
-            }
-
-            Button("Save") {
-                Task {
-                    try? await aiService.setAPIKey(input.wrappedValue, for: provider)
-                }
-            }
-            .disabled(input.wrappedValue.isEmpty || !showingKeys)
         }
     }
 

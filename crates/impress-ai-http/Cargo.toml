@@ -1,0 +1,31 @@
+[package]
+name = "impress-ai-http"
+description = "Authenticated loopback/NDJSON adapter for Impress AI and Tailscale Serve"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "impress-ai-server"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+axum.workspace = true
+dirs.workspace = true
+impress-ai.workspace = true
+impress-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tokio.workspace = true
+tokio-stream = "0.1"
+uuid = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+tower.workspace = true

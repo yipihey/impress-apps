@@ -56,12 +56,16 @@ struct ThroughlineAnchorMap: Codable, Equatable {
     var documentID: String
     var anchors: [String: ThroughlineAnchorEntry]
     var supporting: [String]
+    /// Accepted paragraph positions. Missing entries are legacy/unknown and
+    /// deliberately do not derive order drift until the next human baseline.
+    var narrativeOrder: [String: Int]
 
     enum CodingKeys: String, CodingKey {
         case version
         case documentID = "document_id"
         case anchors
         case supporting
+        case narrativeOrder = "narrative_order"
     }
 
     init(documentID: UUID) {
@@ -69,6 +73,7 @@ struct ThroughlineAnchorMap: Codable, Equatable {
         self.documentID = documentID.uuidString.lowercased()
         self.anchors = [:]
         self.supporting = []
+        self.narrativeOrder = [:]
     }
 
     init(from decoder: Decoder) throws {
@@ -77,6 +82,7 @@ struct ThroughlineAnchorMap: Codable, Equatable {
         documentID = try c.decode(String.self, forKey: .documentID)
         anchors = try c.decodeIfPresent([String: ThroughlineAnchorEntry].self, forKey: .anchors) ?? [:]
         supporting = try c.decodeIfPresent([String].self, forKey: .supporting) ?? []
+        narrativeOrder = try c.decodeIfPresent([String: Int].self, forKey: .narrativeOrder) ?? [:]
     }
 
     /// Parse with a version gate: newer-than-known maps are rejected rather
@@ -123,9 +129,18 @@ struct TLParagraph: Equatable {
     let body: String
     let contentHash: String
     let orderIndex: Int
+    /// Swift `Character` offsets of the full labeled run in source.
+    let start: Int
+    let end: Int
 }
 
 enum ThroughlineText {
+
+    private struct SourceRun {
+        let text: String
+        let start: Int
+        let end: Int
+    }
 
     /// Extract labeled paragraphs. A paragraph is a run of non-blank lines
     /// containing a `<tl-...>` label token; the first label in a run wins,
@@ -134,26 +149,11 @@ enum ThroughlineText {
     static func extractParagraphs(_ source: String) -> [TLParagraph] {
         var out: [TLParagraph] = []
         var seen = Set<String>()
-
-        var runs: [String] = []
-        var current: [Substring] = []
-        for line in source.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                if !current.isEmpty {
-                    runs.append(current.joined(separator: "\n"))
-                    current = []
-                }
-            } else {
-                current.append(line)
-            }
-        }
-        if !current.isEmpty { runs.append(current.joined(separator: "\n")) }
-
-        for run in runs {
-            guard let label = findTLLabel(run), !seen.contains(label) else { continue }
+        for run in sourceRuns(source) {
+            guard let label = findTLLabel(run.text), !seen.contains(label) else { continue }
             seen.insert(label)
             let token = "<\(label)>"
-            var body = run
+            var body = run.text
             if let range = body.range(of: token) {
                 body.removeSubrange(range)
             }
@@ -163,10 +163,99 @@ enum ThroughlineText {
                     label: label,
                     body: body,
                     contentHash: sha256Hex(body),
-                    orderIndex: out.count
+                    orderIndex: out.count,
+                    start: run.start,
+                    end: run.end
                 ))
         }
         return out
+    }
+
+    /// Every non-blank source run, including headings and comments. Reordering
+    /// the complete run list keeps unlabeled material present and stationary.
+    private static func sourceRuns(_ source: String) -> [SourceRun] {
+        var runs: [SourceRun] = []
+        var current: [Substring] = []
+        var runStart: Int?
+        var offset = 0
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, line) in lines.enumerated() {
+            let lineStart = offset
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !current.isEmpty, let start = runStart {
+                    runs.append(
+                        SourceRun(
+                            text: current.joined(separator: "\n"),
+                            start: start,
+                            end: lineStart))
+                    current = []
+                    runStart = nil
+                }
+            } else {
+                if runStart == nil { runStart = lineStart }
+                current.append(line)
+            }
+            offset += line.count
+            if index + 1 < lines.count { offset += 1 }
+        }
+        if !current.isEmpty, let start = runStart {
+            runs.append(
+                SourceRun(
+                    text: current.joined(separator: "\n"),
+                    start: start,
+                    end: offset))
+        }
+        return runs
+    }
+
+    /// Move one labeled paragraph before another. The source outside labeled
+    /// runs is preserved; separators/comments following a run travel with it.
+    static func reorderParagraph(
+        _ source: String,
+        label: String,
+        beforeLabel: String
+    ) -> String? {
+        guard label != beforeLabel else { return source }
+        let runs = sourceRuns(source)
+        guard let from = runs.firstIndex(where: { findTLLabel($0.text) == label }),
+              let target = runs.firstIndex(where: { findTLLabel($0.text) == beforeLabel }) else {
+            return nil
+        }
+        var order = Array(runs.indices)
+        let moved = order.remove(at: from)
+        guard let insertion = order.firstIndex(of: target) else { return nil }
+        order.insert(moved, at: insertion)
+        if order == Array(runs.indices) { return source }
+
+        func index(_ offset: Int) -> String.Index {
+            source.index(source.startIndex, offsetBy: min(max(0, offset), source.count))
+        }
+        guard let first = runs.first, let last = runs.last else { return source }
+        let prefix = String(source[..<index(first.start)])
+        let suffix = String(source[index(last.end)...])
+        let chunks = runs.enumerated().map { position, run in
+            let end = position + 1 < runs.count
+                ? runs[position + 1].start : run.end
+            return String(source[index(run.start)..<index(end)])
+        }
+        var result = prefix
+        for position in order {
+            // The final run often owns only the document's terminal newline.
+            // Once moved into the middle it still needs a full blank separator.
+            if !result.isEmpty && !result.hasSuffix("\n\n") {
+                result += result.hasSuffix("\n") ? "\n" : "\n\n"
+            }
+            let chunk = chunks[position]
+            result += chunk
+        }
+        if let firstSuffix = suffix.first,
+           let lastResult = result.last,
+           !firstSuffix.isWhitespace,
+           !lastResult.isWhitespace {
+            result += "\n"
+        }
+        result += suffix
+        return result
     }
 
     /// First `<tl-...>` label in a text run. Conservative character set:
@@ -221,6 +310,7 @@ struct ThroughlineAnchorAssessment: Equatable, Identifiable {
     let label: String
     let manuscriptAhead: [String]
     let throughlineAhead: Bool
+    let orderAhead: Bool
     let broken: [String]
     let missingParagraph: Bool
 
@@ -265,19 +355,25 @@ enum ThroughlineDerivation {
                     broken.append(key)
                 }
             }
-            let throughlineAhead: Bool
+            let contentAhead: Bool
+            let orderAhead: Bool
             let missingParagraph: Bool
             if let current = paragraphHashes[label] {
-                throughlineAhead = current != entry.throughlineHash
+                contentAhead = current != entry.throughlineHash
+                let currentOrder = paragraphs.first(where: { $0.label == label })?.orderIndex
+                orderAhead = map.narrativeOrder[label]
+                    .map { accepted in currentOrder.map { $0 != accepted } ?? false } ?? false
                 missingParagraph = false
             } else {
-                throughlineAhead = false
+                contentAhead = false
+                orderAhead = false
                 missingParagraph = true
             }
             return ThroughlineAnchorAssessment(
                 label: label,
                 manuscriptAhead: manuscriptAhead,
-                throughlineAhead: throughlineAhead,
+                throughlineAhead: contentAhead || orderAhead,
+                orderAhead: orderAhead,
                 broken: broken,
                 missingParagraph: missingParagraph
             )
@@ -365,6 +461,7 @@ enum ThroughlineIdentity {
     static func initialAnchorMap(documentID: UUID, source: String) -> ThroughlineAnchorMap {
         var map = ThroughlineAnchorMap(documentID: documentID)
         for p in ThroughlineText.extractParagraphs(source) {
+            map.narrativeOrder[p.label] = p.orderIndex
             map.anchors[p.label] = ThroughlineAnchorEntry(
                 sectionKeys: [],
                 manuscriptHashes: [:],

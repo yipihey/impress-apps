@@ -13,6 +13,8 @@ impress-core = { workspace = true, features = ["sqlite"] }
 impel-core = { workspace = true }
 impel-enrichment = { path = "../impel-enrichment" }
 impel-throughline = { path = "../impel-throughline", features = ["llm"] }
+impress-ai = { workspace = true }
+impress-ai-tools = { workspace = true }
 imprint-service = { workspace = true }
 impress-sources = { workspace = true }
 imbib-core = { workspace = true, features = ["native"] }

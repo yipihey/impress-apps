@@ -574,6 +574,7 @@ async fn broken_anchor_rebind_round_trip() {
             )]
             .into(),
             supporting: vec![],
+            narrative_order: BTreeMap::new(),
         },
     )
     .unwrap();
@@ -706,6 +707,59 @@ async fn stale_proposal_is_never_force_applied() {
         throughline_body(&store, doc),
         before,
         "guard must refuse to apply a proposal computed against old state"
+    );
+    assert_eq!(anchor_state(&store, doc), "manuscript-ahead");
+}
+
+#[tokio::test]
+async fn narrative_reorder_invalidates_an_open_proposal() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+    let doc = Uuid::new_v4();
+    seed_throughline(&store, doc, "introduction", "We measure X.");
+    put_section(&store, doc, "introduction", "We measure X and Y.");
+
+    let trigger = section_trigger(&store, doc, "introduction");
+    let specs = ThroughlineSpawnRule.spawn(&trigger, &store).await.unwrap();
+    let ids = create_task_dag(&store, &specs, ACTOR).unwrap();
+    let task = store.get_item(ids[0]).unwrap().unwrap();
+    let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Suspended
+    );
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    let review_id = unresolved[0].id;
+
+    // The words are unchanged, but the anchored beat moves from position 0
+    // to 1 while review is open.
+    let moved_source = "A new opening. <tl-opening>\n\nThe story so far. <tl-overview>\n";
+    TaskStoreApi::apply(
+        &store,
+        OperationSpec {
+            target_id: ThroughlineStore::item_id(doc),
+            op_type: OperationType::SetPayload(
+                "body_content".into(),
+                Value::String(moved_source.into()),
+            ),
+            intent: OperationIntent::Editorial,
+            reason: None,
+            batch_id: None,
+            author: HUMAN.into(),
+            author_kind: ActorKind::Human,
+            retention: RetentionTier::Durable,
+        },
+    )
+    .unwrap();
+    resolve_review(&store, review_id, "approved");
+
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Complete
+    );
+    assert_eq!(
+        throughline_body(&store, doc),
+        moved_source,
+        "order guard must refuse a proposal computed before the beat moved"
     );
     assert_eq!(anchor_state(&store, doc), "manuscript-ahead");
 }

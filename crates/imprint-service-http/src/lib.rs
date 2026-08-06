@@ -17,7 +17,10 @@ use imprint_service::handlers::{
     CitationUsage, CompileOptions, CompileResult, DocumentSummary, Outline, ReplaceResult,
     TextMatch,
 };
-use imprint_service::manuscript_service::{ImprintManuscriptService, SearchHitDto};
+use imprint_service::manuscript_service::{
+    ImprintManuscriptService, PresentationMutationDto, PresentationOutlineDto,
+    PresentationSlideDto, SearchHitDto,
+};
 use imprint_service::sections::{SectionMetadata, SectionRecord};
 use imprint_service::text_service::{CiteKeyUsageType as CiteKeyUsage, ImprintTextService};
 use imprint_service::ImprintBackend;
@@ -139,6 +142,63 @@ impl ImprintManuscriptService for HttpImprintManuscriptService {
                 log_err("search_in_text", e);
                 vec![]
             })
+    }
+    async fn presentation_outline(&self, source: String) -> PresentationOutlineDto {
+        match imprint_core::presentation::extract_slides(&source) {
+            Ok(slides) => PresentationOutlineDto {
+                slides: slides
+                    .into_iter()
+                    .map(|slide| PresentationSlideDto {
+                        id: slide.id,
+                        beat: slide.beat,
+                        title: slide.title,
+                        order_index: slide.order_index as u32,
+                        start: slide.start as u64,
+                        end: slide.end as u64,
+                    })
+                    .collect(),
+                error: None,
+            },
+            Err(error) => PresentationOutlineDto {
+                slides: vec![],
+                error: Some(error.to_string()),
+            },
+        }
+    }
+    async fn reorder_presentation_slide(
+        &self,
+        source: String,
+        slide_id: String,
+        before_slide_id: String,
+    ) -> PresentationMutationDto {
+        let before = (!before_slide_id.is_empty()).then_some(before_slide_id.as_str());
+        match imprint_core::presentation::reorder_slide(&source, &slide_id, before) {
+            Ok(source) => PresentationMutationDto {
+                source,
+                error: None,
+            },
+            Err(error) => PresentationMutationDto {
+                source,
+                error: Some(error.to_string()),
+            },
+        }
+    }
+    async fn set_presentation_slide_beat(
+        &self,
+        source: String,
+        slide_id: String,
+        beat: String,
+    ) -> PresentationMutationDto {
+        match imprint_core::presentation::set_slide_beat(&source, &slide_id, &beat) {
+            Ok(source) => PresentationMutationDto {
+                source,
+                error: None,
+            },
+            Err(error) => PresentationMutationDto {
+                source,
+                error: Some(error.to_string()),
+            },
+        }
     }
     async fn compile_typst(&self, source: String, options: CompileOptions) -> CompileResult {
         match self.client.compile_typst(&source, options).await {

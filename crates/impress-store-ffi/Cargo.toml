@@ -16,12 +16,14 @@ native = ["uniffi"]
 
 [dependencies]
 impress-core = { workspace = true, features = ["sqlite"] }
+impress-ai.workspace = true
 uniffi = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }

@@ -272,6 +272,7 @@ extension ImprintHTTPRouter {
                 manuscriptHashes: manuscriptHashes,
                 throughlineHash: paragraph.contentHash
             )
+            map.narrativeOrder[label] = paragraph.orderIndex
             map.supporting.removeAll { sectionKeys.contains($0) }
 
         case "remove":

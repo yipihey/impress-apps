@@ -35,6 +35,10 @@ struct ImpartApp: App {
             await ImpartHTTPServer.shared.start()
         }
 
+        // Sync shared conversations/messages even when imbib is not running.
+        // The launcher itself enforces the suite's 120-second startup grace.
+        CloudSyncEngineLauncher.startAfterGrace()
+
         // Prepare shared impress-core workspace (creates directory if needed).
         // Setup opens the store handle and declares the mail schemas
         // sync-excluded (IMAP is mail's own sync protocol).
@@ -249,12 +253,12 @@ struct ImpartApp: App {
                 // are the CHASSIS's, not a fourth hand-written copy of them.
                 // Embedded as content rather than inserted as a `Commands`
                 // value so they keep their position in this group, ahead of the
-                // ⌘1-5 view-mode accelerators below.
+                // view-mode accelerators below.
                 ImpressPaneLayoutButtons()
 
                 Divider()
 
-                // Stage 4c: the ⌘1-5 view-mode accelerators, as MENU COMMANDS.
+                // Stage 4c: the view-mode accelerators, as MENU COMMANDS.
                 //
                 // They were never really bound before. `ContentView` carried
                 // `.keyboardShortcut("1"…"5")` on a *view* (inert — the modifier
@@ -265,7 +269,7 @@ struct ImpartApp: App {
                 // window that observed it.
                 //
                 // As commands they need no focused view, they appear in the menu
-                // bar (discoverable), and they cover all five modes. The
+                // bar (discoverable), and they cover every mode. The
                 // notification names are UNCHANGED, so a user's customised
                 // keyboard-store bindings still reach the same handlers.
                 ForEach(MessageViewMode.allCases, id: \.self) { mode in
@@ -359,7 +363,7 @@ final class AppState {
 // deleted. They existed for the View menu's "View Mode" picker, and NOTHING ever
 // read them — the window's actual mode lived in `ViewModeState.mode:
 // MessageViewMode`, a different type with five cases. The picker was a control
-// that appeared to do something and did not; the ⌘1-5 commands that replaced it
+// that appeared to do something and did not; the view commands that replaced it
 // drive the chassis for real.
 
 // MARK: - Appearance
@@ -403,6 +407,7 @@ extension Notification.Name {
     static let switchToCategoryView = Notification.Name("switchToCategoryView")
     static let switchToResearchView = Notification.Name("switchToResearchView")
     static let switchToDevelopmentView = Notification.Name("switchToDevelopmentView")
+    static let switchToLocalAIView = Notification.Name("switchToLocalAIView")
 }
 
 // MARK: - View Mode Commands
@@ -417,10 +422,11 @@ extension MessageViewMode {
         case .category: return .switchToCategoryView
         case .research: return .switchToResearchView
         case .development: return .switchToDevelopmentView
+        case .localAI: return .switchToLocalAIView
         }
     }
 
-    /// ⌘1-5, in `MessageViewMode.allCases` order — the order the classic
+    /// ⌘1-6, in `MessageViewMode.allCases` order — the order the classic
     /// toolbar's segmented picker showed and the order its help text promised
     /// ("Switch view mode (Cmd+1/2/3/4/5)").
     var commandShortcutKey: KeyEquivalent {
@@ -430,6 +436,7 @@ extension MessageViewMode {
         case .category: return "3"
         case .research: return "4"
         case .development: return "5"
+        case .localAI: return "6"
         }
     }
 }

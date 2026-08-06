@@ -8,6 +8,7 @@
 #   bash crates/impel-taskd/sign.sh                  # release build, default identity
 #   IDENTITY="045A71EC..."  bash sign.sh             # specify identity SHA1 or name
 #   PROFILE=debug  bash sign.sh                      # sign a debug build
+#   INSTALL_FOR_IMPART=1 bash sign.sh                # also stage for Impart startup
 #
 # Verify with:
 #   codesign --display --entitlements - target/release/impel-taskd
@@ -57,5 +58,14 @@ echo "==> Verifying entitlements"
 codesign --display --entitlements - --xml "$BINARY" 2>&1 | grep -E "application-groups|group\." || {
     echo "warning: app-groups entitlement not visible in signed binary" >&2
 }
+
+if [ "${INSTALL_FOR_IMPART:-0}" = "1" ]; then
+    INSTALL_DIRECTORY="$HOME/Library/Application Scripts/com.imbib.impart"
+    INSTALL_PATH="$INSTALL_DIRECTORY/impel-taskd"
+    mkdir -p "$INSTALL_DIRECTORY"
+    cp "$BINARY" "$INSTALL_PATH"
+    chmod 755 "$INSTALL_PATH"
+    echo "==> Installed Impart model worker: $INSTALL_PATH"
+fi
 
 echo "==> Done. Run:  $BINARY --help"

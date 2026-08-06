@@ -4,7 +4,7 @@
 //
 //  Main application entry point for impart on iOS.
 //
-//  Stage 5c: the root is `IOSMailHostView` — PMC's `RecordSidebarView` +
+//  Stage 5c: the mail facet is `IOSMailHostView` — PMC's `RecordSidebarView` +
 //  `MessageDetailPane` over the shared store's mail rows — rather than the
 //  hand-written `IOSContentView` TabView, and the target links
 //  PublicationManagerCore for the first time. See `IOSMailHostView`'s header for
@@ -18,6 +18,7 @@
 //  selection sets, and this shell had the same shape.
 //
 
+import MessageManagerCore
 import PublicationManagerCore
 import SwiftUI
 
@@ -34,11 +35,15 @@ struct ImpartIOSApp: App {
         // Synchronous, before any view can read the store — the sibling apps'
         // rule. No-op unless the process was launched with `--uitesting-seed`.
         ImpartIOSUITestSeed.seedIfRequested()
+
+        // iOS can sync conversation/message/task rows while the laptop model
+        // host is offline. Startup work remains deferred by 120 seconds.
+        CloudSyncEngineLauncher.startAfterGrace()
     }
 
     var body: some Scene {
         WindowGroup {
-            IOSMailHostView()
+            ImpartIOSRootView()
                 .preferredColorScheme(colorScheme)
         }
     }
@@ -48,6 +53,22 @@ struct ImpartIOSApp: App {
         case "light": return .light
         case "dark": return .dark
         default: return nil
+        }
+    }
+}
+
+/// Two declarative facets over shared cores. Mail remains the chassis-backed
+/// default; Local AI is the same MessageManagerCore surface macOS registers in
+/// its chassis and can queue/sync turns while the model host is offline.
+private struct ImpartIOSRootView: View {
+    var body: some View {
+        TabView {
+            Tab("Mail", systemImage: "envelope") {
+                IOSMailHostView()
+            }
+            Tab("Local AI", systemImage: "sparkles") {
+                AIConversationWorkspaceView()
+            }
         }
     }
 }

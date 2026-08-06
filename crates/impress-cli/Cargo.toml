@@ -15,6 +15,7 @@ path = "src/main.rs"
 # collection kernel, triage, store query and docs-import subcommands) into
 # the final binary, where this CLI iterates them at startup.
 impress-store-service = { workspace = true }
+impress-ai-service = { workspace = true }
 # The smart-search verbs belong to no app (pure functions over strings), so
 # the store-generic binary is their CLI host.
 impress-parsers-service = { workspace = true }

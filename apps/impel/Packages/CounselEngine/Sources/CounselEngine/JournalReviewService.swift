@@ -7,7 +7,7 @@
 //
 //  Counsel persona's structured-review entry point and Artificer persona's
 //  structured-revision-note entry point. Both services share an extraction
-//  pattern: send a single completion request to AnthropicProvider with one
+//  pattern: send a single completion request to the configured AI provider with one
 //  forced tool call; parse the resulting AIToolUse content into a typed
 //  payload; write the corresponding knowledge-object item to SharedStore.
 //
@@ -19,10 +19,8 @@
 //  failure modes (single retry on parse error vs. nondeterministic loop
 //  behaviour), and is fully mockable via the AIProvider protocol.
 //
-//  Per the Implementation Plan §8 Risk #1 mitigation: this service uses
-//  Anthropic SDK with a JSON-schema-constrained tool. Apple Intelligence
-//  `@Generable` remains a fallback if Anthropic response quality is
-//  insufficient (Phase 5 polish).
+//  Structured output uses a JSON-schema-constrained tool, so any selected
+//  provider must support OpenAI/Anthropic-style function calling.
 //
 
 import Foundation
@@ -97,9 +95,9 @@ public actor CounselReviewService {
     private var store: SharedStore?
     #endif
 
-    /// Default init uses Anthropic + the shared workspace store.
+    /// Default init uses the suite-wide AI selection + shared workspace store.
     public init() {
-        self.provider = AnthropicProvider()
+        self.provider = ConfiguredAIProvider()
         do {
             try SharedWorkspace.ensureDirectoryExists()
             #if canImport(ImpressRustCore)
@@ -326,7 +324,7 @@ public actor ArtificerRevisionService {
     #endif
 
     public init() {
-        self.provider = AnthropicProvider()
+        self.provider = ConfiguredAIProvider()
         do {
             try SharedWorkspace.ensureDirectoryExists()
             #if canImport(ImpressRustCore)

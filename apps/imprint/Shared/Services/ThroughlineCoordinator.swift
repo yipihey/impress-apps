@@ -152,6 +152,7 @@ enum ThroughlineCoordinator {
             manuscriptHashes: manuscriptHashes,
             throughlineHash: paragraph.contentHash
         )
+        map.narrativeOrder[label] = paragraph.orderIndex
         map.supporting.removeAll { sectionKeys.contains($0) }
         persist(map: map, in: &document)
     }
@@ -160,6 +161,7 @@ enum ThroughlineCoordinator {
     static func removeAnchor(in document: inout ImprintDocument, label: String) {
         var map = anchorMap(of: document)
         guard map.anchors.removeValue(forKey: label) != nil else { return }
+        map.narrativeOrder.removeValue(forKey: label)
         logInfo("removeAnchor <\(label)> doc=\(document.id)", category: "throughline")
         persist(map: map, in: &document)
     }
@@ -178,6 +180,36 @@ enum ThroughlineCoordinator {
             "markSupporting '\(sectionKey)' = \(supporting) doc=\(document.id)",
             category: "throughline")
         persist(map: map, in: &document)
+    }
+
+    /// Reorder a narrative beat without touching paragraph words. Legacy maps
+    /// receive their first order baseline immediately before the move, so the
+    /// resulting positions derive `throughline-ahead` and enter normal review.
+    static func reorderParagraph(
+        in document: inout ImprintDocument,
+        label: String,
+        beforeLabel: String
+    ) -> Bool {
+        guard let source = document.throughlineSource else { return false }
+        let paragraphs = ThroughlineText.extractParagraphs(source)
+        guard let reordered = ThroughlineText.reorderParagraph(
+            source, label: label, beforeLabel: beforeLabel),
+            reordered != source else { return false }
+        logInfo(
+            "Throughline reorder requested: <\(label)> before <\(beforeLabel)>",
+            category: "throughline")
+        var map = anchorMap(of: document)
+        for paragraph in paragraphs where map.narrativeOrder[paragraph.label] == nil {
+            map.narrativeOrder[paragraph.label] = paragraph.orderIndex
+        }
+        guard let json = try? map.serialize() else { return false }
+        document.throughlineSource = reordered
+        document.throughlineAnchorsJSON = json
+        mirrorThroughlineOnly(document: document)
+        logInfo("Throughline reorder saved", category: "throughline")
+        let moved = anchorStates(of: document).filter(\.orderAhead).count
+        logInfo("Throughline display: \(moved) order-ahead beats", category: "throughline")
+        return true
     }
 
     private static func persist(map: ThroughlineAnchorMap, in document: inout ImprintDocument) {

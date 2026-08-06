@@ -35,7 +35,8 @@ pub mod throughline_service;
 
 pub use backend::{has_custom_backend, register_backend, ImprintBackend};
 pub use manuscript_service::{
-    DefaultImprintManuscriptService, ImprintManuscriptService, SearchHitDto,
+    DefaultImprintManuscriptService, ImprintManuscriptService, PresentationMutationDto,
+    PresentationOutlineDto, PresentationSlideDto, SearchHitDto,
 };
 
 pub use blob_store::{BlobStore, LARGE_BODY_THRESHOLD};

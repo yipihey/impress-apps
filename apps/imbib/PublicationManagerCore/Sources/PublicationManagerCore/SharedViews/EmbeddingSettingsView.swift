@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ImpressAI
 import ImpressEmbeddings
 
 // MARK: - Embedding Settings View
@@ -30,7 +31,7 @@ public struct EmbeddingSettingsView: View {
     public init() {}
 
     public var body: some View {
-        Form {
+        AISettingsView {
             // Status Section
             Section {
                 LabeledContent("Provider") {
@@ -115,7 +116,6 @@ public struct EmbeddingSettingsView: View {
                 Text("Re-indexing all papers will clear existing embeddings and rebuild the index from scratch.")
             }
         }
-        .formStyle(.grouped)
         .navigationTitle("Search & AI")
         .task {
             await loadStatus()

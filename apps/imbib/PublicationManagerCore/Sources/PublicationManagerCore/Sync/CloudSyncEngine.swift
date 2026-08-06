@@ -37,6 +37,7 @@ import CryptoKit
 import ImbibRustCore
 import ImpressKit
 import ImpressLogging
+import class ImpressRustCore.SharedAiStore
 import OSLog
 
 public actor CloudSyncEngine {
@@ -52,6 +53,7 @@ public actor CloudSyncEngine {
     private var eventObserverTask: Task<Void, Never>?
     private var darwinObservation: DarwinObservation?
     private var isRunning = false
+    private var sharedAIStore: SharedAiStore?
 
     /// recordName → outbox sequence numbers awaiting confirmation. Rows are
     /// removed from the Rust outbox only once CloudKit confirms the save, so
@@ -276,7 +278,25 @@ public actor CloudSyncEngine {
             do {
                 switch record.recordType {
                 case SyncRecordCodec.RecordType.item:
-                    items.append(try SyncRecordCodec.decodeItem(record))
+                    let item = try SyncRecordCodec.decodeItem(record)
+                    if item.schemaRef == "content-blob@1.0.0",
+                       let assetURL = SyncRecordCodec.contentBlobAssetURL(record),
+                       let aiStore = aiStore()
+                    {
+                        do {
+                            _ = try aiStore.importBlobAsset(
+                                payloadJson: item.payloadJson,
+                                sourcePath: assetURL.path)
+                            Logger.sync.infoCapture(
+                                "Verified content asset for \(item.id)", category: "sync")
+                        } catch {
+                            // Metadata still converges. Availability is derived
+                            // locally and a later fetched asset can reconcile it.
+                            Logger.sync.error(
+                                "Rejected content asset for \(item.id): \(error.localizedDescription)")
+                        }
+                    }
+                    items.append(item)
                 case SyncRecordCodec.RecordType.reference:
                     references.append(try SyncRecordCodec.decodeReference(record))
                 case SyncRecordCodec.RecordType.tombstone:
@@ -383,6 +403,14 @@ public actor CloudSyncEngine {
 
         do {
             let remote = try SyncRecordCodec.decodeItem(serverRecord)
+            if remote.schemaRef == "content-blob@1.0.0",
+               let assetURL = SyncRecordCodec.contentBlobAssetURL(serverRecord),
+               let aiStore = aiStore()
+            {
+                _ = try aiStore.importBlobAsset(
+                    payloadJson: remote.payloadJson,
+                    sourcePath: assetURL.path)
+            }
             let report = try await ImbibImpressStore.shared.syncApplyRemoteItems(records: [remote])
             if report.applied > 0 {
                 Logger.sync.infoCapture(
@@ -646,8 +674,19 @@ extension CloudSyncEngine: CKSyncEngineDelegate {
                 for record in try await store.syncSnapshotItems(ids: itemIDs) {
                     let name = SyncRecordCodec.recordName(forItemID: record.id)
                     let existing = await restoredSystemFieldsRecord(name: name)
+                    let contentBlobURL: URL?
+                    if record.schemaRef == "content-blob@1.0.0",
+                       let path = try aiStore()?.blobAssetPath(payloadJson: record.payloadJson)
+                    {
+                        contentBlobURL = URL(fileURLWithPath: path)
+                    } else {
+                        contentBlobURL = nil
+                    }
                     result[name] = try SyncRecordCodec.encode(
-                        item: record, zoneID: zoneID, existing: existing)
+                        item: record,
+                        zoneID: zoneID,
+                        existing: existing,
+                        contentBlobURL: contentBlobURL)
                 }
             }
 
@@ -683,5 +722,23 @@ extension CloudSyncEngine: CKSyncEngineDelegate {
         let stored = try? await ImbibImpressStore.shared.syncRecordStateGet(recordName: name)
         guard let blob = stored ?? nil else { return nil }
         return SyncRecordCodec.restoreSystemFields(from: blob)
+    }
+
+    /// Opens only the graph/CAS facade; no inference endpoint or model is
+    /// contacted by the sync transport.
+    private func aiStore() -> SharedAiStore? {
+        if let sharedAIStore { return sharedAIStore }
+        do {
+            try SharedWorkspace.ensureDirectoryExists()
+            let opened = try SharedAiStore.open(
+                databasePath: SharedWorkspace.databasePath,
+                blobRoot: SharedWorkspace.aiBlobDirectory.path,
+                actor: "system:cloudkit-sync")
+            sharedAIStore = opened
+            return opened
+        } catch {
+            Logger.sync.error("Could not open shared AI blob store: \(error.localizedDescription)")
+            return nil
+        }
     }
 }

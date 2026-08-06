@@ -1,4 +1,5 @@
 import Foundation
+import ImpressKit
 
 /// Central registry and coordinator for AI providers.
 ///
@@ -24,6 +25,7 @@ public actor AIProviderManager {
 
     private var providers: [String: any AIProvider] = [:]
     private let credentialManager: AICredentialManager
+    private let defaults: UserDefaults
 
     /// User-selected default provider ID.
     public private(set) var defaultProviderId: String?
@@ -31,23 +33,51 @@ public actor AIProviderManager {
     /// User-selected default model ID.
     public private(set) var defaultModelId: String?
 
+    /// Whether explicit AI operations may launch oMLX for the conventional
+    /// local endpoint when it is not reachable.
+    public private(set) var automaticallyStartOMLX: Bool
+
     /// Sets the default provider ID.
     /// - Parameter providerId: The provider ID to set as default.
     public func setDefaultProviderId(_ providerId: String?) {
         defaultProviderId = providerId
+        defaults.set(providerId, forKey: AISettingsKey.selectedProviderId)
     }
 
     /// Sets the default model ID.
     /// - Parameter modelId: The model ID to set as default.
     public func setDefaultModelId(_ modelId: String?) {
         defaultModelId = modelId
+        defaults.set(modelId, forKey: AISettingsKey.selectedModelId)
+    }
+
+    /// Updates the suite-wide oMLX lifecycle preference and refreshes the
+    /// registered compatible provider so subsequent requests use it.
+    public func setAutomaticallyStartOMLX(_ enabled: Bool) {
+        automaticallyStartOMLX = enabled
+        defaults.set(enabled, forKey: AISettingsKey.automaticallyStartOMLX)
+        if providers[OpenAICompatibleProvider.providerId] != nil {
+            register(OpenAICompatibleProvider(
+                credentialManager: credentialManager,
+                automaticallyStartOMLX: enabled
+            ))
+        }
     }
 
     /// Creates a new provider manager.
     ///
     /// - Parameter credentialManager: The credential manager to use.
-    public init(credentialManager: AICredentialManager = .shared) {
+    public init(
+        credentialManager: AICredentialManager = .shared,
+        defaults: UserDefaults = SharedDefaults.suite
+    ) {
         self.credentialManager = credentialManager
+        self.defaults = defaults
+        self.defaultProviderId = defaults.string(forKey: AISettingsKey.selectedProviderId)
+        self.defaultModelId = defaults.string(forKey: AISettingsKey.selectedModelId)
+        self.automaticallyStartOMLX = defaults.object(
+            forKey: AISettingsKey.automaticallyStartOMLX
+        ) as? Bool ?? true
     }
 
     // MARK: - Provider Registration
@@ -96,6 +126,10 @@ public actor AIProviderManager {
         register(AppleFoundationModelsProvider())
         register(AnthropicProvider(credentialManager: credentialManager))
         register(OpenAIProvider(credentialManager: credentialManager))
+        register(OpenAICompatibleProvider(
+            credentialManager: credentialManager,
+            automaticallyStartOMLX: automaticallyStartOMLX
+        ))
         register(GoogleProvider(credentialManager: credentialManager))
         register(OllamaProvider())
         register(OpenRouterProvider(credentialManager: credentialManager))
@@ -222,13 +256,20 @@ public actor AIProviderManager {
 
         guard let provider = provider else { return nil }
 
-        // Check for user-selected default model
-        if let defaultModelId = defaultModelId,
-           provider.metadata.models.contains(where: { $0.id == defaultModelId }) {
-            return provider.metadata.models.first { $0.id == defaultModelId }
+        var models = provider.metadata.models
+        if let discoveringProvider = provider as? any AIModelDiscoveringProvider,
+           let discovered = try? await discoveringProvider.discoverModels(),
+           !discovered.isEmpty {
+            models = discovered
         }
 
-        return provider.metadata.defaultModel
+        // Check for user-selected default model
+        if let defaultModelId = defaultModelId,
+           let selected = models.first(where: { $0.id == defaultModelId }) {
+            return selected
+        }
+
+        return models.first { $0.isDefault } ?? models.first
     }
 
     // MARK: - Credential Status
@@ -303,7 +344,15 @@ public actor AIProviderManager {
             return provider
         }
 
-        // Try default provider
+        // Route an explicitly selected suite default directly. Availability is
+        // resolved by the request itself so a stopped local service gets the
+        // opportunity to start rather than being silently skipped.
+        if let defaultProviderId,
+           let provider = providers[defaultProviderId] {
+            return provider
+        }
+
+        // Try the first provider that is already ready.
         if let provider = await effectiveDefaultProvider() {
             return provider
         }

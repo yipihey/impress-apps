@@ -20,6 +20,13 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
+mod ai;
+
+pub use ai::{
+    AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,
+    AiQueuedTurn, AiWorkerStatus, SharedAiStore,
+};
+
 use impress_core::{
     collection_ops::{self, CollectionSchemaBinding},
     item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility},
