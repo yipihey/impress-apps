@@ -16,6 +16,21 @@ final class ImprintGitIntegration {
     /// The git project linked to the current document (if any).
     var activeProject: GitProject?
 
+    /// Directory of the focused manuscript's on-disk file, when it has one
+    /// (ADR-0023 watched/external manuscripts — e.g. the repo's ADR markdown
+    /// files). Store-native manuscripts have no file, so this stays nil.
+    ///
+    /// Read-only git surfaces (History, status) work from any directory
+    /// inside a repo, so this is enough to show history for a watched file
+    /// without linking a project first.
+    var activeFileDirectory: String?
+
+    /// Where read-only git verbs (History) point: the linked project if one
+    /// exists, else the focused manuscript's file directory.
+    var effectiveRepoPath: String? {
+        activeProject?.localPath ?? activeFileDirectory
+    }
+
     /// Whether the git commit sheet is showing.
     var showingCommitSheet = false
 
@@ -78,6 +93,30 @@ final class ImprintGitIntegration {
         activeProject = nil
     }
 
+    /// Track the chassis's focused manuscript. Resolves the manuscript's
+    /// external file (if it is a watched/external row) so read-only git verbs
+    /// have a repo to point at, and picks up a stored project for that
+    /// directory when one exists.
+    func focusedManuscriptChanged(_ id: UUID?) {
+        guard let id else {
+            activeFileDirectory = nil
+            return
+        }
+        let model = ManuscriptStoreAdapter.shared.manuscript(id: id)
+        guard let path = model?.externalSource?.path else {
+            activeFileDirectory = nil
+            return
+        }
+        let dir = (path as NSString).deletingLastPathComponent
+        activeFileDirectory = dir
+        logInfo("Git: focused manuscript is external file at \(dir)", category: "git")
+        if activeProject == nil, let project = GitProjectStore.shared.project(at: dir) {
+            activeProject = project
+            Task { await GitSyncCoordinator.shared.refreshStatus(at: dir) }
+            logInfo("Git: found stored project for focused file — \(project.repositoryUrl)", category: "git")
+        }
+    }
+
     // MARK: - Save Hook
 
     /// Call after a document save. If auto-commit is enabled, commits and optionally pushes.
@@ -118,7 +157,11 @@ final class ImprintGitIntegration {
 
     func handlePush() {
         logInfo("Git: push requested (project: \(activeProject?.localPath ?? "nil"))", category: "git")
-        guard let project = activeProject else { return }
+        guard let project = activeProject else {
+            logInfo("Git: push with no linked project — opening link sheet", category: "git")
+            showingLinkSheet = true
+            return
+        }
         Task {
             do {
                 try await GitClient.shared.push(at: project.localPath)
@@ -132,7 +175,11 @@ final class ImprintGitIntegration {
 
     func handlePull() {
         logInfo("Git: pull requested (project: \(activeProject?.localPath ?? "nil"))", category: "git")
-        guard let project = activeProject else { return }
+        guard let project = activeProject else {
+            logInfo("Git: pull with no linked project — opening link sheet", category: "git")
+            showingLinkSheet = true
+            return
+        }
         Task {
             do {
                 let result = try await GitClient.shared.pull(at: project.localPath, rebase: true)
@@ -162,8 +209,17 @@ final class ImprintGitIntegration {
     }
 
     func handleHistory() {
-        logInfo("Git: history requested (project: \(activeProject != nil))", category: "git")
-        guard activeProject != nil else { return }
+        logInfo(
+            "Git: history requested (repo: \(effectiveRepoPath ?? "none"))",
+            category: "git")
+        guard effectiveRepoPath != nil else {
+            // Nothing to show history OF: no linked project and the focused
+            // manuscript is store-native. Open the link sheet so the menu
+            // item always answers with something.
+            logInfo("Git: history with no repo in scope — opening link sheet", category: "git")
+            showingLinkSheet = true
+            return
+        }
         showingHistory = true
     }
 
@@ -206,12 +262,21 @@ final class ImprintGitIntegration {
 
 // MARK: - View Modifier
 
-/// Extracted modifier to avoid SwiftUI type-checker overload in ContentView.
+/// The Git menu's observers + sheets, attached once at the chassis root
+/// (`ImprintChassisRoot`). Extracted as a modifier to keep the root's
+/// type-checking cheap.
 struct GitIntegrationModifier: ViewModifier {
     @Bindable private var git = ImprintGitIntegration.shared
+    /// The chassis's focused manuscript (set by `ManuscriptSectionView` /
+    /// the standalone editor window) — how git learns which file, and thus
+    /// which repo, is in scope.
+    @FocusedValue(\.focusedManuscriptID) private var focusedManuscriptID
 
     func body(content: Content) -> some View {
         content
+            .onChange(of: focusedManuscriptID) { _, id in
+                git.focusedManuscriptChanged(id)
+            }
             .sheet(isPresented: $git.showingCommitSheet) {
                 commitSheet
             }
@@ -279,8 +344,10 @@ struct GitIntegrationModifier: ViewModifier {
 
     @ViewBuilder
     private var historySheet: some View {
-        if let project = git.activeProject {
-            GitHistoryView(repoPath: project.localPath)
+        // The linked project when there is one; else the focused external
+        // file's directory (git log works from any directory in the repo).
+        if let repoPath = git.effectiveRepoPath {
+            GitHistoryView(repoPath: repoPath)
                 .frame(minWidth: 600, minHeight: 400)
         }
     }

@@ -32,6 +32,9 @@ public struct ManuscriptPanelContext {
     /// The caret position (two-way; set it to move the caret).
     public let cursorPosition: Binding<Int>
     public let format: DocumentFormat
+    /// Live compiled SVG pages. A presentation storyboard can pair explicit
+    /// slide blocks with rendered pages without starting a second compiler.
+    public let svgPages: [String]
     /// Insert text at the caret (used by AI insert, plot/citation insert).
     public let insertAtCursor: (String) -> Void
     /// Move the caret to a character offset and scroll to it (outline-style nav).
@@ -44,6 +47,7 @@ public struct ManuscriptPanelContext {
         selectedText: String,
         cursorPosition: Binding<Int>,
         format: DocumentFormat,
+        svgPages: [String] = [],
         insertAtCursor: @escaping (String) -> Void,
         jumpToChar: @escaping (Int) -> Void
     ) {
@@ -53,6 +57,7 @@ public struct ManuscriptPanelContext {
         self.selectedText = selectedText
         self.cursorPosition = cursorPosition
         self.format = format
+        self.svgPages = svgPages
         self.insertAtCursor = insertAtCursor
         self.jumpToChar = jumpToChar
     }

@@ -21,8 +21,11 @@ fn compile(r: &mut PersistentTypstRenderer, out: &PlotOutput, name: &str) {
         r.set_asset(path, bytes.clone());
     }
     let opts = RenderOptions::a4();
-    let (svgs, _w, _p, _m) = r.render_svg(&out.typst, &opts).expect("svg compile");
-    let (pdf, _m) = r.render_pdf(&out.typst, &opts).expect("pdf compile");
+    let svgs = match r.render_svg(&out.typst, &opts).expect("svg compile").output {
+        imprint_core::render::RenderOutput::Svg(pages) => pages,
+        other => panic!("expected SVG output, got {other:?}"),
+    };
+    let pdf = r.render_pdf(&out.typst, &opts).expect("pdf compile").output;
     let dir = out_dir();
     std::fs::write(dir.join(format!("{name}.svg")), svgs[0].as_bytes()).unwrap();
     std::fs::write(dir.join(format!("{name}.pdf")), pdf.as_pdf().unwrap()).unwrap();

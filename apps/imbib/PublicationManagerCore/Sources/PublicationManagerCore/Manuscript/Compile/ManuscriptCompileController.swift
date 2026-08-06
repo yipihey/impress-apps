@@ -76,6 +76,10 @@ public final class ManuscriptCompileController {
     public var isCompiling = false
     public var compilationError: String?
     public var compilationWarnings: [String] = []
+    /// Structured diagnostics from the last compile (errors on failure,
+    /// warnings always) — Typst and LaTeX both land here, in user-source
+    /// coordinates, so the strip/panel can navigate the editor to them.
+    public var compilationDiagnostics: [CompileDiagnostic] = []
 
     /// SVG preview pages (Typst SVG preview mode).
     public var svgPages: [String] = []
@@ -158,6 +162,7 @@ public final class ManuscriptCompileController {
         isCompiling = true
         compilationError = nil
         compilationWarnings = []
+        compilationDiagnostics = []
         latexDiagnostics = []
 
         await PerfMetrics.shared.measureAsync(
@@ -233,6 +238,7 @@ public final class ManuscriptCompileController {
                     svgPages = output.svgPages
                     sourceMapEntries = output.sourceMapEntries
                     compilationWarnings = output.warnings
+                    compilationDiagnostics = output.diagnostics.map(CompileDiagnostic.init)
 
                     let pdfOutput = try await renderer.render(sourceText, options: options)
                     if pdfOutput.isSuccess {
@@ -244,6 +250,7 @@ public final class ManuscriptCompileController {
                     debugHistory += "6:ok "
                 } else {
                     compilationError = output.errors.joined(separator: "\n")
+                    compilationDiagnostics = output.diagnostics.map(CompileDiagnostic.init)
                     debugHistory += "E "
                 }
             } else {
@@ -257,16 +264,21 @@ public final class ManuscriptCompileController {
                     pdfData = output.pdfData
                     sourceMapEntries = output.sourceMapEntries
                     compilationWarnings = output.warnings
+                    compilationDiagnostics = output.diagnostics.map(CompileDiagnostic.init)
                     artifactStore.cachePDF(output.pdfData, for: inputs.documentID)
                     debugStatus = "6:set,\(output.pdfData.count)b,map=\(output.sourceMapEntries.count)"
                     debugHistory += "6:ok "
                 } else {
                     compilationError = output.errors.joined(separator: "\n")
+                    compilationDiagnostics = output.diagnostics.map(CompileDiagnostic.init)
                     debugHistory += "E "
                 }
             }
         } catch {
             compilationError = error.localizedDescription
+            compilationDiagnostics = [
+                CompileDiagnostic(severity: .error, message: error.localizedDescription)
+            ]
             debugHistory += "X:\(error) "
         }
     }
@@ -323,6 +335,7 @@ public final class ManuscriptCompileController {
         case .succeeded:
             latexCompilationTimeMs = result.compilationTimeMs
             latexDiagnostics = result.diagnostics
+            compilationDiagnostics = result.diagnostics.map(CompileDiagnostic.init)
             artifactStore.cacheDiagnostics(latexDiagnostics, for: inputs.documentID)
             compilationWarnings = result.formattedWarnings
 
@@ -353,6 +366,7 @@ public final class ManuscriptCompileController {
         case .engineFailed:
             latexCompilationTimeMs = result.compilationTimeMs
             latexDiagnostics = result.diagnostics
+            compilationDiagnostics = result.diagnostics.map(CompileDiagnostic.init)
             artifactStore.cacheDiagnostics(latexDiagnostics, for: inputs.documentID)
             compilationWarnings = result.formattedWarnings
             compilationError = result.errorMessage
@@ -363,6 +377,9 @@ public final class ManuscriptCompileController {
             // this platform: only surface the error, leaving prior diagnostics /
             // warnings / timing untouched (matches the pre-extraction behavior).
             compilationError = result.errorMessage
+            if let message = result.errorMessage {
+                compilationDiagnostics = [CompileDiagnostic(severity: .error, message: message)]
+            }
             debugHistory += "X:\(result.errorMessage ?? "preflight") "
         }
     }

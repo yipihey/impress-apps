@@ -56,6 +56,15 @@ public struct TabContentView: View {
     /// SciX library repository for conditional SciX section and content
     private let scixRepository = SciXLibraryRepository.shared
 
+    /// Whether the selected route renders the Manuscripts section (whose
+    /// editor pane toggles then join the top-left toolbar cluster).
+    private var manuscriptsRouteActive: Bool {
+        if case .record(let route) = viewModel.selectedTab, route.kind == .manuscript {
+            return true
+        }
+        return false
+    }
+
     // MARK: - Tag filter
 
     /// The Tags section's filter field, at the FOOT of the sidebar.
@@ -123,12 +132,13 @@ public struct TabContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         #if os(macOS)
-        // List (middle column) show/hide. Declared on the NavigationSplitView
-        // root — the sibling of the system's sidebar toggle — because toolbar
-        // items declared inside the detail column's route views never reach
-        // the window toolbar.
+        // Pane show/hide cluster. Declared on the NavigationSplitView root —
+        // toolbar items declared inside the detail column's route views never
+        // reach the window toolbar — and placed `.navigation` so the whole
+        // cluster sits at the TOP LEFT beside the system's sidebar toggle:
+        // sidebar / list / editor-pane toggles read as one group.
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .navigation) {
                 let visible = PaneLayoutStore.shared.current.listPaneVisible
                 Button {
                     PaneLayoutStore.shared.current.listPaneVisible.toggle()
@@ -137,6 +147,12 @@ public struct TabContentView: View {
                         ? "list.bullet.rectangle.fill" : "list.bullet.rectangle")
                 }
                 .help(visible ? "Hide the list (⌥⌘0)" : "Show the list (⌥⌘0)")
+                // The manuscript editor's own pane toggles (outline/comments/
+                // inspector/preview), only while a manuscripts route is up —
+                // they act on the editor via shared @AppStorage keys.
+                if manuscriptsRouteActive {
+                    ManuscriptEditorPaneToggles()
+                }
             }
         }
         #endif

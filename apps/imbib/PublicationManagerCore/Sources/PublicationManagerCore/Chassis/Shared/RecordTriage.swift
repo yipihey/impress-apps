@@ -41,6 +41,9 @@ public struct RecordTriageActions {
     public var onOpen: (UUID) -> Void = { _ in }
     public var onCreate: (CreationAffordance) -> Void = { _ in }
     public var onDuplicate: (UUID) -> Void = { _ in }
+    /// Rename a single record (payload `title`). Store-backed defaults write
+    /// the field with undo; hosts with file-backed titles may override.
+    public var onRename: (UUID, String) -> Void = { _, _ in }
     /// Remove from the current container scope (folder/collection), when the
     /// surface is scoped to one.
     public var onRemoveFromScope: (Set<UUID>) -> Void = { _ in }
@@ -77,6 +80,12 @@ public struct RecordTriageActions {
         }
         a.onRemoveTag = { ids, path in
             RustStoreAdapter.shared.removeTag(ids: Array(ids), tagPath: path)
+        }
+        a.onRename = { id, title in
+            RustStoreAdapter.shared.updateField(id: id, field: "title", value: title)
+            Logger.library.infoCapture(
+                "renamed \(descriptor.displayName.lowercased()) \(id) → '\(title)'",
+                category: "triage")
         }
         if case .statusChange(let dismissed, let restoreTo) = triage.dismissal {
             a.onDismiss = { ids in
@@ -163,6 +172,7 @@ public struct RecordTriageActions {
         a.onDismiss = { ids in _ = kernel.dismiss(ids: Array(ids), undo: undo) }
         a.onRestore = { ids in _ = kernel.restore(ids: Array(ids), undo: undo) }
         a.onArchive = { ids in _ = kernel.archive(ids: Array(ids), undo: undo) }
+        a.onRename = { id, title in kernel.rename(id: id, to: title, undo: undo) }
         a.availableTagPaths = availableTagPaths ?? { kernel.tagPathsInUse() }
         return a
     }

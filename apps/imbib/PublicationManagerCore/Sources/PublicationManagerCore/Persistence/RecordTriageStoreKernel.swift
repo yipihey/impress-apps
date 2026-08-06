@@ -83,6 +83,7 @@ public struct RecordTriageStoreKernel {
         public static let dismiss = StoreKernelUndoAction.dismiss
         public static let restore = StoreKernelUndoAction.restore
         public static let archive = StoreKernelUndoAction.archive
+        public static let rename = StoreKernelUndoAction.rename
         /// Fallback for a `setStatus` call that names no action of its own.
         public static let changeStatus = StoreKernelUndoAction.changeStatus
     }
@@ -202,6 +203,23 @@ public struct RecordTriageStoreKernel {
         return paths.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    // MARK: - Rename
+
+    /// Rename via the payload `title` field, restoring the prior title on undo.
+    public func rename(id: UUID, to title: String, undo: StoreUndoScope? = nil) {
+        let prior = currentTitle(id)
+        applyTitle([id: title])
+        Logger.library.infoCapture(
+            "renamed \(descriptor.displayName.lowercased()) \(id) → '\(title)'",
+            category: "triage")
+        scope.registerReversible(
+            undo,
+            actionName: UndoActionName.rename,
+            undo: { if let prior { applyTitle([id: prior]) } },
+            redo: { applyTitle([id: title]) }
+        )
+    }
+
     // MARK: - Status lifecycle
 
     /// Sweep records out of the working set. The status value and the action are
@@ -317,6 +335,23 @@ public struct RecordTriageStoreKernel {
         scope.noteMutation(false, Set(ids), .otherField)
     }
 
+    /// The payload `title` a row currently holds, or nil when the row is absent.
+    private func currentTitle(_ id: UUID) -> String? {
+        guard let row = item(id) else { return nil }
+        let payload = (try? JSONSerialization.jsonObject(with: Data(row.payloadJson.utf8)))
+            as? [String: Any]
+        return payload?["title"] as? String
+    }
+
+    public func applyTitle(_ states: [UUID: String]) {
+        guard let store = scope.store else { return }
+        for (id, title) in states {
+            guard let json = try? Self.encodeField("title", title) else { continue }
+            try? store.upsertItem(id: id.uuidString, schemaRef: schemaRef, payloadJson: json)
+        }
+        scope.noteMutation(false, Set(states.keys), .otherField)
+    }
+
     public func applyStatus(_ states: [UUID: String]) {
         guard let store = scope.store else { return }
         for (id, status) in states {
@@ -332,11 +367,15 @@ public struct RecordTriageStoreKernel {
     }
 
     private static func encodeStatus(_ status: String) throws -> String {
+        try encodeField("status", status)
+    }
+
+    private static func encodeField(_ key: String, _ value: String) throws -> String {
         let data = try JSONSerialization.data(
-            withJSONObject: ["status": status], options: [.sortedKeys])
+            withJSONObject: [key: value], options: [.sortedKeys])
         guard let text = String(data: data, encoding: .utf8) else {
             throw EncodingError.invalidValue(
-                status, .init(codingPath: [], debugDescription: "payload not UTF-8"))
+                value, .init(codingPath: [], debugDescription: "payload not UTF-8"))
         }
         return text
     }

@@ -35,6 +35,7 @@ pub mod migration;
 pub mod note_import;
 #[cfg(feature = "typst-render")]
 pub mod plot_ffi;
+pub mod presentation;
 pub mod render;
 pub mod render_project;
 pub mod sections;
@@ -53,6 +54,7 @@ pub use document::*;
 pub use latex::*;
 pub use migration::*;
 pub use note_import::*;
+pub use presentation::*;
 pub use render::*;
 pub use selection::*;
 pub use sourcemap::*;
@@ -67,16 +69,36 @@ uniffi::setup_scaffolding!();
 // UniFFI Exports for Typst Rendering
 // ============================================================================
 
+/// One structured Typst diagnostic crossing the FFI. Positions are in the
+/// USER source (the text the editor shows): `line`/`column` are 1-indexed
+/// (column counts characters), `source_start`/`source_end` are UTF-8 byte
+/// offsets. All are None for diagnostics with no span in the main file.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiTypstDiagnostic {
+    /// `"error"` or `"warning"`.
+    pub severity: String,
+    pub message: String,
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+    pub source_start: Option<u64>,
+    pub source_end: Option<u64>,
+    /// Typst's remediation hints ("did you mean …").
+    pub hints: Vec<String>,
+}
+
 /// Result of compiling a Typst document to PDF
 #[cfg(feature = "uniffi")]
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct CompileResult {
     /// PDF bytes if compilation succeeded
     pub pdf_data: Option<Vec<u8>>,
-    /// Error message if compilation failed
+    /// Human-readable error summary if compilation failed (one line per error)
     pub error: Option<String>,
-    /// Warning messages from compilation
+    /// Warning messages from compilation (human-readable lines)
     pub warnings: Vec<String>,
+    /// Every structured diagnostic: errors on failure, warnings always
+    pub diagnostics: Vec<FfiTypstDiagnostic>,
     /// Number of pages in the output
     pub page_count: u32,
     /// Source map entries for click-to-edit
@@ -250,10 +272,28 @@ pub fn compile_typst_to_pdf(source: String, options: CompileOptions) -> CompileR
                 pdf_data: None,
                 error: Some(format!("Internal error: {}", panic_msg)),
                 warnings: Vec::new(),
+                diagnostics: Vec::new(),
                 page_count: 0,
                 source_map_entries: Vec::new(),
             }
         }
+    }
+}
+
+/// Map a structured render diagnostic to the FFI wire type.
+#[cfg(feature = "uniffi")]
+fn typst_diag_to_ffi(d: &crate::render::TypstDiagnostic) -> FfiTypstDiagnostic {
+    FfiTypstDiagnostic {
+        severity: match d.severity {
+            crate::render::TypstDiagnosticSeverity::Error => "error".to_string(),
+            crate::render::TypstDiagnosticSeverity::Warning => "warning".to_string(),
+        },
+        message: d.message.clone(),
+        line: d.line,
+        column: d.column,
+        source_start: d.source_start.map(|v| v as u64),
+        source_end: d.source_end.map(|v| v as u64),
+        hints: d.hints.clone(),
     }
 }
 
@@ -402,21 +442,22 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
             renderer.set_figures_root(options.figures_root.as_deref());
             renderer.set_bib_source(options.bib_source.as_deref());
             match renderer.render_pdf(&source, &render_options) {
-                Ok((output, layout_entries)) => {
-                    if let Some(pdf_bytes) = output.as_pdf() {
+                Ok(success) => {
+                    if let Some(pdf_bytes) = success.output.as_pdf() {
                         // Prefer the real-layout source map; fall back to the
                         // text heuristic only if the frame walk yielded nothing.
-                        let source_map_entries = if layout_entries.is_empty() {
+                        let source_map_entries = if success.source_map.is_empty() {
                             generate_source_map_entries(&source, &render_options)
                         } else {
-                            layout_entries.iter().map(layout_entry_to_ffi).collect()
+                            success.source_map.iter().map(layout_entry_to_ffi).collect()
                         };
 
                         CompileResult {
                             pdf_data: Some(pdf_bytes.to_vec()),
                             error: None,
-                            warnings: Vec::new(),
-                            page_count: 1, // TODO: Extract actual page count from PDF
+                            warnings: success.warnings.iter().map(|w| w.summary_line()).collect(),
+                            diagnostics: success.warnings.iter().map(typst_diag_to_ffi).collect(),
+                            page_count: success.page_count,
                             source_map_entries,
                         }
                     } else {
@@ -424,6 +465,7 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
                             pdf_data: None,
                             error: Some("Unexpected output format".to_string()),
                             warnings: Vec::new(),
+                            diagnostics: Vec::new(),
                             page_count: 0,
                             source_map_entries: Vec::new(),
                         }
@@ -431,8 +473,9 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
                 }
                 Err(e) => CompileResult {
                     pdf_data: None,
-                    error: Some(e.to_string()),
+                    error: Some(e.summary.clone()),
                     warnings: Vec::new(),
+                    diagnostics: e.diagnostics.iter().map(typst_diag_to_ffi).collect(),
                     page_count: 0,
                     source_map_entries: Vec::new(),
                 },
@@ -453,6 +496,7 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
                         pdf_data: Some(pdf_bytes.to_vec()),
                         error: None,
                         warnings: Vec::new(),
+                        diagnostics: Vec::new(),
                         page_count: 1,
                         source_map_entries,
                     }
@@ -461,6 +505,7 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
                         pdf_data: None,
                         error: Some("Unexpected output format".to_string()),
                         warnings: Vec::new(),
+                        diagnostics: Vec::new(),
                         page_count: 0,
                         source_map_entries: Vec::new(),
                     }
@@ -470,6 +515,7 @@ fn compile_typst_to_pdf_inner(source: String, options: CompileOptions) -> Compil
                 pdf_data: None,
                 error: Some(e.to_string()),
                 warnings: Vec::new(),
+                diagnostics: Vec::new(),
                 page_count: 0,
                 source_map_entries: Vec::new(),
             },
@@ -919,10 +965,12 @@ pub struct SvgCompileResult {
     pub svg_pages: Vec<String>,
     /// Number of pages in the output
     pub page_count: u32,
-    /// Warning messages from compilation
+    /// Warning messages from compilation (human-readable lines)
     pub warnings: Vec<String>,
-    /// Error message if compilation failed
+    /// Human-readable error summary if compilation failed (one line per error)
     pub error: Option<String>,
+    /// Every structured diagnostic: errors on failure, warnings always
+    pub diagnostics: Vec<FfiTypstDiagnostic>,
     /// Source map entries for cursor synchronization
     pub source_map_entries: Vec<FFISourceMapEntry>,
 }
@@ -953,6 +1001,7 @@ pub fn compile_typst_to_svg(source: String, options: CompileOptions) -> SvgCompi
                 page_count: 0,
                 warnings: Vec::new(),
                 error: Some(format!("Internal error: {}", panic_msg)),
+                diagnostics: Vec::new(),
                 source_map_entries: Vec::new(),
             }
         }
@@ -990,19 +1039,24 @@ fn compile_typst_to_svg_inner(source: String, options: CompileOptions) -> SvgCom
             renderer.set_figures_root(options.figures_root.as_deref());
             renderer.set_bib_source(options.bib_source.as_deref());
             match renderer.render_svg(&source, &render_options) {
-                Ok((svg_pages, warnings, page_count, layout_entries)) => {
+                Ok(success) => {
                     // Prefer the real-layout source map; fall back to the text
                     // heuristic only if the frame walk yielded nothing.
-                    let source_map_entries = if layout_entries.is_empty() {
+                    let source_map_entries = if success.source_map.is_empty() {
                         generate_source_map_entries(&source, &render_options)
                     } else {
-                        layout_entries.iter().map(layout_entry_to_ffi).collect()
+                        success.source_map.iter().map(layout_entry_to_ffi).collect()
+                    };
+                    let svg_pages = match success.output {
+                        crate::render::RenderOutput::Svg(pages) => pages,
+                        _ => Vec::new(),
                     };
                     SvgCompileResult {
                         svg_pages,
-                        page_count,
-                        warnings,
+                        page_count: success.page_count,
+                        warnings: success.warnings.iter().map(|w| w.summary_line()).collect(),
                         error: None,
+                        diagnostics: success.warnings.iter().map(typst_diag_to_ffi).collect(),
                         source_map_entries,
                     }
                 }
@@ -1010,7 +1064,8 @@ fn compile_typst_to_svg_inner(source: String, options: CompileOptions) -> SvgCom
                     svg_pages: Vec::new(),
                     page_count: 0,
                     warnings: Vec::new(),
-                    error: Some(e.to_string()),
+                    error: Some(e.summary.clone()),
+                    diagnostics: e.diagnostics.iter().map(typst_diag_to_ffi).collect(),
                     source_map_entries: Vec::new(),
                 },
             }
@@ -1024,6 +1079,7 @@ fn compile_typst_to_svg_inner(source: String, options: CompileOptions) -> SvgCom
             page_count: 0,
             warnings: Vec::new(),
             error: Some("SVG rendering requires the 'typst-render' feature".to_string()),
+            diagnostics: Vec::new(),
             source_map_entries: Vec::new(),
         }
     }
@@ -1371,6 +1427,111 @@ pub fn detect_section_format(source: String) -> String {
     crate::sections::SectionFormat::auto_detect(&source)
         .as_str()
         .to_string()
+}
+
+// ============================================================================
+// UniFFI Exports for Presentation Storyboards
+// ============================================================================
+
+/// One explicit `#slide(id: "…", beat: "tl-…")[…]` block.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct FFIPresentationSlide {
+    pub id: String,
+    pub beat: Option<String>,
+    pub title: Option<String>,
+    pub order_index: u32,
+    pub start: u32,
+    pub end: u32,
+    pub start_utf16: u32,
+    pub end_utf16: u32,
+}
+
+/// Structured result for presentation parsing. Diagnostics are values rather
+/// than thrown FFI errors so a half-written slide never destabilizes SwiftUI.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct FFIPresentationOutline {
+    pub slides: Vec<FFIPresentationSlide>,
+    pub error: Option<String>,
+}
+
+/// Source mutation result. On error `source` is the untouched input.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
+pub struct FFIPresentationMutation {
+    pub source: String,
+    pub error: Option<String>,
+}
+
+#[cfg(feature = "uniffi")]
+fn ffi_presentation_slide(slide: crate::presentation::PresentationSlide) -> FFIPresentationSlide {
+    FFIPresentationSlide {
+        id: slide.id,
+        beat: slide.beat,
+        title: slide.title,
+        order_index: slide.order_index as u32,
+        start: slide.start as u32,
+        end: slide.end as u32,
+        start_utf16: slide.start_utf16 as u32,
+        end_utf16: slide.end_utf16 as u32,
+    }
+}
+
+/// Parse the stable presentation structure used by imprint's storyboard.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn extract_presentation_slides(source: String) -> FFIPresentationOutline {
+    match crate::presentation::extract_slides(&source) {
+        Ok(slides) => FFIPresentationOutline {
+            slides: slides.into_iter().map(ffi_presentation_slide).collect(),
+            error: None,
+        },
+        Err(error) => FFIPresentationOutline {
+            slides: Vec::new(),
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+/// Move one slide before another, or to the end when `before_slide_id` is nil.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn reorder_presentation_slide(
+    source: String,
+    slide_id: String,
+    before_slide_id: Option<String>,
+) -> FFIPresentationMutation {
+    match crate::presentation::reorder_slide(&source, &slide_id, before_slide_id.as_deref()) {
+        Ok(source) => FFIPresentationMutation {
+            source,
+            error: None,
+        },
+        Err(error) => FFIPresentationMutation {
+            source,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+/// Assign a slide to a throughline beat label, or clear it with an empty label.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn set_presentation_slide_beat(
+    source: String,
+    slide_id: String,
+    beat: String,
+) -> FFIPresentationMutation {
+    match crate::presentation::set_slide_beat(&source, &slide_id, &beat) {
+        Ok(source) => FFIPresentationMutation {
+            source,
+            error: None,
+        },
+        Err(error) => FFIPresentationMutation {
+            source,
+            error: Some(error.to_string()),
+        },
+    }
 }
 
 // ============================================================================

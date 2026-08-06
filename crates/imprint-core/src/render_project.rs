@@ -93,12 +93,12 @@ pub fn compile_typst_project_to_pdf(
     let warnings: Vec<String> = compiled
         .warnings
         .iter()
-        .map(|w| format!("{:?}", w))
+        .map(format_project_diagnostic)
         .collect();
 
     let document = compiled
         .output
-        .map_err(|e| RenderError::CompilationError(format!("{:?}", e)))?;
+        .map_err(|e| RenderError::CompilationError(format_project_error(&e)))?;
 
     let pdf_options = typst_pdf::PdfOptions::default();
     let pdf_bytes = typst_pdf::pdf(&document, &pdf_options)
@@ -110,6 +110,34 @@ pub fn compile_typst_project_to_pdf(
         page_count: document.pages.len() as u32,
         compile_ms,
     })
+}
+
+/// One human-readable line per Typst diagnostic: `message (file, hint: …)` —
+/// never the `SourceDiagnostic { … }` Debug dump. The project path has no
+/// retained `Source` to resolve spans against, so lines are not reported;
+/// the single-source editor path (`render.rs`) carries full positions.
+#[cfg(feature = "typst-render")]
+fn format_project_diagnostic(d: &typst::diag::SourceDiagnostic) -> String {
+    let mut line = d.message.to_string();
+    if let Some(id) = d.span.id() {
+        line.push_str(&format!(" ({})", id.vpath().as_rooted_path().display()));
+    }
+    for hint in &d.hints {
+        line.push_str(&format!(" — hint: {}", hint));
+    }
+    line
+}
+
+#[cfg(feature = "typst-render")]
+fn format_project_error(e: &typst_as_lib::TypstAsLibError) -> String {
+    match e {
+        typst_as_lib::TypstAsLibError::TypstSource(diags) => diags
+            .iter()
+            .map(format_project_diagnostic)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        other => other.to_string(),
+    }
 }
 
 #[cfg(not(feature = "typst-render"))]

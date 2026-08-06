@@ -13,10 +13,11 @@ const DOC: &str = "= Hello iOS\n\nThe #emph[imprint] renderer runs in-process.\n
 #[test]
 fn renders_typst_to_pdf() {
     let mut renderer = PersistentTypstRenderer::new();
-    let (out, source_map) = renderer
+    let success = renderer
         .render_pdf(DOC, &RenderOptions::default())
         .expect("render_pdf");
-    match out {
+    let source_map = success.source_map;
+    match success.output {
         RenderOutput::Pdf(bytes) => {
             assert!(bytes.len() > 500, "PDF suspiciously small: {}", bytes.len());
             assert_eq!(&bytes[..5], b"%PDF-", "not a PDF header");
@@ -33,9 +34,12 @@ fn renders_typst_to_pdf() {
 fn renders_typst_to_svg() {
     let mut renderer = PersistentTypstRenderer::new();
     let opts = RenderOptions::default().with_format(OutputFormat::Svg);
-    let (pages, _warnings, count, _source_map) =
-        renderer.render_svg(DOC, &opts).expect("render_svg");
-    assert_eq!(count, 1, "single-page doc");
+    let success = renderer.render_svg(DOC, &opts).expect("render_svg");
+    assert_eq!(success.page_count, 1, "single-page doc");
+    let pages = match success.output {
+        RenderOutput::Svg(pages) => pages,
+        other => panic!("expected SVG output, got {other:?}"),
+    };
     assert_eq!(pages.len(), 1);
     assert!(pages[0].contains("<svg"), "not SVG markup");
 }
@@ -50,7 +54,7 @@ fn persistent_renderer_recompiles_after_edit() {
     let second = renderer
         .render_pdf("= Second, longer document body", &opts)
         .expect("second");
-    let (a, b) = match (first.0, second.0) {
+    let (a, b) = match (first.output, second.output) {
         (RenderOutput::Pdf(a), RenderOutput::Pdf(b)) => (a, b),
         _ => panic!("expected PDFs"),
     };
@@ -84,9 +88,10 @@ fn bibliography_resolves_from_virtual_bib() {
     );
 
     renderer.set_bib_source(Some(bib));
-    let (out, _) = renderer
+    let out = renderer
         .render_pdf(src, &RenderOptions::default())
-        .expect("render with virtual bib");
+        .expect("render with virtual bib")
+        .output;
     match out {
         RenderOutput::Pdf(bytes) => assert_eq!(&bytes[..5], b"%PDF-"),
         _ => panic!("expected PDF"),

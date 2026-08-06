@@ -44,6 +44,11 @@ struct ImprintChassisRoot: View {
             readyLogMessage:
                 "ImprintChassisRoot: chassis environment ready (Manuscripts facet)"
         )
+        // The Git menu's observers + sheets. This attachment IS the wiring:
+        // the menu posts notifications, and a modifier nobody applies receives
+        // none of them — which is exactly what happened when the legacy
+        // ContentView (the previous host) retired.
+        .modifier(GitIntegrationModifier())
         .withAppearance()
     }
 }

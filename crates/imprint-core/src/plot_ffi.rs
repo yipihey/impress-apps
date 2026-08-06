@@ -276,15 +276,20 @@ pub fn render_plot_svg(spec: FfiPlotSpec) -> FfiRenderedPlot {
             r.set_asset(path, bytes.clone());
         }
         match r.render_svg(&figure_source, &RenderOptions::a4()) {
-            Ok((svgs, _warn, _pages, _map)) => FfiRenderedPlot {
-                svg: svgs.into_iter().next().unwrap_or_default(),
+            Ok(success) => FfiRenderedPlot {
+                svg: match success.output {
+                    crate::render::RenderOutput::Svg(pages) => {
+                        pages.into_iter().next().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                },
                 rasterized,
                 error: None,
             },
             Err(e) => FfiRenderedPlot {
                 svg: String::new(),
                 rasterized,
-                error: Some(format!("{e:?}")),
+                error: Some(e.summary),
             },
         }
     })
@@ -388,15 +393,20 @@ pub fn render_grid_svg(spec: FfiGridSpec) -> FfiRenderedPlot {
             r.set_asset(path, bytes.clone());
         }
         match r.render_svg(&figure_source, &RenderOptions::a4()) {
-            Ok((svgs, _warn, _pages, _map)) => FfiRenderedPlot {
-                svg: svgs.into_iter().next().unwrap_or_default(),
+            Ok(success) => FfiRenderedPlot {
+                svg: match success.output {
+                    crate::render::RenderOutput::Svg(pages) => {
+                        pages.into_iter().next().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                },
                 rasterized,
                 error: None,
             },
             Err(e) => FfiRenderedPlot {
                 svg: String::new(),
                 rasterized,
-                error: Some(format!("{e:?}")),
+                error: Some(e.summary),
             },
         }
     })
@@ -941,7 +951,10 @@ mod tests {
         let mut r = PersistentTypstRenderer::new();
         r.set_figures_root(Some(&mdir));
         let opts = RenderOptions::a4();
-        let (pdf, _map) = r.render_pdf(&source, &opts).expect("compile with figure");
+        let pdf = r
+            .render_pdf(&source, &opts)
+            .expect("compile with figure")
+            .output;
         assert!(pdf.as_pdf().unwrap().starts_with(b"%PDF-"));
 
         // Negative control: WITHOUT figures_root the image must not resolve.

@@ -26,6 +26,8 @@ public struct ManuscriptSourceTab: View {
     @AppStorage("manuscript.sourceTab.showInspector") private var showInspector = false
     /// The id of the currently-selected flanking-inspector panel.
     @AppStorage("manuscript.sourceTab.inspectorPanel") private var inspectorPanelID = ""
+    /// Whether the compiler-diagnostics popover is up.
+    @State private var showDiagnosticsPanel = false
 
     /// Host-contributed flanking panels (imprint's AI/Throughline/Veusz/Paper).
     /// Empty in imbib → no inspector.
@@ -91,6 +93,7 @@ public struct ManuscriptSourceTab: View {
             source: $session.source,
             cursorPosition: $session.cursorPosition,
             syntaxMode: session.format,
+            highlight: session.highlightRequest,
             onSelectionChange: { _, range in session.selectedRange = range }
         )
     }
@@ -142,6 +145,7 @@ public struct ManuscriptSourceTab: View {
             selectedText: selectedText,
             cursorPosition: $session.cursorPosition,
             format: session.format,
+            svgPages: session.vm.svgPages,
             insertAtCursor: { text in insertAtCursor(text) },
             jumpToChar: { offset in session.cursorPosition = offset }
         )
@@ -203,6 +207,10 @@ public struct ManuscriptSourceTab: View {
 
     // MARK: Strips
 
+    // The pane TOGGLES that used to sit here moved to the window toolbar
+    // (`ManuscriptEditorPaneToggles` in TabContentView / the editor window),
+    // next to the sidebar + list toggles at the top left — one cluster for
+    // every show/hide-a-pane control. The strip keeps compile STATUS only.
     private var compileStrip: some View {
         HStack(spacing: 8) {
             if session.latexPreviewUnavailable {
@@ -216,46 +224,97 @@ public struct ManuscriptSourceTab: View {
                 ProgressView().controlSize(.small)
                 Text("Compiling").foregroundStyle(.secondary)
             } else if let err = session.vm.compilationError, !err.isEmpty {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                Text(err.components(separatedBy: .newlines).first ?? err)
-                    .lineLimit(1)
-                    .foregroundStyle(.secondary)
+                // Click the message → jump the editor to the first error.
+                // The count badge → the full diagnostics panel.
+                Button {
+                    if let first = errorDiagnostics.first { jump(to: first) }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(firstErrorLine(err))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.primary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Jump to the error in the source")
+                diagnosticsBadge
             } else if session.vm.pdfData != nil {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text("Compiled").foregroundStyle(.secondary)
+                if !warningDiagnostics.isEmpty {
+                    diagnosticsBadge
+                }
             }
             Spacer()
             Text(session.format.rawValue.capitalized)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-            Toggle(isOn: $showOutline) {
-                Image(systemName: "list.bullet.indent")
-            }
-            .toggleStyle(.button)
-            .help("Toggle outline")
-            Toggle(isOn: $showComments) {
-                Image(systemName: "bubble.left.and.bubble.right")
-            }
-            .toggleStyle(.button)
-            .help("Toggle comments")
-            if !sidePanels.isEmpty {
-                Toggle(isOn: $showInspector) {
-                    Image(systemName: "sidebar.squares.right")
-                }
-                .toggleStyle(.button)
-                .help("Toggle assistant panels")
-            }
-            Toggle(isOn: $showPreview) {
-                Image(systemName: "sidebar.right")
-            }
-            .toggleStyle(.button)
-            .help("Toggle preview")
         }
         .font(.caption)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.bar)
+        .popover(isPresented: $showDiagnosticsPanel, arrowEdge: .top) {
+            CompileDiagnosticsPanel(
+                diagnostics: session.vm.compilationDiagnostics,
+                onJump: { diagnostic in jump(to: diagnostic) }
+            )
+        }
+    }
+
+    // MARK: Diagnostics
+
+    private var errorDiagnostics: [CompileDiagnostic] {
+        session.vm.compilationDiagnostics.filter { $0.severity == .error }
+    }
+
+    private var warningDiagnostics: [CompileDiagnostic] {
+        session.vm.compilationDiagnostics.filter { $0.severity != .error }
+    }
+
+    /// The badge summarising the diagnostic counts; opens the panel.
+    private var diagnosticsBadge: some View {
+        let errors = errorDiagnostics.count
+        let warnings = warningDiagnostics.count
+        let label: String
+        if errors > 0 && warnings > 0 {
+            label = "\(errors)⨯ \(warnings)⚠"
+        } else if errors > 0 {
+            label = errors == 1 ? "1 error" : "\(errors) errors"
+        } else {
+            label = warnings == 1 ? "1 warning" : "\(warnings) warnings"
+        }
+        return Button(label) { showDiagnosticsPanel = true }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Show all compiler diagnostics")
+    }
+
+    /// First line of the (possibly multi-error) summary, without the
+    /// leading `error (line N):` prefix the panel already renders.
+    private func firstErrorLine(_ summary: String) -> String {
+        let first = summary.components(separatedBy: .newlines).first ?? summary
+        if let diag = errorDiagnostics.first {
+            if let line = diag.line { return "line \(line): \(diag.message)" }
+            return diag.message
+        }
+        return first
+    }
+
+    /// Move the editor to a diagnostic: select the offending range when the
+    /// compiler gave one, else land the caret on its line.
+    private func jump(to diagnostic: CompileDiagnostic) {
+        let source = session.source
+        let range = diagnostic.editorRange(in: source)
+            ?? diagnostic.editorOffset(in: source).map { NSRange(location: $0, length: 0) }
+        guard let range else { return }
+        logInfo(
+            "diagnostic jump → line \(diagnostic.line.map(String.init) ?? "?") range \(range)",
+            category: "compile")
+        session.highlight(range: range)
     }
 
     private var conflictBanner: some View {
@@ -272,6 +331,45 @@ public struct ManuscriptSourceTab: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.15))
+    }
+}
+
+/// The editor pane toggles (outline / comments / inspector / preview), for the
+/// WINDOW TOOLBAR — placed beside the sidebar and list toggles at the top left
+/// so every show/hide-a-pane control reads as one cluster. State is the same
+/// `@AppStorage` keys `ManuscriptSourceTab` reads, so a toolbar click flips the
+/// live editor with no plumbing.
+public struct ManuscriptEditorPaneToggles: View {
+    @AppStorage("manuscript.sourceTab.showPreview") private var showPreview = true
+    @AppStorage("manuscript.sourceTab.showOutline") private var showOutline = false
+    @AppStorage("manuscript.sourceTab.showComments") private var showComments = false
+    @AppStorage("manuscript.sourceTab.showInspector") private var showInspector = false
+
+    public init() {}
+
+    public var body: some View {
+        Toggle(isOn: $showOutline) {
+            Image(systemName: "list.bullet.indent")
+        }
+        .toggleStyle(.button)
+        .help("Toggle outline")
+        Toggle(isOn: $showComments) {
+            Image(systemName: "bubble.left.and.bubble.right")
+        }
+        .toggleStyle(.button)
+        .help("Toggle comments")
+        if !ManuscriptEditorEnvironment.shared.sidePanels.isEmpty {
+            Toggle(isOn: $showInspector) {
+                Image(systemName: "sidebar.squares.right")
+            }
+            .toggleStyle(.button)
+            .help("Toggle inspector panels")
+        }
+        Toggle(isOn: $showPreview) {
+            Image(systemName: "sidebar.right")
+        }
+        .toggleStyle(.button)
+        .help("Toggle preview")
     }
 }
 

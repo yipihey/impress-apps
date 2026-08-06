@@ -73,6 +73,13 @@ struct ManuscriptEditorView: View {
                 manuscriptID: manuscriptID, session: session, selectedTab: $selectedTab)
         }
         .frame(minWidth: 700, minHeight: 400)
+        // Same top-left pane-toggle cluster as the main window (the strip's
+        // former bottom-right toggles).
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                ManuscriptEditorPaneToggles()
+            }
+        }
         .focusedSceneValue(\.focusedManuscriptID, manuscriptID)
         .task(id: manuscriptID) {
             session = ManuscriptSessionRegistry.shared.session(for: manuscriptID)

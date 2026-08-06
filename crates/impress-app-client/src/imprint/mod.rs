@@ -30,6 +30,36 @@ pub struct ImprintServerInfo {
     pub server_port: Option<u16>,
 }
 
+/// One row of `GET /api/manuscripts` — store-native and watched/external
+/// manuscripts alike.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManuscriptSummary {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// `GET /api/manuscripts/{id}` — whether each store facade resolves the row.
+/// `store_detail_found` is the chassis read the Info tab renders from;
+/// `adapter_model_found` is imprint's own adapter.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManuscriptDetailProbe {
+    pub id: String,
+    #[serde(rename = "storeDetailFound")]
+    pub store_detail_found: bool,
+    #[serde(rename = "adapterModelFound")]
+    pub adapter_model_found: bool,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default, rename = "isExternal")]
+    pub is_external: Option<bool>,
+    #[serde(default, rename = "externalPath")]
+    pub external_path: Option<String>,
+}
+
 /// Typed client for imprint's `localhost:23121` HTTP API.
 pub struct ImprintClient {
     pub(crate) base_url: Url,
@@ -391,6 +421,82 @@ impl ImprintClient {
             status: body.status,
         })?;
         Result::Ok(body.result)
+    }
+
+    /// GET /api/manuscripts — every manuscript row (store-native AND
+    /// watched/external), id + title + format.
+    pub async fn list_manuscripts(&self) -> Result<Vec<ManuscriptSummary>> {
+        let url = self.base_url.join("/api/manuscripts")?;
+        let resp = self.http.get(url).send().await?;
+        #[derive(Deserialize)]
+        struct R {
+            status: String,
+            #[serde(default)]
+            manuscripts: Vec<ManuscriptSummary>,
+        }
+        let body: R = decode_envelope(resp).await?;
+        ok(&Ok {
+            status: body.status,
+        })?;
+        Result::Ok(body.manuscripts)
+    }
+
+    /// GET /api/manuscripts/{id} — the dual-facade detail probe: whether the
+    /// chassis store read (the Info tab's read) and imprint's adapter each
+    /// resolve the row. Their disagreement is the "Manuscript Not Found for a
+    /// healthy manuscript" bug class.
+    pub async fn manuscript_detail_probe(&self, id: &str) -> Result<ManuscriptDetailProbe> {
+        let url = self.base_url.join(&format!("/api/manuscripts/{}", id))?;
+        let resp = self.http.get(url).send().await?;
+        #[derive(Deserialize)]
+        struct R {
+            status: String,
+            manuscript: ManuscriptDetailProbe,
+        }
+        let body: R = decode_envelope(resp).await?;
+        ok(&Ok {
+            status: body.status,
+        })?;
+        Result::Ok(body.manuscript)
+    }
+
+    /// GET /api/manuscripts/{id}/history — the operation timeline (what the
+    /// Info tab's History section renders). Returns the operation count.
+    pub async fn manuscript_history_count(&self, id: &str) -> Result<u64> {
+        let url = self
+            .base_url
+            .join(&format!("/api/manuscripts/{}/history", id))?;
+        let resp = self.http.get(url).send().await?;
+        #[derive(Deserialize)]
+        struct R {
+            status: String,
+            #[serde(default)]
+            count: u64,
+        }
+        let body: R = decode_envelope(resp).await?;
+        ok(&Ok {
+            status: body.status,
+        })?;
+        Result::Ok(body.count)
+    }
+
+    /// GET /api/manuscripts/{id}/revisions — named revision snapshots count.
+    pub async fn manuscript_revisions_count(&self, id: &str) -> Result<u64> {
+        let url = self
+            .base_url
+            .join(&format!("/api/manuscripts/{}/revisions", id))?;
+        let resp = self.http.get(url).send().await?;
+        #[derive(Deserialize)]
+        struct R {
+            status: String,
+            #[serde(default)]
+            count: u64,
+        }
+        let body: R = decode_envelope(resp).await?;
+        ok(&Ok {
+            status: body.status,
+        })?;
+        Result::Ok(body.count)
     }
 
     pub async fn search(&self, query: &str, limit: u32) -> Result<Vec<SearchHitDto>> {

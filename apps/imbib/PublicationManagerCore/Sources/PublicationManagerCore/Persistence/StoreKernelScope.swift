@@ -74,6 +74,7 @@ public enum StoreKernelUndoAction {
     public static let dismiss = "Dismiss"
     public static let restore = "Restore"
     public static let archive = "Archive"
+    public static let rename = "Rename"
     /// Fallback for a `setStatus` call that names no action of its own.
     public static let changeStatus = "Change Status"
 }

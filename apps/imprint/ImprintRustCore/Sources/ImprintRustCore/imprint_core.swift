@@ -930,13 +930,17 @@ public struct CompileResult {
      */
     public var pdfData: Data?
     /**
-     * Error message if compilation failed
+     * Human-readable error summary if compilation failed (one line per error)
      */
     public var error: String?
     /**
-     * Warning messages from compilation
+     * Warning messages from compilation (human-readable lines)
      */
     public var warnings: [String]
+    /**
+     * Every structured diagnostic: errors on failure, warnings always
+     */
+    public var diagnostics: [FfiTypstDiagnostic]
     /**
      * Number of pages in the output
      */
@@ -953,11 +957,14 @@ public struct CompileResult {
          * PDF bytes if compilation succeeded
          */pdfData: Data?, 
         /**
-         * Error message if compilation failed
+         * Human-readable error summary if compilation failed (one line per error)
          */error: String?, 
         /**
-         * Warning messages from compilation
+         * Warning messages from compilation (human-readable lines)
          */warnings: [String], 
+        /**
+         * Every structured diagnostic: errors on failure, warnings always
+         */diagnostics: [FfiTypstDiagnostic], 
         /**
          * Number of pages in the output
          */pageCount: UInt32, 
@@ -967,6 +974,7 @@ public struct CompileResult {
         self.pdfData = pdfData
         self.error = error
         self.warnings = warnings
+        self.diagnostics = diagnostics
         self.pageCount = pageCount
         self.sourceMapEntries = sourceMapEntries
     }
@@ -985,6 +993,9 @@ extension CompileResult: Equatable, Hashable {
         if lhs.warnings != rhs.warnings {
             return false
         }
+        if lhs.diagnostics != rhs.diagnostics {
+            return false
+        }
         if lhs.pageCount != rhs.pageCount {
             return false
         }
@@ -998,6 +1009,7 @@ extension CompileResult: Equatable, Hashable {
         hasher.combine(pdfData)
         hasher.combine(error)
         hasher.combine(warnings)
+        hasher.combine(diagnostics)
         hasher.combine(pageCount)
         hasher.combine(sourceMapEntries)
     }
@@ -1014,6 +1026,7 @@ public struct FfiConverterTypeCompileResult: FfiConverterRustBuffer {
                 pdfData: FfiConverterOptionData.read(from: &buf), 
                 error: FfiConverterOptionString.read(from: &buf), 
                 warnings: FfiConverterSequenceString.read(from: &buf), 
+                diagnostics: FfiConverterSequenceTypeFfiTypstDiagnostic.read(from: &buf), 
                 pageCount: FfiConverterUInt32.read(from: &buf), 
                 sourceMapEntries: FfiConverterSequenceTypeFFISourceMapEntry.read(from: &buf)
         )
@@ -1023,6 +1036,7 @@ public struct FfiConverterTypeCompileResult: FfiConverterRustBuffer {
         FfiConverterOptionData.write(value.pdfData, into: &buf)
         FfiConverterOptionString.write(value.error, into: &buf)
         FfiConverterSequenceString.write(value.warnings, into: &buf)
+        FfiConverterSequenceTypeFfiTypstDiagnostic.write(value.diagnostics, into: &buf)
         FfiConverterUInt32.write(value.pageCount, into: &buf)
         FfiConverterSequenceTypeFFISourceMapEntry.write(value.sourceMapEntries, into: &buf)
     }
@@ -2020,6 +2034,262 @@ public func FfiConverterTypeFFIPageDefaults_lift(_ buf: RustBuffer) throws -> Ff
 #endif
 public func FfiConverterTypeFFIPageDefaults_lower(_ value: FfiPageDefaults) -> RustBuffer {
     return FfiConverterTypeFFIPageDefaults.lower(value)
+}
+
+
+/**
+ * Source mutation result. On error `source` is the untouched input.
+ */
+public struct FfiPresentationMutation {
+    public var source: String
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(source: String, error: String?) {
+        self.source = source
+        self.error = error
+    }
+}
+
+
+
+extension FfiPresentationMutation: Equatable, Hashable {
+    public static func ==(lhs: FfiPresentationMutation, rhs: FfiPresentationMutation) -> Bool {
+        if lhs.source != rhs.source {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(source)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIPresentationMutation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPresentationMutation {
+        return
+            try FfiPresentationMutation(
+                source: FfiConverterString.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPresentationMutation, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.source, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIPresentationMutation_lift(_ buf: RustBuffer) throws -> FfiPresentationMutation {
+    return try FfiConverterTypeFFIPresentationMutation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIPresentationMutation_lower(_ value: FfiPresentationMutation) -> RustBuffer {
+    return FfiConverterTypeFFIPresentationMutation.lower(value)
+}
+
+
+/**
+ * Structured result for presentation parsing. Diagnostics are values rather
+ * than thrown FFI errors so a half-written slide never destabilizes SwiftUI.
+ */
+public struct FfiPresentationOutline {
+    public var slides: [FfiPresentationSlide]
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(slides: [FfiPresentationSlide], error: String?) {
+        self.slides = slides
+        self.error = error
+    }
+}
+
+
+
+extension FfiPresentationOutline: Equatable, Hashable {
+    public static func ==(lhs: FfiPresentationOutline, rhs: FfiPresentationOutline) -> Bool {
+        if lhs.slides != rhs.slides {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(slides)
+        hasher.combine(error)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIPresentationOutline: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPresentationOutline {
+        return
+            try FfiPresentationOutline(
+                slides: FfiConverterSequenceTypeFFIPresentationSlide.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPresentationOutline, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeFFIPresentationSlide.write(value.slides, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIPresentationOutline_lift(_ buf: RustBuffer) throws -> FfiPresentationOutline {
+    return try FfiConverterTypeFFIPresentationOutline.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIPresentationOutline_lower(_ value: FfiPresentationOutline) -> RustBuffer {
+    return FfiConverterTypeFFIPresentationOutline.lower(value)
+}
+
+
+/**
+ * One explicit `#slide(id: "…", beat: "tl-…")[…]` block.
+ */
+public struct FfiPresentationSlide {
+    public var id: String
+    public var beat: String?
+    public var title: String?
+    public var orderIndex: UInt32
+    public var start: UInt32
+    public var end: UInt32
+    public var startUtf16: UInt32
+    public var endUtf16: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, beat: String?, title: String?, orderIndex: UInt32, start: UInt32, end: UInt32, startUtf16: UInt32, endUtf16: UInt32) {
+        self.id = id
+        self.beat = beat
+        self.title = title
+        self.orderIndex = orderIndex
+        self.start = start
+        self.end = end
+        self.startUtf16 = startUtf16
+        self.endUtf16 = endUtf16
+    }
+}
+
+
+
+extension FfiPresentationSlide: Equatable, Hashable {
+    public static func ==(lhs: FfiPresentationSlide, rhs: FfiPresentationSlide) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.beat != rhs.beat {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.orderIndex != rhs.orderIndex {
+            return false
+        }
+        if lhs.start != rhs.start {
+            return false
+        }
+        if lhs.end != rhs.end {
+            return false
+        }
+        if lhs.startUtf16 != rhs.startUtf16 {
+            return false
+        }
+        if lhs.endUtf16 != rhs.endUtf16 {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(beat)
+        hasher.combine(title)
+        hasher.combine(orderIndex)
+        hasher.combine(start)
+        hasher.combine(end)
+        hasher.combine(startUtf16)
+        hasher.combine(endUtf16)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFFIPresentationSlide: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPresentationSlide {
+        return
+            try FfiPresentationSlide(
+                id: FfiConverterString.read(from: &buf), 
+                beat: FfiConverterOptionString.read(from: &buf), 
+                title: FfiConverterOptionString.read(from: &buf), 
+                orderIndex: FfiConverterUInt32.read(from: &buf), 
+                start: FfiConverterUInt32.read(from: &buf), 
+                end: FfiConverterUInt32.read(from: &buf), 
+                startUtf16: FfiConverterUInt32.read(from: &buf), 
+                endUtf16: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPresentationSlide, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.beat, into: &buf)
+        FfiConverterOptionString.write(value.title, into: &buf)
+        FfiConverterUInt32.write(value.orderIndex, into: &buf)
+        FfiConverterUInt32.write(value.start, into: &buf)
+        FfiConverterUInt32.write(value.end, into: &buf)
+        FfiConverterUInt32.write(value.startUtf16, into: &buf)
+        FfiConverterUInt32.write(value.endUtf16, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIPresentationSlide_lift(_ buf: RustBuffer) throws -> FfiPresentationSlide {
+    return try FfiConverterTypeFFIPresentationSlide.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFFIPresentationSlide_lower(_ value: FfiPresentationSlide) -> RustBuffer {
+    return FfiConverterTypeFFIPresentationSlide.lower(value)
 }
 
 
@@ -3968,6 +4238,130 @@ public func FfiConverterTypeFfiSeries_lower(_ value: FfiSeries) -> RustBuffer {
 
 
 /**
+ * One structured Typst diagnostic crossing the FFI. Positions are in the
+ * USER source (the text the editor shows): `line`/`column` are 1-indexed
+ * (column counts characters), `source_start`/`source_end` are UTF-8 byte
+ * offsets. All are None for diagnostics with no span in the main file.
+ */
+public struct FfiTypstDiagnostic {
+    /**
+     * `"error"` or `"warning"`.
+     */
+    public var severity: String
+    public var message: String
+    public var line: UInt32?
+    public var column: UInt32?
+    public var sourceStart: UInt64?
+    public var sourceEnd: UInt64?
+    /**
+     * Typst's remediation hints ("did you mean …").
+     */
+    public var hints: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `"error"` or `"warning"`.
+         */severity: String, message: String, line: UInt32?, column: UInt32?, sourceStart: UInt64?, sourceEnd: UInt64?, 
+        /**
+         * Typst's remediation hints ("did you mean …").
+         */hints: [String]) {
+        self.severity = severity
+        self.message = message
+        self.line = line
+        self.column = column
+        self.sourceStart = sourceStart
+        self.sourceEnd = sourceEnd
+        self.hints = hints
+    }
+}
+
+
+
+extension FfiTypstDiagnostic: Equatable, Hashable {
+    public static func ==(lhs: FfiTypstDiagnostic, rhs: FfiTypstDiagnostic) -> Bool {
+        if lhs.severity != rhs.severity {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.line != rhs.line {
+            return false
+        }
+        if lhs.column != rhs.column {
+            return false
+        }
+        if lhs.sourceStart != rhs.sourceStart {
+            return false
+        }
+        if lhs.sourceEnd != rhs.sourceEnd {
+            return false
+        }
+        if lhs.hints != rhs.hints {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(severity)
+        hasher.combine(message)
+        hasher.combine(line)
+        hasher.combine(column)
+        hasher.combine(sourceStart)
+        hasher.combine(sourceEnd)
+        hasher.combine(hints)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiTypstDiagnostic: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTypstDiagnostic {
+        return
+            try FfiTypstDiagnostic(
+                severity: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf), 
+                line: FfiConverterOptionUInt32.read(from: &buf), 
+                column: FfiConverterOptionUInt32.read(from: &buf), 
+                sourceStart: FfiConverterOptionUInt64.read(from: &buf), 
+                sourceEnd: FfiConverterOptionUInt64.read(from: &buf), 
+                hints: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTypstDiagnostic, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.severity, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterOptionUInt32.write(value.line, into: &buf)
+        FfiConverterOptionUInt32.write(value.column, into: &buf)
+        FfiConverterOptionUInt64.write(value.sourceStart, into: &buf)
+        FfiConverterOptionUInt64.write(value.sourceEnd, into: &buf)
+        FfiConverterSequenceString.write(value.hints, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTypstDiagnostic_lift(_ buf: RustBuffer) throws -> FfiTypstDiagnostic {
+    return try FfiConverterTypeFfiTypstDiagnostic.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTypstDiagnostic_lower(_ value: FfiTypstDiagnostic) -> RustBuffer {
+    return FfiConverterTypeFfiTypstDiagnostic.lower(value)
+}
+
+
+/**
  * Import notes from imbib PDF annotations
  */
 public struct ImportNotesCommand {
@@ -4935,13 +5329,17 @@ public struct SvgCompileResult {
      */
     public var pageCount: UInt32
     /**
-     * Warning messages from compilation
+     * Warning messages from compilation (human-readable lines)
      */
     public var warnings: [String]
     /**
-     * Error message if compilation failed
+     * Human-readable error summary if compilation failed (one line per error)
      */
     public var error: String?
+    /**
+     * Every structured diagnostic: errors on failure, warnings always
+     */
+    public var diagnostics: [FfiTypstDiagnostic]
     /**
      * Source map entries for cursor synchronization
      */
@@ -4957,11 +5355,14 @@ public struct SvgCompileResult {
          * Number of pages in the output
          */pageCount: UInt32, 
         /**
-         * Warning messages from compilation
+         * Warning messages from compilation (human-readable lines)
          */warnings: [String], 
         /**
-         * Error message if compilation failed
+         * Human-readable error summary if compilation failed (one line per error)
          */error: String?, 
+        /**
+         * Every structured diagnostic: errors on failure, warnings always
+         */diagnostics: [FfiTypstDiagnostic], 
         /**
          * Source map entries for cursor synchronization
          */sourceMapEntries: [FfiSourceMapEntry]) {
@@ -4969,6 +5370,7 @@ public struct SvgCompileResult {
         self.pageCount = pageCount
         self.warnings = warnings
         self.error = error
+        self.diagnostics = diagnostics
         self.sourceMapEntries = sourceMapEntries
     }
 }
@@ -4989,6 +5391,9 @@ extension SvgCompileResult: Equatable, Hashable {
         if lhs.error != rhs.error {
             return false
         }
+        if lhs.diagnostics != rhs.diagnostics {
+            return false
+        }
         if lhs.sourceMapEntries != rhs.sourceMapEntries {
             return false
         }
@@ -5000,6 +5405,7 @@ extension SvgCompileResult: Equatable, Hashable {
         hasher.combine(pageCount)
         hasher.combine(warnings)
         hasher.combine(error)
+        hasher.combine(diagnostics)
         hasher.combine(sourceMapEntries)
     }
 }
@@ -5016,6 +5422,7 @@ public struct FfiConverterTypeSvgCompileResult: FfiConverterRustBuffer {
                 pageCount: FfiConverterUInt32.read(from: &buf), 
                 warnings: FfiConverterSequenceString.read(from: &buf), 
                 error: FfiConverterOptionString.read(from: &buf), 
+                diagnostics: FfiConverterSequenceTypeFfiTypstDiagnostic.read(from: &buf), 
                 sourceMapEntries: FfiConverterSequenceTypeFFISourceMapEntry.read(from: &buf)
         )
     }
@@ -5025,6 +5432,7 @@ public struct FfiConverterTypeSvgCompileResult: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.pageCount, into: &buf)
         FfiConverterSequenceString.write(value.warnings, into: &buf)
         FfiConverterOptionString.write(value.error, into: &buf)
+        FfiConverterSequenceTypeFfiTypstDiagnostic.write(value.diagnostics, into: &buf)
         FfiConverterSequenceTypeFFISourceMapEntry.write(value.sourceMapEntries, into: &buf)
     }
 }
@@ -6952,6 +7360,31 @@ fileprivate struct FfiConverterSequenceTypeFFIExtractedSection: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFFIPresentationSlide: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiPresentationSlide]
+
+    public static func write(_ value: [FfiPresentationSlide], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFFIPresentationSlide.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiPresentationSlide] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiPresentationSlide]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFFIPresentationSlide.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFFISourceMapEntry: FfiConverterRustBuffer {
     typealias SwiftType = [FfiSourceMapEntry]
 
@@ -7044,6 +7477,31 @@ fileprivate struct FfiConverterSequenceTypeFfiSeries: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiSeries.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiTypstDiagnostic: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiTypstDiagnostic]
+
+    public static func write(_ value: [FfiTypstDiagnostic], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiTypstDiagnostic.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiTypstDiagnostic] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiTypstDiagnostic]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiTypstDiagnostic.read(from: &buf))
         }
         return seq
     }
@@ -7310,6 +7768,16 @@ public func extractCiteKeys(source: String) -> [String] {
 })
 }
 /**
+ * Parse the stable presentation structure used by imprint's storyboard.
+ */
+public func extractPresentationSlides(source: String) -> FfiPresentationOutline {
+    return try!  FfiConverterTypeFFIPresentationOutline.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_extract_presentation_slides(
+        FfiConverterString.lower(source),$0
+    )
+})
+}
+/**
  * Every section in `source`, in document order.
  *
  * `document_id` seeds the deterministic section ids; pass the manuscript's id
@@ -7496,6 +7964,18 @@ public func renderPlotTypst(spec: FfiPlotSpec) -> FfiPlotSource {
 })
 }
 /**
+ * Move one slide before another, or to the end when `before_slide_id` is nil.
+ */
+public func reorderPresentationSlide(source: String, slideId: String, beforeSlideId: String?) -> FfiPresentationMutation {
+    return try!  FfiConverterTypeFFIPresentationMutation.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_reorder_presentation_slide(
+        FfiConverterString.lower(source),
+        FfiConverterString.lower(slideId),
+        FfiConverterOptionString.lower(beforeSlideId),$0
+    )
+})
+}
+/**
  * Save a z-grid figure into `<manuscript_dir>/figures/` (when it carries a
  * raster) and return the insertable Typst snippet. Contour-only grids are
  * pure vector: nothing is written and the snippet stands alone.
@@ -7552,6 +8032,18 @@ public func sectionIdFor(documentId: String, title: String, orderIndex: UInt32) 
         FfiConverterString.lower(documentId),
         FfiConverterString.lower(title),
         FfiConverterUInt32.lower(orderIndex),$0
+    )
+})
+}
+/**
+ * Assign a slide to a throughline beat label, or clear it with an empty label.
+ */
+public func setPresentationSlideBeat(source: String, slideId: String, beat: String) -> FfiPresentationMutation {
+    return try!  FfiConverterTypeFFIPresentationMutation.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_set_presentation_slide_beat(
+        FfiConverterString.lower(source),
+        FfiConverterString.lower(slideId),
+        FfiConverterString.lower(beat),$0
     )
 })
 }
@@ -7671,6 +8163,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_extract_cite_keys() != 50975) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_extract_presentation_slides() != 44351) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_extract_sections() != 58088) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7722,6 +8217,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_render_plot_typst() != 21908) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_reorder_presentation_slide() != 14747) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_save_grid_figure() != 64146) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7732,6 +8230,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_section_id_for() != 36217) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_set_presentation_slide_beat() != 16634) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_source_map_lookup() != 46460) {

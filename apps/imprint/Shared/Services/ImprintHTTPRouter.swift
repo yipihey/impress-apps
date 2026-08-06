@@ -169,6 +169,17 @@ public actor ImprintHTTPRouter: HTTPRouter {
                     let docId = String(remainder.dropLast("/sections".count))
                     return handleManuscriptSections(id: docId)
                 }
+                if remainder.hasSuffix("/history") {
+                    let docId = String(remainder.dropLast("/history".count))
+                    return await handleManuscriptHistory(id: docId)
+                }
+                if remainder.hasSuffix("/revisions") {
+                    let docId = String(remainder.dropLast("/revisions".count))
+                    return await handleManuscriptRevisions(id: docId)
+                }
+                if !remainder.contains("/") {
+                    return await handleGetManuscriptDetail(id: remainder)
+                }
             }
 
             if pathLower.hasPrefix("/api/sections/") {
@@ -2186,6 +2197,97 @@ public actor ImprintHTTPRouter: HTTPRouter {
             "count": manuscripts.count,
             "manuscripts": payload
         ])
+    }
+
+    /// GET /api/manuscripts/{id} — one manuscript as BOTH store facades see
+    /// it: `store*` is the chassis read (RustStoreAdapter → imbib-core), the
+    /// exact call the Info tab renders from; `adapter*` is imprint's own
+    /// ManuscriptStoreAdapter. A row healthy in one facade and missing in the
+    /// other is precisely the "Manuscript Not Found for a healthy manuscript"
+    /// class of bug, so this endpoint reports them side by side — Tier-B
+    /// verifiable without clicking the GUI.
+    private func handleGetManuscriptDetail(id: String) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid manuscript id: \(id)")
+        }
+        return await MainActor.run {
+            let detail = RustStoreAdapter.shared.getManuscriptDetail(id: uuid)
+            let model = ManuscriptStoreAdapter.shared.manuscript(id: uuid)
+            var payload: [String: Any] = [
+                "id": uuid.uuidString,
+                "storeDetailFound": detail != nil,
+                "adapterModelFound": model != nil,
+            ]
+            if let detail {
+                payload["title"] = detail.title
+                payload["format"] = detail.format
+                payload["manuscriptStatus"] = detail.status
+                payload["authors"] = detail.authors
+                payload["bodyLength"] = detail.bodyContent.count
+            }
+            if let model {
+                payload["adapterTitle"] = model.title
+                payload["isExternal"] = model.isExternalReference
+                if let path = model.externalSource?.path {
+                    payload["externalPath"] = path
+                }
+            }
+            return .json(["status": "ok", "manuscript": payload])
+        }
+    }
+
+    /// GET /api/manuscripts/{id}/history — the fine-grained operation
+    /// timeline for one manuscript (what the Info tab's History section
+    /// renders), oldest first. Field names mirror `SharedOperationRow`.
+    private func handleManuscriptHistory(id: String) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid manuscript id: \(id)")
+        }
+        return await MainActor.run {
+            let ops = RustStoreAdapter.shared.manuscriptOperations(id: uuid)
+            let payload: [[String: Any]] = ops.map { op in
+                [
+                    "opType": op.opType,
+                    "fieldNames": op.fieldNames,
+                    "dateMs": op.dateMs,
+                    "isBodyEdit": op.isBodyEdit,
+                ]
+            }
+            return .json([
+                "status": "ok",
+                "id": uuid.uuidString,
+                "count": ops.count,
+                "operations": payload,
+            ])
+        }
+    }
+
+    /// GET /api/manuscripts/{id}/revisions — the named revision chain
+    /// (manuscript-revision snapshots), newest first — the Versions section's
+    /// data, headlessly.
+    private func handleManuscriptRevisions(id: String) async -> HTTPResponse {
+        guard let uuid = UUID(uuidString: id) else {
+            return .badRequest("Invalid manuscript id: \(id)")
+        }
+        return await MainActor.run {
+            let revisions = RustStoreAdapter.shared.listManuscriptRevisions(manuscriptID: uuid)
+            let payload: [[String: Any]] = revisions.map { rev in
+                var entry: [String: Any] = [
+                    "id": rev.id,
+                    "revisionTag": rev.revisionTag,
+                    "dateCreated": rev.dateCreated,
+                ]
+                if let reason = rev.snapshotReason { entry["snapshotReason"] = reason }
+                if let wc = rev.wordCount { entry["wordCount"] = wc }
+                return entry
+            }
+            return .json([
+                "status": "ok",
+                "id": uuid.uuidString,
+                "count": revisions.count,
+                "revisions": payload,
+            ])
+        }
     }
 
     /// GET /api/manuscripts/{id}/sections — list every stored section

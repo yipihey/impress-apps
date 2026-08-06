@@ -260,6 +260,132 @@ pub struct LayoutSourceMapEntry {
     pub height: f64,
 }
 
+/// Severity of a structured Typst diagnostic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypstDiagnosticSeverity {
+    Error,
+    Warning,
+}
+
+/// One Typst compiler diagnostic, resolved against the *user* source.
+///
+/// Spans are resolved from Typst's `Span` into byte ranges of the compiled
+/// source, then the compile-time preamble prefix is subtracted so offsets and
+/// line numbers land in the text the user actually sees in the editor. A
+/// diagnostic whose span lives outside the main file (package errors, file
+/// errors) carries no range.
+///
+/// FFI-agnostic plain data, mapped to `FfiTypstDiagnostic` in `lib.rs`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypstDiagnostic {
+    pub severity: TypstDiagnosticSeverity,
+    pub message: String,
+    /// Byte range in the user source (UTF-8, preamble subtracted).
+    pub source_start: Option<usize>,
+    pub source_end: Option<usize>,
+    /// 1-indexed line/character-column derived from `source_start`.
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+    /// Typst's own remediation hints ("did you mean …", "try …").
+    pub hints: Vec<String>,
+}
+
+impl TypstDiagnostic {
+    /// A single human-readable line: `error (line 12): message`.
+    pub fn summary_line(&self) -> String {
+        let sev = match self.severity {
+            TypstDiagnosticSeverity::Error => "error",
+            TypstDiagnosticSeverity::Warning => "warning",
+        };
+        match self.line {
+            Some(line) => format!("{} (line {}): {}", sev, line, self.message),
+            None => format!("{}: {}", sev, self.message),
+        }
+    }
+}
+
+/// A failed Typst compile: every diagnostic, plus a human-readable summary
+/// (one `summary_line` per error, newline-joined) for surfaces that can only
+/// show a string.
+#[derive(Debug, Clone)]
+pub struct TypstCompileError {
+    pub summary: String,
+    pub diagnostics: Vec<TypstDiagnostic>,
+}
+
+impl TypstCompileError {
+    pub fn from_diagnostics(diagnostics: Vec<TypstDiagnostic>) -> Self {
+        let summary = diagnostics
+            .iter()
+            .filter(|d| d.severity == TypstDiagnosticSeverity::Error)
+            .map(TypstDiagnostic::summary_line)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let summary = if summary.is_empty() {
+            "Typst compilation failed".to_string()
+        } else {
+            summary
+        };
+        Self {
+            summary,
+            diagnostics,
+        }
+    }
+
+    /// A spanless failure (PDF/SVG generation, engine errors).
+    pub fn message_only(summary: impl Into<String>) -> Self {
+        let summary = summary.into();
+        Self {
+            diagnostics: vec![TypstDiagnostic {
+                severity: TypstDiagnosticSeverity::Error,
+                message: summary.clone(),
+                source_start: None,
+                source_end: None,
+                line: None,
+                column: None,
+                hints: Vec::new(),
+            }],
+            summary,
+        }
+    }
+}
+
+impl std::fmt::Display for TypstCompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.summary)
+    }
+}
+
+impl std::error::Error for TypstCompileError {}
+
+impl From<TypstCompileError> for RenderError {
+    fn from(e: TypstCompileError) -> Self {
+        RenderError::CompilationError(e.summary)
+    }
+}
+
+/// 1-indexed (line, character-column) of a byte offset in `text`.
+///
+/// Columns count characters, not bytes, so they match what an editor's
+/// line/column display shows. Offsets past the end clamp to the last position.
+pub fn line_column_at(text: &str, byte_offset: usize) -> (u32, u32) {
+    let clamped = byte_offset.min(text.len());
+    let prefix = &text[..floor_char_boundary(text, clamped)];
+    let line = prefix.bytes().filter(|&b| b == b'\n').count() as u32 + 1;
+    let line_start = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let column = prefix[line_start..].chars().count() as u32 + 1;
+    (line, column)
+}
+
+/// Largest char boundary ≤ `index` (stable substitute for `str::floor_char_boundary`).
+fn floor_char_boundary(text: &str, index: usize) -> usize {
+    let mut i = index.min(text.len());
+    while i > 0 && !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 /// Result of rendering a document
 #[derive(Debug)]
 pub enum RenderOutput {
@@ -520,11 +646,16 @@ mod typst_impl {
         figures_root: Arc<RwLock<Option<PathBuf>>>,
     }
 
-    /// What `render_svg` hands back: one SVG string per page, the compile
-    /// warnings, the page count, and the real-layout source map. Named because
-    /// a bare 4-tuple trips `clippy::type_complexity`, and imprint's CI gate
-    /// runs clippy with `-D warnings`.
-    pub type SvgRender = (Vec<String>, Vec<String>, u32, Vec<LayoutSourceMapEntry>);
+    /// What a successful render hands back: the output (PDF bytes or SVG
+    /// pages), the page count, the real-layout source map, and the compile
+    /// warnings as structured diagnostics.
+    #[derive(Debug)]
+    pub struct TypstRenderSuccess {
+        pub output: RenderOutput,
+        pub page_count: u32,
+        pub source_map: Vec<LayoutSourceMapEntry>,
+        pub warnings: Vec<TypstDiagnostic>,
+    }
 
     impl PersistentTypstRenderer {
         pub fn new() -> Self {
@@ -636,14 +767,127 @@ mod typst_impl {
             }
         }
 
+        /// Resolve one Typst `SourceDiagnostic` into the structured,
+        /// user-source-relative form. `source` is the LIVE compiled source
+        /// (preamble included) so spans resolve; `prefix` is the preamble
+        /// byte length to subtract.
+        fn resolve_diagnostic(
+            d: &typst::diag::SourceDiagnostic,
+            source: &Source,
+            prefix: usize,
+        ) -> TypstDiagnostic {
+            let severity = match d.severity {
+                typst::diag::Severity::Error => TypstDiagnosticSeverity::Error,
+                typst::diag::Severity::Warning => TypstDiagnosticSeverity::Warning,
+            };
+            let mut out = TypstDiagnostic {
+                severity,
+                message: d.message.to_string(),
+                source_start: None,
+                source_end: None,
+                line: None,
+                column: None,
+                hints: d.hints.iter().map(|h| h.to_string()).collect(),
+            };
+            // `Source::range` returns None for spans outside the main file
+            // (package/file errors) — those stay spanless.
+            if let Some(range) = source.range(d.span) {
+                let start = range.start.saturating_sub(prefix);
+                let end = range.end.saturating_sub(prefix).max(start);
+                let user_text = &source.text()[prefix.min(source.text().len())..];
+                let (line, column) = line_column_at(user_text, start);
+                out.source_start = Some(start);
+                out.source_end = Some(end);
+                out.line = Some(line);
+                out.column = Some(column);
+            }
+            out
+        }
+
+        /// Resolve every diagnostic in `diags` against the live source handle.
+        fn resolve_diagnostics(
+            &self,
+            diags: &[typst::diag::SourceDiagnostic],
+            options: &RenderOptions,
+        ) -> Vec<TypstDiagnostic> {
+            let prefix = Self::preamble_prefix_len(options);
+            let Some(handle) = &self.source_handle else {
+                return diags
+                    .iter()
+                    .map(Self::resolve_diagnostic_spanless)
+                    .collect();
+            };
+            match handle.read() {
+                Ok(guard) => diags
+                    .iter()
+                    .map(|d| Self::resolve_diagnostic(d, &guard, prefix))
+                    .collect(),
+                Err(_) => diags
+                    .iter()
+                    .map(Self::resolve_diagnostic_spanless)
+                    .collect(),
+            }
+        }
+
+        /// Fallback when the source handle is unavailable: message + hints only.
+        fn resolve_diagnostic_spanless(d: &typst::diag::SourceDiagnostic) -> TypstDiagnostic {
+            TypstDiagnostic {
+                severity: match d.severity {
+                    typst::diag::Severity::Error => TypstDiagnosticSeverity::Error,
+                    typst::diag::Severity::Warning => TypstDiagnosticSeverity::Warning,
+                },
+                message: d.message.to_string(),
+                source_start: None,
+                source_end: None,
+                line: None,
+                column: None,
+                hints: d.hints.iter().map(|h| h.to_string()).collect(),
+            }
+        }
+
+        /// Map a compile failure into structured diagnostics. Source errors
+        /// resolve to user-source ranges; every other failure mode becomes a
+        /// single spanless error (with Typst's hints where it carries them).
+        fn compile_error_diagnostics(
+            &self,
+            e: &typst_as_lib::TypstAsLibError,
+            options: &RenderOptions,
+        ) -> Vec<TypstDiagnostic> {
+            use typst_as_lib::TypstAsLibError;
+            match e {
+                TypstAsLibError::TypstSource(diags) => self.resolve_diagnostics(diags, options),
+                TypstAsLibError::HintedString(hinted) => vec![TypstDiagnostic {
+                    severity: TypstDiagnosticSeverity::Error,
+                    message: hinted.message().to_string(),
+                    source_start: None,
+                    source_end: None,
+                    line: None,
+                    column: None,
+                    hints: hinted.hints().iter().map(|h| h.to_string()).collect(),
+                }],
+                other => vec![TypstDiagnostic {
+                    severity: TypstDiagnosticSeverity::Error,
+                    message: other.to_string(),
+                    source_start: None,
+                    source_end: None,
+                    line: None,
+                    column: None,
+                    hints: Vec::new(),
+                }],
+            }
+        }
+
         /// Compile the current source into a typst PagedDocument.
         ///
-        /// Shared by both PDF and SVG export paths.
+        /// Shared by both PDF and SVG export paths. Warnings come back as
+        /// structured diagnostics; a failure carries every error diagnostic
+        /// resolved to user-source lines.
         fn compile_document(
             &mut self,
             source: &str,
             options: &RenderOptions,
-        ) -> Result<(typst::layout::PagedDocument, Vec<String>), RenderError> {
+        ) -> Result<(typst::layout::PagedDocument, Vec<TypstDiagnostic>), TypstCompileError>
+        {
             let preamble = options.to_typst_preamble();
             let full_source = format!("{}\n{}", preamble, source);
 
@@ -658,22 +902,19 @@ mod typst_impl {
             > = engine.compile("/main.typ");
             let compile_elapsed = t0.elapsed();
 
-            // Collect warnings
-            let warnings: Vec<String> = compiled
-                .warnings
-                .iter()
-                .map(|w| format!("{:?}", w))
-                .collect();
-
-            if !warnings.is_empty() {
-                for w in &warnings {
-                    eprintln!("Typst warning: {}", w);
-                }
+            let warnings = self.resolve_diagnostics(&compiled.warnings, options);
+            for w in &warnings {
+                eprintln!("Typst warning: {}", w.summary_line());
             }
 
-            let document = compiled
-                .output
-                .map_err(|e| RenderError::CompilationError(format!("{:?}", e)))?;
+            let document = match compiled.output {
+                Ok(document) => document,
+                Err(e) => {
+                    let mut diagnostics = self.compile_error_diagnostics(&e, options);
+                    diagnostics.extend(warnings);
+                    return Err(TypstCompileError::from_diagnostics(diagnostics));
+                }
+            };
 
             eprintln!(
                 "[imprint-core] Compiled in {:.1}ms ({} pages)",
@@ -708,21 +949,24 @@ mod typst_impl {
             Vec::new()
         }
 
-        /// Render source to PDF, along with real-layout source-map entries.
+        /// Render source to PDF, along with real-layout source-map entries and
+        /// structured warnings.
         pub fn render_pdf(
             &mut self,
             source: &str,
             options: &RenderOptions,
-        ) -> Result<(RenderOutput, Vec<LayoutSourceMapEntry>), RenderError> {
-            let (document, _warnings) = self.compile_document(source, options)?;
+        ) -> Result<TypstRenderSuccess, TypstCompileError> {
+            let (document, warnings) = self.compile_document(source, options)?;
 
             // Build the source map while the document + compiled source are live.
             let source_map = self.layout_source_map(&document, options);
+            let page_count = document.pages.len() as u32;
 
             let t0 = std::time::Instant::now();
             let pdf_options = typst_pdf::PdfOptions::default();
-            let pdf_bytes = typst_pdf::pdf(&document, &pdf_options)
-                .map_err(|e| RenderError::PdfError(format!("{:?}", e)))?;
+            let pdf_bytes = typst_pdf::pdf(&document, &pdf_options).map_err(|e| {
+                TypstCompileError::message_only(format!("PDF generation error: {:?}", e))
+            })?;
             let elapsed = t0.elapsed();
 
             eprintln!(
@@ -732,16 +976,21 @@ mod typst_impl {
                 source_map.len(),
             );
 
-            Ok((RenderOutput::Pdf(pdf_bytes), source_map))
+            Ok(TypstRenderSuccess {
+                output: RenderOutput::Pdf(pdf_bytes),
+                page_count,
+                source_map,
+                warnings,
+            })
         }
 
         /// Render source to SVG (one string per page), along with real-layout
-        /// source-map entries.
+        /// source-map entries and structured warnings.
         pub fn render_svg(
             &mut self,
             source: &str,
             options: &RenderOptions,
-        ) -> Result<SvgRender, RenderError> {
+        ) -> Result<TypstRenderSuccess, TypstCompileError> {
             let (document, warnings) = self.compile_document(source, options)?;
 
             // Build the source map while the document + compiled source are live.
@@ -759,7 +1008,12 @@ mod typst_impl {
             );
 
             let page_count = document.pages.len() as u32;
-            Ok((svgs, warnings, page_count, source_map))
+            Ok(TypstRenderSuccess {
+                output: RenderOutput::Svg(svgs),
+                page_count,
+                source_map,
+                warnings,
+            })
         }
     }
 
@@ -1028,7 +1282,7 @@ mod typst_impl {
 pub use typst_impl::DefaultTypstRenderer;
 
 #[cfg(feature = "typst-render")]
-pub use typst_impl::PersistentTypstRenderer;
+pub use typst_impl::{PersistentTypstRenderer, TypstRenderSuccess};
 
 // ============================================================================
 // Stub implementation (when typst-render feature is NOT enabled)
@@ -1240,9 +1494,10 @@ mod tests {
         let options = RenderOptions::default();
 
         let mut renderer = PersistentTypstRenderer::new();
-        let (_output, entries) = renderer
+        let success = renderer
             .render_pdf(source, &options)
             .expect("compile should succeed");
+        let entries = success.source_map;
 
         // (a) entries are non-empty
         assert!(
@@ -1300,6 +1555,87 @@ mod tests {
             entries.iter().any(|e| e.x > 1.0),
             "expected page-absolute x coordinates (> 1pt margin)"
         );
+    }
+
+    #[test]
+    fn test_line_column_at() {
+        let text = "abc\ndef\nghi";
+        assert_eq!(line_column_at(text, 0), (1, 1));
+        assert_eq!(line_column_at(text, 2), (1, 3));
+        assert_eq!(line_column_at(text, 4), (2, 1));
+        assert_eq!(line_column_at(text, 9), (3, 2));
+        // Past the end clamps to the last position.
+        assert_eq!(line_column_at(text, 999), (3, 4));
+        // Multi-byte: column counts characters, not bytes.
+        let uni = "é✓\nx";
+        assert_eq!(line_column_at(uni, uni.find('\n').unwrap()), (1, 3));
+    }
+
+    /// A compile error must come back as a structured diagnostic whose line
+    /// number is in USER-source coordinates (preamble subtracted), with
+    /// Typst's hints attached — not as a stringified Debug dump.
+    #[cfg(feature = "typst-render")]
+    #[test]
+    fn test_compile_error_structured_diagnostics() {
+        // Line 3 of the user source references an unknown variable.
+        let source = "= Title\n\n#undefined_variable_xyz\n";
+        let options = RenderOptions::default();
+
+        let mut renderer = PersistentTypstRenderer::new();
+        let err = renderer
+            .render_pdf(source, &options)
+            .expect_err("compile should fail");
+
+        // The summary is human-readable: no Debug formatting artifacts.
+        assert!(
+            !err.summary.contains("SourceDiagnostic"),
+            "summary must not be a Debug dump: {}",
+            err.summary
+        );
+        assert!(
+            err.summary.contains("unknown variable"),
+            "summary should carry the Typst message: {}",
+            err.summary
+        );
+
+        let diag = err
+            .diagnostics
+            .iter()
+            .find(|d| d.severity == TypstDiagnosticSeverity::Error)
+            .expect("at least one error diagnostic");
+        assert_eq!(
+            diag.line,
+            Some(3),
+            "error is on user-source line 3: {diag:?}"
+        );
+        assert!(diag.column.is_some());
+        let (s, e) = (diag.source_start.unwrap(), diag.source_end.unwrap());
+        assert!(
+            source[s..e].contains("undefined_variable_xyz"),
+            "span should cover the offending token, got {:?}",
+            &source[s..e]
+        );
+    }
+
+    /// A missing file (the exact class from the bug report: a #bibliography
+    /// pointing at a file that is not there) resolves to the right line too.
+    #[cfg(feature = "typst-render")]
+    #[test]
+    fn test_missing_file_error_has_line() {
+        let source = "= Title\n#bibliography(\"analytic-path-references.bib\")\n";
+        let options = RenderOptions::default();
+
+        let mut renderer = PersistentTypstRenderer::new();
+        let err = renderer
+            .render_pdf(source, &options)
+            .expect_err("compile should fail");
+        let diag = &err.diagnostics[0];
+        assert!(
+            diag.message.contains("file not found"),
+            "message: {}",
+            diag.message
+        );
+        assert_eq!(diag.line, Some(2), "{diag:?}");
     }
 
     #[test]

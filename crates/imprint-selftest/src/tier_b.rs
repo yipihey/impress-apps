@@ -72,6 +72,12 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
                 Tier::B,
                 "app not running",
             ),
+            skipped(
+                "manuscripts.detail_and_history",
+                "Every manuscript row resolves in the Info-tab store read, with history/revisions queryable",
+                Tier::B,
+                "app not running",
+            ),
         ];
     }
     let info = info.unwrap();
@@ -129,8 +135,73 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(compile_capability(&client).await);
     out.push(throughline_opt_in_capability(&client).await);
     out.push(throughline_round_trip_capability(&client).await);
+    out.push(manuscript_detail_history_capability(&client).await);
 
     out
+}
+
+/// The "Manuscript Not Found for a healthy manuscript" regression gate: every
+/// row `/api/manuscripts` lists (store-native AND watched/external markdown)
+/// must resolve through the chassis store read the Info tab renders from, and
+/// its history/revisions surfaces must answer. Read-only.
+async fn manuscript_detail_history_capability(client: &ImprintClient) -> CapabilityResult {
+    let id = "manuscripts.detail_and_history";
+    let desc =
+        "Every manuscript row resolves in the Info-tab store read, with history/revisions queryable";
+
+    let rows = match client.list_manuscripts().await {
+        Ok(rows) => rows,
+        Err(e) => {
+            return check(id, desc, Tier::B, || async move {
+                Err(format!("list_manuscripts failed: {e}"))
+            })
+            .await
+        }
+    };
+    if rows.is_empty() {
+        return skipped(id, desc, Tier::B, "no manuscripts in the store");
+    }
+
+    // Probe every row's detail (cheap), plus history/revisions on the first
+    // few — enough to catch a facade split without hammering the app.
+    let body = async {
+        let mut unresolved: Vec<String> = Vec::new();
+        for row in &rows {
+            let probe = client
+                .manuscript_detail_probe(&row.id)
+                .await
+                .map_err(|e| format!("detail probe {} failed: {e}", row.id))?;
+            if !probe.store_detail_found {
+                unresolved.push(format!("{} ({})", row.id, row.title));
+            }
+        }
+        if !unresolved.is_empty() {
+            return Err(format!(
+                "{} of {} rows missing from the Info-tab store read: {}",
+                unresolved.len(),
+                rows.len(),
+                unresolved.join(", ")
+            ));
+        }
+        let mut history_total = 0u64;
+        for row in rows.iter().take(3) {
+            history_total += client
+                .manuscript_history_count(&row.id)
+                .await
+                .map_err(|e| format!("history {} failed: {e}", row.id))?;
+            let _ = client
+                .manuscript_revisions_count(&row.id)
+                .await
+                .map_err(|e| format!("revisions {} failed: {e}", row.id))?;
+        }
+        Ok(format!(
+            "{} rows all resolve; {} history ops across first 3",
+            rows.len(),
+            history_total
+        ))
+    };
+    let outcome = body.await;
+    check(id, desc, Tier::B, || async move { outcome }).await
 }
 
 /// Live compile: the app's `/api/compile/typst` returns raw PDF bytes, which

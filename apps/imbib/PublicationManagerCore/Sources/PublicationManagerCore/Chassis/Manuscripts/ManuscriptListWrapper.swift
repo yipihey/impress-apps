@@ -44,6 +44,9 @@ public struct ManuscriptListWrapper: View {
     /// Full multi-selection; `selectedID` (the binding the detail pane
     /// follows) tracks its primary member.
     @State private var selectedIDs = Set<UUID>()
+    /// Row the Rename… alert is editing (nil = alert down).
+    @State private var renameTarget: ManuscriptRowData?
+    @State private var renameDraft = ""
 
     @FocusState private var listFocused: Bool
     @FocusState private var filterFocused: Bool
@@ -82,6 +85,18 @@ public struct ManuscriptListWrapper: View {
         }
         // ⌘F target: whichever list is frontmost gets the Find in List command.
         .focusedSceneValue(\.listFilterFocusAction, { filterFocused = true })
+        .alert(
+            "Rename Manuscript",
+            isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            ),
+            presenting: renameTarget
+        ) { row in
+            TextField("Title", text: $renameDraft)
+            Button("Rename") { commitRename(row) }
+            Button("Cancel", role: .cancel) {}
+        }
         .task(id: scopeKey) { await reload() }
         .task {
             // Row-level refresh. Deletes/creates emit `.structural`; in-place
@@ -231,6 +246,10 @@ public struct ManuscriptListWrapper: View {
             actions.onOpen(row.id)
         }
         Button("Duplicate") { actions.onDuplicate(row.id) }
+        Button("Rename…") {
+            renameDraft = row.title
+            renameTarget = row
+        }
         Divider()
         // The shared triage segment: star/dismiss-or-restore/archive, Flag
         // and Tags submenus, Delete… last (ADR-0021 grammar).
@@ -247,6 +266,13 @@ public struct ManuscriptListWrapper: View {
                 actions.onRemoveFromScope(targets)
             }
         }
+    }
+
+    private func commitRename(_ row: ManuscriptRowData) {
+        let title = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title != row.title else { return }
+        logger.info("rename manuscript \(row.id) → '\(title)'")
+        actions.onRename(row.id, title)
     }
 
     private func triageState(_ row: ManuscriptRowData) -> TriageRowState {

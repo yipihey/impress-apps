@@ -250,6 +250,10 @@ public struct RenderOutput {
     public var pageCount: Int
     public var warnings: [String]
     public var errors: [String]
+    /// Structured compiler diagnostics (errors on failure, warnings always),
+    /// resolved to user-source lines. `errors`/`warnings` above remain the
+    /// human-readable one-line forms.
+    public var diagnostics: [TypstDiagnostic] = []
     public var sourceMapEntries: [SourceMapEntry]
 
     public var isSuccess: Bool { errors.isEmpty }
@@ -261,9 +265,62 @@ public struct SVGRenderOutput {
     public var pageCount: Int
     public var warnings: [String]
     public var errors: [String]
+    /// Structured compiler diagnostics (errors on failure, warnings always).
+    public var diagnostics: [TypstDiagnostic] = []
     public var sourceMapEntries: [SourceMapEntry]
 
     public var isSuccess: Bool { errors.isEmpty }
+}
+
+/// One structured Typst diagnostic, in user-source coordinates: `line`/
+/// `column` are 1-indexed (column counts characters); `byteStart`/`byteEnd`
+/// are UTF-8 byte offsets into the compiled source text. All nil when the
+/// diagnostic has no span in the main file (package/file errors).
+public struct TypstDiagnostic: Sendable, Hashable, Identifiable {
+    public enum Severity: String, Sendable, Hashable {
+        case error
+        case warning
+    }
+
+    public var severity: Severity
+    public var message: String
+    public var line: Int?
+    public var column: Int?
+    public var byteStart: Int?
+    public var byteEnd: Int?
+    /// Typst's remediation hints ("did you mean …", "try …").
+    public var hints: [String]
+
+    /// Synthetic identity for SwiftUI lists (diagnostics have no stable id).
+    public var id: String { "\(severity.rawValue):\(line ?? -1):\(column ?? -1):\(message)" }
+
+    public init(
+        severity: Severity,
+        message: String,
+        line: Int? = nil,
+        column: Int? = nil,
+        byteStart: Int? = nil,
+        byteEnd: Int? = nil,
+        hints: [String] = []
+    ) {
+        self.severity = severity
+        self.message = message
+        self.line = line
+        self.column = column
+        self.byteStart = byteStart
+        self.byteEnd = byteEnd
+        self.hints = hints
+    }
+
+    init(ffi: ImprintRustCore.FfiTypstDiagnostic) {
+        self.severity = ffi.severity == "warning" ? .warning : .error
+        self.message = ffi.message
+        self.line = ffi.line.map(Int.init)
+        self.column = ffi.column.map(Int.init)
+        self.byteStart = ffi.sourceStart.map(Int.init)
+        self.byteEnd = ffi.sourceEnd.map(Int.init)
+        self.hints = ffi.hints
+    }
 }
 
 // MARK: - Source Map Types (ADR-004)
@@ -552,6 +609,8 @@ public actor TypstRenderer {
             ? Self.generateSourceMapEntries(source: source, options: options)
             : ffiEntries
 
+        let diagnostics = result.diagnostics.map(TypstDiagnostic.init(ffi:))
+
         if let error = result.error {
             log("[ImprintCore] SVG compilation error: \(error)")
             return SVGRenderOutput(
@@ -559,6 +618,7 @@ public actor TypstRenderer {
                 pageCount: 0,
                 warnings: result.warnings,
                 errors: [error],
+                diagnostics: diagnostics,
                 sourceMapEntries: []
             )
         }
@@ -569,6 +629,7 @@ public actor TypstRenderer {
             pageCount: Int(result.pageCount),
             warnings: result.warnings,
             errors: [],
+            diagnostics: diagnostics,
             sourceMapEntries: sourceMapEntries
         )
     }
@@ -629,6 +690,8 @@ public actor TypstRenderer {
             : ffiEntries
         log("[ImprintCore] Source map entries: \(sourceMapEntries.count) (\(ffiEntries.isEmpty ? "heuristic" : "layout"))")
 
+        let diagnostics = result.diagnostics.map(TypstDiagnostic.init(ffi:))
+
         if let error = result.error {
             log("[ImprintCore] Compilation error: \(error)")
             return RenderOutput(
@@ -636,6 +699,7 @@ public actor TypstRenderer {
                 pageCount: 0,
                 warnings: result.warnings,
                 errors: [error],
+                diagnostics: diagnostics,
                 sourceMapEntries: []
             )
         }
@@ -647,6 +711,7 @@ public actor TypstRenderer {
                 pageCount: 0,
                 warnings: result.warnings,
                 errors: ["No PDF data returned"],
+                diagnostics: diagnostics,
                 sourceMapEntries: []
             )
         }
@@ -657,6 +722,7 @@ public actor TypstRenderer {
             pageCount: Int(result.pageCount),
             warnings: result.warnings,
             errors: [],
+            diagnostics: diagnostics,
             sourceMapEntries: sourceMapEntries
         )
     }

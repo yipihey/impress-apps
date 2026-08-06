@@ -25,6 +25,8 @@
 
 import SwiftUI
 import ImpressKit
+import ImpressLogging
+import OSLog
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -627,21 +629,51 @@ struct ManuscriptDetailView: View {
         // SharedStore handle) only layers on journal-pipeline extras and must
         // not gate visibility — its nil used to render "Manuscript Not Found"
         // for perfectly healthy manuscripts.
+        //
+        // Three reads, weakest-wins-last: full detail → list row (a minimal
+        // rendering beats "may have been deleted" for a row the LIST is
+        // showing) → journal bridge. Every miss is console-logged so a future
+        // "Not Found" names which read failed instead of looking like data loss.
         let storeManuscript: JournalManuscript? = await MainActor.run {
-            guard let uuid = UUID(uuidString: manuscriptID),
-                  let detail = RustStoreAdapter.shared.getManuscriptDetail(id: uuid)
-            else { return nil }
-            return JournalManuscript(
-                id: detail.id,
-                title: detail.title,
-                status: JournalManuscriptStatus(rawValue: detail.status) ?? .draft,
-                currentRevisionRef: detail.currentRevisionRef ?? JournalRevisionPlaceholderID,
-                authors: detail.authors,
-                journalTarget: detail.journalTarget,
-                submissionID: detail.submissionId,
-                topicTags: detail.topicTags,
-                notes: detail.notes
-            )
+            guard let uuid = UUID(uuidString: manuscriptID) else {
+                Logger.library.errorCapture(
+                    "Info tab: '\(manuscriptID)' is not a UUID", category: "manuscripts")
+                return nil
+            }
+            if let detail = RustStoreAdapter.shared.getManuscriptDetail(id: uuid) {
+                return JournalManuscript(
+                    id: detail.id,
+                    title: detail.title,
+                    status: JournalManuscriptStatus(rawValue: detail.status) ?? .draft,
+                    currentRevisionRef: detail.currentRevisionRef ?? JournalRevisionPlaceholderID,
+                    authors: detail.authors,
+                    journalTarget: detail.journalTarget,
+                    submissionID: detail.submissionId,
+                    topicTags: detail.topicTags,
+                    notes: detail.notes
+                )
+            }
+            Logger.library.warningCapture(
+                "Info tab: getManuscriptDetail nil for \(uuid) — falling back to row",
+                category: "manuscripts")
+            if let row = RustStoreAdapter.shared.getManuscriptRow(id: uuid) {
+                return JournalManuscript(
+                    id: row.id,
+                    title: row.title,
+                    status: JournalManuscriptStatus(rawValue: row.status) ?? .draft,
+                    currentRevisionRef: JournalRevisionPlaceholderID,
+                    authors: row.authorString.isEmpty
+                        ? [] : row.authorString.components(separatedBy: "; "),
+                    journalTarget: row.journalTarget,
+                    submissionID: nil,
+                    topicTags: [],
+                    notes: nil
+                )
+            }
+            Logger.library.warningCapture(
+                "Info tab: getManuscriptRow also nil for \(uuid) — falling back to bridge",
+                category: "manuscripts")
+            return nil
         }
         let m = await bridge.getManuscript(id: manuscriptID)
         let imprintUUID = await bridge.imprintDocumentUUID(forManuscript: manuscriptID)
@@ -650,6 +682,11 @@ struct ManuscriptDetailView: View {
         let notes = await bridge.listRevisionNotes(manuscriptID: manuscriptID)
         await MainActor.run {
             self.manuscript = storeManuscript ?? m
+            if storeManuscript == nil && m == nil {
+                Logger.library.errorCapture(
+                    "Info tab: ALL reads nil for \(manuscriptID) — rendering Not Found",
+                    category: "manuscripts")
+            }
             self.imprintDocumentUUID = imprintUUID
             self.revisions = revs
             self.reviews = revs_reviews

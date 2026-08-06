@@ -20,6 +20,7 @@ public struct SourceEditorView: View {
     @Binding var source: String
     @Binding var cursorPosition: Int
     var syntaxMode: DocumentFormat = .typst
+    var highlight: EditorHighlightRequest? = nil
     var onSelectionChange: ((String, NSRange) -> Void)?
 
     @AppStorage("imprint.helix.isEnabled") private var helixModeEnabled = false
@@ -31,10 +32,17 @@ public struct SourceEditorView: View {
     @State private var helixState = HelixState()
     private let inlineCompletionService = ManuscriptEditorEnvironment.shared.inlineCompletion
 
-    public init(source: Binding<String>, cursorPosition: Binding<Int>, syntaxMode: DocumentFormat = .typst, onSelectionChange: ((String, NSRange) -> Void)? = nil) {
+    public init(
+        source: Binding<String>,
+        cursorPosition: Binding<Int>,
+        syntaxMode: DocumentFormat = .typst,
+        highlight: EditorHighlightRequest? = nil,
+        onSelectionChange: ((String, NSRange) -> Void)? = nil
+    ) {
         self._source = source
         self._cursorPosition = cursorPosition
         self.syntaxMode = syntaxMode
+        self.highlight = highlight
         self.onSelectionChange = onSelectionChange
     }
 
@@ -51,6 +59,7 @@ public struct SourceEditorView: View {
                 helixEnabled: helixModeEnabled,
                 showCellBrackets: showCellBrackets,
                 inlineCompletionService: inlineCompletionService,
+                highlight: highlight,
                 onSelectionChange: onSelectionChange
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -156,6 +165,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     let helixEnabled: Bool
     var showCellBrackets: Bool = true
     let inlineCompletionService: any InlineCompletionProviding
+    var highlight: EditorHighlightRequest? = nil
     var onSelectionChange: ((String, NSRange) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -342,6 +352,21 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             // Make the text view first responder so the cursor blinks
             textView.window?.makeFirstResponder(textView)
         }
+
+        // Programmatic select-and-reveal (diagnostics click). After the caret
+        // block on purpose: when both fire in one pass, the selection wins.
+        if let highlight,
+           highlight.generation != context.coordinator.lastHighlightGeneration {
+            context.coordinator.lastHighlightGeneration = highlight.generation
+            let textLength = (textView.string as NSString).length
+            let location = min(max(0, highlight.range.location), textLength)
+            let length = min(max(0, highlight.range.length), textLength - location)
+            let range = NSRange(location: location, length: length)
+            textView.setSelectedRange(range)
+            Self.revealCaret(NSRange(location: location, length: 0), in: textView, scrollView: scrollView)
+            textView.window?.makeFirstResponder(textView)
+            logInfo("highlight request → \(range)", category: "manuscript-sync")
+        }
     }
 
     /// Scroll `range` to the top of the visible area.
@@ -514,6 +539,8 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         /// Tracks cursor position set by the coordinator itself, so updateNSView
         /// can distinguish programmatic navigation from user edits.
         var lastReportedCursorPosition: Int = 0
+        /// Generation of the last consumed `EditorHighlightRequest`.
+        var lastHighlightGeneration: Int = 0
         /// Whether the first programmatic caret reveal has run for this editor.
         /// Guards a one-shot deferred retry while the view is still sizing.
         var didApplyInitialScroll = false

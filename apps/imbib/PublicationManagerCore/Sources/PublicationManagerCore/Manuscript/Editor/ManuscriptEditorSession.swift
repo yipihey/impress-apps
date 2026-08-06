@@ -54,6 +54,20 @@ public final class ManuscriptEditorSession {
     /// the editor's onSelectionChange — used to anchor a new comment.
     public var selectedRange: NSRange = NSRange(location: 0, length: 0)
 
+    /// Pending programmatic select-and-reveal (diagnostics click). The editor
+    /// consumes it generation-gated; a zero-length range is a caret jump.
+    /// (`EditorHighlightRequest` is declared at the bottom of this CONTRACT
+    /// file: the macOS editor view consumes it, but the request itself is
+    /// plain Foundation and iOS hosts may adopt it.)
+    public private(set) var highlightRequest: EditorHighlightRequest?
+
+    /// Ask the editor to select `range` (UTF-16 offsets) and scroll it into
+    /// view — the "click an error, land on the offending token" verb.
+    public func highlight(range: NSRange) {
+        let generation = (highlightRequest?.generation ?? 0) + 1
+        highlightRequest = EditorHighlightRequest(range: range, generation: generation)
+    }
+
     /// The `body_content_hash` the store held at load / last successful save —
     /// the compare-and-set token guarding against cross-process clobber.
     public private(set) var savedHash: String?
@@ -492,5 +506,20 @@ public final class ManuscriptSessionRegistry {
             sessions[victim] = nil
             lru.removeAll { $0 == victim }
         }
+    }
+}
+
+/// A programmatic select-and-reveal request for the source editor
+/// (diagnostics click → offending token). Generation-gated so each request
+/// fires exactly once however many times the consuming view updates. Plain
+/// Foundation (NSRange in UTF-16 offsets) so both platforms' editors can
+/// consume it; today the macOS `TypstEditorRepresentable` does.
+public struct EditorHighlightRequest: Equatable, Sendable {
+    public let range: NSRange
+    public let generation: Int
+
+    public init(range: NSRange, generation: Int) {
+        self.range = range
+        self.generation = generation
     }
 }
