@@ -62,6 +62,22 @@ fn focused_server_lists_and_calls_only_semantic_profile() {
         .iter()
         .any(|name| name.starts_with("store-query-service_")));
 
+    let measurement_tool = lines[1]["result"]["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "vw-diagnostic-service_record-measurement")
+        .expect("record-measurement tool");
+    let measurement_schema = &measurement_tool["inputSchema"];
+    assert_eq!(
+        measurement_schema["definitions"]["TerminalPair"]["type"], "object",
+        "terminal endpoints must use a portable object schema, not tuple-style items"
+    );
+    assert_eq!(
+        measurement_schema["definitions"]["TerminalPair"]["required"],
+        serde_json::json!(["first", "second"])
+    );
+
     assert_eq!(lines[2]["result"]["isError"], false);
     let body = lines[2]["result"]["content"][0]["text"]
         .as_str()

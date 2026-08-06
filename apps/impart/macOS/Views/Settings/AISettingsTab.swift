@@ -48,6 +48,9 @@ struct AISettingsTab: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal)
 
+            // Pair a phone/browser with the local AI server (port 8787).
+            AIDevicePairingSection()
+
             // Embedded ImpressAI settings
             AISettingsView()
 

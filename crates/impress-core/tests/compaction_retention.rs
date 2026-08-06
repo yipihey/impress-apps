@@ -625,20 +625,24 @@ fn undo_compaction_interleaves_with_compact_operations_newest_floor_wins() {
     let pre_current = store.get(id).unwrap().unwrap();
     let pre_current_json = serde_json::to_string(&pre_current.payload).unwrap();
 
-    // Pass 1: fold the aged compactable ops (0,1) → snapshot at clocks[1].
+    // Pass 1: undo-history compaction keeps the 4 most-recent groups.
+    // Deletes the sub-cutoff non-durable ops (0, 1, 3) → snapshot at
+    // clocks[3].
     age_ops();
-    let deleted_ops = store.compact_operations(0).unwrap();
-    assert_eq!(deleted_ops, 2);
+    let deleted_undo = store.compact_undo_history(4).unwrap();
+    assert_eq!(deleted_undo, 3);
     // current unchanged by pass 1.
     assert_eq!(
         serde_json::to_string(&store.get(id).unwrap().unwrap().payload).unwrap(),
         pre_current_json
     );
 
-    // Pass 2: keep 2 most-recent groups. Deletes the two sub-cutoff ephemeral
-    // ops (3,4) → snapshot at clocks[4], which is NEWER than pass 1's.
-    let deleted_undo = store.compact_undo_history(2).unwrap();
-    assert_eq!(deleted_undo, 2);
+    // Pass 2: age-based compaction sweeps every remaining aged non-durable
+    // op — compactable AND ephemeral share the eligible set since the
+    // per-schema retention policy landed — here ops 4 and 6 → snapshot at
+    // clocks[6], NEWER than pass 1's.
+    let deleted_ops = store.compact_operations(0).unwrap();
+    assert_eq!(deleted_ops, 2);
 
     // Two durable snapshots coexist; the floor is the NEWEST (highest clock).
     let snaps = snapshot_ops(&store, id);
@@ -648,7 +652,7 @@ fn undo_compaction_interleaves_with_compact_operations_newest_floor_wins() {
         "one snapshot per pass, both durable, both kept"
     );
     let floor_clock = snaps.iter().map(|s| s.logical_clock).max().unwrap();
-    assert_eq!(floor_clock, clocks[4], "undo pass produced the newer floor");
+    assert_eq!(floor_clock, clocks[6], "age pass produced the newer floor");
 
     // Current state byte-identical across BOTH passes.
     let post_current = store.get(id).unwrap().unwrap();

@@ -357,6 +357,23 @@ impl SqliteItemStore {
             .map_err(|e| StoreError::Storage(format!("vacuum: {}", e)))
     }
 
+    /// Operations minted since `since_ms` (churn-rate telemetry). A writer
+    /// exceeding the suite's op-rate budget is the early signal of the next
+    /// 23M-row surprise; the AI daemon reports this in `/api/health` and
+    /// warns when it crosses budget.
+    pub fn ops_minted_since(&self, since_ms: i64) -> Result<u64, StoreError> {
+        self.with_read(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM items
+                 WHERE schema_ref = 'core/operation' AND created >= ?1",
+                params![since_ms],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| count.max(0) as u64)
+            .map_err(|e| StoreError::Storage(format!("ops_minted_since: {}", e)))
+        })
+    }
+
     /// Free pages currently on the freelist (what `vacuum` would reclaim).
     pub fn freelist_pages(&self) -> Result<u64, StoreError> {
         self.with_read(|conn| {
@@ -1467,14 +1484,17 @@ impl SqliteItemStore {
             parent: None,
         };
 
-        // Insert operation item with op_target_id
-        Self::insert_operation_item(
-            &conn,
-            &op_item,
-            spec.target_id,
-            &self.origin_id,
-            spec.retention,
-        )?;
+        // Insert operation item with op_target_id. The default mechanical
+        // artery (Routine + Compactable) is steered by the per-schema policy;
+        // explicit Durable (user verbs) and explicit Ephemeral pass through.
+        let retention = if spec.intent == OperationIntent::Routine
+            && spec.retention == RetentionTier::Compactable
+        {
+            crate::operation::routine_retention_for_schema(&target_schema)
+        } else {
+            spec.retention
+        };
+        Self::insert_operation_item(&conn, &op_item, spec.target_id, &self.origin_id, retention)?;
 
         // Materialize the change on the target
         let now = Utc::now().timestamp_millis();
@@ -1572,13 +1592,18 @@ impl SqliteItemStore {
                 parent: None,
             };
 
-            Self::insert_operation_item(
-                &tx,
-                &op_item,
-                spec.target_id,
-                &self.origin_id,
-                spec.retention,
-            )?;
+            // Same per-schema steering as the single-op path: only the
+            // Routine + Compactable default is redirected by policy.
+            let retention = if spec.intent == OperationIntent::Routine
+                && spec.retention == RetentionTier::Compactable
+            {
+                Self::schema_of(&tx, &target_str)
+                    .map(|schema| crate::operation::routine_retention_for_schema(&schema))
+                    .unwrap_or(spec.retention)
+            } else {
+                spec.retention
+            };
+            Self::insert_operation_item(&tx, &op_item, spec.target_id, &self.origin_id, retention)?;
 
             let now = Utc::now().timestamp_millis();
             Self::materialize_operation(&tx, &target_str, &spec.op_type, now, clock)?;
@@ -3801,7 +3826,7 @@ impl SqliteItemStore {
     ///
     /// Returns the number of operations removed.
     ///
-    /// Operations with `retention = 'compactable'` and `created` older than
+    /// Operations with compactable-or-ephemeral retention and `created` older than
     /// the cutoff are eligible. For each target item with eligible ops:
     ///
     /// 1. **Auto-revision gate** (manuscripts only): if the manuscript has no
@@ -3846,7 +3871,7 @@ impl SqliteItemStore {
                 .prepare(
                     "SELECT op_target_id, MAX(created) FROM items
                      WHERE schema_ref = 'core/operation'
-                       AND retention = 'compactable'
+                       AND retention IN ('compactable', 'ephemeral')
                        AND created < ?1
                        AND op_target_id IS NOT NULL
                      GROUP BY op_target_id",
@@ -3922,7 +3947,7 @@ impl SqliteItemStore {
                 .query_row(
                     "SELECT COUNT(*), MAX(logical_clock), MAX(created) FROM items
                      WHERE schema_ref = 'core/operation'
-                       AND retention = 'compactable'
+                       AND retention IN ('compactable', 'ephemeral')
                        AND created < ?1
                        AND op_target_id = ?2",
                     params![cutoff_ms, &plan.target_str],
@@ -3961,7 +3986,7 @@ impl SqliteItemStore {
                 .execute(
                     "DELETE FROM items
                      WHERE schema_ref = 'core/operation'
-                       AND retention = 'compactable'
+                       AND retention IN ('compactable', 'ephemeral')
                        AND created < ?1
                        AND op_target_id = ?2",
                     params![cutoff_ms, &plan.target_str],
@@ -5618,6 +5643,67 @@ mod tests {
             store.operations_for(doomed, None).unwrap().is_empty(),
             "orphaned ops are gone, no snapshot minted for a deleted target"
         );
+    }
+
+    /// Per-schema retention policy: routine churn on `citation-usage` mints
+    /// EPHEMERAL (excluded from sync, swept by compaction); other kinds keep
+    /// the compactable default; explicit durable is never overridden.
+    #[test]
+    fn routine_retention_follows_schema_policy() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let usage = store.insert(make_item("citation-usage", "Usage")).unwrap();
+        let note = store.insert(make_item("note", "Note")).unwrap();
+
+        store
+            .update(
+                usage,
+                vec![FieldMutation::SetPayload(
+                    "last_seen".into(),
+                    Value::String("t1".into()),
+                )],
+            )
+            .unwrap();
+        store
+            .update(
+                note,
+                vec![FieldMutation::SetPayload(
+                    "x".into(),
+                    Value::String("1".into()),
+                )],
+            )
+            .unwrap();
+        // Explicit durable on the telemetry kind must NOT be demoted.
+        store
+            .update_with_undo(
+                usage,
+                vec![FieldMutation::SetPayload(
+                    "cite_key".into(),
+                    Value::String("k".into()),
+                )],
+            )
+            .unwrap();
+
+        let rows: Vec<(String, String)> = store
+            .query_raw(
+                "SELECT op_target_id, retention FROM items
+                 WHERE schema_ref = 'core/operation' ORDER BY logical_clock",
+                &[],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (usage.to_string(), "ephemeral".into()),
+                (note.to_string(), "compactable".into()),
+                (usage.to_string(), "durable".into()),
+            ]
+        );
+
+        // Compaction sweeps the ephemeral op alongside compactable ones.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let deleted = store.compact_operations(0).unwrap();
+        assert_eq!(deleted, 2, "ephemeral + compactable swept, durable kept");
     }
 
     /// The 2026-08-06 migration: historical durable `system:local` routine

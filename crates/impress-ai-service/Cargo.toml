@@ -14,6 +14,9 @@ impress-service-macros.workspace = true
 impress-store-service.workspace = true
 serde.workspace = true
 schemars.workspace = true
+reqwest = { workspace = true }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["process"] }
 uuid = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]

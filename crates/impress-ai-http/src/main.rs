@@ -78,6 +78,14 @@ async fn main() {
         // Daily compaction, expressed in 5-minute ticks; the first tick also
         // compacts so a fresh deploy converges without waiting a day.
         const COMPACT_EVERY_TICKS: u64 = 288;
+        // Op-rate budget: the early alarm for the next churn regression.
+        // ~750k/day was the incident rate; a healthy suite runs well under
+        // 100k. Warnings log on the over/under TRANSITION, not per cycle.
+        let ops_rate_budget: u64 = std::env::var("IMPRESS_OPS_RATE_BUDGET")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(100_000);
+        let mut was_over_budget = false;
         let mut tick: u64 = 0;
         let mut did_vacuum = false;
         let mut was_owner: Option<bool> = None;
@@ -190,6 +198,31 @@ async fn main() {
                 Err(join_error) => {
                     maintenance.log(format!("WAL checkpoint task failed: {join_error}"))
                 }
+            }
+
+            // Op-rate watch: count the trailing 24h of minted operations and
+            // flag budget crossings — the signal that some writer regressed
+            // into churn (last time it took a 17 GB store to notice).
+            {
+                let store = maintenance_store.clone();
+                let ops = tokio::task::spawn_blocking(move || {
+                    let since = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
+                    store.ops_minted_since(since)
+                })
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or(0);
+                let over = ops > ops_rate_budget;
+                if over && !was_over_budget {
+                    maintenance.log(format!(
+                        "OP-RATE WARNING: {ops} operations minted in 24h \
+                         (budget {ops_rate_budget}) — a writer is churning"
+                    ));
+                } else if !over && was_over_budget {
+                    maintenance.log(format!("op rate back under budget ({ops} in 24h)"));
+                }
+                was_over_budget = over;
             }
 
             // Reclaim disk after mass deletion: when compaction (or any other

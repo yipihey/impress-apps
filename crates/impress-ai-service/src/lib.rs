@@ -64,6 +64,36 @@ pub struct ProvenanceResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiHealthResult {
+    /// False when the daemon is unreachable (fields then default to zero).
+    pub daemon_reachable: bool,
+    pub db_bytes: u64,
+    pub wal_bytes: u64,
+    pub wal_budget_bytes: u64,
+    pub freelist_pages: u64,
+    /// Whether the daemon held the maintenance lease on its last cycle.
+    pub lease_owner: bool,
+    pub last_checkpoint_ms: Option<i64>,
+    pub last_compaction_ms: Option<i64>,
+    pub last_demotion_count: Option<u64>,
+    pub last_vacuum_ms: Option<i64>,
+    /// Operations minted in the trailing 24 h (churn-rate telemetry).
+    pub ops_last_24h: Option<u64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PairingLinkResult {
+    /// Single-use link against the loopback origin. When the Mac is fronted
+    /// by an HTTPS proxy (tailscale serve), replace the origin and keep the
+    /// fragment — the ticket rides in `#pair=` so it never enters logs.
+    pub url_local: Option<String>,
+    pub ticket: Option<String>,
+    pub expires_in_secs: u32,
+    pub error: Option<String>,
+}
+
 #[impress_service]
 pub trait ImpressAiService: Send + Sync + 'static {
     /// List models reachable through the configured inference provider,
@@ -127,6 +157,18 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// Return complete lineage for a specific agent-run item.
     #[impress_method]
     async fn run_provenance(&self, run_id: String) -> ProvenanceResult;
+
+    /// Store-hygiene health from the AI daemon: db/WAL/freelist sizes, the
+    /// maintenance lease, last verb outcomes, and the trailing-24h op rate.
+    /// `daemon_reachable: false` (never an error) when it isn't running.
+    #[impress_method]
+    async fn ai_health(&self) -> AiHealthResult;
+
+    /// Mint a single-use browser pairing link for the AI daemon (15-minute
+    /// expiry). Requires the local keychain bearer (`com.impress.ai-http`),
+    /// so this works on the Mac that runs the daemon, not remotely.
+    #[impress_method]
+    async fn mint_pairing_link(&self) -> PairingLinkResult;
 }
 
 #[derive(Clone)]
@@ -380,6 +422,114 @@ impl ImpressAiService for DefaultImpressAiService {
             },
         }
     }
+
+    async fn ai_health(&self) -> AiHealthResult {
+        let unreachable = |error: Option<String>| AiHealthResult {
+            daemon_reachable: false,
+            db_bytes: 0,
+            wal_bytes: 0,
+            wal_budget_bytes: 0,
+            freelist_pages: 0,
+            lease_owner: false,
+            last_checkpoint_ms: None,
+            last_compaction_ms: None,
+            last_demotion_count: None,
+            last_vacuum_ms: None,
+            ops_last_24h: None,
+            error,
+        };
+        let response = match reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{AI_DAEMON_PORT}/api/health"))
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => response,
+            Ok(response) => {
+                return unreachable(Some(format!("daemon health HTTP {}", response.status())))
+            }
+            Err(_) => return unreachable(None),
+        };
+        let body: serde_json::Value = match response.json().await {
+            Ok(body) => body,
+            Err(error) => return unreachable(Some(format!("health body: {error}"))),
+        };
+        let maintenance = &body["maintenance"];
+        AiHealthResult {
+            daemon_reachable: true,
+            db_bytes: body["db_bytes"].as_u64().unwrap_or(0),
+            wal_bytes: body["wal_bytes"].as_u64().unwrap_or(0),
+            wal_budget_bytes: body["wal_budget_bytes"].as_u64().unwrap_or(0),
+            freelist_pages: body["freelist_pages"].as_u64().unwrap_or(0),
+            lease_owner: maintenance["lease_owner"].as_bool().unwrap_or(false),
+            last_checkpoint_ms: maintenance["last_checkpoint_ms"].as_i64(),
+            last_compaction_ms: maintenance["last_compaction_ms"].as_i64(),
+            last_demotion_count: maintenance["last_demotion_count"].as_u64(),
+            last_vacuum_ms: maintenance["last_vacuum_ms"].as_i64(),
+            ops_last_24h: body["ops_last_24h"].as_u64(),
+            error: None,
+        }
+    }
+
+    async fn mint_pairing_link(&self) -> PairingLinkResult {
+        let fail = |error: String| PairingLinkResult {
+            url_local: None,
+            ticket: None,
+            expires_in_secs: 0,
+            error: Some(error),
+        };
+        let bearer = match ai_daemon_bearer().await {
+            Ok(bearer) => bearer,
+            Err(error) => return fail(error),
+        };
+        let response = match reqwest::Client::new()
+            .post(format!(
+                "http://127.0.0.1:{AI_DAEMON_PORT}/api/pairing-tickets"
+            ))
+            .bearer_auth(bearer)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => response,
+            Ok(response) => return fail(format!("daemon returned HTTP {}", response.status())),
+            Err(error) => return fail(format!("daemon unreachable: {error}")),
+        };
+        let body: serde_json::Value = match response.json().await {
+            Ok(body) => body,
+            Err(error) => return fail(format!("ticket body: {error}")),
+        };
+        let Some(ticket) = body["ticket"].as_str().map(str::to_owned) else {
+            return fail("daemon response carried no ticket".into());
+        };
+        PairingLinkResult {
+            url_local: Some(format!("http://127.0.0.1:{AI_DAEMON_PORT}/#pair={ticket}")),
+            ticket: Some(ticket),
+            expires_in_secs: 15 * 60,
+            error: None,
+        }
+    }
+}
+
+/// The daemon's port (`SiblingApp.Services.impressAIPort` on the Swift side).
+const AI_DAEMON_PORT: u16 = 8787;
+
+/// The daemon bearer from the login keychain (`com.impress.ai-http`) — the
+/// same item `run.sh` resolves at daemon launch. macOS-only by nature.
+async fn ai_daemon_bearer() -> Result<String, String> {
+    let output = tokio::process::Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-w", "-s", "com.impress.ai-http"])
+        .output()
+        .await
+        .map_err(|error| format!("keychain lookup failed to run: {error}"))?;
+    if !output.status.success() {
+        return Err("keychain item com.impress.ai-http not found (is the daemon set up?)".into());
+    }
+    let bearer = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if bearer.len() < 24 {
+        return Err("keychain bearer looks malformed".into());
+    }
+    Ok(bearer)
 }
 
 fn service_instance() -> Arc<DefaultImpressAiService> {
@@ -420,6 +570,8 @@ impress_service_impl! {
         task_status(task_id: String) -> TaskStatusResult,
         task_provenance(task_id: String) -> ProvenanceResult,
         run_provenance(run_id: String) -> ProvenanceResult,
+        ai_health() -> AiHealthResult,
+        mint_pairing_link() -> PairingLinkResult,
     ],
 }
 
@@ -449,6 +601,8 @@ mod tests {
             ("impress-ai-service_task-status", "task-status"),
             ("impress-ai-service_task-provenance", "task-provenance"),
             ("impress-ai-service_run-provenance", "run-provenance"),
+            ("impress-ai-service_ai-health", "ai-health"),
+            ("impress-ai-service_mint-pairing-link", "mint-pairing-link"),
         ] {
             assert!(mcp.contains(&mcp_name), "missing {mcp_name}");
             assert!(cli.contains(&cli_name), "missing {cli_name}");

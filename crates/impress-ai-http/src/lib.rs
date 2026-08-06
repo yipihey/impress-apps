@@ -372,17 +372,23 @@ async fn health(State(state): State<AiHttpState>) -> Json<Value> {
         )
     };
     let ai = state.ai.clone();
-    let freelist = tokio::task::spawn_blocking(move || ai.shared_store().freelist_pages())
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .unwrap_or(0);
+    let (freelist, ops_last_24h) = tokio::task::spawn_blocking(move || {
+        let store = ai.shared_store();
+        let since = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
+        (
+            store.freelist_pages().unwrap_or(0),
+            store.ops_minted_since(since).unwrap_or(0),
+        )
+    })
+    .await
+    .unwrap_or((0, 0));
     Json(json!({
         "status": "ok",
         "db_bytes": db_bytes,
         "wal_bytes": wal_bytes,
         "wal_budget_bytes": impress_core::sqlite_store::SqliteItemStore::WAL_SIZE_BUDGET_BYTES,
         "freelist_pages": freelist,
+        "ops_last_24h": ops_last_24h,
         "maintenance": state.maintenance.status_snapshot(),
     }))
 }

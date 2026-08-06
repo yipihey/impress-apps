@@ -42,6 +42,28 @@ impl From<FieldMutation> for OperationType {
     }
 }
 
+/// Retention tier for ROUTINE operations targeting `schema` — the per-kind
+/// policy, declared once instead of at every call site.
+///
+/// Only the mechanical-writer artery consults this (`apply_operation` steers
+/// a `Routine` + `Compactable` spec through it); explicitly Durable user
+/// verbs and explicitly Ephemeral callers are never overridden.
+///
+/// Rationale per kind:
+/// - `citation-usage`: liveness telemetry (`last_seen` and friends) —
+///   rewritten continuously, never worth syncing (the sync engine already
+///   omits ephemeral rows) or keeping as history. This kind alone minted
+///   most of the 23.0M-op backlog of 2026-08-06.
+/// - everything else: `Compactable` — folded into watermark snapshots after
+///   the maintenance window, which is the right default for mechanical
+///   churn on real records.
+pub fn routine_retention_for_schema(schema: &str) -> RetentionTier {
+    match schema {
+        "citation-usage" => RetentionTier::Ephemeral,
+        _ => RetentionTier::Compactable,
+    }
+}
+
 /// How long an operation should be retained before compaction eligibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
