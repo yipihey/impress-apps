@@ -196,7 +196,7 @@ struct Measurement {
     acquisition: Acquisition,
     measured_at: DateTime<Utc>,
     component: Option<ComponentId>,
-    terminals: Option<(String, String)>,
+    terminals: Option<TerminalPair>,
     conditions: Vec<Condition>,
     source_step: Option<ProcedureStepRef>,
     notes: Option<String>,

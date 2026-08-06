@@ -7,7 +7,7 @@ use crate::{
     now_timestamp, Acquisition, Confidence, DiagnosticSession, DiagnosticSessionState,
     KnowledgePack, KnowledgeStatus, Measurement, MeasurementId, Observation, ObservationId,
     ObservationKind, ObservationValue, ProcedureRun, ProcedureRunId, ProcedureRunState, Quantity,
-    SessionId, StepResult, Vehicle, VehicleConfiguration, VehicleId,
+    SessionId, StepResult, TerminalPair, Vehicle, VehicleConfiguration, VehicleId,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -46,7 +46,7 @@ pub struct RecordMeasurementCommand {
     pub value: Quantity,
     pub acquisition: Acquisition,
     pub component_key: Option<String>,
-    pub terminals: Option<(String, String)>,
+    pub terminals: Option<TerminalPair>,
     #[serde(default)]
     pub conditions: Vec<crate::Condition>,
     pub source_step: Option<String>,

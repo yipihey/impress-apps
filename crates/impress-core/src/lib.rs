@@ -1,5 +1,6 @@
 pub mod event;
 pub mod item;
+pub mod maintenance;
 pub mod operation;
 pub mod query;
 pub mod reference;

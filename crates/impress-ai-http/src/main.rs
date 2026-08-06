@@ -4,8 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use impress_ai::{migrate_localmodels, AiStore, FileBlobStore, OmlxClient};
-use impress_ai_http::{router, AiHttpState};
+use impress_ai_http::{router, AiHttpState, MaintenanceState};
 use impress_core::item::ActorKind;
+use impress_core::maintenance::MaintenanceLease;
 use impress_core::sqlite_store::WalCheckpointMode;
 
 #[tokio::main]
@@ -60,6 +61,7 @@ async fn main() {
     // every five minutes keeps the file near zero; when readers are busy the
     // attempt reports incomplete and the next tick retries.
     let maintenance_store = ai.shared_store();
+    let maintenance = MaintenanceState::new(store_path.clone());
     // Operation compaction window (days). Compactable routine ops older than
     // this fold into durable watermark snapshots (ADR-0006); the last window
     // of fine-grained history is always kept. 0 disables compaction.
@@ -67,7 +69,10 @@ async fn main() {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(30);
+    let loop_maintenance = maintenance.clone();
+    let lease_store_path = store_path.clone();
     tokio::spawn(async move {
+        let maintenance = loop_maintenance;
         let mut ticker = tokio::time::interval(Duration::from_secs(300));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // Daily compaction, expressed in 5-minute ticks; the first tick also
@@ -75,8 +80,33 @@ async fn main() {
         const COMPACT_EVERY_TICKS: u64 = 288;
         let mut tick: u64 = 0;
         let mut did_vacuum = false;
+        let mut was_owner: Option<bool> = None;
         loop {
             ticker.tick().await;
+
+            // The maintenance LEASE: however many daemons end up running
+            // (launchd respawns, hand-started recovery instances, a future
+            // consolidation), exactly one owns hygiene per cycle. Ownership
+            // transitions are logged; steady-state skips are silent.
+            let lease = match MaintenanceLease::try_acquire(&lease_store_path) {
+                Ok(lease) => {
+                    if was_owner != Some(true) {
+                        maintenance.log("maintenance lease acquired — this process owns hygiene");
+                    }
+                    was_owner = Some(true);
+                    maintenance.update_status(|s| s.lease_owner = true);
+                    lease
+                }
+                Err(error) => {
+                    if was_owner != Some(false) {
+                        maintenance.log(format!("skipping maintenance cycle: {error}"));
+                    }
+                    was_owner = Some(false);
+                    maintenance.update_status(|s| s.lease_owner = false);
+                    tick += 1;
+                    continue;
+                }
+            };
 
             if compact_window_days > 0 && tick.is_multiple_of(COMPACT_EVERY_TICKS) {
                 // Demote-then-compact. Demotion (durable system-routine ops →
@@ -87,15 +117,21 @@ async fn main() {
                 // only fold what is marked compactable.
                 let store = maintenance_store.clone();
                 match tokio::task::spawn_blocking(move || store.demote_routine_operations()).await {
-                    Ok(Ok(0)) => {}
                     Ok(Ok(demoted)) => {
-                        eprintln!("impress-ai-server: demoted {demoted} routine ops to compactable")
+                        if demoted > 0 {
+                            maintenance
+                                .log(format!("demoted {demoted} routine ops to compactable"));
+                        }
+                        maintenance.update_status(|s| {
+                            s.last_demotion_ms = Some(chrono::Utc::now().timestamp_millis());
+                            s.last_demotion_count = Some(demoted);
+                        });
                     }
                     Ok(Err(error)) => {
-                        eprintln!("impress-ai-server: routine-op demotion failed: {error}")
+                        maintenance.log(format!("routine-op demotion failed: {error}"))
                     }
                     Err(join_error) => {
-                        eprintln!("impress-ai-server: demotion task failed: {join_error}")
+                        maintenance.log(format!("demotion task failed: {join_error}"))
                     }
                 }
 
@@ -105,16 +141,22 @@ async fn main() {
                 })
                 .await;
                 match compacted {
-                    Ok(Ok(removed)) if removed > 0 => eprintln!(
-                        "impress-ai-server: compacted {removed} operations \
-                         (window {compact_window_days}d)"
-                    ),
-                    Ok(Ok(_)) => {}
+                    Ok(Ok(removed)) => {
+                        if removed > 0 {
+                            maintenance.log(format!(
+                                "compacted {removed} operations (window {compact_window_days}d)"
+                            ));
+                        }
+                        maintenance.update_status(|s| {
+                            s.last_compaction_ms = Some(chrono::Utc::now().timestamp_millis());
+                            s.last_compaction_removed = Some(removed);
+                        });
+                    }
                     Ok(Err(error)) => {
-                        eprintln!("impress-ai-server: operation compaction failed: {error}")
+                        maintenance.log(format!("operation compaction failed: {error}"))
                     }
                     Err(join_error) => {
-                        eprintln!("impress-ai-server: compaction task failed: {join_error}")
+                        maintenance.log(format!("compaction task failed: {join_error}"))
                     }
                 }
             }
@@ -126,23 +168,27 @@ async fn main() {
             })
             .await;
             match checkpoint {
-                Ok(Ok(outcome)) if outcome.completed => {
-                    if outcome.total_frames > 0 {
-                        eprintln!(
-                            "impress-ai-server: WAL checkpoint truncated {} frames",
+                Ok(Ok(outcome)) => {
+                    if outcome.completed && outcome.total_frames > 0 {
+                        maintenance.log(format!(
+                            "WAL checkpoint truncated {} frames",
                             outcome.checkpointed_frames
-                        );
+                        ));
+                    } else if !outcome.completed {
+                        maintenance.log(format!(
+                            "WAL checkpoint incomplete ({} of {} frames) — will retry",
+                            outcome.checkpointed_frames, outcome.total_frames
+                        ));
                     }
+                    maintenance.update_status(|s| {
+                        s.last_checkpoint_ms = Some(chrono::Utc::now().timestamp_millis());
+                        s.last_checkpoint_completed = Some(outcome.completed);
+                        s.last_checkpoint_frames = Some(outcome.checkpointed_frames);
+                    });
                 }
-                Ok(Ok(outcome)) => eprintln!(
-                    "impress-ai-server: WAL checkpoint incomplete ({} of {} frames) — will retry",
-                    outcome.checkpointed_frames, outcome.total_frames
-                ),
-                Ok(Err(error)) => {
-                    eprintln!("impress-ai-server: WAL checkpoint failed: {error}")
-                }
+                Ok(Err(error)) => maintenance.log(format!("WAL checkpoint failed: {error}")),
                 Err(join_error) => {
-                    eprintln!("impress-ai-server: WAL checkpoint task failed: {join_error}")
+                    maintenance.log(format!("WAL checkpoint task failed: {join_error}"))
                 }
             }
 
@@ -159,25 +205,31 @@ async fn main() {
                     .unwrap_or(0);
                 if free > 100_000 {
                     did_vacuum = true;
-                    eprintln!(
-                        "impress-ai-server: VACUUM starting ({} free pages to reclaim)",
-                        free
-                    );
+                    maintenance.log(format!("VACUUM starting ({free} free pages to reclaim)"));
                     let store = maintenance_store.clone();
                     let vacuumed = tokio::task::spawn_blocking(move || store.vacuum()).await;
                     match vacuumed {
-                        Ok(Ok(())) => eprintln!("impress-ai-server: VACUUM complete"),
-                        Ok(Err(error)) => eprintln!("impress-ai-server: VACUUM failed: {error}"),
+                        Ok(Ok(())) => {
+                            maintenance.log("VACUUM complete");
+                            maintenance.update_status(|s| {
+                                s.last_vacuum_ms = Some(chrono::Utc::now().timestamp_millis());
+                            });
+                        }
+                        Ok(Err(error)) => maintenance.log(format!("VACUUM failed: {error}")),
                         Err(join_error) => {
-                            eprintln!("impress-ai-server: VACUUM task failed: {join_error}")
+                            maintenance.log(format!("VACUUM task failed: {join_error}"))
                         }
                     }
                 }
             }
+
+            drop(lease);
         }
     });
 
-    let state = AiHttpState::new(ai, omlx, blobs, access_token).expect("configure HTTP state");
+    let state = AiHttpState::new(ai, omlx, blobs, access_token)
+        .expect("configure HTTP state")
+        .with_maintenance(maintenance);
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .unwrap_or_else(|error| panic!("bind {bind}: {error}"));

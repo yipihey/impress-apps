@@ -60,6 +60,13 @@ public actor CitationUsageTracker {
     /// When we first saw a given cite key in a given section. Preserved
     /// across refreshes so the `first_cited` timestamp is stable.
     private var firstCited: [String: Date] = [:]
+    /// When we last PERSISTED `last_seen` for a key ("section:citeKey").
+    /// A continuing key only re-upserts after `lastSeenRefreshInterval` —
+    /// per-compile refreshes were the store's biggest op-churn source
+    /// (2026-08-06: ~750k ops/day, 23M rows, 17 GB), and "still cited
+    /// within the last few hours" is all the analytics need.
+    private var lastSeenWrittenAt: [String: Date] = [:]
+    private static let lastSeenRefreshInterval: TimeInterval = 6 * 60 * 60
     private var eventTask: Task<Void, Never>?
 
     public init() {}
@@ -143,6 +150,13 @@ public actor CitationUsageTracker {
             }
             var continuingWithFirstCited: [(String, Date, String?)] = []
             for key in continuing {
+                // Throttle: a continuing key re-persists `last_seen` only
+                // when the stored value has gone stale, not on every pass.
+                let writtenKey = "\(sectionIDString):\(key)"
+                if let written = lastSeenWrittenAt[writtenKey],
+                   now.timeIntervalSince(written) < Self.lastSeenRefreshInterval {
+                    continue
+                }
                 let paperID = await resolver?(key)
                 continuingWithFirstCited.append((key, firstCited["\(sectionIDString):\(key)"] ?? now, paperID))
             }
@@ -181,9 +195,14 @@ public actor CitationUsageTracker {
 
             for key in added {
                 firstCited["\(sectionIDString):\(key)"] = now
+                lastSeenWrittenAt["\(sectionIDString):\(key)"] = now
+            }
+            for (key, _, _) in continuingWithFirstCited {
+                lastSeenWrittenAt["\(sectionIDString):\(key)"] = now
             }
             for key in removed {
                 firstCited.removeValue(forKey: "\(sectionIDString):\(key)")
+                lastSeenWrittenAt.removeValue(forKey: "\(sectionIDString):\(key)")
             }
             lastSeenKeys[stub.id] = currentKeys
         }
@@ -204,6 +223,7 @@ public actor CitationUsageTracker {
             }
             for key in keys {
                 firstCited.removeValue(forKey: "\(sectionIDString):\(key)")
+                lastSeenWrittenAt.removeValue(forKey: "\(sectionIDString):\(key)")
             }
             lastSeenKeys.removeValue(forKey: sectionID)
         }

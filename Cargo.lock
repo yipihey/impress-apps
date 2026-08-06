@@ -4042,6 +4042,7 @@ name = "impress-ai-http"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
  "dirs 5.0.1",
  "impress-ai",
  "impress-core",
@@ -4506,6 +4507,7 @@ dependencies = [
  "impress-service-macros",
  "impress-store-ffi",
  "imprint-service",
+ "reqwest",
  "schemars 0.8.22",
  "serde",
  "serde_json",

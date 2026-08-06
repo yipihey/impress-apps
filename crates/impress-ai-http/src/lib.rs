@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE};
 use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
@@ -43,6 +43,99 @@ pub struct AiHttpState {
     pub blobs: Arc<dyn BlobStore>,
     access_token: Arc<str>,
     pairing_tickets: Arc<Mutex<HashMap<[u8; 32], Instant>>>,
+    /// Maintenance telemetry shared with the hygiene loop (`main.rs`).
+    /// Defaults to an unwired instance so tests and embedded uses need no
+    /// ceremony; the daemon attaches a real one via `with_maintenance`.
+    pub maintenance: Arc<MaintenanceState>,
+}
+
+/// The daemon's maintenance telemetry: a capped in-memory log (the daemon's
+/// stderr goes to /dev/null under launchd — this is how the suite's
+/// console-first debugging reaches it) plus the last outcome of each hygiene
+/// verb, served by `/api/health` and `/api/logs`.
+pub struct MaintenanceState {
+    /// Path of the shared store; empty when unwired (tests).
+    pub store_path: std::path::PathBuf,
+    entries: Mutex<std::collections::VecDeque<MaintenanceLogEntry>>,
+    status: Mutex<MaintenanceStatus>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MaintenanceLogEntry {
+    pub at_ms: i64,
+    pub message: String,
+}
+
+#[derive(Debug, Default, Clone, serde::Serialize)]
+pub struct MaintenanceStatus {
+    /// Whether THIS process held the maintenance lease on its last cycle.
+    pub lease_owner: bool,
+    pub last_checkpoint_ms: Option<i64>,
+    pub last_checkpoint_completed: Option<bool>,
+    pub last_checkpoint_frames: Option<u64>,
+    pub last_compaction_ms: Option<i64>,
+    pub last_compaction_removed: Option<u64>,
+    pub last_demotion_ms: Option<i64>,
+    pub last_demotion_count: Option<u64>,
+    pub last_vacuum_ms: Option<i64>,
+}
+
+const MAINTENANCE_LOG_CAP: usize = 500;
+
+impl MaintenanceState {
+    pub fn new(store_path: std::path::PathBuf) -> Arc<Self> {
+        Arc::new(Self {
+            store_path,
+            entries: Mutex::new(std::collections::VecDeque::new()),
+            status: Mutex::new(MaintenanceStatus::default()),
+        })
+    }
+
+    fn unwired() -> Arc<Self> {
+        Self::new(std::path::PathBuf::new())
+    }
+
+    /// Log to stderr AND the in-memory ring (capped).
+    pub fn log(&self, message: impl Into<String>) {
+        let message = message.into();
+        eprintln!("impress-ai-server: {message}");
+        if let Ok(mut entries) = self.entries.lock() {
+            if entries.len() >= MAINTENANCE_LOG_CAP {
+                entries.pop_front();
+            }
+            entries.push_back(MaintenanceLogEntry {
+                at_ms: chrono::Utc::now().timestamp_millis(),
+                message,
+            });
+        }
+    }
+
+    pub fn update_status(&self, apply: impl FnOnce(&mut MaintenanceStatus)) {
+        if let Ok(mut status) = self.status.lock() {
+            apply(&mut status);
+        }
+    }
+
+    pub fn status_snapshot(&self) -> MaintenanceStatus {
+        self.status.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn recent_entries(&self, limit: usize) -> Vec<MaintenanceLogEntry> {
+        self.entries
+            .lock()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .rev()
+                    .take(limit)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 impl AiHttpState {
@@ -71,7 +164,14 @@ impl AiHttpState {
             blobs,
             access_token: access_token.into(),
             pairing_tickets: Arc::new(Mutex::new(HashMap::new())),
+            maintenance: MaintenanceState::unwired(),
         })
+    }
+
+    /// Attach the daemon's maintenance telemetry (store path + shared log).
+    pub fn with_maintenance(mut self, maintenance: Arc<MaintenanceState>) -> Self {
+        self.maintenance = maintenance;
+        self
     }
 
     fn issue_pairing_ticket(&self, ttl: Duration) -> Result<String, String> {
@@ -137,6 +237,7 @@ pub fn router(state: AiHttpState) -> Router {
         .route("/api/blobs", post(upload_blob))
         .route("/api/tasks/{id}", get(task_progress))
         .route("/api/tasks/{id}/events", get(task_events))
+        .route("/api/logs", get(maintenance_logs))
         .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authorize));
 
@@ -152,6 +253,10 @@ pub fn router(state: AiHttpState) -> Router {
         .route("/site.webmanifest", get(web_manifest))
         .route("/vw/site.webmanifest", get(web_vw_manifest))
         .route("/api/pair", post(redeem_pairing_ticket))
+        // Deliberately unauthenticated, like /api/pair: sizes and outcome
+        // timestamps only — no ids, no content — so health probes (selftest,
+        // sibling consoles) need no bearer.
+        .route("/api/health", get(health))
         .merge(api)
         .layer(middleware::from_fn(secure_headers))
         .with_state(state)
@@ -245,6 +350,55 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 
 async fn status() -> Json<Value> {
     Json(json!({ "service": "impress-ai", "status": "ok", "storage": "impress-item-graph" }))
+}
+
+/// GET /api/health — store hygiene at a glance: file sizes, freelist, and
+/// the last outcome of each maintenance verb. Unauthenticated by design
+/// (see the route comment); everything here is a size or a timestamp.
+async fn health(State(state): State<AiHttpState>) -> Json<Value> {
+    let maintenance = state.maintenance.clone();
+    let store_path = maintenance.store_path.clone();
+    let (db_bytes, wal_bytes) = if store_path.as_os_str().is_empty() {
+        (0, 0)
+    } else {
+        let wal_path = {
+            let mut os = store_path.as_os_str().to_os_string();
+            os.push("-wal");
+            std::path::PathBuf::from(os)
+        };
+        (
+            std::fs::metadata(&store_path).map(|m| m.len()).unwrap_or(0),
+            std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0),
+        )
+    };
+    let ai = state.ai.clone();
+    let freelist = tokio::task::spawn_blocking(move || ai.shared_store().freelist_pages())
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or(0);
+    Json(json!({
+        "status": "ok",
+        "db_bytes": db_bytes,
+        "wal_bytes": wal_bytes,
+        "wal_budget_bytes": impress_core::sqlite_store::SqliteItemStore::WAL_SIZE_BUDGET_BYTES,
+        "freelist_pages": freelist,
+        "maintenance": state.maintenance.status_snapshot(),
+    }))
+}
+
+/// GET /api/logs?limit=N — the maintenance log ring, oldest first.
+async fn maintenance_logs(
+    State(state): State<AiHttpState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let limit = query
+        .get("limit")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(100)
+        .min(MAINTENANCE_LOG_CAP);
+    let entries = state.maintenance.recent_entries(limit);
+    Json(json!({ "status": "ok", "count": entries.len(), "entries": entries }))
 }
 
 async fn create_pairing_ticket(

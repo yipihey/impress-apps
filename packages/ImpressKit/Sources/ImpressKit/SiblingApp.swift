@@ -127,6 +127,21 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
         ),
     ]
 
+    // MARK: - Suite services (not apps)
+
+    /// Ports of suite SERVICES — daemons with no bundle to launch and no URL
+    /// scheme, so they are not `SiblingApp` cases, but their addresses belong
+    /// in this file for the same reason the app ports do: one authoritative
+    /// table, servers align TO it.
+    public enum Services {
+        /// impress-ai-server (the ImpartServices.app helper): local-model
+        /// conversations over the shared item graph, browser pairing, and the
+        /// store-maintenance cadence (WAL checkpoints, op compaction).
+        /// `/api/health` and `/api/pair` are unauthenticated; everything else
+        /// requires the keychain bearer (`com.impress.ai-http`).
+        public static let impressAIPort: UInt16 = 8787
+    }
+
     private static let byID: [SiblingApp: SiblingAppDescriptor] =
         Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
 

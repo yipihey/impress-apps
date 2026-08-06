@@ -78,6 +78,12 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
                 Tier::B,
                 "app not running",
             ),
+            skipped(
+                "store.wal_health",
+                "Shared-store WAL stays within the maintenance budget",
+                Tier::B,
+                "app not running",
+            ),
         ];
     }
     let info = info.unwrap();
@@ -136,8 +142,66 @@ pub async fn run(base_url: &str) -> Vec<CapabilityResult> {
     out.push(throughline_opt_in_capability(&client).await);
     out.push(throughline_round_trip_capability(&client).await);
     out.push(manuscript_detail_history_capability(&client).await);
+    out.push(store_wal_health_capability().await);
 
     out
+}
+
+/// The 2026-08-06 WAL-starvation regression gate: the shared store's WAL must
+/// stay near the maintenance budget. Reads the AI daemon's unauthenticated
+/// `/api/health` (the maintenance owner's own telemetry); skips when the
+/// daemon isn't running. The threshold is 4× the daemon's declared budget so
+/// a checkpoint-in-progress never flaps the gate — the incident state was
+/// 200× over.
+async fn store_wal_health_capability() -> CapabilityResult {
+    let id = "store.wal_health";
+    let desc = "Shared-store WAL stays within the maintenance budget";
+    let health = reqwest::Client::new()
+        .get("http://127.0.0.1:8787/api/health")
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await;
+    let response = match health {
+        Ok(response) if response.status().is_success() => response,
+        Ok(response) => {
+            return skipped(
+                id,
+                desc,
+                Tier::B,
+                &format!("ai daemon health returned HTTP {}", response.status()),
+            )
+        }
+        Err(_) => return skipped(id, desc, Tier::B, "impress-ai-server not running on 8787"),
+    };
+    let body: serde_json::Value = match response.json().await {
+        Ok(body) => body,
+        Err(error) => {
+            return check(id, desc, Tier::B, || async move {
+                Err(format!("health body did not parse: {error}"))
+            })
+            .await
+        }
+    };
+    let wal = body["wal_bytes"].as_u64().unwrap_or(0);
+    let budget = body["wal_budget_bytes"]
+        .as_u64()
+        .unwrap_or(64 * 1024 * 1024);
+    let db = body["db_bytes"].as_u64().unwrap_or(0);
+    let outcome = if wal <= budget.saturating_mul(4) {
+        Ok(format!(
+            "WAL {} MB (budget {} MB), db {} MB",
+            wal / (1024 * 1024),
+            budget / (1024 * 1024),
+            db / (1024 * 1024)
+        ))
+    } else {
+        Err(format!(
+            "WAL {} MB exceeds 4x the {} MB budget — checkpoint starvation is back",
+            wal / (1024 * 1024),
+            budget / (1024 * 1024)
+        ))
+    };
+    check(id, desc, Tier::B, || async move { outcome }).await
 }
 
 /// The "Manuscript Not Found for a healthy manuscript" regression gate: every

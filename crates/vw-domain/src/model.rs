@@ -200,6 +200,36 @@ pub struct Quantity {
     pub uncertainty: Option<f64>,
 }
 
+/// The two endpoints used for a differential or continuity measurement.
+///
+/// This is an object instead of a Rust tuple so its JSON Schema is portable
+/// across MCP clients. The custom deserializer still accepts the legacy
+/// two-element array representation used by early diagnostic sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct TerminalPair {
+    pub first: String,
+    pub second: String,
+}
+
+impl<'de> Deserialize<'de> for TerminalPair {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Representation {
+            Named { first: String, second: String },
+            Legacy((String, String)),
+        }
+
+        match Representation::deserialize(deserializer)? {
+            Representation::Named { first, second } => Ok(Self { first, second }),
+            Representation::Legacy((first, second)) => Ok(Self { first, second }),
+        }
+    }
+}
+
 impl Quantity {
     pub fn validate(&self) -> Result<(), crate::DomainError> {
         if !self.value.is_finite() {
@@ -232,7 +262,7 @@ pub struct Measurement {
     pub acquisition: Acquisition,
     pub measured_at: Timestamp,
     pub component_key: Option<String>,
-    pub terminals: Option<(String, String)>,
+    pub terminals: Option<TerminalPair>,
     #[serde(default)]
     pub conditions: Vec<Condition>,
     pub source_step: Option<String>,

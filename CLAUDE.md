@@ -457,6 +457,7 @@ the table; the table does not move to match a server.
 | implore | 23123 | `curl 'http://localhost:23123/api/logs?limit=20'` |
 | impel | 23124 | `curl 'http://localhost:23124/api/logs?limit=20'` |
 | impress | 23125 | `curl 'http://localhost:23125/api/logs?limit=20'` |
+| impress-ai-server (service, not an app — `SiblingApp.Services.impressAIPort`) | 8787 | `curl 'http://localhost:8787/api/health'` (unauthenticated; `/api/logs` needs the `com.impress.ai-http` keychain bearer) |
 
 > **implore moved.** Its server bound 23124 — impel's port — until 2026-07-30,
 > so the two collided and whichever launched first won the socket. implore now
