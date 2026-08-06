@@ -80,7 +80,16 @@ fn make_manuscript(store: &SqliteItemStore, body: &str) -> ItemId {
 
 /// Save a manuscript body the way imbib-core's `set_manuscript_body` will:
 /// body fields marked Compactable.
+///
+/// `body_modified_at` is a synthetic, strictly-advancing timestamp: real
+/// saves are seconds apart, but back-to-back test saves land in the same
+/// wall-clock second, and the store's no-op filter (correctly) drops a
+/// same-value `SetPayload` — which would make the per-save op count depend
+/// on test timing.
 fn save_body(store: &SqliteItemStore, ms: ItemId, body: &str) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     store
         .update_with_retention(
             ms,
@@ -92,7 +101,7 @@ fn save_body(store: &SqliteItemStore, ms: ItemId, body: &str) {
                 ),
                 FieldMutation::SetPayload(
                     "body_modified_at".into(),
-                    Value::String(manuscript_ops::iso8601_now()),
+                    Value::String(format!("2026-01-01T00:00:00.{:09}Z", seq)),
                 ),
             ],
             RetentionTier::Compactable,
@@ -120,6 +129,11 @@ fn payload_at(store: &SqliteItemStore, id: ItemId, clock: u64) -> BTreeMap<Strin
 fn age_ops() {
     sleep(Duration::from_millis(5));
 }
+
+// (Orphaned-op sweep is covered by
+// `sqlite_store::tests::compaction_sweeps_orphaned_ops_of_deleted_targets` —
+// fabricating a true orphan needs a raw row delete that bypasses the
+// cascade, which only the lib test module can reach.)
 
 // ---------------------------------------------------------------------------
 // (a) Floor semantics + revision refs survive compaction
@@ -299,7 +313,7 @@ fn compaction_never_deletes_durable_ops_and_leaves_snapshot() {
     store.insert(item).unwrap();
 
     store
-        .update(
+        .update_with_undo(
             id,
             vec![FieldMutation::SetPayload(
                 "title".into(),
@@ -318,7 +332,7 @@ fn compaction_never_deletes_durable_ops_and_leaves_snapshot() {
         )
         .unwrap();
     store
-        .update(id, vec![FieldMutation::AddTag("keep/me".into())])
+        .update_with_undo(id, vec![FieldMutation::AddTag("keep/me".into())])
         .unwrap();
     store
         .update_with_retention(
@@ -381,7 +395,7 @@ fn compaction_preserves_current_state_bytes() {
         save_body(&store, ms, body);
     }
     store
-        .update(ms, vec![FieldMutation::AddTag("project/gui-meld".into())])
+        .update_with_undo(ms, vec![FieldMutation::AddTag("project/gui-meld".into())])
         .unwrap();
     // Satisfy the revision gate up front: the ONLY store change compaction is
     // then allowed to make is deleting ops (the auto-revision path would
@@ -466,13 +480,13 @@ fn undo_compaction_preserves_floor_and_survivors() {
     set_body("v1", RetentionTier::Compactable); // op 0
     set_body("v2", RetentionTier::Compactable); // op 1
     store
-        .update(id, vec![FieldMutation::AddTag("keep/a".into())])
+        .update_with_undo(id, vec![FieldMutation::AddTag("keep/a".into())])
         .unwrap(); // op 2 (durable)
     set_body("v3", RetentionTier::Compactable); // op 3
     set_body("v4", RetentionTier::Compactable); // op 4
     set_body("v5", RetentionTier::Compactable); // op 5
     store
-        .update(id, vec![FieldMutation::AddTag("keep/b".into())])
+        .update_with_undo(id, vec![FieldMutation::AddTag("keep/b".into())])
         .unwrap(); // op 6 (durable)
     set_body("v6", RetentionTier::Compactable); // op 7
 
@@ -583,12 +597,12 @@ fn undo_compaction_interleaves_with_compact_operations_newest_floor_wins() {
     set_body("a", RetentionTier::Compactable); // op 0
     set_body("b", RetentionTier::Compactable); // op 1
     store
-        .update(id, vec![FieldMutation::AddTag("t/1".into())])
+        .update_with_undo(id, vec![FieldMutation::AddTag("t/1".into())])
         .unwrap(); // op 2 (durable)
     set_body("c", RetentionTier::Ephemeral); // op 3
     set_body("d", RetentionTier::Ephemeral); // op 4
     store
-        .update(id, vec![FieldMutation::AddTag("t/2".into())])
+        .update_with_undo(id, vec![FieldMutation::AddTag("t/2".into())])
         .unwrap(); // op 5 (durable)
     set_body("e", RetentionTier::Ephemeral); // op 6
     set_body("f", RetentionTier::Durable); // op 7 (durable, current body)
@@ -701,14 +715,36 @@ proptest! {
         let id = item.id;
         store.insert(item).unwrap();
 
+        // The store drops no-op mutations (same-value SetPayload, equal
+        // SetRead) before minting — model that here so `effective` is the
+        // list of edits that actually produced an operation, in order.
+        let mut model_fields: BTreeMap<String, String> = BTreeMap::new();
+        let mut model_read = false;
+        let mut effective: Vec<&EditOp> = Vec::new();
         for edit in &edits {
-            let (mutation, compactable) = match edit {
-                EditOp::SetField(f, v, c) => (
-                    FieldMutation::SetPayload(format!("field_{}", f), Value::String(v.clone())),
-                    *c,
-                ),
-                EditOp::AddTag(t, c) => (FieldMutation::AddTag(format!("tag/{}", t)), *c),
-                EditOp::SetRead(v, c) => (FieldMutation::SetRead(*v), *c),
+            let (mutation, compactable, changes) = match edit {
+                EditOp::SetField(f, v, c) => {
+                    let key = format!("field_{}", f);
+                    let changes = model_fields.get(&key) != Some(v);
+                    if changes {
+                        model_fields.insert(key.clone(), v.clone());
+                    }
+                    (
+                        FieldMutation::SetPayload(key, Value::String(v.clone())),
+                        *c,
+                        changes,
+                    )
+                }
+                // AddTag is not no-op-filtered: re-adding an existing tag
+                // still mints an op (tag state is envelope-side and additive).
+                EditOp::AddTag(t, c) => (FieldMutation::AddTag(format!("tag/{}", t)), *c, true),
+                EditOp::SetRead(v, c) => {
+                    let changes = model_read != *v;
+                    if changes {
+                        model_read = *v;
+                    }
+                    (FieldMutation::SetRead(*v), *c, changes)
+                }
             };
             let tier = if compactable {
                 RetentionTier::Compactable
@@ -716,19 +752,22 @@ proptest! {
                 RetentionTier::Durable
             };
             store.update_with_retention(id, vec![mutation], tier).unwrap();
+            if changes {
+                effective.push(edit);
+            }
         }
 
         let ops = store.operations_for(id, None).unwrap();
-        prop_assert_eq!(ops.len(), edits.len());
+        prop_assert_eq!(ops.len(), effective.len());
         let clocks: Vec<u64> = ops.iter().map(|o| o.logical_clock).collect();
-        let compactable_count = edits
+        let compactable_count = effective
             .iter()
             .filter(|e| matches!(e,
                 EditOp::SetField(_, _, true) | EditOp::AddTag(_, true) | EditOp::SetRead(_, true)))
             .count();
         let watermark: Option<u64> = ops
             .iter()
-            .zip(edits.iter())
+            .zip(effective.iter())
             .filter(|(_, e)| matches!(e,
                 EditOp::SetField(_, _, true) | EditOp::AddTag(_, true) | EditOp::SetRead(_, true)))
             .map(|(o, _)| o.logical_clock)

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1abbc0f2f49ee228d71316854c1f3836bbf725cb029c646291dcefeaee3abc6a # shrinks to edits = [SetRead(false, false), SetField(0, "a", false)]

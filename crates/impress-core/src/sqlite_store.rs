@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Condvar, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -23,6 +23,28 @@ use crate::store::{FieldMutation, ItemStore, StoreError};
 /// In-memory stores fall back to using the writer connection directly
 /// because `:memory:` databases are private to a single connection.
 const READER_POOL_SIZE: usize = 4;
+
+/// WAL checkpoint flavours (see `SqliteItemStore::checkpoint_wal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WalCheckpointMode {
+    /// Copy what can be copied without disturbing readers.
+    Passive,
+    /// Block (bounded by busy_timeout) until all frames are copied.
+    Full,
+    /// `Full`, then reset the WAL file to at most `journal_size_limit`.
+    Truncate,
+}
+
+/// What a WAL checkpoint accomplished.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalCheckpointOutcome {
+    /// False when the checkpoint stopped early (readers/writers in the way).
+    pub completed: bool,
+    /// Frames in the WAL at checkpoint time.
+    pub total_frames: u64,
+    /// Frames successfully moved back into the main database.
+    pub checkpointed_frames: u64,
+}
 
 /// Pool of read-only SQLite connections.
 ///
@@ -197,7 +219,22 @@ impl SqliteItemStore {
     pub fn open_with_config(path: &Path, config: StoreConfig) -> Result<Self, StoreError> {
         let conn =
             Connection::open(path).map_err(|e| StoreError::Storage(format!("open: {}", e)))?;
-        let mut store = Self::init_with_connection(conn, config)?;
+        let store_result = Self::init_with_connection(conn, config);
+        let mut store = store_result?;
+
+        // WAL hygiene (2026-08-05 incident): the suite's WAL once grew to
+        // 13.5 GB because every process's PASSIVE auto-checkpoints kept
+        // yielding to the fleet's pooled readers and nothing ever truncated —
+        // after which any opener whose `-shm` was invalidated by a crash had
+        // to rebuild the wal-index over the whole file, serialized, which
+        // presents as the suite silently hanging on open.
+        //
+        // Two guards: `journal_size_limit` makes any successful checkpoint
+        // truncate the file back to the limit, and an open-time size check
+        // logs loudly + attempts a TRUNCATE checkpoint when the WAL is
+        // already oversized (best-effort: bounded by busy_timeout, refused
+        // under concurrent readers rather than blocking).
+        store.apply_wal_bounds(path);
 
         // File-backed stores get a reader pool. The writer has already set
         // WAL mode during init_schema, so these reader connections will
@@ -205,6 +242,167 @@ impl SqliteItemStore {
         store.readers = Some(ReaderPool::open(path, READER_POOL_SIZE)?);
 
         Ok(store)
+    }
+
+    /// The WAL size (bytes) above which open logs a warning and attempts a
+    /// truncating checkpoint. Also the `journal_size_limit` handed to SQLite.
+    pub const WAL_SIZE_BUDGET_BYTES: u64 = 64 * 1024 * 1024;
+
+    /// Best-effort WAL bounding on a file-backed store. Never fails the open:
+    /// every step logs and degrades — a store that opens with a fat WAL is
+    /// strictly better than one that refuses to open because of it.
+    fn apply_wal_bounds(&self, path: &Path) {
+        let conn = match self.conn.lock() {
+            Ok(conn) => conn,
+            Err(_) => return,
+        };
+        // After any successful checkpoint, SQLite truncates the WAL file back
+        // to this limit instead of leaving a multi-GB file on disk.
+        let _ = conn.pragma_update(
+            None,
+            "journal_size_limit",
+            Self::WAL_SIZE_BUDGET_BYTES as i64,
+        );
+
+        let wal_path = {
+            let mut os = path.as_os_str().to_os_string();
+            os.push("-wal");
+            PathBuf::from(os)
+        };
+        let wal_bytes = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
+        if wal_bytes <= Self::WAL_SIZE_BUDGET_BYTES {
+            return;
+        }
+        eprintln!(
+            "[impress-core] WAL is {} MB (budget {} MB) — attempting truncating checkpoint",
+            wal_bytes / (1024 * 1024),
+            Self::WAL_SIZE_BUDGET_BYTES / (1024 * 1024),
+        );
+        match Self::wal_checkpoint_on(&conn, WalCheckpointMode::Truncate) {
+            Ok(outcome) if outcome.completed => {
+                let after = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
+                eprintln!(
+                    "[impress-core] WAL checkpoint ok: {} of {} frames moved, WAL now {} MB",
+                    outcome.checkpointed_frames,
+                    outcome.total_frames,
+                    after / (1024 * 1024),
+                );
+            }
+            Ok(outcome) => eprintln!(
+                "[impress-core] WAL checkpoint incomplete (busy — another process's readers \
+                 pin it): {} of {} frames moved. A long-lived idle service should call \
+                 checkpoint_wal(Truncate) periodically.",
+                outcome.checkpointed_frames, outcome.total_frames,
+            ),
+            Err(e) => eprintln!("[impress-core] WAL checkpoint failed: {}", e),
+        }
+    }
+
+    /// One-time data migration for the 2026-08-06 operation-log incident:
+    /// demote historical `system:local` routine operations from `durable`
+    /// (the old default every mechanical writer minted) to `compactable`,
+    /// so `compact_operations` can fold them into watermark snapshots.
+    ///
+    /// The predicate deliberately spares user actions (`user:local` and
+    /// named humans), agent provenance, and corrections — only the
+    /// mechanical-writer churn is demoted, the same class `ItemStore::
+    /// update` now mints compactable at the source. Only the `retention`
+    /// column changes: clocks and `modified` stay untouched, so sync sees
+    /// no phantom edits.
+    ///
+    /// Batched (short transactions, bounded lock hold) and idempotent —
+    /// after the first pass the predicate matches nothing. Returns the
+    /// number of operations demoted.
+    pub fn demote_routine_operations(&self) -> Result<u64, StoreError> {
+        const BATCH: u32 = 200_000;
+        let mut total: u64 = 0;
+        loop {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| StoreError::Storage(e.to_string()))?;
+            let changed = conn
+                .execute(
+                    "UPDATE items SET retention = 'compactable'
+                     WHERE rowid IN (
+                         SELECT rowid FROM items
+                         WHERE schema_ref = 'core/operation'
+                           AND retention = 'durable'
+                           AND author = 'system:local'
+                           AND json_extract(payload, '$.intent') = 'routine'
+                         LIMIT ?1
+                     )",
+                    params![BATCH],
+                )
+                .map_err(|e| StoreError::Storage(format!("demote routine ops: {}", e)))?;
+            drop(conn);
+            total += changed as u64;
+            if changed == 0 {
+                return Ok(total);
+            }
+        }
+    }
+
+    /// Rebuild the database file to reclaim free pages (`VACUUM`).
+    ///
+    /// Meaningful only after mass deletion (e.g. operation compaction);
+    /// with an empty freelist it rewrites the file for nothing. Holds the
+    /// writer for the duration — callers schedule it in maintenance windows.
+    pub fn vacuum(&self) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        conn.execute_batch("VACUUM")
+            .map_err(|e| StoreError::Storage(format!("vacuum: {}", e)))
+    }
+
+    /// Free pages currently on the freelist (what `vacuum` would reclaim).
+    pub fn freelist_pages(&self) -> Result<u64, StoreError> {
+        self.with_read(|conn| {
+            conn.query_row("PRAGMA freelist_count", [], |row| row.get::<_, i64>(0))
+                .map(|v| v.max(0) as u64)
+                .map_err(|e| StoreError::Storage(format!("freelist_count: {}", e)))
+        })
+    }
+
+    /// Run a WAL checkpoint on the writer connection.
+    ///
+    /// `Passive` copies what it can without blocking readers; `Truncate`
+    /// additionally resets the WAL file to (at most) `journal_size_limit`
+    /// when it completes. Long-lived services (impress-ai-server) call this
+    /// periodically so the suite's WAL never again grows unbounded because
+    /// every process assumed some other process would checkpoint.
+    pub fn checkpoint_wal(
+        &self,
+        mode: WalCheckpointMode,
+    ) -> Result<WalCheckpointOutcome, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(format!("checkpoint lock: {}", e)))?;
+        Self::wal_checkpoint_on(&conn, mode)
+    }
+
+    fn wal_checkpoint_on(
+        conn: &Connection,
+        mode: WalCheckpointMode,
+    ) -> Result<WalCheckpointOutcome, StoreError> {
+        let sql = match mode {
+            WalCheckpointMode::Passive => "PRAGMA wal_checkpoint(PASSIVE)",
+            WalCheckpointMode::Full => "PRAGMA wal_checkpoint(FULL)",
+            WalCheckpointMode::Truncate => "PRAGMA wal_checkpoint(TRUNCATE)",
+        };
+        conn.query_row(sql, [], |row| {
+            Ok(WalCheckpointOutcome {
+                // Column 0: 1 when the checkpoint could not run to completion
+                // (SQLITE_BUSY under the hood), 0 when it finished.
+                completed: row.get::<_, i64>(0)? == 0,
+                total_frames: row.get::<_, i64>(1)?.max(0) as u64,
+                checkpointed_frames: row.get::<_, i64>(2)?.max(0) as u64,
+            })
+        })
+        .map_err(|e| StoreError::Storage(format!("wal_checkpoint: {}", e)))
     }
 
     /// Create an in-memory database (for testing).
@@ -3141,15 +3339,77 @@ impl SqliteItemStore {
         Ok(())
     }
 
+    /// Drop mutations that would not change stored state: same-value
+    /// `SetPayload`, absent-key `RemovePayload`, equal `SetRead`/`SetStarred`.
+    ///
+    /// 2026-08-06 incident: callers re-upserting unchanged rows (the
+    /// citation-usage tracker on every compile) minted one durable operation
+    /// per field per pass — 23.0M of the store's 23.0M operations were this
+    /// churn, 17 GB of database for ~50 MB of content. A write that changes
+    /// nothing must not mint provenance, bump clocks, or wake sync.
+    ///
+    /// Best-effort: a missing target passes everything through so the
+    /// operation path reports `NotFound` itself, and a payload that fails to
+    /// parse filters nothing.
+    fn filter_noop_mutations(
+        &self,
+        target_id_str: &str,
+        mutations: Vec<FieldMutation>,
+    ) -> Result<Vec<FieldMutation>, StoreError> {
+        let relevant = mutations.iter().any(|m| {
+            matches!(
+                m,
+                FieldMutation::SetPayload(..)
+                    | FieldMutation::RemovePayload(_)
+                    | FieldMutation::SetRead(_)
+                    | FieldMutation::SetStarred(_)
+            )
+        });
+        if !relevant {
+            return Ok(mutations);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let row: Option<(String, i32, i32)> = conn
+            .query_row(
+                "SELECT payload, is_read, is_starred FROM items WHERE id = ?1",
+                params![target_id_str],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|e| StoreError::Storage(format!("noop filter read: {}", e)))?;
+        let Some((payload_json, is_read, is_starred)) = row else {
+            return Ok(mutations);
+        };
+        let payload: BTreeMap<String, Value> =
+            serde_json::from_str(&payload_json).unwrap_or_default();
+        Ok(mutations
+            .into_iter()
+            .filter(|mutation| match mutation {
+                FieldMutation::SetPayload(key, value) => payload.get(key) != Some(value),
+                FieldMutation::RemovePayload(key) => payload.contains_key(key),
+                FieldMutation::SetRead(value) => (is_read != 0) != *value,
+                FieldMutation::SetStarred(value) => (is_starred != 0) != *value,
+                _ => true,
+            })
+            .collect())
+    }
+
     /// Apply mutations to an item and return UndoInfo for undo/redo registration.
     ///
     /// This is the preferred method for FFI callers that need undo support.
     /// The trait's `update()` delegates here but discards the UndoInfo.
+    /// No-op mutations are dropped (`filter_noop_mutations`); ops stay
+    /// Durable — these are user-initiated verbs, low-volume, and they feed
+    /// the Info tab's History section.
     pub fn update_with_undo(
         &self,
         id: ItemId,
         mutations: Vec<FieldMutation>,
     ) -> Result<UndoInfo, StoreError> {
+        let mutations = self.filter_noop_mutations(&id.to_string(), mutations)?;
         let batch_id = if mutations.len() > 1 {
             Some(Uuid::new_v4().to_string())
         } else {
@@ -3675,9 +3935,26 @@ impl SqliteItemStore {
             let watermark_clock = max_clock.unwrap_or(0) as u64;
             let watermark_ms = max_created.unwrap_or(cutoff_ms);
 
-            // Durable watermark snapshot pinned at the watermark's clock + wall
-            // time, captured while every op is still present (exact replay).
-            self.emit_watermark_snapshot(&tx, plan.target, watermark_clock, watermark_ms)?;
+            // ORPHANED ops — the target item was deleted after the ops were
+            // written. There is no state to snapshot (the tombstone already
+            // records the deletion), so the churn is swept without one; a
+            // single dangling target used to abort the whole compaction run
+            // with NotFound (found in the wild 2026-08-06).
+            let target_exists: bool = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM items WHERE id = ?1",
+                    params![&plan.target_str],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|c| c > 0)
+                .map_err(|e| StoreError::Storage(format!("compact target check: {}", e)))?;
+
+            if target_exists {
+                // Durable watermark snapshot pinned at the watermark's clock +
+                // wall time, captured while every op is still present (exact
+                // replay).
+                self.emit_watermark_snapshot(&tx, plan.target, watermark_clock, watermark_ms)?;
+            }
 
             // Delete the compacted range. The snapshot survives (durable).
             let deleted = tx
@@ -3693,14 +3970,16 @@ impl SqliteItemStore {
 
             total_deleted += deleted as u64;
 
-            // Record compaction watermark so sync knows what was compacted.
-            let watermark_key = format!("compaction_watermark:{}", plan.target_str);
-            let hlc = Self::next_hlc_clock(&tx)?;
-            tx.execute(
-                "INSERT OR REPLACE INTO store_metadata (key, value) VALUES (?1, ?2)",
-                params![watermark_key, hlc.to_string()],
-            )
-            .map_err(|e| StoreError::Storage(format!("compact watermark: {}", e)))?;
+            if target_exists {
+                // Record compaction watermark so sync knows what was compacted.
+                let watermark_key = format!("compaction_watermark:{}", plan.target_str);
+                let hlc = Self::next_hlc_clock(&tx)?;
+                tx.execute(
+                    "INSERT OR REPLACE INTO store_metadata (key, value) VALUES (?1, ?2)",
+                    params![watermark_key, hlc.to_string()],
+                )
+                .map_err(|e| StoreError::Storage(format!("compact watermark: {}", e)))?;
+            }
         }
 
         tx.commit()
@@ -3711,19 +3990,20 @@ impl SqliteItemStore {
 
     /// `update()` with an explicit retention tier for the generated operations.
     ///
-    /// The trait's `update()` writes every operation Durable. High-churn
-    /// callers (manuscript body autosaves: `body_content`,
+    /// High-churn callers (manuscript body autosaves: `body_content`,
     /// `body_content_hash`, `body_modified_at`) should use this with
     /// [`RetentionTier::Compactable`] so `compact_operations` can fold the
     /// churn into a watermark snapshot later. Callers marking ops Compactable
     /// accept the documented time-travel floor: after compaction, states
     /// below the watermark resolve to the watermark snapshot.
+    /// (The trait's `update()` now also writes Compactable — see its doc.)
     pub fn update_with_retention(
         &self,
         id: ItemId,
         mutations: Vec<FieldMutation>,
         retention: RetentionTier,
     ) -> Result<(), StoreError> {
+        let mutations = self.filter_noop_mutations(&id.to_string(), mutations)?;
         let batch_id = if mutations.len() > 1 {
             Some(Uuid::new_v4().to_string())
         } else {
@@ -3809,7 +4089,14 @@ impl ItemStore for SqliteItemStore {
     }
 
     fn update(&self, id: ItemId, mutations: Vec<FieldMutation>) -> Result<(), StoreError> {
-        // Convert FieldMutation to operations via the backward-compatible bridge
+        // Convert FieldMutation to operations via the backward-compatible
+        // bridge. No-op mutations are dropped first, and the ops mint as
+        // COMPACTABLE: this is the mechanical-writer artery (`SharedStore.
+        // upsert_item` re-sends every field of a row), which is how 23.0M of
+        // 23.0M operations came to be durable `system:local` routine churn.
+        // User-facing verbs that should stay permanent go through
+        // `update_with_undo` (Durable) instead.
+        let mutations = self.filter_noop_mutations(&id.to_string(), mutations)?;
         let batch_id = if mutations.len() > 1 {
             Some(Uuid::new_v4().to_string())
         } else {
@@ -3825,7 +4112,7 @@ impl ItemStore for SqliteItemStore {
                 batch_id: batch_id.clone(),
                 author: self.default_author.clone(),
                 author_kind: self.default_author_kind,
-                retention: RetentionTier::Durable,
+                retention: RetentionTier::Compactable,
             })?;
         }
 
@@ -5154,6 +5441,235 @@ mod tests {
         assert_eq!(read_count, 5);
     }
 
+    /// A write that changes nothing must not mint an operation, bump the
+    /// clock, or touch `modified` (2026-08-06 incident: re-upserting
+    /// unchanged rows minted 23.0M durine ops). A write that DOES change a
+    /// value still mints exactly one.
+    #[test]
+    fn noop_updates_mint_no_operations() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let mut item = make_item("test", "Target");
+        item.payload
+            .insert("cite_key".into(), Value::String("lazeyras18".into()));
+        let id = store.insert(item).unwrap();
+
+        let ops_before = store.operations_for(id, None).unwrap().len();
+        let modified_before = store.get(id).unwrap().unwrap().modified;
+
+        // Same value → dropped everywhere the field-update paths run.
+        store
+            .update(
+                id,
+                vec![FieldMutation::SetPayload(
+                    "cite_key".into(),
+                    Value::String("lazeyras18".into()),
+                )],
+            )
+            .unwrap();
+        let undo = store
+            .update_with_undo(
+                id,
+                vec![
+                    FieldMutation::SetPayload(
+                        "cite_key".into(),
+                        Value::String("lazeyras18".into()),
+                    ),
+                    FieldMutation::SetRead(false), // already false
+                ],
+            )
+            .unwrap();
+        assert!(
+            undo.operation_ids.is_empty(),
+            "no-op undoable update should register nothing"
+        );
+        assert_eq!(
+            store.operations_for(id, None).unwrap().len(),
+            ops_before,
+            "no-op updates minted operations"
+        );
+        assert_eq!(
+            store.get(id).unwrap().unwrap().modified,
+            modified_before,
+            "no-op update touched `modified`"
+        );
+
+        // A REAL change still mints exactly one op and applies.
+        store
+            .update(
+                id,
+                vec![FieldMutation::SetPayload(
+                    "cite_key".into(),
+                    Value::String("abel24".into()),
+                )],
+            )
+            .unwrap();
+        assert_eq!(
+            store.operations_for(id, None).unwrap().len(),
+            ops_before + 1
+        );
+        assert_eq!(
+            store.get(id).unwrap().unwrap().payload.get("cite_key"),
+            Some(&Value::String("abel24".into()))
+        );
+    }
+
+    /// The mechanical-writer artery (`ItemStore::update`) mints COMPACTABLE
+    /// ops so `compact_operations` can fold them; the user-facing
+    /// `update_with_undo` stays DURABLE (it feeds the History surface).
+    #[test]
+    fn trait_update_is_compactable_undoable_update_is_durable() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let id = store.insert(make_item("test", "Target")).unwrap();
+
+        store
+            .update(
+                id,
+                vec![FieldMutation::SetPayload(
+                    "a".into(),
+                    Value::String("1".into()),
+                )],
+            )
+            .unwrap();
+        store
+            .update_with_undo(
+                id,
+                vec![FieldMutation::SetPayload(
+                    "b".into(),
+                    Value::String("2".into()),
+                )],
+            )
+            .unwrap();
+
+        let target = id.to_string();
+        let rows: Vec<(Option<String>, String)> = store
+            .query_raw(
+                "SELECT json_extract(payload,'$.op_data.field'), retention FROM items
+                 WHERE schema_ref = 'core/operation' AND op_target_id = ?1",
+                &[&target as &dyn rusqlite::types::ToSql],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let flat: Vec<String> = rows
+            .into_iter()
+            .filter_map(|(field, retention)| field.map(|f| format!("{}={}", f, retention)))
+            .collect();
+        assert!(
+            flat.contains(&"a=compactable".to_string()),
+            "trait update should mint compactable, got {flat:?}"
+        );
+        assert!(
+            flat.contains(&"b=durable".to_string()),
+            "update_with_undo should mint durable, got {flat:?}"
+        );
+    }
+
+    /// Ops whose target item is GONE (a raw/legacy deletion that bypassed the
+    /// op cascade — found in the wild 2026-08-06) must be swept without a
+    /// snapshot instead of aborting the whole compaction run with NotFound.
+    #[test]
+    fn compaction_sweeps_orphaned_ops_of_deleted_targets() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+
+        // Doomed target with compactable churn…
+        let doomed = store.insert(make_item("note", "Doomed")).unwrap();
+        store
+            .update_with_retention(
+                doomed,
+                vec![FieldMutation::SetPayload(
+                    "x".into(),
+                    Value::String("1".into()),
+                )],
+                RetentionTier::Compactable,
+            )
+            .unwrap();
+        // …whose ROW is removed raw with FKs off, bypassing both the delete
+        // cascade and the op_target FK — the legacy/foreign deletion shape
+        // that strands ops (the live store carries such orphans).
+        {
+            let conn = store.conn.lock().unwrap();
+            conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+            conn.execute(
+                "DELETE FROM items WHERE id = ?1",
+                params![doomed.to_string()],
+            )
+            .unwrap();
+            conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        }
+
+        // A healthy item in the same run must still compact normally.
+        let alive = store.insert(make_item("note", "Alive")).unwrap();
+        store
+            .update_with_retention(
+                alive,
+                vec![FieldMutation::SetPayload(
+                    "y".into(),
+                    Value::String("2".into()),
+                )],
+                RetentionTier::Compactable,
+            )
+            .unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let deleted = store
+            .compact_operations(0)
+            .expect("a dangling target must not abort the run");
+        assert_eq!(deleted, 2, "orphaned + healthy compactable ops both swept");
+        assert!(
+            store.operations_for(doomed, None).unwrap().is_empty(),
+            "orphaned ops are gone, no snapshot minted for a deleted target"
+        );
+    }
+
+    /// The 2026-08-06 migration: historical durable `system:local` routine
+    /// ops demote to compactable; user-authored durable ops stay untouched.
+    #[test]
+    fn demote_routine_operations_spares_user_ops() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let id = store.insert(make_item("test", "Target")).unwrap();
+
+        let mint = |author: &str, intent: OperationIntent, field: &str| {
+            store
+                .apply_operation(OperationSpec {
+                    target_id: id,
+                    op_type: OperationType::SetPayload(field.into(), Value::String("v".into())),
+                    intent,
+                    reason: None,
+                    batch_id: None,
+                    author: author.into(),
+                    author_kind: ActorKind::System,
+                    retention: RetentionTier::Durable,
+                })
+                .unwrap();
+        };
+        mint("system:local", OperationIntent::Routine, "a");
+        mint("system:local", OperationIntent::Routine, "b");
+        mint("user:local", OperationIntent::Routine, "c");
+        mint("system:local", OperationIntent::Correction, "d");
+
+        let demoted = store.demote_routine_operations().unwrap();
+        assert_eq!(demoted, 2, "exactly the system routine ops demote");
+        // Second pass is a no-op (idempotent).
+        assert_eq!(store.demote_routine_operations().unwrap(), 0);
+
+        let rows: Vec<(String, String)> = store
+            .query_raw(
+                "SELECT json_extract(payload,'$.op_data.field'), retention FROM items
+                 WHERE schema_ref = 'core/operation' ORDER BY 1",
+                &[],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("a".into(), "compactable".into()),
+                ("b".into(), "compactable".into()),
+                ("c".into(), "durable".into()),
+                ("d".into(), "durable".into()),
+            ]
+        );
+    }
+
     // --- Operation-specific tests ---
 
     #[test]
@@ -6007,6 +6523,55 @@ mod tests {
             "pool should start with READER_POOL_SIZE connections"
         );
         drop(store);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// WAL bounding (2026-08-05 incident regression): with idle readers in
+    /// the pool, an explicit TRUNCATE checkpoint must complete and reset the
+    /// WAL file to (at most) `journal_size_limit` — the verb long-lived
+    /// services call so the suite's WAL never again grows unbounded.
+    #[test]
+    fn wal_truncate_checkpoint_resets_the_wal_file() {
+        let path = tmp_db_path("wal_truncate");
+        let store = SqliteItemStore::open(&path).unwrap();
+
+        // Grow the WAL with real writes (auto-checkpoint may shrink it along
+        // the way — irrelevant; the assertion is about the explicit verb).
+        for i in 0..200 {
+            store
+                .insert(make_item("note", &format!("wal filler {}", i)))
+                .unwrap();
+        }
+        let wal_path = {
+            let mut os = path.as_os_str().to_os_string();
+            os.push("-wal");
+            std::path::PathBuf::from(os)
+        };
+        assert!(
+            std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0) > 0,
+            "writes should have produced a WAL"
+        );
+
+        let outcome = store.checkpoint_wal(WalCheckpointMode::Truncate).unwrap();
+        assert!(
+            outcome.completed,
+            "idle pooled readers must not block a truncating checkpoint: {:?}",
+            outcome
+        );
+        let after = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
+        assert_eq!(
+            after, 0,
+            "TRUNCATE resets the WAL file, got {} bytes",
+            after
+        );
+
+        // A store re-opened over an oversized-but-now-truncated WAL keeps
+        // reading normally.
+        let count = store.count(&ItemQuery::default()).unwrap();
+        assert_eq!(count, 200);
+
+        drop(store);
+        let _ = std::fs::remove_file(&wal_path);
         let _ = std::fs::remove_file(&path);
     }
 
