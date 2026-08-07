@@ -109,6 +109,16 @@ public actor ImbibImpressStore {
         }
     }
 
+    /// The sidebar's whole count sweep in one FFI round-trip: unread per
+    /// container (feeds and libraries share one map — see imbib-core's
+    /// `SidebarCounts`) plus flag counts by color. nil on store error;
+    /// callers fall back to the point queries.
+    public nonisolated func sidebarCounts() -> SidebarCounts? {
+        StoreTimings.shared.measure("ImbibImpressStore.sidebarCounts") {
+            try? store.sidebarUnreadAndFlagCounts()
+        }
+    }
+
     /// List all smart searches, optionally scoped to a library.
     public nonisolated func listSmartSearches(libraryId: UUID? = nil) -> [SmartSearch] {
         StoreTimings.shared.measure("ImbibImpressStore.listSmartSearches") {

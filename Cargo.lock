@@ -4410,14 +4410,17 @@ name = "impress-store-service"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
+ "image",
  "impress-core",
  "impress-service-core",
  "impress-service-macros",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "uuid",
@@ -10360,6 +10363,7 @@ dependencies = [
 name = "vw-mcp"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "impress-core",
  "impress-mcp-host",
@@ -10369,6 +10373,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "uuid",
  "vw-domain",
  "vw-impress-adapter",

@@ -1431,6 +1431,21 @@ public protocol ImbibStoreProtocol : AnyObject {
     func setStarred(ids: [String], starred: Bool) throws  -> UndoInfo
     
     /**
+     * The sidebar's entire count sweep in one call: unread per container
+     * (feeds AND libraries — see `SidebarCounts`) plus flag counts by
+     * color. Replaces one FFI round-trip per feed + per library + per
+     * color (~15 per sweep, the `snapshot` PerfMetrics budget breach)
+     * with two grouped queries on the reader pool.
+     *
+     * The edge literal is the serde_json serialization of
+     * `EdgeType::Contains` — the exact bytes `compile_query` binds for
+     * `Predicate::ReferencedBy` — NOT a bare string. Matching those
+     * semantics is what keeps this count equal to the point queries it
+     * replaces.
+     */
+    func sidebarUnreadAndFlagCounts() throws  -> SidebarCounts
+    
+    /**
      * The allowed `manuscript.format` values (single source of truth in
      * impress-core). Swift's `DocumentFormat` asserts parity in tests.
      */
@@ -3532,6 +3547,26 @@ open func setStarred(ids: [String], starred: Bool)throws  -> UndoInfo {
     uniffi_imbib_core_fn_method_imbibstore_set_starred(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterBool.lower(starred),$0
+    )
+})
+}
+    
+    /**
+     * The sidebar's entire count sweep in one call: unread per container
+     * (feeds AND libraries — see `SidebarCounts`) plus flag counts by
+     * color. Replaces one FFI round-trip per feed + per library + per
+     * color (~15 per sweep, the `snapshot` PerfMetrics budget breach)
+     * with two grouped queries on the reader pool.
+     *
+     * The edge literal is the serde_json serialization of
+     * `EdgeType::Contains` — the exact bytes `compile_query` binds for
+     * `Predicate::ReferencedBy` — NOT a bare string. Matching those
+     * semantics is what keeps this count equal to the point queries it
+     * replaces.
+     */
+open func sidebarUnreadAndFlagCounts()throws  -> SidebarCounts {
+    return try  FfiConverterTypeSidebarCounts.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sidebar_unread_and_flag_counts(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -17163,6 +17198,166 @@ public func FfiConverterTypeSearchResultInput_lower(_ value: SearchResultInput) 
 
 
 /**
+ * One (container id, count) pair from `sidebar_unread_and_flag_counts`.
+ */
+public struct SidebarCountEntry {
+    public var id: String
+    public var count: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, count: UInt32) {
+        self.id = id
+        self.count = count
+    }
+}
+
+
+
+extension SidebarCountEntry: Equatable, Hashable {
+    public static func ==(lhs: SidebarCountEntry, rhs: SidebarCountEntry) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.count != rhs.count {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(count)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSidebarCountEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SidebarCountEntry {
+        return
+            try SidebarCountEntry(
+                id: FfiConverterString.read(from: &buf), 
+                count: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SidebarCountEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterUInt32.write(value.count, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarCountEntry_lift(_ buf: RustBuffer) throws -> SidebarCountEntry {
+    return try FfiConverterTypeSidebarCountEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarCountEntry_lower(_ value: SidebarCountEntry) -> RustBuffer {
+    return FfiConverterTypeSidebarCountEntry.lower(value)
+}
+
+
+/**
+ * Everything the sidebar's count sweep needs, in one FFI round-trip.
+ */
+public struct SidebarCounts {
+    /**
+     * Unread bibliography entries per container id. For a container that
+     * only ever holds items by Contains edge (feeds, collections) this
+     * equals `count_unread_in_collection`; for a library it equals
+     * `count_unread(parent_id:)` — the UNION dedups the (container, item)
+     * pairs, so the parent-OR-edge membership `in_library_predicate`
+     * encodes is counted once.
+     */
+    public var unreadByContainer: [SidebarCountEntry]
+    /**
+     * Flagged bibliography entries per flag color (absent color = zero).
+     */
+    public var flagCounts: [SidebarCountEntry]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Unread bibliography entries per container id. For a container that
+         * only ever holds items by Contains edge (feeds, collections) this
+         * equals `count_unread_in_collection`; for a library it equals
+         * `count_unread(parent_id:)` — the UNION dedups the (container, item)
+         * pairs, so the parent-OR-edge membership `in_library_predicate`
+         * encodes is counted once.
+         */unreadByContainer: [SidebarCountEntry], 
+        /**
+         * Flagged bibliography entries per flag color (absent color = zero).
+         */flagCounts: [SidebarCountEntry]) {
+        self.unreadByContainer = unreadByContainer
+        self.flagCounts = flagCounts
+    }
+}
+
+
+
+extension SidebarCounts: Equatable, Hashable {
+    public static func ==(lhs: SidebarCounts, rhs: SidebarCounts) -> Bool {
+        if lhs.unreadByContainer != rhs.unreadByContainer {
+            return false
+        }
+        if lhs.flagCounts != rhs.flagCounts {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(unreadByContainer)
+        hasher.combine(flagCounts)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSidebarCounts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SidebarCounts {
+        return
+            try SidebarCounts(
+                unreadByContainer: FfiConverterSequenceTypeSidebarCountEntry.read(from: &buf), 
+                flagCounts: FfiConverterSequenceTypeSidebarCountEntry.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SidebarCounts, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeSidebarCountEntry.write(value.unreadByContainer, into: &buf)
+        FfiConverterSequenceTypeSidebarCountEntry.write(value.flagCounts, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarCounts_lift(_ buf: RustBuffer) throws -> SidebarCounts {
+    return try FfiConverterTypeSidebarCounts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarCounts_lower(_ value: SidebarCounts) -> RustBuffer {
+    return FfiConverterTypeSidebarCounts.lower(value)
+}
+
+
+/**
  * A citation after invented identifiers have been dropped.
  */
 public struct SmartSearchCitation {
@@ -26267,6 +26462,31 @@ fileprivate struct FfiConverterSequenceTypeSearchResultInput: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSidebarCountEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [SidebarCountEntry]
+
+    public static func write(_ value: [SidebarCountEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSidebarCountEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SidebarCountEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SidebarCountEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSidebarCountEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSmartSearchIdentifier: FfiConverterRustBuffer {
     typealias SwiftType = [SmartSearchIdentifier]
 
@@ -30422,6 +30642,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_starred() != 26685) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sidebar_unread_and_flag_counts() != 39610) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_supported_manuscript_formats() != 32374) {

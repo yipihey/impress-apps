@@ -1,0 +1,62 @@
+[
+  {
+    "id": "94133a91-acfe-4b34-9234-380c2e07eabc",
+    "source_item_id": "fa503a5f-1b7a-5855-af11-480ef231883e",
+    "source_content_hash": "e1e4f40183fef491077f2179ff322a6a1e978dd0bce5ef94b2d910ec5e16cd4f",
+    "extraction_run_id": "8fe66b81-ae9f-5d55-94ae-f94955db5ef5",
+    "page_index": 465,
+    "page_label": "466",
+    "figure_label": "Fig. 4-3",
+    "caption_text": "Cold-start valve being checked for leakage. Use a cloth as shown in order to catch any fuel.",
+    "image_region": { "x": 0.552, "y": 0.692, "width": 0.333, "height": 0.220 },
+    "caption_region": { "x": 0.549, "y": 0.642, "width": 0.337, "height": 0.030 },
+    "status": "curated",
+    "provenance": {
+      "kind": "manual_correction",
+      "curator": "impress-vw-knowledge-pack",
+      "corrected_at": "2026-08-07T12:00:00Z",
+      "supersedes": null
+    },
+    "warnings": []
+  },
+  {
+    "id": "e0ec36bb-7a76-488e-8b6b-c75cdf637b3c",
+    "source_item_id": "fa503a5f-1b7a-5855-af11-480ef231883e",
+    "source_content_hash": "e1e4f40183fef491077f2179ff322a6a1e978dd0bce5ef94b2d910ec5e16cd4f",
+    "extraction_run_id": "8fe66b81-ae9f-5d55-94ae-f94955db5ef5",
+    "page_index": 465,
+    "page_label": "466",
+    "figure_label": "Fig. 4-4",
+    "caption_text": "Hookup for testing cold-start valve operation.",
+    "image_region": { "x": 0.588, "y": 0.130, "width": 0.294, "height": 0.218 },
+    "caption_region": { "x": 0.550, "y": 0.097, "width": 0.360, "height": 0.030 },
+    "status": "curated",
+    "provenance": {
+      "kind": "manual_correction",
+      "curator": "impress-vw-knowledge-pack",
+      "corrected_at": "2026-08-07T12:00:00Z",
+      "supersedes": null
+    },
+    "warnings": []
+  },
+  {
+    "id": "2e5bf6c4-5b04-4fd8-9ce2-7e813d103082",
+    "source_item_id": "fa503a5f-1b7a-5855-af11-480ef231883e",
+    "source_content_hash": "e1e4f40183fef491077f2179ff322a6a1e978dd0bce5ef94b2d910ec5e16cd4f",
+    "extraction_run_id": "8fe66b81-ae9f-5d55-94ae-f94955db5ef5",
+    "page_index": 466,
+    "page_label": "467",
+    "figure_label": "Fig. 4-5",
+    "caption_text": "Test lamp being used to check thermo-time switch operation.",
+    "image_region": { "x": 0.612, "y": 0.427, "width": 0.333, "height": 0.183 },
+    "caption_region": { "x": 0.612, "y": 0.384, "width": 0.333, "height": 0.028 },
+    "status": "curated",
+    "provenance": {
+      "kind": "manual_correction",
+      "curator": "impress-vw-knowledge-pack",
+      "corrected_at": "2026-08-07T12:00:00Z",
+      "supersedes": null
+    },
+    "warnings": []
+  }
+]

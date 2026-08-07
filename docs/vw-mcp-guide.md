@@ -26,6 +26,28 @@ rows or whole manual pages. Resolve a chosen UUID with
 normalized positioned text observations. Resolve its citation UUID with
 `source-service_get-citation` before presenting it as evidence.
 
+Search hits, chunks, and citations report compact `figures` and
+`page_image_available` evidence metadata. Image bytes are never embedded in
+search results. Call `source-service_get-figure-image` with a citation UUID and
+printed figure label when the figure itself is useful; the result contains an
+MCP image block plus source title, page label/index, immutable hashes, crop
+coordinates, caption, and extraction lineage. Call
+`source-service_get-page-image` for the complete cited page or surrounding
+context. Page labels are resolved through stored source evidence and may differ
+from physical page order.
+
+Only a stored extracted or manually curated figure region is cropped. If the
+boundary is missing or ambiguous, `get-figure-image` says so and returns the
+complete cited page as an explicitly marked `page_fallback`; it never guesses a
+figure boundary. Diagnostic mode can only read images. Adding or correcting a
+figure region requires the server's curation profile.
+
+The optional local validation script
+`crates/vw-mcp/scripts/validate-local-figures.sh` exercises the curated service
+manual figures 4-3, 4-4, and 4-5 plus complete PDF page 467 through MCP stdio.
+It reads the user's local manual asset and never writes or redistributes manual
+page images.
+
 The current source IDs are recorded in
 [knowledge/vw/sources.json](../knowledge/vw/sources.json). Source text is in the
 `extracted_unreviewed` state. Search may guide a reviewer or provide clearly

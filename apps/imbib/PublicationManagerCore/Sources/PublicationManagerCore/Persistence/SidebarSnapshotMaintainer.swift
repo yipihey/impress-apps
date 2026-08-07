@@ -119,26 +119,49 @@ public actor SidebarSnapshotMaintainer {
         defer { perfToken.end() }
         let gateway = ImbibImpressStore.shared
 
-        // Feeds — only the smart searches that feed the inbox currently
-        // show unread counts in the sidebar.
         let allSearches = gateway.listSmartSearches()
-        var unreadByFeed: [UUID: Int] = [:]
-        for feed in allSearches where feed.feedsToInbox {
-            unreadByFeed[feed.id] = gateway.countUnreadInCollection(collectionId: feed.id)
-        }
-
-        // Libraries.
         let libraries = gateway.listLibraries()
-        var unreadByLibrary: [UUID: Int] = [:]
-        for lib in libraries {
-            unreadByLibrary[lib.id] = gateway.countUnread(parentId: lib.id)
-        }
-
-        // Flag counts for the sidebar "Flagged" section.
         let flagColors = ["red", "orange", "yellow", "green", "blue", "purple", "grey"]
+        var unreadByFeed: [UUID: Int] = [:]
+        var unreadByLibrary: [UUID: Int] = [:]
         var flagCounts: [String: Int] = [:]
-        for color in flagColors {
-            flagCounts[color] = gateway.countFlagged(color: color)
+
+        if let batched = gateway.sidebarCounts() {
+            // One FFI round-trip for the whole sweep (was ~15 point
+            // queries — the `snapshot` budget breach). Feeds and libraries
+            // read the same container map; imbib-core's UNION dedup keeps
+            // the counts equal to the point queries (parity-tested there).
+            let byContainer: [UUID: Int] = Dictionary(
+                batched.unreadByContainer.compactMap { entry in
+                    UUID(uuidString: entry.id).map { ($0, Int(entry.count)) }
+                },
+                uniquingKeysWith: { a, _ in a }
+            )
+            for feed in allSearches where feed.feedsToInbox {
+                unreadByFeed[feed.id] = byContainer[feed.id] ?? 0
+            }
+            for lib in libraries {
+                unreadByLibrary[lib.id] = byContainer[lib.id] ?? 0
+            }
+            let byColor = Dictionary(
+                batched.flagCounts.map { ($0.id, Int($0.count)) },
+                uniquingKeysWith: { a, _ in a }
+            )
+            for color in flagColors {
+                flagCounts[color] = byColor[color] ?? 0
+            }
+        } else {
+            // Store error on the batched path — fall back to the point
+            // queries rather than publishing zeros.
+            for feed in allSearches where feed.feedsToInbox {
+                unreadByFeed[feed.id] = gateway.countUnreadInCollection(collectionId: feed.id)
+            }
+            for lib in libraries {
+                unreadByLibrary[lib.id] = gateway.countUnread(parentId: lib.id)
+            }
+            for color in flagColors {
+                flagCounts[color] = gateway.countFlagged(color: color)
+            }
         }
 
         // Publish atomically on the main actor.

@@ -17,6 +17,7 @@
       "searchable_pages": 485,
       "source_item_id": "fa503a5f-1b7a-5855-af11-480ef231883e",
       "extraction_run_id": "8fe66b81-ae9f-5d55-94ae-f94955db5ef5",
+      "figure_regions": "knowledge/vw/official-service-manual-figure-regions.json",
       "extraction": {
         "engine": "apple-vision",
         "version": "text-revision3; Version 26.5.2 (Build 25F84)",

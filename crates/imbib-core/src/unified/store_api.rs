@@ -457,6 +457,29 @@ pub fn in_library_predicate(library_id: Uuid) -> Predicate {
     ])
 }
 
+/// One (container id, count) pair from `sidebar_unread_and_flag_counts`.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SidebarCountEntry {
+    pub id: String,
+    pub count: u32,
+}
+
+/// Everything the sidebar's count sweep needs, in one FFI round-trip.
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+#[derive(Debug, Clone)]
+pub struct SidebarCounts {
+    /// Unread bibliography entries per container id. For a container that
+    /// only ever holds items by Contains edge (feeds, collections) this
+    /// equals `count_unread_in_collection`; for a library it equals
+    /// `count_unread(parent_id:)` — the UNION dedups the (container, item)
+    /// pairs, so the parent-OR-edge membership `in_library_predicate`
+    /// encodes is counted once.
+    pub unread_by_container: Vec<SidebarCountEntry>,
+    /// Flagged bibliography entries per flag color (absent color = zero).
+    pub flag_counts: Vec<SidebarCountEntry>,
+}
+
 #[cfg_attr(feature = "native", uniffi::export)]
 impl ImbibStore {
     /// Open or create a store at the given database path.
@@ -2609,6 +2632,56 @@ impl ImbibStore {
             ..Default::default()
         };
         Ok(self.store.count(&q)? as u32)
+    }
+
+    /// The sidebar's entire count sweep in one call: unread per container
+    /// (feeds AND libraries — see `SidebarCounts`) plus flag counts by
+    /// color. Replaces one FFI round-trip per feed + per library + per
+    /// color (~15 per sweep, the `snapshot` PerfMetrics budget breach)
+    /// with two grouped queries on the reader pool.
+    ///
+    /// The edge literal is the serde_json serialization of
+    /// `EdgeType::Contains` — the exact bytes `compile_query` binds for
+    /// `Predicate::ReferencedBy` — NOT a bare string. Matching those
+    /// semantics is what keeps this count equal to the point queries it
+    /// replaces.
+    pub fn sidebar_unread_and_flag_counts(&self) -> Result<SidebarCounts, StoreApiError> {
+        let edge = serde_json::to_string(&EdgeType::Contains).unwrap_or_default();
+        let unread_by_container = self.store.query_raw(
+            "SELECT lib_id, COUNT(*) FROM (
+                 SELECT parent_id AS lib_id, id FROM items
+                  WHERE schema_ref = 'imbib/bibliography-entry' AND is_read = 0
+                    AND parent_id IS NOT NULL
+                 UNION
+                 SELECT r.source_id AS lib_id, i.id
+                   FROM items i JOIN item_references r
+                     ON r.target_id = i.id AND r.edge_type = ?1
+                  WHERE i.schema_ref = 'imbib/bibliography-entry' AND i.is_read = 0
+             ) GROUP BY lib_id",
+            &[&edge],
+            |row| {
+                Ok(SidebarCountEntry {
+                    id: row.get(0)?,
+                    count: row.get::<_, i64>(1)?.max(0) as u32,
+                })
+            },
+        )?;
+        let flag_counts = self.store.query_raw(
+            "SELECT flag_color, COUNT(*) FROM items
+              WHERE schema_ref = 'imbib/bibliography-entry' AND flag_color IS NOT NULL
+              GROUP BY flag_color",
+            &[],
+            |row| {
+                Ok(SidebarCountEntry {
+                    id: row.get(0)?,
+                    count: row.get::<_, i64>(1)?.max(0) as u32,
+                })
+            },
+        )?;
+        Ok(SidebarCounts {
+            unread_by_container,
+            flag_counts,
+        })
     }
 
     /// Count publications referenced by a SciX library. Uses SELECT COUNT(*).
@@ -7696,6 +7769,50 @@ mod tests {
         assert!(ids.contains(&b), "B must appear (parent==extra)");
         assert!(ids.contains(&c), "C must appear (Contains edge)");
         assert!(!ids.contains(&a), "A must NOT appear (only in home)");
+    }
+
+    #[test]
+    fn sidebar_counts_match_point_queries() {
+        let store = make_store();
+        let home = store.create_library("Home".into()).unwrap();
+        let extra = store.create_library("Extra".into()).unwrap();
+        store
+            .import_bibtex("@article{A, title={A}}".into(), home.id.clone())
+            .unwrap();
+        store
+            .import_bibtex("@article{B, title={B}}".into(), extra.id.clone())
+            .unwrap();
+        let c = store
+            .import_bibtex("@article{C, title={C}}".into(), home.id.clone())
+            .unwrap()[0]
+            .clone();
+        store
+            .library_add_members(extra.id.clone(), vec![c])
+            .unwrap();
+
+        let batched = store.sidebar_unread_and_flag_counts().unwrap();
+        let by_id: std::collections::HashMap<String, u32> = batched
+            .unread_by_container
+            .iter()
+            .map(|e| (e.id.to_lowercase(), e.count))
+            .collect();
+        // The batched map must agree with the point queries it replaces —
+        // including the parent-OR-edge dedup (C is home's child AND
+        // extra's Contains member, and must count once for each).
+        for lib in [&home, &extra] {
+            let point = store.count_unread(Some(lib.id.clone())).unwrap();
+            assert_eq!(
+                by_id.get(&lib.id.to_lowercase()).copied().unwrap_or(0),
+                point,
+                "batched unread must equal count_unread for {}",
+                lib.id
+            );
+        }
+        assert_eq!(
+            by_id.get(&extra.id.to_lowercase()).copied().unwrap_or(0),
+            2,
+            "extra sees B (parent) + C (edge), deduped"
+        );
     }
 
     #[test]
