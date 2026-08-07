@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 
 use base64::Engine;
 use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
+use impress_core::query::ItemQuery;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use sha2::{Digest, Sha256};
@@ -106,7 +107,7 @@ fn focused_server_lists_and_calls_only_semantic_profile() {
 }
 
 fn synthetic_pdf() -> Vec<u8> {
-    let stream = "0.2 0.7 0.3 rg 20 20 160 160 re f\n";
+    let stream = "0.2 0.7 0.3 rg 20 70 160 100 re f\n";
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
@@ -139,6 +140,157 @@ fn synthetic_pdf() -> Vec<u8> {
         .as_bytes(),
     );
     pdf
+}
+
+#[test]
+fn automatic_figure_ingest_resolves_as_image_over_stdio() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let store_path = temp.path().join("impress.sqlite");
+    let asset_root = temp.path().join("assets");
+    let cache_root = temp.path().join("cache");
+    let source_path = temp.path().join("automatic-figure.pdf");
+    let ocr_path = temp.path().join("ocr.sqlite");
+    let pdf = synthetic_pdf();
+    let hash = format!("{:x}", Sha256::digest(&pdf));
+    std::fs::write(&source_path, pdf).expect("write fixture PDF");
+
+    let ocr = rusqlite::Connection::open(&ocr_path).expect("open OCR fixture");
+    ocr.execute_batch(
+        "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);\
+         CREATE TABLE pages (\
+           pdf_page INTEGER PRIMARY KEY, section_hint TEXT NOT NULL,\
+           text TEXT NOT NULL, mean_confidence REAL NOT NULL, layout_json TEXT NOT NULL\
+         );",
+    )
+    .expect("create OCR fixture");
+    for (key, value) in [
+        ("source_sha256", hash.as_str()),
+        ("source_pages", "1"),
+        ("engine", "synthetic-layout"),
+        ("engine_version", "1.0"),
+        ("profile", "synthetic-test"),
+        ("built_at", "2026-08-07T00:00:00Z"),
+    ] {
+        ocr.execute(
+            "INSERT INTO metadata (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .expect("insert OCR metadata");
+    }
+    let layout = serde_json::json!([
+        {
+            "text":"Procedure text above the illustration",
+            "confidence":1.0,
+            "boundingBox":{"x":0.15,"y":0.82,"width":0.70,"height":0.025}
+        },
+        {
+            "text":"Fig. 1-1. Synthetic green diagnostic figure.",
+            "confidence":1.0,
+            "boundingBox":{"x":0.15,"y":0.20,"width":0.70,"height":0.025}
+        },
+        {
+            "text":"Following procedure text",
+            "confidence":1.0,
+            "boundingBox":{"x":0.15,"y":0.05,"width":0.70,"height":0.025}
+        }
+    ]);
+    ocr.execute(
+        "INSERT INTO pages (pdf_page, section_hint, text, mean_confidence, layout_json) \
+         VALUES (1, 'Synthetic', 'Procedure Fig. 1-1.', 1.0, ?1)",
+        [layout.to_string()],
+    )
+    .expect("insert OCR page");
+    drop(ocr);
+
+    let ingest = Command::new(env!("CARGO_BIN_EXE_vw-knowledge-ingest"))
+        .args(["--store-path"])
+        .arg(&store_path)
+        .args(["--source-pdf"])
+        .arg(&source_path)
+        .args(["--ocr-index"])
+        .arg(&ocr_path)
+        .args([
+            "--title",
+            "Synthetic Automatic Figure Manual",
+            "--source-class",
+            "test-manual",
+            "--publisher",
+            "Impress Tests",
+            "--asset-root",
+        ])
+        .arg(&asset_root)
+        .output()
+        .expect("run automatic figure ingest");
+    assert!(
+        ingest.status.success(),
+        "ingest stderr: {}",
+        String::from_utf8_lossy(&ingest.stderr)
+    );
+
+    let store = SqliteItemStore::open(&store_path).expect("open ingested store");
+    let source = store
+        .query(&ItemQuery {
+            schema: Some("impress/artifact/general".into()),
+            ..Default::default()
+        })
+        .expect("query source")
+        .into_iter()
+        .next()
+        .expect("ingested source");
+    drop(store);
+
+    let mut child = Command::new(binary_path())
+        .arg("--store-path")
+        .arg(&store_path)
+        .arg("--asset-root")
+        .arg(&asset_root)
+        .arg("--cache-root")
+        .arg(&cache_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn vw-mcp");
+    let request = serde_json::json!({
+        "jsonrpc":"2.0", "id":1, "method":"tools/call",
+        "params":{"name":"source-service_get-figure-image","arguments":{
+            "citation_id":null, "source_item_id":source.id.to_string(),
+            "figure_label":"Fig. 1-1", "padding":8, "resolution_dpi":144,
+            "include_caption":true, "format":"png"
+        }}
+    });
+    writeln!(child.stdin.as_mut().expect("stdin"), "{request}").expect("write request");
+    drop(child.stdin.take());
+    let output = child.wait_with_output().expect("wait for MCP response");
+    assert!(
+        output.status.success(),
+        "MCP stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("JSON-RPC response");
+    assert_eq!(response["result"]["isError"], false);
+    assert_eq!(
+        response["result"]["structuredContent"]["status"],
+        "resolved"
+    );
+    let metadata = &response["result"]["structuredContent"]["metadata"];
+    assert_eq!(metadata["figure_label"], "Fig. 1-1");
+    assert_eq!(metadata["crop_status"], "extracted");
+    assert_eq!(metadata["page_index"], 0);
+    assert_eq!(metadata["page_label"], "1");
+    assert!(metadata["extraction_version"]
+        .as_str()
+        .unwrap()
+        .contains("impress-figure-boundary:1.0.0"));
+    let image = response["result"]["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|block| block["type"] == "image")
+        .expect("MCP image content block");
+    assert_eq!(image["mimeType"], "image/png");
+    assert!(image["data"].as_str().unwrap().len() > 100);
 }
 
 #[test]

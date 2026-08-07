@@ -34,6 +34,7 @@
 pub mod browse;
 pub mod collection_service;
 pub mod docs_import_service;
+pub mod figure_detection;
 pub mod query_service;
 pub mod source_assets;
 pub mod source_service;

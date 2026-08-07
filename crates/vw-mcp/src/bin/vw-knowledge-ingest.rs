@@ -11,13 +11,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
-use impress_core::source::normalized_text_hash;
+use impress_core::source::{normalized_text_hash, ExtractedTextRegion, FigureRegionStatus};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_service_core::runtime::block_on;
 use impress_store_service::{
     ContentChunkInput, DefaultSourceService, ExtractedTextRegionInput, ExtractionRunInput,
-    NormalizedRectInput, SourceCitationInput, SourceLocatorInput, SourceService,
+    FigureRegionInput, FigureRegionProvenanceInput, FigureRegionStatusInput, NormalizedRectInput,
+    SourceCitationInput, SourceLocatorInput, SourceService,
 };
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
@@ -25,6 +26,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 const INGEST_NAMESPACE: Uuid = Uuid::from_u128(0x1313eb44_a61b_43e7_9fd9_5bc35cbf185f);
+const AUTOMATIC_FIGURE_DPI: u32 = 110;
 
 #[derive(Debug)]
 struct Args {
@@ -63,6 +65,13 @@ struct LayoutBox {
     y: f64,
     width: f64,
     height: f64,
+}
+
+#[derive(Debug, Default)]
+struct AutomaticFigureExtraction {
+    figures: Vec<FigureRegionInput>,
+    warnings: Vec<String>,
+    candidate_pages: usize,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -166,7 +175,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         extractor_version,
         profile,
         started_at: built_at.clone(),
-        completed_at: Some(built_at),
+        completed_at: Some(built_at.clone()),
         output_content_hash: Some(output_hash),
         warnings: vec![
             "OCR text is extracted evidence and is not executable diagnostic knowledge until reviewed and cited.".into(),
@@ -244,6 +253,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))?;
     }
 
+    let automatic_run_id = Uuid::new_v5(
+        &INGEST_NAMESPACE,
+        format!(
+            "figure-extraction:{source_id}:{}:{}",
+            impress_store_service::figure_detection::EXTRACTOR_NAME,
+            impress_store_service::figure_detection::EXTRACTOR_VERSION,
+        )
+        .as_bytes(),
+    );
+    let automatic = detect_automatic_figures(
+        &pages,
+        source_id,
+        &source_hash,
+        automatic_run_id,
+        &args.asset_root,
+    );
+    let automatic_output_hash = hash_automatic_figures(&automatic.figures)?;
+    ensure_ok(block_on(
+        service.put_extraction_run(ExtractionRunInput {
+            id: automatic_run_id.to_string(),
+            source_item_id: source_id.to_string(),
+            source_content_hash: source_hash.clone(),
+            extractor: impress_store_service::figure_detection::EXTRACTOR_NAME.into(),
+            extractor_version: impress_store_service::figure_detection::EXTRACTOR_VERSION.into(),
+            profile: format!(
+                "ocr-caption+rendered-pixels;dpi={AUTOMATIC_FIGURE_DPI};conservative=true"
+            ),
+            started_at: built_at.clone(),
+            completed_at: Some(built_at),
+            output_content_hash: Some(automatic_output_hash),
+            warnings: automatic.warnings.clone(),
+            produced_item_ids: automatic
+                .figures
+                .iter()
+                .map(|figure| figure.id.clone())
+                .collect(),
+        }),
+    ))?;
+    for figure in &automatic.figures {
+        ensure_ok(block_on(service.put_figure_region(figure.clone())))?;
+    }
+
     if let Some(path) = &args.figure_regions {
         let figures: Vec<impress_store_service::FigureRegionInput> =
             serde_json::from_slice(&std::fs::read(path)?)?;
@@ -262,14 +313,159 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!(
-        "Imported '{}' as source {}: {} searchable pages, {} blank pages, extraction {}",
+        "Imported '{}' as source {}: {} searchable pages, {} blank pages, extraction {}; automatic figure candidates on {} page(s)",
         args.title,
         source_id,
         nonblank.len(),
         blank,
-        extraction_id
+        extraction_id,
+        automatic.candidate_pages,
     );
     Ok(())
+}
+
+fn detect_automatic_figures(
+    pages: &[OcrPage],
+    source_id: Uuid,
+    source_hash: &str,
+    extraction_run_id: Uuid,
+    asset_root: &Path,
+) -> AutomaticFigureExtraction {
+    use impress_store_service::figure_detection::{
+        detect_figure_regions, has_figure_caption, EXTRACTOR_NAME, EXTRACTOR_VERSION,
+    };
+
+    let mut output = AutomaticFigureExtraction::default();
+    let cache_root = asset_root.join("render-cache");
+    let mut candidates = Vec::new();
+    for page in pages {
+        let regions = page
+            .regions
+            .iter()
+            .filter_map(|observation| {
+                normalized_region(&observation.bounding_box).map(|region| ExtractedTextRegion {
+                    text: observation.text.clone(),
+                    confidence: observation.confidence,
+                    region: impress_core::source::NormalizedRect::new(
+                        region.x,
+                        region.y,
+                        region.width,
+                        region.height,
+                    )
+                    .expect("normalized_region already validated geometry"),
+                })
+            })
+            .collect::<Vec<_>>();
+        if !has_figure_caption(&regions) {
+            continue;
+        }
+        candidates.push((page, regions));
+    }
+    output.candidate_pages = candidates.len();
+    let page_indexes = candidates
+        .iter()
+        .map(|(page, _)| page.page.saturating_sub(1))
+        .collect::<Vec<_>>();
+    let rendered = match impress_store_service::source_assets::render_pages(
+        asset_root,
+        &cache_root,
+        source_hash,
+        &page_indexes,
+        AUTOMATIC_FIGURE_DPI,
+        "png",
+    ) {
+        Ok(rendered) => rendered,
+        Err(error) => {
+            output
+                .warnings
+                .push(format!("automatic figure batch rendering failed: {error}"));
+            return output;
+        }
+    };
+    for (page, regions) in candidates {
+        let page_index = page.page.saturating_sub(1);
+        let Some(page_render) = rendered.pages.get(&page_index) else {
+            let error = rendered
+                .errors
+                .get(&page_index)
+                .map(String::as_str)
+                .unwrap_or("renderer returned no page or error");
+            output.warnings.push(format!(
+                "PDF page {} figure rendering failed: {error}",
+                page.page
+            ));
+            continue;
+        };
+        let detected = match detect_figure_regions(&regions, &page_render.png) {
+            Ok(detected) => detected,
+            Err(error) => {
+                output.warnings.push(format!(
+                    "PDF page {} figure detection failed: {error}",
+                    page.page
+                ));
+                continue;
+            }
+        };
+        for figure in detected {
+            let id = Uuid::new_v5(
+                &INGEST_NAMESPACE,
+                format!(
+                    "automatic-figure:{source_id}:{page_index}:{}:{EXTRACTOR_VERSION}",
+                    normalize_figure_key(&figure.figure_label)
+                )
+                .as_bytes(),
+            );
+            output.figures.push(FigureRegionInput {
+                id: id.to_string(),
+                source_item_id: source_id.to_string(),
+                source_content_hash: source_hash.into(),
+                extraction_run_id: Some(extraction_run_id.to_string()),
+                page_index,
+                page_label: page.page.to_string(),
+                figure_label: figure.figure_label,
+                caption_text: Some(figure.caption_text),
+                image_region: figure.image_region.map(rect_input),
+                caption_region: Some(rect_input(figure.caption_region)),
+                status: match figure.status {
+                    FigureRegionStatus::Extracted => FigureRegionStatusInput::Extracted,
+                    FigureRegionStatus::Ambiguous => FigureRegionStatusInput::Ambiguous,
+                    FigureRegionStatus::Curated => unreachable!("automatic detector cannot curate"),
+                },
+                provenance: FigureRegionProvenanceInput::Automatic {
+                    extractor: EXTRACTOR_NAME.into(),
+                    extractor_version: EXTRACTOR_VERSION.into(),
+                },
+                warnings: figure.warnings,
+            });
+        }
+    }
+    output
+}
+
+fn hash_automatic_figures(
+    figures: &[FigureRegionInput],
+) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(figures)?)
+    ))
+}
+
+fn rect_input(rect: impress_core::source::NormalizedRect) -> NormalizedRectInput {
+    NormalizedRectInput {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    }
+}
+
+fn normalize_figure_key(label: &str) -> String {
+    label
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn parse_args() -> Result<Args, Box<dyn std::error::Error>> {

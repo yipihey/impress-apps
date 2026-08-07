@@ -36,17 +36,27 @@ coordinates, caption, and extraction lineage. Call
 context. Page labels are resolved through stored source evidence and may differ
 from physical page order.
 
+During ingestion, a conservative shared Rust detector identifies anchored
+figure/table captions from OCR geometry, then requires supporting rendered-page
+pixels before storing a crop. It scores both sides of the caption, penalizes
+OCR-heavy prose, refines the boundary to visible ink, and records its version,
+confidence signals, geometry, and ambiguity warnings in a separate extraction
+run. It does not infer a crop from OCR text order alone. Manually curated
+regions remain provenance-preserving corrections and take precedence over an
+automatic region for the same page and label.
+
 Only a stored extracted or manually curated figure region is cropped. If the
-boundary is missing or ambiguous, `get-figure-image` says so and returns the
-complete cited page as an explicitly marked `page_fallback`; it never guesses a
-figure boundary. Diagnostic mode can only read images. Adding or correcting a
-figure region requires the server's curation profile.
+signals remain weak or ambiguous, `get-figure-image` says so and returns the
+complete cited page as an explicitly marked `page_fallback`; it never silently
+guesses a figure boundary. Diagnostic mode can only read images. Adding or
+correcting a figure region requires the server's curation profile.
 
 The optional local validation script
-`crates/vw-mcp/scripts/validate-local-figures.sh` exercises the curated service
-manual figures 4-3, 4-4, and 4-5 plus complete PDF page 467 through MCP stdio.
-It reads the user's local manual asset and never writes or redistributes manual
-page images.
+`crates/vw-mcp/scripts/validate-local-figures.sh` exercises service-manual
+figures 4-3, 4-4, and 4-5 by their page citations, plus complete PDF page 467,
+through MCP stdio. This also avoids ambiguity when a manual reuses a figure
+label in another chapter. It reads the user's local manual asset and never
+writes or redistributes manual page images.
 
 The current source IDs are recorded in
 [knowledge/vw/sources.json](../knowledge/vw/sources.json). Source text is in the

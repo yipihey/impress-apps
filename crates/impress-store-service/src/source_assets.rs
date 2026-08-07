@@ -1,8 +1,9 @@
 //! Content-addressed PDF assets and bounded deterministic page rendering.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
@@ -23,6 +24,7 @@ static CACHE_ROOT: OnceLock<PathBuf> = OnceLock::new();
 type VerifiedAsset = (String, u64, SystemTime);
 type VerifiedAssetCache = Mutex<HashMap<PathBuf, VerifiedAsset>>;
 static VERIFIED_ASSETS: OnceLock<VerifiedAssetCache> = OnceLock::new();
+static BATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub fn default_source_asset_root() -> PathBuf {
     store_path()
@@ -184,6 +186,37 @@ function run(argv) {
 }
 "#;
 
+const BATCH_RENDER_JXA: &str = r#"
+function run(argv) {
+  ObjC.import('Foundation'); ObjC.import('AppKit'); ObjC.import('Quartz');
+  var input = argv[0], outputDir = argv[1], dpi = parseInt(argv[2], 10);
+  var indexes = argv[3].split(',').filter(Boolean).map(function(value) { return parseInt(value, 10); });
+  var doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath($(input)));
+  if (!doc || doc.isNil()) return JSON.stringify({fatal:'not a readable PDF'});
+  var count = parseInt(doc.pageCount, 10), results = [];
+  indexes.forEach(function(index) {
+    if (index < 0 || index >= count) {
+      results.push({index:index,error:'page index out of range'}); return;
+    }
+    var page = doc.pageAtIndex(index), bounds = page.boundsForBox(0), scale = dpi / 72.0;
+    var width = Math.max(1, Math.round(bounds.size.width * scale));
+    var height = Math.max(1, Math.round(bounds.size.height * scale));
+    if (width * height > 24000000) {
+      results.push({index:index,error:'rendered page exceeds pixel limit'}); return;
+    }
+    var image = page.thumbnailOfSizeForBox({width:width, height:height}, 0);
+    var rep = $.NSBitmapImageRep.imageRepWithData(image.TIFFRepresentation);
+    var png = rep.representationUsingTypeProperties(4, $());
+    var output = outputDir + '/' + index + '.png';
+    if (!png || png.isNil() || !png.writeToFileAtomically($(output), true)) {
+      results.push({index:index,error:'PNG encoding failed'}); return;
+    }
+    results.push({index:index,width:width,height:height});
+  });
+  return JSON.stringify({pageCount:count,results:results});
+}
+"#;
+
 pub fn render_page(
     asset_root: &Path,
     cache_root: &Path,
@@ -197,11 +230,9 @@ pub fn render_page(
     if !pdf.is_file() {
         return Err("immutable source PDF is unavailable".into());
     }
-    let key = cache_key(&format!("page:{source_hash}:{page_index}:{dpi}:{format}"));
-    let path = cache_root
-        .join("pages")
-        .join(&key[..2])
-        .join(format!("{key}.png"));
+    verify_source_pdf(&pdf, source_hash)?;
+    let key = page_cache_key(source_hash, page_index, dpi, format);
+    let path = page_cache_path(cache_root, &key);
     if path.is_file() {
         return read_render(&path, true);
     }
@@ -236,6 +267,126 @@ pub fn render_page(
     let rendered = read_render(&temporary, false)?;
     std::fs::rename(&temporary, &path).map_err(|error| format!("publish render cache: {error}"))?;
     Ok(rendered)
+}
+
+#[derive(Debug, Default)]
+pub struct BatchRenderResult {
+    pub pages: BTreeMap<u32, RenderedPage>,
+    pub errors: BTreeMap<u32, String>,
+}
+
+/// Render many pages while opening the immutable PDF only once. Cached pages
+/// are read directly; only misses cross the PDFKit boundary.
+pub fn render_pages(
+    asset_root: &Path,
+    cache_root: &Path,
+    source_hash: &str,
+    page_indexes: &[u32],
+    dpi: u32,
+    format: &str,
+) -> Result<BatchRenderResult, String> {
+    validate_render_request(dpi, format)?;
+    let pdf = source_pdf_path(asset_root, source_hash)?;
+    if !pdf.is_file() {
+        return Err("immutable source PDF is unavailable".into());
+    }
+    verify_source_pdf(&pdf, source_hash)?;
+    let mut result = BatchRenderResult::default();
+    let mut missing = Vec::new();
+    for &page_index in page_indexes {
+        let key = page_cache_key(source_hash, page_index, dpi, format);
+        let path = page_cache_path(cache_root, &key);
+        if path.is_file() {
+            match read_render(&path, true) {
+                Ok(page) => {
+                    result.pages.insert(page_index, page);
+                }
+                Err(error) => {
+                    result.errors.insert(page_index, error);
+                }
+            }
+        } else if !missing.contains(&page_index) {
+            missing.push(page_index);
+        }
+    }
+    if missing.is_empty() {
+        return Ok(result);
+    }
+
+    let sequence = BATCH_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let batch_dir = cache_root
+        .join("batch")
+        .join(format!("{}-{sequence}", std::process::id()));
+    std::fs::create_dir_all(&batch_dir)
+        .map_err(|error| format!("create batch render directory: {error}"))?;
+    let indexes = missing
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let output = Command::new("osascript")
+        .args([
+            "-l",
+            "JavaScript",
+            "-e",
+            BATCH_RENDER_JXA,
+            &pdf.to_string_lossy(),
+            &batch_dir.to_string_lossy(),
+            &dpi.to_string(),
+            &indexes,
+        ])
+        .output()
+        .map_err(|error| format!("could not start batch PDFKit renderer: {error}"))?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&batch_dir);
+        return Err(format!(
+            "batch PDFKit renderer failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("invalid batch PDFKit response: {error}"))?;
+    if let Some(error) = report.get("fatal").and_then(serde_json::Value::as_str) {
+        let _ = std::fs::remove_dir_all(&batch_dir);
+        return Err(error.into());
+    }
+    for entry in report
+        .get("results")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(page_index) = entry
+            .get("index")
+            .and_then(serde_json::Value::as_u64)
+            .map(|value| value as u32)
+        else {
+            continue;
+        };
+        if let Some(error) = entry.get("error").and_then(serde_json::Value::as_str) {
+            result.errors.insert(page_index, error.into());
+            continue;
+        }
+        let temporary = batch_dir.join(format!("{page_index}.png"));
+        match read_render(&temporary, false) {
+            Ok(page) => {
+                let key = page_cache_key(source_hash, page_index, dpi, format);
+                let cache = page_cache_path(cache_root, &key);
+                if let Some(parent) = cache.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|error| format!("create page cache: {error}"))?;
+                }
+                std::fs::rename(&temporary, &cache)
+                    .map_err(|error| format!("publish batch page cache: {error}"))?;
+                result.pages.insert(page_index, page);
+            }
+            Err(error) => {
+                result.errors.insert(page_index, error);
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&batch_dir);
+    Ok(result)
 }
 
 pub struct FigureCropSpec<'a> {
@@ -304,6 +455,17 @@ fn validate_render_request(dpi: u32, format: &str) -> Result<(), String> {
         return Err("only deterministic PNG output is currently supported".into());
     }
     Ok(())
+}
+
+fn page_cache_key(source_hash: &str, page_index: u32, dpi: u32, format: &str) -> String {
+    cache_key(&format!("page:{source_hash}:{page_index}:{dpi}:{format}"))
+}
+
+fn page_cache_path(cache_root: &Path, key: &str) -> PathBuf {
+    cache_root
+        .join("pages")
+        .join(&key[..2])
+        .join(format!("{key}.png"))
 }
 
 fn read_render(path: &Path, cache_hit: bool) -> Result<RenderedPage, String> {
