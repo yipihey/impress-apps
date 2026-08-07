@@ -61,6 +61,8 @@ const VW_SOURCE_READ_TOOLS: &[&str] = &[
     "source-service_get-citation",
     "source-service_get-content-chunk",
     "source-service_search-content-chunks",
+    "source-service_get-page-image",
+    "source-service_get-figure-image",
 ];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

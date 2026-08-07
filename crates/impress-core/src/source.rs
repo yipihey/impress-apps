@@ -204,6 +204,104 @@ pub struct ExtractedTextRegion {
     pub region: NormalizedRect,
 }
 
+/// Confidence state for a figure region. Automatic extraction must use
+/// `Ambiguous` instead of guessing at a crop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FigureRegionStatus {
+    Extracted,
+    Curated,
+    Ambiguous,
+}
+
+/// Provenance for an extracted or manually corrected figure boundary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FigureRegionProvenance {
+    Automatic {
+        extractor: String,
+        extractor_version: String,
+    },
+    ManualCorrection {
+        curator: String,
+        corrected_at: String,
+        #[serde(default)]
+        supersedes: Option<ItemId>,
+    },
+}
+
+/// Immutable layout evidence connecting a figure label and caption to page
+/// geometry. Coordinates use the same normalized lower-left page space as OCR
+/// regions, independent of output DPI.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FigureRegionEvidence {
+    pub id: ItemId,
+    pub source_item_id: ItemId,
+    pub source_content_hash: String,
+    pub extraction_run_id: Option<ItemId>,
+    pub page_index: u32,
+    pub page_label: String,
+    pub figure_label: String,
+    pub caption_text: Option<String>,
+    pub image_region: Option<NormalizedRect>,
+    pub caption_region: Option<NormalizedRect>,
+    pub status: FigureRegionStatus,
+    pub provenance: FigureRegionProvenance,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+impl FigureRegionEvidence {
+    pub fn validate(&self) -> Result<(), SourceError> {
+        validate_sha256("source_content_hash", &self.source_content_hash)?;
+        if self.page_label.trim().is_empty() || self.figure_label.trim().is_empty() {
+            return Err(SourceError::InvalidFigureRegion(
+                "page_label and figure_label must not be blank".into(),
+            ));
+        }
+        if self
+            .caption_text
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(SourceError::InvalidFigureRegion(
+                "caption_text must be absent rather than blank".into(),
+            ));
+        }
+        if let Some(region) = self.image_region {
+            region.validate()?;
+        }
+        if let Some(region) = self.caption_region {
+            region.validate()?;
+        }
+        match self.status {
+            FigureRegionStatus::Extracted | FigureRegionStatus::Curated
+                if self.image_region.is_none() =>
+            {
+                Err(SourceError::InvalidFigureRegion(
+                    "an extracted or curated figure requires image_region".into(),
+                ))
+            }
+            FigureRegionStatus::Ambiguous if self.image_region.is_some() => {
+                Err(SourceError::InvalidFigureRegion(
+                    "an ambiguous figure must not publish a selected image_region".into(),
+                ))
+            }
+            FigureRegionStatus::Curated
+                if !matches!(
+                    self.provenance,
+                    FigureRegionProvenance::ManualCorrection { .. }
+                ) =>
+            {
+                Err(SourceError::InvalidFigureRegion(
+                    "curated geometry requires manual-correction provenance".into(),
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
 impl ExtractedTextRegion {
     pub fn validate(&self) -> Result<(), SourceError> {
         if self.text.trim().is_empty() {
@@ -272,6 +370,8 @@ pub enum SourceError {
     InvalidExtraction(String),
     #[error("invalid content chunk: {0}")]
     InvalidChunk(String),
+    #[error("invalid figure region: {0}")]
+    InvalidFigureRegion(String),
     #[error("invalid SHA-256 in {field}: {value}")]
     InvalidHash { field: String, value: String },
 }

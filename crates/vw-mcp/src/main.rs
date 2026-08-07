@@ -9,6 +9,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut store_path: Option<PathBuf> = None;
     let mut knowledge_pack_path: Option<PathBuf> = None;
     let mut http_bind: Option<String> = None;
+    let mut asset_root: Option<PathBuf> = None;
+    let mut cache_root: Option<PathBuf> = None;
     let mut curation = false;
     let mut args = std::env::args().skip(1);
     while let Some(argument) = args.next() {
@@ -26,11 +28,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--http-bind" => {
                 http_bind = Some(args.next().ok_or("--http-bind requires a value")?);
             }
+            "--asset-root" => {
+                asset_root = Some(PathBuf::from(
+                    args.next().ok_or("--asset-root requires a value")?,
+                ))
+            }
+            "--cache-root" => {
+                cache_root = Some(PathBuf::from(
+                    args.next().ok_or("--cache-root requires a value")?,
+                ))
+            }
             "--curation" => curation = true,
             "--help" | "-h" => {
                 println!(
                     "vw-mcp [--store-path PATH] [--knowledge-pack PACK.json] [--curation] \
-                     [--http-bind ADDRESS]"
+                     [--http-bind ADDRESS] [--asset-root DIR] [--cache-root DIR]"
                 );
                 println!("Focused VW diagnostic MCP server over stdio by default.");
                 println!(
@@ -48,6 +60,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(path) = store_path {
         impress_store_service::set_store_path(path)?;
     }
+    if let Some(path) = asset_root {
+        impress_store_service::set_source_asset_root(path)?;
+    }
+    if let Some(path) = cache_root {
+        impress_store_service::set_source_cache_root(path)?;
+    }
     if let Some(path) = knowledge_pack_path {
         let bytes = std::fs::read(&path)?;
         let pack: vw_domain::KnowledgePack = serde_json::from_slice(&bytes)?;
@@ -64,13 +82,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         allowed_tool_prefixes.push("source-service_get-citation".into());
         allowed_tool_prefixes.push("source-service_get-content-chunk".into());
         allowed_tool_prefixes.push("source-service_search-content-chunks".into());
+        allowed_tool_prefixes.push("source-service_get-page-image".into());
+        allowed_tool_prefixes.push("source-service_get-figure-image".into());
     }
 
     let config = HostConfig {
         server_name: "vw-diagnostic".into(),
         server_version: env!("CARGO_PKG_VERSION").into(),
         instructions:
-            "Use only semantic VW tools. Create or load a session, record user-supplied evidence with units and conditions, then evaluate deterministic published rules. Never invent measurements, citations, applicability, or probabilities."
+            "Use only semantic VW tools. Search source chunks and resolve citations before presenting evidence. When a cited procedure has a useful figure, call source-service_get-figure-image and display it; call source-service_get-page-image when the complete page or surrounding context matters. An ambiguous figure result is a full-page fallback, never a verified crop. Never invent measurements, citations, applicability, figures, or probabilities."
                 .into(),
         allowed_tool_prefixes,
         resources: vec![

@@ -189,6 +189,25 @@ impl fmt::Debug for McpToolDescriptor {
 
 inventory::collect!(McpToolDescriptor);
 
+/// Reserved result field used by generated services that need MCP-native
+/// content (notably images). Transports remove it from structured output and
+/// publish its blocks as the tool result's `content` array.
+pub const MCP_CONTENT_FIELD: &str = "_mcp_content";
+
+/// Split MCP-native content from an otherwise ordinary generated service
+/// result. Keeping this convention here lets every service remain generated
+/// while stdio, HTTP, and suite-wide hosts share one mixed-content behavior.
+pub fn split_mcp_content(
+    mut value: serde_json::Value,
+) -> (Vec<serde_json::Value>, serde_json::Value) {
+    let blocks = value
+        .as_object_mut()
+        .and_then(|object| object.remove(MCP_CONTENT_FIELD))
+        .and_then(|content| content.as_array().cloned())
+        .unwrap_or_default();
+    (blocks, value)
+}
+
 /// Descriptor for a single CLI subcommand exposed by a service method.
 ///
 /// Generated `inventory::submit!` blocks register one of these per method.

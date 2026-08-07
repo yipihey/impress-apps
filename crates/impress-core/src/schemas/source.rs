@@ -7,6 +7,7 @@ use crate::schema::{FieldDef, FieldType, Schema};
 pub const SOURCE_CITATION_SCHEMA: &str = "source-citation@1.0.0";
 pub const EXTRACTION_RUN_SCHEMA: &str = "extraction-run@1.0.0";
 pub const CONTENT_CHUNK_SCHEMA: &str = "content-chunk@1.0.0";
+pub const FIGURE_REGION_SCHEMA: &str = "figure-region@1.0.0";
 
 fn field(name: &str, field_type: FieldType, required: bool, description: &str) -> FieldDef {
     FieldDef {
@@ -198,11 +199,96 @@ pub fn content_chunk_schema() -> Schema {
     }
 }
 
+pub fn figure_region_schema() -> Schema {
+    Schema {
+        id: FIGURE_REGION_SCHEMA.into(),
+        name: "Figure Region Evidence".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            field(
+                "source_item_id",
+                FieldType::String,
+                true,
+                "Source item UUID.",
+            ),
+            field(
+                "source_content_hash",
+                FieldType::String,
+                true,
+                "SHA-256 of source PDF bytes.",
+            ),
+            field(
+                "extraction_run_id",
+                FieldType::String,
+                false,
+                "Producing layout extraction run.",
+            ),
+            field(
+                "page_index",
+                FieldType::Int,
+                true,
+                "Zero-based physical PDF page index.",
+            ),
+            field(
+                "page_label",
+                FieldType::String,
+                true,
+                "Displayed PDF page label.",
+            ),
+            field(
+                "figure_label",
+                FieldType::String,
+                true,
+                "Printed figure or table label.",
+            ),
+            field(
+                "caption_text",
+                FieldType::String,
+                false,
+                "Caption text when retained.",
+            ),
+            field(
+                "image_region",
+                FieldType::Object,
+                false,
+                "Normalized lower-left-origin image bounds.",
+            ),
+            field(
+                "caption_region",
+                FieldType::Object,
+                false,
+                "Normalized lower-left-origin caption bounds.",
+            ),
+            field(
+                "status",
+                FieldType::String,
+                true,
+                "extracted, curated, or ambiguous.",
+            ),
+            field(
+                "provenance",
+                FieldType::Object,
+                true,
+                "Automatic extraction or manual correction lineage.",
+            ),
+            field(
+                "warnings",
+                FieldType::StringArray,
+                false,
+                "Boundary extraction warnings.",
+            ),
+        ],
+        expected_edges: vec![EdgeType::References, EdgeType::DerivedFrom],
+        inherits: None,
+    }
+}
+
 pub fn register_source_schemas(registry: &mut SchemaRegistry) {
     for schema in [
         source_citation_schema(),
         extraction_run_schema(),
         content_chunk_schema(),
+        figure_region_schema(),
     ] {
         registry
             .register(schema)
@@ -222,6 +308,7 @@ mod tests {
             SOURCE_CITATION_SCHEMA,
             EXTRACTION_RUN_SCHEMA,
             CONTENT_CHUNK_SCHEMA,
+            FIGURE_REGION_SCHEMA,
         ] {
             assert!(registry.get(id).is_some(), "missing {id}");
         }

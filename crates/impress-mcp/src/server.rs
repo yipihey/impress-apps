@@ -572,18 +572,18 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
         };
         match call_inventory_tool(tool_name, owned_args) {
             Ok(value) => {
-                // Convention: stringify the JSON result so it survives
-                // the MCP `content` channel intact. Clients can re-parse.
-                let text = match &value {
+                let (mut content, structured) = impress_service_core::split_mcp_content(value);
+                let text = match &structured {
                     Value::String(s) => s.clone(),
                     other => other.to_string(),
                 };
+                content.push(json!({ "type": "text", "text": text }));
                 return json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": {
-                        "content": [{ "type": "text", "text": text }],
-                        "structuredContent": value,
+                        "content": content,
+                        "structuredContent": structured,
                     }
                 });
             }

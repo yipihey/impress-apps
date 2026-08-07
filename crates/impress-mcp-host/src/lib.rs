@@ -228,8 +228,7 @@ fn handle_tool_call(config: &HostConfig, id: Value, request: &Value) -> Value {
         .cloned()
         .unwrap_or_else(|| json!({}));
     let result = impress_service_core::runtime::block_on((descriptor.handler)(arguments))
-        .map_err(|error| error.to_string())
-        .and_then(|value| serde_json::to_string_pretty(&value).map_err(|error| error.to_string()));
+        .map_err(|error| error.to_string());
     tool_result(id, result)
 }
 
@@ -255,15 +254,26 @@ fn handle_resource_read(config: &HostConfig, id: Value, request: &Value) -> Valu
     )
 }
 
-fn tool_result(id: Value, result: Result<String, String>) -> Value {
+fn tool_result(id: Value, result: Result<Value, String>) -> Value {
     match result {
-        Ok(text) => success(
-            id,
-            json!({
-                "content": [{ "type": "text", "text": text }],
-                "isError": false,
-            }),
-        ),
+        Ok(value) => {
+            let (mut content, structured) = impress_service_core::split_mcp_content(value);
+            let text = serde_json::to_string_pretty(&structured)
+                .unwrap_or_else(|error| format!("Could not encode structured result: {error}"));
+            content.push(json!({ "type": "text", "text": text }));
+            let is_error = structured
+                .get("ok")
+                .and_then(Value::as_bool)
+                .is_some_and(|ok| !ok);
+            success(
+                id,
+                json!({
+                    "content": content,
+                    "structuredContent": structured,
+                    "isError": is_error,
+                }),
+            )
+        }
         Err(message) => success(
             id,
             json!({
@@ -360,5 +370,26 @@ mod tests {
             HeaderValue::from_static("Basic secret"),
         );
         assert!(!has_bearer_token(&headers, "secret"));
+    }
+
+    #[test]
+    fn native_image_content_is_split_from_structured_result() {
+        let response = tool_result(
+            json!(9),
+            Ok(json!({
+                "ok": true,
+                "status": "resolved",
+                "_mcp_content": [{"type":"image","data":"iVBORw0KGgo=","mimeType":"image/png"}]
+            })),
+        );
+        assert_eq!(response["result"]["content"][0]["type"], "image");
+        assert_eq!(response["result"]["content"][0]["mimeType"], "image/png");
+        assert_eq!(
+            response["result"]["structuredContent"]["status"],
+            "resolved"
+        );
+        assert!(response["result"]["structuredContent"]
+            .get("_mcp_content")
+            .is_none());
     }
 }

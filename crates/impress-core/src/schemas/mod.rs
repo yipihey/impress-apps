@@ -41,7 +41,8 @@ pub use manuscript_section::register_imprint_schemas;
 pub use manuscript_submission::register_manuscript_submission_schema;
 pub use plot_spec::register_plot_spec_schema;
 pub use source::{
-    register_source_schemas, CONTENT_CHUNK_SCHEMA, EXTRACTION_RUN_SCHEMA, SOURCE_CITATION_SCHEMA,
+    register_source_schemas, CONTENT_CHUNK_SCHEMA, EXTRACTION_RUN_SCHEMA, FIGURE_REGION_SCHEMA,
+    SOURCE_CITATION_SCHEMA,
 };
 pub use task::{
     register_task_schemas, register_task_schemas_if_absent, AGENT_RUN_SCHEMA, TASK_SCHEMA,

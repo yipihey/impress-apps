@@ -35,6 +35,7 @@ pub mod browse;
 pub mod collection_service;
 pub mod docs_import_service;
 pub mod query_service;
+pub mod source_assets;
 pub mod source_service;
 pub mod store;
 pub mod triage_service;
@@ -73,10 +74,16 @@ pub use query_service::{
     RelatedResult, SearchHitDto, SearchResult, StoreQueryService, DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT, MAX_PAYLOAD_BYTES,
 };
+pub use source_assets::{
+    default_source_asset_root, install_source_pdf, set_source_asset_root, set_source_cache_root,
+    source_asset_root, source_cache_root, source_pdf_path,
+};
 pub use source_service::{
     ContentChunkInput, ContentChunkSearchHit, ContentChunkSearchResult, DefaultSourceService,
-    ExtractedTextRegionInput, ExtractionRunInput, NormalizedRectInput, SourceCitationInput,
-    SourceLocatorInput, SourceRecordResult, SourceService,
+    EvidenceAvailability, ExtractedTextRegionInput, ExtractionRunInput, FigureEvidenceSummary,
+    FigureImageMetadata, FigureImageResult, FigureRegionInput, FigureRegionProvenanceInput,
+    FigureRegionStatusInput, NormalizedRectInput, PageImageMetadata, PageImageResult, PixelRect,
+    SourceCitationInput, SourceLocatorInput, SourceRecordResult, SourceService,
 };
 pub use store::{default_store_path, install_store, set_store_path, store_instance, store_path};
 pub use triage_service::{DefaultTriageService, TriageResult, TriageService};
@@ -124,8 +131,11 @@ mod inventory_tests {
             "source-service_get-citation",
             "source-service_put-extraction-run",
             "source-service_put-content-chunk",
+            "source-service_put-figure-region",
             "source-service_get-content-chunk",
             "source-service_search-content-chunks",
+            "source-service_get-page-image",
+            "source-service_get-figure-image",
             // Markdown-directory → manuscript-collection import (repeatable).
             "docs-import-service_import-directory",
             "docs-import-service_prune-empty-manuscripts",

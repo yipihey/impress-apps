@@ -36,6 +36,8 @@ struct Args {
     source_class: String,
     publisher: String,
     extractor_version: Option<String>,
+    asset_root: PathBuf,
+    figure_regions: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -101,6 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &INGEST_NAMESPACE,
         format!("source:{source_hash}").as_bytes(),
     );
+    impress_store_service::install_source_pdf(&args.asset_root, &source_pdf, &source_hash)?;
     put_source_asset(
         &store,
         source_id,
@@ -241,6 +244,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))?;
     }
 
+    if let Some(path) = &args.figure_regions {
+        let figures: Vec<impress_store_service::FigureRegionInput> =
+            serde_json::from_slice(&std::fs::read(path)?)?;
+        for figure in figures {
+            if figure.source_item_id != source_id.to_string()
+                || figure.source_content_hash != source_hash
+            {
+                return Err(format!(
+                    "curated figure {} belongs to a different immutable source",
+                    figure.id
+                )
+                .into());
+            }
+            ensure_ok(block_on(service.put_figure_region(figure)))?;
+        }
+    }
+
     println!(
         "Imported '{}' as source {}: {} searchable pages, {} blank pages, extraction {}",
         args.title,
@@ -260,7 +280,8 @@ fn parse_args() -> Result<Args, Box<dyn std::error::Error>> {
             println!(concat!(
                 "vw-knowledge-ingest --store-path DB --source-pdf FILE ",
                 "--ocr-index INDEX.sqlite3 --title TITLE --source-class CLASS ",
-                "--publisher NAME [--extractor-version VERSION] [--source-url URL]"
+                "--publisher NAME [--extractor-version VERSION] [--source-url URL]",
+                " [--asset-root DIR] [--figure-regions JSON]"
             ));
             std::process::exit(0);
         }
@@ -283,6 +304,16 @@ fn parse_args() -> Result<Args, Box<dyn std::error::Error>> {
     let publisher = required(&mut map, "--publisher")?;
     let extractor_version = map.remove("--extractor-version");
     let source_url = map.remove("--source-url");
+    let asset_root = map
+        .remove("--asset-root")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            store_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("source-assets")
+        });
+    let figure_regions = map.remove("--figure-regions").map(PathBuf::from);
     if let Some(unknown) = map.keys().next() {
         return Err(format!("unknown argument: {unknown}").into());
     }
@@ -295,6 +326,8 @@ fn parse_args() -> Result<Args, Box<dyn std::error::Error>> {
         source_class,
         publisher,
         extractor_version,
+        asset_root,
+        figure_regions,
     })
 }
 
