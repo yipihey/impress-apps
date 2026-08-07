@@ -261,7 +261,11 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   `IMPRESS_SKIP_X86=1` (arm64-only macOS slice) and `IMPRESS_SKIP_IOS=1` (skip the
   iOS device+sim slices). `./scripts/build-xcframeworks.sh --fast [crate...]` sets
   both; `--macos-only` sets just the iOS skip. Debug/macOS app builds link the
-  skinny frameworks fine (Debug is arm64-only via ONLY_ACTIVE_ARCH). CI and
+  skinny frameworks fine (Debug is arm64-only via ONLY_ACTIVE_ARCH). But the
+  pre-push dual-platform gate builds imbib-iOS against these same local
+  frameworks — before pushing a change that triggers it (PMC/iOS/packages),
+  rebuild with `IMPRESS_SKIP_X86=1` alone so the iOS slices exist, or the push
+  fails with an iOS resolution error. CI and
   release set neither env and stay universal + all-slices; imprint-core also
   accepts its original `IMPRINT_SKIP_IOS` spelling, which CI passes as env-extra
   and which is baked into the xcframework cache key — never rename it in CI.
