@@ -22,6 +22,11 @@ XCFRAMEWORK_NAME="ImploreCore"
 MACOS_TARGET="aarch64-apple-darwin"
 MACOS_X86_TARGET="x86_64-apple-darwin"
 
+# IMPRESS_SKIP_X86=1 builds arm64-only (local dev loop on Apple Silicon —
+# roughly halves the macOS Rust compile). CI and release keep universal.
+# (No IMPRESS_SKIP_IOS gate here: implore-core builds no iOS slices yet.)
+BUILD_X86=$([ "${IMPRESS_SKIP_X86:-0}" = "1" ] && echo 0 || echo 1)
+
 echo "=== Building implore-core Rust library ==="
 
 # Ensure required targets are installed
@@ -33,9 +38,11 @@ echo ""
 echo "Building for macOS (arm64) with uniffi feature..."
 cargo build --release --target $MACOS_TARGET --features uniffi
 
-echo ""
-echo "Building for macOS (x86_64) with uniffi feature..."
-cargo build --release --target $MACOS_X86_TARGET --features uniffi
+if [ "$BUILD_X86" = "1" ]; then
+    echo ""
+    echo "Building for macOS (x86_64) with uniffi feature..."
+    cargo build --release --target $MACOS_X86_TARGET --features uniffi
+fi
 
 # Create framework directory structure
 echo ""
@@ -47,11 +54,17 @@ mkdir -p "$FRAMEWORK_DIR"
 MACOS_UNIVERSAL_DIR="$FRAMEWORK_DIR/macos-universal"
 mkdir -p "$MACOS_UNIVERSAL_DIR"
 
-echo "Creating universal macOS binary..."
-lipo -create \
-    "$BUILD_DIR/$MACOS_TARGET/release/libimplore_core.a" \
-    "$BUILD_DIR/$MACOS_X86_TARGET/release/libimplore_core.a" \
-    -output "$MACOS_UNIVERSAL_DIR/libimplore_core.a"
+if [ "$BUILD_X86" = "1" ]; then
+    echo "Creating universal macOS binary..."
+    lipo -create \
+        "$BUILD_DIR/$MACOS_TARGET/release/libimplore_core.a" \
+        "$BUILD_DIR/$MACOS_X86_TARGET/release/libimplore_core.a" \
+        -output "$MACOS_UNIVERSAL_DIR/libimplore_core.a"
+else
+    echo "Creating arm64-only macOS binary (IMPRESS_SKIP_X86=1)..."
+    cp "$BUILD_DIR/$MACOS_TARGET/release/libimplore_core.a" \
+        "$MACOS_UNIVERSAL_DIR/libimplore_core.a"
+fi
 
 # Generate Swift bindings
 echo ""
