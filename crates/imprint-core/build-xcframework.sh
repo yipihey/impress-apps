@@ -39,10 +39,13 @@ CARGO_FEATURES="native"
 # IMPRESS_SKIP_X86=1 builds arm64-only (local dev loop on Apple Silicon —
 # roughly halves the macOS Rust compile). CI and release keep universal.
 BUILD_X86=$([ "${IMPRESS_SKIP_X86:-0}" = "1" ] && echo 0 || echo 1)
-# iOS slices are on by default (skip with IMPRINT_SKIP_IOS=1). The Tectonic
-# variant is macOS-arm64-only: its bindings would reference LaTeX FFI symbols
-# the iOS libs don't have, so it produces a desktop-only xcframework.
-BUILD_IOS=$([ "${IMPRINT_SKIP_IOS:-0}" = "1" ] && echo 0 || echo 1)
+# iOS slices are on by default; skip with IMPRESS_SKIP_IOS=1 (the suite-wide
+# spelling) or IMPRINT_SKIP_IOS=1 (this script's original spelling — CI
+# workflows pass it as env-extra and it is part of the xcframework cache key,
+# so it stays supported). The Tectonic variant is macOS-arm64-only: its
+# bindings would reference LaTeX FFI symbols the iOS libs don't have, so it
+# produces a desktop-only xcframework.
+BUILD_IOS=$({ [ "${IMPRINT_SKIP_IOS:-0}" = "1" ] || [ "${IMPRESS_SKIP_IOS:-0}" = "1" ]; } && echo 0 || echo 1)
 if [ "${IMPRINT_TECTONIC:-0}" = "1" ]; then
     CARGO_FEATURES="native,tectonic-render"
     BUILD_X86=0
