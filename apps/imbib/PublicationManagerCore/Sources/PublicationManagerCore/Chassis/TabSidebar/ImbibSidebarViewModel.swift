@@ -11,6 +11,7 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import ImpressLogging
 import ImpressRustCore
 import ImpressSidebar
 import ImpressFTUI
@@ -505,6 +506,8 @@ final class ImbibSidebarViewModel {
     // MARK: - Tab ↔ Node ID Mapping
 
     private func rebuildTabMap() {
+        let perfToken = PerfMetrics.shared.begin("sidebar", detail: "rebuildTabMap")
+        defer { perfToken.end() }
         tabToNodeID.removeAll()
         func registerNode(_ node: ImbibSidebarNode) {
             if let tab = node.imbibTab {

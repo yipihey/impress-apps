@@ -827,8 +827,61 @@ impl SqliteItemStore {
         // search can find — on-device symptom: the citation picker missing
         // papers that are plainly in the library. Compare the count of
         // FTS-eligible items with the count of indexed rows and rebuild
-        // wholesale on mismatch. FTS5 data is derived; the rebuild is
-        // idempotent and only runs when the index has drifted.
+        // wholesale on mismatch — but NOT on every open: the eligibility
+        // predicate is eight OR'd json_extract() calls, so the count is a
+        // full table scan that JSON-parses every payload. On the suite
+        // store's millions of operation rows that is ~10s per open, and
+        // imbib opens this file three times at launch (2026-08-07: this
+        // scan was most of a 43s cold start, and every sibling process and
+        // daemon paid it again at every open). A generation marker in
+        // store_metadata records that THIS field set has been verified for
+        // this database; the scan runs only when the marker is absent
+        // (never verified) or stale (the FTS field set changed).
+        // update_fts/refresh_fts keep the index in step per-op from then
+        // on; verify_fts_integrity() re-checks on demand for maintenance
+        // cycles.
+        let gen = Self::fts_generation_token();
+        let verified: Option<String> = conn
+            .query_row(
+                "SELECT value FROM store_metadata WHERE key = 'fts_selfheal_gen'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| StoreError::Storage(format!("fts marker read: {}", e)))?;
+        if verified.as_deref() != Some(gen.as_str()) {
+            Self::verify_fts_on(conn)?;
+            conn.execute(
+                "INSERT OR REPLACE INTO store_metadata (key, value) VALUES ('fts_selfheal_gen', ?1)",
+                params![gen],
+            )
+            .map_err(|e| StoreError::Storage(format!("fts marker write: {}", e)))?;
+        }
+
+        Ok(())
+    }
+
+    /// FNV-1a over the FTS field-set definition: the self-heal marker
+    /// invalidates itself whenever the indexed fields or the eligibility
+    /// predicate change, forcing one re-verification per database.
+    fn fts_generation_token() -> String {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in FTS_SELECT_EXPRS
+            .bytes()
+            .chain(FTS_ELIGIBLE_PREDICATE.bytes())
+        {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        format!("v1:{h:016x}")
+    }
+
+    /// The eligible-vs-indexed comparison and wholesale rebuild behind the
+    /// self-heal. Full table scan with per-row JSON parsing — seconds on a
+    /// large store, so call sparingly: open runs it once per database per
+    /// FTS generation, `verify_fts_integrity` forces it. Returns true when
+    /// the index had drifted and was rebuilt.
+    fn verify_fts_on(conn: &Connection) -> Result<bool, StoreError> {
         let eligible: i64 = conn
             .query_row(
                 &format!("SELECT COUNT(*) FROM items WHERE {FTS_ELIGIBLE_PREDICATE}"),
@@ -839,22 +892,41 @@ impl SqliteItemStore {
         let indexed: i64 = conn
             .query_row("SELECT COUNT(*) FROM items_fts", [], |row| row.get(0))
             .map_err(|e| StoreError::Storage(format!("fts self-heal fts count: {}", e)))?;
-        if eligible != indexed {
-            conn.execute_batch("DELETE FROM items_fts;")
-                .map_err(|e| StoreError::Storage(format!("fts self-heal clear: {}", e)))?;
-            conn.execute(
-                &format!(
-                    "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
-                     SELECT id, {FTS_SELECT_EXPRS}
-                     FROM items
-                     WHERE {FTS_ELIGIBLE_PREDICATE}"
-                ),
-                [],
-            )
-            .map_err(|e| StoreError::Storage(format!("fts self-heal rebuild: {}", e)))?;
+        if eligible == indexed {
+            return Ok(false);
         }
+        conn.execute_batch("DELETE FROM items_fts;")
+            .map_err(|e| StoreError::Storage(format!("fts self-heal clear: {}", e)))?;
+        conn.execute(
+            &format!(
+                "INSERT INTO items_fts (item_id, title, author_text, abstract_text, note, body)
+                 SELECT id, {FTS_SELECT_EXPRS}
+                 FROM items
+                 WHERE {FTS_ELIGIBLE_PREDICATE}"
+            ),
+            [],
+        )
+        .map_err(|e| StoreError::Storage(format!("fts self-heal rebuild: {}", e)))?;
+        Ok(true)
+    }
 
-        Ok(())
+    /// Force the FTS eligible-vs-indexed verification now, regardless of
+    /// the open-time generation marker, and refresh the marker. For
+    /// maintenance cycles (the open path deliberately skips the scan once
+    /// a database is marked verified). Returns true when drift was found
+    /// and healed.
+    pub fn verify_fts_integrity(&self) -> Result<bool, StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+        let healed = Self::verify_fts_on(&conn)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO store_metadata (key, value) VALUES ('fts_selfheal_gen', ?1)",
+            params![Self::fts_generation_token()],
+        )
+        .map_err(|e| StoreError::Storage(format!("fts marker write: {}", e)))?;
+        Ok(healed)
     }
 
     /// ADR-0007 Phase 3 sync support: outbox + record-state tables (durable,
@@ -5093,6 +5165,56 @@ mod tests {
     /// Verify that manuscript `body_content` is indexed and searchable through
     /// the same FTS path used for title/abstract. Confirms the
     /// impress-wide unified-store pivot wires the body column end-to-end.
+    #[test]
+    fn fts_selfheal_marker_gates_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fts_marker.sqlite");
+        let q = ItemQuery {
+            predicates: vec![Predicate::Contains("title".into(), "Dark Matter".into())],
+            ..Default::default()
+        };
+
+        // First open verifies and stamps the generation marker.
+        let store = SqliteItemStore::open(&path).unwrap();
+        store
+            .insert(make_item("test", "Dark Matter Halos"))
+            .unwrap();
+        assert_eq!(store.query(&q).unwrap().len(), 1);
+        drop(store);
+
+        // Simulate historical drift the per-op write path never sees.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch("DELETE FROM items_fts;").unwrap();
+        }
+
+        // Reopen: the marker suppresses the full-table verify — the drift
+        // survives the open. That is the point: opens must be cheap, and
+        // the scan runs once per database per FTS generation, not always.
+        let store = SqliteItemStore::open(&path).unwrap();
+        assert_eq!(store.query(&q).unwrap().len(), 0);
+
+        // Forced verification (maintenance path) heals and reports it.
+        assert!(store.verify_fts_integrity().unwrap());
+        assert_eq!(store.query(&q).unwrap().len(), 1);
+        assert!(!store.verify_fts_integrity().unwrap());
+        drop(store);
+
+        // A stale marker (as after an FTS field-set change) re-verifies
+        // at open and heals drift.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute(
+                "UPDATE store_metadata SET value = 'stale' WHERE key = 'fts_selfheal_gen'",
+                [],
+            )
+            .unwrap();
+            conn.execute_batch("DELETE FROM items_fts;").unwrap();
+        }
+        let store = SqliteItemStore::open(&path).unwrap();
+        assert_eq!(store.query(&q).unwrap().len(), 1);
+    }
+
     #[test]
     fn fts_search_indexes_manuscript_body() {
         let store = SqliteItemStore::open_in_memory().unwrap();

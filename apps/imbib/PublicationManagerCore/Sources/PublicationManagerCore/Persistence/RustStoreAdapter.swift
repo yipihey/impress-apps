@@ -130,6 +130,15 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                 self.reviewSharedStore = s
                 return s
             }
+            // The kernel handle already IS a SharedStore on the exact file
+            // the review queue needs — reuse it instead of paying a third
+            // full store open (schema init + reader pool) at first sidebar
+            // draw, which happens inside a SwiftUI body evaluation on the
+            // main thread (2026-08-07: that open alone was ~15s of launch).
+            if let kernelStore {
+                self.reviewSharedStore = kernelStore
+                return kernelStore
+            }
             try SharedWorkspace.ensureDirectoryExists()
             let path = SharedWorkspace.databaseURL.path
             let s = try ImpressRustCore.SharedStore.open(path: path)

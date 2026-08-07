@@ -41,8 +41,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Performance budgets (PerfMetrics, shared with imprint): breaches
         // log a warning to the Console; live numbers at GET /api/performance.
         PerfMetrics.shared.setBudgets([
-            PerfBucket.search: 500,   // HTTP + local search
-            PerfBucket.http: 250,     // automation API requests
+            PerfBucket.search: 500,      // HTTP + local search
+            PerfBucket.http: 250,        // automation API requests
+            PerfBucket.store: 50,        // adapter round-trips (imprint parity)
+            PerfBucket.snapshot: 250,    // sidebar unread/flag count sweep
+            "sidebar": 100,              // rebuildTabMap walks
         ])
 
         // Disable window restoration — prevents macOS from reopening
@@ -357,7 +360,7 @@ struct imbibApp: App {
         // Phase 5: Schedule background initialization (async)
         Self.scheduleBackgroundInit(deps: deps)
 
-        appLogger.info("⏱ TOTAL app init: \(Int((CFAbsoluteTimeGetCurrent() - appStart) * 1000))ms")
+        appLogger.infoCapture("⏱ TOTAL app init: \(Int((CFAbsoluteTimeGetCurrent() - appStart) * 1000))ms", category: "startup")
     }
 
     // MARK: - Initialization Phases
@@ -398,12 +401,14 @@ struct imbibApp: App {
         let credentialManager = CredentialManager.shared
         let sourceManager = SourceManager(credentialManager: credentialManager)
         let deduplicationService = DeduplicationService()
-        appLogger.info("⏱ Created shared dependencies: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
+        appLogger.infoCapture("⏱ Created shared dependencies: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms", category: "startup")
 
         // Initialize Rust store adapter (sole data layer)
         let rustStart = CFAbsoluteTimeGetCurrent()
-        _ = RustStoreAdapter.shared
-        appLogger.info("⏱ RustStoreAdapter initialized: \(Int((CFAbsoluteTimeGetCurrent() - rustStart) * 1000))ms")
+        PerfMetrics.shared.measure("startup", detail: "store-open") {
+            _ = RustStoreAdapter.shared
+        }
+        appLogger.infoCapture("⏱ RustStoreAdapter initialized: \(Int((CFAbsoluteTimeGetCurrent() - rustStart) * 1000))ms", category: "startup")
 
         return AppDependencies(
             credentialManager: credentialManager,
@@ -422,7 +427,7 @@ struct imbibApp: App {
         var stepStart = CFAbsoluteTimeGetCurrent()
 
         let libraryManager = LibraryManager()
-        appLogger.info("⏱ LibraryManager initialized: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
+        appLogger.infoCapture("⏱ LibraryManager initialized: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms", category: "startup")
 
         stepStart = CFAbsoluteTimeGetCurrent()
         let libraryViewModel = LibraryViewModel()
@@ -434,7 +439,7 @@ struct imbibApp: App {
             sourceManager: deps.sourceManager,
             credentialManager: deps.credentialManager
         )
-        appLogger.info("⏱ ViewModels initialized: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
+        appLogger.infoCapture("⏱ ViewModels initialized: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms", category: "startup")
 
         return (libraryManager, libraryViewModel, searchViewModel, settingsViewModel)
     }
@@ -478,8 +483,10 @@ struct imbibApp: App {
             // Previously FTS rebuild (3+ min for 4000 pubs) blocked source registration,
             // InboxCoordinator and HTTP server startup.
             async let ftsInit: Void = {
-                await FullTextSearchService.shared.initialize()
-                appLogger.info("Full-text search index initialized")
+                await PerfMetrics.shared.measureAsync(PerfBucket.store, detail: "fts-init") {
+                    await FullTextSearchService.shared.initialize()
+                }
+                appLogger.infoCapture("Full-text search index initialized", category: "startup")
             }()
 
             async let sourcesInit: Void = {
@@ -502,6 +509,19 @@ struct imbibApp: App {
                 appLogger.info("InboxCoordinator started")
             }()
 
+            // Start the HTTP automation server BEFORE the FTS/sources join:
+            // readiness (port 23120) must not wait behind a possible full
+            // FTS rebuild (minutes) or inbox/enrichment startup. imprint
+            // starts its server the same way for the same reason. Routes
+            // that need sources degrade gracefully until configure() lands
+            // inside sourcesInit — /api/status, /api/logs, /api/performance
+            // are what agents poll for readiness and none of them touch
+            // sources.
+            await HTTPAutomationServer.shared.start()
+            if await HTTPAutomationServer.shared.running {
+                appLogger.infoCapture("HTTP automation server started", category: "startup")
+            }
+
             _ = await (ftsInit, sourcesInit)
 
             // Register AI providers (enables Apple Intelligence: summary, auto-tag, inbox rationale)
@@ -511,12 +531,6 @@ struct imbibApp: App {
             // These can run after both FTS and sources are done
             await EmbeddingService.shared.setupChangeObservers()
             appLogger.info("EmbeddingService change observers set up")
-
-            // Start HTTP automation server if enabled
-            await HTTPAutomationServer.shared.start()
-            if await HTTPAutomationServer.shared.running {
-                appLogger.info("HTTP automation server started")
-            }
 
             // Mark embedding index for lazy build on first Cmd+K press (ADR-022).
             // Building eagerly at startup blocked the UI for 11+ seconds — deferred

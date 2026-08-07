@@ -89,6 +89,8 @@ public actor SidebarSnapshotMaintainer {
 
         // All of these run on the gateway actor's nonisolated accessors,
         // which internally dispatch to the Rust reader pool.
+        let perfToken = PerfMetrics.shared.begin(PerfBucket.snapshot, detail: "sidebar-counts")
+        defer { perfToken.end() }
         let gateway = ImbibImpressStore.shared
 
         // Feeds — only the smart searches that feed the inbox currently
