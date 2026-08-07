@@ -41,6 +41,17 @@ public actor SidebarSnapshotMaintainer {
     private var isRefreshing = false
     private var pendingRefresh = false
     private var eventTask: Task<Void, Never>?
+    private var lastSweepStart: ContinuousClock.Instant?
+    private var delayedTriggerScheduled = false
+
+    /// Minimum spacing between full count sweeps. Each sweep is ~15 store
+    /// round-trips (the `snapshot` PerfMetrics bucket), and launch emits a
+    /// burst of structural events that used to run three back-to-back
+    /// sweeps. One delayed trigger coalesces a burst; a lone steady-state
+    /// event still refreshes within this interval. Sidebar counts are
+    /// advisory badges — a ≤2s lag is invisible, three redundant sweeps
+    /// during launch are not.
+    private let minSweepInterval: Duration = .seconds(2)
 
     public init() {}
 
@@ -75,10 +86,25 @@ public actor SidebarSnapshotMaintainer {
             pendingRefresh = true
             return
         }
+        if let last = lastSweepStart, ContinuousClock.now - last < minSweepInterval {
+            guard !delayedTriggerScheduled else { return }
+            delayedTriggerScheduled = true
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                await self?.runDelayedTrigger()
+            }
+            return
+        }
+        lastSweepStart = ContinuousClock.now
         isRefreshing = true
         Task.detached(priority: .utility) { [weak self] in
             await self?.performRefresh()
         }
+    }
+
+    private func runDelayedTrigger() {
+        delayedTriggerScheduled = false
+        triggerRefresh()
     }
 
     private func performRefresh() async {

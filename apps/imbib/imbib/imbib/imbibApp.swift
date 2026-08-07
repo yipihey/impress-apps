@@ -466,18 +466,21 @@ struct imbibApp: App {
                 await UITestingConfiguration.seedTestDataIfNeeded()
             }
 
-            // Register File Provider domain (fast, independent)
+            // Register File Provider domain (independent; XPC — can be slow)
+            let fpStart = CFAbsoluteTimeGetCurrent()
             do {
                 try await FileProviderDomainManager.shared.registerDomain()
-                appLogger.info("File Provider domain registered")
+                appLogger.infoCapture("⏱ File Provider domain registered: \(Int((CFAbsoluteTimeGetCurrent() - fpStart) * 1000))ms", category: "startup")
             } catch {
                 appLogger.error("Failed to register File Provider domain: \(error.localizedDescription)")
             }
 
             // Migrate flat ai/ tags to three-tier hierarchy (one-time, fast)
+            let migratorStart = CFAbsoluteTimeGetCurrent()
             await MainActor.run {
                 AITagMigrator.migrateIfNeeded()
             }
+            appLogger.infoCapture("⏱ AITagMigrator: \(Int((CFAbsoluteTimeGetCurrent() - migratorStart) * 1000))ms", category: "startup")
 
             // Run FTS init and source registration IN PARALLEL.
             // Previously FTS rebuild (3+ min for 4000 pubs) blocked source registration,
@@ -509,17 +512,19 @@ struct imbibApp: App {
                 appLogger.info("InboxCoordinator started")
             }()
 
-            // Start the HTTP automation server BEFORE the FTS/sources join:
-            // readiness (port 23120) must not wait behind a possible full
-            // FTS rebuild (minutes) or inbox/enrichment startup. imprint
-            // starts its server the same way for the same reason. Routes
-            // that need sources degrade gracefully until configure() lands
-            // inside sourcesInit — /api/status, /api/logs, /api/performance
-            // are what agents poll for readiness and none of them touch
-            // sources.
+            // Server start sits here — after File Provider + the migrator,
+            // before the FTS/sources join — by MEASUREMENT, not accident.
+            // start() awaits AutomationSettingsStore on the main actor, so
+            // hoisting it to the top of this task just parked it behind the
+            // window-construction burst (~1.6-2.4s measured); here the XPC
+            // and migrator waits have absorbed that burst and start() runs
+            // in ~50ms. It must stay BEFORE the join: the FTS arm can hide
+            // a full index rebuild (minutes) and readiness (port 23120)
+            // must not wait on it.
+            let serverStart = CFAbsoluteTimeGetCurrent()
             await HTTPAutomationServer.shared.start()
             if await HTTPAutomationServer.shared.running {
-                appLogger.infoCapture("HTTP automation server started", category: "startup")
+                appLogger.infoCapture("⏱ HTTP automation server started: \(Int((CFAbsoluteTimeGetCurrent() - serverStart) * 1000))ms", category: "startup")
             }
 
             _ = await (ftsInit, sourcesInit)
