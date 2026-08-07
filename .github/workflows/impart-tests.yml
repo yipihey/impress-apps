@@ -64,12 +64,15 @@ env:
   CARGO_TERM_COLOR: always
 
 concurrency:
-  # ONE xcodebuild lane machine-wide: every heavy workflow shares this
-  # group, so app builds queue instead of thrashing the single Mac the
-  # self-hosted runners AND live agent sessions share. GitHub keeps at
-  # most one queued run per group — bursts collapse to the newest.
-  group: mac-xcode-heavy
-  cancel-in-progress: false
+  # One run per LANE: repeated pushes collapse to the newest (the older
+  # in-progress run is cancelled — freshest signal, least Mac time).
+  # Deliberately NOT one machine-wide shared group: GitHub keeps at most
+  # one queued run per group, so sibling lanes of the SAME push displace
+  # each other and report "cancelled" on the commit (873cbb66: 6 of 8
+  # Swift lanes never ran). Machine-wide serialization is the runner's
+  # job — each self-hosted runner takes one job at a time.
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   test-messagemanagercore:
