@@ -28,32 +28,46 @@ IOS_TARGET="aarch64-apple-ios"
 IOS_SIM_TARGET="aarch64-apple-ios-sim"
 IOS_SIM_X86_TARGET="x86_64-apple-ios"
 
+# IMPRESS_SKIP_X86=1 builds arm64-only (local dev loop on Apple Silicon —
+# roughly halves the macOS Rust compile). CI and release keep universal.
+BUILD_X86=$([ "${IMPRESS_SKIP_X86:-0}" = "1" ] && echo 0 || echo 1)
+# IMPRESS_SKIP_IOS=1 skips the iOS device + simulator slices and produces a
+# macOS-only xcframework for the local dev loop. CI and release keep all slices.
+BUILD_IOS=$([ "${IMPRESS_SKIP_IOS:-0}" = "1" ] && echo 0 || echo 1)
+
 echo "=== Building imbib-core Rust library ==="
 
 # Ensure required targets are installed
 echo "Installing Rust targets..."
-rustup target add $MACOS_TARGET $MACOS_X86_TARGET $IOS_TARGET $IOS_SIM_TARGET $IOS_SIM_X86_TARGET 2>/dev/null || true
+rustup target add $MACOS_TARGET $MACOS_X86_TARGET 2>/dev/null || true
+if [ "$BUILD_IOS" = "1" ]; then
+    rustup target add $IOS_TARGET $IOS_SIM_TARGET $IOS_SIM_X86_TARGET 2>/dev/null || true
+fi
 
 # Build for all targets with native feature (uniffi + native dependencies)
 echo ""
 echo "Building for macOS (arm64)..."
 cargo build --release --target $MACOS_TARGET --features native
 
-echo ""
-echo "Building for macOS (x86_64)..."
-cargo build --release --target $MACOS_X86_TARGET --features native
+if [ "$BUILD_X86" = "1" ]; then
+    echo ""
+    echo "Building for macOS (x86_64)..."
+    cargo build --release --target $MACOS_X86_TARGET --features native
+fi
 
-echo ""
-echo "Building for iOS (arm64)..."
-cargo build --release --target $IOS_TARGET --features native
+if [ "$BUILD_IOS" = "1" ]; then
+    echo ""
+    echo "Building for iOS (arm64)..."
+    cargo build --release --target $IOS_TARGET --features native
 
-echo ""
-echo "Building for iOS Simulator (arm64)..."
-cargo build --release --target $IOS_SIM_TARGET --features native
+    echo ""
+    echo "Building for iOS Simulator (arm64)..."
+    cargo build --release --target $IOS_SIM_TARGET --features native
 
-echo ""
-echo "Building for iOS Simulator (x86_64)..."
-cargo build --release --target $IOS_SIM_X86_TARGET --features native
+    echo ""
+    echo "Building for iOS Simulator (x86_64)..."
+    cargo build --release --target $IOS_SIM_X86_TARGET --features native
+fi
 
 # Create framework directory structure
 echo ""
@@ -68,17 +82,25 @@ IOS_SIM_UNIVERSAL_DIR="$FRAMEWORK_DIR/ios-sim-universal"
 mkdir -p "$MACOS_UNIVERSAL_DIR"
 mkdir -p "$IOS_SIM_UNIVERSAL_DIR"
 
-echo "Creating universal macOS binary..."
-lipo -create \
-    "$BUILD_DIR/$MACOS_TARGET/release/libimbib_core.a" \
-    "$BUILD_DIR/$MACOS_X86_TARGET/release/libimbib_core.a" \
-    -output "$MACOS_UNIVERSAL_DIR/libimbib_core.a"
+if [ "$BUILD_X86" = "1" ]; then
+    echo "Creating universal macOS binary..."
+    lipo -create \
+        "$BUILD_DIR/$MACOS_TARGET/release/libimbib_core.a" \
+        "$BUILD_DIR/$MACOS_X86_TARGET/release/libimbib_core.a" \
+        -output "$MACOS_UNIVERSAL_DIR/libimbib_core.a"
+else
+    echo "Creating arm64-only macOS binary (IMPRESS_SKIP_X86=1)..."
+    cp "$BUILD_DIR/$MACOS_TARGET/release/libimbib_core.a" \
+        "$MACOS_UNIVERSAL_DIR/libimbib_core.a"
+fi
 
-echo "Creating universal iOS Simulator binary..."
-lipo -create \
-    "$BUILD_DIR/$IOS_SIM_TARGET/release/libimbib_core.a" \
-    "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimbib_core.a" \
-    -output "$IOS_SIM_UNIVERSAL_DIR/libimbib_core.a"
+if [ "$BUILD_IOS" = "1" ]; then
+    echo "Creating universal iOS Simulator binary..."
+    lipo -create \
+        "$BUILD_DIR/$IOS_SIM_TARGET/release/libimbib_core.a" \
+        "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/libimbib_core.a" \
+        -output "$IOS_SIM_UNIVERSAL_DIR/libimbib_core.a"
+fi
 
 # Generate Swift bindings
 echo ""
@@ -108,13 +130,21 @@ echo ""
 echo "Creating XCFramework..."
 rm -rf "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
+XCFRAMEWORK_ARGS=(
+    -library "$MACOS_UNIVERSAL_DIR/libimbib_core.a"
+    -headers "$FRAMEWORK_DIR/headers"
+)
+if [ "$BUILD_IOS" = "1" ]; then
+    XCFRAMEWORK_ARGS+=(
+        -library "$BUILD_DIR/$IOS_TARGET/release/libimbib_core.a"
+        -headers "$FRAMEWORK_DIR/headers"
+        -library "$IOS_SIM_UNIVERSAL_DIR/libimbib_core.a"
+        -headers "$FRAMEWORK_DIR/headers"
+    )
+fi
+
 xcodebuild -create-xcframework \
-    -library "$MACOS_UNIVERSAL_DIR/libimbib_core.a" \
-    -headers "$FRAMEWORK_DIR/headers" \
-    -library "$BUILD_DIR/$IOS_TARGET/release/libimbib_core.a" \
-    -headers "$FRAMEWORK_DIR/headers" \
-    -library "$IOS_SIM_UNIVERSAL_DIR/libimbib_core.a" \
-    -headers "$FRAMEWORK_DIR/headers" \
+    "${XCFRAMEWORK_ARGS[@]}" \
     -output "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework"
 
 echo ""
