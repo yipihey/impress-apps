@@ -60,6 +60,42 @@ targets:
     platform: macOS
     templates: [ChassisUTIs]
     deploymentTarget: "26.0"
+    postBuildScripts:
+      # Debug macOS builds install a fresh copy into ~/Applications so Spotlight
+      # always launches the latest build (not a stale DerivedData/Archive copy).
+      - name: Install to ~/Applications (Debug)
+        basedOnDependencyAnalysis: false
+        script: |
+          # IMPRESS_SKIP_INSTALL=1 opts out (worktree/CI builds must not
+          # hijack the ~/Applications copy a developer is actively using).
+          # Also require a real signing identity: an ad-hoc (CODE_SIGNING_ALLOWED=NO)
+          # copy has NO entitlements, and installing it strips the app-sandbox +
+          # application-groups grants → macOS prompts on every launch for the
+          # shared group container and Documents.
+          if [ "$CONFIGURATION" = "Debug" ] && [ "$PLATFORM_NAME" = "macosx" ] && [ -z "$IMPRESS_SKIP_INSTALL" ] && [ -n "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
+            DEST="$HOME/Applications"
+            LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+            mkdir -p "$DEST"
+            rm -rf "$DEST/$FULL_PRODUCT_NAME"
+            /usr/bin/ditto "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME" "$DEST/$FULL_PRODUCT_NAME"
+            # Script phases run BEFORE Xcode's final product codesign, so the copy is
+            # unsigned at this point — sign it ourselves or launchd refuses to spawn it.
+            ENT=$(/usr/bin/find "$TARGET_TEMP_DIR" -name "*.xcent" -print -quit 2>/dev/null)
+            if [ -n "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
+              # The debug dylib (Xcode 16 previews) is also only signed during final
+              # product signing — sign nested dylibs first or the outer sign fails.
+              for dl in "$DEST/$FULL_PRODUCT_NAME/Contents/MacOS/"*.dylib; do
+                [ -e "$dl" ] && /usr/bin/codesign --force --timestamp=none --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$dl"
+              done
+              /usr/bin/codesign --force ${ENT:+--entitlements "$ENT"} --options runtime --timestamp=none --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$DEST/$FULL_PRODUCT_NAME" || echo "warning: re-sign of installed copy failed"
+            fi
+            /usr/bin/chflags nohidden "$DEST/$FULL_PRODUCT_NAME"
+            "$LSREG" -f "$DEST/$FULL_PRODUCT_NAME" || true
+            # Keep the DerivedData copy out of Spotlight so ~/Applications is the only hit
+            "$LSREG" -u "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME" 2>/dev/null || true
+            /usr/bin/chflags hidden "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME" || true
+            echo "note: installed $FULL_PRODUCT_NAME to $DEST"
+          fi
     sources:
       - path: Shared
       - path: macOS
