@@ -33,19 +33,29 @@ IOS_TARGET="aarch64-apple-ios"
 IOS_SIM_TARGET="aarch64-apple-ios-sim"
 IOS_SIM_X86_TARGET="x86_64-apple-ios"
 
+# IMPRESS_SKIP_IOS=1 skips the iOS device + simulator slices and produces a
+# macOS-only xcframework for the local dev loop. CI and release keep all
+# slices — imprint-iOS and imbib-iOS link this framework and need them.
+BUILD_IOS=$([ "${IMPRESS_SKIP_IOS:-0}" = "1" ] && echo 0 || echo 1)
+
 echo "=== Installing Rust targets ==="
-rustup target add $MACOS_TARGET $MACOS_X86_TARGET $IOS_TARGET $IOS_SIM_TARGET $IOS_SIM_X86_TARGET 2>/dev/null || true
+rustup target add $MACOS_TARGET $MACOS_X86_TARGET 2>/dev/null || true
+if [ "$BUILD_IOS" = "1" ]; then
+    rustup target add $IOS_TARGET $IOS_SIM_TARGET $IOS_SIM_X86_TARGET 2>/dev/null || true
+fi
 
 echo "=== Building (native feature) ==="
 # IMPRESS_SKIP_X86=1 → arm64-only macOS slice (local dev loop); CI keeps
-# universal. iOS slices are unaffected.
+# universal.
 cargo build --release --target $MACOS_TARGET --features native
 if [ "${IMPRESS_SKIP_X86:-0}" != "1" ]; then
     cargo build --release --target $MACOS_X86_TARGET --features native
 fi
-cargo build --release --target $IOS_TARGET --features native
-cargo build --release --target $IOS_SIM_TARGET --features native
-cargo build --release --target $IOS_SIM_X86_TARGET --features native
+if [ "$BUILD_IOS" = "1" ]; then
+    cargo build --release --target $IOS_TARGET --features native
+    cargo build --release --target $IOS_SIM_TARGET --features native
+    cargo build --release --target $IOS_SIM_X86_TARGET --features native
+fi
 
 echo "=== Creating framework structure ==="
 rm -rf "$FRAMEWORK_DIR"
@@ -66,11 +76,13 @@ else
         "$MACOS_UNIVERSAL_DIR/lib${LIB_NAME}.a"
 fi
 
-echo "Creating universal iOS Simulator binary..."
-lipo -create \
-    "$BUILD_DIR/$IOS_SIM_TARGET/release/lib${LIB_NAME}.a" \
-    "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/lib${LIB_NAME}.a" \
-    -output "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a"
+if [ "$BUILD_IOS" = "1" ]; then
+    echo "Creating universal iOS Simulator binary..."
+    lipo -create \
+        "$BUILD_DIR/$IOS_SIM_TARGET/release/lib${LIB_NAME}.a" \
+        "$BUILD_DIR/$IOS_SIM_X86_TARGET/release/lib${LIB_NAME}.a" \
+        -output "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a"
+fi
 
 echo "=== Generating Swift bindings ==="
 BINDINGS_DIR="$FRAMEWORK_DIR/bindings"
@@ -121,16 +133,26 @@ done
 
 # Copy static libs (keep .a extension so xcodebuild can detect library type)
 cp "$MACOS_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$MACOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
-cp "$BUILD_DIR/$IOS_TARGET/release/lib${LIB_NAME}.a" "$IOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
-cp "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$IOS_SIM_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
+if [ "$BUILD_IOS" = "1" ]; then
+    cp "$BUILD_DIR/$IOS_TARGET/release/lib${LIB_NAME}.a" "$IOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
+    cp "$IOS_SIM_UNIVERSAL_DIR/lib${LIB_NAME}.a" "$IOS_SIM_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
+fi
+
+XCFRAMEWORK_ARGS=(
+    -library "$MACOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
+    -headers "$MACOS_FRAMEWORK_DIR/Headers"
+)
+if [ "$BUILD_IOS" = "1" ]; then
+    XCFRAMEWORK_ARGS+=(
+        -library "$IOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
+        -headers "$IOS_FRAMEWORK_DIR/Headers"
+        -library "$IOS_SIM_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a"
+        -headers "$IOS_SIM_FRAMEWORK_DIR/Headers"
+    )
+fi
 
 xcodebuild -create-xcframework \
-    -library "$MACOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a" \
-    -headers "$MACOS_FRAMEWORK_DIR/Headers" \
-    -library "$IOS_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a" \
-    -headers "$IOS_FRAMEWORK_DIR/Headers" \
-    -library "$IOS_SIM_FRAMEWORK_DIR/lib${XCFRAMEWORK_NAME}.a" \
-    -headers "$IOS_SIM_FRAMEWORK_DIR/Headers" \
+    "${XCFRAMEWORK_ARGS[@]}" \
     -output "$FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.xcframework"
 
 echo "=== Copying Swift bindings to ImpressRustCore ==="
