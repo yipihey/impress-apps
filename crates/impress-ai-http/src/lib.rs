@@ -372,16 +372,23 @@ async fn health(State(state): State<AiHttpState>) -> Json<Value> {
         )
     };
     let ai = state.ai.clone();
-    let (freelist, ops_last_24h) = tokio::task::spawn_blocking(move || {
+    let (freelist, ops_last_24h, ops_by_author) = tokio::task::spawn_blocking(move || {
         let store = ai.shared_store();
         let since = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
         (
             store.freelist_pages().unwrap_or(0),
             store.ops_minted_since(since).unwrap_or(0),
+            store
+                .ops_minted_since_by_author(since, 8)
+                .unwrap_or_default(),
         )
     })
     .await
-    .unwrap_or((0, 0));
+    .unwrap_or((0, 0, Vec::new()));
+    let ops_by_author: Vec<Value> = ops_by_author
+        .into_iter()
+        .map(|(author, kind, n)| json!({"author": author, "author_kind": kind, "ops": n}))
+        .collect();
     Json(json!({
         "status": "ok",
         "db_bytes": db_bytes,
@@ -389,6 +396,7 @@ async fn health(State(state): State<AiHttpState>) -> Json<Value> {
         "wal_budget_bytes": impress_core::sqlite_store::SqliteItemStore::WAL_SIZE_BUDGET_BYTES,
         "freelist_pages": freelist,
         "ops_last_24h": ops_last_24h,
+        "ops_last_24h_by_author": ops_by_author,
         "maintenance": state.maintenance.status_snapshot(),
     }))
 }

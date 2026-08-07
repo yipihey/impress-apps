@@ -236,6 +236,13 @@ impl SqliteItemStore {
         // under concurrent readers rather than blocking).
         store.apply_wal_bounds(path);
 
+        // Planner statistics (2026-08-07 incident): see
+        // `optimize_query_planner`. Best-effort — a store that opens without
+        // fresh stats is strictly better than one that refuses to open.
+        if let Err(e) = store.optimize_query_planner() {
+            eprintln!("[impress-core] open-time PRAGMA optimize failed: {}", e);
+        }
+
         // File-backed stores get a reader pool. The writer has already set
         // WAL mode during init_schema, so these reader connections will
         // inherit that journal mode from the shared database file.
@@ -371,6 +378,59 @@ impl SqliteItemStore {
             )
             .map(|count| count.max(0) as u64)
             .map_err(|e| StoreError::Storage(format!("ops_minted_since: {}", e)))
+        })
+    }
+
+    /// Refresh the query planner's statistics (bounded ANALYZE via
+    /// `PRAGMA optimize`).
+    ///
+    /// The store had NO statistics for its first year: with a dozen
+    /// single-column indexes and no `sqlite_stat1`, the planner guesses —
+    /// and for `COUNT(*) WHERE schema_ref = ? AND is_read = 0` it is free
+    /// to pick `idx_items_read`, whose `is_read = 0` side matches every
+    /// operation row in the table (millions). That exact flip made imbib's
+    /// sidebar unread counts scan for minutes at launch (2026-08-07).
+    /// `analysis_limit` bounds the rows visited per index so this is cheap
+    /// enough to run at every open; the AI daemon also runs it each
+    /// maintenance cycle so stats track compaction's deletes.
+    pub fn optimize_query_planner(&self) -> Result<(), StoreError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(format!("optimize lock: {}", e)))?;
+        conn.execute_batch("PRAGMA analysis_limit = 400; PRAGMA optimize;")
+            .map_err(|e| StoreError::Storage(format!("optimize: {}", e)))
+    }
+
+    /// Operations minted since `since_ms`, grouped by author — the "who is
+    /// churning" probe behind `ops_minted_since`'s "how much". Rides the
+    /// `(schema_ref, created)` composite, so the day's slice is an index
+    /// range scan, not a table walk.
+    pub fn ops_minted_since_by_author(
+        &self,
+        since_ms: i64,
+        limit: usize,
+    ) -> Result<Vec<(String, String, u64)>, StoreError> {
+        self.with_read(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT author, author_kind, COUNT(*) AS n FROM items
+                     WHERE schema_ref = 'core/operation' AND created >= ?1
+                     GROUP BY author, author_kind
+                     ORDER BY n DESC LIMIT ?2",
+                )
+                .map_err(|e| StoreError::Storage(format!("ops_by_author prepare: {}", e)))?;
+            let rows = stmt
+                .query_map(params![since_ms, limit as i64], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?.max(0) as u64,
+                    ))
+                })
+                .map_err(|e| StoreError::Storage(format!("ops_by_author query: {}", e)))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| StoreError::Storage(format!("ops_by_author rows: {}", e)))
         })
     }
 
@@ -599,6 +659,28 @@ impl SqliteItemStore {
         ] {
             // .ok() — on existing DBs these columns don't exist yet; migrate_schema handles it
             let _ = conn.execute(idx_sql, []);
+        }
+
+        // Planner-rescue composites (2026-08-07): `(schema_ref, is_read)` for
+        // the sidebar unread counts, `(schema_ref, created)` for
+        // `ops_minted_since`. On a populated store the FIRST build scans the
+        // whole items table — a write transaction that can outlive a sibling
+        // process's 5s busy_timeout. That must never fail the open (the
+        // bundle daemons crash-looped on exactly this while racing each
+        // other), so these are best-effort: whoever wins the lock builds
+        // them; everyone else opens fine and retries next open. Failures are
+        // logged, unlike the column-migration loop above, because these
+        // columns always exist — an error here is real contention.
+        for idx_sql in &[
+            "CREATE INDEX IF NOT EXISTS idx_items_schema_read ON items(schema_ref, is_read)",
+            "CREATE INDEX IF NOT EXISTS idx_items_schema_created ON items(schema_ref, created)",
+        ] {
+            if let Err(e) = conn.execute(idx_sql, []) {
+                eprintln!(
+                    "[impress-core] deferred composite index build (will retry next open): {}",
+                    e
+                );
+            }
         }
 
         // FTS5 table. `body` column carries manuscript body_content (added
@@ -6658,6 +6740,81 @@ mod tests {
 
         drop(store);
         let _ = std::fs::remove_file(&wal_path);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Plan regression for the 2026-08-07 imbib launch scans: the sidebar's
+    /// unread counts (`schema_ref = ? AND id IN (refs…) AND is_read = 0`) and
+    /// the daemon's `ops_minted_since` must never be answered by a plan that
+    /// walks `idx_items_read` (its `is_read = 0` side matches every operation
+    /// row — millions) or by a full table scan. The composite indexes make
+    /// the good plan structurally cheapest, stats or no stats; this test
+    /// pins that with EXPLAIN QUERY PLAN before AND after ANALYZE.
+    #[test]
+    fn hot_count_plans_avoid_the_low_selectivity_indexes() {
+        let path = tmp_db_path("plan_regression");
+        let store = SqliteItemStore::open(&path).unwrap();
+        for i in 0..50 {
+            store
+                .insert(make_item(
+                    "imbib/bibliography-entry",
+                    &format!("Paper {}", i),
+                ))
+                .unwrap();
+        }
+
+        let unread_query = ItemQuery {
+            schema: Some("imbib/bibliography-entry".into()),
+            predicates: vec![
+                Predicate::ReferencedBy(EdgeType::Contains, uuid::Uuid::new_v4()),
+                Predicate::IsRead(false),
+            ],
+            ..Default::default()
+        };
+        let compiled = crate::sql_query::compile_query(&unread_query);
+        let unread_sql = format!("SELECT COUNT(*) FROM items {}", compiled.where_clause);
+        let ops_sql = "SELECT COUNT(*) FROM items
+             WHERE schema_ref = 'core/operation' AND created >= 12345";
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let plan_for = |conn: &rusqlite::Connection, sql: &str| -> String {
+            let mut stmt = conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {}", sql))
+                .unwrap();
+            // Plans don't depend on parameter VALUES, but rusqlite insists
+            // every placeholder is bound — dummies suffice.
+            let dummies = vec![""; sql.matches('?').count()];
+            let details: Vec<String> = stmt
+                .query_map(rusqlite::params_from_iter(dummies), |row| {
+                    row.get::<_, String>(3)
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            details.join("\n")
+        };
+
+        // Once bare (planner heuristics only), once with fresh statistics —
+        // the plan must be safe in BOTH worlds, because apps open the store
+        // before the daemon's first optimize pass.
+        for phase in ["no stats", "after optimize"] {
+            let unread_plan = plan_for(&conn, &unread_sql);
+            assert!(
+                !unread_plan.contains("idx_items_read")
+                    && !unread_plan.contains("idx_items_starred")
+                    && !unread_plan.contains("SCAN items"),
+                "unread count ({phase}) picked a low-selectivity plan:\n{unread_plan}"
+            );
+            let ops_plan = plan_for(&conn, ops_sql);
+            assert!(
+                ops_plan.contains("idx_items_schema_created"),
+                "ops_minted_since ({phase}) should range-scan the composite index:\n{ops_plan}"
+            );
+            store.optimize_query_planner().unwrap();
+        }
+
+        drop(conn);
+        drop(store);
         let _ = std::fs::remove_file(&path);
     }
 

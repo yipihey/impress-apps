@@ -510,12 +510,23 @@ final class ImbibSidebarViewModel {
             if let tab = node.imbibTab {
                 tabToNodeID[tab] = node.id
             }
+            // The tag FOREST is lazily built and can be 9k+ nodes; recursing
+            // it here materialised every level on every data-version bump.
+            // Tag tabs are registered in one bulk pass below instead — same
+            // mapping (`.tag(path)` ↔ `ImbibSidebarNodeID.tag(path)`), no
+            // node construction.
+            if case .tag = node.nodeType { return }
             for child in children(of: node) {
                 registerNode(child)
             }
         }
         for section in buildSectionNodes() {
             registerNode(section)
+        }
+        for level in tagLevels().values {
+            for path in level {
+                tabToNodeID[.tag(path: path)] = ImbibSidebarNodeID.tag(path)
+            }
         }
     }
 
@@ -1390,6 +1401,36 @@ final class ImbibSidebarViewModel {
 
     func invalidateTagCache() {
         tagPathCache = nil
+        tagLevelCache = nil
+    }
+
+    /// The tag tree's LEVEL structure — parent path ("" for the roots) →
+    /// sorted level paths directly beneath it — derived from
+    /// `filteredTagPaths` in ONE pass and cached.
+    ///
+    /// Without this, `tagChildren(under:)` re-filtered and re-split the whole
+    /// vocabulary once per LEVEL, and `rebuildTabMap()` visits every level of
+    /// the tree: 9,090 paths made a single rebuild ~82M string splits on the
+    /// main thread, which is what "imbib takes minutes to start" was made of
+    /// (2026-08-07, the Swift half — the store half was the planner picking
+    /// `idx_items_read`). Invalidated with the vocabulary cache above and on
+    /// every filter edit.
+    @ObservationIgnored private var tagLevelCache: [String: [String]]?
+
+    private func tagLevels() -> [String: [String]] {
+        if let tagLevelCache { return tagLevelCache }
+        var levels: [String: Set<String>] = [:]
+        for tag in filteredTagPaths {
+            let parts = tag.split(separator: "/")
+            guard !parts.isEmpty else { continue }
+            for depth in 0..<parts.count {
+                let parent = depth == 0 ? "" : parts[0..<depth].joined(separator: "/")
+                levels[parent, default: []].insert(parts[0...depth].joined(separator: "/"))
+            }
+        }
+        let sorted = levels.mapValues { $0.sorted() }
+        tagLevelCache = sorted
+        return sorted
     }
 
     /// The Tags section's filter text, from the sidebar's filter field.
@@ -1401,6 +1442,8 @@ final class ImbibSidebarViewModel {
     var tagFilter: String = "" {
         didSet {
             guard tagFilter != oldValue else { return }
+            // The level cache derives from the FILTERED vocabulary.
+            tagLevelCache = nil
             revealFilteredTags()
             bumpDataVersion()
         }
@@ -1467,15 +1510,8 @@ final class ImbibSidebarViewModel {
     /// the parents of a matching leaf on screen, since every level here is
     /// derived from the paths that survived (`TagPathFilter`).
     private func tagChildren(under parent: String?) -> [ImbibSidebarNode] {
-        let depth = parent.map { $0.split(separator: "/").count } ?? 0
-        var level = Set<String>()
-        for tag in filteredTagPaths {
-            if let parent, !tag.hasPrefix(parent + "/") { continue }
-            let parts = tag.split(separator: "/").map(String.init)
-            guard parts.count > depth else { continue }
-            level.insert(parts[0...depth].joined(separator: "/"))
-        }
-        return level.sorted().map { path in
+        let level = tagLevels()[parent ?? ""] ?? []
+        return level.map { path in
             ImbibSidebarNode(
                 id: ImbibSidebarNodeID.tag(path),
                 nodeType: .tag(path: path),

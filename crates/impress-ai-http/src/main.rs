@@ -200,6 +200,22 @@ async fn main() {
                 }
             }
 
+            // Planner statistics: keep `sqlite_stat1` tracking the shape
+            // compaction leaves behind. Stale (or absent) stats let the
+            // planner pick a catastrophic index — the 2026-08-07 imbib
+            // launch scans. Bounded by analysis_limit; cheap when nothing
+            // changed.
+            {
+                let store = maintenance_store.clone();
+                match tokio::task::spawn_blocking(move || store.optimize_query_planner()).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => maintenance.log(format!("planner optimize failed: {error}")),
+                    Err(join_error) => {
+                        maintenance.log(format!("planner optimize task failed: {join_error}"))
+                    }
+                }
+            }
+
             // Op-rate watch: count the trailing 24h of minted operations and
             // flag budget crossings — the signal that some writer regressed
             // into churn (last time it took a 17 GB store to notice).
