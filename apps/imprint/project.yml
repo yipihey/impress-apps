@@ -226,6 +226,13 @@ targets:
           # wildcard, so access never triggers the app-group TCC prompt.
           - QG3MEYVHMS.com.imbib.shared
           - QG3MEYVHMS.com.impress.suite
+        # Suite-shared keychain items (VW/AI infrastructure, 73d36cd9). This
+        # MUST live here, not in the .entitlements file: xcodegen REGENERATES
+        # that file from these properties on every `xcodegen generate`, and a
+        # key added to the file by hand is silently dropped on the next run —
+        # which is exactly how this one briefly vanished on 2026-08-07.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.impress.suite
 
   imprintTests:
     type: bundle.unit-test
@@ -367,6 +374,10 @@ targets:
         com.apple.security.application-groups:
           - group.com.imbib.shared
           - group.com.impress.suite
+        # See the macOS target's note: this key must live HERE or xcodegen
+        # drops it from the generated .entitlements on the next generate.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.impress.suite
 
   imprint-ShareExtension:
     type: app-extension
