@@ -1,0 +1,10 @@
+# Pin the toolchain LOCAL AND CI both resolve — toolchain skew between the
+# two has been a recurring CI-red cause (clippy lint sets move between
+# versions; see memory of the 1.92→1.97 migration). rustup auto-installs
+# this version wherever it's missing, and dtolnay/rust-toolchain respects it.
+# Bump DELIBERATELY: expect new clippy lints to fire when you do, fix them in
+# the same commit.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

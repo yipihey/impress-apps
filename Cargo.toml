@@ -256,3 +256,10 @@ impart-service = { path = "crates/impart-service" }
 impart-service-http = { path = "crates/impart-service-http" }
 impress-bridges-service = { path = "crates/impress-bridges-service" }
 impress-store-service = { path = "crates/impress-store-service" }
+
+# Faster local framework-rebuild loop: release builds reuse incremental
+# artifacts across the edit-build cycle (the xcframework scripts build
+# release for every slice). CI caches target/ anyway; locally this turns
+# a full imprint-core release rebuild into seconds after a small edit.
+[profile.release]
+incremental = true

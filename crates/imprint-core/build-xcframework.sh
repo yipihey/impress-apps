@@ -36,7 +36,9 @@ IOS_FEATURES="native"
 # links no Homebrew dylibs. This variant is **arm64-only** for now — building
 # the C-dep tree universally is future work — so it skips the x86_64 slice.
 CARGO_FEATURES="native"
-BUILD_X86=1
+# IMPRESS_SKIP_X86=1 builds arm64-only (local dev loop on Apple Silicon —
+# roughly halves the macOS Rust compile). CI and release keep universal.
+BUILD_X86=$([ "${IMPRESS_SKIP_X86:-0}" = "1" ] && echo 0 || echo 1)
 # iOS slices are on by default (skip with IMPRINT_SKIP_IOS=1). The Tectonic
 # variant is macOS-arm64-only: its bindings would reference LaTeX FFI symbols
 # the iOS libs don't have, so it produces a desktop-only xcframework.

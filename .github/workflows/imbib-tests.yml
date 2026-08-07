@@ -14,8 +14,12 @@ on:
 # runner and the repo is public — fork PRs must never reach that machine.
 
 concurrency:
-  group: imbib-tests-${{ github.ref }}
-  cancel-in-progress: true
+  # ONE xcodebuild lane machine-wide: every heavy workflow shares this
+  # group, so app builds queue instead of thrashing the single Mac the
+  # self-hosted runners AND live agent sessions share. GitHub keeps at
+  # most one queued run per group — bursts collapse to the newest.
+  group: mac-xcode-heavy
+  cancel-in-progress: false
 
 jobs:
   test-publicationmanagercore:

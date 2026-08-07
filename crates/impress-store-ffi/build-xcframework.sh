@@ -37,8 +37,12 @@ echo "=== Installing Rust targets ==="
 rustup target add $MACOS_TARGET $MACOS_X86_TARGET $IOS_TARGET $IOS_SIM_TARGET $IOS_SIM_X86_TARGET 2>/dev/null || true
 
 echo "=== Building (native feature) ==="
+# IMPRESS_SKIP_X86=1 → arm64-only macOS slice (local dev loop); CI keeps
+# universal. iOS slices are unaffected.
 cargo build --release --target $MACOS_TARGET --features native
-cargo build --release --target $MACOS_X86_TARGET --features native
+if [ "${IMPRESS_SKIP_X86:-0}" != "1" ]; then
+    cargo build --release --target $MACOS_X86_TARGET --features native
+fi
 cargo build --release --target $IOS_TARGET --features native
 cargo build --release --target $IOS_SIM_TARGET --features native
 cargo build --release --target $IOS_SIM_X86_TARGET --features native
@@ -52,10 +56,15 @@ IOS_SIM_UNIVERSAL_DIR="$FRAMEWORK_DIR/ios-sim-universal"
 mkdir -p "$MACOS_UNIVERSAL_DIR" "$IOS_SIM_UNIVERSAL_DIR"
 
 echo "Creating universal macOS binary..."
-lipo -create \
-    "$BUILD_DIR/$MACOS_TARGET/release/lib${LIB_NAME}.a" \
-    "$BUILD_DIR/$MACOS_X86_TARGET/release/lib${LIB_NAME}.a" \
-    -output "$MACOS_UNIVERSAL_DIR/lib${LIB_NAME}.a"
+if [ "${IMPRESS_SKIP_X86:-0}" != "1" ]; then
+    lipo -create \
+        "$BUILD_DIR/$MACOS_TARGET/release/lib${LIB_NAME}.a" \
+        "$BUILD_DIR/$MACOS_X86_TARGET/release/lib${LIB_NAME}.a" \
+        -output "$MACOS_UNIVERSAL_DIR/lib${LIB_NAME}.a"
+else
+    cp "$BUILD_DIR/$MACOS_TARGET/release/lib${LIB_NAME}.a" \
+        "$MACOS_UNIVERSAL_DIR/lib${LIB_NAME}.a"
+fi
 
 echo "Creating universal iOS Simulator binary..."
 lipo -create \

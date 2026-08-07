@@ -58,7 +58,10 @@ final class ImpelChassisFlipTests: XCTestCase {
     func testShellIsStillTheAgentsFacet() {
         let configuration = ImpelChassisRoot.shellConfiguration
         XCTAssertEqual(configuration.appID, "impel")
-        XCTAssertEqual(configuration.visibleSections, [.agents])
+        // Tags joined every preset on 2026-08-01 (impel binds it to .task —
+        // chassis-capability-matrix § section(.tags)); agents remains the
+        // default landing.
+        XCTAssertEqual(configuration.visibleSections, [.agents, .tags])
         XCTAssertEqual(configuration.defaultSection, .agents)
     }
 

@@ -48,6 +48,7 @@ PMC_ALLOWED_LOCAL="
     ../../../packages/ImpressKit
     ../../../packages/ImpressLogging
     ../../../packages/ImpressMailStyle
+    ../../../packages/ImpressOCR
     ../../../packages/ImpressOperationQueue
     ../../../packages/ImpressRustCore
     ../../../packages/ImpressScixCore

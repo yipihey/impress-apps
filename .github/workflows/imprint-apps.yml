@@ -29,8 +29,12 @@ env:
 
 # Superseded pushes have nothing to say. Cancel them.
 concurrency:
-  group: imprint-apps-${{ github.ref }}
-  cancel-in-progress: true
+  # ONE xcodebuild lane machine-wide: every heavy workflow shares this
+  # group, so app builds queue instead of thrashing the single Mac the
+  # self-hosted runners AND live agent sessions share. GitHub keeps at
+  # most one queued run per group — bursts collapse to the newest.
+  group: mac-xcode-heavy
+  cancel-in-progress: false
 
 jobs:
   build-apps:
