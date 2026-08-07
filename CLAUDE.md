@@ -257,6 +257,14 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   for months, and a lint in a *dependency's* test target is invisible to an
   app-scoped gate. `.github/workflows/workspace-rust.yml` is the floor that
   catches this; the per-app workflows keep their app-specific steps.
+- **Fast local framework rebuilds**: every `crates/*/build-xcframework.sh` honors
+  `IMPRESS_SKIP_X86=1` (arm64-only macOS slice) and `IMPRESS_SKIP_IOS=1` (skip the
+  iOS device+sim slices). `./scripts/build-xcframeworks.sh --fast [crate...]` sets
+  both; `--macos-only` sets just the iOS skip. Debug/macOS app builds link the
+  skinny frameworks fine (Debug is arm64-only via ONLY_ACTIVE_ARCH). CI and
+  release set neither env and stay universal + all-slices; imprint-core also
+  accepts its original `IMPRINT_SKIP_IOS` spelling, which CI passes as env-extra
+  and which is baked into the xcframework cache key — never rename it in CI.
 - **Rust-first logic**: non-UI logic added in Swift needs a justification or a `*-service` Rust trait — `#[impress_service]` derives the MCP tool, CLI subcommand, and Tier-A testability for free. (The Rust-generated MCP server, `crates/impress-mcp`, is the only one; the hand-written TypeScript server was deleted on 2026-07-26 — see `docs/mcp-migration-ledger.md`.)
 
 ## Swift Concurrency & SwiftUI Pitfalls

@@ -5,19 +5,30 @@
 #   ./scripts/build-xcframeworks.sh imbib-core   # Build specific crate(s)
 #   ./scripts/build-xcframeworks.sh --verbose    # Build with verbose output
 #   ./scripts/build-xcframeworks.sh --parallel   # Build crates in parallel
+#   ./scripts/build-xcframeworks.sh --fast       # Local macOS dev loop:
+#                                                #   IMPRESS_SKIP_X86=1 + IMPRESS_SKIP_IOS=1
+#   ./scripts/build-xcframeworks.sh --macos-only # IMPRESS_SKIP_IOS=1 only
+#
+# The skip envs also work directly with any crates/*/build-xcframework.sh;
+# the flags just export them for every crate built here. CI and release set
+# neither and stay universal + all-slices.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Default crates to build (all UniFFI-enabled crates)
+# Default crates to build (every crate with a build-xcframework.sh)
 ALL_CRATES=(
     "imbib-core"
     "imprint-core"
     "implore-core"
+    "impart-core"
+    "impress-store-ffi"
     "impress-llm"
     "impress-helix"
+    "scix-client-ffi"
+    "impel-tools"
 )
 
 # Parse arguments
@@ -35,12 +46,26 @@ while [[ $# -gt 0 ]]; do
             PARALLEL=true
             shift
             ;;
+        --fast|-f)
+            # Local macOS dev loop: arm64-only, no iOS slices. Roughly a
+            # 5x cut in Rust compile per crate on Apple Silicon.
+            export IMPRESS_SKIP_X86=1
+            export IMPRESS_SKIP_IOS=1
+            shift
+            ;;
+        --macos-only)
+            export IMPRESS_SKIP_IOS=1
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [options] [crate-names...]"
             echo ""
             echo "Options:"
             echo "  --verbose, -v    Show detailed build output"
             echo "  --parallel, -p   Build crates in parallel (faster but uses more resources)"
+            echo "  --fast, -f       Local macOS dev loop: skip x86_64 and iOS slices"
+            echo "                   (IMPRESS_SKIP_X86=1 IMPRESS_SKIP_IOS=1)"
+            echo "  --macos-only     Skip only the iOS slices (IMPRESS_SKIP_IOS=1)"
             echo "  --help, -h       Show this help message"
             echo ""
             echo "Available crates:"
@@ -83,6 +108,7 @@ echo "=== Building XCFrameworks ==="
 echo "Crates: ${CRATES_TO_BUILD[*]}"
 echo "Parallel: $PARALLEL"
 echo "Verbose: $VERBOSE"
+echo "Skip x86_64: ${IMPRESS_SKIP_X86:-0}  Skip iOS: ${IMPRESS_SKIP_IOS:-0}"
 echo ""
 
 # Track failures
