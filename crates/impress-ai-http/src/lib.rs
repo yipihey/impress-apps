@@ -355,7 +355,10 @@ async fn status() -> Json<Value> {
 /// GET /api/health — store hygiene at a glance: file sizes, freelist, and
 /// the last outcome of each maintenance verb. Unauthenticated by design
 /// (see the route comment); everything here is a size or a timestamp.
-async fn health(State(state): State<AiHttpState>) -> Json<Value> {
+async fn health(
+    State(state): State<AiHttpState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Json<Value> {
     let maintenance = state.maintenance.clone();
     let store_path = maintenance.store_path.clone();
     let (db_bytes, wal_bytes) = if store_path.as_os_str().is_empty() {
@@ -371,23 +374,38 @@ async fn health(State(state): State<AiHttpState>) -> Json<Value> {
             std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0),
         )
     };
+    // ?ops_window_minutes=N narrows the churn probes from their 24h default —
+    // "is it STILL happening" needs a tight window, not a daily average.
+    let window_minutes: i64 = query
+        .get("ops_window_minutes")
+        .and_then(|value| value.parse().ok())
+        .filter(|m| *m > 0)
+        .unwrap_or(24 * 60);
     let ai = state.ai.clone();
-    let (freelist, ops_last_24h, ops_by_author) = tokio::task::spawn_blocking(move || {
-        let store = ai.shared_store();
-        let since = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
-        (
-            store.freelist_pages().unwrap_or(0),
-            store.ops_minted_since(since).unwrap_or(0),
-            store
-                .ops_minted_since_by_author(since, 8)
-                .unwrap_or_default(),
-        )
-    })
-    .await
-    .unwrap_or((0, 0, Vec::new()));
+    let (freelist, ops_last_24h, ops_by_author, ops_by_target) =
+        tokio::task::spawn_blocking(move || {
+            let store = ai.shared_store();
+            let since = chrono::Utc::now().timestamp_millis() - window_minutes * 60 * 1000;
+            (
+                store.freelist_pages().unwrap_or(0),
+                store.ops_minted_since(since).unwrap_or(0),
+                store
+                    .ops_minted_since_by_author(since, 8)
+                    .unwrap_or_default(),
+                store
+                    .ops_minted_since_by_target_schema(since, 8)
+                    .unwrap_or_default(),
+            )
+        })
+        .await
+        .unwrap_or((0, 0, Vec::new(), Vec::new()));
     let ops_by_author: Vec<Value> = ops_by_author
         .into_iter()
         .map(|(author, kind, n)| json!({"author": author, "author_kind": kind, "ops": n}))
+        .collect();
+    let ops_by_target: Vec<Value> = ops_by_target
+        .into_iter()
+        .map(|(schema, n)| json!({"target_schema": schema, "ops": n}))
         .collect();
     Json(json!({
         "status": "ok",
@@ -395,8 +413,10 @@ async fn health(State(state): State<AiHttpState>) -> Json<Value> {
         "wal_bytes": wal_bytes,
         "wal_budget_bytes": impress_core::sqlite_store::SqliteItemStore::WAL_SIZE_BUDGET_BYTES,
         "freelist_pages": freelist,
+        "ops_window_minutes": window_minutes,
         "ops_last_24h": ops_last_24h,
         "ops_last_24h_by_author": ops_by_author,
+        "ops_by_target_schema": ops_by_target,
         "maintenance": state.maintenance.status_snapshot(),
     }))
 }

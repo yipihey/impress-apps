@@ -434,6 +434,37 @@ impl SqliteItemStore {
         })
     }
 
+    /// Operations minted since `since_ms`, grouped by the TARGET's schema —
+    /// "churning against WHAT", the axis `ops_minted_since_by_author` can't
+    /// see. LEFT JOIN so ops whose target has been deleted still count
+    /// (as `<orphan>`), matching `compact_operations`' orphan sweep.
+    pub fn ops_minted_since_by_target_schema(
+        &self,
+        since_ms: i64,
+        limit: usize,
+    ) -> Result<Vec<(String, u64)>, StoreError> {
+        self.with_read(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT COALESCE(t.schema_ref, '<orphan>') AS target, COUNT(*) AS n
+                     FROM items o LEFT JOIN items t ON t.id = o.op_target_id
+                     WHERE o.schema_ref = 'core/operation' AND o.created >= ?1
+                     GROUP BY target ORDER BY n DESC LIMIT ?2",
+                )
+                .map_err(|e| StoreError::Storage(format!("ops_by_target prepare: {}", e)))?;
+            let rows = stmt
+                .query_map(params![since_ms, limit as i64], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u64,
+                    ))
+                })
+                .map_err(|e| StoreError::Storage(format!("ops_by_target query: {}", e)))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| StoreError::Storage(format!("ops_by_target rows: {}", e)))
+        })
+    }
+
     /// Free pages currently on the freelist (what `vacuum` would reclaim).
     pub fn freelist_pages(&self) -> Result<u64, StoreError> {
         self.with_read(|conn| {
