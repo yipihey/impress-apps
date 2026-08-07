@@ -22,6 +22,12 @@ XCFRAMEWORK_NAME="ImpelTools"
 MACOS_TARGET="aarch64-apple-darwin"
 MACOS_X86_TARGET="x86_64-apple-darwin"
 
+# IMPRESS_SKIP_X86=1 builds arm64-only (local dev loop on Apple Silicon —
+# roughly halves the macOS Rust compile). CI and release keep universal.
+# (No IMPRESS_SKIP_IOS gate here: impel-tools is deliberately macOS-only —
+# see the header comment.)
+BUILD_X86=$([ "${IMPRESS_SKIP_X86:-0}" = "1" ] && echo 0 || echo 1)
+
 echo "=== Building impel-tools Rust library ==="
 
 echo "Installing Rust targets..."
@@ -31,9 +37,11 @@ echo ""
 echo "Building for macOS (arm64)..."
 cargo build --release --target $MACOS_TARGET -p impel-tools
 
-echo ""
-echo "Building for macOS (x86_64)..."
-cargo build --release --target $MACOS_X86_TARGET -p impel-tools
+if [ "$BUILD_X86" = "1" ]; then
+    echo ""
+    echo "Building for macOS (x86_64)..."
+    cargo build --release --target $MACOS_X86_TARGET -p impel-tools
+fi
 
 echo ""
 echo "Creating framework structure..."
@@ -154,20 +162,33 @@ echo "Localizing non-impel_tools symbols (imbib-core's UniFFI scaffolding rides 
 filter_archive arm64 \
     "$BUILD_DIR/$MACOS_TARGET/release/libimpel_tools.a" \
     "$FILTER_DIR/libimpel_tools-arm64.a"
-filter_archive x86_64 \
-    "$BUILD_DIR/$MACOS_X86_TARGET/release/libimpel_tools.a" \
-    "$FILTER_DIR/libimpel_tools-x86_64.a"
+if [ "$BUILD_X86" = "1" ]; then
+    filter_archive x86_64 \
+        "$BUILD_DIR/$MACOS_X86_TARGET/release/libimpel_tools.a" \
+        "$FILTER_DIR/libimpel_tools-x86_64.a"
+fi
 
-echo ""
-echo "Creating universal macOS binary..."
-lipo -create \
-    "$FILTER_DIR/libimpel_tools-arm64.a" \
-    "$FILTER_DIR/libimpel_tools-x86_64.a" \
-    -output "$MACOS_UNIVERSAL_DIR/libimpel_tools.a"
+if [ "$BUILD_X86" = "1" ]; then
+    echo ""
+    echo "Creating universal macOS binary..."
+    lipo -create \
+        "$FILTER_DIR/libimpel_tools-arm64.a" \
+        "$FILTER_DIR/libimpel_tools-x86_64.a" \
+        -output "$MACOS_UNIVERSAL_DIR/libimpel_tools.a"
+else
+    echo ""
+    echo "Creating arm64-only macOS binary (IMPRESS_SKIP_X86=1)..."
+    cp "$FILTER_DIR/libimpel_tools-arm64.a" \
+        "$MACOS_UNIVERSAL_DIR/libimpel_tools.a"
+fi
 
 # The check that matters: a sibling crate's UniFFI symbols must not be visible
 # here, or impel's link fails on duplicates again.
-for arch in arm64 x86_64; do
+CHECK_ARCHS="arm64"
+if [ "$BUILD_X86" = "1" ]; then
+    CHECK_ARCHS="arm64 x86_64"
+fi
+for arch in $CHECK_ARCHS; do
     if ! nm -gjU --arch "$arch" "$MACOS_UNIVERSAL_DIR/libimpel_tools.a" > "$FILTER_DIR/after-$arch.txt" 2>/dev/null; then
         echo "  WARNING: could not read $arch exports back; skipping the leak check" >&2
         continue
