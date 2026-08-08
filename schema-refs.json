@@ -130,6 +130,7 @@
       "extraction-run@1.0.0",
       "figure",
       "figure-collection",
+      "figure-region@1.0.0",
       "git-project",
       "impress/artifact/code",
       "impress/artifact/dataset",

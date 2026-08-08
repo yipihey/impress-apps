@@ -178,22 +178,21 @@ final class Phase2SettingsPersistenceTests: XCTestCase {
 
     // MARK: - impel
 
-    /// impel's nine keys.
+    /// impel's eight keys.
     ///
-    /// Four of these are ALSO declared in `ImpelApp.swift` and
-    /// `PersonaDetailView.swift` with their own defaults, and one pair disagrees:
-    /// `counselModel` defaults to `""` here and to `CounselDefaults.defaultModel`
-    /// in `PersonaDetailView`. That is a pre-existing bug, not something phase 2
-    /// introduced or fixed — recorded here because this is the file someone will
-    /// read when they next touch these keys, and a duplicate `@AppStorage`
-    /// declaration with a different default means the effective default depends on
-    /// which view happens to render first.
+    /// `counselModel` is deliberately NOT here anymore: 73d36cd9 (the VW/AI-infra
+    /// landing) removed the "Anthropic API" section — and with it the
+    /// `@AppStorage("counselModel")` picker — from `ImpelAISettingsTab`. The key
+    /// itself is still live as a headless UserDefaults override, read by
+    /// `CounselEngine.TaskOrchestrator` and impart's `CounselSession`, so removing
+    /// the UI did not orphan the readers; it just moved model choice out of the
+    /// Settings pane. If a Settings control for it ever returns, add the key back
+    /// here in the same change.
     private static let impelKeys: Set<String> = [
         // GeneralSettingsTab
         "serverURL",
         "refreshInterval",
         // ImpelAISettingsTab
-        "counselModel",
         "counselSystemPrompt",
         // CounselSettingsTab
         "counselGatewayEnabled",
