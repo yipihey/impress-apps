@@ -12,6 +12,9 @@ sqlite = ["rusqlite"]
 # Derive `schemars::JsonSchema` on the kernel DTOs that cross an
 # `#[impress_service]` boundary. Enabled by `impress-store-service`.
 schema = ["schemars"]
+# Automerge-backed manuscript bodies (ADR-0027). Needs the store: the
+# document cache hangs off SqliteItemStore and chunks are store items.
+collab = ["dep:automerge", "dep:base64", "sqlite"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
@@ -28,6 +31,8 @@ sha2 = "0.10"
 # that produces them. OFF by default so `impress-store-ffi` — which calls the
 # same kernel from Swift and has no use for JSON schemas — does not link it.
 schemars = { workspace = true, optional = true }
+automerge = { version = "0.11", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 proptest = "1.4"

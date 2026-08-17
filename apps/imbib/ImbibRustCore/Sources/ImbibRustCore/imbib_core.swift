@@ -620,6 +620,17 @@ public protocol ImbibStoreProtocol : AnyObject {
     
     func clearActivityRecords(libraryId: String) throws 
     
+    /**
+     * Commit an editor buffer to a manuscript's Automerge document
+     * (ADR-0027 D6). `base_heads` are the heads the caller last saw; its
+     * text is diffed against the document AT THAT BASE and merged, so a
+     * stale caller's edits land beside anyone else's instead of over them.
+     * Empty base = diff against the current text. Returns the merged body
+     * and the heads to pin next; `merged_external` tells the editor to adopt
+     * the returned body.
+     */
+    func commitManuscriptBody(id: String, baseHeads: [String], body: String, author: String) throws  -> ManuscriptCommitOutcome
+    
     func countAnnotations(linkedFileId: String) throws  -> UInt32
     
     /**
@@ -1203,6 +1214,22 @@ public protocol ImbibStoreProtocol : AnyObject {
      */
     func listTagsWithCounts() throws  -> [TagWithCountRow]
     
+    /**
+     * Per-change history of a manuscript body, oldest first.
+     */
+    func manuscriptChangeHistory(id: String) throws  -> [ManuscriptChangeSummary]
+    
+    /**
+     * The manuscript document's current heads — what an editor pins as its
+     * first base at load. Migrates a never-touched manuscript (genesis).
+     */
+    func manuscriptCollabHeads(id: String) throws  -> [String]
+    
+    /**
+     * The manuscript body as of `heads` (time travel).
+     */
+    func manuscriptTextAt(id: String, heads: [String]) throws  -> String
+    
     func movePublications(ids: [String], toLibraryId: String) throws  -> UndoInfo
     
     /**
@@ -1720,6 +1747,26 @@ open func clearActivityRecords(libraryId: String)throws  {try rustCallWithError(
         FfiConverterString.lower(libraryId),$0
     )
 }
+}
+    
+    /**
+     * Commit an editor buffer to a manuscript's Automerge document
+     * (ADR-0027 D6). `base_heads` are the heads the caller last saw; its
+     * text is diffed against the document AT THAT BASE and merged, so a
+     * stale caller's edits land beside anyone else's instead of over them.
+     * Empty base = diff against the current text. Returns the merged body
+     * and the heads to pin next; `merged_external` tells the editor to adopt
+     * the returned body.
+     */
+open func commitManuscriptBody(id: String, baseHeads: [String], body: String, author: String)throws  -> ManuscriptCommitOutcome {
+    return try  FfiConverterTypeManuscriptCommitOutcome.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_commit_manuscript_body(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterSequenceString.lower(baseHeads),
+        FfiConverterString.lower(body),
+        FfiConverterString.lower(author),$0
+    )
+})
 }
     
 open func countAnnotations(linkedFileId: String)throws  -> UInt32 {
@@ -3041,6 +3088,41 @@ open func listTags()throws  -> [TagDisplayRow] {
 open func listTagsWithCounts()throws  -> [TagWithCountRow] {
     return try  FfiConverterSequenceTypeTagWithCountRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_list_tags_with_counts(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Per-change history of a manuscript body, oldest first.
+     */
+open func manuscriptChangeHistory(id: String)throws  -> [ManuscriptChangeSummary] {
+    return try  FfiConverterSequenceTypeManuscriptChangeSummary.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_manuscript_change_history(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * The manuscript document's current heads — what an editor pins as its
+     * first base at load. Migrates a never-touched manuscript (genesis).
+     */
+open func manuscriptCollabHeads(id: String)throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_manuscript_collab_heads(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * The manuscript body as of `heads` (time travel).
+     */
+open func manuscriptTextAt(id: String, heads: [String])throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_manuscript_text_at(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterSequenceString.lower(heads),$0
     )
 })
 }
@@ -11705,6 +11787,105 @@ public func FfiConverterTypeLookupCommand_lower(_ value: LookupCommand) -> RustB
 
 
 /**
+ * One Automerge change in a manuscript's history (oldest first).
+ */
+public struct ManuscriptChangeSummary {
+    public var hash: String
+    public var actor: String
+    /**
+     * Seconds since the epoch; 0 for the deterministic genesis/recovery changes.
+     */
+    public var time: Int64
+    public var message: String?
+    public var deps: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(hash: String, actor: String, 
+        /**
+         * Seconds since the epoch; 0 for the deterministic genesis/recovery changes.
+         */time: Int64, message: String?, deps: [String]) {
+        self.hash = hash
+        self.actor = actor
+        self.time = time
+        self.message = message
+        self.deps = deps
+    }
+}
+
+
+
+extension ManuscriptChangeSummary: Equatable, Hashable {
+    public static func ==(lhs: ManuscriptChangeSummary, rhs: ManuscriptChangeSummary) -> Bool {
+        if lhs.hash != rhs.hash {
+            return false
+        }
+        if lhs.actor != rhs.actor {
+            return false
+        }
+        if lhs.time != rhs.time {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.deps != rhs.deps {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(hash)
+        hasher.combine(actor)
+        hasher.combine(time)
+        hasher.combine(message)
+        hasher.combine(deps)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManuscriptChangeSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManuscriptChangeSummary {
+        return
+            try ManuscriptChangeSummary(
+                hash: FfiConverterString.read(from: &buf), 
+                actor: FfiConverterString.read(from: &buf), 
+                time: FfiConverterInt64.read(from: &buf), 
+                message: FfiConverterOptionString.read(from: &buf), 
+                deps: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManuscriptChangeSummary, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.hash, into: &buf)
+        FfiConverterString.write(value.actor, into: &buf)
+        FfiConverterInt64.write(value.time, into: &buf)
+        FfiConverterOptionString.write(value.message, into: &buf)
+        FfiConverterSequenceString.write(value.deps, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptChangeSummary_lift(_ buf: RustBuffer) throws -> ManuscriptChangeSummary {
+    return try FfiConverterTypeManuscriptChangeSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptChangeSummary_lower(_ value: ManuscriptChangeSummary) -> RustBuffer {
+    return FfiConverterTypeManuscriptChangeSummary.lower(value)
+}
+
+
+/**
  * Manuscript folder (manuscript-collection item) for sidebar display.
  */
 public struct ManuscriptCollectionRow {
@@ -11818,6 +11999,93 @@ public func FfiConverterTypeManuscriptCollectionRow_lift(_ buf: RustBuffer) thro
 #endif
 public func FfiConverterTypeManuscriptCollectionRow_lower(_ value: ManuscriptCollectionRow) -> RustBuffer {
     return FfiConverterTypeManuscriptCollectionRow.lower(value)
+}
+
+
+/**
+ * Outcome of `commit_manuscript_body` (ADR-0027 D6): the heads to pin as the
+ * next base and the MERGED body — which differs from what was sent whenever
+ * another writer's edits were folded in (`merged_external`).
+ */
+public struct ManuscriptCommitOutcome {
+    public var heads: [String]
+    public var body: String
+    public var bodyHash: String
+    public var mergedExternal: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(heads: [String], body: String, bodyHash: String, mergedExternal: Bool) {
+        self.heads = heads
+        self.body = body
+        self.bodyHash = bodyHash
+        self.mergedExternal = mergedExternal
+    }
+}
+
+
+
+extension ManuscriptCommitOutcome: Equatable, Hashable {
+    public static func ==(lhs: ManuscriptCommitOutcome, rhs: ManuscriptCommitOutcome) -> Bool {
+        if lhs.heads != rhs.heads {
+            return false
+        }
+        if lhs.body != rhs.body {
+            return false
+        }
+        if lhs.bodyHash != rhs.bodyHash {
+            return false
+        }
+        if lhs.mergedExternal != rhs.mergedExternal {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(heads)
+        hasher.combine(body)
+        hasher.combine(bodyHash)
+        hasher.combine(mergedExternal)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManuscriptCommitOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManuscriptCommitOutcome {
+        return
+            try ManuscriptCommitOutcome(
+                heads: FfiConverterSequenceString.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf), 
+                bodyHash: FfiConverterString.read(from: &buf), 
+                mergedExternal: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManuscriptCommitOutcome, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.heads, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+        FfiConverterString.write(value.bodyHash, into: &buf)
+        FfiConverterBool.write(value.mergedExternal, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptCommitOutcome_lift(_ buf: RustBuffer) throws -> ManuscriptCommitOutcome {
+    return try FfiConverterTypeManuscriptCommitOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManuscriptCommitOutcome_lower(_ value: ManuscriptCommitOutcome) -> RustBuffer {
+    return FfiConverterTypeManuscriptCommitOutcome.lower(value)
 }
 
 
@@ -25937,6 +26205,31 @@ fileprivate struct FfiConverterSequenceTypeLinkedFileRow: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeManuscriptChangeSummary: FfiConverterRustBuffer {
+    typealias SwiftType = [ManuscriptChangeSummary]
+
+    public static func write(_ value: [ManuscriptChangeSummary], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeManuscriptChangeSummary.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ManuscriptChangeSummary] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ManuscriptChangeSummary]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeManuscriptChangeSummary.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeManuscriptCollectionRow: FfiConverterRustBuffer {
     typealias SwiftType = [ManuscriptCollectionRow]
 
@@ -30209,6 +30502,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_clear_activity_records() != 24508) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_commit_manuscript_body() != 28081) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_annotations() != 49064) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -30525,6 +30821,15 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_list_tags_with_counts() != 43551) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_manuscript_change_history() != 5485) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_manuscript_collab_heads() != 2560) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_manuscript_text_at() != 61416) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_move_publications() != 10397) {

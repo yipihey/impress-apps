@@ -3978,6 +3978,59 @@ extension RustStoreAdapter {
         }
     }
 
+    // MARK: Manuscript body — collaborative document (ADR-0027)
+
+    /// Commit an editor buffer to the manuscript's Automerge document. `baseHeads`
+    /// are the heads this editor last saw (from load or the previous outcome);
+    /// the text is diffed against the document AT THAT BASE and merged, so a
+    /// stale editor's edits land beside another writer's instead of over them.
+    /// The outcome's `body` is the MERGED text — when `mergedExternal` is true
+    /// the editor must adopt it. Empty base = diff against the current text.
+    public func commitManuscriptBody(
+        id: UUID,
+        body: String,
+        baseHeads: [String],
+        author: String = "user:local"
+    ) -> ManuscriptCommitOutcome? {
+        do {
+            let outcome = try store.commitManuscriptBody(
+                id: id.uuidString, baseHeads: baseHeads, body: body, author: author)
+            didMutate(structural: false, affectedIDs: [id], kind: .otherField)
+            if outcome.mergedExternal {
+                Logger.library.infoCapture(
+                    "commitManuscriptBody merged external edits for \(id) (heads: \(outcome.heads.count))",
+                    category: "manuscripts")
+            }
+            return outcome
+        } catch {
+            Logger.library.errorCapture(
+                "commitManuscriptBody failed for \(id): \(error)", category: "manuscripts")
+            return nil
+        }
+    }
+
+    /// The document's current heads — what an editor pins as its first base at
+    /// load. Migrates a never-touched manuscript (deterministic genesis).
+    public func manuscriptCollabHeads(id: UUID) -> [String] {
+        do {
+            return try store.manuscriptCollabHeads(id: id.uuidString)
+        } catch {
+            Logger.library.errorCapture(
+                "manuscriptCollabHeads failed for \(id): \(error)", category: "manuscripts")
+            return []
+        }
+    }
+
+    /// Per-change history of the manuscript body, oldest first.
+    public func manuscriptChangeHistory(id: UUID) -> [ManuscriptChangeSummary] {
+        (try? store.manuscriptChangeHistory(id: id.uuidString)) ?? []
+    }
+
+    /// The manuscript body as of `heads` (time travel).
+    public func manuscriptTextAt(id: UUID, heads: [String]) -> String? {
+        try? store.manuscriptTextAt(id: id.uuidString, heads: heads)
+    }
+
     /// Substring search over manuscript title/body/notes (list-filter path).
     public func searchManuscripts(query: String, limit: UInt32? = nil) -> [ManuscriptRow] {
         do {

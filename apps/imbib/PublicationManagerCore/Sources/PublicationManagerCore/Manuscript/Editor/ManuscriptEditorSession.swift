@@ -1,5 +1,5 @@
 // CONTRACT file — CROSS-PLATFORM (macOS + iOS): the editor lifecycle
-// seam. Buffer, cursor, debounced compare-and-set save, conflict resolution
+// seam. Buffer, cursor, debounced commit to the collaborative document (ADR-0027)
 // and the session LRU are Foundation + the (cross-platform) compile
 // controller; the AppKit lives in the EDITOR VIEWS that consume a session,
 // never here. iOS's IOSManuscriptEditorHost re-implements this state machine
@@ -23,12 +23,14 @@ import OSLog
 
 private let sessionLogger = Logger(subsystem: "com.imbib.app", category: "editor-session")
 
-/// The outcome of a compare-and-set body save.
+/// The outcome of committing the buffer to the manuscript's document
+/// (ADR-0027 D6/D7). There is no conflict case: concurrent edits MERGE, and
+/// `merged` reports that the buffer adopted another writer's changes.
 public enum ManuscriptSaveResult: Sendable {
     case applied
-    /// The store held a different `body_content_hash` than we last loaded —
-    /// another writer (imprint, or another imbib view) changed the body.
-    case conflict(storedHash: String?)
+    /// Another writer's edits were folded into the buffer as part of this
+    /// commit (the returned merged text differed from what was sent).
+    case merged
     case failed
 }
 
@@ -68,13 +70,15 @@ public final class ManuscriptEditorSession {
         highlightRequest = EditorHighlightRequest(range: range, generation: generation)
     }
 
-    /// The `body_content_hash` the store held at load / last successful save —
-    /// the compare-and-set token guarding against cross-process clobber.
+    /// The `body_content_hash` the store held at load / last successful commit
+    /// (read-side bookkeeping for `absorbExternalChange`).
     public private(set) var savedHash: String?
 
-    /// Non-nil when an external writer changed the body under us and we could
-    /// not fast-forward; drives a non-modal conflict banner.
-    public var conflict: ExternalEditConflict?
+    /// The document heads this editor last saw — the BASE the next commit is
+    /// diffed against (ADR-0027 D6). Pinned at load and after every commit;
+    /// a stale base is fine (its edits merge), an empty one diffs against the
+    /// current text.
+    public private(set) var savedHeads: [String]
 
     public let format: DocumentFormat
     public let vm: ManuscriptCompileController
@@ -102,6 +106,7 @@ public final class ManuscriptEditorSession {
         format: DocumentFormat,
         title: String,
         savedHash: String?,
+        savedHeads: [String] = [],
         compiler: LaTeXCompiling,
         saveDebounceMs: Int = 200
     ) {
@@ -111,6 +116,7 @@ public final class ManuscriptEditorSession {
         self.format = format
         self.title = title
         self.savedHash = savedHash
+        self.savedHeads = savedHeads
         self.saveDebounceMs = saveDebounceMs
         self.latexSupported = compiler.isSupported
         self.vm = ManuscriptCompileController(latexCompiler: compiler)
@@ -180,35 +186,56 @@ public final class ManuscriptEditorSession {
         )
     }
 
-    // MARK: - Saving (compare-and-set)
+    // MARK: - Saving (commit to the collaborative document)
 
-    /// Persist the buffer with a `body_content_hash` guard. On conflict, try to
-    /// fast-forward (if the store's change matches what we'd have loaded), else
-    /// raise `conflict` for the banner.
+    /// Commit the buffer to the manuscript's document (ADR-0027 D6). The
+    /// text is diffed against the document at `savedHeads` and merged, so
+    /// edits made elsewhere since we loaded land beside ours instead of being
+    /// overwritten — and ours never overwrite theirs. When the merged text
+    /// differs from the buffer, the buffer adopts it (caret clamped) and the
+    /// preview recompiles. There is no conflict banner: nothing is ever lost.
     @discardableResult
     public func saveCAS() async -> ManuscriptSaveResult {
         isSaving = true
         defer { isSaving = false }
-        guard let outcome = RustStoreAdapter.shared.setManuscriptBody(
-            id: manuscriptID, body: source, expectedHash: savedHash
+        let sent = source
+        guard let outcome = RustStoreAdapter.shared.commitManuscriptBody(
+            id: manuscriptID, body: sent, baseHeads: savedHeads
         ) else {
             return .failed
         }
-        if outcome.applied {
-            savedHash = outcome.newHash
-            lastPersistedSource = source
-            conflict = nil
-            // Wake any other window/app editing this manuscript (read-side
-            // refresh; the CAS guard above is the clobber-safety invariant).
-            ManuscriptSessionRegistry.shared.postManuscriptChanged(id: manuscriptID)
-            return .applied
+        savedHeads = outcome.heads
+        savedHash = outcome.bodyHash
+        // The user may have typed while the commit ran. Only a buffer that
+        // still equals what we sent can be re-pinned (or overwritten with the
+        // merge); otherwise the NEXT debounce commits from the new base and
+        // folds everything in.
+        let unchangedSinceSend = source == sent
+        var result: ManuscriptSaveResult = .applied
+        if outcome.mergedExternal {
+            if unchangedSinceSend {
+                adoptExternal(outcome.body)   // sets lastPersistedSource
+            }
+            result = .merged
+            sessionLogger.info("Merged external edits into \(self.manuscriptID)")
+        } else if unchangedSinceSend {
+            lastPersistedSource = outcome.body
         }
-        // Guard rejected: another writer moved the body.
-        conflict = ExternalEditConflict(
-            manuscriptID: manuscriptID, storedHash: outcome.storedHash)
-        sessionLogger.warning(
-            "Save conflict for \(self.manuscriptID): stored=\(outcome.storedHash ?? "nil")")
-        return .conflict(storedHash: outcome.storedHash)
+        // Wake any other window/app editing this manuscript (read-side
+        // refresh; the merge above is the clobber-safety invariant).
+        ManuscriptSessionRegistry.shared.postManuscriptChanged(id: manuscriptID)
+        return result
+    }
+
+    /// Replace the buffer with text the document produced (a merge or a
+    /// fast-forward) without scheduling a save, keeping the caret in range.
+    private func adoptExternal(_ text: String) {
+        isApplyingExternal = true
+        source = text
+        isApplyingExternal = false
+        cursorPosition = min(cursorPosition, (text as NSString).length)
+        lastPersistedSource = text
+        scheduleCompile()
     }
 
     /// Synchronous flush for eviction / window close / app resign-active.
@@ -227,49 +254,35 @@ public final class ManuscriptEditorSession {
     }
 
     /// React to a store mutation from ANOTHER writer: fast-forward the buffer
-    /// when the user hasn't diverged, else raise a conflict.
+    /// when the user hasn't diverged, else commit — which merges their edits
+    /// with ours (there is no longer a case that needs the user's decision).
     public func absorbExternalChange() {
         // Ignore our own echo.
         guard !isSaving else { return }
         guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)
         else { return }
-        // Already in sync with the store — re-pin the hash and clear.
+        // Already in sync with the store — re-pin and return.
         if detail.bodyContentHash == savedHash || source == detail.bodyContent {
             savedHash = detail.bodyContentHash
+            savedHeads = RustStoreAdapter.shared.manuscriptCollabHeads(id: manuscriptID)
             lastPersistedSource = source
-            conflict = nil
             return
         }
         if source == lastPersistedSource {
             // No local unsaved edits — safe to fast-forward to the store body.
-            isApplyingExternal = true
-            source = detail.bodyContent
-            isApplyingExternal = false
-            lastPersistedSource = detail.bodyContent
+            adoptExternal(detail.bodyContent)
             savedHash = detail.bodyContentHash
-            conflict = nil
+            savedHeads = RustStoreAdapter.shared.manuscriptCollabHeads(id: manuscriptID)
         } else {
-            // Local unsaved edits AND the store diverged — surface a conflict.
-            conflict = ExternalEditConflict(
-                manuscriptID: manuscriptID, storedHash: detail.bodyContentHash)
+            // Local unsaved edits AND the store moved: commit from our base;
+            // the document merges both sides and the buffer adopts the result.
+            saveTask?.cancel()
+            Task { @MainActor [weak self] in await self?.saveCAS() }
         }
     }
 
-    /// Take the store's current body, discarding local edits (conflict banner
-    /// "Take theirs").
-    public func takeExternal() {
-        guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)
-        else { return }
-        isApplyingExternal = true
-        source = detail.bodyContent
-        isApplyingExternal = false
-        lastPersistedSource = detail.bodyContent
-        savedHash = detail.bodyContentHash
-        conflict = nil
-    }
-
     /// Replace the whole buffer with `body` (a version restore). Applied as an
-    /// ordinary edit so it flows through the normal debounced CAS save and a
+    /// ordinary edit so it flows through the normal debounced commit and a
     /// preview recompile — the editor shows the restored text immediately and
     /// it persists like any other change. Returns the pre-restore source so the
     /// caller can register an undo that swaps back.
@@ -279,26 +292,6 @@ public final class ManuscriptEditorSession {
         source = body   // didSet → noteEdit → debounced save + compile
         return previous
     }
-
-    /// Force our buffer over the store's version (conflict banner "Keep mine").
-    public func keepMine() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Unguarded save wins deterministically.
-            _ = RustStoreAdapter.shared.setManuscriptBody(
-                id: self.manuscriptID, body: self.source, expectedHash: nil)
-            if let d = RustStoreAdapter.shared.getManuscriptDetail(id: self.manuscriptID) {
-                self.savedHash = d.bodyContentHash
-            }
-            self.conflict = nil
-        }
-    }
-}
-
-/// A detected external edit awaiting user resolution.
-public struct ExternalEditConflict: Sendable, Equatable {
-    public let manuscriptID: UUID
-    public let storedHash: String?
 }
 
 // MARK: - Registry
@@ -408,12 +401,16 @@ public final class ManuscriptSessionRegistry {
             RustStoreAdapter.shared.updateField(
                 id: id, field: "format", value: format.rawValue)
         }
+        // Pin the document heads as the first commit base (ADR-0027 D6). This
+        // also migrates a never-touched manuscript (deterministic genesis).
+        let heads = RustStoreAdapter.shared.manuscriptCollabHeads(id: id)
         let session = ManuscriptEditorSession(
             manuscriptID: id,
             source: body,
             format: format,
             title: detail.title,
             savedHash: detail.bodyContentHash,
+            savedHeads: heads,
             compiler: latexCompilerFactory()
         )
         sessions[id] = session
@@ -498,10 +495,10 @@ public final class ManuscriptSessionRegistry {
 
     private func evictIfNeeded() {
         while sessions.count > capacity {
-            // Evict the oldest session that has no unresolved conflict.
-            guard let victim = lru.first(where: { sessions[$0]?.conflict == nil }) else {
-                return  // all remaining sessions are conflicted — keep them
-            }
+            // Evict the oldest session. (There is no "unresolved conflict"
+            // to protect any more — ADR-0027 merges instead of asking — and
+            // `flush()` commits whatever the buffer holds on the way out.)
+            guard let victim = lru.first else { return }
             sessions[victim]?.flush()
             sessions[victim] = nil
             lru.removeAll { $0 == victim }

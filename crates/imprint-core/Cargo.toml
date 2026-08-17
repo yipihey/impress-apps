@@ -46,7 +46,6 @@ impress-bibtex = { workspace = true }
 impress-identifiers = { workspace = true }
 
 # CRDT support
-automerge = "0.5"
 
 # Serialization and error handling
 serde = { workspace = true }

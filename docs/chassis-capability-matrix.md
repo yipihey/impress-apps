@@ -2355,3 +2355,29 @@ resolving them touches live scheduling and rows in user databases. What C4 did:
 `impress/operation` is gone: `crates/impress-core/src/schemas/operation.rs`
 registered an id nothing has ever written or read. `core/operation` — what
 `sqlite_store` actually writes — stays canonical.
+
+### `manuscript-change@1.0.0` — the manuscript body's history (ADR-0027)
+
+Added 2026-08-16. One immutable chunk of Automerge changes per commit to a
+manuscript body (`kind: change`), or one full-document snapshot written by the
+daemon's compaction (`kind: snapshot`). Envelope `parent` = the manuscript;
+the load query is `HasParent`. **No sidebar surface, no list row, no detail
+tab** — it is invisible on purpose; its counts show in `impress://store/schemas`
+and `/api/health` `ops_by_target_schema`. Written and read ONLY by
+`impress-core/src/collab.rs`; every app reaches it through the store verbs
+(`commit_manuscript_body`, `manuscript_collab_heads`,
+`manuscript_change_history`, `manuscript_text_at`) on `ImbibStore` and
+`SharedStore`. Payload-mutating operations are rejected in `apply_operation`
+exactly as for `manuscript-revision`.
+
+Two invariants a future reader will need (see ADR-0027 D2/D4):
+
+- `body_content` on the `manuscript` row is a **materialization** of the
+  document, rewritten by every collab verb, with `collab_materialized_hash ==
+  body_content_hash` as the ownership marker. A row whose two hashes disagree
+  was written by a non-collab writer (an old build, a watched-folder re-read)
+  and is folded in as a *deterministic* recovery change on next touch.
+- **Never write a manuscript body as a raw payload upsert.** imprint's
+  `ManuscriptStoreAdapter.setBody` used to; it now commits through the
+  document. A raw write is not lost (D4 recovery catches it), but it forfeits
+  merge — the write is applied last-writer-wins on next touch.

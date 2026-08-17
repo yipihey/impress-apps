@@ -94,7 +94,8 @@
     "vw/procedure-run@1.0.0": "vw-impress-adapter. Durable execution state for a published diagnostic procedure.",
     "vw/vehicle@1.0.0": "vw-impress-adapter. Vehicle identity linked to its exact configuration.",
     "watched-file@1.0.0": "VERSIONED. impress-core schemas/watched_folder.rs (ADR-0023 D4). One row per file a watched folder has ever discovered — an INDEX ENTRY, never a copy: path, sha256 content hash, mtime, and a `state` of present|missing. Written and read ONLY by impress-store-service DocsImportService (import_discovered / finish_watched_scan / record_produced_rows / list_watched_files), which is the single writer for both ingest units. A vanished file's row is marked `missing`, never deleted, because the rows it produced are still real. `produced_ids` is the W2 seam: discovery leaves it absent and the app's real importer fills it in through record_produced_rows.",
-    "watched-folder@1.0.0": "VERSIONED, exactly as ADR-0023 D2 names it. impress-core schemas/watched_folder.rs. One row per folder the user (or an agent, via MCP/CLI) asked the suite to watch: path + optional security-scoped bookmark, kind_scope, enabled, declared volume_state (D6) and last-scan stats. Written by impress-store-service DocsImportService add_watched_folder / update_watched_folder / finish_watched_scan; W1's Swift FolderWatchService reaches it through those verbs, never with its own writer. The watched file TYPES and the ingest UNIT are deliberately NOT fields here — they are derived from the record kind's FileDiscoveryCapability (D1), which is the one authority for both."
+    "watched-folder@1.0.0": "VERSIONED, exactly as ADR-0023 D2 names it. impress-core schemas/watched_folder.rs. One row per folder the user (or an agent, via MCP/CLI) asked the suite to watch: path + optional security-scoped bookmark, kind_scope, enabled, declared volume_state (D6) and last-scan stats. Written by impress-store-service DocsImportService add_watched_folder / update_watched_folder / finish_watched_scan; W1's Swift FolderWatchService reaches it through those verbs, never with its own writer. The watched file TYPES and the ingest UNIT are deliberately NOT fields here — they are derived from the record kind's FileDiscoveryCapability (D1), which is the one authority for both.",
+    "manuscript-change@1.0.0": "impress-core collab (ADR-0027). One IMMUTABLE chunk of Automerge changes for a manuscript body — kind \"change\" (one commit's raw changes) or \"snapshot\" (a full save written by compaction). Envelope parent = the manuscript (the load query is HasParent). Written ONLY by impress-core collab.rs; read by the same; compacted by the AI daemon's cycle. Registered once in impress-core schemas/manuscript_change.rs (MANUSCRIPT_CHANGE_SCHEMA_REF)."
   },
   "$registriesDoc": [
     "Exactly what each crate's schema-registration entry point produces. Asserted in BOTH",
@@ -115,8 +116,8 @@
   ],
   "registries": {
     "impress-core": [
-      "ai-import-ledger@1.0.0",
       "agent-run@1.0.0",
+      "ai-import-ledger@1.0.0",
       "annotation",
       "bibliography-entry",
       "chat-message",
@@ -143,6 +144,7 @@
       "mail-account",
       "mail-folder",
       "manuscript",
+      "manuscript-change@1.0.0",
       "manuscript-collection",
       "manuscript-revision",
       "manuscript-section",
@@ -152,8 +154,8 @@
       "revision-note",
       "source-citation@1.0.0",
       "task@1.0.0",
-      "tool-invocation@1.0.0",
       "throughline",
+      "tool-invocation@1.0.0",
       "veusz-plot",
       "watched-file@1.0.0",
       "watched-folder@1.0.0"

@@ -1101,6 +1101,14 @@ public protocol SharedStoreProtocol : AnyObject {
     func collectionTreeIn(binding: SharedCollectionBinding, containerId: String?) throws  -> [SharedCollectionRow]
     
     /**
+     * Commit text to a manuscript's Automerge document (ADR-0027 D6) — the
+     * ONLY way any app should write a manuscript body. `base_heads` = the
+     * heads the caller last saw (empty = unknown, diff against current). The
+     * outcome carries the merged body and the heads to pin next.
+     */
+    func commitManuscriptBody(id: String, baseHeads: [String], body: String, author: String) throws  -> SharedManuscriptCommitOutcome
+    
+    /**
      * Count items with the given schema (e.g. for sidebar badges).
      */
     func countBySchema(schemaRef: String) throws  -> UInt32
@@ -1147,6 +1155,12 @@ public protocol SharedStoreProtocol : AnyObject {
      * List a manuscript's revision snapshots, newest first.
      */
     func listManuscriptRevisions(manuscriptId: String) throws  -> [SharedItemRow]
+    
+    /**
+     * The manuscript document's current heads (genesis-migrating a
+     * never-touched manuscript) — an editor's first commit base.
+     */
+    func manuscriptCollabHeads(id: String) throws  -> [String]
     
     /**
      * All operations targeting an item, oldest first, shaped for the Info-tab
@@ -1876,6 +1890,23 @@ open func collectionTreeIn(binding: SharedCollectionBinding, containerId: String
 }
     
     /**
+     * Commit text to a manuscript's Automerge document (ADR-0027 D6) — the
+     * ONLY way any app should write a manuscript body. `base_heads` = the
+     * heads the caller last saw (empty = unknown, diff against current). The
+     * outcome carries the merged body and the heads to pin next.
+     */
+open func commitManuscriptBody(id: String, baseHeads: [String], body: String, author: String)throws  -> SharedManuscriptCommitOutcome {
+    return try  FfiConverterTypeSharedManuscriptCommitOutcome.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_commit_manuscript_body(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterSequenceString.lower(baseHeads),
+        FfiConverterString.lower(body),
+        FfiConverterString.lower(author),$0
+    )
+})
+}
+    
+    /**
      * Count items with the given schema (e.g. for sidebar badges).
      */
 open func countBySchema(schemaRef: String)throws  -> UInt32 {
@@ -1970,6 +2001,18 @@ open func listManuscriptRevisions(manuscriptId: String)throws  -> [SharedItemRow
     return try  FfiConverterSequenceTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_list_manuscript_revisions(self.uniffiClonePointer(),
         FfiConverterString.lower(manuscriptId),$0
+    )
+})
+}
+    
+    /**
+     * The manuscript document's current heads (genesis-migrating a
+     * never-touched manuscript) — an editor's first commit base.
+     */
+open func manuscriptCollabHeads(id: String)throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_collab_heads(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
     )
 })
 }
@@ -5844,6 +5887,94 @@ public func FfiConverterTypeSharedItemUpsert_lower(_ value: SharedItemUpsert) ->
 
 
 /**
+ * Outcome of `commit_manuscript_body` (ADR-0027 D6): the heads to pin as
+ * the next base and the MERGED body (`merged_external` = it differs from
+ * what was sent, another writer's edits were folded in). Field-identical to
+ * imbib-core's `ManuscriptCommitOutcome`.
+ */
+public struct SharedManuscriptCommitOutcome {
+    public var heads: [String]
+    public var body: String
+    public var bodyHash: String
+    public var mergedExternal: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(heads: [String], body: String, bodyHash: String, mergedExternal: Bool) {
+        self.heads = heads
+        self.body = body
+        self.bodyHash = bodyHash
+        self.mergedExternal = mergedExternal
+    }
+}
+
+
+
+extension SharedManuscriptCommitOutcome: Equatable, Hashable {
+    public static func ==(lhs: SharedManuscriptCommitOutcome, rhs: SharedManuscriptCommitOutcome) -> Bool {
+        if lhs.heads != rhs.heads {
+            return false
+        }
+        if lhs.body != rhs.body {
+            return false
+        }
+        if lhs.bodyHash != rhs.bodyHash {
+            return false
+        }
+        if lhs.mergedExternal != rhs.mergedExternal {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(heads)
+        hasher.combine(body)
+        hasher.combine(bodyHash)
+        hasher.combine(mergedExternal)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedManuscriptCommitOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedManuscriptCommitOutcome {
+        return
+            try SharedManuscriptCommitOutcome(
+                heads: FfiConverterSequenceString.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf), 
+                bodyHash: FfiConverterString.read(from: &buf), 
+                mergedExternal: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedManuscriptCommitOutcome, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.heads, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+        FfiConverterString.write(value.bodyHash, into: &buf)
+        FfiConverterBool.write(value.mergedExternal, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedManuscriptCommitOutcome_lift(_ buf: RustBuffer) throws -> SharedManuscriptCommitOutcome {
+    return try FfiConverterTypeSharedManuscriptCommitOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedManuscriptCommitOutcome_lower(_ value: SharedManuscriptCommitOutcome) -> RustBuffer {
+    return FfiConverterTypeSharedManuscriptCommitOutcome.lower(value)
+}
+
+
+/**
  * One operation from an item's history, shaped for history-panel display.
  *
  * `field_names` lists the payload fields the operation touched (empty for
@@ -9372,6 +9503,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_collection_tree_in() != 8828) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_commit_manuscript_body() != 35406) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_count_by_schema() != 21485) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9394,6 +9528,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_list_manuscript_revisions() != 34325) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_collab_heads() != 26846) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_operations_for() != 9390) {

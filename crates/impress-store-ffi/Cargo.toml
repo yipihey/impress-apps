@@ -15,7 +15,7 @@ default = []
 native = ["uniffi"]
 
 [dependencies]
-impress-core = { workspace = true, features = ["sqlite"] }
+impress-core = { workspace = true, features = ["sqlite", "collab"] }
 impress-ai.workspace = true
 uniffi = { workspace = true, optional = true }
 serde = { workspace = true }

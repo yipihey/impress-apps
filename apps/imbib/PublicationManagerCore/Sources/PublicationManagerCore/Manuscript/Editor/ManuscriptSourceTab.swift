@@ -7,8 +7,9 @@
 //  The Source tab (GUI-meld plan §4): imprint's editor stack hosted in the
 //  chassis detail pane, bound to a ManuscriptEditorSession. Editor on the
 //  left; an optional live compiled-PDF preview on the right (default on, ≈
-//  imprint's old split-editor mode). A compile-status strip and a non-modal
-//  conflict banner frame it. The session lives in the registry OUTSIDE the
+//  imprint's old split-editor mode). A compile-status strip frames it (the
+//  old conflict banner is gone: concurrent edits merge — ADR-0027). The
+//  session lives in the registry OUTSIDE the
 //  view tree, so this view carries NO `.id()` and survives tab/selection
 //  switches without losing the buffer, undo stack, or an in-flight compile.
 
@@ -41,7 +42,6 @@ public struct ManuscriptSourceTab: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            if session.conflict != nil { conflictBanner }
             editorSplit
             compileStrip
         }
@@ -317,21 +317,6 @@ public struct ManuscriptSourceTab: View {
         session.highlight(range: range)
     }
 
-    private var conflictBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
-                .foregroundStyle(.orange)
-            Text("This manuscript was edited elsewhere.")
-                .fontWeight(.medium)
-            Spacer()
-            Button("Keep mine") { session.keepMine() }
-            Button("Take theirs") { session.takeExternal() }
-        }
-        .font(.callout)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.orange.opacity(0.15))
-    }
 }
 
 /// The editor pane toggles (outline / comments / inspector / preview), for the

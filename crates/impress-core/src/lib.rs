@@ -18,6 +18,8 @@ pub mod bibliography_format;
 
 #[cfg(feature = "sqlite")]
 pub mod backup;
+#[cfg(feature = "collab")]
+pub mod collab;
 #[cfg(feature = "sqlite")]
 pub mod collection_migration;
 #[cfg(feature = "sqlite")]

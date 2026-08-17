@@ -2253,11 +2253,25 @@ public actor ImprintHTTPRouter: HTTPRouter {
                     "isBodyEdit": op.isBodyEdit,
                 ]
             }
+            // ADR-0027: the body's per-change history (Automerge changes,
+            // oldest first) and the document's current heads — the base an
+            // agent sends with its first PUT /body. Time is seconds since the
+            // epoch (0 for the deterministic genesis/recovery changes).
+            let heads = RustStoreAdapter.shared.manuscriptCollabHeads(id: uuid)
+            let changes = RustStoreAdapter.shared.manuscriptChangeHistory(id: uuid).map {
+                c -> [String: Any] in
+                [
+                    "hash": c.hash, "actor": c.actor, "time": c.time,
+                    "message": c.message as Any, "deps": c.deps,
+                ]
+            }
             return .json([
                 "status": "ok",
                 "id": uuid.uuidString,
                 "count": ops.count,
                 "operations": payload,
+                "heads": heads,
+                "changes": changes,
             ])
         }
     }

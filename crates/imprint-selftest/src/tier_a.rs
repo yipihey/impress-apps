@@ -58,6 +58,7 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_replace_in_section().await);
     out.push(cap_compile_latex().await);
     out.push(cap_manuscript_formats().await);
+    out.push(cap_manuscript_collab_convergence().await);
     out.push(cap_status_lifecycle().await);
     out.push(cap_throughline_create().await);
     out.push(cap_throughline_anchor_states().await);
@@ -117,6 +118,121 @@ async fn cap_manuscript_formats() -> CapabilityResult {
                 return Err(format!("round-trip mangled payload: {decoded}"));
             }
             Ok("format set stable; markdown body round-trips via SharedStore".to_string())
+        },
+    )
+    .await
+}
+
+/// ADR-0027: two editors that loaded the same manuscript commit from the same
+/// stale base; under the old compare-and-set one of them lost. Through the
+/// SharedStore verbs (the exact FFI imprint's adapter calls) both edits must
+/// land, the second committer must receive the MERGED body, and the row's
+/// materialized `body_content` must equal it — plus the never-touched
+/// manuscript's genesis must be deterministic across two store handles.
+async fn cap_manuscript_collab_convergence() -> CapabilityResult {
+    check(
+        "manuscripts.collab_convergence",
+        "concurrent commits from one stale base both land and merge (Automerge, ADR-0027)",
+        Tier::A,
+        || async {
+            let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+            let path = dir
+                .path()
+                .join("impress.sqlite")
+                .to_string_lossy()
+                .to_string();
+            let store =
+                impress_store_ffi::SharedStore::open(path.clone()).map_err(|e| e.to_string())?;
+            let id = uuid::Uuid::new_v4().to_string();
+            let body = "The quick brown fox.";
+            let payload = serde_json::json!({
+                "title": "Collab",
+                "status": "draft",
+                "current_revision_ref": id,
+                "format": "typst",
+                "body_content": body,
+            })
+            .to_string();
+            store
+                .upsert_item(id.clone(), "manuscript".into(), payload)
+                .map_err(|e| e.to_string())?;
+
+            // Two editors load the same base.
+            let base = store
+                .manuscript_collab_heads(id.clone())
+                .map_err(|e| e.to_string())?;
+            if base.is_empty() {
+                return Err("genesis produced no heads".into());
+            }
+            let a = store
+                .commit_manuscript_body(
+                    id.clone(),
+                    base.clone(),
+                    "Note: The quick brown fox.".into(),
+                    "editor:a".into(),
+                )
+                .map_err(|e| e.to_string())?;
+            if a.merged_external {
+                return Err("first committer must not see external edits".into());
+            }
+            let b = store
+                .commit_manuscript_body(
+                    id.clone(),
+                    base,
+                    "The quick brown fox. Jumps.".into(),
+                    "editor:b".into(),
+                )
+                .map_err(|e| e.to_string())?;
+            let want = "Note: The quick brown fox. Jumps.";
+            if !b.merged_external || b.body != want {
+                return Err(format!("stale-base commit did not merge: got {:?}", b.body));
+            }
+            let row = store.get_item(id.clone()).map_err(|e| e.to_string())?;
+            let materialized = row
+                .and_then(|item| {
+                    serde_json::from_str::<serde_json::Value>(&item.payload_json)
+                        .ok()
+                        .and_then(|v| v["body_content"].as_str().map(str::to_string))
+                })
+                .unwrap_or_default();
+            if materialized != want {
+                return Err(format!(
+                    "materialized body_content drifted: {materialized:?}"
+                ));
+            }
+
+            // Genesis determinism: a second handle over a fresh copy of the
+            // manuscript row (no chunks) must mint the same first change.
+            let dir2 = tempfile::tempdir().map_err(|e| e.to_string())?;
+            let path2 = dir2
+                .path()
+                .join("impress.sqlite")
+                .to_string_lossy()
+                .to_string();
+            let store2 = impress_store_ffi::SharedStore::open(path2).map_err(|e| e.to_string())?;
+            let id2 = uuid::Uuid::new_v4().to_string();
+            for s in [&store, &store2] {
+                s.upsert_item(
+                    id2.clone(),
+                    "manuscript".into(),
+                    serde_json::json!({"title": "G", "status": "draft", "format": "typst",
+                        "current_revision_ref": id2, "body_content": "same seed"})
+                    .to_string(),
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            let g1 = store
+                .manuscript_collab_heads(id2.clone())
+                .map_err(|e| e.to_string())?;
+            let g2 = store2
+                .manuscript_collab_heads(id2)
+                .map_err(|e| e.to_string())?;
+            if g1 != g2 {
+                return Err(format!(
+                    "genesis heads differ across replicas: {g1:?} vs {g2:?}"
+                ));
+            }
+            Ok(format!("merged both edits; genesis {}", &g1[0][..8]))
         },
     )
     .await

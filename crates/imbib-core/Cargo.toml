@@ -23,7 +23,7 @@ impress-bibtex = { workspace = true }
 impress-identifiers = { workspace = true }
 impress-flags = { workspace = true }
 impress-tags = { workspace = true }
-impress-core = { workspace = true, features = ["sqlite"] }
+impress-core = { workspace = true, features = ["sqlite", "collab"] }
 # Deterministic Cmd+S smart-search core. imbib-core is the FFI host for it:
 # PMC already links ImbibCore.xcframework, so the smart-search surface reaches
 # Swift without adding a third framework to the app bundle.

@@ -167,6 +167,11 @@ pub struct SqliteItemStore {
     pub(crate) default_author_kind: ActorKind,
     pub(crate) origin_id: String,
     tag_namespace: String,
+    /// Per-manuscript Automerge documents (ADR-0027), loaded lazily from
+    /// their `manuscript-change@1.0.0` chunks. Lock ORDER: this mutex is
+    /// only ever taken by `collab.rs`, and never while `conn` is held.
+    #[cfg(feature = "collab")]
+    pub(crate) collab_docs: Mutex<std::collections::HashMap<ItemId, crate::collab::CollabDoc>>,
 }
 
 /// One live subscription on the event bus.
@@ -550,6 +555,8 @@ impl SqliteItemStore {
             default_author_kind: config.author_kind,
             origin_id,
             tag_namespace: config.tag_namespace,
+            #[cfg(feature = "collab")]
+            collab_docs: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -1613,15 +1620,20 @@ impl SqliteItemStore {
                 |row| row.get::<_, String>(0),
             )
             .map_err(|e| StoreError::Storage(format!("read schema_ref: {}", e)))?;
-        if target_schema == "manuscript-revision" {
+        // `manuscript-change@1.0.0` chunks (ADR-0027 D3) are immutable for the
+        // same reason with a sharper edge: a chunk's bytes ARE the history,
+        // and every replica must load identical bytes to converge.
+        if target_schema == "manuscript-revision"
+            || target_schema == crate::schemas::MANUSCRIPT_CHANGE_SCHEMA_REF
+        {
             match &spec.op_type {
                 OperationType::SetPayload(_, _)
                 | OperationType::RemovePayload(_)
                 | OperationType::PatchPayload(_) => {
                     return Err(StoreError::Validation(format!(
-                        "manuscript-revision items are immutable: \
+                        "{} items are immutable: \
                          payload-mutating operation on item {} rejected",
-                        spec.target_id
+                        target_schema, spec.target_id
                     )));
                 }
                 _ => {}

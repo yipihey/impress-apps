@@ -92,6 +92,30 @@ pub struct ManuscriptSaveOutcome {
     pub new_hash: Option<String>,
 }
 
+/// Outcome of `commit_manuscript_body` (ADR-0027 D6): the heads to pin as the
+/// next base and the MERGED body — which differs from what was sent whenever
+/// another writer's edits were folded in (`merged_external`).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ManuscriptCommitOutcome {
+    pub heads: Vec<String>,
+    pub body: String,
+    pub body_hash: String,
+    pub merged_external: bool,
+}
+
+/// One Automerge change in a manuscript's history (oldest first).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct ManuscriptChangeSummary {
+    pub hash: String,
+    pub actor: String,
+    /// Seconds since the epoch; 0 for the deterministic genesis/recovery changes.
+    pub time: i64,
+    pub message: Option<String>,
+    pub deps: Vec<String>,
+}
+
 /// Summary of an undo group for the undo history panel.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
@@ -4398,24 +4422,80 @@ impl ImbibStore {
             }
         }
 
-        let new_hash = impress_core::manuscript_ops::sha256_hex(&body);
-        let now_iso = impress_core::manuscript_ops::iso8601_now();
-        self.store.update(
-            uuid,
-            vec![
-                FieldMutation::SetPayload("body_content".into(), Value::String(body)),
-                FieldMutation::SetPayload(
-                    "body_content_hash".into(),
-                    Value::String(new_hash.clone()),
-                ),
-                FieldMutation::SetPayload("body_modified_at".into(), Value::String(now_iso)),
-            ],
-        )?;
+        // ADR-0027 D6: the CAS contract is kept for existing callers, but the
+        // write goes THROUGH the Automerge document (unknown-base commit) so no
+        // in-repo writer can leave `body_content` and the document divergent.
+        let outcome = self
+            .store
+            .commit_manuscript_body(uuid, &[], &body, "user:local")?;
         Ok(ManuscriptSaveOutcome {
             applied: true,
             stored_hash,
-            new_hash: Some(new_hash),
+            new_hash: Some(outcome.body_hash),
         })
+    }
+
+    /// Commit an editor buffer to a manuscript's Automerge document
+    /// (ADR-0027 D6). `base_heads` are the heads the caller last saw; its
+    /// text is diffed against the document AT THAT BASE and merged, so a
+    /// stale caller's edits land beside anyone else's instead of over them.
+    /// Empty base = diff against the current text. Returns the merged body
+    /// and the heads to pin next; `merged_external` tells the editor to adopt
+    /// the returned body.
+    pub fn commit_manuscript_body(
+        &self,
+        id: String,
+        base_heads: Vec<String>,
+        body: String,
+        author: String,
+    ) -> Result<ManuscriptCommitOutcome, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        let out = self
+            .store
+            .commit_manuscript_body(uuid, &base_heads, &body, &author)?;
+        Ok(ManuscriptCommitOutcome {
+            heads: out.heads,
+            body: out.body,
+            body_hash: out.body_hash,
+            merged_external: out.merged_external,
+        })
+    }
+
+    /// The manuscript document's current heads — what an editor pins as its
+    /// first base at load. Migrates a never-touched manuscript (genesis).
+    pub fn manuscript_collab_heads(&self, id: String) -> Result<Vec<String>, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        Ok(self.store.manuscript_collab_heads(uuid)?)
+    }
+
+    /// Per-change history of a manuscript body, oldest first.
+    pub fn manuscript_change_history(
+        &self,
+        id: String,
+    ) -> Result<Vec<ManuscriptChangeSummary>, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        Ok(self
+            .store
+            .manuscript_change_history(uuid)?
+            .into_iter()
+            .map(|c| ManuscriptChangeSummary {
+                hash: c.hash,
+                actor: c.actor,
+                time: c.time,
+                message: c.message,
+                deps: c.deps,
+            })
+            .collect())
+    }
+
+    /// The manuscript body as of `heads` (time travel).
+    pub fn manuscript_text_at(
+        &self,
+        id: String,
+        heads: Vec<String>,
+    ) -> Result<String, StoreApiError> {
+        let uuid = parse_uuid(&id)?;
+        Ok(self.store.manuscript_text_at(uuid, &heads)?)
     }
 
     /// Search manuscripts by title/body/notes substring (list-filter path;

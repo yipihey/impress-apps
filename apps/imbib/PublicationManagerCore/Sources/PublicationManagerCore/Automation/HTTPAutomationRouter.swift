@@ -187,6 +187,41 @@ public actor HTTPAutomationRouter: HTTPRouter {
             }
         }
 
+        // GET /api/manuscripts/{uuid}/changes — the document's per-change
+        // history (oldest first) and current heads; the base an agent sends
+        // with its first PUT. Optional ?at=<hex,hex> returns the body as of
+        // those heads (time travel).
+        if path.hasPrefix("/api/manuscripts/") && path.hasSuffix("/changes") {
+            let idString = String(
+                originalPath.dropFirst("/api/manuscripts/".count).dropLast("/changes".count))
+            guard let manuscriptID = UUID(uuidString: idString) else {
+                return .badRequest("Invalid manuscript UUID: \(idString)")
+            }
+            let at = request.queryParams["at"].map {
+                $0.split(separator: ",").map(String.init).filter { !$0.isEmpty }
+            } ?? []
+            let (heads, changes, textAt): ([String], [ManuscriptChangeSummary], String?) =
+                await MainActor.run {
+                    let heads = RustStoreAdapter.shared.manuscriptCollabHeads(id: manuscriptID)
+                    let changes = RustStoreAdapter.shared.manuscriptChangeHistory(id: manuscriptID)
+                    let text = at.isEmpty
+                        ? nil : RustStoreAdapter.shared.manuscriptTextAt(id: manuscriptID, heads: at)
+                    return (heads, changes, text)
+                }
+            var payload: [String: Any] = [
+                "status": "ok",
+                "heads": heads,
+                "changes": changes.map { c -> [String: Any] in
+                    [
+                        "hash": c.hash, "actor": c.actor, "time": c.time,
+                        "message": c.message as Any, "deps": c.deps,
+                    ]
+                },
+            ]
+            if let textAt { payload["bodyAt"] = textAt }
+            return .json(payload)
+        }
+
         // GET /api/manuscripts/{uuid} — full manuscript detail incl. body +
         // content hash. The hash is the CAS cookie for PUT .../body: agents
         // read (body, contentHash), edit, and write back conditionally so a
@@ -1120,11 +1155,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleAddArtifactTag(artifactID: artifactID, request: request)
         }
 
-        // PUT /api/manuscripts/{uuid}/body — compare-and-set body update.
-        // {body, expected_hash?} → setManuscriptBody. Stale hash → 409 with
-        // the current storedHash so the caller re-reads and rebases instead
-        // of overwriting concurrent edits (the same CAS the in-app editors
-        // use — this is the agent-safe manuscript write path).
+        // PUT /api/manuscripts/{uuid}/body — commit to the collaborative
+        // document (ADR-0027 D6). {body, base_heads?: [hex]} → the text is
+        // diffed against the document at base_heads and MERGED with any
+        // concurrent edits; the response carries the merged body and the
+        // heads to send next. This is the agent-safe manuscript write path:
+        // a stale base never overwrites, it merges. Legacy {expected_hash}
+        // keeps its compare-and-set contract (409 on a stale hash) for
+        // callers not yet sending heads.
         if path.hasPrefix("/api/manuscripts/") && path.hasSuffix("/body") {
             let idString = String(
                 originalPath.dropFirst("/api/manuscripts/".count).dropLast("/body".count))
@@ -1138,26 +1176,44 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Missing 'body'")
             }
             let expectedHash = (json["expected_hash"] as? String) ?? (json["expectedHash"] as? String)
+            if let expectedHash {
+                guard let outcome = await MainActor.run(body: {
+                    RustStoreAdapter.shared.setManuscriptBody(
+                        id: manuscriptID, body: body, expectedHash: expectedHash)
+                }) else {
+                    return .json(["status": "error", "reason": "manuscript not found"], status: 404)
+                }
+                if outcome.applied {
+                    return .json([
+                        "status": "ok",
+                        "applied": true,
+                        "newHash": outcome.newHash as Any,
+                    ])
+                }
+                return .json(
+                    [
+                        "status": "conflict",
+                        "applied": false,
+                        "storedHash": outcome.storedHash as Any,
+                    ],
+                    status: 409)
+            }
+            let baseHeads = (json["base_heads"] as? [String]) ?? (json["baseHeads"] as? [String]) ?? []
+            let author = (json["author"] as? String) ?? "agent:http"
             guard let outcome = await MainActor.run(body: {
-                RustStoreAdapter.shared.setManuscriptBody(
-                    id: manuscriptID, body: body, expectedHash: expectedHash)
+                RustStoreAdapter.shared.commitManuscriptBody(
+                    id: manuscriptID, body: body, baseHeads: baseHeads, author: author)
             }) else {
                 return .json(["status": "error", "reason": "manuscript not found"], status: 404)
             }
-            if outcome.applied {
-                return .json([
-                    "status": "ok",
-                    "applied": true,
-                    "newHash": outcome.newHash as Any,
-                ])
-            }
-            return .json(
-                [
-                    "status": "conflict",
-                    "applied": false,
-                    "storedHash": outcome.storedHash as Any,
-                ],
-                status: 409)
+            return .json([
+                "status": "ok",
+                "applied": true,
+                "heads": outcome.heads,
+                "body": outcome.body,
+                "newHash": outcome.bodyHash,
+                "mergedExternal": outcome.mergedExternal,
+            ])
         }
 
         // PUT /api/libraries/{id}/participants/{participantID}

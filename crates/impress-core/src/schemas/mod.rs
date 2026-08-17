@@ -10,6 +10,7 @@ pub mod implore;
 pub mod knowledge_objects;
 pub mod manuscript;
 pub mod manuscript_bundle_manifest;
+pub mod manuscript_change;
 pub mod manuscript_collection;
 pub mod manuscript_revision;
 pub mod manuscript_section;
@@ -35,6 +36,7 @@ pub use git_project::register_git_project_schemas;
 pub use implore::register_implore_schemas;
 pub use knowledge_objects::register_knowledge_object_schemas;
 pub use manuscript::register_manuscript_schema;
+pub use manuscript_change::{register_manuscript_change_schema, MANUSCRIPT_CHANGE_SCHEMA_REF};
 pub use manuscript_collection::register_manuscript_collection_schema;
 pub use manuscript_revision::register_manuscript_revision_schema;
 pub use manuscript_section::register_imprint_schemas;
@@ -82,6 +84,7 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // manuscript-submission inherits from task, so task must precede it.
     register_manuscript_schema(registry);
     register_manuscript_revision_schema(registry);
+    register_manuscript_change_schema(registry);
     register_manuscript_submission_schema(registry);
     register_manuscript_collection_schema(registry);
     // Generic collection kernel (ADR-0022 D1): one schema for every record

@@ -19,7 +19,7 @@ chrono.workspace = true
 axum.workspace = true
 dirs.workspace = true
 impress-ai.workspace = true
-impress-core.workspace = true
+impress-core = { workspace = true, features = ["collab"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"

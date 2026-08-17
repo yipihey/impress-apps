@@ -41,6 +41,10 @@ struct IOSManuscriptEditorHost: View {
     @State private var debounceTask: Task<Void, Never>?
     private static let debounceInterval: Duration = .milliseconds(300)
 
+    /// Document heads last seen — the base each commit is diffed against
+    /// (ADR-0027 D6). Pinned at load and after every commit.
+    @State private var savedHeads: [String] = []
+
     /// ADR-0023 D4 — the no-write-back gate.
     ///
     /// This host has its OWN 300 ms debounce into `setBody`, so it carries its
@@ -101,7 +105,8 @@ struct IOSManuscriptEditorHost: View {
             // nobody made, and the D4 rule is worth spelling at the one site
             // that writes unconditionally.
             if hasLoaded, !isExternal {
-                try? adapter.setBody(id: manuscriptID, text: bridge.source)
+                _ = try? adapter.commitBody(
+                    id: manuscriptID, text: bridge.source, baseHeads: savedHeads)
             }
         }
     }
@@ -146,6 +151,7 @@ struct IOSManuscriptEditorHost: View {
             )
         }
         bridge = doc
+        savedHeads = adapter.collabHeads(id: manuscriptID)
         hasLoaded = true
 
         Logger.sharedStore.infoCapture(
@@ -160,7 +166,19 @@ struct IOSManuscriptEditorHost: View {
             do {
                 try await Task.sleep(for: Self.debounceInterval)
                 guard !Task.isCancelled else { return }
-                try adapter.setBody(id: manuscriptID, text: text)
+                // ADR-0027: commit from our base; the document merges edits
+                // made elsewhere with ours and returns the merged text, which
+                // the buffer adopts (only if it still equals what we sent —
+                // otherwise the next debounce folds it in from the new base).
+                let outcome = try adapter.commitBody(
+                    id: manuscriptID, text: text, baseHeads: savedHeads)
+                savedHeads = outcome.heads
+                if outcome.mergedExternal, bridge.source == text {
+                    bridge.source = outcome.body
+                    Logger.sharedStore.infoCapture(
+                        "IOSManuscriptEditorHost: merged external edits into \(manuscriptID)",
+                        category: "manuscript-editor")
+                }
             } catch is CancellationError {
                 // Normal — superseded by a newer keystroke.
             } catch {

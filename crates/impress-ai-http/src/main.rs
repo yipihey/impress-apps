@@ -143,6 +143,29 @@ async fn main() {
                     }
                 }
 
+                // Manuscript-change chunks (ADR-0027 D5): fold each
+                // manuscript's per-commit chunks into one snapshot once it
+                // holds a day's worth. Same cadence as op compaction; the
+                // count is what `/api/health` ops_by_target_schema watches.
+                let store = maintenance_store.clone();
+                match tokio::task::spawn_blocking(move || store.compact_manuscript_changes(64))
+                    .await
+                {
+                    Ok(Ok(removed)) => {
+                        if removed > 0 {
+                            maintenance.log(format!(
+                                "folded {removed} manuscript-change chunks into snapshots"
+                            ));
+                        }
+                    }
+                    Ok(Err(error)) => {
+                        maintenance.log(format!("manuscript-change compaction failed: {error}"))
+                    }
+                    Err(join_error) => maintenance.log(format!(
+                        "manuscript-change compaction task failed: {join_error}"
+                    )),
+                }
+
                 let store = maintenance_store.clone();
                 let compacted = tokio::task::spawn_blocking(move || {
                     store.compact_operations(compact_window_days)

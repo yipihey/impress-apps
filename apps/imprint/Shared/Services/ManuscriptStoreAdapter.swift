@@ -448,22 +448,30 @@ public final class ManuscriptStoreAdapter {
         }
     }
 
-    /// Update a manuscript's body content. Recomputes
-    /// `body_content_hash` and `body_modified_at` in the same call.
+    /// Update a manuscript's body content — through the collaborative
+    /// document (ADR-0027 D6), never as a raw payload write: an unknown-base
+    /// commit diffs `text` against the current document and merges, and the
+    /// kernel rewrites `body_content` / hash / `body_modified_at` itself.
+    /// Callers that track heads should use `commitBody` and adopt its outcome.
     public func setBody(id: UUID, text: String) throws {
-        let now = ISO8601DateFormatter().string(from: Date())
-        let payload: [String: Any] = [
-            "body_content": text,
-            "body_content_hash": Self.sha256Hex(text),
-            "body_modified_at": now,
-        ]
-        let json = try Self.encodeJSON(payload)
-        try sharedStore.upsertItem(
-            id: id.uuidString,
-            schemaRef: "manuscript",
-            payloadJson: json
-        )
+        _ = try commitBody(id: id, text: text, baseHeads: [])
+    }
+
+    /// Commit `text` against the heads this editor last saw and return the
+    /// MERGED body + the heads to pin next (`mergedExternal` = adopt `body`).
+    @discardableResult
+    public func commitBody(
+        id: UUID, text: String, baseHeads: [String]
+    ) throws -> SharedManuscriptCommitOutcome {
+        let outcome = try sharedStore.commitManuscriptBody(
+            id: id.uuidString, baseHeads: baseHeads, body: text, author: "user:local")
         didMutate(structural: false, affectedIDs: [id], kind: .otherField)
+        return outcome
+    }
+
+    /// The document's current heads — an editor's first commit base.
+    public func collabHeads(id: UUID) -> [String] {
+        (try? sharedStore.manuscriptCollabHeads(id: id.uuidString)) ?? []
     }
 
     /// Update top-level manuscript metadata (title, status, authors,

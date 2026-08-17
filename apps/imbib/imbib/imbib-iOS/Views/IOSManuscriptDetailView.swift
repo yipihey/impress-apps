@@ -43,6 +43,8 @@ struct IOSManuscriptDetailView: View {
     @State private var body_ = ""
     @State private var selection: NSRange?
     @State private var lastHash: String?
+    /// Document heads last seen — the base the next commit diffs against.
+    @State private var lastHeads: [String] = []
     @State private var hasLoaded = false
 
     // Revisions (Info tab).
@@ -382,6 +384,7 @@ struct IOSManuscriptDetailView: View {
         detail = d
         body_ = d.bodyContent
         lastHash = d.bodyContentHash
+        lastHeads = store.manuscriptCollabHeads(id: manuscriptID)
         revisions = store.listManuscriptRevisions(manuscriptID: manuscriptID)
         hasLoaded = true
     }
@@ -400,24 +403,19 @@ struct IOSManuscriptDetailView: View {
     }
 
     private func saveNow(text: String) {
-        guard let outcome = store.setManuscriptBody(
-            id: manuscriptID, body: text, expectedHash: lastHash
+        // ADR-0027: commit against the heads we last saw; the document merges
+        // any edits made elsewhere (imprint, the Mac) with ours, and the
+        // buffer adopts the merged text — nothing is overwritten either way.
+        guard let outcome = store.commitManuscriptBody(
+            id: manuscriptID, body: text, baseHeads: lastHeads
         ) else { return }
-
-        if outcome.applied {
-            lastHash = outcome.newHash
-        } else {
-            // Compare-and-set rejected the write (imprint edited the same
-            // manuscript). Reconcile by adopting the store's version — the
-            // safest non-destructive default on a shared item.
-            Logger.library.warningCapture(
-                "IOSManuscriptDetailView: save conflict, reloading \(manuscriptID)",
+        lastHeads = outcome.heads
+        lastHash = outcome.bodyHash
+        if outcome.mergedExternal, body_ == text {
+            Logger.library.infoCapture(
+                "IOSManuscriptDetailView: merged external edits into \(manuscriptID)",
                 category: "manuscripts")
-            if let d = store.getManuscriptDetail(id: manuscriptID) {
-                detail = d
-                body_ = d.bodyContent
-                lastHash = d.bodyContentHash
-            }
+            body_ = outcome.body
         }
     }
 }

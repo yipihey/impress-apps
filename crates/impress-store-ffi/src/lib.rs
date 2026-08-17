@@ -653,6 +653,19 @@ pub struct SyncCounts {
 
 // ─── Store object ────────────────────────────────────────────────────────────
 
+/// Outcome of `commit_manuscript_body` (ADR-0027 D6): the heads to pin as
+/// the next base and the MERGED body (`merged_external` = it differs from
+/// what was sent, another writer's edits were folded in). Field-identical to
+/// imbib-core's `ManuscriptCommitOutcome`.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct SharedManuscriptCommitOutcome {
+    pub heads: Vec<String>,
+    pub body: String,
+    pub body_hash: String,
+    pub merged_external: bool,
+}
+
 /// A handle to the shared impress-core SQLite database.
 ///
 /// Construct with `SharedStore.open(path:)` or `SharedStore.openInMemory()`.
@@ -685,6 +698,40 @@ impl SharedStore {
             message: e.to_string(),
         })?;
         Ok(Arc::new(SharedStore { inner: store }))
+    }
+
+    /// Commit text to a manuscript's Automerge document (ADR-0027 D6) — the
+    /// ONLY way any app should write a manuscript body. `base_heads` = the
+    /// heads the caller last saw (empty = unknown, diff against current). The
+    /// outcome carries the merged body and the heads to pin next.
+    pub fn commit_manuscript_body(
+        &self,
+        id: String,
+        base_heads: Vec<String>,
+        body: String,
+        author: String,
+    ) -> Result<SharedManuscriptCommitOutcome, SharedStoreError> {
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
+        let out = self
+            .inner
+            .commit_manuscript_body(item_id, &base_heads, &body, &author)?;
+        Ok(SharedManuscriptCommitOutcome {
+            heads: out.heads,
+            body: out.body,
+            body_hash: out.body_hash,
+            merged_external: out.merged_external,
+        })
+    }
+
+    /// The manuscript document's current heads (genesis-migrating a
+    /// never-touched manuscript) — an editor's first commit base.
+    pub fn manuscript_collab_heads(&self, id: String) -> Result<Vec<String>, SharedStoreError> {
+        let item_id: ItemId = id.parse().map_err(|_| SharedStoreError::InvalidArgument {
+            message: format!("invalid UUID: {id}"),
+        })?;
+        Ok(self.inner.manuscript_collab_heads(item_id)?)
     }
 
     /// Insert or update an item.
