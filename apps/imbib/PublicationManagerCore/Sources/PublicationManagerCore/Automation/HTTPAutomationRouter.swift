@@ -71,6 +71,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 ///   keywords?, include_sections?)
 /// - `POST /api/manuscripts/{uuid}/compile` - Compile a manuscript to PDF
 /// - `POST /api/manuscripts/{uuid}/plot-figure` - Save a plot figure into a manuscript
+/// - `DELETE /api/manuscripts/{uuid}` - Dismiss a manuscript (restorable; the suite's delete)
 /// - `PUT /api/manuscripts/{uuid}/body` - Compare-and-set body update (409 on stale hash)
 ///
 /// ## Sync endpoints (ADR-0007 Phase 3)
@@ -1238,6 +1239,37 @@ public actor HTTPAutomationRouter: HTTPRouter {
     private func routeDELETE(path: String, originalPath: String, request: HTTPRequest) async -> HTTPResponse {
         if path == "/api/papers" {
             return await handleDeletePapers(request)
+        }
+
+        // DELETE /api/manuscripts/{uuid} — DISMISS a manuscript (the suite's
+        // delete: it lands in Dismissed and can be restored; permanent
+        // deletion is only ever from within Dismissed). Same kernel verb the
+        // sidebar's Delete uses, so undo, status lifecycle and counts all
+        // agree. Agents could create manuscripts over this API but not
+        // retire them — closed 2026-08-17. Optional ?discard_session=1 is not
+        // needed: dismissal keeps the row, so a live editor session stays
+        // valid and no debounced save can resurrect anything.
+        if path.hasPrefix("/api/manuscripts/") && !path.dropFirst("/api/manuscripts/".count).contains("/") {
+            let idString = String(originalPath.dropFirst("/api/manuscripts/".count))
+            guard let manuscriptID = UUID(uuidString: idString) else {
+                return .badRequest("Invalid manuscript UUID: \(idString)")
+            }
+            let outcome: (found: Bool, dismissed: Bool) = await MainActor.run {
+                guard RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID) != nil else {
+                    return (false, false)
+                }
+                let kernel = RecordTriageStoreKernel(
+                    descriptor: ManuscriptRecordKind.descriptor,
+                    scope: CollectionStoreAdapter.shared.scope)
+                return (true, kernel.dismiss(ids: [manuscriptID]))
+            }
+            guard outcome.found else {
+                return .json(["status": "error", "reason": "manuscript not found"], status: 404)
+            }
+            guard outcome.dismissed else {
+                return .json(["status": "error", "reason": "dismiss failed"], status: 500)
+            }
+            return .json(["status": "ok", "id": manuscriptID.uuidString, "dismissed": true])
         }
 
         // DELETE /api/backups?path= — remove one snapshot and its manifest.
