@@ -1,6 +1,6 @@
 # ADR-0027: Manuscript Bodies Are Automerge Documents
 
-**Status:** Accepted — implementation in progress (P0–P2; see plan)  
+**Status:** Implemented (P0–P2 shipped 2026-08-17: 9f87791e + follow-ups); P3 multi-device rides ADR-0007 Phase D  
 **Date:** 2026-08-16  
 **Depends on:** ADR-0006 (Operation log), ADR-0007 (Sync architecture), ADR-0011 (Journal / revisions), ADR-0018 (GUI-meld), ADR-0023 (Watched folders)  
 **Supersedes:** the compare-and-set body save (`set_manuscript_body(expected_hash)` → 409 → conflict banner) as the *primary* write path; the verb survives as a compatibility shim over the new one.
@@ -223,8 +223,13 @@ carrying chunk rows like any other item.
   green; new commit/merge tests over the FFI-facing API.
 - imprint-selftest Tier A capability `manuscripts.collab_convergence`.
 - Live: `PUT /api/manuscripts/{id}/body` with stale `base_heads` from a
-  second client returns the *merged* body; the editing session shows the
-  merge with no banner; `/api/health` reports the chunk kind's ops.
+  second client returns the *merged* body (verified 2026-08-17 across imbib
+  and imprint processes); `/api/health` reports `manuscript_change_chunks`
+  (chunk inserts mint no ops, so `ops_by_target_schema` cannot see them —
+  the count has its own field).
+- Agents: `ManuscriptCollabService` (`impress-store-service`) generates the
+  four verbs for MCP/CLI/impel; the property tests live in
+  `impress-core/tests/prop_collab_convergence.rs`.
 
 ## Plan
 
