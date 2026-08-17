@@ -35,6 +35,7 @@ pub mod browse;
 pub mod collection_service;
 pub mod docs_import_service;
 pub mod figure_detection;
+pub mod manuscript_collab_service;
 pub mod query_service;
 pub mod source_assets;
 pub mod source_service;
@@ -69,6 +70,10 @@ pub use docs_import_service::{
     ImportedDocDto, ProducedRowsResult, PruneResult, SkippedDocDto, WatchedFileListResult,
     WatchedFolderListResult, WatchedFolderRemovalResult, WatchedFolderResult, WatchedScanResult,
     DOCS_IMPORT_NAMESPACE, MARKDOWN_EXTENSIONS, MARKDOWN_FORMAT,
+};
+pub use manuscript_collab_service::{
+    CollabChange, CollabCommitResult, CollabHeadsResult, CollabHistoryResult, CollabTextAtResult,
+    DefaultManuscriptCollabService, ManuscriptCollabService,
 };
 pub use query_service::{
     DefaultStoreQueryService, ItemEnvelopeDto, ItemListResult, ItemResult, RelatedItemDto,
@@ -124,6 +129,12 @@ mod inventory_tests {
             "triage-service_add-tag",
             "triage-service_remove-tag",
             "triage-service_set-status",
+            // ADR-0027: the manuscript body as a collaborative document —
+            // an agent is one more concurrent writer with the editors' contract.
+            "manuscript-collab-service_manuscript-heads",
+            "manuscript-collab-service_commit-manuscript-body",
+            "manuscript-collab-service_manuscript-change-history",
+            "manuscript-collab-service_manuscript-text-at",
             "store-query-service_search-all",
             "store-query-service_related-items",
             "store-query-service_get-item",

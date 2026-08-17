@@ -470,6 +470,21 @@ impl SqliteItemStore {
         })
     }
 
+    /// Row count of one record kind — the transparency number for kinds
+    /// whose growth someone must own (ADR-0027 chunks: inserts mint no ops,
+    /// so `ops_by_target_schema` cannot see them; this can).
+    pub fn count_items_of_schema(&self, schema_ref: &str) -> Result<u64, StoreError> {
+        self.with_read(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM items WHERE schema_ref = ?1",
+                params![schema_ref],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|n| n.max(0) as u64)
+            .map_err(|e| StoreError::Storage(format!("count_items_of_schema: {}", e)))
+        })
+    }
+
     /// Free pages currently on the freelist (what `vacuum` would reclaim).
     pub fn freelist_pages(&self) -> Result<u64, StoreError> {
         self.with_read(|conn| {

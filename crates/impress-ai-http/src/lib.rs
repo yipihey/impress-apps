@@ -382,7 +382,7 @@ async fn health(
         .filter(|m| *m > 0)
         .unwrap_or(24 * 60);
     let ai = state.ai.clone();
-    let (freelist, ops_last_24h, ops_by_author, ops_by_target) =
+    let (freelist, ops_last_24h, ops_by_author, ops_by_target, manuscript_change_chunks) =
         tokio::task::spawn_blocking(move || {
             let store = ai.shared_store();
             let since = chrono::Utc::now().timestamp_millis() - window_minutes * 60 * 1000;
@@ -395,10 +395,15 @@ async fn health(
                 store
                     .ops_minted_since_by_target_schema(since, 8)
                     .unwrap_or_default(),
+                // ADR-0027 D3: chunk volume is a measured number. Inserts mint
+                // no ops, so it needs its own line here.
+                store
+                    .count_items_of_schema(impress_core::schemas::MANUSCRIPT_CHANGE_SCHEMA_REF)
+                    .unwrap_or(0),
             )
         })
         .await
-        .unwrap_or((0, 0, Vec::new(), Vec::new()));
+        .unwrap_or((0, 0, Vec::new(), Vec::new(), 0));
     let ops_by_author: Vec<Value> = ops_by_author
         .into_iter()
         .map(|(author, kind, n)| json!({"author": author, "author_kind": kind, "ops": n}))
@@ -417,6 +422,7 @@ async fn health(
         "ops_last_24h": ops_last_24h,
         "ops_last_24h_by_author": ops_by_author,
         "ops_by_target_schema": ops_by_target,
+        "manuscript_change_chunks": manuscript_change_chunks,
         "maintenance": state.maintenance.status_snapshot(),
     }))
 }
