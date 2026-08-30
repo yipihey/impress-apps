@@ -5,6 +5,13 @@
 //! via `EnrichmentSpawnRule`, and drives the ADR-0005 §6 scheduler loop
 //! with the `impel-enrichment` executors.
 //!
+//! It also runs the ADR-0028 D7 memory sweeps — embedding backfill and
+//! agent-run consolidation — which are unlike the rules above in that they have
+//! no trigger item: `impel_memory::plan_memory_tasks` reads its own watermark
+//! off the chain of completed tasks. Both are OFF unless `IMPRESS_MEMORY_EMBED`
+//! / `IMPRESS_MEMORY_CONSOLIDATE` say otherwise, so a deploy carrying them
+//! changes no behavior until switched on.
+//!
 //! Safety posture:
 //! - Touching the LIVE group-container store requires the explicit
 //!   `--enable` flag; otherwise the daemon refuses and explains itself.
@@ -31,6 +38,9 @@ use impel_enrichment::classify::{Classifier, HeuristicClassifier};
 use impel_enrichment::metadata_resolve::ConfiguredSource;
 use impel_enrichment::{
     EnrichmentSpawnRule, KeywordTagExecutor, MetadataResolveExecutor, BIBLIOGRAPHY_ENTRY_SCHEMA,
+};
+use impel_memory::{
+    plan_memory_tasks, EmbedBackfillExecutor, MemoryConsolidationExecutor, MemoryPlanConfig,
 };
 use impel_throughline::{
     ProposalDrafter, TemplateDrafter, ThroughlineSpawnRule, ThroughlineSyncExecutor,
@@ -400,6 +410,45 @@ async fn main() {
         };
     scheduler.register(Arc::new(ThroughlineSyncExecutor::new(drafter)));
 
+    // Memory kernel (ADR-0028 D7). Both executors are gated on env so a deploy
+    // of this daemon is inert until switched on deliberately: the embed
+    // backfill loads a ~100MB model on first real work, and consolidation
+    // writes memory rows the whole suite then recalls.
+    //
+    // The config is read ONCE, here, and the same value gates registration and
+    // planning. Re-reading the environment per pass would let a gate flip
+    // mid-run and leave the spawner planning tasks for an executor that was
+    // never registered — which the scheduler treats as a misconfiguration and
+    // escalates, per task, forever.
+    let memory_plan = MemoryPlanConfig::from_env();
+    if memory_plan.embed_enabled {
+        scheduler.register(Arc::new(EmbedBackfillExecutor::new(store.clone())));
+        eprintln!(
+            "impel-taskd: memory embed backfill ON (model {})",
+            memory_plan.model
+        );
+    } else {
+        eprintln!(
+            "impel-taskd: memory embed backfill off (set {}=1)",
+            impel_memory::spawn::EMBED_ENV
+        );
+    }
+    if memory_plan.consolidate_enabled {
+        scheduler.register(Arc::new(MemoryConsolidationExecutor::new(store.clone())));
+        eprintln!("impel-taskd: memory consolidation ON (deterministic tier)");
+    } else {
+        eprintln!(
+            "impel-taskd: memory consolidation off (set {}=1)",
+            impel_memory::spawn::CONSOLIDATE_ENV
+        );
+    }
+    if args.dry_run && (memory_plan.embed_enabled || memory_plan.consolidate_enabled) {
+        // Said once at startup rather than every poll: planning a memory sweep
+        // IS the write (the task item carries its own window), so unlike the
+        // spawn rules above there is nothing for --dry-run to describe.
+        eprintln!("impel-taskd[dry]: memory sweeps are not planned in dry-run mode");
+    }
+
     // Subscribe BEFORE the start delay so no Created events are missed.
     let events = ItemStore::subscribe(
         store.as_ref(),
@@ -572,6 +621,24 @@ async fn main() {
                 }
                 Ok(_) => {}
                 Err(e) => eprintln!("impel-taskd: throughline rule error for {doc_id}: {e}"),
+            }
+        }
+
+        // ── Memory kernel sweeps (ADR-0028 D7/D8) ──────────────────────
+        // Not a scan: the spawner reads the completed task chain for its own
+        // watermark and spawns at most one task of each kind. Both gates off
+        // (the default) makes this two `if`s and no query at all.
+        //
+        // Log-and-continue, like every other rule in this loop: a planning
+        // failure must not take down a pass that still has enrichment and
+        // throughline work to do.
+        if !args.dry_run {
+            match plan_memory_tasks(&store, chrono::Utc::now().timestamp_millis(), &memory_plan) {
+                Ok(ids) if !ids.is_empty() => {
+                    eprintln!("impel-taskd: spawned {} memory task(s): {ids:?}", ids.len())
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("impel-taskd: memory planning failed: {e}"),
             }
         }
 
