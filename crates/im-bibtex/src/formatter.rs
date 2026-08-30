@@ -79,11 +79,69 @@ fn format_field_value(value: &str) -> String {
 
     // Use braces for values containing special characters or nested braces
     // This preserves LaTeX commands and formatting
+    let value = sanitize_field_value(value);
     let mut result = String::with_capacity(value.len() + 2);
     result.push('{');
-    result.push_str(value);
+    result.push_str(&value);
     result.push('}');
     result
+}
+
+/// Make a field value safe to re-parse, so one damaged field (a truncated
+/// enrichment abstract, say) cannot render a whole exported bibliography
+/// unreadable. Hayagriva in particular treats an unclosed `$` as verbatim
+/// math and consumes the rest of the FILE, and an unbalanced brace ends the
+/// entry early — either way every entry after the bad one is lost, which is
+/// exactly what broke the imbib→imprint citation seam on the ULDM manuscript.
+///
+/// Well-formed values pass through byte-identical. A value with unbalanced
+/// braces loses its brace characters (the grouping was already meaningless);
+/// a value with an odd count of unescaped `$` gets one closing `$` appended.
+fn sanitize_field_value(value: &str) -> String {
+    let mut depth: i64 = 0;
+    let mut balanced = true;
+    let mut dollars = 0usize;
+    let mut prev_backslash = false;
+    for c in value.chars() {
+        match c {
+            '{' if !prev_backslash => depth += 1,
+            '}' if !prev_backslash => {
+                depth -= 1;
+                if depth < 0 {
+                    balanced = false;
+                }
+            }
+            '$' if !prev_backslash => dollars += 1,
+            _ => {}
+        }
+        prev_backslash = c == '\\' && !prev_backslash;
+    }
+    if depth != 0 {
+        balanced = false;
+    }
+
+    if balanced && dollars.is_multiple_of(2) {
+        return value.to_string();
+    }
+
+    let mut out: String = if balanced {
+        value.to_string()
+    } else {
+        let mut prev = false;
+        let filtered: String = value
+            .chars()
+            .filter(|&c| {
+                let keep = !matches!(c, '{' | '}') || prev;
+                prev = c == '\\' && !prev;
+                keep
+            })
+            .collect();
+        filtered
+    };
+    if !dollars.is_multiple_of(2) {
+        out.push('$');
+    }
+    out
 }
 
 /// Escape special BibTeX characters in a value
@@ -178,5 +236,51 @@ mod tests {
         assert_eq!(escape_value("10%"), "10\\%");
         assert_eq!(escape_value("$100"), "\\$100");
         assert_eq!(escape_value("A & B"), "A \\& B");
+    }
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::*;
+
+    #[test]
+    fn well_formed_values_pass_through() {
+        assert_eq!(
+            sanitize_field_value("The {LaTeX} Companion"),
+            "The {LaTeX} Companion"
+        );
+        assert_eq!(
+            sanitize_field_value("energy $E = mc^2$ here"),
+            "energy $E = mc^2$ here"
+        );
+        assert_eq!(
+            sanitize_field_value(r"escaped \{ brace \}"),
+            r"escaped \{ brace \}"
+        );
+    }
+
+    #[test]
+    fn unclosed_math_gets_closed() {
+        // The truncated-abstract case that broke the ULDM bibliography.
+        assert_eq!(
+            sanitize_field_value("mixes with the environment when $H"),
+            "mixes with the environment when $H$"
+        );
+    }
+
+    #[test]
+    fn unbalanced_braces_are_stripped() {
+        assert_eq!(sanitize_field_value("dangling {group"), "dangling group");
+        assert_eq!(sanitize_field_value("closes} early"), "closes early");
+    }
+
+    #[test]
+    fn formatted_entry_with_broken_field_stays_parseable() {
+        use crate::entry::{BibTeXEntry, BibTeXEntryType};
+        let mut entry = BibTeXEntry::new("Broken2021".to_string(), BibTeXEntryType::Article);
+        entry.add_field("title", "Fine Title");
+        entry.add_field("abstract", "truncated at math $H");
+        let formatted = format_entry(entry);
+        assert!(formatted.contains("abstract = {truncated at math $H$},"));
     }
 }

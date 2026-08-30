@@ -48,6 +48,32 @@ impl CachedPackageResolver {
                 roots.push(PathBuf::from(dir));
             }
         }
+        // Vendored tree inside the host app bundle: a sandboxed app can
+        // always read its own Resources, and nothing else on a locked-down
+        // machine is guaranteed readable (group containers kernel-hang for
+        // unentitled writers, other containers are TCC-protected). Hosts ship
+        // it at Contents/Resources/typst-packages (exe is Contents/MacOS/…).
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(macos_dir) = exe.parent() {
+                if let Some(contents) = macos_dir.parent() {
+                    roots.push(contents.join("Resources").join("typst-packages"));
+                }
+            }
+        }
+        // The suite group container, same convention as the shared store's
+        // `Group Containers/QG3MEYVHMS.com.impress.suite/workspace`. The typst
+        // CLI cannot populate it; a suite app has to stage it.
+        if let Some(home) = Self::real_home() {
+            roots.push(
+                home.join("Library/Group Containers/QG3MEYVHMS.com.impress.suite")
+                    .join("typst")
+                    .join("packages"),
+            );
+            // Outside the sandbox this duplicates dirs::cache_dir below;
+            // inside it, it is the CLI cache the sandbox may still deny —
+            // harmless either way, the probe just fails.
+            roots.push(home.join("Library/Caches/typst/packages"));
+        }
         if let Some(data) = dirs::data_dir() {
             roots.push(data.join("typst").join("packages"));
         }
@@ -55,7 +81,21 @@ impl CachedPackageResolver {
             roots.push(cache.join("typst").join("packages"));
         }
         roots.retain(|r| r.is_dir());
+        roots.dedup();
         Self { roots }
+    }
+
+    /// The user's real home directory, seen through the App Sandbox if
+    /// present: a sandboxed macOS process gets
+    /// `HOME=<real>/Library/Containers/<bundle>/Data`, and the group
+    /// container lives under `<real>/Library/Group Containers/…`.
+    fn real_home() -> Option<PathBuf> {
+        let home = dirs::home_dir()?;
+        let text = home.to_string_lossy();
+        if let Some(idx) = text.find("/Library/Containers/") {
+            return Some(PathBuf::from(&text[..idx]));
+        }
+        Some(home)
     }
 
     /// A resolver over explicit roots (tests, vendored trees).
