@@ -10,6 +10,11 @@ use crate::inventory_bridge::{call_inventory_tool, inventory_tool_definitions, i
 use crate::tools::{
     tool_get_paper_chunks, tool_list_indexed_papers, tool_search_papers, ToolContext,
 };
+// Trait import needed for method-call syntax on `DefaultMemoryService` in
+// `memory_brief_markdown` below — same requirement the codegen macro itself
+// has (`impress-service-macros`' expansion comment: "Requires the trait to
+// be in scope at the macro call site").
+use impress_memory_service::MemoryService;
 
 /// Run the MCP server, reading JSON-RPC requests from stdin and writing responses to stdout.
 pub fn run_server(ctx: ToolContext) -> Result<(), Box<dyn std::error::Error>> {
@@ -99,9 +104,23 @@ const GUIDE_MARKDOWN: &str = include_str!("guide.md");
 const STORE_SCHEMAS_URI: &str = "impress://store/schemas";
 const STORE_COLLECTIONS_URI: &str = "impress://store/collections";
 
+/// Suite memory briefing (ADR-0028 P7).
+///
+/// `memory-service_memory-brief` is a tool call; an agent that wants the same
+/// digest at the start of a session without spending a round trip on it can
+/// read this resource instead. Served through the identical code path — a
+/// fresh `DefaultMemoryService` over the shared store, see
+/// `memory_brief_markdown` — so the two can never drift apart.
+const MEMORY_BRIEF_URI: &str = "impress://memory/brief";
+
 /// Every resource URI a client can read, in listing order. Public so the
 /// end-to-end smoke test can assert the shipped binary lists exactly these.
-pub const RESOURCE_URIS: [&str; 3] = [GUIDE_URI, STORE_SCHEMAS_URI, STORE_COLLECTIONS_URI];
+pub const RESOURCE_URIS: [&str; 4] = [
+    GUIDE_URI,
+    STORE_SCHEMAS_URI,
+    STORE_COLLECTIONS_URI,
+    MEMORY_BRIEF_URI,
+];
 
 fn handle_resources_list(id: &Value) -> Value {
     json!({
@@ -134,6 +153,16 @@ fn handle_resources_list(id: &Value) -> Value {
                                     imprint manuscripts, implore figures, and the generic \
                                     mixed-kind kernel) with nesting and live member counts — \
                                     the ids every collection-service_* tool takes.",
+                },
+                {
+                    "uri": MEMORY_BRIEF_URI,
+                    "name": "Memory brief",
+                    "mimeType": "text/markdown",
+                    "description": "Current standing instructions, claims, and episodes from \
+                                    the suite memory (ADR-0028), rendered as markdown with \
+                                    `[impress-item:<id>]` references back to the source rows. \
+                                    The same digest memory-service_memory-brief returns, \
+                                    readable without a tool call.",
                 },
             ]
         }
@@ -216,6 +245,41 @@ fn store_collections_body() -> Result<Value, String> {
     })
 }
 
+/// Slightly above the kernel default of 8 (see `MemoryService::memory_brief`'s
+/// doc comment): this resource is read passively rather than as a follow-up
+/// to a narrower `recall`, so a fuller brief is worth the extra tokens.
+const MEMORY_BRIEF_MAX_ENTRIES: i64 = 12;
+
+/// Render the current memory brief for the `impress://memory/brief` resource
+/// body.
+///
+/// Calls the exact code path `memory-service_memory-brief` uses — a fresh
+/// `DefaultMemoryService` (its `new()` falls back to the shared
+/// `store_instance()`, same singleton the store resources above read) — via
+/// `#[impress_service]`'s own `block_on` helper, since resource handlers are
+/// synchronous. Guarded by the same open-stall deadline as the store
+/// resources, since the first touch of the singleton in a session pays the
+/// same potential store-open cost.
+///
+/// Unlike the store resources, this never turns a store failure into an RPC
+/// error: `memory_brief` already reports failure as `ok: false` plus a
+/// message (the established shape for every memory-kernel call), so an
+/// unavailable store degrades to body text here too, prefixed so it reads as
+/// a status rather than as the brief itself.
+fn memory_brief_markdown() -> String {
+    let outcome = with_deadline(MEMORY_BRIEF_URI, || {
+        let service = impress_memory_service::DefaultMemoryService::new();
+        Ok(impress_service_core::runtime::block_on(
+            service.memory_brief(String::new(), String::new(), MEMORY_BRIEF_MAX_ENTRIES),
+        ))
+    });
+    match outcome {
+        Ok(brief) if brief.ok => brief.text,
+        Ok(brief) => format!("memory brief unavailable: {}", brief.message),
+        Err(e) => format!("memory brief unavailable: {e}"),
+    }
+}
+
 fn handle_resources_read(id: &Value, request: &Value) -> Value {
     let uri = request["params"]["uri"].as_str().unwrap_or("");
     match uri {
@@ -232,6 +296,17 @@ fn handle_resources_read(id: &Value, request: &Value) -> Value {
         }),
         STORE_SCHEMAS_URI => json_resource(id, STORE_SCHEMAS_URI, store_schemas_body()),
         STORE_COLLECTIONS_URI => json_resource(id, STORE_COLLECTIONS_URI, store_collections_body()),
+        MEMORY_BRIEF_URI => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "contents": [{
+                    "uri": MEMORY_BRIEF_URI,
+                    "mimeType": "text/markdown",
+                    "text": memory_brief_markdown(),
+                }]
+            }
+        }),
         _ => json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -357,6 +432,50 @@ mod resource_tests {
             bindings,
             vec!["imbib", "manuscript", "figure", "generic"],
             "every binding the collection tools accept must appear"
+        );
+    }
+
+    /// The memory-brief resource must be discoverable via `resources/list`
+    /// and must actually read live memory through `resources/read` — not a
+    /// hardcoded stub.
+    ///
+    /// Seeding goes through `DefaultMemoryService::new()` rather than
+    /// `with_store`: the resource handler itself constructs `new()` (falling
+    /// back to the shared `store_instance()`), so only seeding through that
+    /// SAME global singleton — after `use_scratch_store` points it at a
+    /// throwaway file, exactly as `store_resources_answer_with_json_of_the_documented_shape`
+    /// does above — actually exercises the code path under test. A store
+    /// built with `with_store` would be a different store the handler never
+    /// reads from.
+    #[test]
+    fn memory_brief_resource_is_listed_and_serves_a_seeded_instruction() {
+        use_scratch_store();
+        assert!(
+            listed_uris().contains(&MEMORY_BRIEF_URI.to_string()),
+            "impress://memory/brief must be discoverable via resources/list"
+        );
+
+        let service = impress_memory_service::DefaultMemoryService::new();
+        let remembered = impress_service_core::runtime::block_on(service.remember(
+            "instruction".into(),
+            "No shell scans".into(),
+            "Never scan the shared container from a shell.".into(),
+            String::new(),
+            -1.0,
+            vec![],
+            vec![],
+        ));
+        assert!(remembered.ok, "{}", remembered.message);
+
+        let read = handle_resources_read(&json!(6), &json!({"params": {"uri": MEMORY_BRIEF_URI}}));
+        let contents = &read["result"]["contents"][0];
+        assert_eq!(contents["mimeType"], "text/markdown");
+        let text = contents["text"].as_str().unwrap();
+        assert!(text.contains("### Instructions"), "{text}");
+        assert!(text.contains("No shell scans"), "{text}");
+        assert!(
+            text.contains(&format!("[impress-item:{}]", remembered.claim_id)),
+            "{text}"
         );
     }
 

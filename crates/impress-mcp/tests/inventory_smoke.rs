@@ -9,9 +9,10 @@
 //!   store-generic crate;
 //! * `tools/call` for `imbib-text-service_decode-latex` produces
 //!   `"Café"` from `"Caf\\'{e}"`;
-//! * `resources/list` offers the guide plus the two store-browse resources
-//!   (ADR-0022 WP G6), and reading them yields JSON that honours
-//!   `--store-path` rather than the default app-group container.
+//! * `resources/list` offers the guide, the two store-browse resources
+//!   (ADR-0022 WP G6), and the memory brief (ADR-0028 P7), and reading the
+//!   store-browse ones yields JSON that honours `--store-path` rather than
+//!   the default app-group container.
 //!
 //! This complements the unit tests in `src/inventory_bridge.rs` and
 //! `src/server.rs`: those exercise the bridge and the resource handlers
@@ -195,6 +196,7 @@ fn list_and_call_inventory_tool_via_stdio() {
         "impress://guide",
         "impress://store/schemas",
         "impress://store/collections",
+        "impress://memory/brief",
     ] {
         assert!(uris.contains(&uri), "missing resource {uri} in {uris:?}");
     }
