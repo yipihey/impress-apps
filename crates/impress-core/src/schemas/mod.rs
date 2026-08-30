@@ -15,6 +15,7 @@ pub mod manuscript_collection;
 pub mod manuscript_revision;
 pub mod manuscript_section;
 pub mod manuscript_submission;
+pub mod memory;
 pub mod plot_spec;
 pub mod source;
 pub mod task;
@@ -41,6 +42,11 @@ pub use manuscript_collection::register_manuscript_collection_schema;
 pub use manuscript_revision::register_manuscript_revision_schema;
 pub use manuscript_section::register_imprint_schemas;
 pub use manuscript_submission::register_manuscript_submission_schema;
+pub use memory::{
+    register_memory_schemas, CLAIM_TYPES, CLAIM_TYPE_DECISION, CLAIM_TYPE_FACT, CLAIM_TYPE_METHOD,
+    CLAIM_TYPE_PREFERENCE, CLAIM_TYPE_RESULT, MEMORY_CLAIM_SCHEMA, MEMORY_EPISODE_SCHEMA,
+    MEMORY_INSTRUCTION_SCHEMA,
+};
 pub use plot_spec::register_plot_spec_schema;
 pub use source::{
     register_source_schemas, CONTENT_CHUNK_SCHEMA, EXTRACTION_RUN_SCHEMA, FIGURE_REGION_SCHEMA,
@@ -101,6 +107,11 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // nothing — the record kinds a folder ingests are named by `kind_scope`,
     // not by an inherits edge.
     register_watched_folder_schemas(registry);
+    // Suite-scoped memory (claims, episodes, instructions) — knowledge objects
+    // per ADR-0012 D39. Registered after the knowledge objects they share a
+    // convention with; depends on nothing, since a memory's subject is an
+    // `ItemId` of ANY kind rather than an inherits edge to one.
+    register_memory_schemas(registry);
 }
 
 #[cfg(test)]
