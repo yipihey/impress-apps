@@ -34,6 +34,9 @@ members = [
     "crates/impel-enrichment",
     # impel-throughline - ADR-0016 throughline sync (spawn rule + executor)
     "crates/impel-throughline",
+    # impel-memory - ADR-0028 D7 memory-kernel executors (embed backfill,
+    # consolidation) + their spawner, registered in impel-taskd behind env gates
+    "crates/impel-memory",
     # impel-taskd - live task scheduler daemon over the shared store
     "crates/impel-taskd",
     # impel-tools - projects the #[impress_service] inventory into impel's agent loop
@@ -220,6 +223,7 @@ comemo = "0.4"
 
 # impel crates
 impel-core = { path = "crates/impel-core" }
+impel-memory = { path = "crates/impel-memory" }
 impress-helix = { path = "crates/impress-helix" }
 impel-tui = { path = "apps/impel-tui" }
 impel-server = { path = "crates/impel-server" }

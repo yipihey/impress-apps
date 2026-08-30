@@ -1,0 +1,31 @@
+[package]
+name = "impel-memory"
+description = "ADR-0028 D7: the two memory-kernel task executors (embed backfill, consolidation) and their spawner, on the ADR-0005 task kernel."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The kernel contract: TaskExecutor / TaskStoreApi / AgentRunRecord.
+impel-core = { workspace = true }
+# memory_ops (gate/insert/confirm), the schema refs, and the concrete store the
+# executors query directly — the AiStore precedent (impel-taskd hands both
+# executors the same `Arc<SqliteItemStore>` the scheduler runs against).
+impress-core = { workspace = true, features = ["sqlite"] }
+# The sidecar the embed executor writes into, plus the fastembed model behind
+# the `TextEmbedder` seam. `embedder` is what pulls fastembed; the seam is what
+# keeps it out of the unit tests.
+impress-embeddings = { workspace = true, features = ["store", "index", "embedder"] }
+
+async-trait = { workspace = true }
+chrono = { workspace = true }
+dirs = "5"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+uuid = { workspace = true, features = ["v4", "v5"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile = "3.10"

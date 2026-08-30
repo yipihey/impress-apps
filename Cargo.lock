@@ -3877,6 +3877,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "impel-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs 5.0.1",
+ "impel-core",
+ "impress-core",
+ "impress-embeddings",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "impel-server"
 version = "0.1.0"
 dependencies = [
@@ -3903,6 +3921,7 @@ dependencies = [
  "imbib-core",
  "impel-core",
  "impel-enrichment",
+ "impel-memory",
  "impel-throughline",
  "impress-ai",
  "impress-ai-tools",
