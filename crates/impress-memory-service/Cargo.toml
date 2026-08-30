@@ -1,6 +1,6 @@
 [package]
 name = "impress-memory-service"
-description = "#[impress_service] trait over the impress-core memory kernel (ADR-0028): remember/recall/brief/confirm/supersede/forget, exposed as MCP tools, CLI subcommands and impel agent tools. FTS tier only — no embeddings."
+description = "#[impress_service] trait over the impress-core memory kernel (ADR-0028): remember/recall/brief/confirm/supersede/forget, exposed as MCP tools, CLI subcommands and impel agent tools. FTS tier always on; opt-in vector tier (IMPRESS_MEMORY_VECTORS=1, D6) composes with it."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,6 +13,15 @@ impress-core = { workspace = true, features = ["sqlite", "schema"] }
 # For `store_instance()` — the same shared-store singleton every other
 # store-generic service resolves against.
 impress-store-service = { workspace = true }
+# The opt-in vector tier (ADR-0028 D6): the sidecar store, brute-force
+# cosine (no HNSW — memory corpora are small), and the fastembed embedder.
+# Never initialized unless IMPRESS_MEMORY_VECTORS=1 AND a memory verb runs —
+# see `VectorTierInner` / `process_vector_tier`.
+impress-embeddings = { workspace = true, features = ["store", "index", "embedder"] }
+# Sidecar path default (`dirs::data_dir()/imbib/embeddings.sqlite`), mirroring
+# (not importing — see this crate's module docs) impel-memory's and
+# impress-mcp's own resolution.
+dirs = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -28,3 +37,6 @@ schemars = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
+# Temp sidecar files for the vector-tier tests — never a real SemanticSearch
+# (see the test module docs).
+tempfile = "3.10"

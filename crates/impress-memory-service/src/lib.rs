@@ -9,12 +9,27 @@
 //! domain logic lives here, so the CLI, MCP and impel all call the identical
 //! behaviour a headless `cargo test` already proves.
 //!
-//! **FTS tier only.** This crate adds no embedding, no vector index and no
-//! `imbib-core` dependency — [`DefaultMemoryService::memory_status`] reports
-//! that honestly rather than pretending semantic recall exists. A second
-//! (embedding) tier is expected to arrive with the impel-memory backfill; it
-//! composes with this one rather than replacing it, per the kernel's own
-//! module docs (`memory_ops::MemoryCandidate::vector_similarity`).
+//! **Two tiers, one always on.** The FTS tier (full-text dedup gate,
+//! full-text retrieval, the deterministic ranker) is always live and needs
+//! nothing configured. The vector tier (ADR-0028 D6) is opt-in — set
+//! `IMPRESS_MEMORY_VECTORS=1` — and COMPOSES with the FTS tier rather than
+//! replacing it, per the kernel's own module docs
+//! (`memory_ops::MemoryCandidate::vector_similarity`): `remember`'s dedup
+//! gate runs FTS first and only falls to the (higher-threshold) vector check
+//! when FTS found nothing; `recall` re-ranks the SAME page FTS already
+//! selected rather than widening it. [`DefaultMemoryService::memory_status`]
+//! reports which tier is actually running — see its own doc for the exact
+//! states — rather than a static claim either way.
+//!
+//! The vector tier is lazy and process-wide: it is built at most once, on
+//! the first `remember` or `recall` call after the env var is read as `"1"`,
+//! and any failure to build it (missing sidecar, model load failure) turns
+//! it off for the rest of the process with one `stderr` line — imitating
+//! `impress-mcp::tools::SEMANTIC_UNAVAILABLE`'s degraded-mode discipline.
+//! `memory_status` never triggers that build (it would pay for a
+//! `SemanticSearch` model load just to answer a status query); it only ever
+//! peeks at whatever state already exists and opens the sidecar (cheaply,
+//! read-only in effect) to count vectors.
 //!
 //! # Attribution
 //!
@@ -28,13 +43,15 @@
 //! invents, the established convention for a service-authored write in this
 //! crate family.
 
-use std::sync::Arc;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, OnceLock};
 
 use impress_core::item::{ActorKind, ItemId, Value};
 use impress_core::memory_ops::{self, GateOutcome, MemoryDraft, MemoryKind};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::{ItemStore, StoreError};
+use impress_embeddings::{EmbeddingStore, SemanticSearch};
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Serialize};
@@ -60,6 +77,15 @@ pub struct RememberResult {
     /// `"confirmed"` (equal to `claim_id` in that case). Empty when
     /// `"inserted"` — nothing was matched — and empty when `ok` is false.
     pub matched_id: String,
+    /// Which dedup gate produced the match: `"fts"` (token overlap ≥
+    /// `memory_ops::GATE_CONFIRM_THRESHOLD`) or `"vector"` (embedding cosine
+    /// ≥ [`VECTOR_CONFIRM_THRESHOLD`], only possible when the vector tier is
+    /// live). Empty when `action` is `"inserted"` or `ok` is false.
+    ///
+    /// Additive field (ADR-0028 D6, phase P6b) — `#[serde(default)]` so a
+    /// value serialized before this field existed still deserializes.
+    #[serde(default)]
+    pub matched_via: String,
     pub message: String,
 }
 
@@ -178,13 +204,21 @@ pub struct StatusResult {
     pub ok: bool,
     /// One entry per memory schema (claim, episode, instruction).
     pub schemas: Vec<SchemaCountDto>,
-    /// Fraction of memory rows with an embedding. Always `0.0` today — see
-    /// `vector_tier`.
+    /// Fraction (0.0–1.0) of memory items with a same-model vector in the
+    /// vector-tier sidecar, i.e. `N / M` from the `vector_tier` string
+    /// below. Always `0.0` when the vector tier is off (`IMPRESS_MEMORY_VECTORS`
+    /// unset); real whenever it is at least configured — computed by
+    /// opening the sidecar and counting, which needs no live embedder, so
+    /// this is accurate even in the `"initializing lazily"` state.
     pub embedding_coverage: f64,
-    /// Honest placeholder: this server runs the FTS tier only. A future
-    /// embedding backfill adds a second retrieval signal
-    /// (`memory_ops::MemoryCandidate::vector_similarity`) without replacing
-    /// this one.
+    /// One of four states, cheapest-to-most-configured:
+    /// `"off (set IMPRESS_MEMORY_VECTORS=1)"` — the env var is unset;
+    /// `"initializing lazily"` — set, but no `remember`/`recall` has run in
+    /// this process yet, so the tier has not tried to build itself;
+    /// `"live (model <id>, N/M items embedded)"` — built successfully;
+    /// `"unavailable: <reason>"` — it tried and failed (logged once to
+    /// `stderr` when that happened). See the module docs for the full
+    /// two-tier picture.
     pub vector_tier: String,
     pub message: String,
 }
@@ -204,9 +238,12 @@ pub struct StatusResult {
 /// retired only by supersession or `forget` — never by an agent deciding it
 /// no longer applies.
 ///
-/// This is the FTS tier only: full-text retrieval, a token-overlap dedup
-/// gate, and a deterministic ranker over relevance, confirmations, recency,
-/// author and confidence. No embeddings — see `memory_status`.
+/// The FTS tier — full-text retrieval, a token-overlap dedup gate, and a
+/// deterministic ranker over relevance, confirmations, recency, author and
+/// confidence — is always live. An opt-in vector tier (`IMPRESS_MEMORY_VECTORS=1`,
+/// see `memory_status`) composes with it in `remember` (a second,
+/// higher-threshold dedup check) and `recall` (an embedding-similarity
+/// re-ranking of the same page FTS already selected).
 #[impress_service]
 pub trait MemoryService: Send + Sync + 'static {
     /// Write a memory, or — if a near-duplicate already exists — confirm it
@@ -223,6 +260,14 @@ pub trait MemoryService: Send + Sync + 'static {
     /// design; it is very much not free to fail to remember something, so
     /// default to calling this rather than deciding for yourself whether a
     /// fact is "new enough".
+    ///
+    /// When the vector tier is live (`IMPRESS_MEMORY_VECTORS=1`) and the FTS
+    /// gate above found nothing, a SECOND check runs: embed the draft and
+    /// compare against stored memory-item vectors by cosine similarity. A
+    /// paraphrase the FTS gate's token overlap missed entirely can still
+    /// score high here, so this bar is deliberately higher than the FTS
+    /// one's (`VECTOR_CONFIRM_THRESHOLD` = 0.92) — see its doc for why. When
+    /// it fires, `matched_via` reports `"vector"` instead of `"fts"`.
     ///
     /// `claim_type` (meaningful only when `kind` is `"claim"`: `"fact"` |
     /// `"preference"` | `"method"` | `"decision"` | `"result"`, or any other
@@ -259,6 +304,13 @@ pub trait MemoryService: Send + Sync + 'static {
     /// (retracted by a `supersede_claim` correction) are withheld unless
     /// `include_superseded` is true; memories withheld by `forget` are never
     /// returned, regardless.
+    ///
+    /// When the vector tier is live, this page is RE-RANKED — never widened
+    /// — by embedding `query` once and scoring every entry that has a stored
+    /// vector by cosine similarity; entries with no vector keep their
+    /// FTS/recency position. Off, or against a store with no memory-item
+    /// vectors embedded yet, results are byte-identical to the FTS-only
+    /// tier.
     #[impress_method]
     async fn recall(
         &self,
@@ -341,8 +393,11 @@ pub trait MemoryService: Send + Sync + 'static {
     /// an agent that has called `remember` all session but sees zero counts
     /// here has found a real bug, not an empty library — or to decide whether
     /// a semantic (non-lexical) recall would help before deciding one is
-    /// worth building. `vector_tier` and `embedding_coverage` are honest
-    /// placeholders: this server is FTS-only today.
+    /// worth building. `vector_tier` reports the vector tier's real state
+    /// (off / initializing lazily / live / unavailable — see
+    /// [`StatusResult::vector_tier`]) and `embedding_coverage` is a real
+    /// fraction whenever the tier is at least configured; this call never
+    /// pays for a model load itself, so it is always cheap to check.
     #[impress_method]
     async fn memory_status(&self) -> StatusResult;
 }
@@ -364,26 +419,336 @@ const AUTHOR: &str = "impress-memory-service";
 /// own public `recall` rather than by re-reading this field back.
 const NO_RECALL_FIELD: &str = "no_recall";
 
+// ---------------------------------------------------------------------------
+// Vector tier (ADR-0028 D6) — opt-in, lazy, process-wide.
+// ---------------------------------------------------------------------------
+//
+// This section is everything the vector tier needs, self-contained: the
+// embedder seam, the lazily-built process singleton, the env gate, and the
+// read-only coverage counter `memory_status` uses instead of it. Nothing
+// outside this section reaches `impress_embeddings::SemanticSearch`,
+// `EmbeddingStore`, or the two env vars directly — `remember`/`recall` go
+// through `DefaultMemoryService::vector_tier`, and `memory_status` goes
+// through `DefaultMemoryService::vector_status`.
+
+/// Env var that opts a process into the vector tier. Any value other than
+/// exactly `"1"` (including unset) means "off" — see the module docs.
+const VECTOR_TIER_ENV: &str = "IMPRESS_MEMORY_VECTORS";
+
+/// Env var overriding the embeddings sidecar path for this process. Mirrors
+/// `impel_memory::embed::EMBEDDINGS_PATH_ENV` and the default
+/// `impress_mcp::default_embeddings_path()` resolves to
+/// (`dirs::data_dir()/imbib/embeddings.sqlite`) — REPLICATED here rather
+/// than imported, the same way `impel-memory` replicates rather than
+/// imports `impress-mcp`'s (private, and the wrong dependency direction:
+/// `impress-mcp` already depends on this crate) copy. Three copies of one
+/// six-line function is accepted duplication, not a design; a shared
+/// `impress-embeddings`-side helper would be the right fix (see this PR's
+/// report for the pointer).
+const EMBEDDINGS_PATH_ENV: &str = "IMPRESS_EMBEDDINGS_PATH";
+
+/// The sidecar `source_type` a memory-item vector is written under. Mirrors
+/// `impel_memory::SOURCE_TYPE_MEMORY` (duplicated for the same reason as
+/// [`EMBEDDINGS_PATH_ENV`] — this crate does not depend on `impel-memory`).
+const MEMORY_ITEM_SOURCE_TYPE: &str = "memory-item";
+
+/// Cosine similarity at or above which the vector tier's half of `remember`'s
+/// dedup gate confirms an existing memory instead of inserting a new one —
+/// the semantic-tier counterpart to `memory_ops::GATE_CONFIRM_THRESHOLD`
+/// (0.85 token overlap).
+///
+/// Deliberately HIGHER than the FTS threshold. `remember` bodies are
+/// typically a sentence or two, and short texts embed into a tighter region
+/// of a sentence-embedding model's vector space than long ones do — two
+/// genuinely UNRELATED short claims routinely cosine well above 0.85 purely
+/// from sharing sentence structure and common words, so reusing the FTS
+/// number here would over-merge distinct memories. 0.92 is a conservative
+/// choice for the same asymmetric-cost reason `GATE_CONFIRM_THRESHOLD` is
+/// high rather than moderate: confirming when it should have inserted loses
+/// a distinct memory outright, while inserting when it should have confirmed
+/// only costs one redundant row a later consolidation pass can merge.
+const VECTOR_CONFIRM_THRESHOLD: f32 = 0.92;
+
+/// Turns text into a vector. The seam that keeps the vector tier testable
+/// without ever constructing a real `SemanticSearch` — first use downloads a
+/// ~100MB ONNX model, which has no place in a unit test. Implemented for the
+/// real embedder below; tests implement it with a deterministic stub.
+/// `impel_memory::TextEmbedder` is the identical seam on the WRITE side of
+/// this same sidecar, for the identical reason.
+trait Embedder: Send + Sync {
+    /// Embed `text`. `Err` is always treated as "this one call degrades",
+    /// never as "turn the tier off" — see `DefaultMemoryService::vector_tier`'s
+    /// callers.
+    fn embed(&self, text: &str) -> Result<Vec<f32>, String>;
+
+    /// The id stamped into / filtered by `StoredVector.model` (ADR-0028 D4).
+    /// Must be what THIS embedder actually is, never a caller's request.
+    fn model_id(&self) -> &str;
+}
+
+impl Embedder for SemanticSearch {
+    fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
+        self.embed_text(text).map_err(|e| e.to_string())
+    }
+
+    fn model_id(&self) -> &str {
+        SemanticSearch::model_id(self)
+    }
+}
+
+/// The live vector tier: an opened sidecar plus a ready embedder. Built at
+/// most once per process by [`process_vector_tier`] — or, in tests,
+/// constructed directly against a temp sidecar and a stub embedder, via
+/// [`DefaultMemoryService::with_store_and_vector_tier`], bypassing the env
+/// gate and the process-wide singleton entirely so tests never race each
+/// other over shared process state.
+struct VectorTierInner {
+    embedding_store: EmbeddingStore,
+    embedder: Box<dyn Embedder>,
+}
+
+/// The result of the one, at-most-once attempt to build [`VectorTierInner`]
+/// for this process.
+enum TierState {
+    Live(VectorTierInner),
+    /// Carries the reason so `memory_status` can report
+    /// `"unavailable: <reason>"` — the plain `Option` `impress-mcp::tools::ToolContext`
+    /// caches for its own degraded mode is not enough here because, unlike
+    /// that context, this service ALSO ANSWERS A STATUS QUERY about the
+    /// failure rather than only degrading tool calls.
+    Failed(String),
+}
+
+/// Whether this process has opted into the vector tier. Cheap and stateless
+/// — reads the env var fresh every call — because the ONLY thing gating on
+/// it must guarantee is "never touch [`VECTOR_TIER`] when this is false",
+/// not "cache the answer".
+fn vector_tier_env_enabled() -> bool {
+    std::env::var(VECTOR_TIER_ENV)
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+
+/// Resolve the sidecar path: [`EMBEDDINGS_PATH_ENV`], then the platform
+/// default. `None` only when the platform has no data directory AND the env
+/// var is unset — a machine misconfiguration [`try_init_vector_tier`] turns
+/// into a `Failed` state like any other.
+fn resolve_embeddings_path() -> Option<String> {
+    if let Ok(path) = std::env::var(EMBEDDINGS_PATH_ENV) {
+        if !path.trim().is_empty() {
+            return Some(path);
+        }
+    }
+    dirs::data_dir().map(|dir| {
+        dir.join("imbib/embeddings.sqlite")
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+/// Open the sidecar and load the embedding model. The fallible half of
+/// building a [`VectorTierInner`], separated from [`init_vector_tier`] so the
+/// `stderr` line lives in exactly one place regardless of which step failed.
+fn try_init_vector_tier() -> Result<VectorTierInner, String> {
+    let path = resolve_embeddings_path().ok_or_else(|| {
+        "no data directory available and IMPRESS_EMBEDDINGS_PATH is unset".to_string()
+    })?;
+    let embedding_store =
+        EmbeddingStore::open(&path).map_err(|e| format!("open sidecar {path}: {e}"))?;
+    let embedder = SemanticSearch::new().map_err(|e| format!("initialize embedding model: {e}"))?;
+    Ok(VectorTierInner {
+        embedding_store,
+        embedder: Box::new(embedder),
+    })
+}
+
+/// [`try_init_vector_tier`], with the one-time `stderr` line on failure. Only
+/// ever invoked by [`VECTOR_TIER`]'s `get_or_init` — i.e. AT MOST ONCE per
+/// process — so this printing here (rather than at every call site that sees
+/// a cached `Failed`) is what keeps it to one line for the process lifetime,
+/// imitating `impress-mcp::tools::ToolContext::semantic`'s degraded-mode
+/// discipline.
+fn init_vector_tier() -> TierState {
+    match try_init_vector_tier() {
+        Ok(inner) => TierState::Live(inner),
+        Err(e) => {
+            eprintln!("impress-memory-service: vector tier unavailable: {e}");
+            TierState::Failed(e)
+        }
+    }
+}
+
+/// Process-wide, at-most-once vector tier state. Reached ONLY through
+/// [`process_vector_tier`] (which gates on the env var first) and peeked
+/// (never initialized) by `memory_status` via a bare `.get()` — see the
+/// module docs' cost rule.
+static VECTOR_TIER: OnceLock<TierState> = OnceLock::new();
+
+/// The live tier for `remember`/`recall`'s production path, or `None` when
+/// it is off, still uninitialized-and-this-call-does-not-need-it-yet (it
+/// does; calling this always resolves it), or unavailable. Building it here,
+/// lazily, on the first call that needs it is what satisfies the cost rule:
+/// nothing pays for a sidecar open or a model load unless the env var is set
+/// AND a memory verb actually runs.
+fn process_vector_tier() -> Option<&'static VectorTierInner> {
+    if !vector_tier_env_enabled() {
+        return None;
+    }
+    match VECTOR_TIER.get_or_init(init_vector_tier) {
+        TierState::Live(inner) => Some(inner),
+        TierState::Failed(_) => None,
+    }
+}
+
+/// `N / M`, or `0.0` when there is nothing to divide by — never a division
+/// producing NaN or infinity.
+fn coverage_ratio(embedded: usize, total: u32) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        embedded as f64 / total as f64
+    }
+}
+
+/// Vector coverage WITHOUT constructing a [`SemanticSearch`] — opens the
+/// sidecar (cheap: no model, no HNSW build) and counts memory-item vectors
+/// for `model`. This is the whole reason `memory_status` does not simply
+/// call [`process_vector_tier`]: that path may need to load the embedding
+/// model, and a status query must never pay for that just to answer.
+///
+/// `0.0` when the sidecar cannot be opened (including "does not exist yet")
+/// — an absent sidecar means zero vectors, not an error worth surfacing here
+/// (the `vector_tier` status string already says `"initializing lazily"` or
+/// `"unavailable: ..."` in the cases where that distinction matters).
+fn readonly_coverage(model: &str, total_items: u32) -> f64 {
+    let Some(path) = resolve_embeddings_path() else {
+        return 0.0;
+    };
+    let Ok(store) = EmbeddingStore::open(&path) else {
+        return 0.0;
+    };
+    let embedded = store
+        .load_vectors_by_type_and_model(MEMORY_ITEM_SOURCE_TYPE, model)
+        .map(|v| v.len())
+        .unwrap_or(0);
+    coverage_ratio(embedded, total_items)
+}
+
 /// Store-backed `MemoryService`. `new()` uses the shared store (opened
 /// lazily); `with_store` takes an explicit one, as the tests do.
 #[derive(Clone, Default)]
 pub struct DefaultMemoryService {
     store: Option<Arc<SqliteItemStore>>,
+    /// Test-only override for the vector tier. `None` in every production
+    /// instance (`new()` never sets it) — meaning "ask the process-wide,
+    /// env-gated singleton". `Some` means "use exactly this, unconditionally
+    /// LIVE, ignoring `IMPRESS_MEMORY_VECTORS` entirely" — set only by
+    /// [`DefaultMemoryService::with_store_and_vector_tier`], so tests never
+    /// touch the env var or the process-wide static and so never race each
+    /// other over either.
+    vector_override: Option<Arc<VectorTierInner>>,
 }
 
 impl DefaultMemoryService {
     pub fn new() -> Self {
-        Self { store: None }
+        Self {
+            store: None,
+            vector_override: None,
+        }
     }
 
     pub fn with_store(store: Arc<SqliteItemStore>) -> Self {
-        Self { store: Some(store) }
+        Self {
+            store: Some(store),
+            vector_override: None,
+        }
+    }
+
+    /// Test seam: a service whose vector tier is exactly `embedding_store` +
+    /// `embedder`, unconditionally live, never touching
+    /// [`VECTOR_TIER_ENV`]/[`EMBEDDINGS_PATH_ENV`] or the process-wide
+    /// [`VECTOR_TIER`] static. See [`DefaultMemoryService::vector_override`].
+    #[cfg(test)]
+    fn with_store_and_vector_tier(
+        store: Arc<SqliteItemStore>,
+        embedding_store: EmbeddingStore,
+        embedder: impl Embedder + 'static,
+    ) -> Self {
+        Self {
+            store: Some(store),
+            vector_override: Some(Arc::new(VectorTierInner {
+                embedding_store,
+                embedder: Box::new(embedder),
+            })),
+        }
     }
 
     fn store(&self) -> Arc<SqliteItemStore> {
         self.store
             .clone()
             .unwrap_or_else(impress_store_service::store::store_instance)
+    }
+
+    /// The tier `remember`/`recall` use: the test override when set,
+    /// otherwise the process-wide lazy singleton (which resolves the env
+    /// gate itself). Never called by `memory_status` — see
+    /// [`DefaultMemoryService::vector_status`].
+    fn vector_tier(&self) -> Option<&VectorTierInner> {
+        self.vector_override
+            .as_deref()
+            .or_else(|| process_vector_tier())
+    }
+
+    /// `memory_status`'s vector-tier reporting, kept separate from
+    /// `vector_tier` because it must NEVER trigger a `SemanticSearch` build
+    /// (the cost rule) — it only peeks at [`VECTOR_TIER`]'s current state
+    /// (or, under a test override, treats it as unconditionally live) and
+    /// otherwise counts vectors via [`readonly_coverage`], which opens only
+    /// the sidecar.
+    fn vector_status(&self, total_items: u32) -> (String, f64) {
+        if let Some(tier) = &self.vector_override {
+            let model = tier.embedder.model_id();
+            let embedded = tier
+                .embedding_store
+                .load_vectors_by_type_and_model(MEMORY_ITEM_SOURCE_TYPE, model)
+                .map(|v| v.len())
+                .unwrap_or(0);
+            return (
+                format!("live (model {model}, {embedded}/{total_items} items embedded)"),
+                coverage_ratio(embedded, total_items),
+            );
+        }
+        if !vector_tier_env_enabled() {
+            return (format!("off (set {VECTOR_TIER_ENV}=1)"), 0.0);
+        }
+        match VECTOR_TIER.get() {
+            None => (
+                "initializing lazily".to_string(),
+                readonly_coverage(
+                    impress_embeddings::semantic::FASTEMBED_MODEL_ID,
+                    total_items,
+                ),
+            ),
+            Some(TierState::Live(inner)) => {
+                let model = inner.embedder.model_id();
+                let embedded = inner
+                    .embedding_store
+                    .load_vectors_by_type_and_model(MEMORY_ITEM_SOURCE_TYPE, model)
+                    .map(|v| v.len())
+                    .unwrap_or(0);
+                (
+                    format!("live (model {model}, {embedded}/{total_items} items embedded)"),
+                    coverage_ratio(embedded, total_items),
+                )
+            }
+            Some(TierState::Failed(reason)) => (
+                format!("unavailable: {reason}"),
+                readonly_coverage(
+                    impress_embeddings::semantic::FASTEMBED_MODEL_ID,
+                    total_items,
+                ),
+            ),
+        }
     }
 }
 
@@ -423,6 +788,7 @@ fn failed_remember(message: String) -> RememberResult {
         action: String::new(),
         claim_id: String::new(),
         matched_id: String::new(),
+        matched_via: String::new(),
         message,
     }
 }
@@ -519,16 +885,27 @@ impl MemoryService for DefaultMemoryService {
         };
 
         match outcome {
-            GateOutcome::Insert => match memory_ops::insert_memory_item(&store, &draft) {
-                Ok(id) => RememberResult {
-                    ok: true,
-                    action: "inserted".into(),
-                    claim_id: id.to_string(),
-                    matched_id: String::new(),
-                    message: format!("Remembered as a new {kind}: {id}."),
-                },
-                Err(e) => failed_remember(describe(e)),
-            },
+            // The FTS gate found nothing — try the vector tier's (higher-
+            // threshold) semantic check before falling back to a plain
+            // insert. `vector_gate_confirm` is a no-op returning `None`
+            // whenever the tier is off, so this costs nothing extra when it
+            // is.
+            GateOutcome::Insert => {
+                if let Some(result) = self.vector_gate_confirm(&store, &draft) {
+                    return result;
+                }
+                match memory_ops::insert_memory_item(&store, &draft) {
+                    Ok(id) => RememberResult {
+                        ok: true,
+                        action: "inserted".into(),
+                        claim_id: id.to_string(),
+                        matched_id: String::new(),
+                        matched_via: String::new(),
+                        message: format!("Remembered as a new {kind}: {id}."),
+                    },
+                    Err(e) => failed_remember(describe(e)),
+                }
+            }
             GateOutcome::Confirm(existing) => {
                 match memory_ops::confirm(&store, existing, AUTHOR, ActorKind::System) {
                     Ok(n) => RememberResult {
@@ -536,6 +913,7 @@ impl MemoryService for DefaultMemoryService {
                         action: "confirmed".into(),
                         claim_id: existing.to_string(),
                         matched_id: existing.to_string(),
+                        matched_via: "fts".into(),
                         message: format!("Already known; confirmed ({n} total): {existing}."),
                     },
                     Err(e) => failed_remember(describe(e)),
@@ -560,6 +938,7 @@ impl MemoryService for DefaultMemoryService {
         };
         match memory_ops::recall(&store, &query, &opts) {
             Ok(entries) => {
+                let entries = self.rerank_with_vectors(&query, entries);
                 let n = entries.len();
                 RecallResult {
                     ok: true,
@@ -671,6 +1050,9 @@ impl MemoryService for DefaultMemoryService {
                 action: "inserted".into(),
                 claim_id: new_id.to_string(),
                 matched_id: old_id,
+                // Not a dedup-gate match — `matched_id` here names the OLD
+                // claim being superseded, a different relation entirely.
+                matched_via: String::new(),
                 message: format!("{new_id} supersedes {old_uuid}."),
             },
             // The new claim WAS written even though the supersession edge
@@ -682,6 +1064,7 @@ impl MemoryService for DefaultMemoryService {
                 action: "inserted".into(),
                 claim_id: new_id.to_string(),
                 matched_id: old_id,
+                matched_via: String::new(),
                 message: format!(
                     "inserted {new_id} but failed to record supersession over {old_uuid}: {}",
                     describe(e)
@@ -766,15 +1149,259 @@ impl MemoryService for DefaultMemoryService {
                 total,
             });
         }
+        let total_items: u32 = schemas.iter().map(|s| s.total).sum();
+        let (vector_tier, embedding_coverage) = self.vector_status(total_items);
+
         StatusResult {
             ok: true,
             schemas,
-            embedding_coverage: 0.0,
-            vector_tier:
-                "unavailable (FTS tier only; embeddings arrive with the impel-memory backfill)"
-                    .into(),
-            message: "Memory kernel status (FTS tier).".into(),
+            embedding_coverage,
+            vector_tier,
+            message: "Memory kernel status.".into(),
         }
+    }
+}
+
+/// The vector tier's contribution to `remember` and `recall`. Kept as a
+/// separate `impl` block from the trait's own (above) because neither method
+/// here is part of `MemoryService` — they are internals the trait methods
+/// call into, mirroring how `impress-mcp::tools`'s three semantic-search
+/// tools are hand-written functions layered over the SAME
+/// `#[impress_service]`-generated inventory rather than trait methods
+/// themselves.
+impl DefaultMemoryService {
+    /// The vector tier's half of `remember`'s dedup gate — reached only when
+    /// [`GateOutcome::Insert`] already fired, i.e. the FTS gate found
+    /// nothing close enough. `Some(result)` when a semantic near-duplicate
+    /// was found, re-checked, and confirmed instead; `None` means "insert as
+    /// planned" — the tier is off, the draft had no text to embed, embedding
+    /// failed, the sidecar holds no memory-item vectors for this model yet,
+    /// or every hit at or above [`VECTOR_CONFIRM_THRESHOLD`] failed the
+    /// re-check.
+    ///
+    /// Walks candidates best-first and re-checks each in turn — the same
+    /// discipline `memory_ops::gate_fts` uses and for the identical reason:
+    /// a lower-scoring hit that IS a compatible live head must not be
+    /// blocked by a higher-scoring one that is superseded, withheld, or a
+    /// different `claim_type`.
+    fn vector_gate_confirm(
+        &self,
+        store: &SqliteItemStore,
+        draft: &MemoryDraft,
+    ) -> Option<RememberResult> {
+        let tier = self.vector_tier()?;
+
+        // Mirrors `impel_memory::embed::embeddable_text`'s composition for a
+        // memory row (`"{title}\n{body}"`) so the draft's on-the-fly
+        // embedding lands in the same comparison space as the STORED
+        // vectors, which were embedded the same way.
+        let text = format!("{}\n{}", draft.title.trim(), draft.body.trim());
+        if text.trim().is_empty() {
+            return None;
+        }
+
+        let query_vec = match tier.embedder.embed(&text) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!(
+                    "impress-memory-service: vector gate skipped this call: embed failed: {e}"
+                );
+                return None;
+            }
+        };
+
+        let model = tier.embedder.model_id();
+        let vectors = match tier
+            .embedding_store
+            .load_vectors_by_type_and_model(MEMORY_ITEM_SOURCE_TYPE, model)
+        {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!(
+                    "impress-memory-service: vector gate skipped this call: sidecar read failed: {e}"
+                );
+                return None;
+            }
+        };
+        if vectors.is_empty() {
+            return None;
+        }
+
+        let mut scored: Vec<(ItemId, f32)> = vectors
+            .iter()
+            .filter_map(|v| {
+                ItemId::parse_str(&v.source_id).ok().map(|id| {
+                    (
+                        id,
+                        impress_embeddings::cosine_similarity(&query_vec, &v.vector),
+                    )
+                })
+            })
+            .collect();
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+
+        // Live heads of this draft's kind — a candidate not in this set is
+        // superseded or withheld (`no_recall`), and must never absorb a
+        // confirmation for either reason (mirrors `gate_fts`'s own
+        // `is_superseded` check).
+        let heads: BTreeSet<ItemId> = match memory_ops::claim_heads(
+            store,
+            draft.kind.schema_ref(),
+            memory_ops::MAX_RECALL_LIMIT,
+        ) {
+            Ok(ids) => ids.into_iter().collect(),
+            Err(e) => {
+                eprintln!(
+                    "impress-memory-service: vector gate skipped this call: head lookup failed: {e}"
+                );
+                return None;
+            }
+        };
+        let draft_type = draft
+            .claim_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        for (id, similarity) in scored
+            .into_iter()
+            .take_while(|(_, s)| *s >= VECTOR_CONFIRM_THRESHOLD)
+        {
+            if !heads.contains(&id) {
+                continue;
+            }
+            let Ok(Some(item)) = store.get(id) else {
+                continue;
+            };
+            let stored_type = match item.payload.get("claim_type") {
+                Some(Value::String(s)) if !s.trim().is_empty() => Some(s.as_str()),
+                _ => None,
+            };
+            // Compatible means equal, or either side unset — same rule
+            // `gate_fts` applies, for the same reason: a different
+            // `claim_type` is never the same memory even at high similarity.
+            let compatible = match (draft_type, stored_type) {
+                (Some(a), Some(b)) => a == b,
+                _ => true,
+            };
+            if !compatible {
+                continue;
+            }
+            return Some(match memory_ops::confirm(store, id, AUTHOR, ActorKind::System) {
+                Ok(n) => RememberResult {
+                    ok: true,
+                    action: "confirmed".into(),
+                    claim_id: id.to_string(),
+                    matched_id: id.to_string(),
+                    matched_via: "vector".into(),
+                    message: format!(
+                        "Already known (semantic match, {similarity:.2} similarity); confirmed ({n} total): {id}."
+                    ),
+                },
+                Err(e) => failed_remember(describe(e)),
+            });
+        }
+        None
+    }
+
+    /// Re-ranks `entries` — already retrieved, filtered and FTS/recency-
+    /// ranked by `memory_ops::recall` — using embedding similarity, when the
+    /// vector tier is live. Never widens the retrieved SET: this only
+    /// reorders the page `memory_ops::recall` already selected, so the
+    /// vector tier composes with the FTS one as a pure re-ranking signal, as
+    /// `memory_ops::MemoryCandidate::vector_similarity`'s own doc comment
+    /// describes.
+    ///
+    /// Returns `entries` completely UNCHANGED — same `Vec`, same order, same
+    /// scores — whenever the tier is off, the sidecar holds no memory-item
+    /// vectors for the resolved model, or embedding the query fails. That is
+    /// what makes recall's tier-off behavior and its tier-on-with-an-empty-
+    /// sidecar behavior provably IDENTICAL rather than merely
+    /// same-order-different-numbers.
+    fn rerank_with_vectors(
+        &self,
+        query: &str,
+        entries: Vec<memory_ops::RecallEntry>,
+    ) -> Vec<memory_ops::RecallEntry> {
+        if entries.is_empty() {
+            return entries;
+        }
+        let Some(tier) = self.vector_tier() else {
+            return entries;
+        };
+        let model = tier.embedder.model_id().to_string();
+        let stored = match tier
+            .embedding_store
+            .load_vectors_by_type_and_model(MEMORY_ITEM_SOURCE_TYPE, &model)
+        {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!(
+                    "impress-memory-service: vector recall skipped this call: sidecar read failed: {e}"
+                );
+                return entries;
+            }
+        };
+        if stored.is_empty() {
+            return entries;
+        }
+        let query_vec = match tier.embedder.embed(query) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!(
+                    "impress-memory-service: vector recall skipped this call: embed failed: {e}"
+                );
+                return entries;
+            }
+        };
+
+        let by_id: HashMap<&str, &Vec<f32>> = stored
+            .iter()
+            .map(|v| (v.source_id.as_str(), &v.vector))
+            .collect();
+
+        // `modified_ms` / `now_ms` both pinned to 0 rather than a real clock
+        // reading: `recency_decay(0, 0, half_life)` is exactly 1.0 regardless
+        // of `half_life`, so it contributes the SAME flat recency bonus to
+        // every candidate here and never perturbs their relative order —
+        // deliberately, since `entries` is already recency-ranked by
+        // `memory_ops::recall` (folded into `fts_score` below) and this
+        // pass's only job is layering the vector signal on top of that.
+        let candidates: Vec<memory_ops::MemoryCandidate> = entries
+            .iter()
+            .map(|e| memory_ops::MemoryCandidate {
+                id: e.id.clone(),
+                fts_score: Some(e.score),
+                vector_similarity: by_id
+                    .get(e.id.as_str())
+                    .map(|v| impress_embeddings::cosine_similarity(&query_vec, v.as_slice())),
+                confirmations: 0,
+                modified_ms: 0,
+                author_kind_human: false,
+                confidence: None,
+            })
+            .collect();
+        let ranked = memory_ops::rank_memory_candidates(
+            &candidates,
+            &memory_ops::MemoryWeights::default(),
+            0,
+        );
+
+        let mut by_id_entry: HashMap<String, memory_ops::RecallEntry> =
+            entries.into_iter().map(|e| (e.id.clone(), e)).collect();
+        ranked
+            .into_iter()
+            .filter_map(|(id, score)| {
+                by_id_entry.remove(&id).map(|mut e| {
+                    e.score = score;
+                    e
+                })
+            })
+            .collect()
     }
 }
 
@@ -807,6 +1434,7 @@ mod tests {
     use impress_core::schemas::{
         MEMORY_CLAIM_SCHEMA, MEMORY_EPISODE_SCHEMA, MEMORY_INSTRUCTION_SCHEMA,
     };
+    use impress_embeddings::StoredVector;
     use impress_service_core::{CliSubcommand, McpToolDescriptor};
 
     fn test_store() -> Arc<SqliteItemStore> {
@@ -973,6 +1601,7 @@ mod tests {
         assert_eq!(second.action, "confirmed");
         assert_eq!(second.claim_id, first.claim_id);
         assert_eq!(second.matched_id, first.claim_id);
+        assert_eq!(second.matched_via, "fts");
 
         // Only one row exists: recall must not return the same memory twice.
         let found = svc.recall("shell".into(), String::new(), 0, false).await;
@@ -1301,11 +1930,10 @@ mod tests {
         assert!(status.ok, "{}", status.message);
         assert_eq!(status.schemas.len(), 3);
         assert_eq!(status.embedding_coverage, 0.0);
-        assert!(
-            status.vector_tier.contains("unavailable"),
-            "{}",
-            status.vector_tier
-        );
+        // `svc()` sets no vector-tier override and this test never touches
+        // IMPRESS_MEMORY_VECTORS, so the tier is off — the cheapest of the
+        // four `vector_tier` states (see `DefaultMemoryService::vector_status`).
+        assert!(status.vector_tier.contains("off"), "{}", status.vector_tier);
 
         let claim_row = status
             .schemas
@@ -1362,5 +1990,478 @@ mod tests {
             .expect("claim row");
         assert_eq!(claim_row.total, 2, "old + new both exist");
         assert_eq!(claim_row.heads, 1, "only the replacement is a head");
+    }
+
+    // ─── Vector tier (ADR-0028 D6) ──────────────────────────────────────
+    //
+    // No test below constructs a `SemanticSearch` — that downloads a
+    // ~100MB ONNX model on first use, which has no place in a unit test.
+    // `StubEmbedder` is the deterministic seam `vector_gate_confirm` /
+    // `rerank_with_vectors` / `vector_status` are written against.
+    //
+    // None of these tests touch `IMPRESS_MEMORY_VECTORS` or any other env
+    // var: `DefaultMemoryService::with_store_and_vector_tier` bypasses the
+    // env gate and the process-wide `VECTOR_TIER` singleton entirely, so a
+    // test below can never race an env-driven default-off test above
+    // regardless of `cargo test`'s thread interleaving — deliberately, so
+    // this module needs no `--test-threads=1`.
+
+    /// A deterministic stand-in for `SemanticSearch`: exact input strings
+    /// map to fixed vectors via a lookup table (`with`), with a
+    /// caller-chosen default for anything not listed. This gives tests full
+    /// control over cosine similarity without reasoning about what a real
+    /// model would produce.
+    struct StubEmbedder {
+        model: String,
+        vectors: HashMap<String, Vec<f32>>,
+        default_vector: Vec<f32>,
+    }
+
+    impl StubEmbedder {
+        fn new(model: &str) -> Self {
+            Self {
+                model: model.to_string(),
+                vectors: HashMap::new(),
+                // Orthogonal to every explicit test vector used below, and
+                // never itself at or above VECTOR_CONFIRM_THRESHOLD against
+                // them — so a text nobody bothered to map never
+                // accidentally satisfies a similarity assertion.
+                default_vector: vec![0.0, 0.0, 1.0],
+            }
+        }
+
+        fn with(mut self, text: impl Into<String>, vector: Vec<f32>) -> Self {
+            self.vectors.insert(text.into(), vector);
+            self
+        }
+    }
+
+    impl Embedder for StubEmbedder {
+        fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
+            Ok(self
+                .vectors
+                .get(text)
+                .cloned()
+                .unwrap_or_else(|| self.default_vector.clone()))
+        }
+
+        fn model_id(&self) -> &str {
+            &self.model
+        }
+    }
+
+    /// A fresh temp-file sidecar path. The `TempDir` must be kept alive by
+    /// the caller for as long as the path is used — dropping it deletes the
+    /// directory.
+    fn temp_sidecar_path() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir
+            .path()
+            .join("embeddings.sqlite")
+            .to_string_lossy()
+            .into_owned();
+        (dir, path)
+    }
+
+    /// Write one memory-item vector directly into the sidecar at `path`,
+    /// bypassing `remember` entirely — this is what a real backfill
+    /// executor (`impel_memory::EmbedBackfillExecutor`) would already have
+    /// done by the time these tests' scenarios begin. Opens its own
+    /// `EmbeddingStore` handle, independent of whatever handle a
+    /// `DefaultMemoryService` under test holds on the same path — safe,
+    /// since `EmbeddingStore::open` sets WAL mode, which serves multiple
+    /// connections to one file.
+    fn seed_vector(path: &str, source_id: &str, model: &str, vector: Vec<f32>) {
+        let store = EmbeddingStore::open(path).expect("open sidecar to seed");
+        store
+            .save_vectors(&[StoredVector {
+                id: uuid::Uuid::new_v4().to_string(),
+                source_id: source_id.to_string(),
+                source_type: MEMORY_ITEM_SOURCE_TYPE.to_string(),
+                vector,
+                model: model.to_string(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+            }])
+            .expect("seed vector");
+    }
+
+    /// A service with its own fresh in-memory item store and a vector tier
+    /// unconditionally live against the sidecar at `path`.
+    fn svc_with_vectors(path: &str, embedder: StubEmbedder) -> DefaultMemoryService {
+        let embedding_store = EmbeddingStore::open(path).expect("open sidecar for service");
+        DefaultMemoryService::with_store_and_vector_tier(test_store(), embedding_store, embedder)
+    }
+
+    // -- remember: the vector half of the dedup gate -------------------
+
+    #[tokio::test]
+    async fn vector_confirm_matches_a_paraphrase_fts_misses() {
+        let (_dir, path) = temp_sidecar_path();
+        let model = "stub/v1";
+        let title2 = "Currency exchange note";
+        let body2 = "Exchange rates fluctuate throughout the trading day session.";
+        let text2 = format!("{title2}\n{body2}");
+
+        let embedder = StubEmbedder::new(model).with(text2.clone(), vec![1.0, 0.0, 0.0]);
+        let svc = svc_with_vectors(&path, embedder);
+
+        // First insert: the tier is live from the start, but the sidecar is
+        // still empty, so this is a plain insert regardless.
+        let first = svc
+            .remember(
+                "claim".into(),
+                "Flux units".into(),
+                "The catalogue flux column is in millijansky.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(first.ok, "{}", first.message);
+        assert_eq!(first.action, "inserted");
+
+        seed_vector(&path, &first.claim_id, model, vec![1.0, 0.0, 0.0]);
+
+        // A paraphrase in completely different words — the FTS gate's token
+        // overlap misses it entirely — but the stub embeds `text2` to the
+        // SAME vector as the one just seeded, so the vector gate must catch
+        // it.
+        let second = svc
+            .remember(
+                "claim".into(),
+                title2.into(),
+                body2.into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(second.ok, "{}", second.message);
+        assert_eq!(second.action, "confirmed", "{second:?}");
+        assert_eq!(second.claim_id, first.claim_id);
+        assert_eq!(second.matched_id, first.claim_id);
+        assert_eq!(second.matched_via, "vector");
+    }
+
+    #[tokio::test]
+    async fn vector_confirm_falls_through_when_candidate_is_superseded() {
+        let (_dir, path) = temp_sidecar_path();
+        let model = "stub/v1";
+        let title2 = "New topic altogether";
+        let body2 = "Something entirely unrelated to the earlier note.";
+        let text2 = format!("{title2}\n{body2}");
+
+        let embedder = StubEmbedder::new(model).with(text2.clone(), vec![1.0, 0.0, 0.0]);
+        let svc = svc_with_vectors(&path, embedder);
+
+        let old = svc
+            .remember(
+                "claim".into(),
+                "Old topic".into(),
+                "A statement that will later be superseded.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(old.ok, "{}", old.message);
+
+        let replacement = svc
+            .supersede_claim(
+                old.claim_id.clone(),
+                "New version".into(),
+                "A corrected statement, worded very differently from the note above.".into(),
+                String::new(),
+            )
+            .await;
+        assert!(replacement.ok, "{}", replacement.message);
+
+        // The vector points at the OLD, now-superseded row.
+        seed_vector(&path, &old.claim_id, model, vec![1.0, 0.0, 0.0]);
+
+        let third = svc
+            .remember(
+                "claim".into(),
+                title2.into(),
+                body2.into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(third.ok, "{}", third.message);
+        assert_eq!(third.action, "inserted", "{third:?}");
+        assert_ne!(third.claim_id, old.claim_id);
+        assert_ne!(third.claim_id, replacement.claim_id);
+        assert_eq!(third.matched_via, "");
+    }
+
+    #[tokio::test]
+    async fn vector_confirm_falls_through_when_candidate_is_forgotten() {
+        let (_dir, path) = temp_sidecar_path();
+        let model = "stub/v1";
+        let title2 = "Yet another topic";
+        let body2 = "Completely different wording from the forgotten note.";
+        let text2 = format!("{title2}\n{body2}");
+
+        let embedder = StubEmbedder::new(model).with(text2.clone(), vec![1.0, 0.0, 0.0]);
+        let svc = svc_with_vectors(&path, embedder);
+
+        let original = svc
+            .remember(
+                "claim".into(),
+                "Private note".into(),
+                "A claim that will be withheld from recall.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(original.ok, "{}", original.message);
+
+        let forgotten = svc.forget(original.claim_id.clone()).await;
+        assert!(forgotten.ok, "{}", forgotten.message);
+
+        seed_vector(&path, &original.claim_id, model, vec![1.0, 0.0, 0.0]);
+
+        let third = svc
+            .remember(
+                "claim".into(),
+                title2.into(),
+                body2.into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(third.ok, "{}", third.message);
+        assert_eq!(third.action, "inserted", "{third:?}");
+        assert_eq!(third.matched_via, "");
+    }
+
+    #[tokio::test]
+    async fn vector_confirm_falls_through_on_claim_type_mismatch() {
+        let (_dir, path) = temp_sidecar_path();
+        let model = "stub/v1";
+        let title2 = "A preference, not a fact";
+        let body2 = "Worded nothing like the fact claim below, on purpose.";
+        let text2 = format!("{title2}\n{body2}");
+
+        let embedder = StubEmbedder::new(model).with(text2.clone(), vec![1.0, 0.0, 0.0]);
+        let svc = svc_with_vectors(&path, embedder);
+
+        let fact = svc
+            .remember(
+                "claim".into(),
+                "A fact".into(),
+                "Water boils at 100 degrees Celsius at sea level.".into(),
+                "fact".into(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(fact.ok, "{}", fact.message);
+
+        seed_vector(&path, &fact.claim_id, model, vec![1.0, 0.0, 0.0]);
+
+        let preference = svc
+            .remember(
+                "claim".into(),
+                title2.into(),
+                body2.into(),
+                "preference".into(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(preference.ok, "{}", preference.message);
+        assert_eq!(preference.action, "inserted", "{preference:?}");
+        assert_ne!(preference.claim_id, fact.claim_id);
+        assert_eq!(preference.matched_via, "");
+    }
+
+    // -- recall: vector re-ranking --------------------------------------
+
+    #[tokio::test]
+    async fn recall_ranking_uses_vector_similarity() {
+        let (_dir, path) = temp_sidecar_path();
+        let model = "stub/v1";
+        // The query text ("") embeds to something identical to claim A's
+        // stored vector and orthogonal to claim B's.
+        let embedder = StubEmbedder::new(model).with(String::new(), vec![1.0, 0.0]);
+        let svc = svc_with_vectors(&path, embedder);
+
+        let a = svc
+            .remember(
+                "claim".into(),
+                "Topic A".into(),
+                "Alpha alpha alpha content, first claim.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(a.ok, "{}", a.message);
+        let b = svc
+            .remember(
+                "claim".into(),
+                "Topic B".into(),
+                "Beta beta beta content, second claim entirely.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(b.ok, "{}", b.message);
+
+        seed_vector(&path, &a.claim_id, model, vec![1.0, 0.0]);
+        seed_vector(&path, &b.claim_id, model, vec![0.0, 1.0]);
+
+        let recalled = svc.recall(String::new(), String::new(), 0, false).await;
+        assert!(recalled.ok, "{}", recalled.message);
+        assert_eq!(recalled.entries.len(), 2, "{:?}", recalled.entries);
+        assert_eq!(
+            recalled.entries[0].id, a.claim_id,
+            "the vector-nearer claim must rank first: {:?}",
+            recalled.entries
+        );
+    }
+
+    #[tokio::test]
+    async fn recall_identical_tier_off_vs_tier_on_with_empty_sidecar() {
+        let store = test_store();
+        let svc_off = DefaultMemoryService::with_store(store.clone());
+
+        svc_off
+            .remember(
+                "claim".into(),
+                "First".into(),
+                "The first seeded claim about widgets.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        svc_off
+            .remember(
+                "claim".into(),
+                "Second".into(),
+                "The second seeded claim about gadgets.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        svc_off
+            .remember(
+                "episode".into(),
+                "Third".into(),
+                "An episode about the same widgets.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+
+        let off_result = svc_off
+            .recall("widgets".into(), String::new(), 0, false)
+            .await;
+        assert!(off_result.ok, "{}", off_result.message);
+        assert!(!off_result.entries.is_empty(), "{:?}", off_result.entries);
+
+        // Tier ON, but the sidecar is (and stays) completely empty — no
+        // `seed_vector` call at all.
+        let (_dir, path) = temp_sidecar_path();
+        let embedding_store = EmbeddingStore::open(&path).expect("open empty sidecar");
+        let svc_on = DefaultMemoryService::with_store_and_vector_tier(
+            store.clone(),
+            embedding_store,
+            StubEmbedder::new("stub/v1"),
+        );
+        let on_result = svc_on
+            .recall("widgets".into(), String::new(), 0, false)
+            .await;
+        assert!(on_result.ok, "{}", on_result.message);
+
+        let off_ids: Vec<&str> = off_result.entries.iter().map(|e| e.id.as_str()).collect();
+        let on_ids: Vec<&str> = on_result.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(
+            off_ids, on_ids,
+            "tier-on with an empty sidecar must not perturb order"
+        );
+        assert_eq!(off_result.entries.len(), on_result.entries.len());
+    }
+
+    // -- memory_status: coverage -----------------------------------------
+
+    #[tokio::test]
+    async fn memory_status_reports_vector_coverage_when_tier_live() {
+        let (_dir, path) = temp_sidecar_path();
+        let model = "stub/v1";
+        let svc = svc_with_vectors(&path, StubEmbedder::new(model));
+
+        let a = svc
+            .remember(
+                "claim".into(),
+                "A".into(),
+                "First claim, entirely on its own topic.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        let b = svc
+            .remember(
+                "claim".into(),
+                "B".into(),
+                "Second claim, a distinctly different topic.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        let c = svc
+            .remember(
+                "claim".into(),
+                "C".into(),
+                "Third claim, yet another unrelated topic.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(a.ok && b.ok && c.ok, "{a:?} {b:?} {c:?}");
+
+        // Only two of the three claims have been embedded.
+        seed_vector(&path, &a.claim_id, model, vec![1.0, 0.0, 0.0]);
+        seed_vector(&path, &b.claim_id, model, vec![0.0, 1.0, 0.0]);
+
+        let status = svc.memory_status().await;
+        assert!(status.ok, "{}", status.message);
+        assert_eq!(
+            status.vector_tier,
+            format!("live (model {model}, 2/3 items embedded)")
+        );
+        assert!(
+            (status.embedding_coverage - 2.0 / 3.0).abs() < 1e-9,
+            "{}",
+            status.embedding_coverage
+        );
     }
 }
