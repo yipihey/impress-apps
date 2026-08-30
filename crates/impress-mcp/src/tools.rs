@@ -4,7 +4,9 @@ use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use impress_embeddings::{ChunkIndex, ChunkSimilarityResult, EmbeddingStore, SemanticSearch};
+use impress_embeddings::{
+    ChunkIndex, ChunkSimilarityResult, EmbeddingStore, SemanticSearch, StoredVector,
+};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -86,17 +88,21 @@ impl ToolContext {
     }
 }
 
-/// Open the embedding store, rebuild the chunk index, load the model.
+/// Open the embedding store, load the model, rebuild the chunk index.
+///
+/// The model loads *before* the index rebuild (unlike before ADR-0028)
+/// because the rebuild needs `semantic.model_id()` to decide which vectors
+/// belong in the index — see `rebuild_chunk_index`.
 fn build_semantic(embeddings_path: &Path) -> Result<SemanticContext, String> {
     let embedding_store = EmbeddingStore::open(embeddings_path.to_str().unwrap_or_default())
         .map_err(|e| format!("failed to open embedding store: {e}"))?;
 
-    let chunk_index = ChunkIndex::new();
-    rebuild_chunk_index(&embedding_store, &chunk_index)?;
-
     eprintln!("impress-mcp: initializing embedding model...");
     let semantic =
         SemanticSearch::new().map_err(|e| format!("failed to initialize SemanticSearch: {e}"))?;
+
+    let chunk_index = ChunkIndex::new();
+    rebuild_chunk_index(&embedding_store, &chunk_index, semantic.model_id())?;
 
     eprintln!(
         "impress-mcp: semantic search ready — {} chunks across {} publications",
@@ -115,8 +121,16 @@ fn build_semantic(embeddings_path: &Path) -> Result<SemanticContext, String> {
 ///
 /// Chunk vectors have `source_id = chunk_id`. Each chunk is looked up to get
 /// its publication_id so the index carries the right mapping.
-fn rebuild_chunk_index(store: &EmbeddingStore, index: &ChunkIndex) -> Result<(), String> {
-    let chunk_vectors = store.load_vectors_by_type("chunk")?;
+///
+/// `model` is `semantic.model_id()` — the model this process embeds queries
+/// with. The vector *selection* is gated (see `select_chunk_vectors`); once
+/// selected, the loop below is unchanged from before ADR-0028.
+fn rebuild_chunk_index(
+    store: &EmbeddingStore,
+    index: &ChunkIndex,
+    model: &str,
+) -> Result<(), String> {
+    let chunk_vectors = select_chunk_vectors(store, model)?;
     if chunk_vectors.is_empty() {
         return Ok(());
     }
@@ -132,6 +146,30 @@ fn rebuild_chunk_index(store: &EmbeddingStore, index: &ChunkIndex) -> Result<(),
         index.add_batch(batch);
     }
     Ok(())
+}
+
+/// The model-gated chunk-vector selection (ADR-0028 D4), pulled out of
+/// `rebuild_chunk_index` so the decision itself — which rows load — is
+/// unit-testable without building an HNSW index.
+///
+/// Once the sidecar holds at least one vector for `model`, only same-model
+/// chunk vectors load: mixing `apple-nl` and `fastembed` vectors in one HNSW
+/// graph makes cosine distance between them meaningless. Until then, every
+/// chunk vector loads regardless of model — exactly the pre-ADR-0028
+/// behavior — so a device that has only ever run imbib.app keeps searching
+/// correctly instead of coming up empty the moment this filter ships ahead
+/// of the backfill executor that will populate fastembed vectors.
+fn select_chunk_vectors(store: &EmbeddingStore, model: &str) -> Result<Vec<StoredVector>, String> {
+    if store.has_vectors_for_model(model)? {
+        store.load_vectors_by_type_and_model("chunk", model)
+    } else {
+        eprintln!(
+            "impress-mcp: sidecar holds no '{model}' vectors yet — loading all chunk vectors \
+             regardless of model. Semantic search runs cross-model until the impress backfill \
+             executor (ADR-0028 D7) populates fastembed vectors."
+        );
+        store.load_vectors_by_type("chunk")
+    }
 }
 
 /// Message returned by the semantic tools when the stack could not be built.
@@ -339,4 +377,103 @@ pub fn tool_list_indexed_papers(ctx: &ToolContext, args: &Value) -> Result<Strin
     });
 
     serde_json::to_string_pretty(&output).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use impress_embeddings::StoredChunk;
+
+    fn temp_store() -> (EmbeddingStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("embeddings.sqlite");
+        let store = EmbeddingStore::open(path.to_str().unwrap()).unwrap();
+        (store, dir)
+    }
+
+    fn vector(id: &str, source_id: &str, model: &str) -> StoredVector {
+        StoredVector {
+            id: id.into(),
+            source_id: source_id.into(),
+            source_type: "chunk".into(),
+            vector: vec![1.0, 0.0],
+            model: model.into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }
+    }
+
+    /// Once a same-model vector exists, selection is strict: the foreign
+    /// model is excluded even though both are present for the same chunk.
+    #[test]
+    fn select_chunk_vectors_prefers_same_model_once_present() {
+        let (store, _dir) = temp_store();
+
+        store
+            .save_chunks(&[StoredChunk {
+                id: "c1".into(),
+                publication_id: "pub1".into(),
+                text: "chunk one".into(),
+                page_number: None,
+                char_offset: 0,
+                char_length: 9,
+                chunk_index: 0,
+            }])
+            .unwrap();
+
+        store
+            .save_vectors(&[
+                vector("v-apple", "c1", "apple-nl"),
+                vector("v-fastembed", "c1", "fastembed/AllMiniLML6V2"),
+            ])
+            .unwrap();
+
+        let selected = select_chunk_vectors(&store, "fastembed/AllMiniLML6V2").unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].id, "v-fastembed");
+    }
+
+    /// Legacy path: no vector for `model` exists anywhere in the sidecar, so
+    /// every chunk vector loads regardless of model — the pre-ADR-0028
+    /// behavior, preserved until the backfill executor writes something in
+    /// the query model's space.
+    #[test]
+    fn select_chunk_vectors_falls_back_to_all_when_model_absent() {
+        let (store, _dir) = temp_store();
+
+        store
+            .save_vectors(&[vector("v-apple", "c1", "apple-nl")])
+            .unwrap();
+
+        let selected = select_chunk_vectors(&store, "fastembed/AllMiniLML6V2").unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].id, "v-apple");
+    }
+
+    #[test]
+    fn select_chunk_vectors_empty_store_returns_empty() {
+        let (store, _dir) = temp_store();
+        let selected = select_chunk_vectors(&store, "fastembed/AllMiniLML6V2").unwrap();
+        assert!(selected.is_empty());
+    }
+
+    /// A same-model vector for a *different* chunk does not change the
+    /// fallback decision for other rows: gating is a store-wide check
+    /// (`has_vectors_for_model`), then a per-row filter
+    /// (`load_vectors_by_type_and_model`) — once gated on, a chunk with only
+    /// a foreign-model vector simply drops out rather than falling back.
+    #[test]
+    fn select_chunk_vectors_drops_foreign_only_rows_once_gated() {
+        let (store, _dir) = temp_store();
+
+        store
+            .save_vectors(&[
+                vector("v1", "c1", "fastembed/AllMiniLML6V2"),
+                vector("v2", "c2", "apple-nl"),
+            ])
+            .unwrap();
+
+        let selected = select_chunk_vectors(&store, "fastembed/AllMiniLML6V2").unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].source_id, "c1");
+    }
 }
