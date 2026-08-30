@@ -5,15 +5,13 @@
 //! - Supports scoped search (all, specific publications, etc.)
 //! - Designed for ~10-100 chunks per publication × thousands of publications
 
-#[cfg(feature = "native")]
-use super::ann_index::{AnnIndex, AnnIndexConfig};
+use crate::ann_index::{AnnIndex, AnnIndexConfig};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
 /// A chunk similarity result with publication linkage.
-#[cfg_attr(feature = "native", derive(uniffi::Record))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChunkSimilarityResult {
     /// Chunk ID
@@ -25,7 +23,6 @@ pub struct ChunkSimilarityResult {
 }
 
 /// Chunk-level index with publication-aware filtering.
-#[cfg(feature = "native")]
 pub struct ChunkIndex {
     /// The underlying HNSW index
     ann: AnnIndex,
@@ -33,7 +30,6 @@ pub struct ChunkIndex {
     chunk_to_pub: RwLock<HashMap<String, String>>,
 }
 
-#[cfg(feature = "native")]
 impl ChunkIndex {
     /// Create a new chunk index with default configuration.
     pub fn new() -> Self {
@@ -135,143 +131,13 @@ impl ChunkIndex {
     }
 }
 
-#[cfg(feature = "native")]
 impl Default for ChunkIndex {
     fn default() -> Self {
         Self::new()
     }
 }
 
-// ---------------------------------------------------------------------------
-// UniFFI handle-based API
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "native")]
-use lazy_static::lazy_static;
-#[cfg(feature = "native")]
-use std::sync::Mutex;
-
-#[cfg(feature = "native")]
-lazy_static! {
-    static ref CHUNK_INDEX_REGISTRY: RwLock<HashMap<u64, ChunkIndex>> = RwLock::new(HashMap::new());
-    static ref CHUNK_INDEX_COUNTER: Mutex<u64> = Mutex::new(0);
-}
-
-/// Item for chunk batch insertion.
-#[cfg(feature = "native")]
-#[derive(uniffi::Record)]
-pub struct ChunkIndexItem {
-    pub chunk_id: String,
-    pub publication_id: String,
-    pub embedding: Vec<f32>,
-}
-
-/// Create a new chunk index, returns a handle.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn chunk_index_create() -> u64 {
-    let mut counter = CHUNK_INDEX_COUNTER.lock().unwrap();
-    *counter += 1;
-    let handle = *counter;
-    drop(counter);
-
-    let index = ChunkIndex::new();
-    let mut registry = CHUNK_INDEX_REGISTRY.write().unwrap();
-    registry.insert(handle, index);
-    handle
-}
-
-/// Add a single chunk to the index.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn chunk_index_add(
-    handle: u64,
-    chunk_id: String,
-    publication_id: String,
-    embedding: Vec<f32>,
-) -> bool {
-    let registry = CHUNK_INDEX_REGISTRY.read().unwrap();
-    if let Some(index) = registry.get(&handle) {
-        index.add(&chunk_id, &publication_id, &embedding);
-        true
-    } else {
-        false
-    }
-}
-
-/// Add multiple chunks at once.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn chunk_index_add_batch(handle: u64, items: Vec<ChunkIndexItem>) -> bool {
-    let registry = CHUNK_INDEX_REGISTRY.read().unwrap();
-    if let Some(index) = registry.get(&handle) {
-        let batch: Vec<(String, String, Vec<f32>)> = items
-            .into_iter()
-            .map(|item| (item.chunk_id, item.publication_id, item.embedding))
-            .collect();
-        index.add_batch(batch);
-        true
-    } else {
-        false
-    }
-}
-
-/// Search for similar chunks (unscoped).
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn chunk_index_search(handle: u64, query: Vec<f32>, top_k: u32) -> Vec<ChunkSimilarityResult> {
-    let registry = CHUNK_INDEX_REGISTRY.read().unwrap();
-    if let Some(index) = registry.get(&handle) {
-        index.search(&query, top_k as usize)
-    } else {
-        vec![]
-    }
-}
-
-/// Search for similar chunks, filtered to specific publications.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn chunk_index_search_scoped(
-    handle: u64,
-    query: Vec<f32>,
-    top_k: u32,
-    publication_ids: Vec<String>,
-) -> Vec<ChunkSimilarityResult> {
-    let registry = CHUNK_INDEX_REGISTRY.read().unwrap();
-    if let Some(index) = registry.get(&handle) {
-        let scope: HashSet<String> = publication_ids.into_iter().collect();
-        index.search_scoped(&query, top_k as usize, &scope)
-    } else {
-        vec![]
-    }
-}
-
-/// Get the number of chunks in the index.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn chunk_index_size(handle: u64) -> u32 {
-    let registry = CHUNK_INDEX_REGISTRY.read().unwrap();
-    if let Some(index) = registry.get(&handle) {
-        index.len() as u32
-    } else {
-        0
-    }
-}
-
-/// Close and release a chunk index.
-#[cfg(feature = "native")]
-#[uniffi::export]
-pub fn chunk_index_close(handle: u64) -> bool {
-    let mut registry = CHUNK_INDEX_REGISTRY.write().unwrap();
-    registry.remove(&handle).is_some()
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
-#[cfg(feature = "native")]
 mod tests {
     use super::*;
 

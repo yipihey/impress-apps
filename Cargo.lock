@@ -3708,15 +3708,13 @@ name = "imbib-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
- "bincode",
  "chrono",
  "criterion",
  "encoding_rs",
- "fastembed",
- "hnsw_rs",
  "impress-bibtex",
  "impress-core",
  "impress-domain",
+ "impress-embeddings",
  "impress-flags",
  "impress-identifiers",
  "impress-smart-search",
@@ -4248,6 +4246,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-embeddings"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "chrono",
+ "fastembed",
+ "hnsw_rs",
+ "rusqlite",
+ "serde",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "impress-flags"
 version = "0.1.0"
 dependencies = [
@@ -4317,6 +4329,7 @@ dependencies = [
  "implore-service-http",
  "impress-ai-service",
  "impress-bridges-service",
+ "impress-embeddings",
  "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",

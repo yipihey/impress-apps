@@ -60,6 +60,10 @@ members = [
     "crates/impress-core",
     # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
     "crates/impress-plot",
+    # impress-embeddings - the suite's embedding stack (sidecar vector/chunk
+    # store, HNSW index, text embedder). Owns the maths; the UniFFI shims that
+    # Swift binds against stay in the app cores that ship frameworks.
+    "crates/impress-embeddings",
     # impress-store-ffi - UniFFI bindings for the shared impress-core store
     "crates/impress-store-ffi",
     # scix-client-ffi - UniFFI bindings for scix-client (NASA ADS/SciX API)
@@ -152,6 +156,11 @@ imprint-selftest = { path = "crates/imprint-selftest" }
 imbib-service = { path = "crates/imbib-service" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
+# default-features = false HERE, not at the call site: a member inheriting a
+# workspace dependency can only add features, never remove them, so a member
+# writing `default-features = false` is silently ignored (cargo warns, and
+# says it may become a hard error). Consumers opt in to store/index/embedder.
+impress-embeddings = { path = "crates/impress-embeddings", default-features = false }
 impress-sources = { path = "crates/impress-sources" }
 impress-smart-search = { path = "crates/impress-smart-search" }
 impress-parsers-service = { path = "crates/impress-parsers-service" }

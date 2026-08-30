@@ -4,7 +4,7 @@
 //! - Query building and parsing utilities for various search APIs (ADS, arXiv)
 //! - Full-text search with Tantivy (unified search across metadata, PDFs, notes)
 //! - Snippet extraction and term highlighting
-//! - Semantic search with embeddings (optional, requires "embeddings" feature)
+//! - The embedding stack's UniFFI surface (engines live in `impress-embeddings`)
 //! - Help documentation search with highlighting
 //!
 //! Query building/parsing works on all platforms including WASM.
@@ -27,20 +27,12 @@ pub mod schema;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod help_search;
 
-#[cfg(feature = "embeddings")]
-pub mod semantic;
-
-// Approximate Nearest Neighbor search (native only)
+// The embedding stack. The HNSW index, the chunk index and the SQLite
+// sidecar are `impress-embeddings`; what lives here is the UniFFI surface
+// over them — handle registries and mirror records — because imbib-core is
+// the crate that ships a framework to Swift.
 #[cfg(feature = "native")]
-pub mod ann_index;
-
-// Embedding persistence (SQLite-backed vector + chunk store)
-#[cfg(feature = "native")]
-pub mod embedding_store;
-
-// Chunk-level HNSW index for RAG retrieval
-#[cfg(feature = "native")]
-pub mod chunk_index;
+pub mod embeddings_ffi;
 
 #[cfg(feature = "native")]
 pub use query_builder::{
@@ -61,17 +53,15 @@ pub use schema::*;
 #[cfg(feature = "native")]
 pub use snippets::*;
 
+// Every historical `imbib_core::search::*` path for the embedding stack still
+// resolves: the mirror records and shims come from `embeddings_ffi`, the
+// engine types straight from `impress-embeddings`. Explicit, not glob — the
+// mirrors deliberately share names with their engine twins.
 #[cfg(feature = "native")]
-pub use ann_index::*;
+pub use embeddings_ffi::*;
 
 #[cfg(feature = "native")]
-pub use embedding_store::*;
-
-#[cfg(feature = "native")]
-pub use chunk_index::*;
-
-#[cfg(feature = "embeddings")]
-pub use semantic::*;
+pub use impress_embeddings::{AnnIndex, AnnIndexConfig, ChunkIndex, EmbeddingStore};
 
 // Help search exports
 #[cfg(not(target_arch = "wasm32"))]
