@@ -434,8 +434,26 @@ async fn main() {
         );
     }
     if memory_plan.consolidate_enabled {
-        scheduler.register(Arc::new(MemoryConsolidationExecutor::new(store.clone())));
-        eprintln!("impel-taskd: memory consolidation ON (deterministic tier)");
+        use impel_memory::ClaimDistiller as _;
+        let distiller: Option<Arc<dyn impel_memory::ClaimDistiller>> =
+            match impel_memory::LlmDistiller::from_env() {
+                Some(distiller) => {
+                    eprintln!(
+                        "impel-taskd: memory consolidation ON (deterministic + LLM claim tier: {})",
+                        distiller.model_id()
+                    );
+                    Some(Arc::new(distiller))
+                }
+                None => {
+                    eprintln!(
+                        "impel-taskd: memory consolidation ON (deterministic tier; set IMPEL_LLM_PROVIDER/MODEL/API_KEY for the claim tier)"
+                    );
+                    None
+                }
+            };
+        scheduler.register(Arc::new(
+            MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(distiller),
+        ));
     } else {
         eprintln!(
             "impel-taskd: memory consolidation off (set {}=1)",
