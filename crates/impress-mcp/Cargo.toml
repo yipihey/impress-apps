@@ -54,3 +54,7 @@ imprint-selftest = { workspace = true }
 # reachability gate entry needed).
 impress-parsers-service = { workspace = true }
 impress-smart-search-service = { workspace = true }
+# Pulls the MemoryService inventory (ADR-0028 memory kernel P2 — remember/
+# recall/brief/confirm/supersede/forget, FTS tier). Never app-gated — it opens
+# the shared store directly, like the other store-generic services above.
+impress-memory-service = { workspace = true }

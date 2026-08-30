@@ -20,5 +20,8 @@ impress-ai-service = { workspace = true }
 # the store-generic binary is their CLI host.
 impress-parsers-service = { workspace = true }
 impress-smart-search-service = { workspace = true }
+# ADR-0028 memory kernel P2: remember/recall/brief/confirm/supersede/forget.
+# Belongs to no app either — the shared store is its host, like the others.
+impress-memory-service = { workspace = true }
 impress-service-core = { workspace = true, features = ["cli"] }
 serde_json = { workspace = true }

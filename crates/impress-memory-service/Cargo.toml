@@ -1,0 +1,30 @@
+[package]
+name = "impress-memory-service"
+description = "#[impress_service] trait over the impress-core memory kernel (ADR-0028): remember/recall/brief/confirm/supersede/forget, exposed as MCP tools, CLI subcommands and impel agent tools. FTS tier only — no embeddings."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The kernel this service fronts (memory_ops needs `sqlite`; its DTOs cross
+# the #[impress_method] boundary, which needs `schema` for JsonSchema).
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
+# For `store_instance()` — the same shared-store singleton every other
+# store-generic service resolves against.
+impress-store-service = { workspace = true }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Codegen pipeline — one #[impress_method] becomes an MCP tool, a CLI
+# subcommand and an impel agent tool.
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid = { workspace = true }
+chrono = { workspace = true }
