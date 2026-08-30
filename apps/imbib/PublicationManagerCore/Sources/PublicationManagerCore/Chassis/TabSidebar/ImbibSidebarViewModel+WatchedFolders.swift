@@ -183,7 +183,7 @@ extension ImbibSidebarViewModel {
                 title: "Refresh",
                 action: #selector(ContextMenuActions.refreshWatchedFileFolder(_:)),
                 keyEquivalent: "")
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = token
             menu.addItem(item)
         }
@@ -192,7 +192,7 @@ extension ImbibSidebarViewModel {
                 title: "Choose Again…",
                 action: #selector(ContextMenuActions.reauthorizeWatchedFileFolder(_:)),
                 keyEquivalent: "")
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = token
             menu.addItem(item)
         }
@@ -201,7 +201,7 @@ extension ImbibSidebarViewModel {
             title: "Reveal in Finder",
             action: #selector(ContextMenuActions.revealWatchedFileFolder(_:)),
             keyEquivalent: "")
-        reveal.target = ContextMenuActions.shared
+        reveal.target = contextMenuActions
         reveal.representedObject = token
         menu.addItem(reveal)
 
@@ -215,7 +215,7 @@ extension ImbibSidebarViewModel {
             title: "Stop Watching",
             action: #selector(ContextMenuActions.stopWatchingFileFolder(_:)),
             keyEquivalent: "")
-        stop.target = ContextMenuActions.shared
+        stop.target = contextMenuActions
         stop.representedObject = token
         menu.addItem(stop)
     }
@@ -355,7 +355,7 @@ extension ImbibSidebarViewModel {
                 title: "Refresh",
                 action: #selector(ContextMenuActions.refreshWatchedFolder(_:)),
                 keyEquivalent: "")
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = folderID
             menu.addItem(item)
         }
@@ -364,7 +364,7 @@ extension ImbibSidebarViewModel {
                 title: "Choose Again…",
                 action: #selector(ContextMenuActions.reauthorizeWatchedFolder(_:)),
                 keyEquivalent: "")
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = folderID
             menu.addItem(item)
         }
@@ -381,7 +381,7 @@ extension ImbibSidebarViewModel {
                     ? "Review 1 PDF Match…" : "Review \(pending.count) PDF Matches…",
                 action: #selector(ContextMenuActions.reviewWatchedAttachments(_:)),
                 keyEquivalent: "")
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = folderID
             menu.addItem(item)
         }
@@ -390,7 +390,7 @@ extension ImbibSidebarViewModel {
             title: "Reveal in Finder",
             action: #selector(ContextMenuActions.revealWatchedFolder(_:)),
             keyEquivalent: "")
-        reveal.target = ContextMenuActions.shared
+        reveal.target = contextMenuActions
         reveal.representedObject = folderID
         menu.addItem(reveal)
 
@@ -409,7 +409,7 @@ extension ImbibSidebarViewModel {
             title: "Stop Watching",
             action: #selector(ContextMenuActions.stopWatchingFolder(_:)),
             keyEquivalent: "")
-        stop.target = ContextMenuActions.shared
+        stop.target = contextMenuActions
         stop.representedObject = folderID
         menu.addItem(stop)
     }

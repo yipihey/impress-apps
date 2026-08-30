@@ -184,7 +184,6 @@ public struct TabContentView: View {
                 libraryViewModel: libraryViewModel,
                 searchViewModel: searchViewModel
             )
-            ContextMenuActions.shared.viewModel = viewModel
 
             // Compute initial flag counts
             viewModel.refreshFlagCounts()

@@ -11,6 +11,13 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import os
+
+/// Inline rename is a chain of four things that can each silently do nothing
+/// (no cached wrapper, a row inside a collapsed parent, a cell the reload has
+/// not materialised, a first responder somebody else takes). When it fails the
+/// user sees only "typing went somewhere else", so every outcome is logged.
+private let renameLog = Logger(subsystem: "com.impress.sidebar", category: "rename")
 
 // MARK: - NSOutlineView Subclass
 
@@ -858,8 +865,15 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
 
         /// Begin inline editing for the node with the given ID.
         public func beginEditingNode(_ id: UUID, retrying: Bool = false) {
-            guard let outlineView = outlineView,
-                  let wrapper = wrapperCache[id] else { return }
+            guard let outlineView = outlineView else {
+                renameLog.error("rename \(id, privacy: .public): no outline view")
+                return
+            }
+            guard let wrapper = wrapperCache[id] else {
+                renameLog.error(
+                    "rename \(id, privacy: .public): node not in wrapperCache (\(self.wrapperCache.count, privacy: .public) cached) — the editor cannot open")
+                return
+            }
 
             // The row only exists once its ancestors are expanded — renaming a
             // freshly created (or collapsed) subfolder would otherwise silently
@@ -873,7 +887,11 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
                 }
                 row = outlineView.row(forItem: wrapper)
             }
-            guard row >= 0 else { return }
+            guard row >= 0 else {
+                renameLog.error(
+                    "rename \(id, privacy: .public): no row for the node even after expanding its ancestors")
+                return
+            }
             outlineView.scrollRowToVisible(row)
 
             // `makeIfNecessary: true`: after a reload the cell for a row that
@@ -883,6 +901,8 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
                 as? SidebarOutlineCellView else {
                 // One retry on the next runloop turn covers the window where a
                 // concurrent reloadData() has torn the cell down.
+                renameLog.error(
+                    "rename \(id, privacy: .public): row \(row, privacy: .public) has no cell\(retrying ? " (after retry — giving up)" : " — retrying next runloop turn")")
                 if !retrying {
                     DispatchQueue.main.async { [weak self] in
                         self?.beginEditingNode(id, retrying: true)
@@ -891,6 +911,11 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
                 return
             }
             cell.beginEditing(delegate: self)
+            let tookFocus = cell.window?.firstResponder != nil
+                && (cell.window?.firstResponder is NSText
+                    || cell.window?.firstResponder === cell.textField)
+            renameLog.info(
+                "rename \(id, privacy: .public): editor opened at row \(row, privacy: .public), first responder taken: \(tookFocus, privacy: .public)")
         }
 
         // MARK: - NSTextFieldDelegate (Inline Rename)

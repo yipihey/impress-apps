@@ -51,6 +51,24 @@ final class ImbibSidebarViewModel {
 
     var expansionState = TreeExpansionState()
     var editingNodeID: UUID?
+
+    /// The target of every context-menu item this sidebar builds.
+    ///
+    /// OWNED BY THIS VIEW MODEL, never shared. It used to be a global
+    /// (`ContextMenuActions.shared`) whose `weak var viewModel` every
+    /// appearing `TabContentView` overwrote, so in a process with more than
+    /// one chassis window — or after SwiftUI recreated the sidebar's view
+    /// model — the menus built by every OTHER window pointed at the wrong
+    /// instance (or a deallocated one). Every action is `viewModel?.…`, so
+    /// the result was a menu whose items silently did nothing: Rename opened
+    /// no editor and the keystrokes went to whichever text field still had
+    /// focus (the tag filter, the search field). Restarting the app "fixed"
+    /// it, which is what kept it invisible.
+    @ObservationIgnored lazy var contextMenuActions: ContextMenuActions = {
+        let actions = ContextMenuActions()
+        actions.viewModel = self
+        return actions
+    }()
     var dataVersion: Int = 0
 
     /// ADR-0023 W2 — the watcher-only redraw hook (see
@@ -124,7 +142,7 @@ final class ImbibSidebarViewModel {
     private let scixRepository = SciXLibraryRepository.shared
     private let dragDropCoordinator = DragDropCoordinator.shared
     private let store: any PublicationStoreProtocol
-    private static let logger = Logger(subsystem: "com.imbib.app", category: "sidebar")
+    static let logger = Logger(subsystem: "com.imbib.app", category: "sidebar")
 
     // Node lookup for tab → nodeID reverse mapping
     private var tabToNodeID: [ImbibTab: UUID] = [:]
@@ -342,6 +360,20 @@ final class ImbibSidebarViewModel {
     /// where the tree structure is unchanged.
     func bumpDataVersionLight() {
         dataVersion += 1
+    }
+
+    /// Ask the outline to open its inline editor on `nodeID` (the Rename verb).
+    ///
+    /// One funnel for every rename request — the context menu's Rename item and
+    /// the four create-then-name-it flows — so the request is logged in exactly
+    /// one place. What happens next is `SidebarOutlineView.updateNSView` →
+    /// `beginEditingNode`, which logs its own outcome (subsystem
+    /// `com.impress.sidebar`, category `rename`): the chain has four silent
+    /// failure points and the user only ever sees "my typing went elsewhere".
+    func beginRename(nodeID: UUID) {
+        Self.logger.infoCapture(
+            "Rename requested for node \(nodeID)", category: "sidebar")
+        editingNodeID = nodeID
     }
 
     /// Called when `RustStoreAdapter.shared.dataVersion` changes.
@@ -2789,7 +2821,7 @@ final class ImbibSidebarViewModel {
 
         case .explorationCollection(let colID):
             let deleteItem = NSMenuItem(title: "Delete", action: #selector(ContextMenuActions.deleteExplorationCollection(_:)), keyEquivalent: "")
-            deleteItem.target = ContextMenuActions.shared
+            deleteItem.target = contextMenuActions
             deleteItem.representedObject = colID
             menu.addItem(deleteItem)
 
@@ -2799,7 +2831,7 @@ final class ImbibSidebarViewModel {
             // (b748151): the node kind never got a branch here, so right-click
             // produced no menu at all and the search could not be deleted.
             let deleteItem = NSMenuItem(title: "Delete Search", action: #selector(ContextMenuActions.deleteExplorationSearch(_:)), keyEquivalent: "")
-            deleteItem.target = ContextMenuActions.shared
+            deleteItem.target = contextMenuActions
             deleteItem.representedObject = searchID
             menu.addItem(deleteItem)
 
@@ -2849,7 +2881,7 @@ final class ImbibSidebarViewModel {
                 action: #selector(ContextMenuActions.deleteMultipleLibraries(_:)),
                 keyEquivalent: ""
             )
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = libraryIDs
             menu.addItem(item)
             return menu
@@ -2867,7 +2899,7 @@ final class ImbibSidebarViewModel {
                 action: #selector(ContextMenuActions.deleteMultipleCollections(_:)),
                 keyEquivalent: ""
             )
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = regularCollectionIDs
             menu.addItem(item)
             return menu
@@ -2886,7 +2918,7 @@ final class ImbibSidebarViewModel {
                 action: #selector(ContextMenuActions.deleteMultipleExplorationCollections(_:)),
                 keyEquivalent: ""
             )
-            deleteItem.target = ContextMenuActions.shared
+            deleteItem.target = contextMenuActions
             deleteItem.representedObject = explorationIDs
             menu.addItem(deleteItem)
             return menu
@@ -2911,7 +2943,7 @@ final class ImbibSidebarViewModel {
                 action: #selector(ContextMenuActions.deleteMultipleExplorationItems(_:)),
                 keyEquivalent: ""
             )
-            deleteItem.target = ContextMenuActions.shared
+            deleteItem.target = contextMenuActions
             deleteItem.representedObject = [
                 "searches": explorationSearchIDs,
                 "collections": explorationIDs,
@@ -2978,23 +3010,23 @@ final class ImbibSidebarViewModel {
         switch section {
         case .inbox:
             let addFeedItem = NSMenuItem(title: "Add Feed...", action: #selector(ContextMenuActions.addInboxFeed(_:)), keyEquivalent: "")
-            addFeedItem.target = ContextMenuActions.shared
+            addFeedItem.target = contextMenuActions
             menu.addItem(addFeedItem)
 
             let newColItem = NSMenuItem(title: "New Collection", action: #selector(ContextMenuActions.createTopLevelInboxCollection(_:)), keyEquivalent: "")
-            newColItem.target = ContextMenuActions.shared
+            newColItem.target = contextMenuActions
             menu.addItem(newColItem)
 
         case .libraries:
             let newLibItem = NSMenuItem(title: "New Library", action: #selector(ContextMenuActions.createLibrary(_:)), keyEquivalent: "")
-            newLibItem.target = ContextMenuActions.shared
+            newLibItem.target = contextMenuActions
             menu.addItem(newLibItem)
 
             // ADR-0023 W2 — the folder-picking affordance, next to the verb it
             // is a sibling of ("New Library" makes an empty one; this adopts a
             // folder of .bib/.ris files that already exists).
             let watchItem = NSMenuItem(title: "Add Watched Folder…", action: #selector(ContextMenuActions.addWatchedFolder(_:)), keyEquivalent: "")
-            watchItem.target = ContextMenuActions.shared
+            watchItem.target = contextMenuActions
             menu.addItem(watchItem)
 
         case .search:
@@ -3002,13 +3034,13 @@ final class ImbibSidebarViewModel {
                 let showHiddenMenu = NSMenu()
                 for formType in Array(hiddenSearchForms).sorted(by: { $0.rawValue < $1.rawValue }) {
                     let item = NSMenuItem(title: "Show \(formType.displayName)", action: #selector(ContextMenuActions.showSearchForm(_:)), keyEquivalent: "")
-                    item.target = ContextMenuActions.shared
+                    item.target = contextMenuActions
                     item.representedObject = formType.rawValue
                     showHiddenMenu.addItem(item)
                 }
                 showHiddenMenu.addItem(.separator())
                 let showAllItem = NSMenuItem(title: "Show All", action: #selector(ContextMenuActions.showAllSearchForms(_:)), keyEquivalent: "")
-                showAllItem.target = ContextMenuActions.shared
+                showAllItem.target = contextMenuActions
                 showHiddenMenu.addItem(showAllItem)
 
                 let submenuItem = NSMenuItem(title: "Show Hidden Forms", action: nil, keyEquivalent: "")
@@ -3025,7 +3057,7 @@ final class ImbibSidebarViewModel {
             guard let capability = Self.folderCapability(ofSection: section),
                   capability.canOrganize else { break }
             let newFolderItem = NSMenuItem(title: capability.newContainerTitle, action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
-            newFolderItem.target = ContextMenuActions.shared
+            newFolderItem.target = contextMenuActions
             newFolderItem.representedObject = FolderMenuTarget(
                 bindingID: capability.bindingID, folderID: nil)
             menu.addItem(newFolderItem)
@@ -3044,7 +3076,7 @@ final class ImbibSidebarViewModel {
                 title: "Watch Folder for \(extensions) Files…",
                 action: #selector(ContextMenuActions.addWatchedFileFolder(_:)),
                 keyEquivalent: "")
-            watchItem.target = ContextMenuActions.shared
+            watchItem.target = contextMenuActions
             watchItem.representedObject = kindScope
             menu.addItem(watchItem)
         }
@@ -3052,36 +3084,36 @@ final class ImbibSidebarViewModel {
 
     private func buildLibraryContextMenu(_ menu: NSMenu, libraryID: UUID) {
         let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
-        renameItem.target = ContextMenuActions.shared
+        renameItem.target = contextMenuActions
         renameItem.representedObject = libraryID
         menu.addItem(renameItem)
 
         let newColItem = NSMenuItem(title: "New Collection", action: #selector(ContextMenuActions.createCollection(_:)), keyEquivalent: "")
-        newColItem.target = ContextMenuActions.shared
+        newColItem.target = contextMenuActions
         newColItem.representedObject = libraryID
         menu.addItem(newColItem)
 
         let addFeedItem = NSMenuItem(title: "Add Feed...", action: #selector(ContextMenuActions.addLibraryFeed(_:)), keyEquivalent: "")
-        addFeedItem.target = ContextMenuActions.shared
+        addFeedItem.target = contextMenuActions
         addFeedItem.representedObject = libraryID
         menu.addItem(addFeedItem)
 
         menu.addItem(.separator())
 
         let exportItem = NSMenuItem(title: "Export...", action: #selector(ContextMenuActions.exportLibrary(_:)), keyEquivalent: "")
-        exportItem.target = ContextMenuActions.shared
+        exportItem.target = contextMenuActions
         exportItem.representedObject = libraryID
         menu.addItem(exportItem)
 
         let importItem = NSMenuItem(title: "Import...", action: #selector(ContextMenuActions.importToLibrary(_:)), keyEquivalent: "")
-        importItem.target = ContextMenuActions.shared
+        importItem.target = contextMenuActions
         importItem.representedObject = libraryID
         menu.addItem(importItem)
 
         menu.addItem(.separator())
 
         let deleteItem = NSMenuItem(title: "Delete Library", action: #selector(ContextMenuActions.deleteLibrary(_:)), keyEquivalent: "")
-        deleteItem.target = ContextMenuActions.shared
+        deleteItem.target = contextMenuActions
         deleteItem.representedObject = libraryID
         menu.addItem(deleteItem)
     }
@@ -3089,31 +3121,31 @@ final class ImbibSidebarViewModel {
     private func buildSciXLibraryContextMenu(_ menu: NSMenu, libraryID: UUID) {
         if let remoteID = scixRepository.libraries.first(where: { $0.id == libraryID })?.remoteID {
             let openItem = NSMenuItem(title: "Open on SciX", action: #selector(ContextMenuActions.openSciXLibraryOnWeb(_:)), keyEquivalent: "")
-            openItem.target = ContextMenuActions.shared
+            openItem.target = contextMenuActions
             openItem.representedObject = remoteID
             menu.addItem(openItem)
             menu.addItem(.separator())
         }
 
         let refreshItem = NSMenuItem(title: "Refresh Papers", action: #selector(ContextMenuActions.refreshSciXLibraryPapers(_:)), keyEquivalent: "")
-        refreshItem.target = ContextMenuActions.shared
+        refreshItem.target = contextMenuActions
         refreshItem.representedObject = libraryID
         menu.addItem(refreshItem)
 
         let editItem = NSMenuItem(title: "Edit Library…", action: #selector(ContextMenuActions.editSciXLibrary(_:)), keyEquivalent: "")
-        editItem.target = ContextMenuActions.shared
+        editItem.target = contextMenuActions
         editItem.representedObject = libraryID
         menu.addItem(editItem)
 
         let collaboratorsItem = NSMenuItem(title: "Manage Collaborators…", action: #selector(ContextMenuActions.manageSciXCollaborators(_:)), keyEquivalent: "")
-        collaboratorsItem.target = ContextMenuActions.shared
+        collaboratorsItem.target = contextMenuActions
         collaboratorsItem.representedObject = libraryID
         menu.addItem(collaboratorsItem)
 
         menu.addItem(.separator())
 
         let deleteItem = NSMenuItem(title: "Delete Library…", action: #selector(ContextMenuActions.deleteSciXLibrary(_:)), keyEquivalent: "")
-        deleteItem.target = ContextMenuActions.shared
+        deleteItem.target = contextMenuActions
         deleteItem.representedObject = libraryID
         menu.addItem(deleteItem)
     }
@@ -3145,14 +3177,14 @@ final class ImbibSidebarViewModel {
 
         if allowsOrganize {
             let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
-            renameItem.target = ContextMenuActions.shared
+            renameItem.target = contextMenuActions
             // Rename edits by SIDEBAR NODE id — derived for folders, and equal
             // to the item id for collections, which `collectionNodeID` unifies.
             renameItem.representedObject = nodeID
             menu.addItem(renameItem)
 
             let newSubItem = NSMenuItem(title: capability.newSubContainerTitle, action: #selector(ContextMenuActions.createFolder(_:)), keyEquivalent: "")
-            newSubItem.target = ContextMenuActions.shared
+            newSubItem.target = contextMenuActions
             newSubItem.representedObject = FolderMenuTarget(
                 bindingID: capability.bindingID, folderID: folderID, containerID: containerID)
             menu.addItem(newSubItem)
@@ -3161,7 +3193,7 @@ final class ImbibSidebarViewModel {
         }
 
         let deleteItem = NSMenuItem(title: capability.deleteContainerTitle, action: #selector(ContextMenuActions.deleteFolder(_:)), keyEquivalent: "")
-        deleteItem.target = ContextMenuActions.shared
+        deleteItem.target = contextMenuActions
         deleteItem.representedObject = FolderMenuTarget(
             bindingID: capability.bindingID, folderID: folderID, containerID: containerID)
         menu.addItem(deleteItem)
@@ -3169,84 +3201,84 @@ final class ImbibSidebarViewModel {
 
     private func buildInboxFeedContextMenu(_ menu: NSMenu, feedID: UUID) {
         let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
-        renameItem.target = ContextMenuActions.shared
+        renameItem.target = contextMenuActions
         renameItem.representedObject = feedID
         menu.addItem(renameItem)
 
         let editItem = NSMenuItem(title: "Edit Feed...", action: #selector(ContextMenuActions.editFeed(_:)), keyEquivalent: "")
-        editItem.target = ContextMenuActions.shared
+        editItem.target = contextMenuActions
         editItem.representedObject = feedID
         menu.addItem(editItem)
 
         let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(ContextMenuActions.refreshFeed(_:)), keyEquivalent: "")
-        refreshItem.target = ContextMenuActions.shared
+        refreshItem.target = contextMenuActions
         refreshItem.representedObject = feedID
         menu.addItem(refreshItem)
 
         let settingsItem = NSMenuItem(title: "Feed Settings...", action: #selector(ContextMenuActions.showFeedSettings(_:)), keyEquivalent: "")
-        settingsItem.target = ContextMenuActions.shared
+        settingsItem.target = contextMenuActions
         settingsItem.representedObject = feedID
         menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
         let deleteItem = NSMenuItem(title: "Delete", action: #selector(ContextMenuActions.deleteFeed(_:)), keyEquivalent: "")
-        deleteItem.target = ContextMenuActions.shared
+        deleteItem.target = contextMenuActions
         deleteItem.representedObject = feedID
         menu.addItem(deleteItem)
     }
 
     private func buildLibraryFeedContextMenu(_ menu: NSMenu, feedID: UUID) {
         let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
-        renameItem.target = ContextMenuActions.shared
+        renameItem.target = contextMenuActions
         renameItem.representedObject = feedID
         menu.addItem(renameItem)
 
         let editItem = NSMenuItem(title: "Edit Feed...", action: #selector(ContextMenuActions.editFeed(_:)), keyEquivalent: "")
-        editItem.target = ContextMenuActions.shared
+        editItem.target = contextMenuActions
         editItem.representedObject = feedID
         menu.addItem(editItem)
 
         let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(ContextMenuActions.refreshFeed(_:)), keyEquivalent: "")
-        refreshItem.target = ContextMenuActions.shared
+        refreshItem.target = contextMenuActions
         refreshItem.representedObject = feedID
         menu.addItem(refreshItem)
 
         let settingsItem = NSMenuItem(title: "Feed Settings...", action: #selector(ContextMenuActions.showFeedSettings(_:)), keyEquivalent: "")
-        settingsItem.target = ContextMenuActions.shared
+        settingsItem.target = contextMenuActions
         settingsItem.representedObject = feedID
         menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
         let deleteItem = NSMenuItem(title: "Delete", action: #selector(ContextMenuActions.deleteFeed(_:)), keyEquivalent: "")
-        deleteItem.target = ContextMenuActions.shared
+        deleteItem.target = contextMenuActions
         deleteItem.representedObject = feedID
         menu.addItem(deleteItem)
     }
 
     private func buildInboxCollectionContextMenu(_ menu: NSMenu, collectionID: UUID) {
         let renameItem = NSMenuItem(title: "Rename", action: #selector(ContextMenuActions.renameItem(_:)), keyEquivalent: "")
-        renameItem.target = ContextMenuActions.shared
+        renameItem.target = contextMenuActions
         renameItem.representedObject = collectionID
         menu.addItem(renameItem)
 
         let newSubItem = NSMenuItem(title: "New Subcollection", action: #selector(ContextMenuActions.createInboxSubcollection(_:)), keyEquivalent: "")
-        newSubItem.target = ContextMenuActions.shared
+        newSubItem.target = contextMenuActions
         newSubItem.representedObject = collectionID
         menu.addItem(newSubItem)
 
         menu.addItem(.separator())
 
         let deleteItem = NSMenuItem(title: "Delete", action: #selector(ContextMenuActions.deleteCollection(_:)), keyEquivalent: "")
-        deleteItem.target = ContextMenuActions.shared
+        deleteItem.target = contextMenuActions
         deleteItem.representedObject = collectionID
         menu.addItem(deleteItem)
     }
 
     private func buildSearchFormContextMenu(_ menu: NSMenu, formType: SearchFormType) {
         let hideItem = NSMenuItem(title: "Hide", action: #selector(ContextMenuActions.hideSearchForm(_:)), keyEquivalent: "")
-        hideItem.target = ContextMenuActions.shared
+        hideItem.target = contextMenuActions
         hideItem.representedObject = formType.rawValue
         menu.addItem(hideItem)
     }
@@ -3536,7 +3568,7 @@ final class ImbibSidebarViewModel {
         let currentRetention = InboxRetentionStore.shared.retentionDays
         for preset in InboxRetentionStore.RetentionPreset.allCases {
             let item = NSMenuItem(title: preset.displayName, action: #selector(ContextMenuActions.setInboxRetention(_:)), keyEquivalent: "")
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = preset.rawValue
             item.state = preset.rawValue == currentRetention ? .on : .off
             retentionSubmenu.addItem(item)
@@ -3551,7 +3583,7 @@ final class ImbibSidebarViewModel {
             action: #selector(ContextMenuActions.toggleInboxAutoRemoveRead(_:)),
             keyEquivalent: ""
         )
-        autoRemoveItem.target = ContextMenuActions.shared
+        autoRemoveItem.target = contextMenuActions
         autoRemoveItem.state = InboxRetentionStore.shared.autoRemoveRead ? .on : .off
         menu.addItem(autoRemoveItem)
 
@@ -3566,7 +3598,7 @@ final class ImbibSidebarViewModel {
         let currentRetention = ExplorationRetentionStore.shared.retentionDays
         for preset in ExplorationRetentionStore.RetentionPreset.allCases {
             let item = NSMenuItem(title: preset.displayName, action: #selector(ContextMenuActions.setExplorationRetention(_:)), keyEquivalent: "")
-            item.target = ContextMenuActions.shared
+            item.target = contextMenuActions
             item.representedObject = preset.rawValue
             item.state = preset.rawValue == currentRetention ? .on : .off
             retentionSubmenu.addItem(item)
@@ -3586,7 +3618,7 @@ final class ImbibSidebarViewModel {
         bumpDataVersion()
         // Trigger inline rename
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.editingNodeID = library.id
+            self?.beginRename(nodeID: library.id)
         }
     }
 
@@ -3606,7 +3638,7 @@ final class ImbibSidebarViewModel {
 
         // Trigger inline rename
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.editingNodeID = collection.id
+            self?.beginRename(nodeID: collection.id)
         }
     }
 
@@ -3623,7 +3655,7 @@ final class ImbibSidebarViewModel {
         bumpDataVersion()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.editingNodeID = collection.id
+            self?.beginRename(nodeID: collection.id)
         }
     }
 
@@ -3681,7 +3713,7 @@ final class ImbibSidebarViewModel {
             category: "sidebar")
         let newNodeID = Self.collectionNodeID(bindingID, row.id)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.editingNodeID = newNodeID
+            self?.beginRename(nodeID: newNodeID)
         }
     }
 
@@ -4017,24 +4049,48 @@ private extension ImbibSidebarNodeType {
 /// Singleton NSObject that serves as the target for NSMenu item actions.
 /// Routes actions back to the view model via NotificationCenter.
 @MainActor
+/// The target object for a sidebar's context-menu items.
+///
+/// One instance PER view model (`ImbibSidebarViewModel.contextMenuActions`).
+/// There is deliberately no shared instance: a global here made every menu in
+/// every window act on the last-appeared sidebar. See that property's note.
 final class ContextMenuActions: NSObject {
-    static let shared = ContextMenuActions()
 
-    /// The currently active view model. Set by TabContentView on appear.
+    /// The sidebar that built the menu. Weak because the view model owns this
+    /// object; nil only if the sidebar went away with its menu still open.
     weak var viewModel: ImbibSidebarViewModel?
 
+    /// The owning sidebar, or nil WITH A LOG LINE.
+    ///
+    /// Every action below is `sidebar()?.something` — an optional chain, so a
+    /// missing view model makes the menu item do nothing at all. That silence
+    /// is what hid the shared-target bug (see
+    /// `ImbibSidebarViewModel.contextMenuActions`): the user clicked Rename,
+    /// nothing happened, and no channel said why.
+    private func sidebar(_ function: StaticString = #function) -> ImbibSidebarViewModel? {
+        if viewModel == nil {
+            ImbibSidebarViewModel.logger.errorCapture(
+                "Sidebar context-menu action \(function) fired with no view model — the menu "
+                    + "outlived the sidebar that built it; nothing happened.",
+                category: "sidebar")
+        }
+        return viewModel
+    }
+
     @objc func createLibrary(_ sender: NSMenuItem) {
-        viewModel?.createLibrary()
+        sidebar()?.createLibrary()
     }
 
     @objc func renameItem(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
-        viewModel?.editingNodeID = id
+        // `beginRename`, never a bare assignment: the sidebar observes
+        // `dataVersion`, not `editingNodeID` (see the verb's doc comment).
+        sidebar()?.beginRename(nodeID: id)
     }
 
     @objc func createCollection(_ sender: NSMenuItem) {
         guard let libraryID = sender.representedObject as? UUID else { return }
-        viewModel?.createCollection(in: libraryID)
+        sidebar()?.createCollection(in: libraryID)
     }
 
     // `createSubcollection` is gone (ADR-0022 C2): "New Subcollection" is built
@@ -4044,17 +4100,17 @@ final class ContextMenuActions: NSObject {
 
     @objc func createInboxSubcollection(_ sender: NSMenuItem) {
         guard let collectionID = sender.representedObject as? UUID else { return }
-        viewModel?.createInboxCollection(parentID: collectionID)
+        sidebar()?.createInboxCollection(parentID: collectionID)
     }
 
     @objc func deleteLibrary(_ sender: NSMenuItem) {
         guard let libraryID = sender.representedObject as? UUID else { return }
-        viewModel?.deleteLibrary(libraryID)
+        sidebar()?.deleteLibrary(libraryID)
     }
 
     @objc func deleteCollection(_ sender: NSMenuItem) {
         guard let collectionID = sender.representedObject as? UUID else { return }
-        viewModel?.deleteCollection(collectionID)
+        sidebar()?.deleteCollection(collectionID)
     }
 
     /// Create a collection folder of any binding (ADR-0022 D3).
@@ -4062,7 +4118,7 @@ final class ContextMenuActions: NSObject {
     /// (nil parent = a root folder).
     @objc func createFolder(_ sender: NSMenuItem) {
         guard let target = sender.representedObject as? FolderMenuTarget else { return }
-        viewModel?.createFolder(
+        sidebar()?.createFolder(
             bindingID: target.bindingID, parentID: target.folderID,
             containerID: target.containerID)
     }
@@ -4071,29 +4127,29 @@ final class ContextMenuActions: NSObject {
     @objc func deleteFolder(_ sender: NSMenuItem) {
         guard let target = sender.representedObject as? FolderMenuTarget,
               let folderID = target.folderID else { return }
-        viewModel?.deleteFolder(bindingID: target.bindingID, folderID: folderID)
+        sidebar()?.deleteFolder(bindingID: target.bindingID, folderID: folderID)
     }
 
     @objc func deleteExplorationCollection(_ sender: NSMenuItem) {
         guard let collectionID = sender.representedObject as? UUID else { return }
-        viewModel?.deleteExplorationCollection(collectionID)
+        sidebar()?.deleteExplorationCollection(collectionID)
     }
 
     @objc func deleteMultipleExplorationCollections(_ sender: NSMenuItem) {
         guard let collectionIDs = sender.representedObject as? [UUID] else { return }
-        viewModel?.deleteExplorationCollections(collectionIDs)
+        sidebar()?.deleteExplorationCollections(collectionIDs)
     }
 
     @objc func deleteExplorationSearch(_ sender: NSMenuItem) {
         guard let searchID = sender.representedObject as? UUID else { return }
-        viewModel?.deleteExplorationSearches([searchID])
+        sidebar()?.deleteExplorationSearches([searchID])
     }
 
     /// Bulk delete of Exploration rows — searches, collections, or both.
     /// `representedObject` is `["searches": [UUID], "collections": [UUID]]`.
     @objc func deleteMultipleExplorationItems(_ sender: NSMenuItem) {
         guard let payload = sender.representedObject as? [String: [UUID]] else { return }
-        viewModel?.deleteExplorationItems(
+        sidebar()?.deleteExplorationItems(
             searchIDs: payload["searches"] ?? [],
             collectionIDs: payload["collections"] ?? []
         )
@@ -4101,71 +4157,71 @@ final class ContextMenuActions: NSObject {
 
     @objc func deleteMultipleLibraries(_ sender: NSMenuItem) {
         guard let libraryIDs = sender.representedObject as? [UUID] else { return }
-        viewModel?.deleteLibraries(libraryIDs)
+        sidebar()?.deleteLibraries(libraryIDs)
     }
 
     @objc func deleteMultipleCollections(_ sender: NSMenuItem) {
         guard let collectionIDs = sender.representedObject as? [UUID] else { return }
-        viewModel?.deleteCollections(collectionIDs)
+        sidebar()?.deleteCollections(collectionIDs)
     }
 
     @objc func exportLibrary(_ sender: NSMenuItem) {
         guard let libraryID = sender.representedObject as? UUID else { return }
-        viewModel?.exportLibrary(libraryID)
+        sidebar()?.exportLibrary(libraryID)
     }
 
     @objc func importToLibrary(_ sender: NSMenuItem) {
         guard let libraryID = sender.representedObject as? UUID else { return }
-        viewModel?.importToLibrary(libraryID)
+        sidebar()?.importToLibrary(libraryID)
     }
 
     @objc func hideSearchForm(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String else { return }
-        viewModel?.hideSearchForm(rawValue)
+        sidebar()?.hideSearchForm(rawValue)
     }
 
     @objc func showSearchForm(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String else { return }
-        viewModel?.showSearchForm(rawValue)
+        sidebar()?.showSearchForm(rawValue)
     }
 
     @objc func showAllSearchForms(_ sender: NSMenuItem) {
-        viewModel?.showAllSearchForms()
+        sidebar()?.showAllSearchForms()
     }
 
     @objc func createTopLevelInboxCollection(_ sender: NSMenuItem) {
-        viewModel?.createInboxCollection()
+        sidebar()?.createInboxCollection()
     }
 
     // MARK: - Inbox Feed Actions
 
     @objc func editFeed(_ sender: NSMenuItem) {
         guard let feedID = sender.representedObject as? UUID else { return }
-        viewModel?.editFeed(feedID)
+        sidebar()?.editFeed(feedID)
     }
 
     @objc func refreshFeed(_ sender: NSMenuItem) {
         guard let feedID = sender.representedObject as? UUID else { return }
-        viewModel?.refreshFeed(feedID)
+        sidebar()?.refreshFeed(feedID)
     }
 
     @objc func deleteFeed(_ sender: NSMenuItem) {
         guard let feedID = sender.representedObject as? UUID else { return }
-        viewModel?.deleteFeed(feedID)
+        sidebar()?.deleteFeed(feedID)
     }
 
     @objc func addInboxFeed(_ sender: NSMenuItem) {
-        viewModel?.addInboxFeed()
+        sidebar()?.addInboxFeed()
     }
 
     @objc func addLibraryFeed(_ sender: NSMenuItem) {
         guard let libraryID = sender.representedObject as? UUID else { return }
-        viewModel?.addLibraryFeed(libraryID)
+        sidebar()?.addLibraryFeed(libraryID)
     }
 
     @objc func showFeedSettings(_ sender: NSMenuItem) {
         guard let feedID = sender.representedObject as? UUID else { return }
-        viewModel?.showFeedSettings(feedID)
+        sidebar()?.showFeedSettings(feedID)
     }
 
     // MARK: - Retention Settings
@@ -4188,22 +4244,22 @@ final class ContextMenuActions: NSObject {
 
     @objc func refreshSciXLibraryPapers(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
-        viewModel?.refreshSciXLibrary(id)
+        sidebar()?.refreshSciXLibrary(id)
     }
 
     @objc func editSciXLibrary(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
-        viewModel?.editSciXLibrary(id)
+        sidebar()?.editSciXLibrary(id)
     }
 
     @objc func manageSciXCollaborators(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
-        viewModel?.manageSciXCollaborators(id)
+        sidebar()?.manageSciXCollaborators(id)
     }
 
     @objc func deleteSciXLibrary(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
-        viewModel?.deleteSciXLibrary(id)
+        sidebar()?.deleteSciXLibrary(id)
     }
 
     @objc func openSciXLibraryOnWeb(_ sender: NSMenuItem) {
