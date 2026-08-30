@@ -4383,13 +4383,16 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "dirs 5.0.1",
  "impress-core",
+ "impress-embeddings",
  "impress-service-core",
  "impress-service-macros",
  "impress-store-service",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "uuid",
 ]
