@@ -104,3 +104,33 @@ fn bibliography_resolves_from_virtual_bib() {
         "cleared bib must not linger"
     );
 }
+
+#[test]
+fn preview_packages_resolve_from_local_cache() {
+    // F1 (ULDM guinea-pig manuscript): the editor engine must resolve
+    // `@preview` imports from local typst package roots — offline, no
+    // network. Skips (passes) when the cache has no lilaq 0.6.0; CI keeps
+    // the resolver's decline path covered via the unit tests instead.
+    use imprint_core::typst_packages::CachedPackageResolver;
+    if !CachedPackageResolver::discover().has_package("preview", "lilaq", "0.6.0") {
+        eprintln!("skipping: lilaq 0.6.0 not present in any local typst package root");
+        return;
+    }
+    let doc = concat!(
+        "#import \"@preview/lilaq:0.6.0\" as lq\n",
+        "#lq.diagram(width: 6cm, height: 4cm,\n",
+        "  lq.plot(lq.linspace(0, 6, num: 60),\n",
+        "    lq.linspace(0, 6, num: 60).map(x => calc.sin(x))))\n",
+    );
+    let mut renderer = PersistentTypstRenderer::new();
+    let success = renderer
+        .render_pdf(doc, &RenderOptions::default())
+        .expect("lilaq document renders through the persistent engine");
+    match success.output {
+        RenderOutput::Pdf(bytes) => {
+            assert!(bytes.len() > 500, "PDF suspiciously small: {}", bytes.len());
+            assert_eq!(&bytes[..5], b"%PDF-", "not a PDF header");
+        }
+        other => panic!("expected PDF output, got {other:?}"),
+    }
+}

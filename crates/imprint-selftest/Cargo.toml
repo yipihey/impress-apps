@@ -17,6 +17,9 @@ path = "src/bin/main.rs"
 default = []
 # Exercise the real Tectonic path in the compile_latex capability.
 tectonic-render = ["imprint-service/tectonic-render"]
+# Exercise the real Typst engine — including offline @preview package
+# resolution — in the compile_typst capability.
+typst-render = ["imprint-service/typst-render"]
 
 [dependencies]
 # Tier A: exercise the service traits directly.

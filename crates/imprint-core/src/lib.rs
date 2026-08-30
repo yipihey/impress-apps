@@ -42,6 +42,8 @@ pub mod sourcemap;
 pub mod synctex;
 pub mod templates;
 pub mod transaction;
+#[cfg(feature = "typst-render")]
+pub mod typst_packages;
 
 pub use automation::*;
 pub use bibliography::*;

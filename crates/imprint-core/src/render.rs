@@ -732,6 +732,11 @@ mod typst_impl {
 
                 let mut builder = TypstEngine::builder()
                     .add_file_resolver(resolver)
+                    // Offline @preview package resolution from local typst
+                    // package roots (cache/data dir/env override). Declines
+                    // non-package ids, so order after the source resolver is
+                    // immaterial but keeps the common path first.
+                    .add_file_resolver(crate::typst_packages::CachedPackageResolver::discover())
                     .search_fonts_with(
                         TypstKitFontOptions::default()
                             .include_system_fonts(true)
@@ -1238,6 +1243,7 @@ mod typst_impl {
 
             let engine = TypstEngine::builder()
                 .main_file(full_source.as_str())
+                .add_file_resolver(crate::typst_packages::CachedPackageResolver::discover())
                 .search_fonts_with(
                     TypstKitFontOptions::default()
                         .include_system_fonts(true)

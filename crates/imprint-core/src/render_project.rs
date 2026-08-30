@@ -75,6 +75,11 @@ pub fn compile_typst_project_to_pdf(
 
     let mut builder = TypstEngine::<TypstTemplateCollection>::builder()
         .add_file_resolver(fs_resolver)
+        // Offline @preview resolution from local typst package roots; the
+        // FileSystemResolver only consults its own data-dir convention, which
+        // is empty on most machines — the shared resolver also covers the
+        // typst CLI cache and the IMPRESS_TYPST_PACKAGE_DIR override.
+        .add_file_resolver(crate::typst_packages::CachedPackageResolver::discover())
         .search_fonts_with(
             TypstKitFontOptions::default()
                 .include_system_fonts(true)

@@ -16,7 +16,7 @@ use imprint_service::throughline_service::{
     DefaultImprintThroughlineService, ImprintThroughlineService,
 };
 
-use crate::{check, CapabilityResult, Tier};
+use crate::{check, skipped, CapabilityResult, Tier};
 
 /// A manuscript service bound to a fresh temp workspace, kept alive alongside
 /// the `TempDir` so the SQLite file isn't reaped mid-test.
@@ -57,6 +57,7 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_section_roundtrip().await);
     out.push(cap_replace_in_section().await);
     out.push(cap_compile_latex().await);
+    out.push(cap_compile_typst_preview_package().await);
     out.push(cap_manuscript_formats().await);
     out.push(cap_manuscript_collab_convergence().await);
     out.push(cap_status_lifecycle().await);
@@ -66,6 +67,61 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_throughline_broken_anchor().await);
 
     out
+}
+
+/// F1 (driven by the ULDM guinea-pig manuscript): `@preview` package imports
+/// must resolve offline from local typst package roots through the same
+/// service compile surface the MCP tool uses. Skips when no root holds
+/// lilaq 0.6.0 (populating the cache is the typst CLI's job, not ours).
+async fn cap_compile_typst_preview_package() -> CapabilityResult {
+    let id = "manuscript.compile_typst_preview_package";
+    let desc = "compile_typst resolves @preview packages offline from local typst package roots";
+    let in_root = |root: std::path::PathBuf| root.join("preview/lilaq/0.6.0").is_dir();
+    let cached = std::env::var("IMPRESS_TYPST_PACKAGE_DIR")
+        .ok()
+        .map(|d| in_root(std::path::PathBuf::from(d)))
+        .unwrap_or(false)
+        || std::env::var("HOME")
+            .ok()
+            .map(|h| {
+                let home = std::path::PathBuf::from(h);
+                in_root(home.join("Library/Caches/typst/packages"))
+                    || in_root(home.join(".cache/typst/packages"))
+            })
+            .unwrap_or(false);
+    if !cached {
+        return skipped(
+            id,
+            desc,
+            Tier::A,
+            "lilaq 0.6.0 not present in any local typst package root",
+        );
+    }
+    check(id, desc, Tier::A, || async {
+        let svc = TempService::open()?;
+        let src =
+            "#import \"@preview/lilaq:0.6.0\" as lq\n#lq.diagram(lq.plot((0, 1, 2), (0, 1, 4)))\n";
+        let r = svc
+            .manuscript
+            .compile_typst(
+                src.to_string(),
+                imprint_service::handlers::CompileOptions::default(),
+            )
+            .await;
+        if let Some(err) = r.error {
+            if err.contains("not enabled") || err.contains("typst-render") {
+                return Ok(format!("typst engine not enabled in this build: {err}"));
+            }
+            return Err(format!("compile error: {err}"));
+        }
+        let path = r.pdf_path.ok_or("no pdf_path from headless compile")?;
+        let len = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+        if len < 500 {
+            return Err(format!("suspiciously small PDF: {len} bytes"));
+        }
+        Ok(format!("lilaq @preview compiled to a {len}-byte PDF"))
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
