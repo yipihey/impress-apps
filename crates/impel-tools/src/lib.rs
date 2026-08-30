@@ -145,7 +145,9 @@ pub fn list_tools() -> Vec<ToolDescriptor> {
         .collect()
 }
 
-/// Only the tools whose owning app is reachable. This is what impel should
+/// Only the tools impel can actually call right now: store-generic tools (no
+/// owning app) are always included, and imbib-/imprint- tools are included
+/// only when their app backend is reachable. This is what impel should
 /// advertise: a tool the model cannot successfully call is worse than absent,
 /// because it spends a round discovering that.
 #[uniffi::export]
@@ -153,7 +155,7 @@ pub fn list_available_tools() -> Vec<ToolDescriptor> {
     let backends = backends();
     list_tools()
         .into_iter()
-        .filter(|t| app_backend(&t.name, &backends) == Some(Backend::Http))
+        .filter(|t| is_available(&t.name, &backends))
         .collect()
 }
 
@@ -182,6 +184,14 @@ fn app_backend(name: &str, backends: &ToolBackends) -> Option<Backend> {
         "imprint" => Some(backends.imprint),
         _ => None,
     }
+}
+
+/// Whether a tool should be advertised as available under `backends`.
+///
+/// A namespace no app owns runs against the shared store directly and is
+/// always available; a namespace an app owns needs that app's HTTP backend up.
+fn is_available(name: &str, backends: &ToolBackends) -> bool {
+    matches!(app_backend(name, backends), Some(Backend::Http) | None)
 }
 
 // ---------------------------------------------------------------------------
@@ -363,8 +373,48 @@ mod tests {
         );
     }
 
+    /// With both app backends unavailable, imbib-/imprint- tools are withheld
+    /// — but a tool in a namespace no app owns (the store-generic services:
+    /// ADR-0022 WP G1's `store-query-service`, `collection-service`,
+    /// `triage-service`, and friends, e.g. the upcoming `memory-service`)
+    /// stays available, because it reads the shared store directly rather
+    /// than going through a running app.
+    ///
+    /// No store-generic `*-service` crate is linked into `impel-tools` today
+    /// (see Cargo.toml: only imbib-service(-http) and imprint-service(-http)),
+    /// so there is no real store-generic entry in `list_tools()` yet to
+    /// assert against. Exercise `is_available` — the same predicate
+    /// `list_available_tools` filters with — directly against names shaped
+    /// like the real inventory instead.
     #[test]
-    fn available_tools_are_empty_when_nothing_is_reachable() {
-        assert!(list_available_tools().is_empty());
+    fn store_generic_tools_are_available_without_app_backends() {
+        let backends = backends();
+
+        // A namespace no app owns: always available, backends or not.
+        for store_generic in [
+            "store-query-service_search-all",
+            "collection-service_tree",
+            "triage-service_set-status",
+        ] {
+            assert!(
+                is_available(store_generic, &backends),
+                "{store_generic} has no owning app and must always be available",
+            );
+        }
+
+        // Whatever is actually linked into this binary, every imbib-/imprint-
+        // tool in it is withheld while both app backends are down. Checked
+        // against the live inventory (not `is_empty()`) so this keeps holding
+        // if a store-generic service crate is later added to Cargo.toml.
+        let available = list_available_tools();
+        for t in list_tools() {
+            if app_of(&t.name).is_some() {
+                assert!(
+                    !available.iter().any(|a| a.name == t.name),
+                    "{} is imbib-/imprint-owned and should be withheld with both backends down",
+                    t.name,
+                );
+            }
+        }
     }
 }
