@@ -146,7 +146,7 @@ with imbib open.
 
 ## Other resources
 
-Two, and both are live reads of the shared store — they work with every app
+Three, and all are live reads of the shared store — they work with every app
 closed, and they honour this server's `--store-path`:
 
 - `impress://store/schemas` — every record kind in the store with a live item
@@ -158,6 +158,12 @@ closed, and they honour this server's `--store-path`:
   mixed-kind kernel) with nesting and member counts. These are the ids every
   `collection-service_*` tool takes; rebuild the tree from `parent_id`
   (null = root).
+- `impress://memory/brief` — standing instructions, then claims, then recent
+  episodes from the suite memory (ADR-0028), pre-rendered as prompt-ready
+  markdown with `[impress-item:<id>]` references. The same digest
+  `memory-service_memory-brief` returns; read this instead of calling that
+  tool when a resource read is more convenient. Call `memory-service_recall`
+  for anything narrower than this default, unscoped brief.
 
 Then: `store-query-service_list-items` pages through one kind (or every kind,
 with an empty `schema_ref`), newest first, envelopes only;

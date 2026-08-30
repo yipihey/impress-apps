@@ -1484,6 +1484,10 @@ established convention for a service-authored write in this crate family
 (`impress-store-service`'s `docs_import_service` and `source_service` do the
 same).
 
+Also served as a resource (Phase P7): `impress://memory/brief` renders the
+same digest as `memory-service_memory-brief` without a tool call — see
+**Resources** below for its payload shape.
+
 ### Resources (WP G6)
 
 Tools answer a question the agent knew to ask; resources answer the one it
@@ -1493,17 +1497,24 @@ data assembled in `crates/impress-store-service/src/browse.rs`. Live reads
 over the same `impress.sqlite` the tools mutate, `--store-path` honoured
 (`main.rs` hands that path to `impress_store_service::set_store_path` before
 the first dispatch; the resources use the same lazily-opened handle).
+`impress://memory/brief` (ADR-0028 P7, below) answers a related but distinct
+question — *what does the agent already know?* — sourced from
+`impress-memory-service` instead of `browse.rs`, but served through the same
+protocol beside these two.
 
 | Resource | Payload |
 |---|---|
 | `impress://store/schemas` | `{store_path, total_items, schemas[], note}`; each schema row is `{schema_ref, name?, version?, inherits?, registered, item_count, fields[]}`. Every registered `impress-core` schema **and** every kind the store actually holds — unregistered ones (`imbib/collection`, an app's private kind) are listed with `registered: false` rather than hidden, because omitting them would misstate what `list_items` can browse. Populous kinds first, `schema_ref` tiebreak |
 | `impress://store/collections` | `{store_path, bindings[], note}`; one entry per binding (`imbib`, `manuscript`, `figure`, `generic`) with `{binding, schema_ref, collection_count, collections[], error?}` and each node `{id, name, parent_id, sort_order, kind_scope?, member_count}`. Flat per binding — rebuild the tree from `parent_id` (null = root), never the envelope parent. One unreadable binding sets its own `error` and leaves the other three answering |
+| `impress://memory/brief` (ADR-0028 P7) | Plain markdown, mimeType `text/markdown` — not JSON. `text` is the same prompt-ready digest `memory-service_memory-brief` returns (`### Instructions` / `### Claims` / `### Episodes`, each entry `` `[impress-item:<id>]` ``-tagged), built the identical way: a fresh `DefaultMemoryService` over the shared store, topic/subject_ref unscoped, 12 entries per section. Unlike the two resources above, a store failure never errors the RPC — the body becomes `memory brief unavailable: <message>` instead, matching the tool's own `ok:false` shape |
 
 These are deliberately **not** tools. A `list_schemas` tool duplicating a
 resource is the two-definitions-of-one-capability drift the Rust-first rule
 exists to prevent; D5's "only service-backed ops are exposed" governs the verb
-surface, and both resources are backed by plain functions in the same crate as
-the services, tested against a temp store.
+surface, and every resource above is backed by plain functions or methods in
+the same crate as the service it mirrors (`impress-store-service`'s
+`browse.rs` for the two store ones, `impress-memory-service`'s
+`DefaultMemoryService` for the memory brief), tested against a temp store.
 
 ### Render / export — partially unblocked (WP G6 investigation 2026-07-27; Typst compile wired + imbib contract fixed same day)
 
