@@ -1,4 +1,4 @@
-# ADR-0027: The Memory Kernel — Suite-Wide Agent Memory over the Unified Store
+# ADR-0028: The Memory Kernel — Suite-Wide Agent Memory over the Unified Store
 
 **Status:** Proposed
 **Date:** 2026-08-30
