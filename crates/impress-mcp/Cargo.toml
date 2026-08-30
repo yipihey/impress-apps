@@ -62,3 +62,8 @@ imprint-selftest = { workspace = true }
 # reachability gate entry needed).
 impress-parsers-service = { workspace = true }
 impress-smart-search-service = { workspace = true }
+
+[dev-dependencies]
+# Isolated EmbeddingStore fixtures for the rebuild_chunk_index model-gating
+# tests. Same version pin as impress-embeddings' own dev-dependency.
+tempfile = "3.10"
