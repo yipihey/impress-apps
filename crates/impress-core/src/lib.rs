@@ -29,6 +29,12 @@ pub mod collection_ops;
 pub mod manuscript_format;
 #[cfg(feature = "sqlite")]
 pub mod manuscript_ops;
+/// Suite-scoped memory (ADR-0012 D39 knowledge objects): write, dedup-gate,
+/// rank, recall and brief over `memory/claim`, `memory/episode` and
+/// `memory/instruction` rows. Sits next to `search_ops`, which it composes for
+/// retrieval.
+#[cfg(feature = "sqlite")]
+pub mod memory_ops;
 #[cfg(feature = "sqlite")]
 pub mod related_ops;
 #[cfg(feature = "sqlite")]
