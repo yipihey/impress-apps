@@ -3938,6 +3938,7 @@ version = "0.1.0"
 dependencies = [
  "imbib-service",
  "imbib-service-http",
+ "impress-memory-service",
  "impress-service-core",
  "imprint-service",
  "imprint-service-http",
@@ -4194,6 +4195,7 @@ name = "impress-cli"
 version = "0.1.0"
 dependencies = [
  "impress-ai-service",
+ "impress-memory-service",
  "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",
@@ -4330,6 +4332,7 @@ dependencies = [
  "impress-ai-service",
  "impress-bridges-service",
  "impress-embeddings",
+ "impress-memory-service",
  "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",
@@ -4352,6 +4355,23 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "impress-memory-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-core",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

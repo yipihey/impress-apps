@@ -53,6 +53,9 @@ pub const PRIMARY: &[&str] = &[
     // Triage: the universal write verbs.
     "triage-service_set-status",
     "triage-service_add-tag",
+    // Suite-wide memory (ADR-0028): the two calls used every session.
+    "memory-service_remember",
+    "memory-service_recall",
     // Expert-system entry points: semantic state and deterministic diagnosis.
     "vw-diagnostic-service_get-capabilities",
     "vw-diagnostic-service_create-session",
@@ -69,6 +72,7 @@ const DOMAINS: &[(&str, &str)] = &[
     ("triage-service", "store"),
     ("store-query-service", "store"),
     ("smart-search-service", "store"),
+    ("memory-service", "memory"),
     ("docs-import-service", "docs"),
     ("parsers-service", "impress"),
     ("imbib-", "imbib"),
@@ -103,6 +107,10 @@ const DOMAIN_DOC: &[(&str, &str)] = &[
     (
         "store",
         "Cross-kind reads and writes over the shared store: search, browse, collections, triage.",
+    ),
+    (
+        "memory",
+        "Suite-wide agent memory: remember, recall and brief over the unified store.",
     ),
     (
         "docs",

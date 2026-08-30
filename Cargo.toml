@@ -77,6 +77,10 @@ members = [
     "crates/impress-smart-search",
     "crates/impress-parsers-service",
     "crates/impress-smart-search-service",
+    # impress-memory-service - ADR-0028 memory kernel P2: remember/recall/brief
+    # over impress-core::memory_ops, exposed as MCP tools, CLI subcommands and
+    # impel agent tools. FTS tier only.
+    "crates/impress-memory-service",
     # impress-service-core + macros - codegen pipeline for Swift/Python/MCP/CLI bindings
     "crates/impress-service-core",
     "crates/impress-service-macros",
@@ -165,6 +169,7 @@ impress-sources = { path = "crates/impress-sources" }
 impress-smart-search = { path = "crates/impress-smart-search" }
 impress-parsers-service = { path = "crates/impress-parsers-service" }
 impress-smart-search-service = { path = "crates/impress-smart-search-service" }
+impress-memory-service = { path = "crates/impress-memory-service" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }

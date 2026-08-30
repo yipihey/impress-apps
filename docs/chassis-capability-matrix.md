@@ -1448,6 +1448,42 @@ subset of the live 16-rule table that shipped in **every app bundle** and was
 **never loaded** (`setCustomRulesPath` had no callers), plus its
 `Package.swift` `.copy(...)` entry.
 
+### Suite memory (Phase P2, ADR-0028)
+
+`crates/impress-core/src/memory_ops.rs` (the kernel — write, dedup-gate, rank,
+recall and brief over `memory/claim` / `memory/episode` / `memory/instruction`
+rows) + `impress-memory-service` (its agent-facing twin). Seven tools under
+`memory-service_`. FTS tier only: no embeddings, no `imbib-core` dependency —
+`memory-service_memory-status` reports `vector_tier` honestly rather than
+pretending semantic recall exists. Never app-gated — like the store-generic
+namespaces above, it opens the shared store directly and answers with every
+app closed. CLI host is `impress`; `remember` and `recall` are PRIMARY tools
+(`crates/impress-mcp/src/surface.rs`) since they are the two calls used every
+session.
+
+These automate no matrix cell — memory has no GUI surface yet. They exist so
+an agent's working knowledge (what is true, what happened, what to do)
+survives past one session instead of being re-derived, or re-asked of the
+user, every time.
+
+| Tool | What it exposes |
+|---|---|
+| `memory-service_remember` | write a memory, or — if the dedup gate finds a near-duplicate of the same kind and a compatible `claim_type` — confirm the existing row instead of writing a copy. `action` reports which happened |
+| `memory-service_recall` | ranked full-text retrieval (relevance, confirmations, recency, human authorship, confidence); an empty query returns the most relevant heads by recency rather than nothing |
+| `memory-service_memory-brief` | the "start of session" digest: instructions, then claims (optionally topic-scoped), then episodes, plus a `text` field pre-rendered as prompt-ready markdown |
+| `memory-service_confirm-claim` | record a re-observation without writing a duplicate row (what `remember`'s gate calls automatically) |
+| `memory-service_supersede-claim` | retract a claim by replacing it: writes a new claim, records that it supersedes the old id, which is left untouched in the graph for audit |
+| `memory-service_forget` | withhold a memory from `recall` / `memory-brief` without deleting it — for something private, unwanted, or wrong in a way supersession doesn't express |
+| `memory-service_memory-status` | row counts per memory schema (heads vs. total), plus the honest placeholder `vector_tier` / `embedding_coverage` until an embedding backfill lands a second retrieval tier |
+
+Attribution: every write is stamped `author: "impress-memory-service"`,
+`author_kind: System` — no trait method takes an author argument, since a
+caller may be a human at the CLI, an MCP client, or an impel agent, and the
+service cannot reliably tell which. This mirrors, not invents, the
+established convention for a service-authored write in this crate family
+(`impress-store-service`'s `docs_import_service` and `source_service` do the
+same).
+
 ### Resources (WP G6)
 
 Tools answer a question the agent knew to ask; resources answer the one it

@@ -18,6 +18,8 @@ imbib-service = { workspace = true }
 imbib-service-http = { workspace = true }
 imprint-service = { workspace = true }
 imprint-service-http = { workspace = true }
+# ADR-0028 memory kernel P2: remember/recall/brief/confirm/supersede/forget.
+impress-memory-service = { workspace = true }
 
 impress-service-core = { workspace = true }
 
