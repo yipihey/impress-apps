@@ -744,6 +744,13 @@ struct imbibApp: App {
                 #endif
         }
         .commands {
+#if os(macOS)
+            // "About <app>" with the BUILD STAMP (ImpressKit). Every app
+            // self-installs its Debug build, so several builds and several
+            // running instances pile up in a session; About is where the app
+            // answers "am I the binary you just built?" without a terminal.
+            ImpressAboutCommand()
+#endif
             AppCommands()
         }
         #if os(macOS)

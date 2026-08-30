@@ -8,10 +8,11 @@ let package = Package(
         .library(name: "ImpressAutomation", targets: ["ImpressAutomation"])
     ],
     dependencies: [
+        .package(path: "../ImpressKit"),
         .package(path: "../ImpressLogging")
     ],
     targets: [
-        .target(name: "ImpressAutomation", dependencies: ["ImpressLogging"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "ImpressAutomation", dependencies: ["ImpressKit", "ImpressLogging"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "ImpressAutomationTests", dependencies: ["ImpressAutomation"], swiftSettings: [.swiftLanguageMode(.v5)])
     ]
 )

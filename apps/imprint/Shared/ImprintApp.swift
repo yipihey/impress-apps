@@ -730,6 +730,13 @@ struct ImprintApp: App {
     // always-present scene.
     @CommandsBuilder
     private var sharedCommands: some Commands {
+#if os(macOS)
+            // "About <app>" with the BUILD STAMP (ImpressKit). Every app
+            // self-installs its Debug build, so several builds and several
+            // running instances pile up in a session; About is where the app
+            // answers "am I the binary you just built?" without a terminal.
+            ImpressAboutCommand()
+#endif
         // File menu additions — augment the standard "New" command
         // (which creates a Typst .imprint document) with a sibling
         // "New LaTeX Document" that creates a .tex-format buffer.

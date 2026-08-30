@@ -78,6 +78,13 @@ struct ImpressApp: App {
     /// moved the toggles away from the Divider they sit above.
     @CommandsBuilder
     private var sharedCommands: some Commands {
+#if os(macOS)
+            // "About <app>" with the BUILD STAMP (ImpressKit). Every app
+            // self-installs its Debug build, so several builds and several
+            // running instances pile up in a session; About is where the app
+            // answers "am I the binary you just built?" without a terminal.
+            ImpressAboutCommand()
+#endif
         ImpressFindCommands()
         ImpressStoreSearchCommands()
 

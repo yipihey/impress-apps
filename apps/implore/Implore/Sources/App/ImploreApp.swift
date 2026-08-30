@@ -110,6 +110,13 @@ struct ImploreApp: App {
         }
         .handlesExternalEvents(matching: Set(["implore"]))
         .commands {
+#if os(macOS)
+            // "About <app>" with the BUILD STAMP (ImpressKit). Every app
+            // self-installs its Debug build, so several builds and several
+            // running instances pile up in a session; About is where the app
+            // answers "am I the binary you just built?" without a terminal.
+            ImpressAboutCommand()
+#endif
             // File menu
             CommandGroup(replacing: .newItem) {
                 Button("Open Dataset...") {

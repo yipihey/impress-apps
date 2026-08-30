@@ -64,6 +64,7 @@
 //
 
 import Foundation
+import ImpressKit
 import ImpressLogging
 
 /// The generic route group every impress app's router mounts.
@@ -196,6 +197,18 @@ public enum SharedAutomationRoutes {
             "port": port,
             "serverPort": port,
         ]
+        // WHICH BINARY is answering. Every app self-installs its Debug build,
+        // so a session leaves several builds and several running instances
+        // behind, and "is this app the code I just built?" was previously only
+        // answerable by `stat`-ing the executable from a terminal. The same
+        // stamp the About panel shows (ImpressKit's `ImpressBuildInfo`, which
+        // reads the executable's mtime — there is no compile timestamp in a
+        // Swift binary).
+        payload["build"] = ImpressBuildInfo.build
+        if let buildDate = ImpressBuildInfo.buildDate {
+            payload["buildDate"] = ISO8601DateFormatter().string(from: buildDate)
+        }
+        if let commit = ImpressBuildInfo.commit { payload["commit"] = commit }
         for (key, value) in domain { payload[key] = value }
         return payload
     }

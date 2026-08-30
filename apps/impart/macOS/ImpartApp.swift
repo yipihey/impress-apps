@@ -123,6 +123,13 @@ struct ImpartApp: App {
             chassisRoot
         }
         .commands {
+#if os(macOS)
+            // "About <app>" with the BUILD STAMP (ImpressKit). Every app
+            // self-installs its Debug build, so several builds and several
+            // running instances pile up in a session; About is where the app
+            // answers "am I the binary you just built?" without a terminal.
+            ImpressAboutCommand()
+#endif
             // File menu
             //
             // Stage 4c shortcut correction: every chord in this block and the
