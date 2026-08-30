@@ -29,6 +29,17 @@
 //! string flag (the user passes a JSON literal) — good enough for ship-ready
 //! CLIs in this phase, and easy to extend later.
 //!
+//! Two ergonomics rules hold for every generated subcommand:
+//!
+//! - **Array flags are never CLI-required.** A non-Option `Vec<T>` field is
+//!   required in the JSON Schema, but zero `--flag` occurrences parse fine
+//!   and reach the handler as `[]` (dispatch inserts the empty array for
+//!   schema-required properties). Handlers needing a non-empty list validate
+//!   it themselves, exactly as they must for MCP callers.
+//! - **Negative numbers work bare.** `--confidence -1` parses as a value on
+//!   `integer`/`number` flags (and on arrays of them); the `--flag=-1` form
+//!   is no longer necessary.
+//!
 //! ## Usage
 //!
 //! ```ignore
@@ -111,7 +122,35 @@ fn build_arg(name: &str, prop: &Value, required: bool) -> Arg {
             arg = arg.action(ArgAction::SetTrue).required(false);
         }
         PropertyKind::Array => {
-            arg = arg.action(ArgAction::Append);
+            // Like `Boolean`, never CLI-required even when the schema says so:
+            // a non-Option `Vec<T>` field is schema-required, but an empty
+            // list is almost always a legitimate "unspecified" value, and
+            // `matches_to_json` already folds zero occurrences of a
+            // schema-required array to `[]` so the args struct deserializes.
+            // Handlers that genuinely need >= 1 element validate that
+            // themselves (and must — MCP callers can send `[]` too).
+            arg = arg.action(ArgAction::Append).required(false);
+            // `--nums -1` should be a value, not an unknown flag, when the
+            // items are numeric (each repetition is parsed as a JSON literal).
+            let items_are_numeric = prop
+                .get("items")
+                .map(|items| {
+                    matches!(
+                        property_kind(items),
+                        PropertyKind::Integer | PropertyKind::Number
+                    )
+                })
+                .unwrap_or(false);
+            if items_are_numeric {
+                arg = arg.allow_negative_numbers(true);
+            }
+        }
+        PropertyKind::Integer | PropertyKind::Number => {
+            // `--confidence -1` must parse as a value; without this clap
+            // treats the bare `-1` token as an unknown flag and only the
+            // `--confidence=-1` form works. Only tokens that look like
+            // negative numbers are affected; `--confidence -abc` still errors.
+            arg = arg.action(ArgAction::Set).allow_negative_numbers(true);
         }
         _ => {
             arg = arg.action(ArgAction::Set);
@@ -253,6 +292,11 @@ fn matches_to_json(matches: &ArgMatches, schema: &Value) -> Result<Value, BoxErr
                     // Optional + absent: leave null so serde Option<Vec<>>
                     // (if ever used) deserializes correctly.
                 } else {
+                    // NOTE: this branch is load-bearing for `build_arg`'s
+                    // "arrays are never CLI-required" rule — a schema-required
+                    // array with zero occurrences lands here and becomes `[]`,
+                    // which is what lets the non-Option `Vec<T>` args struct
+                    // deserialize.
                     map.insert(name.clone(), Value::Array(arr));
                 }
             }
@@ -309,15 +353,27 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A `Command` with one `--<name>` argument built from `schema` (whose
+    /// `required` array decides required-ness, exactly like
+    /// `build_subcommand`), matched against `argv`, then folded back to the
+    /// JSON the handler sees.
+    fn round_trip_arg(name: &str, schema: Value, argv: &[&str]) -> Result<Value, String> {
+        let prop = schema["properties"][name].clone();
+        let required = schema["required"]
+            .as_array()
+            .map(|arr| arr.iter().any(|v| v.as_str() == Some(name)))
+            .unwrap_or(false);
+        let cmd = Command::new("t")
+            .no_binary_name(true)
+            .arg(build_arg(name, &prop, required));
+        let matches = cmd.try_get_matches_from(argv).map_err(|e| e.to_string())?;
+        matches_to_json(&matches, &schema).map_err(|e| e.to_string())
+    }
+
     /// A `Command` with one repeatable `--items` argument built from `schema`,
     /// matched against `argv`, then folded back to the JSON the handler sees.
     fn round_trip(schema: Value, argv: &[&str]) -> Result<Value, String> {
-        let prop = schema["properties"]["items"].clone();
-        let cmd = Command::new("t")
-            .no_binary_name(true)
-            .arg(build_arg("items", &prop, false));
-        let matches = cmd.try_get_matches_from(argv).map_err(|e| e.to_string())?;
-        matches_to_json(&matches, &schema).map_err(|e| e.to_string())
+        round_trip_arg("items", schema, argv)
     }
 
     fn array_schema(item_type: &str) -> Value {
@@ -379,5 +435,99 @@ mod tests {
     fn an_absent_optional_array_is_omitted() {
         let out = round_trip(array_schema("object"), &[]).expect("absent is fine");
         assert!(out.get("items").is_none());
+    }
+
+    fn required_array_schema(item_type: &str) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "items": { "type": "array", "items": { "type": item_type } }
+            },
+            "required": ["items"]
+        })
+    }
+
+    /// The empty-`Vec<String>` fix: a non-Option `Vec<String>` field is
+    /// schema-required, but zero `--items` occurrences must parse (no more
+    /// `--items ""` idiom) and reach the handler as `[]` so the args struct
+    /// deserializes.
+    #[test]
+    fn a_schema_required_array_parses_with_zero_occurrences_as_empty() {
+        let out = round_trip(required_array_schema("string"), &[])
+            .expect("required arrays are CLI-optional");
+        assert_eq!(out["items"], json!([]));
+    }
+
+    /// ...and still takes its values verbatim when supplied.
+    #[test]
+    fn a_schema_required_array_still_accepts_values() {
+        let out = round_trip(required_array_schema("string"), &["--items", "alpha"])
+            .expect("supplying values still works");
+        assert_eq!(out["items"], json!(["alpha"]));
+    }
+
+    /// Required-ness is only relaxed for arrays (and booleans, historically):
+    /// a required scalar still errors when absent, so genuinely mandatory
+    /// string/number args keep their guardrail.
+    #[test]
+    fn a_schema_required_string_is_still_cli_required() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "input": { "type": "string" } },
+            "required": ["input"]
+        });
+        let err = round_trip_arg("input", schema, &[]).expect_err("required string must error");
+        assert!(err.contains("--input"), "{err}");
+    }
+
+    /// The negative-number fix: `--confidence -1` is a value, not an unknown
+    /// flag, on number args — the `--confidence=-1` workaround is no longer
+    /// needed.
+    #[test]
+    fn a_number_flag_accepts_a_bare_negative_value() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "confidence": { "type": "number" } },
+            "required": ["confidence"]
+        });
+        let out = round_trip_arg("confidence", schema, &["--confidence", "-1"])
+            .expect("bare negative number parses");
+        assert_eq!(out["confidence"], json!(-1.0));
+    }
+
+    #[test]
+    fn an_integer_flag_accepts_a_bare_negative_value() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "offset": { "type": "integer" } }
+        });
+        let out = round_trip_arg("offset", schema, &["--offset", "-3"])
+            .expect("bare negative integer parses");
+        assert_eq!(out["offset"], json!(-3));
+    }
+
+    /// Non-numeric garbage after a number flag still fails loudly — the
+    /// negative-number allowance only admits tokens that look like numbers.
+    #[test]
+    fn a_number_flag_still_rejects_a_dash_word() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "confidence": { "type": "number" } }
+        });
+        let err = round_trip_arg("confidence", schema, &["--confidence", "-abc"])
+            .expect_err("a dash-word is not a number value");
+        assert!(err.contains("-abc") || err.contains("unexpected"), "{err}");
+    }
+
+    /// Arrays of numbers get the same allowance, through the JSON-literal
+    /// per-value path.
+    #[test]
+    fn an_integer_array_accepts_bare_negative_values() {
+        let out = round_trip(
+            required_array_schema("integer"),
+            &["--items", "-1", "--items", "-2"],
+        )
+        .expect("negative array items parse");
+        assert_eq!(out["items"], json!([-1, -2]));
     }
 }
