@@ -11,7 +11,11 @@
 //!   written into the `impress-embeddings` sidecar.
 //! * [`MemoryConsolidationExecutor`] (`impress.memory.consolidate`) — one
 //!   bounded time window of terminal `agent-run@1.0.0` items per task, distilled
-//!   into `memory/episode@1.0.0` rows through the D6 dedup gate.
+//!   into `memory/episode@1.0.0` rows through the D6 dedup gate. Optionally,
+//!   also distilled into `memory/claim@1.0.0` rows by an LLM
+//!   ([`claim_distill`], ADR-0028 P6) — off unless a [`ClaimDistiller`] is
+//!   wired in, in which case a transport failure degrades to the
+//!   deterministic-only result rather than retrying the task.
 //! * [`plan_memory_tasks`] — called once per taskd pass; spawns at most one task
 //!   of each kind, deduped on open state and cooled off after failure.
 //!
@@ -40,10 +44,12 @@ use std::sync::Mutex;
 
 use uuid::Uuid;
 
+pub mod claim_distill;
 pub mod consolidate;
 pub mod embed;
 pub mod spawn;
 
+pub use claim_distill::{ClaimDistiller, LlmDistiller};
 pub use consolidate::{MemoryConsolidationExecutor, CONSOLIDATE_AGENT_ID, KIND_CONSOLIDATE};
 pub use embed::{EmbedBackfillExecutor, EMBED_AGENT_ID, KIND_EMBED};
 pub use spawn::{plan_memory_tasks, MemoryPlanConfig};

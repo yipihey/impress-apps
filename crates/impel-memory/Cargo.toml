@@ -17,6 +17,10 @@ impress-core = { workspace = true, features = ["sqlite"] }
 # the `TextEmbedder` seam. `embedder` is what pulls fastembed; the seam is what
 # keeps it out of the unit tests.
 impress-embeddings = { workspace = true, features = ["store", "index", "embedder"] }
+# The optional claim-distillation tier (`claim_distill::LlmDistiller`, P6) —
+# same crate `impel-enrichment::classify_llm` and `impel-throughline::llm_drafter`
+# already depend on for the identical IMPEL_LLM_* pattern.
+impress-llm = { path = "../impress-llm" }
 
 async-trait = { workspace = true }
 chrono = { workspace = true }
@@ -24,6 +28,10 @@ dirs = "5"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"
+# Needed unconditionally (not just in tests): `LlmDistiller::distill` hops
+# `impress-llm`'s blocking `complete_sync` onto a blocking task, the same way
+# `classify_llm` and `llm_drafter` do.
+tokio = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5"] }
 
 [dev-dependencies]

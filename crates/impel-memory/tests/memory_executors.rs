@@ -12,15 +12,18 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use impel_core::{
     ExecutionOutcome, Scheduler, SchedulerConfig, TaskError, TaskExecutor, TaskStoreApi,
     AGENT_RUN_SCHEMA, TASK_SCHEMA,
 };
-use impel_memory::consolidate::{CONSOLIDATE_AGENT_ID, SOURCE_KIND_AGENT_RUNS};
+use impel_memory::consolidate::{
+    CONSOLIDATE_AGENT_ID, DETERMINISTIC_MODEL, SOURCE_KIND_AGENT_RUNS,
+};
 use impel_memory::embed::KIND_EMBED;
 use impel_memory::spawn::{FAILED_COOLOFF_MS, WINDOW_LAG_MS, WINDOW_MS};
 use impel_memory::{
-    plan_memory_tasks, vector_id, EmbedBackfillExecutor, EmbedderProvider,
+    plan_memory_tasks, vector_id, ClaimDistiller, EmbedBackfillExecutor, EmbedderProvider,
     MemoryConsolidationExecutor, MemoryPlanConfig, TextEmbedder, KIND_CONSOLIDATE,
     SOURCE_TYPE_CHUNK, SOURCE_TYPE_MEMORY,
 };
@@ -104,6 +107,46 @@ impl EmbedderProvider for StubProvider {
             model: self.model.clone(),
             seen: self.seen.clone(),
         }))
+    }
+}
+
+/// A deterministic stand-in for [`ClaimDistiller`]'s LLM transport. One fixed
+/// reply per instance — every test scenario the executor needs (a clean
+/// array, prose-wrapped JSON with a bad entry, `[]`, a transport failure) is
+/// just a different `reply` value, and `calls` records every prompt so a test
+/// can assert whether — and how many times — the model was actually asked.
+struct StubDistiller {
+    model: String,
+    reply: Result<String, String>,
+    calls: Arc<Mutex<Vec<String>>>,
+}
+
+impl StubDistiller {
+    fn new(model: &str, reply: Result<String, String>) -> Self {
+        Self {
+            model: model.into(),
+            reply,
+            calls: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn call_count(&self) -> usize {
+        self.calls.lock().expect("calls lock").len()
+    }
+}
+
+#[async_trait]
+impl ClaimDistiller for StubDistiller {
+    fn model_id(&self) -> &str {
+        &self.model
+    }
+
+    async fn distill(&self, prompt: &str) -> Result<String, String> {
+        self.calls
+            .lock()
+            .expect("calls lock")
+            .push(prompt.to_string());
+        self.reply.clone()
     }
 }
 
@@ -267,6 +310,39 @@ fn payload_string(item: &Item, field: &str) -> Option<String> {
         Some(Value::String(s)) => Some(s.clone()),
         _ => None,
     }
+}
+
+fn payload_string_array(item: &Item, field: &str) -> Vec<String> {
+    match item.payload.get(field) {
+        Some(Value::Array(values)) => values
+            .iter()
+            .filter_map(|v| match v {
+                Value::String(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// The one provenance run this executor wrote — mirrors the predicate every
+/// consolidation test already filters on to find it.
+fn consolidate_run(store: &SqliteItemStore) -> Item {
+    let runs = ItemStore::query(
+        store,
+        &ItemQuery {
+            schema: Some(AGENT_RUN_SCHEMA.to_string()),
+            predicates: vec![Predicate::Eq(
+                "payload.agent_id".into(),
+                Value::String(CONSOLIDATE_AGENT_ID.into()),
+            )],
+            include_tags: false,
+            ..Default::default()
+        },
+    )
+    .expect("query consolidate run");
+    assert_eq!(runs.len(), 1, "exactly one provenance run per execution");
+    runs.into_iter().next().expect("one run")
 }
 
 fn count_schema(store: &SqliteItemStore, schema: &str) -> usize {
@@ -870,6 +946,366 @@ async fn an_unknown_source_kind_is_permanent() {
         .expect_err("must fail");
     assert!(matches!(error, TaskError::Permanent(_)), "got {error:?}");
     assert!(!executor.is_retryable(&error));
+}
+
+// ---------------------------------------------------------------------------
+// Claim-distillation tier (ADR-0028 P6)
+// ---------------------------------------------------------------------------
+
+/// `None` — what [`MemoryConsolidationExecutor::new`] sets and every test
+/// above this section constructs — must reproduce v1's deterministic-only
+/// behavior byte for byte: no claim suffix on the summary, no claim rows, and
+/// the provenance run's `model` unchanged. This is the contract that keeps
+/// every pre-P6 test in this file passing unmodified.
+#[tokio::test]
+async fn no_distiller_configured_reproduces_v1_behavior_byte_for_byte() {
+    let store = store();
+    let executor = MemoryConsolidationExecutor::new(store.clone());
+    seed_run(&store, "agent/a", "m1", "did a thing", None);
+    seed_run(
+        &store,
+        "agent/b",
+        "m2",
+        "did another thing",
+        Some("completed"),
+    );
+
+    let task = consolidate_task(&store, now_ms() - 60_000, now_ms() + 60_000);
+    run_task(&executor, &store, task).await.expect("execute");
+
+    assert_eq!(count_schema(&store, MemoryKind::Claim.schema_ref()), 0);
+    let run = consolidate_run(&store);
+    assert_eq!(
+        payload_string(&run, "model").as_deref(),
+        Some(DETERMINISTIC_MODEL)
+    );
+    assert_eq!(
+        payload_string(&run, "result_summary").as_deref(),
+        Some("2 episode(s) from 2 run(s) (2 inserted, 0 confirmed)"),
+        "byte-for-byte: no claim suffix may be appended when no distiller is configured"
+    );
+}
+
+/// The core happy path: a clean JSON reply becomes gated claim drafts, and
+/// those drafts are actually written — alongside, not instead of, the
+/// deterministic episodes.
+#[tokio::test]
+async fn claims_are_parsed_gated_and_written_alongside_episodes() {
+    let store = store();
+    let run = seed_run(&store, "agent/a", "m1", "did a thing", None);
+    let reply = format!(
+        r#"[{{"title":"Flux units","body":"The 2018 catalogue's flux column is in mJy, not Jy.","claim_type":"fact","confidence":0.9,"about_run_ids":["{run}"]}}]"#
+    );
+    let stub = Arc::new(StubDistiller::new("stub/claim-v1", Ok(reply)));
+    let distiller: Arc<dyn ClaimDistiller> = stub.clone();
+    let executor =
+        MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(Some(distiller));
+
+    let task = consolidate_task(&store, now_ms() - 60_000, now_ms() + 60_000);
+    assert_eq!(
+        run_task(&executor, &store, task).await.expect("execute"),
+        ExecutionOutcome::Complete
+    );
+
+    assert_eq!(stub.call_count(), 1);
+    assert_eq!(
+        count_schema(&store, MemoryKind::Episode.schema_ref()),
+        1,
+        "the deterministic tier still runs unchanged"
+    );
+    let claims = ItemStore::query(
+        &*store,
+        &ItemQuery {
+            schema: Some(MemoryKind::Claim.schema_ref().to_string()),
+            include_tags: false,
+            ..Default::default()
+        },
+    )
+    .expect("query claims");
+    assert_eq!(claims.len(), 1);
+    let claim = &claims[0];
+    assert_eq!(
+        payload_string(claim, "title").as_deref(),
+        Some("Flux units")
+    );
+    assert_eq!(payload_string(claim, "claim_type").as_deref(), Some("fact"));
+    assert_eq!(claim.author, "impel-memory");
+    assert_eq!(claim.author_kind, ActorKind::Agent);
+    assert!(
+        payload_string_array(claim, "evidence_refs").contains(&run.to_string()),
+        "about_run_ids naming a run actually in the window must become evidence_refs"
+    );
+
+    let provenance = consolidate_run(&store);
+    assert_eq!(
+        payload_string(&provenance, "model").as_deref(),
+        Some("stub/claim-v1"),
+        "the run's model must name the LLM tier that actually ran"
+    );
+    assert_eq!(
+        payload_string(claim, "agent_run_ref").as_deref(),
+        Some(provenance.id.to_string().as_str())
+    );
+    let summary = payload_string(&provenance, "result_summary").expect("summary");
+    assert!(
+        summary.contains("1 claim(s) distilled (1 inserted, 0 confirmed) via stub/claim-v1"),
+        "{summary}"
+    );
+
+    // Recall-able through the kernel, not merely present as a row.
+    let recalled = memory_ops::recall(
+        &store,
+        "flux mJy",
+        &RecallOptions {
+            kinds: vec![MemoryKind::Claim],
+            ..Default::default()
+        },
+    )
+    .expect("recall");
+    assert!(
+        recalled.iter().any(|c| c.title == "Flux units"),
+        "the distilled claim must come back from recall: {recalled:?}"
+    );
+}
+
+/// A model reply naming a run id that is NOT in this window (or not a real
+/// item at all) must cost the citation, not the claim.
+#[tokio::test]
+async fn about_run_ids_outside_the_window_are_dropped_from_evidence_refs() {
+    let store = store();
+    seed_run(&store, "agent/a", "m1", "did a thing", None);
+    let reply = r#"[{"title":"Stray citation","body":"A claim citing a run outside this window.","claim_type":"fact","confidence":0.5,"about_run_ids":["11111111-1111-4111-8111-111111111111"]}]"#;
+    let stub = Arc::new(StubDistiller::new("stub/claim-v1", Ok(reply.to_string())));
+    let distiller: Arc<dyn ClaimDistiller> = stub.clone();
+    let executor =
+        MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(Some(distiller));
+
+    let task = consolidate_task(&store, now_ms() - 60_000, now_ms() + 60_000);
+    run_task(&executor, &store, task).await.expect("execute");
+
+    let claims = ItemStore::query(
+        &*store,
+        &ItemQuery {
+            schema: Some(MemoryKind::Claim.schema_ref().to_string()),
+            include_tags: false,
+            ..Default::default()
+        },
+    )
+    .expect("query claims");
+    assert_eq!(claims.len(), 1);
+    assert!(
+        payload_string_array(&claims[0], "evidence_refs").is_empty(),
+        "a run id outside the window must not become evidence"
+    );
+}
+
+/// Prose around the array, and one malformed entry inside it, must not sink
+/// the well-formed claims either side of it — exercised through the full
+/// executor, not just the parser.
+#[tokio::test]
+async fn malformed_json_through_the_executor_drops_bad_entries_keeps_good_ones() {
+    let store = store();
+    seed_run(&store, "agent/a", "m1", "did a thing", None);
+    let reply = "Here is what I found:\n\
+        [{\"title\":\"A\",\"body\":\"Uses Rust for the core.\",\"claim_type\":\"fact\",\"confidence\":0.8,\"about_run_ids\":[]},\
+        {\"oops\":true},\
+        {\"title\":\"B\",\"body\":\"Prefers Typst over LaTeX.\",\"claim_type\":\"preference\",\"confidence\":0.7,\"about_run_ids\":[]}]\n\
+        That's everything.";
+    let stub = Arc::new(StubDistiller::new("stub/claim-v1", Ok(reply.to_string())));
+    let distiller: Arc<dyn ClaimDistiller> = stub.clone();
+    let executor =
+        MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(Some(distiller));
+
+    let task = consolidate_task(&store, now_ms() - 60_000, now_ms() + 60_000);
+    run_task(&executor, &store, task).await.expect("execute");
+
+    assert_eq!(
+        count_schema(&store, MemoryKind::Claim.schema_ref()),
+        2,
+        "the malformed middle entry must be dropped, the two good ones kept"
+    );
+}
+
+/// `Ok("[]")` — the model was asked and found nothing durable — is a
+/// completed LLM-tier run, not an unconfigured or failed one: the run's
+/// `model` must say so even though zero claims were written.
+#[tokio::test]
+async fn empty_array_reply_yields_zero_claims_but_the_run_records_the_model() {
+    let store = store();
+    seed_run(&store, "agent/a", "m1", "did a thing", None);
+    let stub = Arc::new(StubDistiller::new("stub/claim-v1", Ok("[]".to_string())));
+    let distiller: Arc<dyn ClaimDistiller> = stub.clone();
+    let executor =
+        MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(Some(distiller));
+
+    let task = consolidate_task(&store, now_ms() - 60_000, now_ms() + 60_000);
+    run_task(&executor, &store, task).await.expect("execute");
+
+    assert_eq!(count_schema(&store, MemoryKind::Claim.schema_ref()), 0);
+    assert_eq!(
+        stub.call_count(),
+        1,
+        "an empty result still required asking the model"
+    );
+
+    let run = consolidate_run(&store);
+    assert_eq!(
+        payload_string(&run, "model").as_deref(),
+        Some("stub/claim-v1")
+    );
+    let summary = payload_string(&run, "result_summary").expect("summary");
+    assert!(
+        summary.contains("0 claim(s) distilled (0 inserted, 0 confirmed) via stub/claim-v1"),
+        "{summary}"
+    );
+}
+
+/// The defining P6 safety property: an unreachable model host must degrade
+/// the window to "no claims this time", never retry-loop a task whose
+/// deterministic half already succeeded.
+#[tokio::test]
+async fn a_distiller_transport_failure_degrades_to_the_deterministic_result() {
+    let store = store();
+    seed_run(&store, "agent/a", "m1", "did a thing", None);
+    let stub = Arc::new(StubDistiller::new(
+        "stub/claim-v1",
+        Err("connection refused".to_string()),
+    ));
+    let distiller: Arc<dyn ClaimDistiller> = stub.clone();
+    let executor =
+        MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(Some(distiller));
+
+    let task = consolidate_task(&store, now_ms() - 60_000, now_ms() + 60_000);
+    assert_eq!(
+        run_task(&executor, &store, task)
+            .await
+            .expect("must still complete"),
+        ExecutionOutcome::Complete,
+        "a dead LLM host must not fail or retry-loop the task"
+    );
+
+    assert_eq!(
+        count_schema(&store, MemoryKind::Episode.schema_ref()),
+        1,
+        "the deterministic tier is unaffected by the LLM transport failure"
+    );
+    assert_eq!(count_schema(&store, MemoryKind::Claim.schema_ref()), 0);
+
+    let run = consolidate_run(&store);
+    assert_eq!(
+        payload_string(&run, "model").as_deref(),
+        Some(DETERMINISTIC_MODEL),
+        "the LLM tier did not complete, so the run's model must not claim it did"
+    );
+    let summary = payload_string(&run, "result_summary").expect("summary");
+    assert!(
+        summary.contains("llm: \"unavailable\""),
+        "the summary must note the LLM tier was unavailable: {summary}"
+    );
+}
+
+/// Nothing to distil, and a call would be a wasted round trip — the same
+/// discipline the embed executor already applies to its own model dependency.
+#[tokio::test]
+async fn an_empty_window_with_a_distiller_configured_never_calls_it() {
+    let store = store();
+    let stub = Arc::new(StubDistiller::new(
+        "stub/claim-v1",
+        Err("must not be called".to_string()),
+    ));
+    let distiller: Arc<dyn ClaimDistiller> = stub.clone();
+    let executor =
+        MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(Some(distiller));
+
+    let task = consolidate_task(&store, now_ms() - 120_000, now_ms() - 60_000);
+    assert_eq!(
+        run_task(&executor, &store, task).await.expect("execute"),
+        ExecutionOutcome::Complete
+    );
+    assert_eq!(
+        stub.call_count(),
+        0,
+        "an empty window must not pay a round trip for nothing"
+    );
+}
+
+/// The D6 dedup gate is the ONLY defence against the same claim recurring
+/// across DIFFERENT windows (the deterministic_key is window-scoped, so it
+/// cannot catch this on its own — see `claim_draft`'s doc comment). Two
+/// disjoint windows, the same fixed reply both times: the second pass must
+/// confirm the first pass's claim rather than writing a second row.
+#[tokio::test]
+async fn a_duplicate_claim_across_two_windows_confirms_not_duplicates() {
+    let store = store();
+    let reply = Ok(r#"[{"title":"Prefers Typst","body":"The user prefers Typst over LaTeX for manuscript authoring.","claim_type":"preference","confidence":0.8,"about_run_ids":[]}]"#.to_string());
+    let stub = Arc::new(StubDistiller::new("stub/claim-v1", reply));
+    let distiller: Arc<dyn ClaimDistiller> = stub.clone();
+    let executor =
+        MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(Some(distiller));
+
+    let now = now_ms();
+    // Two disjoint windows, each with its own seeded run, so the tier is
+    // actually invoked both times rather than skipped as empty.
+    seed_run_at(&store, "agent/a", "m1", "window one", None, now - 180_000);
+    let first = consolidate_task(&store, now - 200_000, now - 100_000);
+    run_task(&executor, &store, first)
+        .await
+        .expect("first window");
+
+    seed_run_at(&store, "agent/b", "m2", "window two", None, now - 30_000);
+    let second = consolidate_task(&store, now - 90_000, now + 10_000);
+    run_task(&executor, &store, second)
+        .await
+        .expect("second window");
+
+    assert_eq!(stub.call_count(), 2, "each window must ask the model once");
+    assert_eq!(
+        count_schema(&store, MemoryKind::Claim.schema_ref()),
+        1,
+        "the same claim re-derived in a different window must confirm, not duplicate"
+    );
+
+    let claims = ItemStore::query(
+        &*store,
+        &ItemQuery {
+            schema: Some(MemoryKind::Claim.schema_ref().to_string()),
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        },
+    )
+    .expect("query claims");
+    assert_eq!(claims.len(), 1);
+    assert_eq!(
+        payload_i64(&claims[0], "confirmations"),
+        Some(1),
+        "the second window's pass must have confirmed the first window's claim"
+    );
+}
+
+/// Claims are capped at 5 per window even when a stub (standing in for a
+/// model that ignored the prompt's instruction) returns more.
+#[tokio::test]
+async fn claims_are_capped_at_five_per_window_through_the_executor() {
+    let store = store();
+    seed_run(&store, "agent/a", "m1", "did a thing", None);
+    let items: Vec<String> = (0..8)
+        .map(|i| {
+            format!(
+                r#"{{"title":"T{i}","body":"Distinct durable claim body number {i}, long enough to avoid collisions.","claim_type":"fact","confidence":0.5,"about_run_ids":[]}}"#
+            )
+        })
+        .collect();
+    let reply = format!("[{}]", items.join(","));
+    let stub = Arc::new(StubDistiller::new("stub/claim-v1", Ok(reply)));
+    let distiller: Arc<dyn ClaimDistiller> = stub.clone();
+    let executor =
+        MemoryConsolidationExecutor::new(store.clone()).with_claim_distiller(Some(distiller));
+
+    let task = consolidate_task(&store, now_ms() - 60_000, now_ms() + 60_000);
+    run_task(&executor, &store, task).await.expect("execute");
+
+    assert_eq!(count_schema(&store, MemoryKind::Claim.schema_ref()), 5);
 }
 
 // ---------------------------------------------------------------------------

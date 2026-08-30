@@ -3886,6 +3886,7 @@ dependencies = [
  "impel-core",
  "impress-core",
  "impress-embeddings",
+ "impress-llm",
  "serde",
  "serde_json",
  "sha2 0.10.9",

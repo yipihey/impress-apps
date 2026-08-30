@@ -1,12 +1,20 @@
 //! `impress.memory.consolidate` — terminal agent-runs into durable episodes
-//! (ADR-0028 D7).
+//! (ADR-0028 D7), plus an optional LLM claim-distillation tier (P6).
 //!
-//! v1 is the **deterministic tier only**: no model is involved. Each terminal
-//! `agent-run@1.0.0` in the window becomes one structural
-//! `memory/episode@1.0.0` — what ran, under which model, how it ended — and
-//! every draft goes through the D6 dedup gate, which is what makes the executor
-//! safe to replay: consolidating an overlapping window *confirms* the existing
-//! episodes instead of duplicating them.
+//! The **deterministic tier** is v1 and never changes shape: no model is
+//! involved. Each terminal `agent-run@1.0.0` in the window becomes one
+//! structural `memory/episode@1.0.0` — what ran, under which model, how it
+//! ended — and every draft goes through the D6 dedup gate, which is what
+//! makes the executor safe to replay: consolidating an overlapping window
+//! *confirms* the existing episodes instead of duplicating them.
+//!
+//! The **claim-distillation tier** ([`crate::claim_distill`]) is optional and
+//! additive: when a [`crate::claim_distill::ClaimDistiller`] is wired in via
+//! [`MemoryConsolidationExecutor::with_claim_distiller`], one extra LLM call
+//! per window proposes up to five durable `memory/claim@1.0.0` rows from the
+//! SAME facts the episode pass already resolved. `None` (the default)
+//! reproduces the deterministic-only v1 behavior byte for byte — no prompt is
+//! built, no call is made. See [`MemoryConsolidationExecutor::run_claim_tier`].
 //!
 //! # Which agent-runs count as terminal
 //!
@@ -25,7 +33,7 @@
 //! more careful and would silently skip every kernel-written run — which is to
 //! say, everything this daemon produces.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -43,6 +51,8 @@ use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use sha2::{Digest, Sha256};
 
+use crate::claim_distill::{self, ClaimDistiller};
+
 /// Dispatch key: the `task_kind` payload field the scheduler matches on.
 pub const KIND_CONSOLIDATE: &str = "impress.memory.consolidate";
 
@@ -55,9 +65,14 @@ pub const CONSOLIDATE_AGENT_ID: &str = "impel-memory/consolidate";
 /// Envelope author on every episode this executor writes.
 pub const CONSOLIDATE_AUTHOR: &str = "impel-memory";
 
-/// `model` stamped on the provenance run. The tier is the model here: naming it
-/// makes "was this window distilled by the deterministic tier or the LLM one?"
-/// answerable from the run alone, which matters the moment the LLM tier lands.
+/// `model` stamped on the provenance run when the claim tier did not run —
+/// no [`ClaimDistiller`] configured, an empty window, or a transport
+/// failure. The tier is the model here: naming it makes "was this window
+/// distilled by the deterministic tier alone, or did the LLM tier also run?"
+/// answerable from the run alone. When the LLM tier DOES complete a call,
+/// the run's `model` is overwritten with the distiller's own
+/// [`ClaimDistiller::model_id`] instead — see
+/// [`MemoryConsolidationExecutor::run_claim_tier`].
 pub const DETERMINISTIC_MODEL: &str = "deterministic-v1";
 
 /// Source runs examined per task.
@@ -76,6 +91,12 @@ pub struct MemoryConsolidationExecutor {
     store: Arc<SqliteItemStore>,
     actor: String,
     gate_threshold: f32,
+    /// The optional claim-distillation tier (ADR-0028 P6). `None` — the
+    /// constructor default, and what every deterministic-only test in this
+    /// crate builds — reproduces v1's behavior exactly: no prompt is built,
+    /// no call is made, the provenance run's `model` stays
+    /// [`DETERMINISTIC_MODEL`].
+    claim_distiller: Option<Arc<dyn ClaimDistiller>>,
 }
 
 impl MemoryConsolidationExecutor {
@@ -84,6 +105,7 @@ impl MemoryConsolidationExecutor {
             store,
             actor: CONSOLIDATE_AGENT_ID.to_string(),
             gate_threshold: GATE_CONFIRM_THRESHOLD,
+            claim_distiller: None,
         }
     }
 
@@ -91,6 +113,19 @@ impl MemoryConsolidationExecutor {
     /// kernel default, which is where the decision belongs.
     pub fn with_gate_threshold(mut self, threshold: f32) -> Self {
         self.gate_threshold = threshold;
+        self
+    }
+
+    /// Enable (or explicitly disable) the optional LLM claim-distillation
+    /// tier. `None` is the default already set by [`Self::new`]; production
+    /// wiring mirrors `impel_enrichment::LlmClassifier::from_env` and
+    /// `impel_throughline::LlmDrafter::from_env`: build a
+    /// [`claim_distill::LlmDistiller`] from `IMPEL_LLM_*` and pass it here
+    /// (as `Some(Arc::new(..))`) when present, matching the "LLM tier when
+    /// configured, deterministic tier otherwise" convention every other
+    /// executor in this daemon follows.
+    pub fn with_claim_distiller(mut self, distiller: Option<Arc<dyn ClaimDistiller>>) -> Self {
+        self.claim_distiller = distiller;
         self
     }
 
@@ -198,10 +233,20 @@ impl TaskExecutor for MemoryConsolidationExecutor {
         // ── Distil, then gate. Neither step writes. ────────────────────────
         // `gate_fts` is a pure read, so every decision can be made before the
         // provenance run exists — which is what lets the run's `result_summary`
-        // carry the real insert/confirm counts instead of a plan.
+        // carry the real insert/confirm counts instead of a plan. `task` is
+        // resolved once per run here (not inside `episode_draft`) so the
+        // optional claim tier below can reuse it via `run_fact` without a
+        // second store read.
         let mut drafts: Vec<(MemoryDraft, GateOutcome)> = Vec::with_capacity(runs.len());
+        let mut prompt_facts: Vec<claim_distill::RunFact> = Vec::with_capacity(runs.len());
         for run in &runs {
-            let draft = self.episode_draft(run);
+            // Not `task` — the outer `task: &Item` (the consolidate task
+            // itself) stays in scope for `record_agent_run` below; this is
+            // the run's OWN parent task, resolved once and reused by both
+            // `episode_draft` and `run_fact`.
+            let parent_task = self.linked_task(run);
+            let draft = self.episode_draft(run, parent_task.as_ref());
+            prompt_facts.push(self.run_fact(run, parent_task.as_ref()));
             let outcome = memory_ops::gate_fts(self.store.as_ref(), &draft, self.gate_threshold)
                 .map_err(|e| TaskError::Retryable(format!("dedup gate: {e}")))?;
             drafts.push((draft, outcome));
@@ -223,11 +268,27 @@ impl TaskExecutor for MemoryConsolidationExecutor {
             ));
         }
 
+        // ── Optional claim-distillation tier (ADR-0028 P6) ─────────────────
+        // Same "distil, then gate, neither writes" discipline as episodes:
+        // the LLM call and its gating both happen before `record_agent_run`,
+        // so the provenance run's summary and `model` carry the real outcome,
+        // and a failure here has written nothing yet to roll back.
+        let claim_tier = self
+            .run_claim_tier(&runs, &prompt_facts, window_start, window_end)
+            .await?;
+        if let Some(suffix) = &claim_tier.summary_suffix {
+            summary.push_str(suffix);
+        }
+        let model = claim_tier
+            .model
+            .clone()
+            .unwrap_or_else(|| DETERMINISTIC_MODEL.to_string());
+
         let run_id = store.record_agent_run(
             task.id,
             AgentRunRecord {
                 agent_id: self.actor.clone(),
-                model: DETERMINISTIC_MODEL.into(),
+                model,
                 prompt_hash: window_hash(window_start, window_end, &runs),
                 result_summary: Some(summary),
                 token_count: None,
@@ -235,27 +296,11 @@ impl TaskExecutor for MemoryConsolidationExecutor {
             },
         )?;
 
-        for (mut draft, outcome) in drafts {
-            match outcome {
-                GateOutcome::Insert => {
-                    // The consolidation's OWN run is the episode's producer;
-                    // the source run is its evidence. Set here rather than in
-                    // `episode_draft` because the run id does not exist until
-                    // the counts it summarises are known.
-                    draft.agent_run_ref = Some(run_id.to_string());
-                    memory_ops::insert_memory_item(self.store.as_ref(), &draft)
-                        .map_err(|e| TaskError::Retryable(format!("insert episode: {e}")))?;
-                }
-                GateOutcome::Confirm(existing) => {
-                    memory_ops::confirm(
-                        self.store.as_ref(),
-                        existing,
-                        CONSOLIDATE_AUTHOR,
-                        ActorKind::Agent,
-                    )
-                    .map_err(|e| TaskError::Retryable(format!("confirm episode: {e}")))?;
-                }
-            }
+        for (draft, outcome) in drafts {
+            self.apply_gate_outcome(draft, outcome, run_id, "episode")?;
+        }
+        for (draft, outcome) in claim_tier.drafts {
+            self.apply_gate_outcome(draft, outcome, run_id, "claim")?;
         }
 
         for run in &runs {
@@ -281,16 +326,17 @@ impl TaskExecutor for MemoryConsolidationExecutor {
 impl MemoryConsolidationExecutor {
     /// One structural episode from one agent-run. No model, no interpretation —
     /// only fields the run actually carries.
-    fn episode_draft(&self, run: &Item) -> MemoryDraft {
+    ///
+    /// `task` is resolved by the caller (`execute`'s window loop), not here —
+    /// so the same graph walk can be reused for the optional claim tier's
+    /// prompt facts (`run_fact`) without a second store read per run.
+    fn episode_draft(&self, run: &Item, task: Option<&Item>) -> MemoryDraft {
         let agent_id = payload_string(run, "agent_id").filter(|s| !s.trim().is_empty());
         let model = payload_string(run, "model").filter(|s| !s.trim().is_empty());
-        let task = self.linked_task(run);
         let task_kind = task
-            .as_ref()
             .and_then(|t| payload_string(t, "task_kind"))
             .filter(|s| !s.trim().is_empty());
         let task_title = task
-            .as_ref()
             .and_then(|t| payload_string(t, "title"))
             .filter(|s| !s.trim().is_empty());
 
@@ -397,6 +443,202 @@ impl MemoryConsolidationExecutor {
         }
         None
     }
+
+    /// The subset of an agent-run's facts the claim-distillation prompt is
+    /// allowed to see. Reuses the SAME `task` resolution the episode draft
+    /// for this run already paid for (see the call site in `execute`), so
+    /// enabling the claim tier costs no extra store read.
+    fn run_fact(&self, run: &Item, task: Option<&Item>) -> claim_distill::RunFact {
+        claim_distill::RunFact {
+            run_id: run.id.to_string(),
+            agent_id: payload_string(run, "agent_id").filter(|s| !s.trim().is_empty()),
+            model: payload_string(run, "model").filter(|s| !s.trim().is_empty()),
+            task_kind: task
+                .and_then(|t| payload_string(t, "task_kind"))
+                .filter(|s| !s.trim().is_empty()),
+            task_title: task
+                .and_then(|t| payload_string(t, "title"))
+                .filter(|s| !s.trim().is_empty()),
+            result_summary: payload_string(run, "result_summary").filter(|s| !s.trim().is_empty()),
+            token_count: payload_i64(run, "token_count"),
+        }
+    }
+
+    /// The optional second pass over a window: one LLM call proposing durable
+    /// claims, gated through the same D6 defence episodes use. Never writes —
+    /// same contract as the episode pass in `execute` — and never turns an
+    /// unreachable model host into a task retry: the deterministic episode
+    /// pass has already succeeded by the time this runs, so a dead LLM host
+    /// degrades this window to "no claims this time", not to "redo
+    /// everything".
+    async fn run_claim_tier(
+        &self,
+        runs: &[Item],
+        facts: &[claim_distill::RunFact],
+        window_start: i64,
+        window_end: i64,
+    ) -> Result<ClaimTierOutcome, TaskError> {
+        let Some(distiller) = self.claim_distiller.as_ref() else {
+            return Ok(ClaimTierOutcome::default());
+        };
+        // Nothing to distil, and a call would be a wasted round trip — same
+        // reasoning as the embed executor's "an empty window never asks for
+        // an embedder".
+        if runs.is_empty() {
+            return Ok(ClaimTierOutcome::default());
+        }
+
+        let prompt = claim_distill::build_prompt(facts);
+        let reply = match distiller.distill(&prompt).await {
+            Ok(text) => text,
+            Err(err) => {
+                return Ok(ClaimTierOutcome {
+                    drafts: Vec::new(),
+                    model: None,
+                    summary_suffix: Some(format!("; llm: \"unavailable\" ({err})")),
+                });
+            }
+        };
+
+        // What a claim's `about_run_ids` may cite: only runs this window
+        // actually consumed, lowercased to match `memory_ops`'s own ref
+        // normalization.
+        let window_ids: BTreeSet<String> = runs
+            .iter()
+            .map(|r| r.id.to_string().to_lowercase())
+            .collect();
+
+        let mut drafts: Vec<(MemoryDraft, GateOutcome)> = Vec::new();
+        for claim in claim_distill::parse_reply(&reply)
+            .into_iter()
+            .take(claim_distill::MAX_CLAIMS_PER_WINDOW)
+        {
+            let draft = self.claim_draft(&claim, &window_ids, window_start, window_end);
+            let outcome = memory_ops::gate_fts(self.store.as_ref(), &draft, self.gate_threshold)
+                .map_err(|e| TaskError::Retryable(format!("dedup gate (claim): {e}")))?;
+            drafts.push((draft, outcome));
+        }
+
+        let inserted = drafts
+            .iter()
+            .filter(|(_, outcome)| matches!(outcome, GateOutcome::Insert))
+            .count();
+        let confirmed = drafts.len() - inserted;
+        let summary_suffix = Some(format!(
+            "; {} claim(s) distilled ({inserted} inserted, {confirmed} confirmed) via {}",
+            drafts.len(),
+            distiller.model_id()
+        ));
+        Ok(ClaimTierOutcome {
+            drafts,
+            model: Some(distiller.model_id().to_string()),
+            summary_suffix,
+        })
+    }
+
+    /// One claim draft from one parsed proposal. `window_ids` restricts
+    /// `evidence_refs` to runs actually consumed by this window — a model
+    /// may cite a run id that does not exist or belongs to a different
+    /// window, and that must cost the citation, not the claim.
+    fn claim_draft(
+        &self,
+        claim: &claim_distill::ParsedClaim,
+        window_ids: &BTreeSet<String>,
+        window_start: i64,
+        window_end: i64,
+    ) -> MemoryDraft {
+        let evidence_refs: Vec<String> = claim
+            .about_run_ids
+            .iter()
+            .map(|id| id.trim().to_lowercase())
+            .filter(|id| window_ids.contains(id))
+            .collect();
+
+        MemoryDraft {
+            kind: MemoryKind::Claim,
+            title: claim.title.clone(),
+            body: claim.body.clone(),
+            claim_type: claim.claim_type.clone(),
+            confidence: claim.confidence,
+            subject_refs: Vec::new(),
+            evidence_refs,
+            agent_id: None,
+            // Filled in by `execute` once the provenance run exists — same
+            // two-step as episodes.
+            agent_run_ref: None,
+            author: CONSOLIDATE_AUTHOR.into(),
+            author_kind: ActorKind::Agent,
+            // Window-scoped, NOT run-scoped like an episode's key: the same
+            // claim re-derived in a DIFFERENT window is expected to come back
+            // with slightly different model wording, so only an EXACT replay
+            // of THIS window collapses to the same id here. Catching "the
+            // same claim, worded differently, from a different window" is
+            // `gate_fts`'s job, not this key's — see
+            // `a_duplicate_claim_across_two_windows_confirms_not_duplicates`.
+            deterministic_key: Some(format!(
+                "consolidate-claim:{window_start}:{window_end}:{}",
+                claim_text_hash(&claim.title, &claim.body)
+            )),
+            extra: BTreeMap::new(),
+        }
+    }
+
+    /// Write one gated draft (episode or claim): insert on [`GateOutcome::Insert`]
+    /// (stamping this consolidation's own provenance run as its producer),
+    /// confirm the existing row on [`GateOutcome::Confirm`]. `kind_label` only
+    /// shapes the error message, so a store failure is diagnosable without a
+    /// debugger.
+    fn apply_gate_outcome(
+        &self,
+        mut draft: MemoryDraft,
+        outcome: GateOutcome,
+        run_id: ItemId,
+        kind_label: &str,
+    ) -> Result<(), TaskError> {
+        match outcome {
+            GateOutcome::Insert => {
+                draft.agent_run_ref = Some(run_id.to_string());
+                memory_ops::insert_memory_item(self.store.as_ref(), &draft)
+                    .map_err(|e| TaskError::Retryable(format!("insert {kind_label}: {e}")))?;
+            }
+            GateOutcome::Confirm(existing) => {
+                memory_ops::confirm(
+                    self.store.as_ref(),
+                    existing,
+                    CONSOLIDATE_AUTHOR,
+                    ActorKind::Agent,
+                )
+                .map_err(|e| TaskError::Retryable(format!("confirm {kind_label}: {e}")))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Outcome of attempting the optional claim tier for one window.
+#[derive(Default)]
+struct ClaimTierOutcome {
+    /// Claim drafts already gated (Insert/Confirm decided) — same shape the
+    /// episode pass produces, ready to write once the provenance run exists.
+    drafts: Vec<(MemoryDraft, GateOutcome)>,
+    /// The real provider/model string, but ONLY when a call actually
+    /// completed. `None` (the default) leaves the provenance run's `model`
+    /// at [`DETERMINISTIC_MODEL`] — no distiller configured, an empty
+    /// window, and a transport failure all count as "the LLM tier did not
+    /// run" for this field.
+    model: Option<String>,
+    /// Appended verbatim to the provenance run's `result_summary`.
+    summary_suffix: Option<String>,
+}
+
+/// Stable id material for a claim's `deterministic_key`: sha256 over the
+/// title and body, so the id changes if and only if the text does.
+fn claim_text_hash(title: &str, body: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(title.trim().as_bytes());
+    hasher.update([0u8]);
+    hasher.update(body.trim().as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 /// Whether a run is terminal, and not one of ours. See the module docs.
