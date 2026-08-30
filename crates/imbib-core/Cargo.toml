@@ -12,9 +12,17 @@ name = "imbib_core"
 
 [features]
 default = []
-native = ["uniffi", "tokio", "reqwest", "hnsw_rs", "bincode", "rusqlite"]
+native = [
+    "uniffi",
+    "tokio",
+    "reqwest",
+    "rusqlite",
+    # The embedding engines behind `search::embeddings_ffi`. imbib-core owns
+    # the UniFFI shims, impress-embeddings owns the maths and the sidecar.
+    "impress-embeddings/store",
+    "impress-embeddings/index",
+]
 wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
-embeddings = ["fastembed"]  # Optional: semantic search requires ~100MB model
 
 [dependencies]
 # Shared impress crates
@@ -28,6 +36,10 @@ impress-core = { workspace = true, features = ["sqlite", "collab"] }
 # PMC already links ImbibCore.xcframework, so the smart-search surface reaches
 # Swift without adding a third framework to the app bundle.
 impress-smart-search = { workspace = true }
+# The suite's embedding stack. The workspace entry has default-features off;
+# `native` turns on the store + index engines, and nothing in imbib-core wants
+# the fastembed `embedder` (impress-mcp is the only crate that does).
+impress-embeddings = { workspace = true }
 
 # UniFFI for Swift/Kotlin bindings (optional, native only)
 uniffi = { workspace = true, features = ["tokio"], optional = true }
@@ -82,13 +94,7 @@ base64 = "0.22"
 # Timestamps for annotations
 chrono = { workspace = true }
 
-# Semantic search (optional - large model, native only)
-fastembed = { version = "4", optional = true }
-
-# Approximate Nearest Neighbor search (optional)
-hnsw_rs = { version = "0.3", optional = true }
-bincode = { version = "1.3", optional = true }  # For ANN index serialization
-rusqlite = { workspace = true, optional = true }  # Embedding store persistence
+rusqlite = { workspace = true, optional = true }  # unified/store_api.rs
 
 # Native-only dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

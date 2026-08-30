@@ -4,7 +4,7 @@ use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use imbib_core::search::{ChunkIndex, ChunkSimilarityResult, EmbeddingStore, SemanticSearch};
+use impress_embeddings::{ChunkIndex, ChunkSimilarityResult, EmbeddingStore, SemanticSearch};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 

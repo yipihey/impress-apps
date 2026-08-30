@@ -7,6 +7,8 @@ use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub use crate::PublicationEmbedding;
+
 #[derive(Error, Debug)]
 pub enum EmbeddingError {
     #[error("Model initialization failed: {0}")]
@@ -15,14 +17,6 @@ pub enum EmbeddingError {
     EmbeddingFailed(String),
     #[error("Invalid input: {0}")]
     InvalidInput(String),
-}
-
-/// Embedding vector for a publication
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct PublicationEmbedding {
-    pub publication_id: String,
-    pub vector: Vec<f32>,
-    pub model: String,
 }
 
 /// Semantic search engine
@@ -147,62 +141,8 @@ impl SemanticSearch {
     }
 }
 
-/// Compute cosine similarity between two vectors
-#[uniffi::export]
-pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() {
-        return 0.0;
-    }
-
-    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-    if norm_a == 0.0 || norm_b == 0.0 {
-        return 0.0;
-    }
-
-    dot_product / (norm_a * norm_b)
-}
-
-/// Find most similar publications by embedding
-#[uniffi::export]
-pub fn find_similar(
-    query_embedding: &[f32],
-    candidate_embeddings: Vec<PublicationEmbedding>,
-    top_k: u32,
-) -> Vec<SimilarityResult> {
-    let top_k = top_k as usize;
-    let mut results: Vec<SimilarityResult> = candidate_embeddings
-        .into_iter()
-        .map(|emb| {
-            let similarity = cosine_similarity(query_embedding, &emb.vector);
-            SimilarityResult {
-                publication_id: emb.publication_id,
-                similarity,
-            }
-        })
-        .collect();
-
-    // Sort by similarity descending
-    results.sort_by(|a, b| {
-        b.similarity
-            .partial_cmp(&a.similarity)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    results.truncate(top_k);
-    results
-}
-
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct SimilarityResult {
-    pub publication_id: String,
-    pub similarity: f32,
-}
-
 /// Embedding storage format for persistence
-#[derive(uniffi::Record, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StoredEmbedding {
     pub publication_id: String,
     pub vector: Vec<f32>,
@@ -218,41 +158,5 @@ impl From<PublicationEmbedding> for StoredEmbedding {
             model: emb.model,
             created_at: chrono::Utc::now().to_rfc3339(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_cosine_similarity() {
-        let a = vec![1.0, 0.0, 0.0];
-        let b = vec![1.0, 0.0, 0.0];
-        assert!((cosine_similarity(&a, &b) - 1.0).abs() < 0.001);
-
-        let c = vec![0.0, 1.0, 0.0];
-        assert!(cosine_similarity(&a, &c).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_find_similar() {
-        let query = vec![1.0, 0.0, 0.0];
-        let candidates = vec![
-            PublicationEmbedding {
-                publication_id: "a".to_string(),
-                vector: vec![0.9, 0.1, 0.0],
-                model: "test".to_string(),
-            },
-            PublicationEmbedding {
-                publication_id: "b".to_string(),
-                vector: vec![0.0, 1.0, 0.0],
-                model: "test".to_string(),
-            },
-        ];
-
-        let results = find_similar(&query, candidates, 2u32);
-        assert_eq!(results[0].publication_id, "a");
-        assert!(results[0].similarity > results[1].similarity);
     }
 }

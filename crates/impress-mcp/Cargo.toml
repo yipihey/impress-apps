@@ -11,7 +11,15 @@ name = "impress-mcp"
 path = "src/main.rs"
 
 [dependencies]
-imbib-core = { workspace = true, features = ["native", "embeddings"] }
+imbib-core = { workspace = true, features = ["native"] }
+# The embedding stack behind the three hand-written semantic-search tools.
+# All three features named explicitly even though imbib-core's `native` also
+# turns on store+index: `tools.rs` names `EmbeddingStore` and `ChunkIndex`
+# itself, and a dependency you use is one you declare, not one you inherit by
+# feature unification. `embedder` (fastembed) is enabled HERE and nowhere else
+# in the suite — this binary is the only thing that generates embeddings
+# rather than reading them.
+impress-embeddings = { workspace = true, features = ["store", "index", "embedder"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rusqlite = { workspace = true }

@@ -117,9 +117,12 @@ pub use recommendation::{
     FeatureType, FeatureVector, LibraryContext, MutedItems, ProfileData, PublicationFeatureInput,
 };
 
-#[cfg(feature = "embeddings")]
-pub use search::{
-    cosine_similarity, find_similar, PublicationEmbedding, SimilarityResult, StoredEmbedding,
+// The similarity primitives moved to `impress-embeddings` with the rest of
+// the embedding stack; re-exported here so `imbib_core::cosine_similarity`
+// keeps resolving. They are dependency-free, so unlike the old `embeddings`
+// feature this needs no gate.
+pub use impress_embeddings::{
+    cosine_similarity, find_similar, PublicationEmbedding, SimilarityResult,
 };
 
 // Setup UniFFI - use proc macros only, no UDL file (native only)
