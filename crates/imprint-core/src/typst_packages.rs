@@ -51,11 +51,14 @@ impl CachedPackageResolver {
         // Vendored tree inside the host app bundle: a sandboxed app can
         // always read its own Resources, and nothing else on a locked-down
         // machine is guaranteed readable (group containers kernel-hang for
-        // unentitled writers, other containers are TCC-protected). Hosts ship
-        // it at Contents/Resources/typst-packages (exe is Contents/MacOS/…).
+        // unentitled writers, other containers are TCC-protected).
+        // macOS bundles are nested (exe at Contents/MacOS/…, resources at
+        // Contents/Resources/…); iOS bundles are flat (exe and resources both
+        // at the bundle root), so probe both shapes.
         if let Ok(exe) = std::env::current_exe() {
-            if let Some(macos_dir) = exe.parent() {
-                if let Some(contents) = macos_dir.parent() {
+            if let Some(bundle_dir) = exe.parent() {
+                roots.push(bundle_dir.join("typst-packages"));
+                if let Some(contents) = bundle_dir.parent() {
                     roots.push(contents.join("Resources").join("typst-packages"));
                 }
             }

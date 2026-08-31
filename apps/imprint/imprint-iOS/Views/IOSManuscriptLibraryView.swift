@@ -42,6 +42,12 @@ struct IOSManuscriptLibraryView: View {
     // MARK: - Navigation state
 
     /// The sidebar's selection, in chassis vocabulary.
+    /// Foreground transitions re-read the store: rows written by OTHER
+    /// processes (imbib-iOS's CloudSyncEngine pull, most importantly) bump no
+    /// in-process dataVersion, so returning to the app is the natural moment
+    /// to catch up — without it, synced manuscripts stay invisible until a
+    /// cold launch (observed live 2026-08-31 on the first two-device sync).
+    @Environment(\.scenePhase) private var scenePhase
     @State private var scope: RecordSidebarScope?
     /// The manuscript open in the detail column.
     @State private var selectedManuscriptID: UUID?
@@ -147,6 +153,9 @@ struct IOSManuscriptLibraryView: View {
             await OutlineSnapshotMaintainer.shared.start()
         }
         .onChange(of: adapter.dataVersion) { _, _ in refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refresh() }
+        }
         .onChange(of: scope) { _, _ in refresh() }
         .onChange(of: searchText) { _, _ in refresh() }
         .onOpenURL { url in handleIncomingURL(url) }

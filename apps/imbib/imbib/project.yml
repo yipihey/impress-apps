@@ -112,6 +112,9 @@ targets:
         excludes:
           - "**/*.entitlements"
           - "**/ShareExtension/**"
+      - path: ../../../vendor/typst-packages
+        type: folder
+        buildPhase: resources
       # Help documentation resources
       - path: ../docs
         name: HelpDocs
@@ -278,6 +281,9 @@ targets:
           - "_layouts/**"
           - "*.yml"
           - "Gemfile*"
+      - path: ../../../vendor/typst-packages
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: PublicationManagerCore
       - package: ImpressHelixCore

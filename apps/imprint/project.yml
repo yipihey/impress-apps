@@ -119,6 +119,9 @@ targets:
     sources:
       - path: Shared
       - path: macOS
+      - path: ../../vendor/typst-packages
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint
@@ -270,6 +273,9 @@ targets:
     sources:
       - path: Shared
       - path: imprint-iOS
+      - path: ../../vendor/typst-packages
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.imprint
