@@ -122,12 +122,25 @@ final class StoreStartupRetryTests: XCTestCase {
             label: "locked test store",
             policy: .init(attempts: 6, initialDelay: 0.4)
         ) { try ImbibStore.open(path: path) }
+        let elapsed = Date().timeIntervalSince(started)
 
         switch result {
         case .success:
-            XCTAssertGreaterThan(
-                Date().timeIntervalSince(started), 0.3,
-                "success must have come after riding out the lock, not instantly")
+            // The original assertion here demanded elapsed > 0.3s — "success
+            // must have come after riding out the lock". That was correct for
+            // the open path it was written against, where opening always
+            // fought for the write lock. Since 96a6e9d6 the open only WRITES
+            // when it has something to write (metadata probe-first, bounded
+            // optimize/checkpoint, conditional backfill), so on this
+            // pre-created store it succeeds while the lock is STILL HELD —
+            // fast success is now the desired behavior, not a failed wait.
+            // What this test still guards is the retry harness itself: a
+            // locked store must never surface as failure or the degraded
+            // fallback, and must resolve within the policy's bounded window.
+            XCTAssertLessThan(
+                elapsed, 6.0,
+                "open took \(elapsed)s against a lock the timer released after "
+                    + "1s — the retry policy is not bounding the wait")
         case .failure(let error):
             XCTFail("open never recovered after the lock was released: \(error)")
         }

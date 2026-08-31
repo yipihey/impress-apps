@@ -89,20 +89,22 @@ final class SidebarStoreCallRatchetTests: XCTestCase {
 
         XCTAssertGreaterThan(nodes, 10, "walk visited too few nodes to be a real tree")
 
-        // THE PINS — the ratchet. Measured 2026-08-31 on this fixture
-        // (5 RustStore libraries + mock collections; 62 nodes; one full walk
-        // + one bumpDataVersion): the pre-memoization baseline. P1 lowers
-        // them; they only move DOWN thereafter. For scale, the live app the
-        // same day measured listSmartSearches ×427 / listCollections ×424 in
-        // one session, 96.7% of store calls on the main thread.
+        // THE PINS — the ratchet, after P1's per-dataVersion fetch cache.
+        // One fetch per verb-shape per dataVersion is the ideal, and these ARE
+        // it on this fixture (5 libraries; one full walk + one bumpDataVersion
+        // = at most two versions): P0 measured 100/42/20/18 before the cache.
+        // For scale, the live app measured listSmartSearches ×427 /
+        // listCollections ×424 in one session, 96.7% of store calls on the
+        // main thread (2026-08-31 audit). Numbers only move DOWN from here —
+        // P2's snapshot tree takes the walk itself off this store entirely.
         let pins: [String: Int] = [
             "listLibraries()": 0,
-            "listCollections(libraryId:)": 100,
-            "listSmartSearches(libraryId:)": 42,
-            "countArtifacts(type:)": 18,
+            "listCollections(libraryId:)": 10,
+            "listSmartSearches(libraryId:)": 11,
+            "countArtifacts(type:)": 9,
             "countUnread(parentId:)": 0,
             "countUnreadInCollection(collectionId:)": 0,
-            "countStarred(parentId:)": 20,
+            "countStarred(parentId:)": 10,
         ]
         for (verb, pin) in pins.sorted(by: { $0.key < $1.key }) {
             let actual = store.readCallCounts[verb, default: 0]

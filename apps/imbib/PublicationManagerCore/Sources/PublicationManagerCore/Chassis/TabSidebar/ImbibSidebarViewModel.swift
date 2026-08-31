@@ -1217,7 +1217,7 @@ final class ImbibSidebarViewModel {
 
         // Inbox collections
         if let inboxLib = InboxManager.shared.inboxLibrary {
-            let collections = store.listCollections(libraryId: inboxLib.id)
+            let collections = cachedCollections(libraryId: inboxLib.id)
             let rootCollections = collections
                 .filter { $0.parentID == nil && !$0.isSmart }
                 .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
@@ -1256,7 +1256,7 @@ final class ImbibSidebarViewModel {
 
     private func inboxCollectionSubchildren(collectionID: UUID) -> [ImbibSidebarNode] {
         guard let inboxLib = InboxManager.shared.inboxLibrary else { return [] }
-        let allCollections = store.listCollections(libraryId: inboxLib.id)
+        let allCollections = cachedCollections(libraryId: inboxLib.id)
         guard allCollections.contains(where: { $0.id == collectionID }) else { return [] }
 
         var nodes: [ImbibSidebarNode] = []
@@ -1286,12 +1286,12 @@ final class ImbibSidebarViewModel {
             .filter { !$0.isInbox && $0.id != explorationID && $0.id != dismissedID }
             .map { library in
                 // Check via Rust store for collections and library feeds
-                let collections = store.listCollections(libraryId: library.id)
-                let feeds = store.listSmartSearches(libraryId: library.id)
+                let collections = cachedCollections(libraryId: library.id)
+                let feeds = cachedFeeds(libraryId: library.id)
                     .filter { $0.autoRefreshEnabled && !$0.feedsToInbox }
                 let hasCollections = !collections.isEmpty || !feeds.isEmpty
                 let count = library.publicationCount
-                let starred = store.countStarred(parentId: library.id)
+                let starred = cachedStarredCount(parentId: library.id)
                 return ImbibSidebarNode(
                     id: library.id,
                     nodeType: .library(libraryID: library.id),
@@ -1309,14 +1309,14 @@ final class ImbibSidebarViewModel {
         var nodes: [ImbibSidebarNode] = []
 
         // Library feeds (auto-refresh smart searches in this library, not inbox-bound)
-        let feeds = store.listSmartSearches(libraryId: libraryID)
+        let feeds = cachedFeeds(libraryId: libraryID)
             .filter { $0.autoRefreshEnabled && !$0.feedsToInbox }
         for feed in feeds {
             nodes.append(makeLibraryFeedNode(feed, libraryID: libraryID))
         }
 
         // Collections
-        let collections = store.listCollections(libraryId: libraryID)
+        let collections = cachedCollections(libraryId: libraryID)
         let collectionNodes = collections
             .filter { $0.parentID == nil }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
@@ -1339,7 +1339,7 @@ final class ImbibSidebarViewModel {
     }
 
     private func collectionSubchildren(collectionID: UUID, libraryID: UUID) -> [ImbibSidebarNode] {
-        let collections = store.listCollections(libraryId: libraryID)
+        let collections = cachedCollections(libraryId: libraryID)
         return collections
             .filter { $0.parentID == collectionID }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
@@ -1413,7 +1413,7 @@ final class ImbibSidebarViewModel {
         var items: [(order: Int, node: ImbibSidebarNode)] = []
 
         // Smart searches
-        let searches = store.listSmartSearches(libraryId: lib.id)
+        let searches = cachedFeeds(libraryId: lib.id)
         for search in searches {
             items.append((search.sortOrder, ImbibSidebarNode(
                 id: search.id,
@@ -1424,7 +1424,7 @@ final class ImbibSidebarViewModel {
         }
 
         // Collections
-        let collections = store.listCollections(libraryId: lib.id)
+        let collections = cachedCollections(libraryId: lib.id)
         let rootCollections = collections
             .filter { $0.parentID == nil && !$0.isSmart }
         for collection in rootCollections {
@@ -1460,7 +1460,7 @@ final class ImbibSidebarViewModel {
 
     private func explorationCollectionSubchildren(collectionID: UUID) -> [ImbibSidebarNode] {
         guard let lib = libraryManager?.explorationLibrary else { return [] }
-        let collections = store.listCollections(libraryId: lib.id)
+        let collections = cachedCollections(libraryId: lib.id)
         return collections
             .filter { $0.parentID == collectionID && !$0.isSmart }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
@@ -1494,6 +1494,67 @@ final class ImbibSidebarViewModel {
         let paths = Array(Set(RustStoreAdapter.shared.listTags().map(\.path)))
         tagPathCache = paths
         return paths
+    }
+
+    // MARK: - Per-dataVersion fetch cache (sidebar plan P1)
+    //
+    // The tree builders used to call `store.listCollections` /
+    // `listSmartSearches` / `countStarred` / `countArtifacts` per NODE VISIT:
+    // one walk + one rebuild on a 5-library fixture measured 100 / 42 / 20 /
+    // 18 calls (SidebarStoreCallRatchetTests' P0 baseline), and the live app
+    // 427× / 424× in a session — the bulk of the sidebar's main-thread store
+    // time. The data cannot change without `dataVersion` changing (that is
+    // dataVersion's whole contract: every adapter mutation bumps it), so one
+    // fetch per verb-shape per version is exactly as fresh and dozens of
+    // times cheaper. The ratchet test pins the reduction.
+    //
+    // `@ObservationIgnored`: cache state is not view state; filling it during
+    // a SwiftUI body walk must not schedule re-renders.
+    @ObservationIgnored private var fetchCacheVersion: Int = .min
+    @ObservationIgnored private var cachedCollectionsByLibrary: [UUID: [CollectionModel]] = [:]
+    @ObservationIgnored private var cachedFeedsByLibrary: [UUID?: [SmartSearch]] = [:]
+    @ObservationIgnored private var cachedStarredByLibrary: [UUID?: Int] = [:]
+    @ObservationIgnored private var cachedArtifactCounts: [ArtifactType?: Int] = [:]
+
+    private func ensureFetchCacheCurrent() {
+        guard fetchCacheVersion != dataVersion else { return }
+        fetchCacheVersion = dataVersion
+        cachedCollectionsByLibrary.removeAll(keepingCapacity: true)
+        cachedFeedsByLibrary.removeAll(keepingCapacity: true)
+        cachedStarredByLibrary.removeAll(keepingCapacity: true)
+        cachedArtifactCounts.removeAll(keepingCapacity: true)
+    }
+
+    func cachedCollections(libraryId: UUID) -> [CollectionModel] {
+        ensureFetchCacheCurrent()
+        if let hit = cachedCollectionsByLibrary[libraryId] { return hit }
+        let fetched = store.listCollections(libraryId: libraryId)
+        cachedCollectionsByLibrary[libraryId] = fetched
+        return fetched
+    }
+
+    func cachedFeeds(libraryId: UUID?) -> [SmartSearch] {
+        ensureFetchCacheCurrent()
+        if let hit = cachedFeedsByLibrary[libraryId] { return hit }
+        let fetched = store.listSmartSearches(libraryId: libraryId)
+        cachedFeedsByLibrary[libraryId] = fetched
+        return fetched
+    }
+
+    func cachedStarredCount(parentId: UUID?) -> Int {
+        ensureFetchCacheCurrent()
+        if let hit = cachedStarredByLibrary[parentId] { return hit }
+        let fetched = store.countStarred(parentId: parentId)
+        cachedStarredByLibrary[parentId] = fetched
+        return fetched
+    }
+
+    func cachedArtifactCount(type: ArtifactType?) -> Int {
+        ensureFetchCacheCurrent()
+        if let hit = cachedArtifactCounts[type] { return hit }
+        let fetched = store.countArtifacts(type: type)
+        cachedArtifactCounts[type] = fetched
+        return fetched
     }
 
     func invalidateTagCache() {
@@ -1665,7 +1726,7 @@ final class ImbibSidebarViewModel {
         var nodes: [ImbibSidebarNode] = []
 
         // All Artifacts row
-        let totalCount = store.countArtifacts(type: nil)
+        let totalCount = cachedArtifactCount(type: nil)
         nodes.append(ImbibSidebarNode(
             id: ImbibSidebarNodeID.allArtifacts,
             nodeType: .allArtifacts,
@@ -1676,7 +1737,7 @@ final class ImbibSidebarViewModel {
 
         // Per-type rows
         for artifactType in ArtifactType.allCases {
-            let count = store.countArtifacts(type: artifactType)
+            let count = cachedArtifactCount(type: artifactType)
             guard count > 0 else { continue }
             nodes.append(ImbibSidebarNode(
                 id: ImbibSidebarNodeID.artifactType(artifactType.rawValue),
@@ -1710,7 +1771,7 @@ final class ImbibSidebarViewModel {
         guard let lib = libraryManager?.dismissedLibrary else { return [] }
         let count = lib.publicationCount
         guard count > 0 else { return [] }
-        let starred = store.countStarred(parentId: lib.id)
+        let starred = cachedStarredCount(parentId: lib.id)
         return [ImbibSidebarNode(
             id: ImbibSidebarNodeID.dismissed,
             nodeType: .dismissed,
@@ -1777,7 +1838,7 @@ final class ImbibSidebarViewModel {
     /// per-row facts the node does not carry — `isSmart` above all.
     ///
     /// Reads through `CollectionStoreAdapter`, so it is marker-aware: unlike
-    /// `store.listCollections(libraryId:)` it keeps answering after the
+    /// `cachedCollections(libraryId:)` it keeps answering after the
     /// `collections.unified` flip.
     private func collectionRow(_ node: ImbibSidebarNode) -> CollectionKernelRow? {
         guard let folder = folderNode(node) else { return nil }
@@ -2724,7 +2785,7 @@ final class ImbibSidebarViewModel {
         case .libraryCollection(let collectionID, _):
             // ADR-0022 C2: the smart guard is the KERNEL row's `isSmart` (axis
             // 2), read through the marker-aware adapter, instead of a
-            // `store.listCollections(libraryId:)` scan that goes blind at the
+            // `cachedCollections(libraryId:)` scan that goes blind at the
             // WP G7 flip. Same predicate, same refusal, one fewer legacy read.
             let bindingID = CollectionBindingID.publication
             let itemID = collectionID.uuidString.lowercased()
@@ -3486,21 +3547,21 @@ final class ImbibSidebarViewModel {
         guard let manager = libraryManager else { return nil }
         // Search all libraries
         for library in manager.libraries {
-            let collections = store.listCollections(libraryId: library.id)
+            let collections = cachedCollections(libraryId: library.id)
             if let found = collections.first(where: { $0.id == id }) {
                 return found
             }
         }
         // Check inbox library
         if let inboxLib = InboxManager.shared.inboxLibrary {
-            let collections = store.listCollections(libraryId: inboxLib.id)
+            let collections = cachedCollections(libraryId: inboxLib.id)
             if let found = collections.first(where: { $0.id == id }) {
                 return found
             }
         }
         // Check exploration library
         if let explorationLib = manager.explorationLibrary {
-            let collections = store.listCollections(libraryId: explorationLib.id)
+            let collections = cachedCollections(libraryId: explorationLib.id)
             if let found = collections.first(where: { $0.id == id }) {
                 return found
             }
@@ -3512,19 +3573,19 @@ final class ImbibSidebarViewModel {
     private func findLibraryIDForCollection(_ collectionID: UUID) -> UUID? {
         guard let manager = libraryManager else { return nil }
         for library in manager.libraries {
-            let collections = store.listCollections(libraryId: library.id)
+            let collections = cachedCollections(libraryId: library.id)
             if collections.contains(where: { $0.id == collectionID }) {
                 return library.id
             }
         }
         if let inboxLib = InboxManager.shared.inboxLibrary {
-            let collections = store.listCollections(libraryId: inboxLib.id)
+            let collections = cachedCollections(libraryId: inboxLib.id)
             if collections.contains(where: { $0.id == collectionID }) {
                 return inboxLib.id
             }
         }
         if let explorationLib = manager.explorationLibrary {
-            let collections = store.listCollections(libraryId: explorationLib.id)
+            let collections = cachedCollections(libraryId: explorationLib.id)
             if collections.contains(where: { $0.id == collectionID }) {
                 return explorationLib.id
             }
@@ -3533,16 +3594,16 @@ final class ImbibSidebarViewModel {
     }
 
     private func explorationHasContent(libraryID: UUID) -> Bool {
-        let searches = store.listSmartSearches(libraryId: libraryID)
+        let searches = cachedFeeds(libraryId: libraryID)
         let hasSearches = !searches.isEmpty
-        let collections = store.listCollections(libraryId: libraryID)
+        let collections = cachedCollections(libraryId: libraryID)
         let hasCollections = collections.contains { !$0.isSmart }
         return hasSearches || hasCollections
     }
 
     private func fetchInboxFeeds() -> [SmartSearch] {
         // Fetch all smart searches that feed to inbox
-        let allSearches = store.listSmartSearches()
+        let allSearches = cachedFeeds(libraryId: nil)
         return allSearches
             .filter { $0.feedsToInbox }
             .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
