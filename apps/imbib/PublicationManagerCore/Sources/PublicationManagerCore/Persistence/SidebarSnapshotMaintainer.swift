@@ -119,6 +119,20 @@ public actor SidebarSnapshotMaintainer {
         defer { perfToken.end() }
         let gateway = ImbibImpressStore.shared
 
+        // Sidebar plan P3: the whole sweep — counts AND tree data — in ONE
+        // FFI crossing. `sidebar_snapshot()` composes the same Rust verbs the
+        // per-shape reads below use (kernel-first collections included), so
+        // the data cannot differ; only the crossing count does (~2+3×L → 1).
+        // The per-shape path below is the FALLBACK, kept verbatim for a store
+        // error — never a second implementation of the shapes.
+        let oneCall = StoreTimings.shared.measure("ImbibImpressStore.sidebarSnapshot") {
+            try? RustStoreAdapter.shared.imbibStore.sidebarSnapshot()
+        }
+        if let snapshot = oneCall {
+            await publish(snapshot: snapshot)
+            return
+        }
+
         let allSearches = gateway.listSmartSearches()
         let libraries = gateway.listLibraries()
         let flagColors = ["red", "orange", "yellow", "green", "blue", "purple", "grey"]
@@ -196,6 +210,62 @@ public actor SidebarSnapshotMaintainer {
         )
 
         // Publish atomically on the main actor.
+        await MainActor.run {
+            SidebarSnapshot.shared.apply(
+                unreadByFeed: unreadByFeed,
+                unreadByLibrary: unreadByLibrary,
+                flagCounts: flagCounts,
+                treeData: treeData
+            )
+        }
+    }
+
+    /// Map the one-call Rust snapshot into the published Swift values.
+    private func publish(snapshot: SidebarSnapshotData) async {
+        let feedRows = snapshot.allFeeds.map { SmartSearch(from: $0) }
+        let unreadByContainer: [UUID: Int] = Dictionary(
+            snapshot.counts.unreadByContainer.compactMap { entry in
+                UUID(uuidString: entry.id).map { ($0, Int(entry.count)) }
+            },
+            uniquingKeysWith: { a, _ in a }
+        )
+        var unreadByFeed: [UUID: Int] = [:]
+        for feed in feedRows where feed.feedsToInbox {
+            unreadByFeed[feed.id] = unreadByContainer[feed.id] ?? 0
+        }
+        var unreadByLibrary: [UUID: Int] = [:]
+        for lib in snapshot.libraries {
+            guard let id = UUID(uuidString: lib.id) else { continue }
+            unreadByLibrary[id] = unreadByContainer[id] ?? 0
+        }
+        var flagCounts: [String: Int] = [:]
+        for entry in snapshot.counts.flagCounts {
+            flagCounts[entry.id] = Int(entry.count)
+        }
+
+        var collectionsByLibrary: [UUID: [CollectionModel]] = [:]
+        var feedsByLibrary: [UUID?: [SmartSearch]] = [:]
+        var starredByLibrary: [UUID?: Int] = [:]
+        for per in snapshot.perLibrary {
+            guard let id = UUID(uuidString: per.libraryId) else { continue }
+            collectionsByLibrary[id] = per.collections.map { CollectionModel(from: $0) }
+            feedsByLibrary[id] = per.feeds.map { SmartSearch(from: $0) }
+            starredByLibrary[id] = Int(per.starred)
+        }
+        feedsByLibrary[nil] = feedRows
+        starredByLibrary[nil] = Int(snapshot.starredTotal)
+        var artifactCounts: [ArtifactType?: Int] = [:]
+        for entry in snapshot.artifactCounts {
+            let type = entry.schemaRef.flatMap { ArtifactType(rawValue: $0) }
+            if entry.schemaRef != nil && type == nil { continue }
+            artifactCounts[type] = Int(entry.count)
+        }
+        let treeData = SidebarTreeData(
+            collectionsByLibrary: collectionsByLibrary,
+            feedsByLibrary: feedsByLibrary,
+            starredByLibrary: starredByLibrary,
+            artifactCounts: artifactCounts
+        )
         await MainActor.run {
             SidebarSnapshot.shared.apply(
                 unreadByFeed: unreadByFeed,

@@ -35,7 +35,7 @@ pub fn init_imbib_store(store_path: PathBuf) -> Result<(), String> {
 /// Get (or auto-initialize) the shared `Arc<ImbibStore>`. On open failure
 /// falls back to an in-memory store so service methods don't panic — they'll
 /// just return empty results and log via stderr.
-pub(crate) fn store_instance() -> Arc<ImbibStore> {
+pub fn store_instance() -> Arc<ImbibStore> {
     STORE
         .get_or_init(|| {
             let path = default_store_path();

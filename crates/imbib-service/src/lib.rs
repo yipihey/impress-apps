@@ -128,7 +128,7 @@ pub use library_service::{
 };
 pub use scix_service::{DefaultImbibScixService, ImbibScixService, SciXLibraryRecord};
 pub use search_service::{DefaultImbibSearchService, ImbibSearchService, SmartSearchRecord};
-pub use store_singleton::init_imbib_store;
+pub use store_singleton::{init_imbib_store, store_instance};
 pub use tags_service::{DefaultImbibTagsService, ImbibTagsService, TagRecord, TagWithCount};
 pub use undo_service::{DefaultImbibUndoService, ImbibUndoService, UndoGroupRecord};
 
@@ -140,6 +140,9 @@ mod tests {
     fn text_service_methods_registered_in_mcp_inventory() {
         let names: Vec<&str> = McpToolDescriptor::iter().map(|d| d.name).collect();
         for expected in [
+            // Sidebar plan P3: the sidebar as data — "agents can read what
+            // the human sees".
+            "imbib-library-service_sidebar-view",
             "imbib-text-service_decode-latex",
             "imbib-text-service_expand-journal-macro",
             "imbib-text-service_generate-cite-key",
@@ -154,6 +157,7 @@ mod tests {
     fn text_service_methods_registered_in_cli_inventory() {
         let names: Vec<&str> = CliSubcommand::iter().map(|c| c.name).collect();
         for expected in [
+            "sidebar-view",
             "decode-latex",
             "expand-journal-macro",
             "generate-cite-key",

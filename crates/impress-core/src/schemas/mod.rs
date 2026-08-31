@@ -28,6 +28,7 @@ pub use ai::{
     TOOL_INVOCATION_SCHEMA,
 };
 pub use artifact::register_artifact_schemas;
+pub use artifact::ARTIFACT_SCHEMA_REFS;
 pub use bibliography::register_bibliography_schemas;
 pub use citation_usage::register_citation_usage_schema;
 pub use collection::register_collection_schema;

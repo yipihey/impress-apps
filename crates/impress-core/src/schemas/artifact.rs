@@ -126,6 +126,22 @@ fn artifact_fields() -> Vec<FieldDef> {
     ]
 }
 
+/// Every artifact `schema_ref`, in the sidebar's display order — the ONE
+/// list a caller enumerates artifact kinds from (the sidebar snapshot verb
+/// counts per entry; hardcoding these eight spellings anywhere else is the
+/// schema-refs drift class). Each entry is the id its `*_schema()` below
+/// registers; the parity test pins that.
+pub const ARTIFACT_SCHEMA_REFS: [&str; 8] = [
+    "impress/artifact/general",
+    "impress/artifact/code",
+    "impress/artifact/dataset",
+    "impress/artifact/media",
+    "impress/artifact/note",
+    "impress/artifact/poster",
+    "impress/artifact/presentation",
+    "impress/artifact/webpage",
+];
+
 /// Register all artifact schemas in a registry.
 pub fn register_artifact_schemas(registry: &mut SchemaRegistry) {
     registry
@@ -184,6 +200,26 @@ fn field(name: &str, field_type: FieldType, required: bool) -> FieldDef {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn artifact_schema_refs_const_matches_the_registry() {
+        let mut reg = SchemaRegistry::new();
+        register_artifact_schemas(&mut reg);
+        for id in ARTIFACT_SCHEMA_REFS {
+            assert!(
+                reg.get(id).is_some(),
+                "ARTIFACT_SCHEMA_REFS names {id:?}, which register_artifact_schemas does not register"
+            );
+        }
+        assert_eq!(
+            ARTIFACT_SCHEMA_REFS.len(),
+            reg.list()
+                .iter()
+                .filter(|s| s.id.starts_with("impress/artifact/"))
+                .count(),
+            "an artifact schema exists that ARTIFACT_SCHEMA_REFS does not name"
+        );
+    }
 
     #[test]
     fn register_all_artifact_schemas() {

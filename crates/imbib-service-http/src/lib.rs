@@ -67,6 +67,18 @@ impl ImbibLibraryService for HttpImbibLibraryService {
             vec![]
         })
     }
+    async fn sidebar_view(&self) -> imbib_service::library_service::SidebarView {
+        // Store-direct on purpose, not an HTTP round trip: `sidebar_view` is
+        // the P3 snapshot verb — one composed READ over the shared store, the
+        // same rows the app's own sidebar renders. The app exposes no such
+        // endpoint, and re-assembling the view from a dozen HTTP calls would
+        // be a second implementation of the shapes (the drift class the
+        // snapshot exists to end). Read-only, so it cannot fight the running
+        // app's writes.
+        imbib_service::DefaultImbibLibraryService::new(imbib_service::store_instance())
+            .sidebar_view()
+            .await
+    }
     async fn create_library(&self, name: String) -> Option<LibraryRecord> {
         self.client
             .create_library(name)

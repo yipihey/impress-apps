@@ -342,6 +342,54 @@ impl From<&imbib_core::unified::shaped_queries::MutedItemRow> for MutedItemRecor
 // Trait
 // ===========================================================================
 
+/// One library as the sidebar presents it (sidebar plan P3).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SidebarViewCollection {
+    pub id: String,
+    pub name: String,
+    pub publication_count: i32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SidebarViewFeed {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SidebarViewLibrary {
+    pub id: String,
+    pub name: String,
+    pub unread: u32,
+    pub starred: u32,
+    pub collections: Vec<SidebarViewCollection>,
+    pub feeds: Vec<SidebarViewFeed>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SidebarViewArtifacts {
+    /// `None` = the all-artifacts total.
+    pub schema_ref: Option<String>,
+    pub count: u32,
+}
+
+/// What imbib's sidebar shows, as data (sidebar plan P3): the same snapshot
+/// the app's own sidebar renders from, one call. "State is legible: agents
+/// can read what the human sees."
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SidebarView {
+    pub libraries: Vec<SidebarViewLibrary>,
+    pub artifact_counts: Vec<SidebarViewArtifacts>,
+    /// Flag color → count, for the Flagged section's badges.
+    pub flag_counts: Vec<SidebarViewArtifactsFlag>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct SidebarViewArtifactsFlag {
+    pub color: String,
+    pub count: u32,
+}
+
 #[impress_service]
 pub trait ImbibLibraryService: Send + Sync + 'static {
     // ---- Library lifecycle ----
@@ -349,6 +397,11 @@ pub trait ImbibLibraryService: Send + Sync + 'static {
     /// papers.
     #[impress_method]
     async fn list_libraries(&self) -> Vec<LibraryRecord>;
+    /// What the sidebar shows, as one structured value: every library with
+    /// its unread/starred badges, collections and feeds, plus artifact and
+    /// flag counts — the same snapshot the app's sidebar renders from.
+    #[impress_method]
+    async fn sidebar_view(&self) -> SidebarView;
     /// Create a new library in imbib. Libraries are top-level containers
     /// for papers, separate from collections. Use this when asked to create
     /// a new library for a topic or project.
@@ -593,6 +646,81 @@ fn log(method: &str, e: impl std::fmt::Display) {
 
 #[async_trait::async_trait]
 impl ImbibLibraryService for DefaultImbibLibraryService {
+    async fn sidebar_view(&self) -> SidebarView {
+        match self.store.sidebar_snapshot() {
+            Ok(snapshot) => {
+                let unread: std::collections::HashMap<&str, u32> = snapshot
+                    .counts
+                    .unread_by_container
+                    .iter()
+                    .map(|entry| (entry.id.as_str(), entry.count))
+                    .collect();
+                let names: std::collections::HashMap<&str, &str> = snapshot
+                    .libraries
+                    .iter()
+                    .map(|lib| (lib.id.as_str(), lib.name.as_str()))
+                    .collect();
+                SidebarView {
+                    libraries: snapshot
+                        .per_library
+                        .iter()
+                        .map(|per| SidebarViewLibrary {
+                            id: per.library_id.clone(),
+                            name: names
+                                .get(per.library_id.as_str())
+                                .map(|n| n.to_string())
+                                .unwrap_or_default(),
+                            unread: unread.get(per.library_id.as_str()).copied().unwrap_or(0),
+                            starred: per.starred,
+                            collections: per
+                                .collections
+                                .iter()
+                                .map(|c| SidebarViewCollection {
+                                    id: c.id.clone(),
+                                    name: c.name.clone(),
+                                    publication_count: c.publication_count,
+                                })
+                                .collect(),
+                            feeds: per
+                                .feeds
+                                .iter()
+                                .map(|f| SidebarViewFeed {
+                                    id: f.id.clone(),
+                                    name: f.name.clone(),
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                    artifact_counts: snapshot
+                        .artifact_counts
+                        .iter()
+                        .map(|a| SidebarViewArtifacts {
+                            schema_ref: a.schema_ref.clone(),
+                            count: a.count,
+                        })
+                        .collect(),
+                    flag_counts: snapshot
+                        .counts
+                        .flag_counts
+                        .iter()
+                        .map(|f| SidebarViewArtifactsFlag {
+                            color: f.id.clone(),
+                            count: f.count,
+                        })
+                        .collect(),
+                }
+            }
+            Err(e) => {
+                log("sidebar_view", e);
+                SidebarView {
+                    libraries: vec![],
+                    artifact_counts: vec![],
+                    flag_counts: vec![],
+                }
+            }
+        }
+    }
+
     async fn list_libraries(&self) -> Vec<LibraryRecord> {
         self.store
             .list_libraries()
@@ -1091,6 +1219,7 @@ impress_service_impl! {
     methods = [
         // Library lifecycle
         list_libraries() -> Vec<LibraryRecord>,
+        sidebar_view() -> SidebarView,
         create_library(name: String) -> Option<LibraryRecord>,
         delete_library_undoable(id: String) -> MutationResult,
         get_default_library() -> Option<LibraryRecord>,

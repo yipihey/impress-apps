@@ -504,6 +504,47 @@ pub struct SidebarCounts {
     pub flag_counts: Vec<SidebarCountEntry>,
 }
 
+/// One library's slice of the sidebar snapshot (ADR sidebar plan P3).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct SidebarLibraryData {
+    /// Lowercase UUID of the library.
+    pub library_id: String,
+    /// Kernel-first collection rows (the same `list_collections` door).
+    pub collections: Vec<CollectionRow>,
+    /// Smart searches scoped to this library.
+    pub feeds: Vec<SmartSearchRow>,
+    /// Starred publications in this library.
+    pub starred: u32,
+}
+
+/// Artifact count per schema ref (`None` = all artifacts).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct SidebarArtifactCount {
+    pub schema_ref: Option<String>,
+    pub count: u32,
+}
+
+/// Everything the sidebar's tree builders and badges consume, in ONE call
+/// (sidebar plan P3). Composed from the same per-shape verbs callers used to
+/// make individually — same doors, same rows, one FFI crossing.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "native", derive(uniffi::Record))]
+pub struct SidebarSnapshotData {
+    pub libraries: Vec<LibraryRow>,
+    pub per_library: Vec<SidebarLibraryData>,
+    /// All smart searches (the unscoped read the inbox section uses).
+    pub all_feeds: Vec<SmartSearchRow>,
+    /// Starred count across all libraries.
+    pub starred_total: u32,
+    /// Per-artifact-kind counts, plus the `None` total, in
+    /// `ARTIFACT_SCHEMA_REFS` order.
+    pub artifact_counts: Vec<SidebarArtifactCount>,
+    /// The unread + flag badge counts (`sidebar_unread_and_flag_counts`).
+    pub counts: SidebarCounts,
+}
+
 #[cfg_attr(feature = "native", uniffi::export)]
 impl ImbibStore {
     /// Open or create a store at the given database path.
@@ -2705,6 +2746,46 @@ impl ImbibStore {
         Ok(SidebarCounts {
             unread_by_container,
             flag_counts,
+        })
+    }
+    /// The whole sidebar in one FFI crossing (sidebar plan P3).
+    ///
+    /// Pure composition: each field is produced by the SAME verb a caller
+    /// would use individually — `list_libraries`, kernel-first
+    /// `list_collections`, `list_smart_searches`, `count_starred`,
+    /// `count_artifacts` (over `ARTIFACT_SCHEMA_REFS`, the one exported
+    /// list of artifact kinds), `sidebar_unread_and_flag_counts` — so the
+    /// snapshot cannot drift from the point reads. What it removes is the
+    /// crossing count: the Swift maintainer's sweep was ~2 + 3×libraries
+    /// FFI round trips; this is one.
+    pub fn sidebar_snapshot(&self) -> Result<SidebarSnapshotData, StoreApiError> {
+        let libraries = self.list_libraries()?;
+        let mut per_library = Vec::with_capacity(libraries.len());
+        for lib in &libraries {
+            per_library.push(SidebarLibraryData {
+                library_id: lib.id.clone(),
+                collections: self.list_collections(lib.id.clone())?,
+                feeds: self.list_smart_searches(Some(lib.id.clone()))?,
+                starred: self.count_starred(Some(lib.id.clone()))?,
+            });
+        }
+        let mut artifact_counts = vec![SidebarArtifactCount {
+            schema_ref: None,
+            count: self.count_artifacts(None)?,
+        }];
+        for schema_ref in impress_core::schemas::ARTIFACT_SCHEMA_REFS {
+            artifact_counts.push(SidebarArtifactCount {
+                schema_ref: Some(schema_ref.to_string()),
+                count: self.count_artifacts(Some(schema_ref.to_string()))?,
+            });
+        }
+        Ok(SidebarSnapshotData {
+            per_library,
+            all_feeds: self.list_smart_searches(None)?,
+            starred_total: self.count_starred(None)?,
+            artifact_counts,
+            counts: self.sidebar_unread_and_flag_counts()?,
+            libraries,
         })
     }
 

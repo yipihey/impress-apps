@@ -1458,6 +1458,20 @@ public protocol ImbibStoreProtocol : AnyObject {
     func setStarred(ids: [String], starred: Bool) throws  -> UndoInfo
     
     /**
+     * The whole sidebar in one FFI crossing (sidebar plan P3).
+     *
+     * Pure composition: each field is produced by the SAME verb a caller
+     * would use individually — `list_libraries`, kernel-first
+     * `list_collections`, `list_smart_searches`, `count_starred`,
+     * `count_artifacts` (over `ARTIFACT_SCHEMA_REFS`, the one exported
+     * list of artifact kinds), `sidebar_unread_and_flag_counts` — so the
+     * snapshot cannot drift from the point reads. What it removes is the
+     * crossing count: the Swift maintainer's sweep was ~2 + 3×libraries
+     * FFI round trips; this is one.
+     */
+    func sidebarSnapshot() throws  -> SidebarSnapshotData
+    
+    /**
      * The sidebar's entire count sweep in one call: unread per container
      * (feeds AND libraries — see `SidebarCounts`) plus flag counts by
      * color. Replaces one FFI round-trip per feed + per library + per
@@ -3629,6 +3643,25 @@ open func setStarred(ids: [String], starred: Bool)throws  -> UndoInfo {
     uniffi_imbib_core_fn_method_imbibstore_set_starred(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(ids),
         FfiConverterBool.lower(starred),$0
+    )
+})
+}
+    
+    /**
+     * The whole sidebar in one FFI crossing (sidebar plan P3).
+     *
+     * Pure composition: each field is produced by the SAME verb a caller
+     * would use individually — `list_libraries`, kernel-first
+     * `list_collections`, `list_smart_searches`, `count_starred`,
+     * `count_artifacts` (over `ARTIFACT_SCHEMA_REFS`, the one exported
+     * list of artifact kinds), `sidebar_unread_and_flag_counts` — so the
+     * snapshot cannot drift from the point reads. What it removes is the
+     * crossing count: the Swift maintainer's sweep was ~2 + 3×libraries
+     * FFI round trips; this is one.
+     */
+open func sidebarSnapshot()throws  -> SidebarSnapshotData {
+    return try  FfiConverterTypeSidebarSnapshotData.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_sidebar_snapshot(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -17466,6 +17499,75 @@ public func FfiConverterTypeSearchResultInput_lower(_ value: SearchResultInput) 
 
 
 /**
+ * Artifact count per schema ref (`None` = all artifacts).
+ */
+public struct SidebarArtifactCount {
+    public var schemaRef: String?
+    public var count: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(schemaRef: String?, count: UInt32) {
+        self.schemaRef = schemaRef
+        self.count = count
+    }
+}
+
+
+
+extension SidebarArtifactCount: Equatable, Hashable {
+    public static func ==(lhs: SidebarArtifactCount, rhs: SidebarArtifactCount) -> Bool {
+        if lhs.schemaRef != rhs.schemaRef {
+            return false
+        }
+        if lhs.count != rhs.count {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(schemaRef)
+        hasher.combine(count)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSidebarArtifactCount: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SidebarArtifactCount {
+        return
+            try SidebarArtifactCount(
+                schemaRef: FfiConverterOptionString.read(from: &buf), 
+                count: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SidebarArtifactCount, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.schemaRef, into: &buf)
+        FfiConverterUInt32.write(value.count, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarArtifactCount_lift(_ buf: RustBuffer) throws -> SidebarArtifactCount {
+    return try FfiConverterTypeSidebarArtifactCount.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarArtifactCount_lower(_ value: SidebarArtifactCount) -> RustBuffer {
+    return FfiConverterTypeSidebarArtifactCount.lower(value)
+}
+
+
+/**
  * One (container id, count) pair from `sidebar_unread_and_flag_counts`.
  */
 public struct SidebarCountEntry {
@@ -17622,6 +17724,244 @@ public func FfiConverterTypeSidebarCounts_lift(_ buf: RustBuffer) throws -> Side
 #endif
 public func FfiConverterTypeSidebarCounts_lower(_ value: SidebarCounts) -> RustBuffer {
     return FfiConverterTypeSidebarCounts.lower(value)
+}
+
+
+/**
+ * One library's slice of the sidebar snapshot (ADR sidebar plan P3).
+ */
+public struct SidebarLibraryData {
+    /**
+     * Lowercase UUID of the library.
+     */
+    public var libraryId: String
+    /**
+     * Kernel-first collection rows (the same `list_collections` door).
+     */
+    public var collections: [CollectionRow]
+    /**
+     * Smart searches scoped to this library.
+     */
+    public var feeds: [SmartSearchRow]
+    /**
+     * Starred publications in this library.
+     */
+    public var starred: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Lowercase UUID of the library.
+         */libraryId: String, 
+        /**
+         * Kernel-first collection rows (the same `list_collections` door).
+         */collections: [CollectionRow], 
+        /**
+         * Smart searches scoped to this library.
+         */feeds: [SmartSearchRow], 
+        /**
+         * Starred publications in this library.
+         */starred: UInt32) {
+        self.libraryId = libraryId
+        self.collections = collections
+        self.feeds = feeds
+        self.starred = starred
+    }
+}
+
+
+
+extension SidebarLibraryData: Equatable, Hashable {
+    public static func ==(lhs: SidebarLibraryData, rhs: SidebarLibraryData) -> Bool {
+        if lhs.libraryId != rhs.libraryId {
+            return false
+        }
+        if lhs.collections != rhs.collections {
+            return false
+        }
+        if lhs.feeds != rhs.feeds {
+            return false
+        }
+        if lhs.starred != rhs.starred {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(libraryId)
+        hasher.combine(collections)
+        hasher.combine(feeds)
+        hasher.combine(starred)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSidebarLibraryData: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SidebarLibraryData {
+        return
+            try SidebarLibraryData(
+                libraryId: FfiConverterString.read(from: &buf), 
+                collections: FfiConverterSequenceTypeCollectionRow.read(from: &buf), 
+                feeds: FfiConverterSequenceTypeSmartSearchRow.read(from: &buf), 
+                starred: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SidebarLibraryData, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.libraryId, into: &buf)
+        FfiConverterSequenceTypeCollectionRow.write(value.collections, into: &buf)
+        FfiConverterSequenceTypeSmartSearchRow.write(value.feeds, into: &buf)
+        FfiConverterUInt32.write(value.starred, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarLibraryData_lift(_ buf: RustBuffer) throws -> SidebarLibraryData {
+    return try FfiConverterTypeSidebarLibraryData.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarLibraryData_lower(_ value: SidebarLibraryData) -> RustBuffer {
+    return FfiConverterTypeSidebarLibraryData.lower(value)
+}
+
+
+/**
+ * Everything the sidebar's tree builders and badges consume, in ONE call
+ * (sidebar plan P3). Composed from the same per-shape verbs callers used to
+ * make individually — same doors, same rows, one FFI crossing.
+ */
+public struct SidebarSnapshotData {
+    public var libraries: [LibraryRow]
+    public var perLibrary: [SidebarLibraryData]
+    /**
+     * All smart searches (the unscoped read the inbox section uses).
+     */
+    public var allFeeds: [SmartSearchRow]
+    /**
+     * Starred count across all libraries.
+     */
+    public var starredTotal: UInt32
+    /**
+     * Per-artifact-kind counts, plus the `None` total, in
+     * `ARTIFACT_SCHEMA_REFS` order.
+     */
+    public var artifactCounts: [SidebarArtifactCount]
+    /**
+     * The unread + flag badge counts (`sidebar_unread_and_flag_counts`).
+     */
+    public var counts: SidebarCounts
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(libraries: [LibraryRow], perLibrary: [SidebarLibraryData], 
+        /**
+         * All smart searches (the unscoped read the inbox section uses).
+         */allFeeds: [SmartSearchRow], 
+        /**
+         * Starred count across all libraries.
+         */starredTotal: UInt32, 
+        /**
+         * Per-artifact-kind counts, plus the `None` total, in
+         * `ARTIFACT_SCHEMA_REFS` order.
+         */artifactCounts: [SidebarArtifactCount], 
+        /**
+         * The unread + flag badge counts (`sidebar_unread_and_flag_counts`).
+         */counts: SidebarCounts) {
+        self.libraries = libraries
+        self.perLibrary = perLibrary
+        self.allFeeds = allFeeds
+        self.starredTotal = starredTotal
+        self.artifactCounts = artifactCounts
+        self.counts = counts
+    }
+}
+
+
+
+extension SidebarSnapshotData: Equatable, Hashable {
+    public static func ==(lhs: SidebarSnapshotData, rhs: SidebarSnapshotData) -> Bool {
+        if lhs.libraries != rhs.libraries {
+            return false
+        }
+        if lhs.perLibrary != rhs.perLibrary {
+            return false
+        }
+        if lhs.allFeeds != rhs.allFeeds {
+            return false
+        }
+        if lhs.starredTotal != rhs.starredTotal {
+            return false
+        }
+        if lhs.artifactCounts != rhs.artifactCounts {
+            return false
+        }
+        if lhs.counts != rhs.counts {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(libraries)
+        hasher.combine(perLibrary)
+        hasher.combine(allFeeds)
+        hasher.combine(starredTotal)
+        hasher.combine(artifactCounts)
+        hasher.combine(counts)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSidebarSnapshotData: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SidebarSnapshotData {
+        return
+            try SidebarSnapshotData(
+                libraries: FfiConverterSequenceTypeLibraryRow.read(from: &buf), 
+                perLibrary: FfiConverterSequenceTypeSidebarLibraryData.read(from: &buf), 
+                allFeeds: FfiConverterSequenceTypeSmartSearchRow.read(from: &buf), 
+                starredTotal: FfiConverterUInt32.read(from: &buf), 
+                artifactCounts: FfiConverterSequenceTypeSidebarArtifactCount.read(from: &buf), 
+                counts: FfiConverterTypeSidebarCounts.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SidebarSnapshotData, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeLibraryRow.write(value.libraries, into: &buf)
+        FfiConverterSequenceTypeSidebarLibraryData.write(value.perLibrary, into: &buf)
+        FfiConverterSequenceTypeSmartSearchRow.write(value.allFeeds, into: &buf)
+        FfiConverterUInt32.write(value.starredTotal, into: &buf)
+        FfiConverterSequenceTypeSidebarArtifactCount.write(value.artifactCounts, into: &buf)
+        FfiConverterTypeSidebarCounts.write(value.counts, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarSnapshotData_lift(_ buf: RustBuffer) throws -> SidebarSnapshotData {
+    return try FfiConverterTypeSidebarSnapshotData.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSidebarSnapshotData_lower(_ value: SidebarSnapshotData) -> RustBuffer {
+    return FfiConverterTypeSidebarSnapshotData.lower(value)
 }
 
 
@@ -26755,6 +27095,31 @@ fileprivate struct FfiConverterSequenceTypeSearchResultInput: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSidebarArtifactCount: FfiConverterRustBuffer {
+    typealias SwiftType = [SidebarArtifactCount]
+
+    public static func write(_ value: [SidebarArtifactCount], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSidebarArtifactCount.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SidebarArtifactCount] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SidebarArtifactCount]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSidebarArtifactCount.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSidebarCountEntry: FfiConverterRustBuffer {
     typealias SwiftType = [SidebarCountEntry]
 
@@ -26772,6 +27137,31 @@ fileprivate struct FfiConverterSequenceTypeSidebarCountEntry: FfiConverterRustBu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSidebarCountEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSidebarLibraryData: FfiConverterRustBuffer {
+    typealias SwiftType = [SidebarLibraryData]
+
+    public static func write(_ value: [SidebarLibraryData], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSidebarLibraryData.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SidebarLibraryData] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SidebarLibraryData]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSidebarLibraryData.read(from: &buf))
         }
         return seq
     }
@@ -30947,6 +31337,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_set_starred() != 26685) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_sidebar_snapshot() != 39785) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_sidebar_unread_and_flag_counts() != 39610) {
