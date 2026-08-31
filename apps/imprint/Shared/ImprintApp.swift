@@ -144,6 +144,33 @@ final class ImprintAppDelegate: NSObject, NSApplicationDelegate {
             await CitationUsageTracker.shared.start()
         }
 
+        // Cross-process refresh, receive half (StoreRemoteChangeBridge): when
+        // ANOTHER process writes the shared store — imbib's CloudSyncEngine
+        // applying a CloudKit pull, the journal pipeline minting a manuscript —
+        // nothing in-process bumps a dataVersion or posts a store event, so
+        // every list stayed stale until relaunch. The bridge observes the
+        // suite's Darwin change signals and fans ONE coalesced refresh into
+        // both of this process's buses. Gated on the workspace loader like
+        // every other store toucher: the callback's first adapter access must
+        // not race the TCC-safe off-main store open.
+        Task { @MainActor in
+            await ManuscriptWorkspaceLoader.shared.whenReady()
+            StoreRemoteChangeBridge.shared.start { summary in
+                // imprint's own bus + dataVersion (editor host, outline/search
+                // maintainers, any adapter-observing view)…
+                ManuscriptStoreAdapter.shared.noteRemoteChange(summary)
+                // …and the PMC chassis path the macOS manuscript surfaces
+                // actually refresh on: `noteExternalMutation` is PMC's public
+                // "a different handle wrote this database" verb — it bumps
+                // `RustStoreAdapter.dataVersion` (the sidebar's and
+                // SectionContentView's trigger) AND posts the ImbibImpressStore
+                // event `ManuscriptListWrapper` reloads on. Without this the
+                // chassis list and sidebar stay stale even though imprint's own
+                // adapter refreshed.
+                RustStoreAdapter.shared.noteExternalMutation(structural: true)
+            }
+        }
+
         // Initialize the Tantivy-backed multi-term search index lazily on first
         // search use rather than at startup, so app launch isn't gated on it.
 

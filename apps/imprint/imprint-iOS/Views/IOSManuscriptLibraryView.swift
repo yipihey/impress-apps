@@ -39,15 +39,15 @@ struct IOSManuscriptLibraryView: View {
 
     @Bindable private var adapter = ManuscriptStoreAdapter.shared
 
+    /// Foreground transitions re-read the store: another process (imbib-iOS's
+    /// CloudSyncEngine pulling into the shared group store) may have written
+    /// while this app was suspended, and Darwin signals are not delivered to
+    /// suspended processes — so `dataVersion` alone can't know.
+    @Environment(\.scenePhase) private var scenePhase
+
     // MARK: - Navigation state
 
     /// The sidebar's selection, in chassis vocabulary.
-    /// Foreground transitions re-read the store: rows written by OTHER
-    /// processes (imbib-iOS's CloudSyncEngine pull, most importantly) bump no
-    /// in-process dataVersion, so returning to the app is the natural moment
-    /// to catch up — without it, synced manuscripts stay invisible until a
-    /// cold launch (observed live 2026-08-31 on the first two-device sync).
-    @Environment(\.scenePhase) private var scenePhase
     @State private var scope: RecordSidebarScope?
     /// The manuscript open in the detail column.
     @State private var selectedManuscriptID: UUID?
@@ -153,11 +153,17 @@ struct IOSManuscriptLibraryView: View {
             await OutlineSnapshotMaintainer.shared.start()
         }
         .onChange(of: adapter.dataVersion) { _, _ in refresh() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { refresh() }
-        }
         .onChange(of: scope) { _, _ in refresh() }
         .onChange(of: searchText) { _, _ in refresh() }
+        // Through the ADAPTER, not a bare `refresh()`: the bump drives this
+        // view via the `dataVersion` onChange above AND rebuilds the sidebar
+        // and every store-event subscriber — a suspended-period sync pull is
+        // invisible to all of them equally. (`StoreRemoteChangeBridge` covers
+        // the same staleness while the app is frontmost and running.)
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            adapter.noteRemoteChange("scene-active")
+        }
         .onOpenURL { url in handleIncomingURL(url) }
         // Citation inspection is presented HERE, at the navigation root, not in
         // the editor: a deep link cold-launches the app (`XCUIApplication.open`
@@ -592,6 +598,13 @@ struct IOSManuscriptLibraryView: View {
             }
             manuscripts = hits
         }
+        // Trace point 3 (display): what the list surface actually re-read —
+        // the line that makes cross-process staleness visible in the console
+        // (a remote-change log with no matching display log = this bug again).
+        Logger.sharedStore.infoCapture(
+            "display: \(manuscripts.count) manuscript(s) (scope: \(scopeTitle)"
+                + (query.isEmpty ? ")" : ", query: \"\(query)\")"),
+            category: "manuscript-library")
     }
 
     // MARK: - URL handling

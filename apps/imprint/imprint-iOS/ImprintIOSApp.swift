@@ -404,6 +404,23 @@ struct ImprintIOSApp: App {
                     // would index nothing (`.recordingOnly` is W4's file-unit
                     // default, right for impart/implore, wrong here — imprint's
                     // file-unit fan-out DOES mint a row).
+                    // Cross-process refresh, receive half (StoreRemoteChangeBridge):
+                    // imbib-iOS's CloudSyncEngine posts `syncApplied` after each
+                    // applied CloudKit batch, and the journal pipeline posts
+                    // manuscript events. One coalesced bump of the adapter drives
+                    // the list, the sidebar, and every store-event subscriber.
+                    // (Suspended-period changes are covered by the scene-phase
+                    // refresh in IOSManuscriptLibraryView — Darwin posts don't
+                    // reach a suspended process.)
+                    //
+                    // BEFORE the watched-folder restore, deliberately: the bridge
+                    // is synchronous, store-free registration, while `start()`
+                    // below awaits bookmark restoration + folder scans and can
+                    // take arbitrarily long on a machine with stale bookmarks.
+                    StoreRemoteChangeBridge.shared.start { summary in
+                        ManuscriptStoreAdapter.shared.noteRemoteChange(summary)
+                    }
+
                     await WatchedManuscriptFolders.start()
                     Self.seedUITestWatchedFolderIfNeeded()
                 }
