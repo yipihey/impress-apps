@@ -35,6 +35,12 @@ pub mod embedding_store;
 #[cfg(feature = "embedder")]
 pub mod semantic;
 
+/// The canonical model id the suite's fastembed embedder stamps into
+/// `StoredVector.model` (ADR-0028 D4). Ungated: readers that filter the
+/// sidecar by model (coverage counts, recall) need the id without linking
+/// the ONNX runtime the `embedder` feature drags in.
+pub const FASTEMBED_MODEL_ID: &str = "fastembed/AllMiniLML6V2";
+
 #[cfg(feature = "index")]
 pub use ann_index::{AnnIndex, AnnIndexConfig, AnnSimilarityResult};
 #[cfg(feature = "index")]

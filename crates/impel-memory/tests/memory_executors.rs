@@ -1450,12 +1450,14 @@ fn the_embed_cursor_chains_through_completed_tasks() {
     let task = fetch(&store, second[0]);
     assert_eq!(
         payload_i64(&task, "cursor_created_ms"),
-        Some(cursor_created)
+        Some(cursor_created - 1),
+        "the next window overlaps the boundary millisecond (same-ms rows \
+         whose id sorts below the recorded cursor must not be skipped)"
     );
     assert_eq!(
         payload_string(&task, "cursor_id"),
-        Some(one.to_string()),
-        "the next window starts exactly where the last completed one stopped"
+        Some(String::new()),
+        "the id resets with the overlap; upserts make the re-scan free"
     );
 }
 

@@ -51,7 +51,9 @@ use impress_core::memory_ops::{self, GateOutcome, MemoryDraft, MemoryKind};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::{ItemStore, StoreError};
-use impress_embeddings::{EmbeddingStore, SemanticSearch};
+use impress_embeddings::EmbeddingStore;
+#[cfg(feature = "vector-embedder")]
+use impress_embeddings::SemanticSearch;
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Serialize};
@@ -486,6 +488,7 @@ trait Embedder: Send + Sync {
     fn model_id(&self) -> &str;
 }
 
+#[cfg(feature = "vector-embedder")]
 impl Embedder for SemanticSearch {
     fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
         self.embed_text(text).map_err(|e| e.to_string())
@@ -549,6 +552,7 @@ fn resolve_embeddings_path() -> Option<String> {
 /// Open the sidecar and load the embedding model. The fallible half of
 /// building a [`VectorTierInner`], separated from [`init_vector_tier`] so the
 /// `stderr` line lives in exactly one place regardless of which step failed.
+#[cfg(feature = "vector-embedder")]
 fn try_init_vector_tier() -> Result<VectorTierInner, String> {
     let path = resolve_embeddings_path().ok_or_else(|| {
         "no data directory available and IMPRESS_EMBEDDINGS_PATH is unset".to_string()
@@ -560,6 +564,14 @@ fn try_init_vector_tier() -> Result<VectorTierInner, String> {
         embedding_store,
         embedder: Box::new(embedder),
     })
+}
+
+/// Feature-off twin: binaries built without `vector-embedder` (the FFI
+/// consumers — impel-tools must never link the ONNX runtime) get the same
+/// degraded path a missing model produces at runtime.
+#[cfg(not(feature = "vector-embedder"))]
+fn try_init_vector_tier() -> Result<VectorTierInner, String> {
+    Err("built without the vector-embedder feature (FTS tier only)".to_string())
 }
 
 /// [`try_init_vector_tier`], with the one-time `stderr` line on failure. Only
@@ -724,10 +736,7 @@ impl DefaultMemoryService {
         match VECTOR_TIER.get() {
             None => (
                 "initializing lazily".to_string(),
-                readonly_coverage(
-                    impress_embeddings::semantic::FASTEMBED_MODEL_ID,
-                    total_items,
-                ),
+                readonly_coverage(impress_embeddings::FASTEMBED_MODEL_ID, total_items),
             ),
             Some(TierState::Live(inner)) => {
                 let model = inner.embedder.model_id();
@@ -743,10 +752,7 @@ impl DefaultMemoryService {
             }
             Some(TierState::Failed(reason)) => (
                 format!("unavailable: {reason}"),
-                readonly_coverage(
-                    impress_embeddings::semantic::FASTEMBED_MODEL_ID,
-                    total_items,
-                ),
+                readonly_coverage(impress_embeddings::FASTEMBED_MODEL_ID, total_items),
             ),
         }
     }

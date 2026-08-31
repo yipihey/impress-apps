@@ -36,8 +36,10 @@ pub enum EmbeddingError {
 /// `SemanticSearch::new().model_id()`; kept as a named constant so call
 /// sites that need the id without constructing a `SemanticSearch` (tests,
 /// the backfill executor's deterministic vector-id scheme) don't restate the
-/// string by hand.
-pub const FASTEMBED_MODEL_ID: &str = "fastembed/AllMiniLML6V2";
+/// string by hand. Defined ungated at the crate root — sidecar readers filter
+/// by this id without linking the embedder — and re-exported here beside the
+/// embedder it describes.
+pub use crate::FASTEMBED_MODEL_ID;
 
 /// Env var overriding fastembed's model cache directory. fastembed itself
 /// already honors `FASTEMBED_CACHE_DIR` (`fastembed::common::get_cache_dir`),

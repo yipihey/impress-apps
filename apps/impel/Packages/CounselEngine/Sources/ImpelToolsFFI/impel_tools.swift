@@ -864,7 +864,9 @@ public func configure(imbibUrl: String?, imprintUrl: String?) -> ToolBackends {
 })
 }
 /**
- * Only the tools whose owning app is reachable. This is what impel should
+ * Only the tools impel can actually call right now: store-generic tools (no
+ * owning app) are always included, and imbib-/imprint- tools are included
+ * only when their app backend is reachable. This is what impel should
  * advertise: a tool the model cannot successfully call is worse than absent,
  * because it spends a round discovering that.
  */
@@ -909,7 +911,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impel_tools_checksum_func_configure() != 62022) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impel_tools_checksum_func_list_available_tools() != 11744) {
+    if (uniffi_impel_tools_checksum_func_list_available_tools() != 48254) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impel_tools_checksum_func_list_tools() != 52882) {

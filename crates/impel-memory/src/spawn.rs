@@ -151,9 +151,17 @@ fn plan_embed(
         return Ok(None);
     }
     let (cursor_created_ms, cursor_id) = match newest_done_task(store, KIND_EMBED)? {
+        // Overlap the boundary millisecond (-1, id reset): a row created in
+        // the same millisecond as the recorded cursor whose UUID happens to
+        // sort below the cursor id would otherwise never satisfy the strict
+        // `(created, id) >` keyset and be skipped forever. Vector ids are
+        // UUIDv5(source_id, model) upserts, so re-embedding the boundary
+        // rows on the next window is free.
         Some(task) => (
-            payload_i64(&task, "cursor_end_created_ms").unwrap_or(now_ms - WINDOW_MS),
-            payload_string(&task, "cursor_end_id").unwrap_or_default(),
+            payload_i64(&task, "cursor_end_created_ms")
+                .map(|v| v - 1)
+                .unwrap_or(now_ms - WINDOW_MS),
+            String::new(),
         ),
         // First run looks back one window rather than to the start of time:
         // a full-library backfill is a deliberate act, not something a daemon
@@ -365,13 +373,6 @@ fn payload_i64(item: &Item, field: &str) -> Option<i64> {
     match item.payload.get(field) {
         Some(Value::Int(i)) => Some(*i),
         Some(Value::Float(f)) => Some(*f as i64),
-        _ => None,
-    }
-}
-
-fn payload_string(item: &Item, field: &str) -> Option<String> {
-    match item.payload.get(field) {
-        Some(Value::String(s)) => Some(s.clone()),
         _ => None,
     }
 }

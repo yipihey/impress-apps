@@ -17,7 +17,7 @@ impress-store-service = { workspace = true }
 # cosine (no HNSW — memory corpora are small), and the fastembed embedder.
 # Never initialized unless IMPRESS_MEMORY_VECTORS=1 AND a memory verb runs —
 # see `VectorTierInner` / `process_vector_tier`.
-impress-embeddings = { workspace = true, features = ["store", "index", "embedder"] }
+impress-embeddings = { workspace = true, features = ["store"] }
 # Sidecar path default (`dirs::data_dir()/imbib/embeddings.sqlite`), mirroring
 # (not importing — see this crate's module docs) impel-memory's and
 # impress-mcp's own resolution.
@@ -40,3 +40,13 @@ chrono = { workspace = true }
 # Temp sidecar files for the vector-tier tests — never a real SemanticSearch
 # (see the test module docs).
 tempfile = "3.10"
+
+[features]
+# The live fastembed embedder for the vector tier. DELIBERATELY opt-in: it
+# drags the ONNX runtime (ort-sys, XNNPACK) into the dependency graph, which
+# must never reach FFI staticlib consumers — linking it into
+# ImpelTools.xcframework fails with duplicate XNNPACK/nsync symbols (seen on
+# CI 2026-08-30). impress-mcp and impress-cli enable it; impel-tools must not.
+# Without it the vector tier reports "unavailable" and the FTS tier carries
+# every verb, exactly as when the model is absent at runtime.
+vector-embedder = ["impress-embeddings/embedder"]

@@ -65,7 +65,7 @@ impress-smart-search-service = { workspace = true }
 # Pulls the MemoryService inventory (ADR-0028 memory kernel P2 — remember/
 # recall/brief/confirm/supersede/forget, FTS tier). Never app-gated — it opens
 # the shared store directly, like the other store-generic services above.
-impress-memory-service = { workspace = true }
+impress-memory-service = { workspace = true, features = ["vector-embedder"] }
 
 [dev-dependencies]
 # Isolated EmbeddingStore fixtures for the rebuild_chunk_index model-gating
