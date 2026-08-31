@@ -6,8 +6,11 @@
 #[allow(unused_imports)]
 use impress_service_macros::impress_method;
 use impress_service_macros::impress_service;
+use schemars::gen::SchemaGenerator;
+use schemars::schema::{InstanceType, ObjectValidation, Schema, SchemaObject, SingleOrVec};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use vw_domain::{
     CloseSessionCommand, CreateSessionRequest, DiagnosticAssessment, DiagnosticSession,
     NextTestRecommendation, Procedure, RecordMeasurementCommand, RecordObservationCommand,
@@ -92,12 +95,135 @@ pub struct VwCapabilities {
     pub safety_notice: String,
 }
 
+/// A file authorized by ChatGPT for this plugin. Its handoff URL is temporary
+/// transport and is never persisted in the Impress graph.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatGptFile {
+    pub download_url: String,
+    pub file_id: String,
+    pub mime_type: Option<String>,
+    pub file_name: Option<String>,
+}
+
+// OpenAI's file-input scanner requires optional properties to be omittable
+// strings rather than `string | null`, so this intentionally differs from
+// schemars' default representation of `Option<String>`.
+impl JsonSchema for ChatGptFile {
+    fn schema_name() -> String {
+        "OpenAIFile".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        let string = || {
+            Schema::Object(SchemaObject {
+                instance_type: Some(SingleOrVec::Single(Box::new(InstanceType::String))),
+                ..SchemaObject::default()
+            })
+        };
+        let mut object = ObjectValidation::default();
+        for property in ["download_url", "file_id", "mime_type", "file_name"] {
+            object.properties.insert(property.into(), string());
+        }
+        object.required = BTreeSet::from(["download_url".into(), "file_id".into()]);
+        object.additional_properties = Some(Box::new(Schema::Bool(false)));
+        Schema::Object(SchemaObject {
+            instance_type: Some(SingleOrVec::Single(Box::new(InstanceType::Object))),
+            object: Some(Box::new(object)),
+            ..SchemaObject::default()
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PhotoEvidence {
+    pub id: String,
+    pub source_item_id: String,
+    pub content_blob_id: String,
+    pub source_content_hash: String,
+    pub external_file_id: String,
+    pub file_name: Option<String>,
+    pub mime_type: String,
+    pub byte_length: u64,
+    pub pixel_width: Option<u32>,
+    pub pixel_height: Option<u32>,
+    pub title: String,
+    pub description: String,
+    pub component: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub captured_at: Option<String>,
+    pub received_at: String,
+    pub diagnostic_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct VwMcpImageBlock {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub data: String,
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PhotoEvidenceResult {
+    pub ok: bool,
+    pub status: String,
+    pub message: String,
+    pub evidence: Option<PhotoEvidence>,
+    #[serde(
+        rename = "_mcp_content",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub mcp_content: Vec<VwMcpImageBlock>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PhotoEvidenceSearchResult {
+    pub ok: bool,
+    pub message: String,
+    pub hits: Vec<PhotoEvidence>,
+}
+
 #[impress_service]
 pub trait VwDiagnosticService: Send + Sync + 'static {
     /// Describe supported vehicle scope, active curated knowledge, deterministic
     /// engine version, and the assistant's safety boundary.
     #[impress_method]
     async fn get_capabilities(&self) -> VwCapabilities;
+
+    /// Ingest a bus, engine, or part photo shared in this ChatGPT conversation
+    /// as private, immutable user evidence. Use this when the user asks the
+    /// expert to remember/analyze an attached VW photo or clearly supplies it
+    /// as diagnostic evidence. Never use it for unrelated images.
+    #[impress_method]
+    async fn ingest_photo(
+        &self,
+        photo: ChatGptFile,
+        title: String,
+        description: String,
+        component: Option<String>,
+        diagnostic_session_id: Option<String>,
+        captured_at: Option<String>,
+        tags: Vec<String>,
+    ) -> PhotoEvidenceResult;
+
+    /// Search private photos previously ingested as VW user evidence. Search
+    /// titles, descriptions, component names, filenames, and tags; optionally
+    /// constrain results to one diagnostic session.
+    #[impress_method]
+    async fn search_photos(
+        &self,
+        query: String,
+        diagnostic_session_id: Option<String>,
+        limit: u32,
+    ) -> PhotoEvidenceSearchResult;
+
+    /// Retrieve one previously ingested VW user photo as MCP image content.
+    /// Call search-photos first when the evidence id is unknown.
+    #[impress_method]
+    async fn get_photo(&self, evidence_id: String) -> PhotoEvidenceResult;
 
     /// Create a persistent diagnostic session pinned to the active knowledge
     /// pack. command_id makes retries idempotent.

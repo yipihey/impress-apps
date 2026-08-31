@@ -65,6 +65,30 @@ labelled source context, but it must not be promoted into a diagnostic rule,
 threshold, or procedure step without verification against the page image and
 vehicle applicability.
 
+## User photo evidence
+
+When the user shares a photo of their bus, engine, or a related part as
+diagnostic evidence, inspect only what is actually visible and call
+`vw-diagnostic-service_ingest-photo`. ChatGPT supplies the authorized file
+handoff in `photo`; provide a concise title, grounded visual description,
+optional component and diagnostic-session ID, capture time when known, and
+useful tags. Do not store an unrelated image, invent an unseen detail, or
+persist the temporary download URL.
+
+The ingest operation validates and bounds the image, stores its original bytes
+in the shared immutable content-addressed blob store, and writes private
+`impress/artifact/media`, `content-blob@1.0.0`, and
+`vw/photo-evidence@1.0.0` records. The evidence preserves the ChatGPT file ID,
+SHA-256, original filename, MIME type, dimensions, description, component,
+capture/receipt times, and optional diagnostic-session link. Repeating the
+same file handoff is idempotent.
+
+Call `vw-diagnostic-service_search-photos` to find previously stored user
+photos and `vw-diagnostic-service_get-photo` to display one as MCP image
+content. These photos are user observations. They may inform a diagnostic
+conversation but never become a published rule, threshold, procedure, or
+manual citation without a separate curated and reviewed knowledge-pack change.
+
 The LLM may translate conversation into typed commands and explain results. It
 must not invent facts, measurements, citations, rules, applicability, or bypass
 procedure state.

@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 
 use base64::Engine;
 use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
@@ -8,6 +9,8 @@ use impress_core::query::ItemQuery;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use sha2::{Digest, Sha256};
+use vw_impress_adapter::{PhotoDescription, PhotoEvidenceStore};
+use vw_service::ChatGptFile;
 
 fn binary_path() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_vw-mcp"))
@@ -32,6 +35,7 @@ fn focused_server_lists_and_calls_only_semantic_profile() {
         "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n",
         "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"vw-diagnostic-service_get-capabilities\",\"arguments\":{}}}\n",
         "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"resources/list\"}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"resources/read\",\"params\":{\"uri\":\"ui://vw/evidence-image-v1.html\"}}\n",
     );
     child
         .stdin
@@ -50,7 +54,7 @@ fn focused_server_lists_and_calls_only_semantic_profile() {
         .lines()
         .map(|line| serde_json::from_str(line).expect("JSON-RPC response"))
         .collect();
-    assert_eq!(lines.len(), 4);
+    assert_eq!(lines.len(), 5);
     assert_eq!(lines[0]["result"]["serverInfo"]["name"], "vw-diagnostic");
 
     let names: Vec<&str> = lines[1]["result"]["tools"]
@@ -66,10 +70,57 @@ fn focused_server_lists_and_calls_only_semantic_profile() {
     assert!(names.contains(&"source-service_search-content-chunks"));
     assert!(names.contains(&"source-service_get-page-image"));
     assert!(names.contains(&"source-service_get-figure-image"));
+    assert!(names.contains(&"vw-diagnostic-service_ingest-photo"));
+    assert!(names.contains(&"vw-diagnostic-service_search-photos"));
+    assert!(names.contains(&"vw-diagnostic-service_get-photo"));
     assert!(!names.contains(&"source-service_put-citation"));
     assert!(!names
         .iter()
         .any(|name| name.starts_with("store-query-service_")));
+
+    for image_tool_name in [
+        "source-service_get-page-image",
+        "source-service_get-figure-image",
+        "vw-diagnostic-service_ingest-photo",
+        "vw-diagnostic-service_get-photo",
+    ] {
+        let image_tool = lines[1]["result"]["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .find(|tool| tool["name"] == image_tool_name)
+            .expect("image tool");
+        assert_eq!(
+            image_tool["_meta"]["ui"]["resourceUri"],
+            "ui://vw/evidence-image-v1.html"
+        );
+        assert_eq!(
+            image_tool["_meta"]["openai/outputTemplate"],
+            "ui://vw/evidence-image-v1.html"
+        );
+    }
+
+    let ingest_photo = lines[1]["result"]["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "vw-diagnostic-service_ingest-photo")
+        .expect("ingest-photo tool");
+    assert_eq!(
+        ingest_photo["_meta"]["openai/fileParams"],
+        serde_json::json!(["photo"])
+    );
+    assert_eq!(ingest_photo["annotations"]["readOnlyHint"], false);
+    assert_eq!(ingest_photo["annotations"]["openWorldHint"], true);
+    let file_schema = &ingest_photo["inputSchema"]["definitions"]["OpenAIFile"];
+    assert_eq!(
+        file_schema["required"],
+        serde_json::json!(["download_url", "file_id"])
+    );
+    for property in ["download_url", "file_id", "mime_type", "file_name"] {
+        assert_eq!(file_schema["properties"][property]["type"], "string");
+    }
+    assert_eq!(file_schema["additionalProperties"], false);
 
     let measurement_tool = lines[1]["result"]["tools"]
         .as_array()
@@ -102,6 +153,15 @@ fn focused_server_lists_and_calls_only_semantic_profile() {
         .collect();
     assert!(uris.contains(&"impress://expert/vw/guide"));
     assert!(uris.contains(&"impress://expert/vw/schema"));
+    assert!(uris.contains(&"ui://vw/evidence-image-v1.html"));
+    assert_eq!(
+        lines[4]["result"]["contents"][0]["mimeType"],
+        "text/html;profile=mcp-app"
+    );
+    assert!(lines[4]["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("viewer HTML")
+        .contains("ui/notifications/tool-result"));
 
     let _ = std::fs::remove_file(store);
 }
@@ -391,4 +451,81 @@ fn page_image_crosses_the_actual_stdio_boundary_as_mcp_image_content() {
     assert!(response["result"]["structuredContent"]
         .get("_mcp_content")
         .is_none());
+}
+
+#[test]
+fn stored_user_photo_crosses_the_actual_stdio_boundary_as_mcp_image_content() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let store_path = temp.path().join("impress.sqlite");
+    let blob_root = temp.path().join("blobs");
+    let store = Arc::new(SqliteItemStore::open(&store_path).expect("open store"));
+    let photo_bytes = base64::engine::general_purpose::STANDARD
+        .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+        .expect("decode PNG fixture");
+    let stored = PhotoEvidenceStore::new(blob_root)
+        .expect("photo store")
+        .ingest_bytes(
+            store.clone(),
+            ChatGptFile {
+                download_url: "https://files.oaiusercontent.com/fixture".into(),
+                file_id: "file_stdio_photo_fixture".into(),
+                mime_type: Some("image/png".into()),
+                file_name: Some("engine.png".into()),
+            },
+            PhotoDescription {
+                title: "Engine compartment photo".into(),
+                description: "Synthetic diagnostic photo fixture.".into(),
+                component: Some("engine compartment".into()),
+                diagnostic_session_id: None,
+                captured_at: None,
+                tags: vec!["fixture".into()],
+            },
+            photo_bytes,
+        );
+    assert!(stored.ok, "{}", stored.message);
+    let evidence_id = stored.evidence.expect("photo evidence").id;
+    drop(store);
+
+    let mut child = Command::new(binary_path())
+        .arg("--store-path")
+        .arg(&store_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn vw-mcp");
+    let request = serde_json::json!({
+        "jsonrpc":"2.0", "id":1, "method":"tools/call",
+        "params":{
+            "name":"vw-diagnostic-service_get-photo",
+            "arguments":{"evidence_id":evidence_id}
+        }
+    });
+    writeln!(child.stdin.as_mut().expect("stdin"), "{request}").expect("write request");
+    drop(child.stdin.take());
+    let output = child.wait_with_output().expect("wait for MCP response");
+    assert!(
+        output.status.success(),
+        "MCP stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("JSON-RPC response");
+    assert_eq!(response["result"]["isError"], false);
+    assert_eq!(
+        response["result"]["structuredContent"]["status"],
+        "retrieved"
+    );
+    assert_eq!(
+        response["result"]["structuredContent"]["evidence"]["title"],
+        "Engine compartment photo"
+    );
+    let image = response["result"]["content"]
+        .as_array()
+        .expect("MCP content")
+        .iter()
+        .find(|block| block["type"] == "image")
+        .expect("MCP image content block");
+    assert_eq!(image["mimeType"], "image/png");
+    assert!(image["data"].as_str().expect("base64 image").len() > 40);
 }

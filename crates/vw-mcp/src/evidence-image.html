@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: CanvasText; background: transparent; }
+    main { display: grid; gap: 10px; padding: 10px; }
+    .frame {
+      display: grid;
+      place-items: center;
+      min-height: 120px;
+      overflow: hidden;
+      border-radius: 10px;
+      background: color-mix(in srgb, CanvasText 5%, Canvas);
+    }
+    img { display: block; max-width: 100%; height: auto; }
+    h1 { margin: 0; font-size: 15px; font-weight: 650; }
+    p { margin: 0; color: color-mix(in srgb, CanvasText 72%, transparent); font-size: 13px; line-height: 1.4; }
+    .provenance { font-size: 12px; }
+    .status { padding: 24px 12px; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="frame">
+      <p class="status" id="status">Loading cited image…</p>
+      <img id="image" alt="" hidden>
+    </div>
+    <section id="details" hidden>
+      <h1 id="title"></h1>
+      <p id="caption" hidden></p>
+      <p class="provenance" id="provenance"></p>
+    </section>
+  </main>
+  <script>
+    const image = document.getElementById("image");
+    const status = document.getElementById("status");
+    const details = document.getElementById("details");
+    const title = document.getElementById("title");
+    const caption = document.getElementById("caption");
+    const provenance = document.getElementById("provenance");
+
+    function firstImage(value, seen = new Set()) {
+      if (!value || typeof value !== "object" || seen.has(value)) return null;
+      seen.add(value);
+      if (value.type === "image" && typeof value.data === "string") return value;
+      const priorityKeys = ["content", "mcp_tool_result", "call_tool_result", "result"];
+      for (const key of priorityKeys) {
+        const found = firstImage(value[key], seen);
+        if (found) return found;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const found = firstImage(item, seen);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    function structuredResult(payload) {
+      return payload?.structuredContent
+        ?? payload?.result?.structuredContent
+        ?? payload?.mcp_tool_result?.structuredContent
+        ?? window.openai?.toolOutput
+        ?? null;
+    }
+
+    function render(payload) {
+      const block = firstImage(payload)
+        ?? firstImage(window.openai?.toolResponseMetadata);
+      const result = structuredResult(payload)
+        ?? structuredResult(window.openai?.toolResponseMetadata);
+      const metadata = result?.metadata ?? result?.evidence;
+      const isPhoto = Boolean(result?.evidence);
+
+      if (block) {
+        const mime = block.mimeType || "image/png";
+        image.src = `data:${mime};base64,${block.data}`;
+        image.alt = isPhoto
+          ? metadata?.title || "Stored VW photo evidence"
+          : metadata?.figure_label
+            ? `${metadata.figure_label} from ${metadata.source_title || "cited source"}`
+            : `PDF page ${metadata?.page_label || ""} from ${metadata?.source_title || "cited source"}`;
+        image.hidden = false;
+        status.hidden = true;
+      } else if (result && result.ok === false) {
+        status.textContent = result.message || "The cited image could not be resolved.";
+      }
+
+      if (!metadata) return;
+      const label = isPhoto
+        ? metadata.title
+        : metadata.figure_label || `PDF page ${metadata.page_label}`;
+      title.textContent = label;
+      const captionText = isPhoto ? metadata.description : metadata.caption_text;
+      if (captionText) {
+        caption.textContent = captionText;
+        caption.hidden = false;
+      }
+      if (isPhoto) {
+        const dimensions = metadata.pixel_width && metadata.pixel_height
+          ? ` · ${metadata.pixel_width}×${metadata.pixel_height}`
+          : "";
+        const component = metadata.component ? ` · ${metadata.component}` : "";
+        provenance.textContent = `Private user photo${component}${dimensions} · ${metadata.mime_type}`;
+      } else {
+        const source = metadata.source_title || "Cited source";
+        provenance.textContent = `${source} · PDF page ${metadata.page_label} · ${metadata.resolution_dpi} dpi`;
+      }
+      details.hidden = false;
+    }
+
+    render(window.openai?.toolResponseMetadata);
+    window.addEventListener("openai:set_globals", () => {
+      render(window.openai?.toolResponseMetadata);
+    });
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent) return;
+      const message = event.data;
+      if (message?.method === "ui/notifications/tool-result") {
+        render(message.params);
+      }
+    }, { passive: true });
+  </script>
+</body>
+</html>

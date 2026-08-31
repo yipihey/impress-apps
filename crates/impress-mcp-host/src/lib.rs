@@ -23,6 +23,23 @@ pub struct Resource {
     pub description: String,
     pub mime_type: String,
     pub text: String,
+    /// Optional MCP Apps metadata attached to both resource discovery and the
+    /// resource contents returned by `resources/read`.
+    pub meta: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolUi {
+    pub tool_name: String,
+    pub resource_uri: String,
+    pub invoking: String,
+    pub invoked: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolFileParams {
+    pub tool_name: String,
+    pub params: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +51,12 @@ pub struct HostConfig {
     /// means expose the full linked inventory.
     pub allowed_tool_prefixes: Vec<String>,
     pub resources: Vec<Resource>,
+    /// UI bindings remain a host concern: generated service descriptors stay
+    /// product-neutral while a focused product can choose its presentation.
+    pub tool_ui: Vec<ToolUi>,
+    /// Top-level tool arguments that ChatGPT may populate from files shared in
+    /// the conversation. The parameter schemas still come from Rust types.
+    pub tool_file_params: Vec<ToolFileParams>,
 }
 
 impl HostConfig {
@@ -176,12 +199,18 @@ pub fn handle_request(config: &HostConfig, request: &Value) -> Value {
         "resources/list" => success(
             id,
             json!({
-                "resources": config.resources.iter().map(|resource| json!({
-                    "uri": resource.uri,
-                    "name": resource.name,
-                    "description": resource.description,
-                    "mimeType": resource.mime_type,
-                })).collect::<Vec<_>>()
+                "resources": config.resources.iter().map(|resource| {
+                    let mut descriptor = json!({
+                        "uri": resource.uri,
+                        "name": resource.name,
+                        "description": resource.description,
+                        "mimeType": resource.mime_type,
+                    });
+                    if let Some(meta) = &resource.meta {
+                        descriptor["_meta"] = meta.clone();
+                    }
+                    descriptor
+                }).collect::<Vec<_>>()
             }),
         ),
         "resources/read" => handle_resource_read(config, id, request),
@@ -197,11 +226,46 @@ pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
     descriptors
         .into_iter()
         .map(|descriptor| {
-            json!({
+            let mut definition = json!({
                 "name": descriptor.name,
                 "description": descriptor.description,
                 "inputSchema": (descriptor.input_schema)(),
-            })
+            });
+            if let Some(ui) = config
+                .tool_ui
+                .iter()
+                .find(|ui| ui.tool_name == descriptor.name)
+            {
+                definition["_meta"] = json!({
+                    "ui": {
+                        "resourceUri": ui.resource_uri,
+                        "visibility": ["model", "app"],
+                    },
+                    // Compatibility aliases for ChatGPT clients predating the
+                    // shared MCP Apps fields.
+                    "openai/outputTemplate": ui.resource_uri,
+                    "openai/toolInvocation/invoking": ui.invoking,
+                    "openai/toolInvocation/invoked": ui.invoked,
+                });
+            }
+            if let Some(file_params) = config
+                .tool_file_params
+                .iter()
+                .find(|entry| entry.tool_name == descriptor.name)
+            {
+                let meta = definition
+                    .as_object_mut()
+                    .expect("tool definition is an object")
+                    .entry("_meta")
+                    .or_insert_with(|| json!({}));
+                meta["openai/fileParams"] = json!(file_params.params);
+                definition["annotations"] = json!({
+                    "readOnlyHint": false,
+                    "openWorldHint": true,
+                    "destructiveHint": false,
+                });
+            }
+            definition
         })
         .collect()
 }
@@ -242,16 +306,15 @@ fn handle_resource_read(config: &HostConfig, id: Value, request: &Value) -> Valu
     let Some(resource) = config.resources.iter().find(|resource| resource.uri == uri) else {
         return json_rpc_error(id, -32002, format!("Resource not found: {uri}"));
     };
-    success(
-        id,
-        json!({
-            "contents": [{
-                "uri": resource.uri,
-                "mimeType": resource.mime_type,
-                "text": resource.text,
-            }]
-        }),
-    )
+    let mut content = json!({
+        "uri": resource.uri,
+        "mimeType": resource.mime_type,
+        "text": resource.text,
+    });
+    if let Some(meta) = &resource.meta {
+        content["_meta"] = meta.clone();
+    }
+    success(id, json!({ "contents": [content] }))
 }
 
 fn tool_result(id: Value, result: Result<Value, String>) -> Value {
@@ -312,7 +375,10 @@ mod tests {
                 description: "Test".into(),
                 mime_type: "text/plain".into(),
                 text: "hello".into(),
+                meta: None,
             }],
+            tool_ui: Vec::new(),
+            tool_file_params: Vec::new(),
         }
     }
 

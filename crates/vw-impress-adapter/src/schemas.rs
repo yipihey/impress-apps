@@ -10,6 +10,7 @@ pub const VW_MEASUREMENT_SCHEMA: &str = "vw/measurement@1.0.0";
 pub const VW_PROCEDURE_RUN_SCHEMA: &str = "vw/procedure-run@1.0.0";
 pub const VW_COMMAND_RECEIPT_SCHEMA: &str = "vw/command-receipt@1.0.0";
 pub const VW_KNOWLEDGE_PACK_SCHEMA: &str = "vw/knowledge-pack@1.0.0";
+pub const VW_PHOTO_EVIDENCE_SCHEMA: &str = "vw/photo-evidence@1.0.0";
 
 fn field(name: &str, field_type: FieldType, required: bool, description: &str) -> FieldDef {
     FieldDef {
@@ -201,6 +202,59 @@ pub fn vw_schemas() -> Vec<Schema> {
             vec![EdgeType::OperatesOn],
         ),
         aggregate_schema(
+            VW_PHOTO_EVIDENCE_SCHEMA,
+            "VW Photo Evidence",
+            vec![
+                field(
+                    "source_item_id",
+                    FieldType::String,
+                    true,
+                    "Private media artifact containing the immutable photo.",
+                ),
+                field(
+                    "content_blob_id",
+                    FieldType::String,
+                    true,
+                    "Content-addressed blob metadata item UUID.",
+                ),
+                field(
+                    "source_content_hash",
+                    FieldType::String,
+                    true,
+                    "SHA-256 of the original user-supplied photo bytes.",
+                ),
+                field(
+                    "external_file_id",
+                    FieldType::String,
+                    true,
+                    "ChatGPT-authorized file identifier retained as ingest lineage.",
+                ),
+                field(
+                    "diagnostic_session_id",
+                    FieldType::String,
+                    false,
+                    "Optional diagnostic session to which this evidence belongs.",
+                ),
+                field(
+                    "description",
+                    FieldType::String,
+                    true,
+                    "Model-visible description grounded in the shared photo.",
+                ),
+                field(
+                    "component",
+                    FieldType::String,
+                    false,
+                    "Bus component or system depicted, when known.",
+                ),
+            ],
+            vec![
+                EdgeType::Attaches,
+                EdgeType::DerivedFrom,
+                EdgeType::RelatesTo,
+            ],
+        ),
+        aggregate_schema(
             VW_KNOWLEDGE_PACK_SCHEMA,
             "VW Knowledge Pack",
             vec![
@@ -242,8 +296,9 @@ mod tests {
     fn all_vw_schemas_register_once() {
         let mut registry = SchemaRegistry::new();
         register_vw_schemas(&mut registry);
-        assert_eq!(registry.list().len(), 8);
+        assert_eq!(registry.list().len(), 9);
         assert!(registry.get(VW_DIAGNOSTIC_SESSION_SCHEMA).is_some());
         assert!(registry.get(VW_COMMAND_RECEIPT_SCHEMA).is_some());
+        assert!(registry.get(VW_PHOTO_EVIDENCE_SCHEMA).is_some());
     }
 }

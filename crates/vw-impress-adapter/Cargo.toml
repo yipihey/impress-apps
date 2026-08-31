@@ -11,6 +11,7 @@ vw-domain = { path = "../vw-domain" }
 vw-service = { path = "../vw-service" }
 impress-core = { workspace = true, features = ["sqlite", "schema"] }
 impress-store-service = { workspace = true }
+impress-ai = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -18,6 +19,11 @@ serde_json = { workspace = true }
 schemars = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v5"] }
 chrono = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
+tempfile = "3"

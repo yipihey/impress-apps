@@ -94,6 +94,7 @@
     "vw/knowledge-pack@1.0.0": "vw-impress-adapter. Immutable curated VW knowledge-pack manifest and typed content.",
     "vw/measurement@1.0.0": "vw-impress-adapter. Queryable child measurement with unit, acquisition context, and parent diagnostic session.",
     "vw/observation@1.0.0": "vw-impress-adapter. Queryable child observation with acquisition context and supersession history.",
+    "vw/photo-evidence@1.0.0": "vw-impress-adapter. Private, hash-pinned user photo evidence ingested from an authorized ChatGPT file handoff and linked to the generic media artifact, content blob, and optional diagnostic session.",
     "vw/procedure-run@1.0.0": "vw-impress-adapter. Durable execution state for a published diagnostic procedure.",
     "vw/vehicle@1.0.0": "vw-impress-adapter. Vehicle identity linked to its exact configuration.",
     "watched-file@1.0.0": "VERSIONED. impress-core schemas/watched_folder.rs (ADR-0023 D4). One row per file a watched folder has ever discovered — an INDEX ENTRY, never a copy: path, sha256 content hash, mtime, and a `state` of present|missing. Written and read ONLY by impress-store-service DocsImportService (import_discovered / finish_watched_scan / record_produced_rows / list_watched_files), which is the single writer for both ingest units. A vanished file's row is marked `missing`, never deleted, because the rows it produced are still real. `produced_ids` is the W2 seam: discovery leaves it absent and the app's real importer fills it in through record_produced_rows.",
@@ -173,6 +174,7 @@
       "vw/knowledge-pack@1.0.0",
       "vw/measurement@1.0.0",
       "vw/observation@1.0.0",
+      "vw/photo-evidence@1.0.0",
       "vw/procedure-run@1.0.0",
       "vw/vehicle@1.0.0"
     ],
