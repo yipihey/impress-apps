@@ -243,9 +243,25 @@ impl SqliteItemStore {
 
         // Planner statistics (2026-08-07 incident): see
         // `optimize_query_planner`. Best-effort — a store that opens without
-        // fresh stats is strictly better than one that refuses to open.
-        if let Err(e) = store.optimize_query_planner() {
-            eprintln!("[impress-core] open-time PRAGMA optimize failed: {}", e);
+        // fresh stats is strictly better than one that refuses to open —
+        // and BOUNDED (2026-08-31): `PRAGMA optimize` runs ANALYZE, which
+        // takes the write lock, so under the store's 5 s busy timeout it made
+        // every launch wait five seconds behind any sibling process's write.
+        // The daemon refreshes these statistics every maintenance cycle, so a
+        // launch that skips them loses nothing; a launch that waits for them
+        // is the hang. Same reasoning as the WAL checkpoint above.
+        {
+            let short = std::time::Duration::from_millis(250);
+            if let Ok(conn) = store.conn.lock() {
+                let _ = conn.busy_timeout(short);
+            }
+            let outcome = store.optimize_query_planner();
+            if let Ok(conn) = store.conn.lock() {
+                let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+            }
+            if let Err(e) = outcome {
+                eprintln!("[impress-core] open-time PRAGMA optimize skipped: {}", e);
+            }
         }
 
         // File-backed stores get a reader pool. The writer has already set
@@ -290,7 +306,16 @@ impl SqliteItemStore {
             wal_bytes / (1024 * 1024),
             Self::WAL_SIZE_BUDGET_BYTES / (1024 * 1024),
         );
-        match Self::wal_checkpoint_on(&conn, WalCheckpointMode::Truncate) {
+        // FAIL FAST while another process is writing (2026-08-31). This
+        // checkpoint is opportunistic — the AI daemon owns the cadence — but
+        // it takes the write lock, so under the store's normal 5 s busy
+        // timeout it made every LAUNCH wait five seconds behind a sibling's
+        // maintenance write. A launch may not be held hostage by hygiene:
+        // try briefly, and let the daemon (or the next open) do it.
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(250));
+        let outcome = Self::wal_checkpoint_on(&conn, WalCheckpointMode::Truncate);
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+        match outcome {
             Ok(outcome) if outcome.completed => {
                 let after = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
                 eprintln!(
@@ -1000,11 +1025,38 @@ impl SqliteItemStore {
 
         // One-shot backfill for pre-Phase-3 rows (idempotent: only rows
         // still at clock 0).
-        conn.execute(
-            "UPDATE items SET logical_clock = modified << 16 WHERE logical_clock = 0",
-            [],
-        )
-        .map_err(|e| StoreError::Storage(format!("clock backfill: {}", e)))?;
+        //
+        // PROBE FIRST, and never fail the open on it (2026-08-31): this ran
+        // as an unconditional UPDATE on every open, so every app launch took
+        // the write lock for a migration that finished months ago — and when
+        // another suite process held that lock, the `?` propagated out of
+        // `SqliteItemStore::open` into `RustStoreAdapter`'s initializer,
+        // whose failure path is `fatalError`. imbib CRASHED AT LAUNCH with
+        // "clock backfill: database is locked" whenever the daemon's
+        // maintenance or imprint happened to be writing. A migration must
+        // never be able to deny the user their app: probe with an indexed
+        // read (`idx_items_logical_clock`), skip the write in the universal
+        // case of nothing to do, and treat a busy database as "later" —
+        // it is idempotent, so the next open finishes it.
+        let needs_backfill: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM items WHERE logical_clock = 0)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if needs_backfill {
+            if let Err(e) = conn.execute(
+                "UPDATE items SET logical_clock = modified << 16 WHERE logical_clock = 0",
+                [],
+            ) {
+                eprintln!(
+                    "[impress-core] clock backfill deferred ({}); it is idempotent \
+                     and will run on a later open",
+                    e
+                );
+            }
+        }
 
         // Sync-excluded schemas (durable, main DB): record kinds whose items
         // never enter the sync outbox because they have their OWN sync
@@ -1192,27 +1244,49 @@ impl SqliteItemStore {
                 id
             });
 
-        // Initialize logical_clock if not present (legacy fallback)
-        let _ = conn.execute(
-            "INSERT OR IGNORE INTO store_metadata (key, value) VALUES ('logical_clock', '0')",
-            [],
-        );
-
-        // Initialize HLC state if not present
-        let _ = conn.execute(
-            "INSERT OR IGNORE INTO store_metadata (key, value) VALUES ('hlc_last_wall_ms', '0')",
-            [],
-        );
-        let _ = conn.execute(
-            "INSERT OR IGNORE INTO store_metadata (key, value) VALUES ('hlc_counter', '0')",
-            [],
-        );
-
-        // Store tag_namespace (don't overwrite if already set)
-        let _ = conn.execute(
-            "INSERT OR IGNORE INTO store_metadata (key, value) VALUES ('tag_namespace', ?1)",
-            params![&config.tag_namespace],
-        );
+        // Seed the defaults, but ONLY the keys that are actually missing.
+        //
+        // These were four unconditional `INSERT OR IGNORE`s, and INSERT OR
+        // IGNORE still takes the WRITE LOCK when the row already exists — so
+        // every open paid the full busy timeout FOUR TIMES over behind any
+        // sibling process's write. Measured 2026-08-31 with a second
+        // connection holding `BEGIN IMMEDIATE`: 20.7 s of a 26 s open, which
+        // is what "imbib hangs easily" (and a 3-minute launch) was made of.
+        // One read answers it, and in the steady state — every key present,
+        // every launch after the first — the open now writes nothing here.
+        let defaults: [(&str, &str); 4] = [
+            ("logical_clock", "0"),
+            ("hlc_last_wall_ms", "0"),
+            ("hlc_counter", "0"),
+            ("tag_namespace", config.tag_namespace.as_str()),
+        ];
+        let mut missing: Vec<(&str, &str)> = Vec::new();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT key FROM store_metadata WHERE key IN \
+                     ('logical_clock', 'hlc_last_wall_ms', 'hlc_counter', 'tag_namespace')",
+                )
+                .map_err(|e| StoreError::Storage(format!("read metadata defaults: {}", e)))?;
+            let present: std::collections::HashSet<String> = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|e| StoreError::Storage(format!("read metadata defaults: {}", e)))?
+                .filter_map(Result::ok)
+                .collect();
+            for (key, value) in defaults {
+                if !present.contains(key) {
+                    missing.push((key, value));
+                }
+            }
+        }
+        // Best effort, exactly as before: a seed that loses a race is written
+        // by the next open rather than failing this one.
+        for (key, value) in missing {
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO store_metadata (key, value) VALUES (?1, ?2)",
+                params![key, value],
+            );
+        }
 
         Ok(origin_id)
     }
@@ -6920,6 +6994,56 @@ mod tests {
 
         drop(store);
         let _ = std::fs::remove_file(&wal_path);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A store open must survive another process holding the write lock.
+    ///
+    /// The open-time clock backfill used to be an unconditional UPDATE whose
+    /// failure propagated out of `open`, and `RustStoreAdapter`'s initializer
+    /// turns any open failure into `fatalError` — so imbib CRASHED AT LAUNCH
+    /// ("clock backfill: database is locked") whenever the daemon or imprint
+    /// was writing. A migration may never deny the user their app.
+    #[test]
+    fn open_succeeds_while_another_connection_holds_the_write_lock() {
+        let path = tmp_db_path("locked_open");
+        let store = SqliteItemStore::open(&path).unwrap();
+        store.insert(make_item("note", "seed")).unwrap();
+        drop(store);
+
+        // A second connection holds an EXCLUSIVE write transaction, exactly
+        // as a sibling process's maintenance write would.
+        let blocker = rusqlite::Connection::open(&path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+        // Opening must still succeed — and be usable, and be FAST.
+        //
+        // The budget is the point: every write the open performs waits the
+        // full 5 s busy timeout under this lock, so a regression that adds
+        // one back shows up as seconds. Measured 2026-08-31: 26.0 s before
+        // (four metadata `INSERT OR IGNORE`s at 5 s each, the clock backfill,
+        // and `PRAGMA optimize`), 0.32 s after.
+        let started = std::time::Instant::now();
+        let opened = SqliteItemStore::open(&path);
+        let elapsed = started.elapsed();
+        assert!(
+            opened.is_ok(),
+            "a held write lock must not fail the open: {:?}",
+            opened.err()
+        );
+        assert!(
+            elapsed.as_secs_f64() < 2.0,
+            "opening behind a write lock took {:.1}s — something in the open path is \
+             waiting on the write lock again (probe before you write; bound opportunistic \
+             maintenance)",
+            elapsed.as_secs_f64()
+        );
+        let store = opened.unwrap();
+        assert_eq!(store.count(&ItemQuery::default()).unwrap(), 1);
+
+        blocker.execute_batch("ROLLBACK").unwrap();
+        drop(blocker);
+        drop(store);
         let _ = std::fs::remove_file(&path);
     }
 

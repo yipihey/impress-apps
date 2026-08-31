@@ -378,7 +378,44 @@ final class ImbibSidebarViewModel {
 
     /// Called when `RustStoreAdapter.shared.dataVersion` changes.
     /// Refreshes sidebar counts and triggers NSOutlineView reload.
+    /// How long a burst of structural store events is allowed to accumulate
+    /// before the sidebar rebuilds. Short enough to be imperceptible for a
+    /// user's own edit, long enough to collapse an importer's stream.
+    private static let structuralRefreshDebounce: Duration = .milliseconds(250)
+
+    @ObservationIgnored private var structuralRefreshTask: Task<Void, Never>?
+
+    /// Called when the store reports a STRUCTURAL change. Coalesced.
+    ///
+    /// Structural events arrive in bursts: a group-feed refresh searches
+    /// arXiv author by author and imports each result set, emitting one
+    /// event per import — dozens of them, seconds apart, for minutes. Each
+    /// event used to run the full refresh below TWICE (the trailing
+    /// `bumpDataVersion` plus the one in the citation-usage `Task`), and
+    /// every one of those rebuilds `tabToNodeID` on the MAIN THREAD
+    /// (measured 100–272 ms against a 100 ms budget) after throwing away the
+    /// tag cache, so the next rebuild also re-reads the whole tag vocabulary
+    /// over the FFI. That is the "imbib hangs easily" report: the UI was
+    /// spending most of a feed refresh inside the sidebar.
+    ///
+    /// Coalescing turns O(imports) rebuilds into O(bursts). A single
+    /// `Task.sleep` (never a loop — `try?` in a loop swallows cancellation,
+    /// see the startup render-loop invariant) is cancelled by the next event,
+    /// so a burst pays for exactly one refresh, at its end.
     func refreshFromStore() {
+        structuralRefreshTask?.cancel()
+        structuralRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.structuralRefreshDebounce)
+            guard !Task.isCancelled else { return }
+            self?.performStructuralRefresh()
+        }
+    }
+
+    /// The refresh itself, without the coalescing wait. Direct callers are
+    /// the debounce above and tests; a caller that needs the sidebar correct
+    /// *right now* (a user action whose result must be on screen this
+    /// runloop) may also use it.
+    func performStructuralRefresh() {
         libraryManager?.loadLibraries()
         refreshFlagCounts()
         // A structural refresh is exactly when a tag can have appeared or gone.
@@ -389,8 +426,15 @@ final class ImbibSidebarViewModel {
         // mutations — we refresh on every data-version bump to stay
         // roughly current. The read is cheap (bounded by the number
         // of records, typically a few hundred).
+        //
+        // The second bump is CONDITIONAL: re-reading the snapshot almost
+        // never changes it, and an unconditional bump doubled every
+        // structural refresh's main-thread cost for nothing.
         Task { [weak self] in
+            let before = await CitedInManuscriptsSnapshot.shared.citedPaperIDs
             await CitedInManuscriptsSnapshot.shared.refresh()
+            let after = await CitedInManuscriptsSnapshot.shared.citedPaperIDs
+            guard before != after else { return }
             await MainActor.run { self?.bumpDataVersion() }
         }
         bumpDataVersion()
@@ -555,8 +599,26 @@ final class ImbibSidebarViewModel {
                 registerNode(child)
             }
         }
+        // Per-section attribution. A rebuild that breaches its budget used to
+        // report only the total, which says "the sidebar is slow" and nothing
+        // about WHICH section's children cost it — and these builders do
+        // synchronous store reads (manuscript folders, pending-review counts,
+        // dismissed counts, figures). Naming the section is the difference
+        // between a guess and a fix.
+        var sectionCost: [(name: String, ms: Double)] = []
         for section in buildSectionNodes() {
+            let started = CFAbsoluteTimeGetCurrent()
             registerNode(section)
+            sectionCost.append((section.displayName, (CFAbsoluteTimeGetCurrent() - started) * 1000))
+        }
+        let total = sectionCost.reduce(0) { $0 + $1.ms }
+        if total > 100 {
+            let worst = sectionCost.sorted { $0.ms > $1.ms }.prefix(3)
+                .map { String(format: "%@ %.0fms", $0.name, $0.ms) }
+                .joined(separator: ", ")
+            Self.logger.warningCapture(
+                "rebuildTabMap sections cost \(String(format: "%.0f", total))ms — worst: \(worst)",
+                category: "sidebar")
         }
         for level in tagLevels().values {
             for path in level {
