@@ -1510,6 +1510,23 @@ final class ImbibSidebarViewModel {
     //
     // `@ObservationIgnored`: cache state is not view state; filling it during
     // a SwiftUI body walk must not schedule re-renders.
+    /// Sidebar plan P2, flag `sidebar.snapshotTree` (default OFF): tree
+    /// builders read `SidebarSnapshot.shared.treeData` — one immutable value
+    /// produced OFF-MAIN by the maintainer — instead of fetching from the
+    /// store on the main thread. `var` so the ratchet test can flip it; the
+    /// app reads the default once at init (relaunch to change, which is the
+    /// soak protocol: additive, gated, revertible).
+    @ObservationIgnored var snapshotTreeEnabled: Bool =
+        UserDefaults.standard.bool(forKey: "sidebar.snapshotTree")
+
+    /// The published tree data, when the flag is on and a sweep has run.
+    /// Falling back to the fetch path until the first publish means enabling
+    /// the flag can never render an empty sidebar.
+    private var snapshotTreeData: SidebarTreeData? {
+        guard snapshotTreeEnabled else { return nil }
+        return SidebarSnapshot.shared.treeData
+    }
+
     @ObservationIgnored private var fetchCacheVersion: Int = .min
     @ObservationIgnored private var cachedCollectionsByLibrary: [UUID: [CollectionModel]] = [:]
     @ObservationIgnored private var cachedFeedsByLibrary: [UUID?: [SmartSearch]] = [:]
@@ -1526,6 +1543,9 @@ final class ImbibSidebarViewModel {
     }
 
     func cachedCollections(libraryId: UUID) -> [CollectionModel] {
+        if let snapshot = snapshotTreeData {
+            return snapshot.collectionsByLibrary[libraryId] ?? []
+        }
         ensureFetchCacheCurrent()
         if let hit = cachedCollectionsByLibrary[libraryId] { return hit }
         let fetched = store.listCollections(libraryId: libraryId)
@@ -1534,6 +1554,9 @@ final class ImbibSidebarViewModel {
     }
 
     func cachedFeeds(libraryId: UUID?) -> [SmartSearch] {
+        if let snapshot = snapshotTreeData {
+            return snapshot.feedsByLibrary[libraryId] ?? []
+        }
         ensureFetchCacheCurrent()
         if let hit = cachedFeedsByLibrary[libraryId] { return hit }
         let fetched = store.listSmartSearches(libraryId: libraryId)
@@ -1542,6 +1565,9 @@ final class ImbibSidebarViewModel {
     }
 
     func cachedStarredCount(parentId: UUID?) -> Int {
+        if let snapshot = snapshotTreeData {
+            return snapshot.starredByLibrary[parentId] ?? 0
+        }
         ensureFetchCacheCurrent()
         if let hit = cachedStarredByLibrary[parentId] { return hit }
         let fetched = store.countStarred(parentId: parentId)
@@ -1550,6 +1576,9 @@ final class ImbibSidebarViewModel {
     }
 
     func cachedArtifactCount(type: ArtifactType?) -> Int {
+        if let snapshot = snapshotTreeData {
+            return snapshot.artifactCounts[type] ?? 0
+        }
         ensureFetchCacheCurrent()
         if let hit = cachedArtifactCounts[type] { return hit }
         let fetched = store.countArtifacts(type: type)

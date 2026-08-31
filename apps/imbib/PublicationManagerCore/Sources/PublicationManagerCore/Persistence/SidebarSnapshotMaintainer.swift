@@ -164,12 +164,44 @@ public actor SidebarSnapshotMaintainer {
             }
         }
 
+        // Tree data (sidebar plan P2): the same shapes the builders' fetch
+        // cache reads, gathered here — off-main — in the sweep that already
+        // walks libraries. Collections go through the adapter's kernel-first
+        // door (`listCollectionsResolved`, the one ADR-0022 F2 left standing),
+        // never a raw export. Gathered unconditionally: ~a dozen quick reads
+        // per sweep, and flipping `sidebar.snapshotTree` then needs no
+        // restart — the data is always current.
+        let adapter = RustStoreAdapter.shared
+        var collectionsByLibrary: [UUID: [CollectionModel]] = [:]
+        var feedsByLibrary: [UUID?: [SmartSearch]] = [:]
+        var starredByLibrary: [UUID?: Int] = [:]
+        for lib in libraries {
+            collectionsByLibrary[lib.id] = adapter.listCollectionsResolved(libraryId: lib.id)
+            feedsByLibrary[lib.id] = gateway.listSmartSearches(libraryId: lib.id)
+            starredByLibrary[lib.id] = adapter.countStarredResolved(parentId: lib.id)
+        }
+        feedsByLibrary[nil] = allSearches
+        starredByLibrary[nil] = adapter.countStarredResolved(parentId: nil)
+        var artifactCounts: [ArtifactType?: Int] = [
+            nil: adapter.countArtifactsResolved(type: nil)
+        ]
+        for type in ArtifactType.allCases {
+            artifactCounts[type] = adapter.countArtifactsResolved(type: type)
+        }
+        let treeData = SidebarTreeData(
+            collectionsByLibrary: collectionsByLibrary,
+            feedsByLibrary: feedsByLibrary,
+            starredByLibrary: starredByLibrary,
+            artifactCounts: artifactCounts
+        )
+
         // Publish atomically on the main actor.
         await MainActor.run {
             SidebarSnapshot.shared.apply(
                 unreadByFeed: unreadByFeed,
                 unreadByLibrary: unreadByLibrary,
-                flagCounts: flagCounts
+                flagCounts: flagCounts,
+                treeData: treeData
             )
         }
     }

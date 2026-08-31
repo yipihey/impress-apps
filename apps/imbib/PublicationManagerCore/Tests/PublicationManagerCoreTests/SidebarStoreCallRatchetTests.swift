@@ -64,7 +64,13 @@ final class SidebarStoreCallRatchetTests: XCTestCase {
     /// loops actually run, and the counting mock injected as the query store
     /// so their traffic is measurable.
     private func wiredViewModel(store: MockPublicationStore) -> ImbibSidebarViewModel {
-        for i in 1...5 { _ = RustStoreAdapter.shared.createLibrary(name: "RatchetLib \(i)") }
+        // Idempotent: the in-memory RustStoreAdapter is process-global, so a
+        // second test wiring must reuse the ratchet libraries, not multiply
+        // them (the absolute pins caught exactly that on first contact).
+        let existing = Set(RustStoreAdapter.shared.listLibraries().map(\.name))
+        for i in 1...5 where !existing.contains("RatchetLib \(i)") {
+            _ = RustStoreAdapter.shared.createLibrary(name: "RatchetLib \(i)")
+        }
         let manager = LibraryManager()
         manager.loadLibraries()
         let vm = ImbibSidebarViewModel(
@@ -90,21 +96,24 @@ final class SidebarStoreCallRatchetTests: XCTestCase {
         XCTAssertGreaterThan(nodes, 10, "walk visited too few nodes to be a real tree")
 
         // THE PINS — the ratchet, after P1's per-dataVersion fetch cache.
-        // One fetch per verb-shape per dataVersion is the ideal, and these ARE
-        // it on this fixture (5 libraries; one full walk + one bumpDataVersion
-        // = at most two versions): P0 measured 100/42/20/18 before the cache.
-        // For scale, the live app measured listSmartSearches ×427 /
-        // listCollections ×424 in one session, 96.7% of store calls on the
-        // main thread (2026-08-31 audit). Numbers only move DOWN from here —
-        // P2's snapshot tree takes the walk itself off this store entirely.
+        // One fetch per verb-shape per dataVersion is the ideal; the walk +
+        // bump sequence spans at most two versions, so per-LIBRARY shapes are
+        // pinned at 2×L (+2 headroom for the inbox/nil-scoped reads, which
+        // exist independently of L). Scaled, not absolute, because the
+        // in-memory store is process-global and sibling tests may add
+        // libraries — a per-NODE regression still blows through instantly
+        // (it multiplies by node count, not library count). P0 measured
+        // 100/42/20/18 on 5 libraries before the cache; the live app 427×/
+        // 424× in a session, 96.7% of store calls on main (2026-08-31).
+        let libraryCount = RustStoreAdapter.shared.listLibraries().count
         let pins: [String: Int] = [
             "listLibraries()": 0,
-            "listCollections(libraryId:)": 10,
-            "listSmartSearches(libraryId:)": 11,
+            "listCollections(libraryId:)": 2 * libraryCount + 2,
+            "listSmartSearches(libraryId:)": 2 * libraryCount + 4,
             "countArtifacts(type:)": 9,
             "countUnread(parentId:)": 0,
             "countUnreadInCollection(collectionId:)": 0,
-            "countStarred(parentId:)": 10,
+            "countStarred(parentId:)": 2 * libraryCount + 2,
         ]
         for (verb, pin) in pins.sorted(by: { $0.key < $1.key }) {
             let actual = store.readCallCounts[verb, default: 0]
@@ -115,6 +124,56 @@ final class SidebarStoreCallRatchetTests: XCTestCase {
                     + "call — memoize it against dataVersion or move it into the "
                     + "snapshot instead of loosening this pin.")
         }
+    }
+
+    /// P2, the end state the ratchet was built to reach: with
+    /// `sidebar.snapshotTree` on and a published snapshot, a full tree walk
+    /// + a structural rebuild make ZERO store calls — the builders read the
+    /// immutable off-main-produced `SidebarTreeData` and nothing else. Store
+    /// I/O during tree build is now impossible-by-wiring, not merely
+    /// memoized; this test is what keeps it that way.
+    func testSnapshotTreeWalkMakesZeroStoreCalls() {
+        let store = seededStore()
+        let vm = wiredViewModel(store: store)
+        vm.snapshotTreeEnabled = true
+
+        // Publish a snapshot covering the wired libraries, the way the
+        // maintainer's sweep does — including fabricated collections so the
+        // walk descends into collection subtrees rather than skipping them.
+        var collections: [UUID: [CollectionModel]] = [:]
+        var feeds: [UUID?: [SmartSearch]] = [:]
+        var starred: [UUID?: Int] = [:]
+        for lib in RustStoreAdapter.shared.listLibraries() {
+            collections[lib.id] = [
+                CollectionModel(id: UUID(), name: "Snap A", isSmart: false, sortOrder: 0),
+                CollectionModel(id: UUID(), name: "Snap B", isSmart: false, sortOrder: 1),
+            ]
+            feeds[lib.id] = []
+            starred[lib.id] = 1
+        }
+        feeds[nil] = []
+        starred[nil] = 5
+        var artifacts: [ArtifactType?: Int] = [nil: 3]
+        for type in ArtifactType.allCases { artifacts[type] = 1 }
+        SidebarSnapshot.shared.apply(
+            unreadByFeed: [:], unreadByLibrary: [:], flagCounts: [:],
+            treeData: SidebarTreeData(
+                collectionsByLibrary: collections,
+                feedsByLibrary: feeds,
+                starredByLibrary: starred,
+                artifactCounts: artifacts))
+
+        store.resetReadCounts()
+        let nodes = walkFullTree(vm)
+        vm.bumpDataVersion()
+
+        XCTAssertGreaterThan(nodes, 10, "walk visited too few nodes to be a real tree")
+        let total = store.readCallCounts.values.reduce(0, +)
+        XCTAssertEqual(
+            total, 0,
+            "snapshot-tree walk made \(total) store calls (\(store.readCallCounts)); "
+                + "a builder is reading the store instead of SidebarTreeData — route it "
+                + "through the snapshot, do not loosen this to a nonzero pin.")
     }
 
     /// Within ONE dataVersion, asking for children twice must not double the

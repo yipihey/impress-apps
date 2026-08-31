@@ -231,24 +231,41 @@ public struct TabContentView: View {
             // Subscribe to the gateway's event stream directly.
             // Structural events re-read the full sidebar; field-only
             // mutations just bump flag counts + a light data version.
+            //
+            // Under `sidebar.snapshotTree` (P2) the roles invert: the
+            // MAINTAINER hears these same events and gathers fresh tree data
+            // off-main, and the sidebar rebuilds when the snapshot PUBLISHES
+            // (see .sidebarSnapshotDidUpdate below) — never from a store
+            // event directly, so a rebuild can never observe half-written
+            // state or pay store reads on the main thread. The tag caches
+            // still need invalidating on structural changes either way.
             for await event in ImbibImpressStore.shared.events.subscribe() {
+                let snapshotDriven = viewModel.snapshotTreeEnabled
                 switch event {
                 case .structural:
-                    viewModel.refreshFromStore()
+                    if snapshotDriven { viewModel.invalidateTagCache() } else {
+                        viewModel.refreshFromStore()
+                    }
                 case .itemsMutated:
                     viewModel.refreshFlagCounts()
                     viewModel.bumpDataVersionLight()
                 case .collectionMembershipChanged:
-                    viewModel.refreshFromStore()
+                    if snapshotDriven { viewModel.invalidateTagCache() } else {
+                        viewModel.refreshFromStore()
+                    }
                 }
             }
         }
         .onNotifications([
             (.sidebarSnapshotDidUpdate, { _ in
-                // Phase 3: snapshot refreshed in the background; rebuild
-                // the sidebar so the NSOutlineView picks up the new counts.
-                // Non-structural — tree shape is unchanged, only badges.
-                viewModel.bumpDataVersionLight()
+                // Snapshot refreshed in the background. Flag off: only badges
+                // changed — light bump. Flag on (P2): the snapshot IS the tree
+                // data, so this is the structural rebuild trigger.
+                if viewModel.snapshotTreeEnabled {
+                    viewModel.refreshFromStore()
+                } else {
+                    viewModel.bumpDataVersionLight()
+                }
             }),
             (.navigateToCollection, { notification in
                 if let collectionID = notification.userInfo?["collectionID"] as? UUID {

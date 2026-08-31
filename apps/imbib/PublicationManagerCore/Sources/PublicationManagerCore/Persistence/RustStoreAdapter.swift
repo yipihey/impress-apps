@@ -1373,6 +1373,16 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// answer identically on both sides of the flip and the only difference
     /// left is which handle does the reading.
     public func listCollections(libraryId: UUID) -> [CollectionModel] {
+        listCollectionsResolved(libraryId: libraryId)
+    }
+
+    /// The SAME kernel-first collection read, callable off the main actor
+    /// (sidebar plan P2: `SidebarSnapshotMaintainer` gathers tree data on its
+    /// background executor). Deliberately not a second implementation — the
+    /// gateway's raw-export copy was deleted for bypassing the kernel-first
+    /// reroute (ADR-0022 F2), and this is the one door, now with two callable
+    /// isolations. Both halves it delegates to were already nonisolated.
+    public nonisolated func listCollectionsResolved(libraryId: UUID) -> [CollectionModel] {
         StoreTimings.shared.measure("listCollections") {
             kernelCollections(libraryId: libraryId) ?? legacyListCollections(libraryId: libraryId)
         }
@@ -2342,11 +2352,22 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
 
     /// Count starred publications.
     public func countStarred(parentId: UUID? = nil) -> Int {
-        do {
-            return try store.queryStarred(parentId: parentId?.uuidString, sortField: "created", ascending: false, limit: nil, offset: nil).count
-        } catch {
-            Logger.library.error("countStarred failed: \(error)")
-            return 0
+        countStarredResolved(parentId: parentId)
+    }
+
+    /// Off-main-callable starred count (sidebar plan P2), via the store's
+    /// actual COUNT verb. The previous implementation fetched every starred
+    /// row (`queryStarred(...).count`) just to count them — the count verb
+    /// existed on the handle the whole time and returns the same number the
+    /// query's row count did.
+    public nonisolated func countStarredResolved(parentId: UUID? = nil) -> Int {
+        StoreTimings.shared.measure("countStarred") {
+            do {
+                return Int(try imbibStore.countStarred(parentId: parentId?.uuidString))
+            } catch {
+                Logger.library.error("countStarred failed: \(error)")
+                return 0
+            }
         }
     }
 
@@ -3312,9 +3333,14 @@ extension RustStoreAdapter {
 
     /// Count all artifacts, optionally filtered by type.
     public func countArtifacts(type: ArtifactType? = nil) -> Int {
+        countArtifactsResolved(type: type)
+    }
+
+    /// Off-main-callable artifact count (sidebar plan P2).
+    public nonisolated func countArtifactsResolved(type: ArtifactType? = nil) -> Int {
         StoreTimings.shared.measure("countArtifacts") {
             do {
-                return Int(try store.countArtifacts(schemaFilter: type?.rawValue))
+                return Int(try imbibStore.countArtifacts(schemaFilter: type?.rawValue))
             } catch {
                 return 0
             }

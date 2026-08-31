@@ -53,6 +53,14 @@ public final class SidebarSnapshot {
     /// When was the snapshot last refreshed (for debug / the console overlay).
     public private(set) var lastUpdated: Date = .distantPast
 
+    /// The tree builders' data plane (sidebar plan P2): everything the
+    /// `childrenOf:` builders used to fetch from the store synchronously on
+    /// the main thread, gathered off-main by the maintainer in the same sweep
+    /// as the counts. `nil` until the first sweep publishes — readers behind
+    /// the `sidebar.snapshotTree` flag fall back to the fetch path until then,
+    /// so enabling the flag can never render an empty sidebar.
+    public private(set) var treeData: SidebarTreeData?
+
     // MARK: - Init
 
     public init() {}
@@ -67,11 +75,13 @@ public final class SidebarSnapshot {
     internal func apply(
         unreadByFeed: [UUID: Int],
         unreadByLibrary: [UUID: Int],
-        flagCounts: [String: Int]
+        flagCounts: [String: Int],
+        treeData: SidebarTreeData? = nil
     ) {
         self.unreadByFeedID = unreadByFeed
         self.unreadByLibraryID = unreadByLibrary
         self.flagCounts = flagCounts
+        if let treeData { self.treeData = treeData }
         self.version &+= 1
         self.lastUpdated = Date()
 
@@ -90,6 +100,32 @@ public final class SidebarSnapshot {
 
     public func flagCount(color: String) -> Int {
         flagCounts[color] ?? 0
+    }
+}
+
+/// Immutable data the sidebar's tree builders consume — one value, produced
+/// off-main, swapped atomically (sidebar plan P2).
+///
+/// The keys mirror the per-dataVersion fetch cache the builders use when the
+/// `sidebar.snapshotTree` flag is off: collections and inbox-relevant feeds
+/// per library (nil key = the unscoped "all feeds" read), starred counts per
+/// library (nil = all), artifact counts per type (nil = total).
+public struct SidebarTreeData: Sendable {
+    public let collectionsByLibrary: [UUID: [CollectionModel]]
+    public let feedsByLibrary: [UUID?: [SmartSearch]]
+    public let starredByLibrary: [UUID?: Int]
+    public let artifactCounts: [ArtifactType?: Int]
+
+    public init(
+        collectionsByLibrary: [UUID: [CollectionModel]],
+        feedsByLibrary: [UUID?: [SmartSearch]],
+        starredByLibrary: [UUID?: Int],
+        artifactCounts: [ArtifactType?: Int]
+    ) {
+        self.collectionsByLibrary = collectionsByLibrary
+        self.feedsByLibrary = feedsByLibrary
+        self.starredByLibrary = starredByLibrary
+        self.artifactCounts = artifactCounts
     }
 }
 
