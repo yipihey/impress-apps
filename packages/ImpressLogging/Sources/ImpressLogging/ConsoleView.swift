@@ -676,6 +676,12 @@ public struct PerformanceTabView: View {
         .foregroundStyle(.secondary)
         .padding(.vertical, 4)
         .padding(.horizontal, 12)
+        // The header is narrower than the window (fixed-width cells), and its
+        // enclosing VStack centers by default — which floated the titles into
+        // the middle of a wide window while the List rows below stayed
+        // leading-aligned, so no column lined up with its title. Pin it to
+        // the same edge as the rows.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var table: some View {
@@ -697,6 +703,11 @@ public struct PerformanceTabView: View {
                          align: .trailing, color: b.breachCount > 0 ? .red : .primary)
                 }
                 .padding(.vertical, 1)
+                // Rows must share the header's exact 12pt leading inset, so
+                // zero the List's own (version-dependent) row insets and
+                // apply the same padding the header uses.
+                .padding(.horizontal, 12)
+                .listRowInsets(EdgeInsets())
             }
             .listStyle(.plain)
             .font(.system(.body, design: .monospaced))
