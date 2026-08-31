@@ -59,11 +59,55 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             if RustStoreAdapter.isUnitTestProcess {
                 return try RustStoreAdapter(inMemory: true)
             }
-            return try RustStoreAdapter()
         } catch {
-            fatalError("Failed to initialize RustStoreAdapter: \(error)")
+            // Test-only construction paths keep the old contract: a scratch or
+            // in-memory store that cannot open is a broken test environment,
+            // not something to ride out.
+            fatalError("Failed to initialize RustStoreAdapter (test path): \(error)")
+        }
+
+        // Production open. A transient failure here used to be fatal — on
+        // 2026-08-30 the app crash-looped four times (SIGTRAP in this very
+        // closure) while background daemons held the shared store busy. The
+        // store being momentarily unopenable is an environment condition, not
+        // a programming error, so it gets a bounded retry with backoff and a
+        // DEGRADED fallback instead of `fatalError`.
+        switch StoreStartup.openWithRetry(
+            label: "shared store",
+            policy: .production,
+            { try RustStoreAdapter() }
+        ) {
+        case .success(let adapter):
+            return adapter
+        case .failure(let error):
+            Logger.library.errorCapture(
+                "STORE UNAVAILABLE after \(StoreStartup.RetryPolicy.production.attempts) attempts: \(error). "
+                    + "Launching DEGRADED with an in-memory store — nothing shown is the real library and "
+                    + "nothing entered will persist. Quit and relaunch once the store is reachable.",
+                category: "startup")
+            do {
+                let fallback = try RustStoreAdapter(inMemory: true)
+                fallback.startupFailure =
+                    "The shared library database could not be opened (\(error.localizedDescription)). "
+                    + "imbib is running detached from your data; quit and relaunch to try again."
+                return fallback
+            } catch {
+                // Even an in-memory SQLite could not be created — the process
+                // has no viable data layer at all.
+                fatalError("Failed to initialize RustStoreAdapter (in-memory fallback): \(error)")
+            }
         }
     }()
+
+    /// Non-nil when the production store could not be opened at launch and the
+    /// app fell back to an empty in-memory store (see `shared`). UI reads this
+    /// to surface a persistent warning; nothing else should key off it.
+    ///
+    /// `nonisolated(unsafe)` for the same reason `shared` itself is: it is
+    /// written exactly once, inside the `shared` initializer on the first
+    /// thread to touch it, before the instance escapes — and only read
+    /// afterwards.
+    public nonisolated(unsafe) private(set) var startupFailure: String?
 
     /// True when running inside an XCTest host (swift test / xctest),
     /// as opposed to a real app process. Single source of truth lives in
@@ -4172,4 +4216,90 @@ extension RustStoreAdapter {
 /// shared reference storage the redo can read.
 private final class ItemSnapshotBox {
     var snapshots: [ItemSnapshot] = []
+}
+
+// MARK: - Store startup retry
+
+/// Bounded open-with-retry used by `RustStoreAdapter.shared`'s production
+/// path (and testable in isolation — the opener and the sleeper are both
+/// injected).
+///
+/// This runs synchronously on whichever thread first touches `shared`
+/// (in practice: the main thread, inside `imbibApp.init` before any UI
+/// exists). Blocking there is the point — the alternative to waiting out a
+/// busy store is launching against nothing. Worst case is bounded:
+/// `attempts` opens (each capped by SQLite's own busy timeout) plus the sum
+/// of the backoff sleeps. This is pre-UI startup, so the 90-second
+/// startup-mutation invariant is untouched: retrying an *open* mutates
+/// nothing and notifies nobody.
+public enum StoreStartup {
+    public struct RetryPolicy: Sendable {
+        /// Total tries, including the first.
+        public var attempts: Int
+        /// Sleep before the second try; doubles (times `multiplier`) after.
+        public var initialDelay: TimeInterval
+        public var multiplier: Double
+
+        public init(attempts: Int, initialDelay: TimeInterval, multiplier: Double = 2) {
+            self.attempts = max(1, attempts)
+            self.initialDelay = initialDelay
+            self.multiplier = multiplier
+        }
+
+        /// 5 tries over ~3.75 s of sleep (0.25, 0.5, 1, 2) — long enough to
+        /// ride out a daemon's write burst or a checkpoint, short enough
+        /// that a truly wedged store still surfaces within seconds.
+        public static let production = RetryPolicy(attempts: 5, initialDelay: 0.25)
+    }
+
+    /// Run `open` up to `policy.attempts` times, sleeping between failures.
+    /// Every failed attempt is logged to the in-app console (`startup`
+    /// category) so a slow launch explains itself in the window the user
+    /// already watches.
+    public static func openWithRetry<T>(
+        label: String,
+        policy: RetryPolicy,
+        sleeper: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+        _ open: () throws -> T
+    ) -> Result<T, Error> {
+        var delay = policy.initialDelay
+        var lastError: Error?
+        for attempt in 1...policy.attempts {
+            do {
+                let value = try open()
+                if attempt > 1 {
+                    Logger.library.infoCapture(
+                        "\(label): opened on attempt \(attempt)/\(policy.attempts)",
+                        category: "startup")
+                }
+                return .success(value)
+            } catch {
+                lastError = error
+                if attempt < policy.attempts {
+                    Logger.library.warningCapture(
+                        "\(label): open attempt \(attempt)/\(policy.attempts) failed (\(error)); "
+                            + "retrying in \(String(format: "%.2f", delay))s",
+                        category: "startup")
+                    sleeper(delay)
+                    delay *= policy.multiplier
+                } else {
+                    Logger.library.errorCapture(
+                        "\(label): open attempt \(attempt)/\(policy.attempts) failed (\(error)); giving up",
+                        category: "startup")
+                }
+            }
+        }
+        return .failure(lastError ?? StoreStartupError.exhausted(label: label))
+    }
+
+    /// Only produced when an opener somehow throws nothing yet never
+    /// succeeds — kept so `openWithRetry` cannot fabricate a success.
+    public enum StoreStartupError: LocalizedError {
+        case exhausted(label: String)
+        public var errorDescription: String? {
+            switch self {
+            case .exhausted(let label): return "\(label): open retries exhausted"
+            }
+        }
+    }
 }

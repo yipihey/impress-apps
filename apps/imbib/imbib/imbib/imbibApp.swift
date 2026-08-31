@@ -408,6 +408,9 @@ struct imbibApp: App {
         PerfMetrics.shared.measure("startup", detail: "store-open") {
             _ = RustStoreAdapter.shared
         }
+        if let failure = RustStoreAdapter.shared.startupFailure {
+            appLogger.errorCapture("⚠️ DEGRADED LAUNCH: \(failure)", category: "startup")
+        }
         appLogger.infoCapture("⏱ RustStoreAdapter initialized: \(Int((CFAbsoluteTimeGetCurrent() - rustStart) * 1000))ms", category: "startup")
 
         return AppDependencies(
@@ -609,6 +612,23 @@ struct imbibApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .overlay(alignment: .top) {
+                    // Degraded-launch warning: only ever rendered when the
+                    // production store failed to open at launch and the app is
+                    // running on an empty in-memory fallback (see
+                    // RustStoreAdapter.shared). Additive: nil cost and no
+                    // layout participation on a healthy launch.
+                    if let failure = RustStoreAdapter.shared.startupFailure {
+                        Label(failure, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.red.opacity(0.92), in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(.white)
+                            .padding(.top, 46)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .withTheme()
                 .environment(libraryManager)
                 .environment(libraryViewModel)
