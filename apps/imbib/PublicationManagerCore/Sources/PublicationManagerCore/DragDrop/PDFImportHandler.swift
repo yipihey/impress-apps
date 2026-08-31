@@ -812,7 +812,7 @@ public final class PDFImportHandler {
         let existingFiles = store.listLinkedFiles(publicationId: publicationID)
         for file in existingFiles where file.isPDF {
             await ThumbnailService.shared.removeCached(linkedFileId: file.id)
-            try? attachmentManager.delete(file, in: libraryID)
+            try? attachmentManager.delete(file, in: libraryID, for: publicationID)
         }
 
         let linkedFile = try attachmentManager.importPDF(

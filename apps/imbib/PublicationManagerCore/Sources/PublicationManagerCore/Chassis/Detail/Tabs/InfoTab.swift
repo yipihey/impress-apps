@@ -946,7 +946,7 @@ struct InfoTab: View {
 
     private func deleteFile(_ file: LinkedFileModel) {
         do {
-            try AttachmentManager.shared.delete(file, in: fileOwnerLibraryID)
+            try AttachmentManager.shared.delete(file, in: fileOwnerLibraryID, for: publicationID)
             Logger.files.infoCapture("Deleted attachment: \(file.filename)", category: "pdf")
         } catch {
             Logger.files.errorCapture("Failed to delete attachment: \(error)", category: "pdf")

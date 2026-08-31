@@ -68,15 +68,27 @@ public actor PDFURLResolverV2 {
         // 2. Try OpenAlex OA locations
         if let doi = publication.doi, !doi.isEmpty {
             if let oaLocation = await openAlexService.fetchBestOALocation(doi: doi) {
-                Logger.files.infoCapture(
-                    "[PDFURLResolverV2] Using OpenAlex OA: \(oaLocation.pdfURL.absoluteString)",
+                // OpenAlex's location can be broken upstream — The Open
+                // Journal of Astrophysics' hosted endpoint 200s with
+                // `application/pdf` and an EMPTY body — so validate before
+                // committing, exactly like the landing-page and publisher
+                // steps do. On failure, fall through to those steps.
+                let validationResult = await validator.validate(url: oaLocation.pdfURL)
+                if validationResult.isSuccess {
+                    Logger.files.infoCapture(
+                        "[PDFURLResolverV2] Using OpenAlex OA: \(oaLocation.pdfURL.absoluteString)",
+                        category: "pdf"
+                    )
+                    return .available(source: ResolvedPDFSource(
+                        type: .openAlex,
+                        url: oaLocation.pdfURL,
+                        name: oaLocation.sourceName ?? "Open Access"
+                    ))
+                }
+                Logger.files.warningCapture(
+                    "[PDFURLResolverV2] OpenAlex OA failed validation, trying other sources: \(oaLocation.pdfURL.absoluteString)",
                     category: "pdf"
                 )
-                return .available(source: ResolvedPDFSource(
-                    type: .openAlex,
-                    url: oaLocation.pdfURL,
-                    name: oaLocation.sourceName ?? "Open Access"
-                ))
             }
 
             // 2b. Try landing page scraping
@@ -105,15 +117,16 @@ public actor PDFURLResolverV2 {
             }
         }
 
-        // 4. arXiv fallback
-        if settings.sourcePriority == .publisher {
-            if let arxivURL = arxivPDFURL(for: publication) {
-                Logger.files.infoCapture(
-                    "[PDFURLResolverV2] Falling back to arXiv: \(arxivURL.absoluteString)",
-                    category: "pdf"
-                )
-                return .available(source: ResolvedPDFSource(type: .arxiv, url: arxivURL, name: "arXiv"))
-            }
+        // 4. arXiv fallback — for every priority. Preprint priority only
+        // reaches here when step 1 produced no URL, and a derivable arXiv id
+        // whose OA/landing/publisher routes all failed is still strictly
+        // better than reporting nothing.
+        if let arxivURL = arxivPDFURL(for: publication) {
+            Logger.files.infoCapture(
+                "[PDFURLResolverV2] Falling back to arXiv: \(arxivURL.absoluteString)",
+                category: "pdf"
+            )
+            return .available(source: ResolvedPDFSource(type: .arxiv, url: arxivURL, name: "arXiv"))
         }
 
         // 5. ADS scan fallback
@@ -304,7 +317,7 @@ public actor PDFURLResolverV2 {
             return URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
         }
 
-        if let doi = publication.doi, let arxivID = extractArXivIDFromDOI(doi) {
+        if let doi = publication.doi, let arxivID = Self.extractArXivIDFromDOI(doi) {
             return URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
         }
 
@@ -332,10 +345,21 @@ public actor PDFURLResolverV2 {
         doi.lowercased().hasPrefix("10.48550/arxiv.")
     }
 
-    private func extractArXivIDFromDOI(_ doi: String) -> String? {
-        let prefix = "10.48550/arXiv."
-        guard doi.lowercased().hasPrefix(prefix.lowercased()) else { return nil }
-        return String(doi.dropFirst(prefix.count))
+    /// Unwrap the arXiv id a DOI embeds, if any.
+    ///
+    /// Two families qualify: arXiv's own DOIs (`10.48550/arXiv.2106.03528`)
+    /// and arXiv-overlay journals whose DOI suffix IS the arXiv id — The Open
+    /// Journal of Astrophysics mints `10.21105/astro.2106.03528` (the
+    /// registrant prefix is shared with JOSS, so the `astro.` marker is part
+    /// of the match). Mirrors `extract_arxiv_id` in
+    /// `crates/imbib-core/src/publishers/rules.rs` — extend both together.
+    static func extractArXivIDFromDOI(_ doi: String) -> String? {
+        let prefixes = ["10.48550/arxiv.", "10.21105/astro."]
+        let lowercased = doi.lowercased()
+        for prefix in prefixes where lowercased.hasPrefix(prefix) {
+            return String(doi.dropFirst(prefix.count))
+        }
+        return nil
     }
 
     private func constructFallbackPDFURL(doi: String) -> URL? {
@@ -397,6 +421,14 @@ actor URLValidatorService {
 
         switch statusCode {
         case 200, 206:
+            // An explicitly zero-length body is not a document, whatever the
+            // declared type — The Open Journal of Astrophysics' hosted PDF
+            // endpoint 200s with `application/pdf` and `Content-Length: 0`.
+            // An ABSENT Content-Length stays acceptable: chunked/dynamic
+            // responses report -1 here, not 0.
+            if contentLength == 0 {
+                return .notFound(url: url)
+            }
             if contentType.contains("application/pdf") {
                 return .validPDF(url: url, contentLength: contentLength > 0 ? contentLength : nil)
             }

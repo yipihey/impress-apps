@@ -231,6 +231,25 @@ impl TaskExecutor for MetadataResolveExecutor {
             )));
         }
 
+        // An arXiv-overlay DOI embeds the arXiv id (The Open Journal of
+        // Astrophysics mints `10.21105/astro.2106.03528`), but no source
+        // reports it as a first-class field, so a record can end up with a
+        // DOI and no arXiv id even though the id is right there. Derive it:
+        // it is what makes the paper's PDF fetchable from arXiv when the
+        // overlay's own hosted PDF endpoint is not usable.
+        if merged.arxiv_id.is_none() {
+            if let Some(id) = merged
+                .doi
+                .as_deref()
+                .and_then(im_identifiers::fields::arxiv_id_from_doi)
+            {
+                merged.arxiv_id = Some(id);
+                if !all_changed.contains(&"arxiv_id") {
+                    all_changed.push("arxiv_id");
+                }
+            }
+        }
+
         self.persist_changes(publication.id, &merged, &all_changed, store)?;
 
         // Reproducibility record (ADR-0005 §5): the "prompt" of an API

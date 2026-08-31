@@ -210,6 +210,20 @@
     "supportsLandingPageScraping" : true
   },
   {
+    "captchaRisk" : "low",
+    "doiPrefixes" : [
+      "10.21105\/astro."
+    ],
+    "htmlParserID" : null,
+    "id" : "theoj-astro",
+    "name" : "The Open Journal of Astrophysics",
+    "notes" : "arXiv overlay journal - the DOI suffix is the arXiv id. Fetch from arXiv: the hosted PDF endpoint (astro.theoj.org) serves empty bodies, and the landing page's citation_pdf_url points at that same endpoint, so scraping it can only rediscover the broken URL.",
+    "pdfURLPattern" : "https:\/\/arxiv.org\/pdf\/{arxivID}.pdf",
+    "preferOpenAlex" : false,
+    "requiresProxy" : false,
+    "supportsLandingPageScraping" : false
+  },
+  {
     "captchaRisk" : "medium",
     "doiPrefixes" : [
       "10.1002\/",
