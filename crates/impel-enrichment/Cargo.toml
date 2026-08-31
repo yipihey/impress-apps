@@ -10,6 +10,7 @@ impel-core = { workspace = true }
 impress-sources = { workspace = true }
 imbib-core = { workspace = true, features = ["native"] }
 impress-domain = { workspace = true }
+im-identifiers = { workspace = true }
 
 impress-llm = { path = "../impress-llm" }
 

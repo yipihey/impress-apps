@@ -85,11 +85,12 @@ impl PublisherRule {
     /// template substitution.
     ///
     /// `{articleID}` is the DOI minus the first matching prefix, with `/`
-    /// trimmed from both ends. `{arxivID}` needs a `10.48550/arXiv.` DOI and
-    /// returns `None` otherwise. Note that neither substitution validates the
-    /// remainder, so `10.1038/` yields `…/articles/.pdf` — preserved, because
-    /// the caller treats a 404 as "no PDF" anyway and a `None` here would skip
-    /// the landing-page fallback that does work.
+    /// trimmed from both ends. `{arxivID}` needs a DOI that embeds an arXiv id
+    /// (`10.48550/arXiv.` or an arXiv-overlay prefix, see `extract_arxiv_id`)
+    /// and returns `None` otherwise. Note that neither substitution validates
+    /// the remainder, so `10.1038/` yields `…/articles/.pdf` — preserved,
+    /// because the caller treats a 404 as "no PDF" anyway and a `None` here
+    /// would skip the landing-page fallback that does work.
     pub fn construct_pdf_url(&self, doi: &str) -> Option<String> {
         let pattern = self.pdf_url_pattern?;
         let mut url = pattern.replace("{doi}", doi);
@@ -122,15 +123,23 @@ impl PublisherRule {
 
 /// Swift `extractArXivID(from:)` — case-insensitive prefix test, but the
 /// returned suffix is taken from the ORIGINAL string, so casing is preserved.
+///
+/// Besides arXiv's own DOIs, arXiv-overlay journals embed the id in theirs:
+/// The Open Journal of Astrophysics mints `10.21105/astro.<id>` (the
+/// registrant prefix is shared with JOSS, so the `astro.` marker is part of
+/// the prefix). The Swift resolver's `extractArXivIDFromDOI` mirrors this
+/// list — extend both together.
 fn extract_arxiv_id(doi: &str) -> Option<String> {
-    const PREFIX: &str = "10.48550/arxiv.";
-    if doi.len() < PREFIX.len() {
-        return None;
+    const PREFIXES: [&str; 2] = ["10.48550/arxiv.", "10.21105/astro."];
+    for prefix in PREFIXES {
+        if doi.len() < prefix.len() {
+            continue;
+        }
+        if doi[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            return Some(doi[prefix.len()..].to_string());
+        }
     }
-    if !doi[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
-        return None;
-    }
-    Some(doi[PREFIX.len()..].to_string())
+    None
 }
 
 /// The default rule table. Order matches `DefaultRules.swift`.
@@ -280,6 +289,24 @@ pub const DEFAULT_RULES: &[PublisherRule] = &[
         supports_landing_page_scraping: false,
     },
     PublisherRule {
+        id: "theoj-astro",
+        name: "The Open Journal of Astrophysics",
+        doi_prefixes: &["10.21105/astro."],
+        pdf_url_pattern: Some("https://arxiv.org/pdf/{arxivID}.pdf"),
+        requires_proxy: false,
+        captcha_risk: CaptchaRisk::Low,
+        prefer_open_alex: false,
+        notes: Some(
+            "arXiv overlay journal - the DOI suffix is the arXiv id. Fetch \
+             from arXiv: the hosted PDF endpoint (astro.theoj.org) serves \
+             empty bodies, and the landing page's citation_pdf_url points at \
+             that same endpoint, so scraping it can only rediscover the \
+             broken URL.",
+        ),
+        html_parser_id: None,
+        supports_landing_page_scraping: false,
+    },
+    PublisherRule {
         id: "aip",
         name: "American Institute of Physics",
         doi_prefixes: &["10.1063/"],
@@ -399,6 +426,23 @@ mod tests {
             arxiv.construct_pdf_url("10.48550/ARXIV.2401.12345"),
             Some("https://arxiv.org/pdf/2401.12345.pdf".to_string())
         );
+    }
+
+    #[test]
+    fn overlay_journal_doi_resolves_to_arxiv() {
+        // The Open Journal of Astrophysics is an arXiv overlay: its DOI
+        // suffix is the arXiv id, and its own hosted PDF endpoint is not
+        // trustworthy (serves empty bodies), so the rule sends the fetch to
+        // arXiv.
+        let rule = rule_for_doi("10.21105/astro.2106.03528").expect("OJA rule");
+        assert_eq!(rule.id, "theoj-astro");
+        assert!(!rule.supports_landing_page_scraping);
+        assert_eq!(
+            rule.construct_pdf_url("10.21105/astro.2106.03528"),
+            Some("https://arxiv.org/pdf/2106.03528.pdf".to_string())
+        );
+        // JOSS shares the 10.21105 registrant and must NOT match.
+        assert_eq!(rule_for_doi("10.21105/joss.01234"), None);
     }
 
     #[test]

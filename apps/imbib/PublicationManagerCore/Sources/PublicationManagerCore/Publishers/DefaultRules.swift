@@ -15,10 +15,11 @@ import ImbibRustCore
 
 /// Default publisher rules.
 ///
-/// **This is a shim.** The sixteen rules live in
+/// **This is a shim.** The rules live in
 /// `crates/imbib-core/src/publishers/rules.rs` and are pinned field-by-field by
-/// `test_fixtures/golden/publisher_default_rules.json`, captured from the Swift
-/// declaration this file used to hold.
+/// `test_fixtures/golden/publisher_default_rules.json` — originally captured
+/// from the Swift declaration this file used to hold; rules added since (e.g.
+/// `theoj-astro`) are added to the table and the fixture together.
 ///
 /// The port collapsed **three** copies of the same table, already disagreeing:
 ///
@@ -33,7 +34,7 @@ public struct DefaultPublisherRules {
     ///
     /// Computed rather than stored: the source of truth is the Rust `const`, and
     /// a stored `let` here would be a fourth copy the moment anyone edited one
-    /// and not the other. The FFI call is a table walk over 16 records, and the
+    /// and not the other. The FFI call is a table walk over ~17 records, and the
     /// only caller that runs per-DOI (`PublisherRegistry`) goes through
     /// `rule(forDOI:)` below, which does not build this array.
     public static var rules: [PublisherRule] {

@@ -708,7 +708,7 @@ struct PDFTab: View {
         do {
             // 1. Delete corrupt file from disk and store
             let libraryID = pub.libraryIDs.first ?? libraryManager.activeLibrary?.id
-            try AttachmentManager.shared.delete(corruptFile, in: libraryID)
+            try AttachmentManager.shared.delete(corruptFile, in: libraryID, for: pub.id)
 
             // 2. Reset state and trigger re-download
             await MainActor.run {

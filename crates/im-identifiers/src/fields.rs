@@ -13,6 +13,13 @@ use crate::validators::{is_valid_arxiv_id_format, trim_horizontal};
 /// arXiv DOIs are minted as `10.48550/arXiv.<id>`.
 const ARXIV_DOI_PREFIX: &str = "10.48550/arxiv.";
 
+/// arXiv-overlay journals whose DOI suffix IS the arXiv ID.
+///
+/// The Open Journal of Astrophysics mints `10.21105/astro.<id>`. The registrant
+/// prefix `10.21105` is shared with JOSS (`10.21105/joss.<n>`), so the journal
+/// marker must be part of the prefix.
+const OVERLAY_DOI_PREFIXES: [&str; 1] = ["10.21105/astro."];
+
 /// Fields consulted for an arXiv ID, in priority order.
 ///
 /// `eprint` is the standard BibTeX spelling; `arxivid`/`arxiv` are emitted by
@@ -44,6 +51,31 @@ pub fn arxiv_id_from_fields(fields: &HashMap<String, String>) -> Option<String> 
 
         if is_valid_arxiv_id_format(clean.to_string()) {
             return Some(clean.to_string());
+        }
+    }
+    None
+}
+
+/// Extract the arXiv ID a DOI embeds, if any.
+///
+/// Handles arXiv's own DOIs (`10.48550/arXiv.2401.12345`) and arXiv-overlay
+/// journals whose DOI suffix is the arXiv ID (`10.21105/astro.2106.03528`).
+/// The suffix is validated so a non-arXiv-shaped remainder is never minted
+/// into an identifier field.
+pub fn arxiv_id_from_doi(doi: &str) -> Option<String> {
+    if let Some(id) = arxiv_id_from_arxiv_doi(doi) {
+        return Some(id);
+    }
+    for prefix in OVERLAY_DOI_PREFIXES {
+        let matches = doi
+            .get(..prefix.len())
+            .is_some_and(|p| p.eq_ignore_ascii_case(prefix));
+        if !matches {
+            continue;
+        }
+        let extracted = &doi[prefix.len()..];
+        if is_valid_arxiv_id_format(extracted.to_string()) {
+            return Some(extracted.to_string());
         }
     }
     None
@@ -175,6 +207,26 @@ mod tests {
             arxiv_id_from_fields(&map(&[("eprint", "10.48550/arXiv.not-an-id")])),
             None
         );
+    }
+
+    #[test]
+    fn arxiv_id_from_doi_forms() {
+        // arXiv's own DOIs.
+        assert_eq!(
+            arxiv_id_from_doi("10.48550/arXiv.2401.12345"),
+            Some("2401.12345".to_string())
+        );
+        // Overlay journal: The Open Journal of Astrophysics.
+        assert_eq!(
+            arxiv_id_from_doi("10.21105/astro.2106.03528"),
+            Some("2106.03528".to_string())
+        );
+        // JOSS shares the 10.21105 registrant but is not an arXiv overlay.
+        assert_eq!(arxiv_id_from_doi("10.21105/joss.01234"), None);
+        // An overlay-prefixed DOI whose suffix is not arXiv-shaped mints nothing.
+        assert_eq!(arxiv_id_from_doi("10.21105/astro.not-an-id"), None);
+        // Ordinary publisher DOIs embed nothing.
+        assert_eq!(arxiv_id_from_doi("10.1038/nature12373"), None);
     }
 
     #[test]

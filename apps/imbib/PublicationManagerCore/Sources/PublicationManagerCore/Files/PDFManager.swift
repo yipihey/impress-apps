@@ -676,7 +676,17 @@ public final class AttachmentManager {
     }
 
     /// Delete a linked file from disk and the Rust store.
-    public func delete(_ linkedFile: LinkedFileModel, in libraryId: UUID? = nil) throws {
+    ///
+    /// Pass `for publicationId:` when the owner is known: deleting the last
+    /// PDF then clears the publication's `has_pdf_downloaded` flag, so the
+    /// record stops claiming a download it no longer has (that stale claim is
+    /// invisible in the UI until something trusts the flag over the linked
+    /// files).
+    public func delete(
+        _ linkedFile: LinkedFileModel,
+        in libraryId: UUID? = nil,
+        for publicationId: UUID? = nil
+    ) throws {
         Logger.files.infoCapture("Deleting linked file: \(linkedFile.filename)", category: "files")
 
         // Delete file from disk
@@ -686,6 +696,15 @@ public final class AttachmentManager {
 
         // Delete from Rust store
         store.deleteItem(id: linkedFile.id)
+
+        if let publicationId, linkedFile.isPDF {
+            let remaining = store.listLinkedFiles(publicationId: publicationId)
+            if !remaining.contains(where: \.isPDF) {
+                store.updateBoolField(id: publicationId, field: "has_pdf_downloaded", value: false)
+                Logger.files.infoCapture(
+                    "Cleared has_pdf_downloaded: last PDF removed", category: "files")
+            }
+        }
 
         // Signal File Provider about the deletion
         FileProviderDomainManager.shared.signalChange()
