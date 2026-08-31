@@ -298,6 +298,22 @@ public final class ManuscriptStoreAdapter {
         didMutate(structural: true)
     }
 
+    /// `refresh()` for a change made by ANOTHER process — imbib's sync engine
+    /// applying a CloudKit pull (`StoreRemoteChangeBridge`), or the user
+    /// returning to the app after being suspended (iOS scene activation).
+    /// Same effect; the summary is logged so cross-process refreshes are
+    /// traceable in the console instead of looking like spontaneous re-renders.
+    public func noteRemoteChange(_ summary: String) {
+        // Trace point 2 (apply): the external signal actually became a
+        // dataVersion bump + store-event fan-out in THIS process. Point 1 is
+        // the bridge's receipt log (category "remote-change"); point 3 is the
+        // list surface logging what it re-read (category "manuscript-library").
+        Logger.sharedStore.infoCapture(
+            "remote change (\(summary)) — dataVersion \(dataVersion) → \(dataVersion + 1)",
+            category: "manuscript-store")
+        didMutate(structural: true)
+    }
+
     /// End a batch mutation. When the outermost batch ends, posts a single
     /// coalesced `.structural` (or `.itemsMutated`) event summarizing all
     /// mutations during the batch.

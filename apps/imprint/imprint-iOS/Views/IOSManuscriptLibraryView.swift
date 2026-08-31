@@ -39,6 +39,12 @@ struct IOSManuscriptLibraryView: View {
 
     @Bindable private var adapter = ManuscriptStoreAdapter.shared
 
+    /// Foreground transitions re-read the store: another process (imbib-iOS's
+    /// CloudSyncEngine pulling into the shared group store) may have written
+    /// while this app was suspended, and Darwin signals are not delivered to
+    /// suspended processes — so `dataVersion` alone can't know.
+    @Environment(\.scenePhase) private var scenePhase
+
     // MARK: - Navigation state
 
     /// The sidebar's selection, in chassis vocabulary.
@@ -149,6 +155,15 @@ struct IOSManuscriptLibraryView: View {
         .onChange(of: adapter.dataVersion) { _, _ in refresh() }
         .onChange(of: scope) { _, _ in refresh() }
         .onChange(of: searchText) { _, _ in refresh() }
+        // Through the ADAPTER, not a bare `refresh()`: the bump drives this
+        // view via the `dataVersion` onChange above AND rebuilds the sidebar
+        // and every store-event subscriber — a suspended-period sync pull is
+        // invisible to all of them equally. (`StoreRemoteChangeBridge` covers
+        // the same staleness while the app is frontmost and running.)
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            adapter.noteRemoteChange("scene-active")
+        }
         .onOpenURL { url in handleIncomingURL(url) }
         // Citation inspection is presented HERE, at the navigation root, not in
         // the editor: a deep link cold-launches the app (`XCUIApplication.open`
@@ -583,6 +598,13 @@ struct IOSManuscriptLibraryView: View {
             }
             manuscripts = hits
         }
+        // Trace point 3 (display): what the list surface actually re-read —
+        // the line that makes cross-process staleness visible in the console
+        // (a remote-change log with no matching display log = this bug again).
+        Logger.sharedStore.infoCapture(
+            "display: \(manuscripts.count) manuscript(s) (scope: \(scopeTitle)"
+                + (query.isEmpty ? ")" : ", query: \"\(query)\")"),
+            category: "manuscript-library")
     }
 
     // MARK: - URL handling
