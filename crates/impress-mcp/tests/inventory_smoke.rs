@@ -291,6 +291,15 @@ fn grouped_surface_via_stdio() {
         // An action that does not exist must refuse, not answer emptily.
         r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"imbib","arguments":{"action":"not-a-real-action"}}}"#,
         "\n",
+        // A Vec-returning method: the raw array must arrive enveloped as
+        // {"items": [...]} — MCP requires structuredContent to be an object,
+        // and clients reject the bare array this used to emit.
+        r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"imbib","arguments":{"action":"library.list-libraries"}}}"#,
+        "\n",
+        // An Option-returning method missing: bare null used to arrive as
+        // structuredContent and be rejected; it must arrive as {"item": null}.
+        r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"imbib","arguments":{"action":"search.find-by-cite-key","args":{"cite_key":"NoSuchKey2026"}}}}"#,
+        "\n",
     );
 
     child
@@ -303,7 +312,7 @@ fn grouped_surface_via_stdio() {
     let output = child.wait_with_output().expect("wait for child");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
-    assert!(lines.len() >= 7, "expected >=7 responses; got: {stdout}");
+    assert!(lines.len() >= 9, "expected >=9 responses; got: {stdout}");
 
     // The grouped listing is small, and small is the entire point.
     let v2: serde_json::Value = serde_json::from_str(lines[1]).expect("parse tools/list");
@@ -347,7 +356,13 @@ fn grouped_surface_via_stdio() {
         v4["result"]["structuredContent"], v5["result"]["structuredContent"],
         "grouped and flat disagree: {v4} vs {v5}"
     );
-    assert_eq!(v5["result"]["structuredContent"].as_str(), Some("Café"));
+    // A bare-string result travels enveloped (structuredContent must be an
+    // object), while the text block keeps the raw string.
+    assert_eq!(
+        v5["result"]["structuredContent"]["value"].as_str(),
+        Some("Café")
+    );
+    assert_eq!(v5["result"]["content"][0]["text"].as_str(), Some("Café"));
 
     // describe returns the schema and does not invoke.
     let v6: serde_json::Value = serde_json::from_str(lines[5]).expect("parse describe");
@@ -368,4 +383,33 @@ fn grouped_surface_via_stdio() {
         text.contains("unknown action"),
         "bad action did not refuse clearly: {v7}"
     );
+
+    // A Vec-returning method arrives as {"items": [...]}, never a bare array.
+    let v8: serde_json::Value = serde_json::from_str(lines[7]).expect("parse list-libraries");
+    let listed = &v8["result"]["structuredContent"];
+    assert!(
+        listed["items"].is_array(),
+        "list-libraries did not envelope its array: {v8}"
+    );
+
+    // An Option-returning miss arrives as {"item": null}, never bare null.
+    let v9: serde_json::Value = serde_json::from_str(lines[8]).expect("parse find-by-cite-key");
+    assert_eq!(
+        v9["result"]["structuredContent"],
+        serde_json::json!({"item": null}),
+        "find-by-cite-key miss did not envelope null: {v9}"
+    );
+
+    // The spec-shape sweep: every tools/call answer in this conversation must
+    // carry structuredContent as a JSON object (or not at all) — a client
+    // rejects the whole call otherwise.
+    for line in &lines[2..] {
+        let response: serde_json::Value = serde_json::from_str(line).expect("parse response");
+        if let Some(structured) = response["result"].get("structuredContent") {
+            assert!(
+                structured.is_object(),
+                "non-object structuredContent escaped: {response}"
+            );
+        }
+    }
 }

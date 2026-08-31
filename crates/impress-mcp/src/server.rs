@@ -641,20 +641,7 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
     // everything else, so the flat path below is unchanged.
     if let Some(result) = crate::surface::dispatch(tool_name, args) {
         return match result {
-            Ok(value) => {
-                let text = match &value {
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [{ "type": "text", "text": text }],
-                        "structuredContent": value,
-                    }
-                })
-            }
+            Ok(value) => wrap_success_result(id, value),
             Err(e) => wrap_text_result(id, Err(e)),
         };
     }
@@ -690,27 +677,41 @@ fn handle_tool_call(ctx: &ToolContext, id: &Value, request: &Value) -> Value {
             args.clone()
         };
         match call_inventory_tool(tool_name, owned_args) {
-            Ok(value) => {
-                let (mut content, structured) = impress_service_core::split_mcp_content(value);
-                let text = match &structured {
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                content.push(json!({ "type": "text", "text": text }));
-                return json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": content,
-                        "structuredContent": structured,
-                    }
-                });
-            }
+            Ok(value) => return wrap_success_result(id, value),
             Err(e) => return wrap_text_result(id, Err(e)),
         }
     }
 
     wrap_text_result(id, Err(format!("Unknown tool: {tool_name}")))
+}
+
+/// Assemble a successful `tools/call` response from a generated handler's
+/// value — the one path for both the flat inventory tools and the grouped
+/// surface (which must stay answer-identical, and now share the assembly).
+///
+/// Embedded `_mcp_content` blocks are split into the `content` array, then
+/// the remainder is enveloped so `structuredContent` is always the JSON
+/// object the MCP spec requires. Clients reject bare arrays, scalars and
+/// null there — exactly what `Vec<T>`-, count- and `Option<T>`-returning
+/// generated methods produce — which made those tools unusable over stdio.
+/// The human-readable text block keeps the raw shape (a bare string stays a
+/// bare string) so text-only consumers see what they always saw.
+fn wrap_success_result(id: &Value, value: Value) -> Value {
+    let (mut content, raw) = impress_service_core::split_mcp_content(value);
+    let text = match &raw {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    let structured = impress_service_core::envelope_structured_content(raw);
+    content.push(json!({ "type": "text", "text": text }));
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": content,
+            "structuredContent": structured,
+        }
+    })
 }
 
 /// Wrap a rendered page as MCP image content.
@@ -794,6 +795,63 @@ fn wrap_text_result(id: &Value, result: Result<String, String>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn success_results_always_carry_object_structured_content() {
+        // Every generated handler funnels through wrap_success_result (both
+        // the flat inventory path and the grouped surface), so this is the
+        // whole-server guarantee that no tool can emit the bare array, null
+        // or scalar structuredContent that MCP clients reject.
+        let id = json!(1);
+        let shapes = [
+            json!(["row"]),      // Vec<T> methods (list-linked-files…)
+            json!(null),         // Option<T> miss (find-by-cite-key)
+            json!("Café"),       // String methods (decode-latex)
+            json!(42),           // count methods
+            json!(true),         // bool methods
+            json!({"ok": true}), // struct methods, already conforming
+        ];
+        for shape in shapes {
+            let response = wrap_success_result(&id, shape.clone());
+            let structured = &response["result"]["structuredContent"];
+            assert!(
+                structured.is_object(),
+                "structuredContent for {shape} is not an object: {structured}"
+            );
+        }
+        // The envelope keys are part of the contract clients read.
+        let listed = wrap_success_result(&id, json!(["a"]));
+        assert_eq!(
+            listed["result"]["structuredContent"],
+            json!({"items": ["a"]})
+        );
+        let missing = wrap_success_result(&id, json!(null));
+        assert_eq!(
+            missing["result"]["structuredContent"],
+            json!({"item": null})
+        );
+        // A bare string stays bare in the human-readable text block.
+        let text = wrap_success_result(&id, json!("Café"));
+        assert_eq!(text["result"]["content"][0]["text"], "Café");
+        assert_eq!(
+            text["result"]["structuredContent"],
+            json!({"value": "Café"})
+        );
+        // Embedded content blocks split out ahead of the text block, and the
+        // structured remainder never carries the reserved field.
+        let mixed = wrap_success_result(
+            &id,
+            json!({
+                "status": "resolved",
+                "_mcp_content": [{"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"}]
+            }),
+        );
+        assert_eq!(mixed["result"]["content"][0]["type"], "image");
+        assert_eq!(mixed["result"]["content"][1]["type"], "text");
+        assert!(mixed["result"]["structuredContent"]
+            .get("_mcp_content")
+            .is_none());
+    }
 
     #[test]
     fn test_legacy_tool_definitions_count() {

@@ -258,6 +258,11 @@ fn tool_result(id: Value, result: Result<Value, String>) -> Value {
     match result {
         Ok(value) => {
             let (mut content, structured) = impress_service_core::split_mcp_content(value);
+            // MCP requires `structuredContent` to be an object; generated
+            // handlers may return arrays, scalars or null (Vec<T>, counts,
+            // Option<T> misses), so envelope at the transport like
+            // impress-mcp's stdio server does.
+            let structured = impress_service_core::envelope_structured_content(structured);
             let text = serde_json::to_string_pretty(&structured)
                 .unwrap_or_else(|error| format!("Could not encode structured result: {error}"));
             content.push(json!({ "type": "text", "text": text }));
@@ -370,6 +375,22 @@ mod tests {
             HeaderValue::from_static("Basic secret"),
         );
         assert!(!has_bearer_token(&headers, "secret"));
+    }
+
+    #[test]
+    fn non_object_results_are_enveloped_into_objects() {
+        // MCP clients reject a structuredContent that is not an object;
+        // Vec<T>-, Option<T>- and scalar-returning generated handlers produce
+        // exactly those shapes, so the transport envelopes them.
+        for (raw, expected) in [
+            (json!(["a", "b"]), json!({"items": ["a", "b"]})),
+            (json!(null), json!({"item": null})),
+            (json!(3), json!({"value": 3})),
+        ] {
+            let response = tool_result(json!(9), Ok(raw));
+            assert_eq!(response["result"]["structuredContent"], expected);
+            assert_eq!(response["result"]["isError"], false);
+        }
     }
 
     #[test]

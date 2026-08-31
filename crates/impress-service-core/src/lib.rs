@@ -208,6 +208,32 @@ pub fn split_mcp_content(
     (blocks, value)
 }
 
+/// Reshape a generated service result so it is legal as MCP
+/// `structuredContent`, which the spec requires to be a JSON **object**.
+///
+/// Generated methods return their natural Rust shape: `Vec<T>` serializes to
+/// an array, `Option<T>` to `null` on a miss, a count to a bare number, a
+/// rendered string to a bare string. MCP clients (Claude Code among them)
+/// validate the spec shape and reject the whole call otherwise — which made
+/// every list-, option- and scalar-returning generated tool unusable over
+/// stdio. The envelope is applied by the MCP transports at the boundary, so
+/// services stay generated and other transports (CLI, HTTP, Swift, impel)
+/// keep the raw value:
+///
+/// - object → unchanged, so every already-conforming tool keeps its shape
+/// - array  → `{"items": [...]}`
+/// - null   → `{"item": null}`
+/// - string / number / bool → `{"value": ...}`
+pub fn envelope_structured_content(value: serde_json::Value) -> serde_json::Value {
+    use serde_json::{json, Value};
+    match value {
+        Value::Object(_) => value,
+        Value::Array(_) => json!({ "items": value }),
+        Value::Null => json!({ "item": Value::Null }),
+        other => json!({ "value": other }),
+    }
+}
+
 /// Descriptor for a single CLI subcommand exposed by a service method.
 ///
 /// Generated `inventory::submit!` blocks register one of these per method.
@@ -242,3 +268,67 @@ impl fmt::Debug for CliSubcommand {
 }
 
 inventory::collect!(CliSubcommand);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The transport-level guarantee behind "no generated tool can emit a
+    /// non-object structuredContent": every JSON kind a generated handler can
+    /// return leaves this function as an object. Transports (impress-mcp's
+    /// flat and grouped paths, impress-mcp-host) all route through it.
+    #[test]
+    fn envelope_yields_an_object_for_every_json_kind() {
+        let cases = [
+            json!(null),
+            json!(true),
+            json!(42),
+            json!("Café"),
+            json!([1, 2, 3]),
+            json!({"ok": true}),
+        ];
+        for value in cases {
+            let enveloped = envelope_structured_content(value.clone());
+            assert!(
+                enveloped.is_object(),
+                "envelope of {value} is not an object: {enveloped}"
+            );
+        }
+    }
+
+    #[test]
+    fn envelope_shapes_match_their_contract() {
+        assert_eq!(
+            envelope_structured_content(json!(["a", "b"])),
+            json!({"items": ["a", "b"]})
+        );
+        assert_eq!(
+            envelope_structured_content(json!(null)),
+            json!({"item": null})
+        );
+        assert_eq!(
+            envelope_structured_content(json!("Café")),
+            json!({"value": "Café"})
+        );
+        assert_eq!(envelope_structured_content(json!(7)), json!({"value": 7}));
+        // Objects pass through byte-identical — already-conforming tools
+        // (e.g. store-query-service_search-all's {"hits": [...]}) keep their
+        // shape.
+        let object = json!({"hits": [], "ok": true, "message": "0 hit(s)"});
+        assert_eq!(envelope_structured_content(object.clone()), object);
+    }
+
+    #[test]
+    fn split_then_envelope_composes_for_mixed_content() {
+        let (blocks, raw) = split_mcp_content(json!({
+            "status": "resolved",
+            MCP_CONTENT_FIELD: [{"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"}]
+        }));
+        assert_eq!(blocks.len(), 1);
+        let structured = envelope_structured_content(raw);
+        assert!(structured.is_object());
+        assert_eq!(structured["status"], "resolved");
+        assert!(structured.get(MCP_CONTENT_FIELD).is_none());
+    }
+}
