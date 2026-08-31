@@ -13,6 +13,7 @@
 		048AE66D2A53D75A0E0F86D6 /* ImpressSidebar in Frameworks */ = {isa = PBXBuildFile; productRef = 10C467338948F241F318E742 /* ImpressSidebar */; };
 		0555B616ABE2649F2E898E66 /* ManuscriptEditorInstall.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9D0D6F25F820546A061A4B /* ManuscriptEditorInstall.swift */; };
 		05840690A1213EA7FDECA521 /* DocumentOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B910C238CEB0E76C467C66 /* DocumentOperation.swift */; };
+		070CF204561F4F75AE579B78 /* typst-packages in Resources */ = {isa = PBXBuildFile; fileRef = 2EE7BCC4ADDEE961C4E036CC /* typst-packages */; };
 		086934B7845E5A7A443B7A87 /* IOSScribbleSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED675147A727CA394129D2F8 /* IOSScribbleSupport.swift */; };
 		092CC673426350EE7BB2B1E9 /* PDFPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B7C0F823D92EA37C65D39D /* PDFPreviewTests.swift */; };
 		09394AC0899751169329295F /* ImpressStoreKit in Frameworks */ = {isa = PBXBuildFile; productRef = 47F785F4979B41BBEB5905C2 /* ImpressStoreKit */; };
@@ -243,6 +244,7 @@
 		EC6F5A44B69A44EC25B233E8 /* ImprintUndoCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E655FA9FC40366610B78CC /* ImprintUndoCoordinator.swift */; };
 		EC81EA25F5B41154101A7382 /* ImprintRustCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0794C19FA83D58DFE46289D /* ImprintRustCore */; };
 		ED2828CB949CA0BBAC787364 /* CitationInspectionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9775D1F5AC32AA5DE520370 /* CitationInspectionUITests.swift */; };
+		EDF1160071AFDF441FF6F569 /* typst-packages in Resources */ = {isa = PBXBuildFile; fileRef = 2EE7BCC4ADDEE961C4E036CC /* typst-packages */; };
 		F03627B8DE717BB05A9D7701 /* ManuscriptExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663C5398062C77F53190AE5D /* ManuscriptExporter.swift */; };
 		F08FC1B676E8049CCE38ED6E /* CompiledPDFStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1735CE7ED3F48A17061D156 /* CompiledPDFStore.swift */; };
 		F165C73E5358B9DF6547091D /* ImprintAccessibilityID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 081A80A304C7BAB778E12B73 /* ImprintAccessibilityID.swift */; };
@@ -359,6 +361,7 @@
 		2CDE35399E25774A690015FB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2D61B010FFF358A61F41C0F5 /* AIAssistantServiceCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantServiceCompat.swift; sourceTree = "<group>"; };
 		2D978C7EA3E412A2B1097DE3 /* ImprintSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintSearchService.swift; sourceTree = "<group>"; };
+		2EE7BCC4ADDEE961C4E036CC /* typst-packages */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "typst-packages"; path = "../../vendor/typst-packages"; sourceTree = SOURCE_ROOT; };
 		2F67BB7A7D2ECA4F43FFE1EC /* DetachedPDFWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedPDFWindowView.swift; sourceTree = "<group>"; };
 		3177F4C75FF0808213946B7D /* ImprintRustHandlersBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintRustHandlersBridge.swift; sourceTree = "<group>"; };
 		3975B36974F9B8BBD47C008A /* ImprintSettingsSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintSettingsSections.swift; sourceTree = "<group>"; };
@@ -720,6 +723,7 @@
 		6C7BEE3D8753ABB9DC77D03B = {
 			isa = PBXGroup;
 			children = (
+				DC118F2781D1DF10C25150D4 /* impress-apps */,
 				9B930F6B9CFA7C5A22A272A2 /* imprint-iOS */,
 				BDB63D3ED8661D0E37754B76 /* imprint-iOSTests */,
 				C93BB9334B69E7791C250781 /* imprint-iOSUITests */,
@@ -912,6 +916,23 @@
 				A83DD964817663C020DEEF41 /* ToolbarTests.swift */,
 			);
 			path = Components;
+			sourceTree = "<group>";
+		};
+		D9E8BD53D96565D6489E8B90 /* vendor */ = {
+			isa = PBXGroup;
+			children = (
+				2EE7BCC4ADDEE961C4E036CC /* typst-packages */,
+			);
+			path = vendor;
+			sourceTree = "<group>";
+		};
+		DC118F2781D1DF10C25150D4 /* impress-apps */ = {
+			isa = PBXGroup;
+			children = (
+				D9E8BD53D96565D6489E8B90 /* vendor */,
+			);
+			name = "impress-apps";
+			path = ../..;
 			sourceTree = "<group>";
 		};
 		E0B17C51B36DBE3875B10666 /* Services */ = {
@@ -1312,6 +1333,7 @@
 				B1AD663D15F009B9CDEDC0B0 /* Assets.xcassets in Resources */,
 				4F249EC0D575D49A40C9ABFC /* Assets.xcassets in Resources */,
 				D4DA6D72B673A728F197EFE1 /* ai-prompts.yaml in Resources */,
+				070CF204561F4F75AE579B78 /* typst-packages in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1330,6 +1352,7 @@
 				42D46C8AC8EC51C9C9131853 /* Assets.xcassets in Resources */,
 				56353CA3433A02749BECD321 /* Assets.xcassets in Resources */,
 				CCA6B0EDBBADBD808AF0367C /* ai-prompts.yaml in Resources */,
+				EDF1160071AFDF441FF6F569 /* typst-packages in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
