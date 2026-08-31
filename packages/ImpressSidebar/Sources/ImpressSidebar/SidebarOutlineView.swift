@@ -405,15 +405,42 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             guard let outlineView = outlineView else { return }
 
             if preservingMultiple, selectedNodeIDs.count > 1 {
-                let rows = selectedNodeIDs.compactMap { id -> Int? in
+                // Re-resolve every previously-selected node by ID. Raw row
+                // indices are meaningless after a structural reload — the same
+                // index can now be a different node, or out of range.
+                let previousIDs = selectedNodeIDs
+                let surviving = selectedNodeIDs.compactMap { id -> (id: UUID, row: Int)? in
                     guard let wrapper = wrapperCache[id] else { return nil }
                     let row = outlineView.row(forItem: wrapper)
-                    return row >= 0 ? row : nil
+                    return row >= 0 ? (id: id, row: row) : nil
                 }
-                if rows.count > 1 {
-                    outlineView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
-                    return
+
+                // Restore whatever survived, even a single row. Falling through
+                // on a shrink would consult `selectedNodeID`, and when THAT is
+                // the node that vanished (it is the most recently clicked one,
+                // so a delete usually takes it) the fallback deselects
+                // everything — wiping rows that are still perfectly alive.
+                if surviving.isEmpty {
+                    outlineView.deselectAll(nil)
+                    selectedNodeIDs = []
+                } else {
+                    outlineView.selectRowIndexes(
+                        IndexSet(surviving.map(\.row)),
+                        byExtendingSelection: false
+                    )
+                    selectedNodeIDs = surviving.map(\.id)
                 }
+
+                if selectedNodeIDs != previousIDs {
+                    // Nodes disappeared from under the selection. Hosts mirror
+                    // this set (imbib feeds it into the combined list view), so
+                    // leaving them unnotified means they keep acting on rows
+                    // that no longer exist.
+                    let primaryVanished = selectedNodeID.map { !selectedNodeIDs.contains($0) } ?? true
+                    if primaryVanished { selectedNodeID = selectedNodeIDs.first }
+                    notifySelectionSetShrank(primaryChanged: primaryVanished)
+                }
+                return
             }
 
             if let selectedID = selectedNodeID, let wrapper = wrapperCache[selectedID] {
@@ -428,6 +455,28 @@ public struct SidebarOutlineView<Node: SidebarTreeNode>: NSViewRepresentable {
             }
             outlineView.deselectAll(nil)
             selectedNodeIDs = []
+        }
+
+        /// Tell the host that the selected set lost nodes during a reload.
+        ///
+        /// Deferred by one main-actor turn on purpose: `restoreSelection` runs
+        /// inside `updateNSView`, and these callbacks mutate the host's
+        /// observable state. Writing that state during a SwiftUI update pass is
+        /// what produces "modifying state during view update" churn, so we hop
+        /// out of the pass first — the same reason `updateNSView` defers
+        /// `beginEditingNode`. Only fires on an actual shrink, never on the
+        /// common reload-with-unchanged-selection path.
+        private func notifySelectionSetShrank(primaryChanged: Bool) {
+            let ids = selectedNodeIDs
+            let onMulti = configuration.onMultipleSelectionChanged
+            guard onMulti != nil || primaryChanged else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if primaryChanged {
+                    self.selectionBinding.wrappedValue = ids.first
+                }
+                onMulti?(ids.compactMap { self.nodeLookup[$0] })
+            }
         }
 
         // MARK: - NSOutlineViewDataSource
