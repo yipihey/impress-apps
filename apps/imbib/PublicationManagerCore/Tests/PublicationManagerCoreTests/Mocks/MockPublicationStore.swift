@@ -38,6 +38,19 @@ final class MockPublicationStore: PublicationStoreProtocol {
     var deleteSmartSearchCallCount = 0
     var lastImportedBibTeX: String?
 
+    // MARK: - Read-call counting (sidebar ratchet, P0)
+
+    /// Calls per read verb, counted by function name. The sidebar ratchet
+    /// test pins these: the tree builders' store traffic is a budget, and a
+    /// new per-node query fails the pin instead of shipping as a regression.
+    private(set) var readCallCounts: [String: Int] = [:]
+
+    func resetReadCounts() { readCallCounts = [:] }
+
+    private func countRead(_ name: String = #function) {
+        readCallCounts[name, default: 0] += 1
+    }
+
     // MARK: - Helpers
 
     /// Seed a library and optionally make it default.
@@ -194,6 +207,7 @@ final class MockPublicationStore: PublicationStoreProtocol {
     }
 
     func countUnread(parentId: UUID?) -> Int {
+        countRead()
         if let parentId = parentId {
             let ids = libraryPublications[parentId] ?? []
             return ids.compactMap { publications[$0] }.filter { !$0.isRead }.count
@@ -202,11 +216,13 @@ final class MockPublicationStore: PublicationStoreProtocol {
     }
 
     func countUnreadInCollection(collectionId: UUID) -> Int {
+        countRead()
         let ids = collectionMembers[collectionId] ?? []
         return ids.compactMap { publications[$0] }.filter { !$0.isRead }.count
     }
 
     func countStarred(parentId: UUID?) -> Int {
+        countRead()
         if let parentId = parentId {
             let ids = libraryPublications[parentId] ?? []
             return ids.compactMap { publications[$0] }.filter { $0.isStarred }.count
@@ -215,7 +231,8 @@ final class MockPublicationStore: PublicationStoreProtocol {
     }
 
     func countArtifacts(type: ArtifactType?) -> Int {
-        0 // Artifacts not tracked in mock
+        countRead()
+        return 0 // Artifacts not tracked in mock
     }
 
     // MARK: - Publication Mutations
@@ -390,7 +407,8 @@ final class MockPublicationStore: PublicationStoreProtocol {
     // MARK: - Library Management
 
     func listLibraries() -> [LibraryModel] {
-        Array(libraries.values).sorted { $0.name < $1.name }
+        countRead()
+        return Array(libraries.values).sorted { $0.name < $1.name }
     }
 
     func getLibrary(id: UUID) -> LibraryModel? {
@@ -450,7 +468,8 @@ final class MockPublicationStore: PublicationStoreProtocol {
     // MARK: - Collection Management
 
     func listCollections(libraryId: UUID) -> [CollectionModel] {
-        collections.values.filter { col in
+        countRead()
+        return collections.values.filter { col in
             // Associate collections with libraries by convention (stored in collectionMembers)
             true // simplified — return all collections
         }.sorted { $0.sortOrder < $1.sortOrder }
@@ -487,8 +506,9 @@ final class MockPublicationStore: PublicationStoreProtocol {
     // MARK: - Smart Search
 
     func listSmartSearches(libraryId: UUID?) -> [SmartSearch] {
+        countRead()
         // Mock returns empty
-        []
+        return []
     }
 
     func getSmartSearch(id: UUID) -> SmartSearch? {
