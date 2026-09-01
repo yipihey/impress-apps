@@ -1514,10 +1514,14 @@ final class ImbibSidebarViewModel {
     /// builders read `SidebarSnapshot.shared.treeData` — one immutable value
     /// produced OFF-MAIN by the maintainer — instead of fetching from the
     /// store on the main thread. `var` so the ratchet test can flip it; the
-    /// app reads the default once at init (relaunch to change, which is the
-    /// soak protocol: additive, gated, revertible).
+    /// app reads the default once at init (relaunch to change).
+    ///
+    /// Default ON since 2026-09-01 (P2 soak passed). The flag and the fetch
+    /// fallback stay: `defaults write <bundle> sidebar.snapshotTree -bool NO`
+    /// + relaunch reverts, and hosts that never start the maintainer (every
+    /// non-imbib app today) fall through on `treeData == nil` regardless.
     @ObservationIgnored var snapshotTreeEnabled: Bool =
-        UserDefaults.standard.bool(forKey: "sidebar.snapshotTree")
+        (UserDefaults.standard.object(forKey: "sidebar.snapshotTree") as? Bool) ?? true
 
     /// The published tree data, when the flag is on and a sweep has run.
     /// Falling back to the fetch path until the first publish means enabling

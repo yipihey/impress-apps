@@ -1699,8 +1699,11 @@ links `ImpressCommandPalette` at all — it is written but not yet activated.
 ## Sidebar data sources (sidebar plan P0–P5, 2026-09-01)
 
 Where each macOS tree builder's DATA comes from, under the
-`sidebar.snapshotTree` flag (default OFF; the flag-OFF path memoizes per
-`dataVersion` since P1). "snapshot" = `SidebarTreeData` /
+`sidebar.snapshotTree` flag (**default ON since 2026-09-01**, soak passed;
+revert per app with `defaults write <bundle id> sidebar.snapshotTree -bool NO`
++ relaunch — the flag-OFF fetch path stays and memoizes per `dataVersion`
+since P1, and hosts that never start the maintainer fall through on
+`treeData == nil` regardless). "snapshot" = `SidebarTreeData` /
 `SidebarSnapshot.shared`, produced off-main by `SidebarSnapshotMaintainer`
 (one Rust `sidebar_snapshot()` FFI crossing since P3, plus the Swift-side
 pending-reviews read since P5). The RULE this table enforces:
