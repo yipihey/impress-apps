@@ -188,6 +188,14 @@ public final class ManuscriptCompileController {
             "Compile finished: pdf=\(pdfData?.count ?? 0)b, errors=\(compilationError != nil ? 1 : 0)",
             category: "compile"
         )
+        // "errors=1" without the message made the console useless for the one
+        // question a failed compile raises. Log the message itself (bounded).
+        if let error = compilationError {
+            Logger.compilation.errorCapture(
+                "Compile error: \(error.prefix(400))",
+                category: "compile"
+            )
+        }
         log("compile() finished")
     }
 

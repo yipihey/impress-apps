@@ -31,6 +31,16 @@ struct CompileDiagnosticsPanel: View {
                 Text(summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !diagnostics.isEmpty {
+                    Button {
+                        ManuscriptCompileErrorClipboard.copy(
+                            errorText: summary, diagnostics: errors + others)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy all diagnostics to the clipboard")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -64,6 +74,24 @@ struct CompileDiagnosticsPanel: View {
 
     @ViewBuilder
     private func row(_ diagnostic: CompileDiagnostic) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            jumpButton(diagnostic)
+            Button {
+                ManuscriptCompileErrorClipboard.copy(diagnostic: diagnostic)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Copy this diagnostic")
+            .padding(.top, 7)
+            .padding(.trailing, 10)
+        }
+    }
+
+    @ViewBuilder
+    private func jumpButton(_ diagnostic: CompileDiagnostic) -> some View {
         Button {
             onJump(diagnostic)
         } label: {

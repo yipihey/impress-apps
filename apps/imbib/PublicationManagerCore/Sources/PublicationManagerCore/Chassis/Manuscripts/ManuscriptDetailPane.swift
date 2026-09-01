@@ -144,6 +144,26 @@ public struct ManuscriptDetailPane: View {
                             }
                         }
                     })
+                    // A stale PDF must not impersonate the current manuscript:
+                    // when the LATEST compile failed, say so on the preview
+                    // itself, with the error one copy-click away.
+                    .overlay(alignment: .bottom) {
+                        if let session = liveSession, let error = session.vm.compilationError {
+                            ManuscriptCompileErrorBanner(
+                                errorText: error,
+                                diagnostics: session.vm.compilationDiagnostics
+                            )
+                        }
+                    }
+            } else if let session = liveSession, let error = session.vm.compilationError {
+                // A failed compile used to fall through to the "Nothing
+                // compiled yet" placeholder — the user was left staring at an
+                // empty state while the error sat unshown on the controller.
+                ManuscriptCompileErrorCard(
+                    errorText: error,
+                    diagnostics: session.vm.compilationDiagnostics,
+                    onOpenSource: { selectedTab = .source }
+                )
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "doc.richtext").font(.system(size: 32))
