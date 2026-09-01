@@ -120,13 +120,17 @@ struct IOSSidebarHost: View {
                 searchForms: visibleSearchForms),
             collectionActions: ImbibSidebarBindings.collectionActions(snapshot: snapshot),
             chrome: chrome,
-            // Reading these two @Observable values HERE (in `body`) is what
+            // Reading these @Observable values HERE (in `body`) is what
             // registers observation for them: the data-source closures run
             // after body, so a read inside one is invisible to SwiftUI and the
             // SciX shelf list would never refresh after a background pull.
+            // `SidebarSnapshot.version` joins the sum (sidebar plan P5) so a
+            // maintainer publish that lands AFTER a store-event rebuild still
+            // re-renders the feed rows with their fresh unread badges.
             dataVersion: ImbibSidebarBindings.dataVersion(
                 chromeRevision: chromeRevision
-                    &+ SciXLibraryRepository.shared.libraries.count),
+                    &+ SciXLibraryRepository.shared.libraries.count
+                    &+ SidebarSnapshot.shared.version),
             selection: scopeSelection,
             title: "imbib")
         .refreshable { await refresh() }

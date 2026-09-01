@@ -17,10 +17,20 @@
 //  store call, and the number in this file is where that gets reviewed.
 //
 //  KNOWN ESCAPES this ratchet cannot see (they bypass the injected store via
-//  singletons; P2/P3 of the plan move them behind the snapshot): 
-//  RustStoreAdapter.shared (listTags, listManuscriptCollections,
-//  countPendingReviews, countManuscripts), FigureStoreReader.shared,
-//  InboxManager.shared, CitedInManuscriptsSnapshot.shared.
+//  singletons). P5 status, 2026-09-01:
+//  - countPendingReviews — CLOSED: snapshot-backed under the flag, memoized
+//    per dataVersion otherwise (`cachedPendingReviewCount()`).
+//  - getFlaggedPublications — CLOSED under the flag: the publication arm of
+//    `flagCountsSnapshot(ofKind:)` reads `SidebarSnapshot.flagCounts`.
+//  - listTags — DELIBERATELY left store-direct: the vocabulary is ~24k rows;
+//    marshalling it into every maintainer sweep would regress the sweep, and
+//    the read is memoized per structural refresh where it sits.
+//  - listManuscriptCollections, countManuscripts, FigureStoreReader.shared,
+//    MailStoreReader.shared, AgentStoreReader.shared, InboxManager.shared,
+//    CitedInManuscriptsSnapshot.shared — OPEN: their sections are outside
+//    imbib's shell (visibleSections gates them off), so this imbib-shell
+//    walk never invokes them. Converting them is tracked in
+//    docs/chassis-capability-matrix.md § Sidebar data sources.
 //
 
 import XCTest

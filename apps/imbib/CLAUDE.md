@@ -414,6 +414,20 @@ easy to get wrong in the generalized shape:
 
 ### Critical Invariants
 
+**Sidebar tree builders take snapshot data, never store handles — the ratchet
+test is the law.** (Sidebar plan P0–P5, 2026-09-01.) A `childrenOf:` builder or
+section gate in `ImbibSidebarViewModel` reads `SidebarTreeData` /
+`SidebarSnapshot.shared` (produced off-main by `SidebarSnapshotMaintainer`,
+one Rust `sidebar_snapshot()` crossing) or, flag-off, the per-`dataVersion`
+memo caches — never a fresh adapter/store query per node visit. That
+per-node-query shape is how three separate regressions shipped (tag-vocabulary
+walk, planner-stats scan, refresh-burst rebuilds; 96.7% of store calls on main
+at the audit). `SidebarStoreCallRatchetTests` pins the call count and it only
+ratchets down; the per-builder source-of-truth table is
+[docs/chassis-capability-matrix.md](../../docs/chassis-capability-matrix.md)
+§ Sidebar data sources. New data a builder needs = a new `SidebarTreeData`
+field gathered in BOTH maintainer paths, not a new query in the builder.
+
 **Dismissed papers must never re-enter the inbox.** Enforced in: `batch_import_search_results` (Rust `filter_dismissed` checks both new and existing papers), `GroupFeedRefreshService` (Swift `wasDismissed`). Risk: any new import path that doesn't check dismissed status.
 
 **Collection tree parent is payload `parent_id`, never `item.parent`.** For every collection, `item.parent` is the owning LIBRARY (that's what `list_collections` filters on via `HasParent`); the sub-collection tree lives in payload `parent_id` (written by `handleReparent`/`createInboxCollection`) and manuscript folders in payload `parent_collection_ref`. c902a22f briefly returned `item.parent` from `item_to_collection_row`, which made every collection's `parentID` equal its library UUID and flattened the sidebar tree (root filter `parentID == nil` matched nothing). Guarded by `collection_parent_id_is_payload_not_owning_library` in `imbib-core/tests/manuscript_unification.rs`.

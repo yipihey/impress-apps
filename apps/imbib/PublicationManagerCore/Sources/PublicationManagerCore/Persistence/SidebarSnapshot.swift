@@ -115,17 +115,26 @@ public struct SidebarTreeData: Sendable {
     public let feedsByLibrary: [UUID?: [SmartSearch]]
     public let starredByLibrary: [UUID?: Int]
     public let artifactCounts: [ArtifactType?: Int]
+    /// Unresolved review requests (sidebar plan P5). Gathered by the
+    /// maintainer's sweep — NOT part of the Rust `sidebar_snapshot()` call,
+    /// because reviews live on the shared review store with their resolution
+    /// predicate in Swift (`PendingReview`); composing a second copy of that
+    /// predicate into Rust would be the drift class the snapshot exists to
+    /// end. Serves both the review-queue section gate and its badge.
+    public let pendingReviewCount: Int
 
     public init(
         collectionsByLibrary: [UUID: [CollectionModel]],
         feedsByLibrary: [UUID?: [SmartSearch]],
         starredByLibrary: [UUID?: Int],
-        artifactCounts: [ArtifactType?: Int]
+        artifactCounts: [ArtifactType?: Int],
+        pendingReviewCount: Int = 0
     ) {
         self.collectionsByLibrary = collectionsByLibrary
         self.feedsByLibrary = feedsByLibrary
         self.starredByLibrary = starredByLibrary
         self.artifactCounts = artifactCounts
+        self.pendingReviewCount = pendingReviewCount
     }
 }
 

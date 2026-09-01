@@ -139,6 +139,14 @@ struct imbibApp: App {
             if await HTTPAutomationServer.shared.running {
                 appLogger.info("HTTP automation server started (iOS)")
             }
+
+            // Sidebar plan P5: start the snapshot maintainer on iOS too. The
+            // chassis feed rows read `SidebarSnapshot.shared` for their unread
+            // badges (ImbibSidebarBindings.feedNode), which without a running
+            // maintainer is permanently zero — every iOS feed was silently
+            // unbadged. Read-only sweeps, publish-only writes: grace-safe.
+            await SidebarSnapshotMaintainer.shared.start()
+            appLogger.info("Sidebar snapshot maintainer started (iOS)")
         }
 
         // Deferred past the startup grace period: coordinators whose start()

@@ -1696,7 +1696,49 @@ client of the suite that refuses to know the suite's address book is not
 decoupled, it is uninformed. Cost of being wrong is near zero today: no target
 links `ImpressCommandPalette` at all — it is written but not yet activated.
 
+## Sidebar data sources (sidebar plan P0–P5, 2026-09-01)
+
+Where each macOS tree builder's DATA comes from, under the
+`sidebar.snapshotTree` flag (default OFF; the flag-OFF path memoizes per
+`dataVersion` since P1). "snapshot" = `SidebarTreeData` /
+`SidebarSnapshot.shared`, produced off-main by `SidebarSnapshotMaintainer`
+(one Rust `sidebar_snapshot()` FFI crossing since P3, plus the Swift-side
+pending-reviews read since P5). The RULE this table enforces:
+**tree builders take snapshot data, never store handles — the ratchet test
+(`SidebarStoreCallRatchetTests`) is the law**, and a builder moving from
+"snapshot" to "store" is a regression even when it feels local.
+
+| Builder (section) | Source | Notes |
+|---|---|---|
+| inbox, libraries, collections, exploration, artifacts | snapshot | converted in P2 (the four `cached*` accessors) |
+| starred counts, unread badges, flag badges (publications) | snapshot | badges since P0 counts maintainer; flagged-arm read since P5 |
+| review queue (gate + badge) | snapshot | P5; Swift-side sweep read — the resolution predicate lives in `PendingReview`, composing it into Rust would duplicate it |
+| tags | store, deliberate | ~24k vocabulary rows; marshalling them into every sweep would regress the sweep. Memoized per structural refresh |
+| search forms, scix libraries, sharedWithMe | static / in-memory | no store traffic |
+| figures | store (open) | `FigureStoreReader` / `CollectionStoreAdapter.tree(.figure)`; section not in imbib's shell |
+| mail | store (open) | `MailSidebarSnapshot.load()` — a live read pass despite the name, unmemoized on macOS; not in imbib's shell |
+| agents/tasks | store (open) | `AgentStoreReader` count per state per build; not in imbib's shell |
+| manuscripts folders, dismissed (imprint arm) | store (open) | `listManuscriptCollections` / `countManuscripts(status:)`; imprint's surface |
+
+Converting an "open" row = add its field to `SidebarTreeData`, gather it in
+BOTH maintainer paths (one-call publish AND per-shape fallback), give the
+builder a nil-guarded snapshot read, and — because the gather runs
+unconditionally every sweep — weigh its cost the way tags was weighed. The
+iOS shell reads the same `SidebarSnapshot` for feed badges and folds
+`SidebarSnapshot.version` into its `dataVersion` sum; the maintainer starts
+on BOTH platforms (iOS since P5 — before that, iOS feed badges were
+permanently zero).
+
 ## Known gaps (tracked)
+
+- **The sidebar ratchet's zero-store-calls assertion covers imbib's shell
+  only, through seven mocked verbs.** Sections outside
+  `AppShellConfiguration.imbib.visibleSections` (figures, mail, agents,
+  manuscripts) are never walked by it, and singleton readers are invisible to
+  the mock — the honest per-escape status lives in the test's own header
+  (`SidebarStoreCallRatchetTests.swift`). Converting those builders per the
+  table above is the fix; an impress-composed ratchet variant would be the
+  proof.
 
 - **~~The suite has no shared keychain access group, so only imbib can read the
   ADS/SciX credentials.~~** — **DECIDED 2026-07-30, NOT IMPLEMENTED, and that is

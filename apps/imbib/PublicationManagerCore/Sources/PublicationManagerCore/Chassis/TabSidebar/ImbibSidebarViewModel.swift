@@ -727,7 +727,7 @@ final class ImbibSidebarViewModel {
         case .reviewQueue:
             // Only surface the section while agents are actually waiting on
             // a human decision — keeps the sidebar quiet otherwise.
-            return RustStoreAdapter.shared.countPendingReviews() > 0
+            return cachedPendingReviewCount() > 0
         case .citedInManuscripts:
             // Only show the section when imprint has written at least
             // one resolved citation-usage record. Keeps the sidebar
@@ -1161,7 +1161,7 @@ final class ImbibSidebarViewModel {
     /// shows the unresolved count; the section itself is hidden when zero
     /// (see `shouldShowSection`).
     private func reviewQueueChildren() -> [ImbibSidebarNode] {
-        let count = RustStoreAdapter.shared.countPendingReviews()
+        let count = cachedPendingReviewCount()
         guard count > 0 else { return [] }
         return [
             ImbibSidebarNode(
@@ -1532,6 +1532,7 @@ final class ImbibSidebarViewModel {
     @ObservationIgnored private var cachedFeedsByLibrary: [UUID?: [SmartSearch]] = [:]
     @ObservationIgnored private var cachedStarredByLibrary: [UUID?: Int] = [:]
     @ObservationIgnored private var cachedArtifactCounts: [ArtifactType?: Int] = [:]
+    @ObservationIgnored private var cachedPendingReviews: Int?
 
     private func ensureFetchCacheCurrent() {
         guard fetchCacheVersion != dataVersion else { return }
@@ -1540,6 +1541,7 @@ final class ImbibSidebarViewModel {
         cachedFeedsByLibrary.removeAll(keepingCapacity: true)
         cachedStarredByLibrary.removeAll(keepingCapacity: true)
         cachedArtifactCounts.removeAll(keepingCapacity: true)
+        cachedPendingReviews = nil
     }
 
     func cachedCollections(libraryId: UUID) -> [CollectionModel] {
@@ -1583,6 +1585,21 @@ final class ImbibSidebarViewModel {
         if let hit = cachedArtifactCounts[type] { return hit }
         let fetched = store.countArtifacts(type: type)
         cachedArtifactCounts[type] = fetched
+        return fetched
+    }
+
+    /// Unresolved review-request count (sidebar plan P5). Snapshot-backed
+    /// under the flag; memoized per dataVersion otherwise — the section gate
+    /// and the badge both read it, and it used to cost two FFI calls per
+    /// rebuild on the main thread.
+    func cachedPendingReviewCount() -> Int {
+        if let snapshot = snapshotTreeData {
+            return snapshot.pendingReviewCount
+        }
+        ensureFetchCacheCurrent()
+        if let hit = cachedPendingReviews { return hit }
+        let fetched = RustStoreAdapter.shared.countPendingReviews()
+        cachedPendingReviews = fetched
         return fetched
     }
 
@@ -3531,6 +3548,19 @@ final class ImbibSidebarViewModel {
                 }
             }
         } else if kind == nil || kind == .publication {
+            // Sidebar plan P5: under the snapshot flag the maintainer's sweep
+            // already publishes these exact counts (the same Rust flag GROUP
+            // BY the batched counts read) — reading them beats re-fetching
+            // every flagged row just to count it. Guarded on `treeData`, the
+            // proof a sweep has published: an empty `flagCounts` dictionary
+            // alone cannot distinguish "no flags" from "no sweep yet".
+            if snapshotTreeEnabled, SidebarSnapshot.shared.treeData != nil {
+                let byColorSnapshot = SidebarSnapshot.shared.flagCounts
+                return FlagCounts(
+                    total: byColorSnapshot.values.reduce(0, +),
+                    byColor: byColorSnapshot
+                )
+            }
             // Use getFlaggedPublications — returns only flagged rows, avoiding
             // a full table scan.
             for pubRow in store.getFlaggedPublications() {

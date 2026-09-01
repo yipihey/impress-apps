@@ -125,11 +125,22 @@ public actor SidebarSnapshotMaintainer {
         // the data cannot differ; only the crossing count does (~2+3×L → 1).
         // The per-shape path below is the FALLBACK, kept verbatim for a store
         // error — never a second implementation of the shapes.
+        // Sidebar plan P5: the review-queue badge joins the sweep. It reads
+        // the shared review store, whose resolution predicate lives in Swift
+        // (`PendingReview`) — composing a second copy of it into the Rust
+        // one-call would be the drift class — so it is a Swift read here:
+        // once per sweep instead of twice per rebuild on the main thread.
+        let pendingReviews = await MainActor.run {
+            StoreTimings.shared.measure("SidebarSnapshotMaintainer.pendingReviews") {
+                RustStoreAdapter.shared.countPendingReviews()
+            }
+        }
+
         let oneCall = StoreTimings.shared.measure("ImbibImpressStore.sidebarSnapshot") {
             try? RustStoreAdapter.shared.imbibStore.sidebarSnapshot()
         }
         if let snapshot = oneCall {
-            await publish(snapshot: snapshot)
+            await publish(snapshot: snapshot, pendingReviews: pendingReviews)
             return
         }
 
@@ -206,7 +217,8 @@ public actor SidebarSnapshotMaintainer {
             collectionsByLibrary: collectionsByLibrary,
             feedsByLibrary: feedsByLibrary,
             starredByLibrary: starredByLibrary,
-            artifactCounts: artifactCounts
+            artifactCounts: artifactCounts,
+            pendingReviewCount: pendingReviews
         )
 
         // Publish atomically on the main actor.
@@ -221,7 +233,9 @@ public actor SidebarSnapshotMaintainer {
     }
 
     /// Map the one-call Rust snapshot into the published Swift values.
-    private func publish(snapshot: SidebarSnapshotData) async {
+    /// `pendingReviews` rides alongside — see the gather site for why it is
+    /// not part of the Rust call.
+    private func publish(snapshot: SidebarSnapshotData, pendingReviews: Int) async {
         let feedRows = snapshot.allFeeds.map { SmartSearch(from: $0) }
         let unreadByContainer: [UUID: Int] = Dictionary(
             snapshot.counts.unreadByContainer.compactMap { entry in
@@ -264,7 +278,8 @@ public actor SidebarSnapshotMaintainer {
             collectionsByLibrary: collectionsByLibrary,
             feedsByLibrary: feedsByLibrary,
             starredByLibrary: starredByLibrary,
-            artifactCounts: artifactCounts
+            artifactCounts: artifactCounts,
+            pendingReviewCount: pendingReviews
         )
         await MainActor.run {
             SidebarSnapshot.shared.apply(
