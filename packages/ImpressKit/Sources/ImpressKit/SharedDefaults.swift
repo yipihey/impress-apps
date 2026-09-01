@@ -3,8 +3,26 @@ import Foundation
 /// Type-safe wrapper around the shared UserDefaults suite for cross-app preferences.
 public struct SharedDefaults: Sendable {
     /// The shared UserDefaults suite for the Impress app group.
+    ///
+    /// Under unit tests this diverts to a per-process suite, the same
+    /// discipline as `SharedContainer.rootDirectory` and PMC's
+    /// `UserDefaults.forCurrentEnvironment`: the group domain is a real
+    /// cross-process store behind cfprefsd's group-domain round trips, which
+    /// under parallel xctest workers on a loaded machine can stall or drop a
+    /// write — `SyncSettings.isEnabled = true` read back `false` 5.8 s later
+    /// (2026-09-01) — and lets workers clobber each other's settings. The
+    /// per-process suite starts empty (persistent domain cleared at init) so
+    /// tests are hermetic, while instances within one process still share
+    /// state.
     public static let suite: UserDefaults = {
-        UserDefaults(suiteName: SiblingDiscovery.suiteGroupID) ?? .standard
+        if ImpressRuntime.isUnitTestProcess {
+            let name = "com.impress.unittest.\(ProcessInfo.processInfo.processIdentifier)"
+            if let perProcess = UserDefaults(suiteName: name) {
+                perProcess.removePersistentDomain(forName: name)
+                return perProcess
+            }
+        }
+        return UserDefaults(suiteName: SiblingDiscovery.suiteGroupID) ?? .standard
     }()
 
     // MARK: - Known Keys
