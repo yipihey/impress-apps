@@ -40,6 +40,21 @@ public actor CitationUsageReader {
     private var store: SharedStore?
     private var openAttempted = false
 
+    /// Stamp-guarded cache for the default full read. The sidebar refreshes
+    /// this reader on every data-version bump, but citation-usage rows only
+    /// change when imprint writes — so before re-fetching 548 full payload
+    /// rows, probe two cheap indexed facts (row count + newest modifiedMs)
+    /// and serve the cache when neither moved. Cross-process writes need no
+    /// event plumbing: the probe itself IS the invalidation, because the
+    /// kernel bumps `modified` on every touch. Measured before the guard:
+    /// ~175 ms per sweep re-reading unchanged rows.
+    private struct CacheStamp: Equatable {
+        let count: UInt32
+        let newestModifiedMs: Int64?
+    }
+    private var cachedRecords: [CitationUsageRecord]?
+    private var cachedStamp: CacheStamp?
+
     public init() {}
 
     // MARK: - Read API
@@ -49,14 +64,18 @@ public actor CitationUsageReader {
         StoreTimings.shared.measure("CitationUsageReader.listAll") {
             guard let store = handle() else { return [] }
             do {
-                // Bare `citation-usage`: exact-equality match against what
-                // imprint's ImprintStoreAdapter writes. See schema-refs.json.
-                let rows = try store.queryBySchema(
-                    schemaRef: "citation-usage",
-                    limit: limit,
-                    offset: offset
-                )
-                return rows.compactMap { CitationUsageRecord(row: $0) }
+                let isDefaultShape = limit == 5000 && offset == 0
+                if isDefaultShape {
+                    let stamp = try currentStamp(store)
+                    if let cached = cachedRecords, stamp == cachedStamp {
+                        return cached
+                    }
+                    let records = try fetchAll(store, limit: limit, offset: offset)
+                    cachedRecords = records
+                    cachedStamp = stamp
+                    return records
+                }
+                return try fetchAll(store, limit: limit, offset: offset)
             } catch {
                 readerLog.errorCapture(
                     "CitationUsageReader.listAll failed: \(error.localizedDescription)",
@@ -65,6 +84,35 @@ public actor CitationUsageReader {
                 return []
             }
         }
+    }
+
+    private func fetchAll(
+        _ store: SharedStore, limit: UInt32, offset: UInt32
+    ) throws -> [CitationUsageRecord] {
+        // Bare `citation-usage`: exact-equality match against what
+        // imprint's ImprintStoreAdapter writes. See schema-refs.json.
+        let rows = try store.queryBySchema(
+            schemaRef: "citation-usage",
+            limit: limit,
+            offset: offset
+        )
+        return rows.compactMap { CitationUsageRecord(row: $0) }
+    }
+
+    private func currentStamp(_ store: SharedStore) throws -> CacheStamp {
+        let probe = SharedItemQuery(
+            schemaRef: "citation-usage",
+            parentId: nil,
+            payloadEq: [],
+            modifiedAfterMs: nil,
+            sortField: "modified",
+            ascending: false,
+            limit: 1,
+            offset: 0
+        )
+        let count = try store.countItems(query: probe)
+        let newest = try store.queryItems(query: probe).first?.modifiedMs
+        return CacheStamp(count: count, newestModifiedMs: newest)
     }
 
     /// Distinct imbib publication IDs that appear in at least one
