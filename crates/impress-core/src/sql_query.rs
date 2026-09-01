@@ -16,7 +16,15 @@ pub(crate) fn compile_query(q: &ItemQuery) -> CompiledQuery {
     // WHERE
     let mut conditions = Vec::new();
     if let Some(ref schema) = q.schema {
-        conditions.push("schema_ref = ?".to_string());
+        if q.assume_schema_rare {
+            // Pure planner hint (see ItemQuery::assume_schema_rare): identical
+            // result set, but the estimated selectivity beats sqlite_stat1's
+            // per-schema AVERAGE, which op-row dominance skews so badly that
+            // rare-kind reads walk a sort index across the whole table.
+            conditions.push("likelihood(schema_ref = ?, 0.02)".to_string());
+        } else {
+            conditions.push("schema_ref = ?".to_string());
+        }
         params.push(SqlValue::Text(schema.clone()));
     }
     for pred in &q.predicates {

@@ -23,6 +23,21 @@ pub struct ItemQuery {
     /// When false, query() skips batch_load_references. Default: true.
     #[serde(default = "default_true")]
     pub include_references: bool,
+    /// Planner hint: compile the schema constraint as
+    /// `likelihood(schema_ref = ?, 0.02)` so SQLite drives the schema
+    /// composite index instead of walking a sort index. Why this exists:
+    /// `sqlite_stat1` stores the AVERAGE rows per distinct `schema_ref`, and
+    /// operation rows dominate the table — so a rare kind (548 rows of
+    /// millions) is estimated at ~100k matches, the ORDER-BY-LIMIT
+    /// optimization walks `idx_items_created` probing every row for the
+    /// schema, and a "few hundred rows" read costs seconds
+    /// (`CitationUsageReader.listAll`: 0.5–2.3 s live, 2026-09-01). Set it
+    /// ONLY for per-kind reader shapes that never target the op-row-sized
+    /// schemas: for a schema that really IS most of the table, the hint
+    /// trades a fast sort-index walk for probe-and-sort-everything. Default
+    /// false: existing queries compile byte-identically.
+    #[serde(default)]
+    pub assume_schema_rare: bool,
 }
 
 fn default_true() -> bool {
@@ -39,6 +54,7 @@ impl Default for ItemQuery {
             offset: None,
             include_tags: true,
             include_references: true,
+            assume_schema_rare: false,
         }
     }
 }

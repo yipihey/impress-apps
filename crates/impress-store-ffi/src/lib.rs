@@ -994,6 +994,10 @@ impl SharedStore {
             }],
             limit: Some(effective_limit),
             offset: Some(offset as usize),
+            // Per-kind reader shape — see ItemQuery::assume_schema_rare.
+            // CitationUsageReader.listAll measured 0.5–2.3 s per call
+            // WITHOUT this, for 548 rows.
+            assume_schema_rare: true,
             ..ItemQuery::default()
         };
         let items = self.inner.query(&q)?;
@@ -2420,6 +2424,12 @@ fn compile_shared_query(
     Ok(ItemQuery {
         schema: query.schema_ref.clone(),
         predicates,
+        // The shared flat surface serves per-kind readers (figures, mail,
+        // reviews, citation usage) — kinds that are a sliver of an items
+        // table dominated by operation rows. Without the hint, stat1's
+        // per-schema AVERAGE makes the planner walk a sort index across the
+        // whole table for them (see ItemQuery::assume_schema_rare).
+        assume_schema_rare: true,
         sort: if for_count {
             vec![]
         } else {

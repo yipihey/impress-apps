@@ -159,6 +159,7 @@ impl SqliteItemStore {
             offset: None,
             include_tags: false,
             include_references: false,
+            ..ItemQuery::default()
         };
         let mut chunks = self.query(&q)?;
         chunks.sort_by_key(|c| c.created);
@@ -621,6 +622,7 @@ impl SqliteItemStore {
             offset: None,
             include_tags: false,
             include_references: false,
+            ..ItemQuery::default()
         };
         let all = self.query(&q)?;
         let mut by_manuscript: HashMap<Option<ItemId>, Vec<Item>> = HashMap::new();

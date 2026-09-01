@@ -7217,6 +7217,78 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// The per-kind reader shape (`ItemQuery::assume_schema_rare`, set by the
+    /// shared store's `query_by_schema` / `query_items`): equality on a RARE
+    /// schema plus ORDER BY created plus LIMIT. `sqlite_stat1` stores the
+    /// AVERAGE rows per distinct `schema_ref`, and operation-row dominance
+    /// makes a rare kind look orders of magnitude more common than it is —
+    /// the ORDER-BY-LIMIT optimization then walks `idx_items_created` across
+    /// the whole table probing every row for the schema
+    /// (`CitationUsageReader.listAll`: 0.5–2.3 s live for 548 rows,
+    /// 2026-09-01). The `likelihood()` hint must keep the plan on the schema
+    /// composite in BOTH stats phases; the fixture's skew (100:1) reproduces
+    /// the failure the hint exists to prevent.
+    #[test]
+    fn rare_schema_ordered_reads_drive_the_schema_composite() {
+        let path = tmp_db_path("rare_schema_plan");
+        let store = SqliteItemStore::open(&path).unwrap();
+        let ops: Vec<Item> = (0..2000)
+            .map(|i| make_item("core/operation", &format!("op {}", i)))
+            .collect();
+        store.insert_batch(ops).unwrap();
+        let rare: Vec<Item> = (0..20)
+            .map(|i| make_item("citation-usage", &format!("cite {}", i)))
+            .collect();
+        store.insert_batch(rare).unwrap();
+
+        let q = ItemQuery {
+            schema: Some("citation-usage".into()),
+            sort: vec![crate::query::SortDescriptor {
+                field: "created".into(),
+                ascending: false,
+            }],
+            limit: Some(5000),
+            assume_schema_rare: true,
+            ..Default::default()
+        };
+        let compiled = crate::sql_query::compile_query(&q);
+        let sql = format!(
+            "SELECT id FROM items {} {} {}",
+            compiled.where_clause, compiled.order_clause, compiled.limit_offset
+        );
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let plan_for = |conn: &rusqlite::Connection, sql: &str| -> String {
+            let mut stmt = conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {}", sql))
+                .unwrap();
+            let dummies = vec![""; sql.matches('?').count()];
+            let details: Vec<String> = stmt
+                .query_map(rusqlite::params_from_iter(dummies), |row| {
+                    row.get::<_, String>(3)
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            details.join("\n")
+        };
+
+        for phase in ["no stats", "after optimize"] {
+            let plan = plan_for(&conn, &sql);
+            assert!(
+                plan.contains("idx_items_schema_created")
+                    && !plan.contains("idx_items_created")
+                    && !plan.contains("SCAN items"),
+                "rare-schema ordered read ({phase}) left the schema composite:\n{plan}"
+            );
+            store.optimize_query_planner().unwrap();
+        }
+
+        drop(conn);
+        drop(store);
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// Concurrent reads on a file-backed store must all succeed. This is the
     /// structural regression test for the reader-pool refactor: if the pool
     /// were a single mutex, N threads hammering `count` and `query` would
