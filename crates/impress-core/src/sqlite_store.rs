@@ -752,6 +752,20 @@ impl SqliteItemStore {
         for idx_sql in &[
             "CREATE INDEX IF NOT EXISTS idx_items_schema_read ON items(schema_ref, is_read)",
             "CREATE INDEX IF NOT EXISTS idx_items_schema_created ON items(schema_ref, created)",
+            // Sidebar plan P4 (2026-09-01): covering indexes for the sidebar's
+            // two GROUP BY count queries (imbib-core
+            // `sidebar_unread_and_flag_counts`), so both are answered
+            // index-only with the grouping order built in — no table probes,
+            // no temp b-tree, stats or no stats. The flag index is partial:
+            // flagged rows are a sliver of a store dominated by operation
+            // rows, and the predicate matches the query's own WHERE clause.
+            // `id` is a trailing column because the unread query's UNION
+            // dedups on (parent_id, id) and `id` is a TEXT key, not the
+            // rowid — without it every index hit pays a table probe.
+            "CREATE INDEX IF NOT EXISTS idx_items_schema_read_parent
+                ON items(schema_ref, is_read, parent_id, id)",
+            "CREATE INDEX IF NOT EXISTS idx_items_schema_flag
+                ON items(schema_ref, flag_color) WHERE flag_color IS NOT NULL",
         ] {
             if let Err(e) = conn.execute(idx_sql, []) {
                 eprintln!(
@@ -7113,6 +7127,87 @@ mod tests {
             assert!(
                 ops_plan.contains("idx_items_schema_created"),
                 "ops_minted_since ({phase}) should range-scan the composite index:\n{ops_plan}"
+            );
+            store.optimize_query_planner().unwrap();
+        }
+
+        drop(conn);
+        drop(store);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Sidebar plan P4: the sidebar's two GROUP BY counts and the tags
+    /// pair-fetch (SQL copied verbatim from imbib-core
+    /// `sidebar_unread_and_flag_counts` / `list_tags_with_counts` in
+    /// crates/imbib-core/src/unified/store_api.rs) must be answered by the
+    /// covering composites, never by a table scan of `items` — on a real
+    /// store, operation rows make any items scan a multi-second walk. Pinned
+    /// before AND after ANALYZE, same discipline as the test above.
+    #[test]
+    fn sidebar_group_by_plans_use_the_covering_indexes() {
+        let path = tmp_db_path("sidebar_plan_regression");
+        let store = SqliteItemStore::open(&path).unwrap();
+        for i in 0..50 {
+            store
+                .insert(make_item(
+                    "imbib/bibliography-entry",
+                    &format!("Paper {}", i),
+                ))
+                .unwrap();
+        }
+
+        let unread_sql = "SELECT lib_id, COUNT(*) FROM (
+                 SELECT parent_id AS lib_id, id FROM items
+                  WHERE schema_ref = 'imbib/bibliography-entry' AND is_read = 0
+                    AND parent_id IS NOT NULL
+                 UNION
+                 SELECT r.source_id AS lib_id, i.id
+                   FROM items i JOIN item_references r
+                     ON r.target_id = i.id AND r.edge_type = ?1
+                  WHERE i.schema_ref = 'imbib/bibliography-entry' AND i.is_read = 0
+             ) GROUP BY lib_id";
+        let flag_sql = "SELECT flag_color, COUNT(*) FROM items
+              WHERE schema_ref = 'imbib/bibliography-entry' AND flag_color IS NOT NULL
+              GROUP BY flag_color";
+        let tags_sql = "SELECT t.tag_path, t.item_id FROM item_tags t
+              WHERE EXISTS (SELECT 1 FROM items i
+                             WHERE i.id = t.item_id
+                               AND i.schema_ref = 'imbib/bibliography-entry')";
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let plan_for = |conn: &rusqlite::Connection, sql: &str| -> String {
+            let mut stmt = conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {}", sql))
+                .unwrap();
+            let dummies = vec![""; sql.matches('?').count()];
+            let details: Vec<String> = stmt
+                .query_map(rusqlite::params_from_iter(dummies), |row| {
+                    row.get::<_, String>(3)
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            details.join("\n")
+        };
+
+        for phase in ["no stats", "after optimize"] {
+            let unread_plan = plan_for(&conn, unread_sql);
+            assert!(
+                unread_plan.contains("idx_items_schema_read_parent")
+                    && !unread_plan.contains("SCAN items"),
+                "unread GROUP BY ({phase}) should drive the covering composite:\n{unread_plan}"
+            );
+            let flag_plan = plan_for(&conn, flag_sql);
+            assert!(
+                flag_plan.contains("idx_items_schema_flag") && !flag_plan.contains("SCAN items"),
+                "flag GROUP BY ({phase}) should drive the partial composite:\n{flag_plan}"
+            );
+            // The tags pair-fetch DRIVES item_tags by design; the pin is that
+            // the per-row schema probe hits `items` by key, never a scan.
+            let tags_plan = plan_for(&conn, tags_sql);
+            assert!(
+                !tags_plan.contains("SCAN items"),
+                "tags pair-fetch ({phase}) should probe items by key:\n{tags_plan}"
             );
             store.optimize_query_planner().unwrap();
         }

@@ -3813,20 +3813,55 @@ impl ImbibStore {
     /// List all tag definitions with publication counts.
     pub fn list_tags_with_counts(&self) -> Result<Vec<TagWithCountRow>, StoreApiError> {
         let tag_defs = self.load_tag_definitions()?;
-        let mut rows = Vec::new();
+        if tag_defs.is_empty() {
+            return Ok(Vec::new());
+        }
+        // ONE read instead of one `count(HasTag)` per definition (sidebar plan
+        // P4). The per-definition shape ran T subqueries whose descendant arm
+        // (`tag_path LIKE ? || '%'`) can never use an index — the pattern is
+        // an expression, so SQLite's LIKE optimization does not apply — which
+        // measured 14–19 s live on a populated store. Fetch every
+        // (tag_path, item_id) pair sitting on a bibliography entry once, then
+        // aggregate the hierarchy here with the SAME semantics as
+        // `Predicate::HasTag`: exact path match is byte-equal, the descendant
+        // match is ASCII-case-insensitive (SQLite LIKE's default folding),
+        // and an item tagged with several descendants of one definition
+        // counts ONCE. (The old arm's accidental treatment of `%`/`_` inside
+        // a tag path as wildcards is deliberately not reproduced.)
+        let pairs: Vec<(String, String)> = self.store.query_raw(
+            "SELECT t.tag_path, t.item_id FROM item_tags t
+              WHERE EXISTS (SELECT 1 FROM items i
+                             WHERE i.id = t.item_id
+                               AND i.schema_ref = 'imbib/bibliography-entry')",
+            &[],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let mut items_by_path: std::collections::HashMap<&str, Vec<&str>> =
+            std::collections::HashMap::new();
+        for (path, item) in &pairs {
+            items_by_path
+                .entry(path.as_str())
+                .or_default()
+                .push(item.as_str());
+        }
+        let mut rows = Vec::with_capacity(tag_defs.len());
         for td in &tag_defs {
-            let q = ItemQuery {
-                schema: Some("imbib/bibliography-entry".into()),
-                predicates: vec![Predicate::HasTag(td.path.clone())],
-                ..Default::default()
-            };
-            let count = self.store.count(&q)? as i32;
+            let prefix = format!("{}/", td.path);
+            let mut distinct: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for (path, items) in &items_by_path {
+                let is_exact = *path == td.path.as_str();
+                let is_descendant = path.len() >= prefix.len()
+                    && path.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes());
+                if is_exact || is_descendant {
+                    distinct.extend(items.iter().copied());
+                }
+            }
             rows.push(TagWithCountRow {
                 path: td.path.clone(),
                 leaf_name: td.leaf_name.clone(),
                 color_light: td.color_light.clone(),
                 color_dark: td.color_dark.clone(),
-                publication_count: count,
+                publication_count: distinct.len() as i32,
             });
         }
         Ok(rows)
