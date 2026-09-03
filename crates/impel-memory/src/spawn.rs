@@ -150,30 +150,50 @@ fn plan_embed(
     if has_open_task(store, KIND_EMBED)? || in_failure_cooloff(store, KIND_EMBED, now_ms)? {
         return Ok(None);
     }
-    let (cursor_created_ms, cursor_id) = match newest_done_task(store, KIND_EMBED)? {
-        // Overlap the boundary millisecond (-1, id reset): a row created in
-        // the same millisecond as the recorded cursor whose UUID happens to
-        // sort below the cursor id would otherwise never satisfy the strict
-        // `(created, id) >` keyset and be skipped forever. Vector ids are
-        // UUIDv5(source_id, model) upserts, so re-embedding the boundary
-        // rows on the next window is free.
-        Some(task) => (
-            payload_i64(&task, "cursor_end_created_ms")
-                .map(|v| v - 1)
-                .unwrap_or(now_ms - WINDOW_MS),
-            String::new(),
-        ),
+    // The recorded cursor and the scanned window are deliberately NOT the
+    // same position, so they are computed side by side here.
+    //
+    // The GATE probes the exact (created, id) the last completed task
+    // recorded: "is there genuinely new work past everything a task has
+    // fetched?" Gating on the rewound window instead re-sees the boundary
+    // rows of the last window on every poll, and a caught-up store never
+    // goes quiet.
+    //
+    // The WINDOW the spawned task scans overlaps the boundary millisecond
+    // (-1, id reset). The rewind exists for a straggler the strict keyset
+    // cannot see — a row written into the boundary millisecond AFTER that
+    // window completed, whose UUID sorts below the recorded cursor id
+    // (`the_embed_cursor_chains_through_completed_tasks` flaked on exactly
+    // this in CI, 17746a23, before the rewind). With the gate exact, such a
+    // straggler alone no longer triggers a spawn: it is picked up EVENTUALLY,
+    // riding the rewound window of the next spawn that genuinely new work
+    // causes — the deliberate price of quiescence. The executor's sidecar
+    // probe skips the already-embedded overlap, so the rewind costs a set
+    // lookup per boundary row, not a re-embedding.
+    let recorded = match newest_done_task(store, KIND_EMBED)? {
+        Some(task) => payload_i64(&task, "cursor_end_created_ms").map(|end_ms| {
+            (
+                end_ms,
+                payload_string(&task, "cursor_end_id").unwrap_or_default(),
+            )
+        }),
+        None => None,
+    };
+    let (gate_created_ms, gate_id, window_created_ms) = match recorded {
+        Some((end_ms, end_id)) => (end_ms, end_id, end_ms - 1),
         // First run looks back one window rather than to the start of time:
         // a full-library backfill is a deliberate act, not something a daemon
         // starts on its own the first time it is switched on.
-        None => (now_ms - WINDOW_MS, String::new()),
+        None => (now_ms - WINDOW_MS, String::new(), now_ms - WINDOW_MS),
     };
-    if !has_candidate_after(store, cursor_created_ms, &cursor_id)? {
+    if !has_candidate_after(store, gate_created_ms, &gate_id)? {
         return Ok(None);
     }
     let payload = embed_task_payload(
-        cursor_created_ms,
-        &cursor_id,
+        window_created_ms,
+        // The id resets with the rewind: the window restarts at the top of
+        // the boundary millisecond.
+        "",
         config.batch_limit,
         &config.model,
         config.sidecar_path.as_deref(),
@@ -303,11 +323,14 @@ fn newest_task(
     Ok(items.into_iter().next())
 }
 
-/// Whether at least one embeddable row sits past the cursor.
+/// Whether at least one embeddable row sits strictly past the given cursor.
 ///
-/// `LIMIT 1` on the same keyset predicate the executor scans with: the point is
+/// `LIMIT 1` on the same keyset shape the executor scans with: the point is
 /// to avoid spawning a task whose only work is to discover it has none, and to
-/// do that for the cost of one index probe per pass.
+/// do that for the cost of one index probe per pass. Feed it the EXACT
+/// recorded `(cursor_end_created_ms, cursor_end_id)`, never the rewound
+/// window — probing the rewound window re-sees the last task's boundary rows
+/// on every poll, and the plan never goes quiet.
 fn has_candidate_after(
     store: &SqliteItemStore,
     cursor_created_ms: i64,
@@ -373,6 +396,13 @@ fn payload_i64(item: &Item, field: &str) -> Option<i64> {
     match item.payload.get(field) {
         Some(Value::Int(i)) => Some(*i),
         Some(Value::Float(f)) => Some(*f as i64),
+        _ => None,
+    }
+}
+
+fn payload_string(item: &Item, field: &str) -> Option<String> {
+    match item.payload.get(field) {
+        Some(Value::String(s)) => Some(s.clone()),
         _ => None,
     }
 }

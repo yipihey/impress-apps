@@ -17,8 +17,21 @@
 //! millisecond stamp and a bulk import writes hundreds of rows inside one
 //! millisecond, so a cursor on `created` alone either re-embeds them forever or
 //! skips them entirely, depending on which comparison you pick.
+//!
+//! # Why the executor probes the sidecar before embedding
+//!
+//! The window a spawned task scans overlaps the boundary millisecond of the
+//! last completed one (see `plan_embed`'s rewind), and nothing in the items
+//! store marks a row as embedded — the vectors live in the sidecar. Without
+//! the probe, already-embedded rows re-enter the LIMIT-capped window, and a
+//! same-millisecond cluster of at least `batch_limit` rows regenerates the
+//! identical window forever: every run reports a full batch embedded while the
+//! rows behind the cluster — and everything written after them — never get a
+//! vector. One batched sidecar read per page turns those rows into skips, so
+//! only unembedded work consumes the window and the cursor's forward progress
+//! is structural rather than probabilistic.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -57,6 +70,17 @@ pub const DEFAULT_BATCH_LIMIT: i64 = 256;
 /// meant to be a bounded unit of work the scheduler can retry cheaply; a
 /// 100 000-row "batch" is a long-running job wearing a task's clothes.
 pub const MAX_BATCH_LIMIT: i64 = 4096;
+
+/// Ceiling on candidate rows one run may FETCH across pages, however many of
+/// them turn out to need no embedding. The page loop in `execute` walks past
+/// already-embedded (and textless) rows so a same-millisecond cluster larger
+/// than `batch_limit` completes within one run instead of regenerating the
+/// same window forever; this cap keeps that walk a bounded unit of work. It
+/// cannot reintroduce the livelock it exists alongside: the only fetched
+/// stretch that fails to advance the recorded cursor is the rewound
+/// boundary-millisecond overlap, and 65 536 rows written inside one or two
+/// milliseconds is beyond what the store can physically absorb.
+pub const MAX_SCAN_ROWS: i64 = 65_536;
 
 /// The schemas this backfill covers, in the order the ADR names them.
 ///
@@ -243,12 +267,13 @@ impl TaskExecutor for EmbedBackfillExecutor {
             .unwrap_or_else(|| impress_embeddings::semantic::FASTEMBED_MODEL_ID.to_string());
         let sidecar_path = self.sidecar_for(task)?;
 
-        let candidates = self.candidates(cursor_created_ms, &cursor_id, batch_limit)?;
+        let mut page = self.candidates(cursor_created_ms, &cursor_id, batch_limit)?;
 
-        // Hoisted before the model load: an empty window must not pay a ~100MB
-        // model initialization to discover it has nothing to do, and on a caught-
-        // up store that is the common case, once per poll interval, forever.
-        if candidates.is_empty() {
+        // Hoisted before the model load and the sidecar open: an empty window
+        // must not pay a ~100MB model initialization — or even a file open —
+        // to discover it has nothing to do, and on a caught-up store that is
+        // the common case, once per poll interval, forever.
+        if page.is_empty() {
             self.set_payload(
                 task.id,
                 "cursor_end_created_ms",
@@ -276,33 +301,99 @@ impl TaskExecutor for EmbedBackfillExecutor {
             return Ok(ExecutionOutcome::Complete);
         }
 
-        // The cursor advances to the last row EXAMINED, not the last row
-        // embedded. A window of rows with no text is progress: leaving the
-        // cursor behind them would re-examine them on every future pass and the
-        // backfill would never reach the rows after them.
-        let (last_id, last_created, _) = candidates
+        // At least one candidate exists, so the sidecar is needed either way
+        // now: for the already-embedded probe, and for the save if anything
+        // survives it.
+        let sidecar = EmbeddingStore::open(&sidecar_path)
+            .map_err(|e| TaskError::Retryable(format!("open sidecar {sidecar_path}: {e}")))?;
+
+        // The cursor advances to the last row FETCHED, not the last row
+        // embedded. A page of rows with no work in it is progress: leaving the
+        // cursor behind those rows would re-examine them on every future pass
+        // and the backfill would never reach the rows after them.
+        let (mut last_id, mut last_created, _) = page
             .last()
             .cloned()
             .expect("non-empty checked directly above");
 
-        let mut texts: Vec<String> = Vec::with_capacity(candidates.len());
-        let mut targets: Vec<(ItemId, &'static str)> = Vec::with_capacity(candidates.len());
-        for (id, _, schema) in &candidates {
-            let Some(item) = ItemStore::get(self.store.as_ref(), *id)
-                .map_err(|e| TaskError::Retryable(format!("load candidate {id}: {e}")))?
-            else {
-                // Deleted between the scan and now. Not an error; the cursor
-                // moves past it either way.
-                continue;
-            };
-            let (text, source_type) = match embeddable_text(&item, schema) {
-                Some(pair) => pair,
-                // A data condition, not a failure: a chunk with no text and a
-                // memory row with an empty title+body have nothing to embed.
-                None => continue,
-            };
-            texts.push(text);
-            targets.push((*id, source_type));
+        // Walk pages until one yields real work (or the candidates run out).
+        // The window's rewound start re-covers the last task's boundary
+        // millisecond, so leading rows routinely carry a vector already;
+        // skipping them by sidecar probe — never re-embedding them — is what
+        // lets a same-millisecond cluster larger than `batch_limit` finish
+        // within one run instead of regenerating the identical window forever.
+        // The walk is bounded in pages, not spawner passes: one run either
+        // embeds a batch or moves the cursor up to MAX_SCAN_ROWS forward.
+        let max_pages = (MAX_SCAN_ROWS / batch_limit).max(1);
+        let mut pages = 1i64;
+        let mut fetched = 0usize; // candidate rows fetched, across all pages
+        let mut already = 0usize; // skipped: the sidecar has the vector
+        let mut texts: Vec<String> = Vec::new();
+        let mut targets: Vec<(ItemId, &'static str)> = Vec::new();
+        loop {
+            fetched += page.len();
+            if let Some((id, created, _)) = page.last() {
+                last_id = *id;
+                last_created = *created;
+            }
+
+            // ONE batched probe per page: which of these rows already hold a
+            // vector under the (source_type, model) this run would stamp?
+            // `requested_model` is deliberately the probe's model — it is what
+            // the spawner wrote into the task (the IMPRESS_MEMORY_EMBED_MODEL
+            // override included) and what the save below stamps. A provider
+            // that substituted a different model would make the probe miss and
+            // the rows re-embed under the substitute — a redundant write,
+            // never a wrong skip.
+            let ids: Vec<String> = page.iter().map(|(id, _, _)| id.to_string()).collect();
+            let embedded_already: HashSet<(String, String)> = sidecar
+                .embedded_sources_for_model(&ids, &requested_model)
+                .map_err(|e| TaskError::Retryable(format!("probe sidecar {sidecar_path}: {e}")))?
+                .into_iter()
+                .collect();
+
+            for (id, _, schema) in &page {
+                let source_type = source_type_for(schema);
+                if embedded_already.contains(&(id.to_string(), source_type.to_string())) {
+                    // No ONNX, no save: the vector is there. This is both the
+                    // forward-progress guarantee and the quiescence one — a
+                    // boundary row re-fetched by the rewound window costs one
+                    // set lookup, not a re-embedding.
+                    already += 1;
+                    continue;
+                }
+                let Some(item) = ItemStore::get(self.store.as_ref(), *id)
+                    .map_err(|e| TaskError::Retryable(format!("load candidate {id}: {e}")))?
+                else {
+                    // Deleted between the scan and now. Not an error; the
+                    // cursor moves past it either way.
+                    continue;
+                };
+                let (text, source_type) = match embeddable_text(&item, schema) {
+                    Some(pair) => pair,
+                    // A data condition, not a failure: a chunk with no text
+                    // and a memory row with an empty title+body have nothing
+                    // to embed.
+                    None => continue,
+                };
+                texts.push(text);
+                targets.push((*id, source_type));
+            }
+
+            // One batch of real work per run: found some, go do it.
+            if !texts.is_empty() {
+                break;
+            }
+            // A short page is the end of the candidates; a full one may have
+            // more behind it — keep walking, within the page budget.
+            if (page.len() as i64) < batch_limit || pages >= max_pages {
+                break;
+            }
+            page = self.candidates(last_created, &last_id.to_string(), batch_limit)?;
+            if page.is_empty() {
+                break;
+            }
+            pages += 1;
         }
 
         let mut embedded = 0usize;
@@ -343,8 +434,6 @@ impl TaskExecutor for EmbedBackfillExecutor {
                 })
                 .collect();
 
-            let sidecar = EmbeddingStore::open(&sidecar_path)
-                .map_err(|e| TaskError::Retryable(format!("open sidecar {sidecar_path}: {e}")))?;
             embedded = sidecar
                 .save_vectors(&stored)
                 .map_err(|e| TaskError::Retryable(format!("save vectors: {e}")))?;
@@ -377,8 +466,7 @@ impl TaskExecutor for EmbedBackfillExecutor {
                 model: model_id,
                 prompt_hash: prompt_hash(cursor_created_ms, &cursor_id, batch_limit),
                 result_summary: Some(format!(
-                    "{embedded} embedded of {} candidate(s)",
-                    candidates.len()
+                    "{embedded} embedded, {already} already embedded, of {fetched} candidate(s)"
                 )),
                 token_count: None,
                 duration_ms: Some(started.elapsed().as_millis() as i64),
@@ -401,17 +489,31 @@ impl TaskExecutor for EmbedBackfillExecutor {
     }
 }
 
+/// The sidecar `source_type` this executor stamps for a row of `schema`.
+///
+/// A function of the schema alone — deliberately answerable before the item
+/// is loaded, because the already-embedded probe in `execute` matches on it
+/// per candidate row, ahead of any payload fetch.
+fn source_type_for(schema: &str) -> &'static str {
+    if schema == CONTENT_CHUNK_SCHEMA {
+        SOURCE_TYPE_CHUNK
+    } else {
+        SOURCE_TYPE_MEMORY
+    }
+}
+
 /// The text to embed for one item, with the sidecar `source_type` it belongs
 /// under. `None` when there is nothing to embed.
 fn embeddable_text(item: &Item, schema: &str) -> Option<(String, &'static str)> {
-    if schema == CONTENT_CHUNK_SCHEMA {
+    let source_type = source_type_for(schema);
+    if source_type == SOURCE_TYPE_CHUNK {
         // `body` is the FTS-indexed copy the source service writes
         // (`indexed_text`); `data.text` is the structured record. Either alone
         // would miss rows written by the other convention.
         let text = payload_string(item, "body")
             .filter(|t| !t.trim().is_empty())
             .or_else(|| chunk_data_text(item))?;
-        return Some((text, SOURCE_TYPE_CHUNK));
+        return Some((text, source_type));
     }
     let title = payload_string(item, "title").unwrap_or_default();
     let body = payload_string(item, "body").unwrap_or_default();
@@ -419,7 +521,7 @@ fn embeddable_text(item: &Item, schema: &str) -> Option<(String, &'static str)> 
     if text.trim().is_empty() {
         return None;
     }
-    Some((text, SOURCE_TYPE_MEMORY))
+    Some((text, source_type))
 }
 
 /// `payload.data.text` of a content chunk.

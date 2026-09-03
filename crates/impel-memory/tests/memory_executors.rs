@@ -20,7 +20,7 @@ use impel_core::{
 use impel_memory::consolidate::{
     CONSOLIDATE_AGENT_ID, DETERMINISTIC_MODEL, SOURCE_KIND_AGENT_RUNS,
 };
-use impel_memory::embed::KIND_EMBED;
+use impel_memory::embed::{EMBED_AGENT_ID, KIND_EMBED};
 use impel_memory::spawn::{FAILED_COOLOFF_MS, WINDOW_LAG_MS, WINDOW_MS};
 use impel_memory::{
     plan_memory_tasks, vector_id, ClaimDistiller, EmbedBackfillExecutor, EmbedderProvider,
@@ -189,6 +189,29 @@ fn seed_memory(store: &SqliteItemStore, kind: MemoryKind, title: &str, body: &st
         ActorKind::Human,
     );
     memory_ops::insert_memory_item(store, &draft).expect("seed memory")
+}
+
+/// [`seed_memory`] with a pinned `created`/`modified` millisecond and,
+/// optionally, a pinned item id. The embed cursor orders on `(created, id)`,
+/// so the cluster and straggler scenarios must place rows on that axis
+/// deliberately instead of inheriting "now" and a random UUID.
+fn seed_memory_at(
+    store: &SqliteItemStore,
+    title: &str,
+    created_ms: i64,
+    id: Option<Uuid>,
+) -> ItemId {
+    let mut payload = BTreeMap::new();
+    payload.insert("title".into(), Value::String(title.into()));
+    payload.insert("body".into(), Value::String(format!("Body of {title}.")));
+    let mut item = bare_item(MemoryKind::Claim.schema_ref(), payload);
+    let at = chrono::DateTime::from_timestamp_millis(created_ms).expect("timestamp");
+    item.created = at;
+    item.modified = at;
+    if let Some(id) = id {
+        item.id = id;
+    }
+    ItemStore::insert(store, item).expect("seed memory at")
 }
 
 fn seed_chunk(store: &SqliteItemStore, body: &str) -> ItemId {
@@ -430,8 +453,10 @@ async fn embed_writes_one_vector_per_row_with_the_right_model_and_source_type() 
     assert!(seen.contains(&"Structured chunk text.".to_string()));
 }
 
-/// Crash replay: the scheduler re-executes a task left `running`, and the
-/// deterministic vector id is what makes that an UPSERT rather than a
+/// Crash replay: the scheduler re-executes a task left `running`. The
+/// already-embedded probe skips the replayed rows outright; beneath it, the
+/// deterministic vector id keeps any write that does still happen (a crash
+/// between the save and the cursor write, say) an UPSERT rather than a
 /// duplicate population.
 #[tokio::test]
 async fn re_executing_the_same_task_upserts_rather_than_duplicating() {
@@ -460,6 +485,71 @@ async fn re_executing_the_same_task_upserts_rather_than_duplicating() {
 
     assert_eq!(after_first, 2);
     assert_eq!(after_replay, after_first, "replay must not add rows");
+}
+
+/// The skip itself: a second task over already-embedded ground must not send
+/// a single text back through the embedder (the StubEmbedder's `seen` ledger
+/// is the witness), and the run summary must say what actually happened
+/// rather than dressing a no-op window up as fresh work.
+#[tokio::test]
+async fn already_embedded_rows_are_skipped_not_re_embedded() {
+    let store = store();
+    let (_dir, path) = sidecar();
+    let provider = Arc::new(StubProvider::new(STUB_MODEL));
+    let seen = provider.seen.clone();
+    let executor = EmbedBackfillExecutor::with_provider(store.clone(), provider);
+
+    seed_memory(&store, MemoryKind::Claim, "One", "First body.");
+    seed_memory(&store, MemoryKind::Claim, "Two", "Second body.");
+
+    let first = embed_task(&store, 0, "", &path);
+    run_task(&executor, &store, first).await.expect("first");
+    assert_eq!(seen.lock().expect("seen").len(), 2);
+
+    // A second task over the SAME ground — the shape every rewound window
+    // takes after a respawn.
+    let second = embed_task(&store, 0, "", &path);
+    run_task(&executor, &store, second).await.expect("second");
+
+    assert_eq!(
+        seen.lock().expect("seen").len(),
+        2,
+        "already-embedded rows must not reach the embedder again"
+    );
+    let (first, second) = (fetch(&store, first), fetch(&store, second));
+    assert_eq!(payload_i64(&second, "embedded_count"), Some(0));
+    // The cursor still lands on the last row FETCHED: a fully-skipped window
+    // records the same frontier, never a lesser one.
+    assert_eq!(
+        payload_string(&second, "cursor_end_id"),
+        payload_string(&first, "cursor_end_id")
+    );
+
+    let summaries: Vec<String> = ItemStore::query(
+        &*store,
+        &ItemQuery {
+            schema: Some(AGENT_RUN_SCHEMA.to_string()),
+            predicates: vec![Predicate::Eq(
+                "payload.agent_id".into(),
+                Value::String(EMBED_AGENT_ID.into()),
+            )],
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        },
+    )
+    .expect("query runs")
+    .iter()
+    .filter_map(|r| payload_string(r, "result_summary"))
+    .collect();
+    assert!(
+        summaries.contains(&"2 embedded, 0 already embedded, of 2 candidate(s)".to_string()),
+        "{summaries:?}"
+    );
+    assert!(
+        summaries.contains(&"0 embedded, 2 already embedded, of 2 candidate(s)".to_string()),
+        "{summaries:?}"
+    );
 }
 
 #[tokio::test]
@@ -1416,8 +1506,14 @@ fn a_failed_task_cools_off_for_an_hour() {
 #[test]
 fn the_embed_cursor_chains_through_completed_tasks() {
     let store = store();
-    let one = seed_memory(&store, MemoryKind::Claim, "One", "First body.");
-    seed_memory(&store, MemoryKind::Claim, "Two", "Second body.");
+    // Pinned, distinct milliseconds: the plan gate probes the EXACT recorded
+    // cursor, so the second row must sit strictly after the first for the
+    // second spawn to be deterministic. Seeding both at "now" made this a
+    // coin flip on UUID order whenever they landed in one millisecond — the
+    // CI flake (17746a23) the window rewind was introduced for.
+    let base_ms = now_ms() - 60_000;
+    let one = seed_memory_at(&store, "One", base_ms, None);
+    seed_memory_at(&store, "Two", base_ms + 10, None);
     let config = plan_config(true, false);
     let now = now_ms();
 
@@ -1497,6 +1593,181 @@ fn consolidation_windows_are_contiguous_and_daily() {
         payload_i64(&first_task, "window_end_ms"),
         "windows abut: no slice of time is examined twice or skipped"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The embed cursor chain, end to end (spawn → execute → complete → spawn)
+// ---------------------------------------------------------------------------
+
+/// An embed-only plan config pointed at a real sidecar, with a batch small
+/// enough for a test to build clusters larger than it.
+fn chain_config(sidecar_path: &str, batch_limit: i64) -> MemoryPlanConfig {
+    MemoryPlanConfig {
+        embed_enabled: true,
+        consolidate_enabled: false,
+        batch_limit,
+        model: STUB_MODEL.into(),
+        sidecar_path: Some(sidecar_path.to_string()),
+    }
+}
+
+/// Drive spawn → execute → complete until the spawner plans nothing, exactly
+/// as taskd would, and return how many tasks ran. Panics past `max_rounds`:
+/// a chain that will not quiesce is this crate's livelock defect, and a
+/// hanging test is the worst possible way to report it.
+async fn run_embed_chain(
+    store: &Arc<SqliteItemStore>,
+    executor: &EmbedBackfillExecutor,
+    config: &MemoryPlanConfig,
+    max_rounds: usize,
+) -> usize {
+    for round in 0..max_rounds {
+        let planned = plan_memory_tasks(store, now_ms(), config).expect("plan");
+        if planned.is_empty() {
+            return round;
+        }
+        assert_eq!(planned.len(), 1, "an embed-only config plans one task");
+        run_task(executor, store, planned[0])
+            .await
+            .expect("execute");
+        drive(store, planned[0], TaskState::Done);
+        // `newest_done_task` orders by `modified` at millisecond resolution;
+        // a paused beat keeps each completion strictly newer than the last,
+        // so the next plan reads THIS task's cursor rather than tying with
+        // an earlier one.
+        std::thread::sleep(std::time::Duration::from_millis(3));
+    }
+    panic!("embed chain did not quiesce within {max_rounds} rounds — cursor livelock?");
+}
+
+/// THE livelock this crate shipped with: one created-millisecond holding more
+/// embeddable rows than `batch_limit`. The rewound window re-selected the
+/// same first `batch_limit` rows on every task — each run reporting a full
+/// batch embedded — while the rest of the cluster and ALL later data never
+/// got a vector. The executor's already-embedded skip pages through the
+/// cluster within one run; the chain must both finish it and then stop.
+#[tokio::test]
+async fn a_same_millisecond_cluster_larger_than_batch_limit_completes_and_quiesces() {
+    let store = store();
+    let (_dir, path) = sidecar();
+    let executor = EmbedBackfillExecutor::with_provider(
+        store.clone(),
+        Arc::new(StubProvider::new(STUB_MODEL)),
+    );
+    let config = chain_config(&path, 4);
+
+    // 3x batch_limit rows in ONE millisecond, as a bulk import writes them.
+    let cluster_ms = now_ms() - 60_000;
+    let rows: Vec<ItemId> = (0..12)
+        .map(|i| seed_memory_at(&store, &format!("Row {i}"), cluster_ms, None))
+        .collect();
+
+    let rounds = run_embed_chain(&store, &executor, &config, 10).await;
+    assert!(
+        rounds >= 3,
+        "12 rows at batch 4 need at least three windows, got {rounds}"
+    );
+
+    let sidecar = EmbeddingStore::open(&path).expect("open sidecar");
+    for row in &rows {
+        assert!(
+            !sidecar
+                .get_vectors(&row.to_string())
+                .expect("get")
+                .is_empty(),
+            "row {row} never received a vector — the cluster livelock is back"
+        );
+    }
+    assert!(
+        plan_memory_tasks(&store, now_ms(), &config)
+            .expect("plan")
+            .is_empty(),
+        "a completed cluster must not spawn another task"
+    );
+}
+
+/// The quiescence half of the same defect: a caught-up store used to re-spawn
+/// — and re-embed — its boundary rows once per poll interval, forever,
+/// because the plan gate probed the rewound window instead of the exact
+/// recorded cursor.
+#[tokio::test]
+async fn a_caught_up_store_plans_no_further_embed_task() {
+    let store = store();
+    let (_dir, path) = sidecar();
+    let provider = Arc::new(StubProvider::new(STUB_MODEL));
+    let seen = provider.seen.clone();
+    let executor = EmbedBackfillExecutor::with_provider(store.clone(), provider);
+    let config = chain_config(&path, 4);
+
+    seed_memory_at(&store, "One", now_ms() - 60_000, None);
+    seed_memory_at(&store, "Two", now_ms() - 50_000, None);
+    run_embed_chain(&store, &executor, &config, 10).await;
+
+    assert_eq!(
+        seen.lock().expect("seen").len(),
+        2,
+        "each row is embedded exactly once on the way to caught-up"
+    );
+    // Quiescence is not one lucky pass: poll again, now and later.
+    for now in [now_ms(), now_ms() + 60_000, now_ms() + WINDOW_MS] {
+        assert!(
+            plan_memory_tasks(&store, now, &config)
+                .expect("plan")
+                .is_empty(),
+            "a caught-up store must plan nothing (t = {now})"
+        );
+    }
+}
+
+/// The straggler the window rewind exists for (17746a23): a row written into
+/// the boundary millisecond AFTER that window completed, with an id sorting
+/// below the recorded cursor. The exact gate cannot see it — that is the
+/// documented price of quiescence — so it must ride along on the next spawn
+/// that genuinely new work triggers.
+#[tokio::test]
+async fn a_boundary_straggler_is_embedded_on_the_next_new_work_spawn() {
+    let store = store();
+    let (_dir, path) = sidecar();
+    let executor = EmbedBackfillExecutor::with_provider(
+        store.clone(),
+        Arc::new(StubProvider::new(STUB_MODEL)),
+    );
+    let config = chain_config(&path, 4);
+
+    // A pinned high-sorting id, so the straggler below deterministically
+    // sorts under the recorded cursor instead of 50/50 on random UUIDs — the
+    // coin flip that motivated the rewind in the first place.
+    let boundary_ms = now_ms() - 60_000;
+    let high = Uuid::parse_str("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee").expect("uuid");
+    seed_memory_at(&store, "Boundary", boundary_ms, Some(high));
+    run_embed_chain(&store, &executor, &config, 10).await;
+
+    // Same millisecond as the recorded cursor, lower-sorting id. On its own
+    // it must NOT wake the chain.
+    let low = Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("uuid");
+    let straggler = seed_memory_at(&store, "Straggler", boundary_ms, Some(low));
+    assert!(
+        plan_memory_tasks(&store, now_ms(), &config)
+            .expect("plan")
+            .is_empty(),
+        "a straggler alone is invisible to the exact gate — picked up \
+         eventually, not immediately"
+    );
+
+    // Genuinely new work arrives; the rewound window carries the straggler in.
+    let fresh = seed_memory_at(&store, "Fresh", now_ms() - 1_000, None);
+    run_embed_chain(&store, &executor, &config, 10).await;
+
+    let sidecar = EmbeddingStore::open(&path).expect("open sidecar");
+    for (label, id) in [("straggler", straggler), ("fresh row", fresh)] {
+        assert!(
+            !sidecar
+                .get_vectors(&id.to_string())
+                .expect("get")
+                .is_empty(),
+            "{label} must be embedded by the rewound window"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
