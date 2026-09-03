@@ -28,6 +28,7 @@ on:
       # 'crates/**' so an unrelated crate does not queue a mac job.
       - 'crates/impress-core/**'
       - 'crates/impress-store-ffi/**'
+      - 'crates/impress-ai/**'
       - 'crates/imbib-core/**'
       - 'crates/imprint-core/**'
       - 'crates/impress-helix/**'

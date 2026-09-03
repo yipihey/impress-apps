@@ -16,8 +16,10 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use impress_ai::registry::ResolveTarget;
 use impress_ai::{
-    AiStore, BlobStore, ConversationDraft, InferenceProvider, MessageDraft, OmlxClient, ToolPolicy,
+    AiRegistry, AiStore, BlobStore, ConversationDraft, InferenceProvider, MessageDraft, OmlxClient,
+    ToolPolicy,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -36,10 +38,18 @@ const WEB_VW_MANIFEST: &str = include_str!("../web/vw-site.webmanifest");
 const PAIRING_TICKET_TTL: Duration = Duration::from_secs(15 * 60);
 const MAX_ACTIVE_PAIRING_TICKETS: usize = 8;
 
+/// Where the adapter's model discovery comes from: one fixed provider
+/// (tests, single-host deployments) or the device registry.
+#[derive(Clone)]
+pub enum Inference {
+    Fixed(Arc<dyn InferenceProvider>),
+    Registry(Arc<AiRegistry>),
+}
+
 #[derive(Clone)]
 pub struct AiHttpState {
     pub ai: Arc<AiStore>,
-    pub provider: Arc<dyn InferenceProvider>,
+    pub inference: Inference,
     pub blobs: Arc<dyn BlobStore>,
     access_token: Arc<str>,
     pairing_tickets: Arc<Mutex<HashMap<[u8; 32], Instant>>>,
@@ -154,13 +164,33 @@ impl AiHttpState {
         blobs: Arc<dyn BlobStore>,
         access_token: impl Into<String>,
     ) -> Result<Self, String> {
+        Self::with_inference(ai, Inference::Fixed(provider), blobs, access_token)
+    }
+
+    /// Discover models and resolve defaults through the device registry
+    /// (`<workspace>/ai/preferences.json`, ADR-0029).
+    pub fn with_registry(
+        ai: Arc<AiStore>,
+        registry: Arc<AiRegistry>,
+        blobs: Arc<dyn BlobStore>,
+        access_token: impl Into<String>,
+    ) -> Result<Self, String> {
+        Self::with_inference(ai, Inference::Registry(registry), blobs, access_token)
+    }
+
+    fn with_inference(
+        ai: Arc<AiStore>,
+        inference: Inference,
+        blobs: Arc<dyn BlobStore>,
+        access_token: impl Into<String>,
+    ) -> Result<Self, String> {
         let access_token = access_token.into();
         if access_token.len() < 24 {
             return Err("AI HTTP access token must contain at least 24 characters".into());
         }
         Ok(Self {
             ai,
-            provider,
+            inference,
             blobs,
             access_token: access_token.into(),
             pairing_tickets: Arc::new(Mutex::new(HashMap::new())),
@@ -220,6 +250,7 @@ pub fn router(state: AiHttpState) -> Router {
     let api = Router::new()
         .route("/api/status", get(status))
         .route("/api/models", get(models))
+        .route("/api/providers", get(providers))
         .route("/api/pairing-tickets", post(create_pairing_ticket))
         .route(
             "/api/conversations",
@@ -472,9 +503,92 @@ async fn redeem_pairing_ticket(
     Ok(Json(json!({ "access_token": access_token.as_ref() })))
 }
 
-async fn models(State(state): State<AiHttpState>) -> ApiResult<Json<Value>> {
-    let models = state.provider.models().await.map_err(ApiError::from)?;
-    Ok(Json(json!({ "models": models })))
+#[derive(Debug, Default, Deserialize)]
+struct ModelsQuery {
+    provider: Option<String>,
+}
+
+async fn models(
+    State(state): State<AiHttpState>,
+    Query(query): Query<ModelsQuery>,
+) -> ApiResult<Json<Value>> {
+    match &state.inference {
+        Inference::Fixed(provider) => {
+            let models = provider.models().await.map_err(ApiError::from)?;
+            Ok(Json(json!({
+                "provider": provider.provider_id(),
+                "selected": Value::Null,
+                "models": models,
+            })))
+        }
+        Inference::Registry(registry) => {
+            let (provider, models) = registry
+                .models(query.provider.as_deref())
+                .await
+                .map_err(ApiError::from)?;
+            let selected = registry
+                .preferences()
+                .load()
+                .ok()
+                .and_then(|preferences| preferences.selected)
+                .filter(|selected| selected.provider == provider)
+                .and_then(|selected| selected.model);
+            Ok(Json(json!({
+                "provider": provider,
+                "selected": selected,
+                "models": models,
+            })))
+        }
+    }
+}
+
+async fn providers(State(state): State<AiHttpState>) -> ApiResult<Json<Value>> {
+    match &state.inference {
+        Inference::Fixed(provider) => Ok(Json(json!({
+            "providers": [{
+                "id": provider.provider_id(),
+                "endpoint_id": provider.endpoint_id(),
+                "readiness": "unknown",
+            }],
+            "selected": Value::Null,
+        }))),
+        Inference::Registry(registry) => {
+            let rows = registry
+                .provider_states()
+                .into_iter()
+                .map(|state| {
+                    let descriptor = state.descriptor;
+                    json!({
+                        "id": descriptor.id,
+                        "display_name": descriptor.display_name,
+                        "category": descriptor.category.label(),
+                        "host": descriptor.host.label(),
+                        "ready": state.readiness.is_ready(),
+                        "readiness": state.readiness.label(),
+                        "endpoint": state.endpoint,
+                        "can_auto_start": descriptor.can_auto_start,
+                        "credential_fields": state.credentials.fields.iter().map(|field| json!({
+                            "id": field.field,
+                            "configured": field.configured,
+                            "optional": field.optional,
+                        })).collect::<Vec<_>>(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            let selected = registry
+                .preferences()
+                .load()
+                .ok()
+                .and_then(|preferences| preferences.selected);
+            let resolved = registry
+                .resolve(&ResolveTarget::default())
+                .ok()
+                .map(|resolved| json!({ "provider": resolved.provider, "model": resolved.model, "origin": resolved.origin.label() }));
+            Ok(Json(
+                json!({ "providers": rows, "selected": selected, "resolved": resolved }),
+            ))
+        }
+    }
 }
 
 async fn list_conversations(State(state): State<AiHttpState>) -> ApiResult<Json<Value>> {

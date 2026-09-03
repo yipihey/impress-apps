@@ -7,9 +7,10 @@
 
 use std::sync::{Arc, OnceLock};
 
+use impress_ai::registry::ResolveTarget;
 use impress_ai::{
-    AiStore, ConversationDraft, ConversationSnapshot, InferenceProvider, MessageDraft,
-    ModelSummary, OmlxClient, RunProvenance, TaskProgress, ToolPolicy,
+    AiPreferences, AiRegistry, AiStore, ConversationDraft, ConversationSnapshot, MessageDraft,
+    ModelSummary, ProviderHealth, RunProvenance, TaskProgress, ToolPolicy,
 };
 use impress_service_core::async_trait;
 #[allow(unused_imports)]
@@ -20,7 +21,69 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelsResult {
+    /// The provider the rows belong to (the resolved default when the caller
+    /// named none).
+    pub provider: Option<String>,
     pub models: Vec<ModelSummary>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialFieldRow {
+    pub id: String,
+    pub label: String,
+    pub secret: bool,
+    pub optional: bool,
+    /// Whether a value is present — never the value itself.
+    pub configured: bool,
+    /// `env`, `memory` or `keychain` when configured.
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderRow {
+    pub id: String,
+    pub display_name: String,
+    pub description: String,
+    /// `local`, `cloud`, `aggregator` or `native`.
+    pub category: String,
+    /// `rust` or `foreign` (executed by the host GUI).
+    pub host: String,
+    pub ready: bool,
+    /// `ready`, `empty`, `needs_credentials`, `needs_endpoint`, `unreachable`,
+    /// `foreign` or `foreign_unavailable`.
+    pub readiness: String,
+    pub endpoint: Option<String>,
+    pub default_endpoint: Option<String>,
+    pub endpoint_editable: bool,
+    pub can_auto_start: bool,
+    pub registration_url: Option<String>,
+    pub credential_fields: Vec<CredentialFieldRow>,
+    pub static_model_count: u32,
+    pub has_dynamic_catalogue: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProvidersResult {
+    pub providers: Vec<ProviderRow>,
+    /// The device selection, if one is pinned.
+    pub selected_provider: Option<String>,
+    pub selected_model: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiPreferencesResult {
+    pub preferences: Option<AiPreferences>,
+    /// Where the device-local file lives (`<workspace>/ai/preferences.json`).
+    pub path: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderHealthResult {
+    pub provider: Option<String>,
+    pub health: Option<ProviderHealth>,
     pub error: Option<String>,
 }
 
@@ -96,10 +159,41 @@ pub struct PairingLinkResult {
 
 #[impress_service]
 pub trait ImpressAiService: Send + Sync + 'static {
-    /// List models reachable through the configured inference provider,
-    /// including load state, context limit, and advertised modalities.
+    /// List models for `provider` (or the device's resolved default provider
+    /// when omitted): the static catalogue merged with live discovery,
+    /// including load state, context limit, modalities and the helper flag.
     #[impress_method]
-    async fn list_models(&self) -> ModelsResult;
+    async fn list_models(&self, provider: Option<String>) -> ModelsResult;
+
+    /// Every catalogued AI provider with this device's endpoint, readiness
+    /// and credential status (which fields are set — never their values).
+    #[impress_method]
+    async fn list_providers(&self) -> ProvidersResult;
+
+    /// The device-local AI preferences: selected provider/model, endpoint
+    /// overrides, oMLX auto-start and per-task-category assignments.
+    #[impress_method]
+    async fn ai_preferences(&self) -> AiPreferencesResult;
+
+    /// Pin the device's provider and (optionally) model. Every app and daemon
+    /// on the device follows it. Helper pseudo-models are rejected.
+    #[impress_method]
+    async fn select_model(&self, provider: String, model: Option<String>) -> AiPreferencesResult;
+
+    /// Override (or, with `None`, reset) a provider's endpoint — e.g. an
+    /// oMLX host reached over Tailscale. Secrets never go here.
+    #[impress_method]
+    async fn set_provider_endpoint(
+        &self,
+        provider: String,
+        endpoint: Option<String>,
+    ) -> AiPreferencesResult;
+
+    /// Passive reachability probe for `provider` (or the resolved default):
+    /// never launches a host. For oMLX it reports version, loaded/total
+    /// models and memory.
+    #[impress_method]
+    async fn provider_health(&self, provider: Option<String>) -> ProviderHealthResult;
 
     /// List durable AI conversations from the shared Impress item graph.
     #[impress_method]
@@ -174,17 +268,12 @@ pub trait ImpressAiService: Send + Sync + 'static {
 #[derive(Clone)]
 pub struct DefaultImpressAiService {
     ai: Arc<AiStore>,
-    provider: Option<Arc<dyn InferenceProvider>>,
-    provider_error: Option<String>,
+    registry: Arc<AiRegistry>,
 }
 
 impl DefaultImpressAiService {
-    pub fn with_components(ai: Arc<AiStore>, provider: Arc<dyn InferenceProvider>) -> Self {
-        Self {
-            ai,
-            provider: Some(provider),
-            provider_error: None,
-        }
+    pub fn with_components(ai: Arc<AiStore>, registry: Arc<AiRegistry>) -> Self {
+        Self { ai, registry }
     }
 
     fn shared() -> Self {
@@ -192,18 +281,33 @@ impl DefaultImpressAiService {
             impress_store_service::store_instance(),
             "agent:impress-ai-service",
         ));
-        let url = std::env::var("IMPRESS_OMLX_URL")
-            .unwrap_or_else(|_| impress_ai::omlx::DEFAULT_URL.into());
-        match OmlxClient::with_endpoint_id(
-            url,
-            std::env::var("IMPRESS_OMLX_API_KEY").ok(),
-            "local-omlx",
-        ) {
-            Ok(provider) => Self::with_components(ai, Arc::new(provider)),
-            Err(error) => Self {
-                ai,
-                provider: None,
-                provider_error: Some(error.to_string()),
+        // The registry lives beside the store: `<workspace>/ai/preferences.json`
+        // is the same file every app and daemon on this device reads.
+        let store_path = impress_store_service::store_path();
+        let workspace = store_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        Self::with_components(ai, AiRegistry::for_daemon(workspace))
+    }
+
+    fn preferences_result(&self, result: impress_ai::Result<AiPreferences>) -> AiPreferencesResult {
+        let path = self
+            .registry
+            .preferences()
+            .path()
+            .to_string_lossy()
+            .into_owned();
+        match result {
+            Ok(preferences) => AiPreferencesResult {
+                preferences: Some(preferences),
+                path,
+                error: None,
+            },
+            Err(error) => AiPreferencesResult {
+                preferences: None,
+                path,
+                error: Some(error.to_string()),
             },
         }
     }
@@ -222,22 +326,117 @@ fn parse_ids(values: Vec<String>, kind: &str) -> Result<Vec<Uuid>, String> {
 
 #[async_trait::async_trait]
 impl ImpressAiService for DefaultImpressAiService {
-    async fn list_models(&self) -> ModelsResult {
-        let Some(provider) = &self.provider else {
-            return ModelsResult {
-                models: vec![],
-                error: self.provider_error.clone(),
-            };
-        };
-        match provider.models().await {
-            Ok(models) => ModelsResult {
+    async fn list_models(&self, provider: Option<String>) -> ModelsResult {
+        match self.registry.models(provider.as_deref()).await {
+            Ok((provider, models)) => ModelsResult {
+                provider: Some(provider),
                 models,
                 error: None,
             },
             Err(error) => ModelsResult {
+                provider,
                 models: vec![],
                 error: Some(error.to_string()),
             },
+        }
+    }
+
+    async fn list_providers(&self) -> ProvidersResult {
+        let preferences = self.registry.preferences().load().ok();
+        let selected = preferences.and_then(|preferences| preferences.selected);
+        ProvidersResult {
+            providers: self
+                .registry
+                .provider_states()
+                .into_iter()
+                .map(|state| {
+                    let descriptor = state.descriptor;
+                    ProviderRow {
+                        id: descriptor.id.into(),
+                        display_name: descriptor.display_name.into(),
+                        description: descriptor.description.into(),
+                        category: descriptor.category.label().into(),
+                        host: descriptor.host.label().into(),
+                        ready: state.readiness.is_ready(),
+                        readiness: state.readiness.label().into(),
+                        endpoint: state.endpoint,
+                        default_endpoint: descriptor.default_endpoint.map(str::to_string),
+                        endpoint_editable: descriptor.endpoint_editable,
+                        can_auto_start: descriptor.can_auto_start,
+                        registration_url: descriptor.registration_url.map(str::to_string),
+                        credential_fields: state
+                            .credentials
+                            .fields
+                            .into_iter()
+                            .map(|field| {
+                                let label = descriptor
+                                    .credential_fields
+                                    .iter()
+                                    .find(|declared| declared.id == field.field)
+                                    .map(|declared| declared.label.to_string())
+                                    .unwrap_or_default();
+                                CredentialFieldRow {
+                                    id: field.field,
+                                    label,
+                                    secret: field.secret,
+                                    optional: field.optional,
+                                    configured: field.configured,
+                                    source: field.source.map(str::to_string),
+                                }
+                            })
+                            .collect(),
+                        static_model_count: descriptor.static_models.len() as u32,
+                        has_dynamic_catalogue: descriptor.discovery
+                            == impress_ai::catalogue::Discovery::Api,
+                    }
+                })
+                .collect(),
+            selected_provider: selected.as_ref().map(|selected| selected.provider.clone()),
+            selected_model: selected.and_then(|selected| selected.model),
+            error: None,
+        }
+    }
+
+    async fn ai_preferences(&self) -> AiPreferencesResult {
+        self.preferences_result(
+            self.registry
+                .preferences()
+                .load()
+                .map_err(impress_ai::Error::Io),
+        )
+    }
+
+    async fn select_model(&self, provider: String, model: Option<String>) -> AiPreferencesResult {
+        self.preferences_result(self.registry.select_model(&provider, model))
+    }
+
+    async fn set_provider_endpoint(
+        &self,
+        provider: String,
+        endpoint: Option<String>,
+    ) -> AiPreferencesResult {
+        self.preferences_result(self.registry.set_provider_endpoint(&provider, endpoint))
+    }
+
+    async fn provider_health(&self, provider: Option<String>) -> ProviderHealthResult {
+        let provider = match provider {
+            Some(provider) => provider,
+            None => match self.registry.resolve(&ResolveTarget::default()) {
+                Ok(resolved) => resolved.provider,
+                Err(error) => {
+                    return ProviderHealthResult {
+                        provider: None,
+                        health: None,
+                        error: Some(error.to_string()),
+                    }
+                }
+            },
+        };
+        let health = self.registry.health(&provider).await;
+        ProviderHealthResult {
+            provider: Some(provider),
+            health: Some(health),
+            error: None,
         }
     }
 
@@ -282,11 +481,24 @@ impl ImpressAiService for DefaultImpressAiService {
         enabled_tools: Vec<String>,
     ) -> ConversationMutationResult {
         let defaults = ConversationDraft::default();
+        // A conversation resolves its provider once, at creation: an
+        // explicit id wins, else the device selection, else the catalogue's
+        // first ready provider, else the historical default.
+        let provider = provider.unwrap_or_else(|| {
+            self.registry
+                .resolve(&ResolveTarget {
+                    provider: None,
+                    model: Some(model.clone()).filter(|model| !model.trim().is_empty()),
+                    category: None,
+                })
+                .map(|resolved| resolved.provider)
+                .unwrap_or_else(|_| defaults.provider.clone())
+        });
         let result = self.ai.create_conversation(ConversationDraft {
             title,
             summary: None,
             system_prompt: system_prompt.or(defaults.system_prompt),
-            provider: provider.unwrap_or_else(|| "omlx".into()),
+            provider,
             model,
             temperature,
             max_tokens,
@@ -544,7 +756,12 @@ impress_service_impl! {
     impl = DefaultImpressAiService,
     instance = || service_instance(),
     methods = [
-        list_models() -> ModelsResult,
+        list_models(provider: Option<String>) -> ModelsResult,
+        list_providers() -> ProvidersResult,
+        ai_preferences() -> AiPreferencesResult,
+        select_model(provider: String, model: Option<String>) -> AiPreferencesResult,
+        set_provider_endpoint(provider: String, endpoint: Option<String>) -> AiPreferencesResult,
+        provider_health(provider: Option<String>) -> ProviderHealthResult,
         list_conversations(include_archived: bool) -> ConversationsResult,
         get_conversation(conversation_id: String) -> ConversationResult,
         create_conversation(
@@ -587,6 +804,14 @@ mod tests {
         let cli: Vec<&str> = CliSubcommand::iter().map(|item| item.name).collect();
         for (mcp_name, cli_name) in [
             ("impress-ai-service_list-models", "list-models"),
+            ("impress-ai-service_list-providers", "list-providers"),
+            ("impress-ai-service_ai-preferences", "ai-preferences"),
+            ("impress-ai-service_select-model", "select-model"),
+            (
+                "impress-ai-service_set-provider-endpoint",
+                "set-provider-endpoint",
+            ),
+            ("impress-ai-service_provider-health", "provider-health"),
             (
                 "impress-ai-service_list-conversations",
                 "list-conversations",
@@ -610,6 +835,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_and_preference_verbs_share_the_device_registry() {
+        let directory = tempfile::tempdir().unwrap();
+        let ai = Arc::new(
+            AiStore::open(
+                &directory.path().join("impress.sqlite"),
+                "test:verbs",
+                ActorKind::Human,
+            )
+            .unwrap(),
+        );
+        let registry =
+            AiRegistry::for_app(directory.path(), impress_ai::InMemoryCredentials::new());
+        let service = DefaultImpressAiService::with_components(ai, registry);
+
+        let providers = service.list_providers().await;
+        assert_eq!(providers.providers.len(), 8);
+        assert_eq!(providers.providers[0].id, "omlx");
+        assert!(providers.selected_provider.is_none());
+        let anthropic = providers
+            .providers
+            .iter()
+            .find(|row| row.id == "anthropic")
+            .unwrap();
+        assert_eq!(anthropic.readiness, "needs_credentials");
+        assert!(!anthropic.credential_fields[0].configured);
+
+        let rejected = service
+            .select_model("omlx".into(), Some("MarkItDown".into()))
+            .await;
+        assert!(rejected
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("helper"));
+        let selected = service
+            .select_model("anthropic".into(), Some("claude-sonnet-5".into()))
+            .await;
+        assert!(selected.error.is_none(), "{:?}", selected.error);
+        assert!(selected.path.ends_with("ai/preferences.json"));
+        let preferences = service.ai_preferences().await.preferences.unwrap();
+        assert_eq!(
+            preferences.selected.as_ref().unwrap().model.as_deref(),
+            Some("claude-sonnet-5")
+        );
+        let providers = service.list_providers().await;
+        assert_eq!(providers.selected_provider.as_deref(), Some("anthropic"));
+
+        let endpoint = service
+            .set_provider_endpoint("omlx".into(), Some("http://laptop:8000/v1".into()))
+            .await;
+        assert_eq!(
+            endpoint.preferences.unwrap().endpoints["omlx"],
+            "http://laptop:8000/v1"
+        );
+        let bad = service
+            .set_provider_endpoint("apple-on-device".into(), Some("http://x".into()))
+            .await;
+        assert!(bad.error.is_some());
+
+        // Static catalogues answer without a network call.
+        let models = service.list_models(Some("anthropic".into())).await;
+        assert!(models.error.is_none());
+        assert!(models
+            .models
+            .iter()
+            .any(|model| model.id == "claude-opus-5"));
+        assert_eq!(models.provider.as_deref(), Some("anthropic"));
+
+        let health = service.provider_health(Some("anthropic".into())).await;
+        assert_eq!(
+            health.health.unwrap().state,
+            impress_ai::HealthState::NeedsCredentials {
+                fields: vec!["apiKey".into()]
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn queue_and_status_share_the_canonical_graph() {
         let directory = tempfile::tempdir().unwrap();
         let ai = Arc::new(
@@ -620,8 +923,9 @@ mod tests {
             )
             .unwrap(),
         );
-        let provider = Arc::new(OmlxClient::new("http://127.0.0.1:8000", None).unwrap());
-        let service = DefaultImpressAiService::with_components(ai, provider);
+        let registry =
+            AiRegistry::for_app(directory.path(), impress_ai::InMemoryCredentials::new());
+        let service = DefaultImpressAiService::with_components(ai, registry);
         let created = service
             .create_conversation(
                 "Research".into(),
@@ -636,6 +940,22 @@ mod tests {
             )
             .await;
         let conversation_id = created.conversation_id.unwrap();
+        assert_eq!(
+            service
+                .get_conversation(conversation_id.to_string())
+                .await
+                .conversation
+                .unwrap()
+                .conversation
+                .payload
+                .get("provider")
+                .and_then(|value| match value {
+                    impress_core::item::Value::String(text) => Some(text.as_str()),
+                    _ => None,
+                }),
+            Some("omlx"),
+            "nothing configured: the historical default provider is recorded"
+        );
         let queued = service
             .queue_message(conversation_id.to_string(), "Find papers".into(), vec![])
             .await;

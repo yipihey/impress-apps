@@ -453,8 +453,19 @@ impl AiRegistry {
         if descriptor.discovery == Discovery::None || descriptor.host == ExecutionHost::Foreign {
             return Ok((provider, catalogue_models));
         }
-        let client = self.provider(&provider)?;
-        let discovered = client.models().await?;
+        // A provider that cannot be reached yet (no key, no endpoint, host
+        // down) still has its static catalogue to offer; only a provider with
+        // nothing static (oMLX) turns that into an error.
+        let client = match self.provider(&provider) {
+            Ok(client) => client,
+            Err(_) if !catalogue_models.is_empty() => return Ok((provider, catalogue_models)),
+            Err(error) => return Err(error),
+        };
+        let discovered = match client.models().await {
+            Ok(discovered) => discovered,
+            Err(_) if !catalogue_models.is_empty() => return Ok((provider, catalogue_models)),
+            Err(error) => return Err(error),
+        };
         let merged = catalogue::merge_models(&catalogue_models, discovered);
         self.models_cache
             .lock()

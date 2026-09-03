@@ -47,7 +47,7 @@ use impel_throughline::{
     MANUSCRIPT_SECTION_SCHEMA,
 };
 use impress_ai::{
-    write_worker_status, AiStore, AiTitleTaskExecutor, FileBlobStore, OmlxClient, OmlxTaskExecutor,
+    write_worker_status, AiStore, AiTitleTaskExecutor, FileBlobStore, OmlxTaskExecutor,
     WebResearchProvider, WorkerLease, WorkerLifecycleState, WorkerStatusSnapshot,
     WORKER_HEARTBEAT_INTERVAL_SECS,
 };
@@ -352,13 +352,41 @@ async fn main() {
             FileBlobStore::open(&blob_root)
                 .unwrap_or_else(|e| panic!("open blob store {}: {e}", blob_root.display())),
         );
-        let omlx_url = std::env::var("IMPRESS_OMLX_URL")
-            .unwrap_or_else(|_| impress_ai::omlx::DEFAULT_URL.into());
-        let omlx_key = std::env::var("IMPRESS_OMLX_API_KEY").ok();
-        let omlx = OmlxClient::with_endpoint_id(omlx_url, omlx_key, "local-omlx")
-            .expect("configure oMLX client");
-        let title_executor = AiTitleTaskExecutor::new(ai_store.clone(), omlx.clone());
-        let mut executor = OmlxTaskExecutor::new(ai_store, omlx, blob_store);
+        // Provider selection and endpoints come from the device-local
+        // preferences file beside the store (ADR-0029): each queued turn
+        // resolves its conversation's provider through the registry, so a
+        // model picked in any app's Settings › AI is the one this daemon runs.
+        // IMPRESS_OMLX_URL / IMPRESS_AI_PROVIDER stay explicit overrides.
+        let workspace = store_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let registry = impress_ai::AiRegistry::for_daemon(&workspace);
+        match registry.resolve(&impress_ai::ResolveTarget::default()) {
+            Ok(resolved) => eprintln!(
+                "impel-taskd: AI provider={} model={} endpoint={} origin={} (preferences: {})",
+                resolved.provider,
+                resolved.model,
+                resolved.endpoint_id,
+                resolved.origin.label(),
+                registry.preferences().path().display()
+            ),
+            Err(error) => eprintln!(
+                "impel-taskd: no AI provider resolved yet ({error}); preferences: {}",
+                registry.preferences().path().display()
+            ),
+        }
+        // Local hosts feed readiness from a fresh probe; keep it warm so the
+        // first-ready fallback and the resolved-origin log stay truthful.
+        let probing = registry.clone();
+        tokio::spawn(async move {
+            loop {
+                probing.refresh_health(&["omlx", "ollama"]).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+        let title_executor = AiTitleTaskExecutor::with_registry(ai_store.clone(), registry.clone());
+        let mut executor = OmlxTaskExecutor::with_registry(ai_store, registry, blob_store);
         match ImpressToolAdapter::probe().await {
             Ok(adapter) => executor = executor.with_tool_adapter(Arc::new(adapter)),
             Err(error) => eprintln!("impel-taskd: Impress tool adapter unavailable: {error}"),

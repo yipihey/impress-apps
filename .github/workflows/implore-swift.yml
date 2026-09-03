@@ -17,6 +17,7 @@ on:
       - 'crates/impress-core/**'
       - 'crates/impress-helix/**'
       - 'crates/impress-store-ffi/**'
+      - 'crates/impress-ai/**'
       - '.github/workflows/implore-swift.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.

@@ -49,6 +49,7 @@ on:
       - 'crates/impart-core/**'
       - 'crates/impress-core/**'
       - 'crates/impress-store-ffi/**'
+      - 'crates/impress-ai/**'
       - 'crates/imbib-core/**'
       - 'crates/imprint-core/**'
       - 'crates/impress-helix/**'
