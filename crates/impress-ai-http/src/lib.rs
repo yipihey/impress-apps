@@ -554,7 +554,8 @@ async fn providers(State(state): State<AiHttpState>) -> ApiResult<Json<Value>> {
         }))),
         Inference::Registry(registry) => {
             let rows = registry
-                .provider_states()
+                .provider_states_probed()
+                .await
                 .into_iter()
                 .map(|state| {
                     let descriptor = state.descriptor;

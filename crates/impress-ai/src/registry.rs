@@ -377,6 +377,10 @@ impl AiRegistry {
     /// provider whose catalogue has no default, so the model fallback can
     /// use the host's own default.
     pub async fn resolve_with_discovery(&self, target: &ResolveTarget) -> Result<ResolvedTarget> {
+        if target.provider.is_none() {
+            // `first_ready` can only pick a local host it has heard from.
+            self.ensure_local_health().await;
+        }
         match self.resolve(target) {
             Ok(resolved) => Ok(resolved),
             Err(Error::Invalid(message)) if message.starts_with("choose a model") => {
@@ -403,6 +407,17 @@ impl AiRegistry {
             .and_then(|assignment| assignment.primary.as_ref())
             .map(|primary| primary.provider.clone())
             .or_else(|| preferences.selected.map(|selected| selected.provider))
+            .or_else(|| self.first_ready_provider())
+    }
+
+    /// The `first_ready` step of the resolution rule: the first provider in
+    /// catalogue order whose readiness is `Ready` (or a foreign provider the
+    /// host reported available).
+    fn first_ready_provider(&self) -> Option<String> {
+        self.descriptors()
+            .iter()
+            .find(|descriptor| self.readiness(descriptor.id).is_ready())
+            .map(|descriptor| descriptor.id.to_string())
     }
 
     /// Catalogue default, else the host's advertised default from the last
@@ -430,6 +445,9 @@ impl AiRegistry {
     /// merged with live discovery. Foreign providers report their static
     /// table.
     pub async fn models(&self, id: Option<&str>) -> Result<(String, Vec<ModelSummary>)> {
+        if id.is_none() {
+            self.ensure_local_health().await;
+        }
         let provider = match id {
             Some(id) => {
                 self.descriptor(id)?;
@@ -545,6 +563,89 @@ impl AiRegistry {
     pub async fn refresh_health(&self, ids: &[&str]) {
         for id in ids {
             let _ = self.health(id).await;
+        }
+    }
+
+    /// Probe every Rust-hosted local provider whose health is unknown or
+    /// stale, so a fresh process — the CLI, the MCP server, an app at launch
+    /// — sees the same readiness a daemon with its refresh loop does. Local
+    /// hosts are the only providers whose readiness needs the network;
+    /// nothing is probed when the cache is fresh, when credentials or the
+    /// endpoint are missing, or for cloud and foreign providers.
+    pub async fn ensure_local_health(&self) {
+        let stale: Vec<&'static str> = self
+            .descriptors()
+            .iter()
+            .filter(|descriptor| {
+                descriptor.category == ProviderCategory::Local
+                    && descriptor.host == ExecutionHost::Rust
+            })
+            .filter(|descriptor| self.cached_health(descriptor.id).is_none())
+            .filter(|descriptor| {
+                !matches!(
+                    self.readiness(descriptor.id),
+                    HealthState::NeedsCredentials { .. } | HealthState::NeedsEndpoint
+                )
+            })
+            .map(|descriptor| descriptor.id)
+            .collect();
+        for id in stale {
+            let _ = self.health(id).await;
+        }
+    }
+
+    /// [`Self::provider_states`] after [`Self::ensure_local_health`]: the
+    /// readiness a settings pane or `list-providers` verb should report.
+    pub async fn provider_states_probed(&self) -> Vec<ProviderState> {
+        self.ensure_local_health().await;
+        self.provider_states()
+    }
+
+    /// The target a background daemon tier (impel's classify, memory and
+    /// throughline executors) should use for `category`, or `None` when the
+    /// tier must stay on its deterministic implementation.
+    ///
+    /// `IMPEL_LLM_PROVIDER` + `IMPEL_LLM_MODEL` (kept for one release; the
+    /// provider must be a catalogue id) win; otherwise the category
+    /// assignment must be enabled with a primary. Background tiers
+    /// deliberately do NOT inherit the interactive `selected` model: a cloud
+    /// chat pick must never create daemon spend silently.
+    pub fn daemon_target(&self, category: &str) -> Option<ResolveTarget> {
+        if let (Ok(provider), Ok(model)) = (
+            std::env::var("IMPEL_LLM_PROVIDER"),
+            std::env::var("IMPEL_LLM_MODEL"),
+        ) {
+            if !provider.trim().is_empty() && !model.trim().is_empty() {
+                if catalogue::descriptor(provider.trim()).is_some() {
+                    return Some(ResolveTarget {
+                        provider: Some(provider.trim().to_string()),
+                        model: Some(model.trim().to_string()),
+                        category: Some(category.to_string()),
+                    });
+                }
+                eprintln!(
+                    "impress-ai: IMPEL_LLM_PROVIDER={provider} is not a catalogue provider; ignoring the override"
+                );
+            }
+        }
+        let preferences = self.preferences.load().ok()?;
+        let assignment = preferences.task_categories.get(category)?;
+        if !assignment.enabled || assignment.primary.is_none() {
+            return None;
+        }
+        Some(ResolveTarget::category(category))
+    }
+
+    /// `"omlx/mlx-community--Qwen3.5-4B-4bit"` for logs and `model_id()`
+    /// labels; falls back to the target's own words when nothing resolves.
+    pub fn describe_target(&self, target: &ResolveTarget) -> String {
+        match self.resolve(target) {
+            Ok(resolved) => format!("{}/{}", resolved.provider, resolved.model),
+            Err(_) => target
+                .provider
+                .clone()
+                .or_else(|| target.category.clone())
+                .unwrap_or_else(|| "unresolved".into()),
         }
     }
 
@@ -943,6 +1044,61 @@ mod tests {
             .all(|state| !format!("{state:?}").contains("k2")));
         let auto = registry.set_auto_start_omlx(false).unwrap();
         assert!(!auto.auto_start_omlx);
+    }
+
+    #[tokio::test]
+    async fn a_fresh_process_learns_local_readiness_before_first_ready_resolution() {
+        // A one-shot process (CLI, MCP, an app at launch) has no health
+        // cache. `first_ready` must still find a running local host, and
+        // `provider_states_probed` must report it ready — without a daemon's
+        // refresh loop having run first.
+        let memory = InMemoryCredentials::new();
+        let (_directory, registry) = registry_with(&memory);
+        let mut server = mockito::Server::new_async().await;
+        let _listed = server
+            .mock("GET", "/v1/models")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"data":[{"id":"mlx-community--Qwen3.5-4B-4bit"}]}"#)
+            .create_async()
+            .await;
+        let _status = server
+            .mock("GET", "/v1/models/status")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"models":[{"id":"mlx-community--Qwen3.5-4B-4bit","loaded":true,"model_type":"llm"}]}"#)
+            .create_async()
+            .await;
+        let _health = server
+            .mock("GET", "/health")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"status":"healthy","default_model":"mlx-community--Qwen3.5-4B-4bit","engine_pool":{"model_count":1,"loaded_count":1}}"#)
+            .create_async()
+            .await;
+        registry
+            .set_provider_endpoint("omlx", Some(server.url()))
+            .unwrap();
+        assert!(
+            !registry.readiness("omlx").is_ready(),
+            "no probe has run: the network-free rule still says unreachable"
+        );
+
+        let resolved = registry
+            .resolve_with_discovery(&ResolveTarget::default())
+            .await
+            .expect("first_ready finds the running local host");
+        assert_eq!(resolved.provider, "omlx");
+        assert_eq!(resolved.origin.label(), "first_ready");
+        assert_eq!(resolved.model, "mlx-community--Qwen3.5-4B-4bit");
+
+        let states = registry.provider_states_probed().await;
+        let omlx = states
+            .iter()
+            .find(|state| state.descriptor.id == "omlx")
+            .unwrap();
+        assert!(omlx.readiness.is_ready());
+        assert!(registry.readiness("omlx").is_ready(), "the probe is cached");
     }
 
     #[tokio::test]

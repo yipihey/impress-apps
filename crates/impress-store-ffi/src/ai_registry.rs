@@ -845,8 +845,9 @@ impl SharedAiRegistry {
     }
 
     pub fn list_providers(&self) -> Vec<AiProviderInfo> {
-        self.registry
-            .provider_states()
+        let registry = Arc::clone(&self.registry);
+        runtime()
+            .block_on(async move { registry.provider_states_probed().await })
             .iter()
             .map(provider_info)
             .collect()

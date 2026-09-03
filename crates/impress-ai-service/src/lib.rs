@@ -347,7 +347,8 @@ impl ImpressAiService for DefaultImpressAiService {
         ProvidersResult {
             providers: self
                 .registry
-                .provider_states()
+                .provider_states_probed()
+                .await
                 .into_iter()
                 .map(|state| {
                     let descriptor = state.descriptor;
