@@ -66,14 +66,34 @@ pub fn run_stdio(config: HostConfig) -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
-        if request.get("id").is_none() {
-            continue;
+        if let Some(response) = dispatch_message(&config, &request) {
+            writeln!(stdout, "{response}")?;
+            stdout.flush()?;
         }
-        let response = handle_request(&config, &request);
-        writeln!(stdout, "{response}")?;
-        stdout.flush()?;
     }
     Ok(())
+}
+
+/// Triage one parsed top-level message for either transport. Returns the
+/// single response to send, or `None` for a notification (a message without
+/// an `id` — JSON-RPC 2.0 forbids replying to those, and clients do send
+/// them: Claude Code emits `notifications/roots/list_changed`).
+///
+/// A top-level array is a JSON-RPC batch, which this host does not implement
+/// — the reason it pins protocolVersion 2024-11-05 rather than 2025-03-26,
+/// whose batch support is mandatory. Dropping a batch silently left the
+/// client waiting forever; refuse it loudly instead, with the null id
+/// JSON-RPC prescribes when no single request id can be extracted.
+fn dispatch_message(config: &HostConfig, request: &Value) -> Option<Value> {
+    if request.is_array() {
+        return Some(json_rpc_error(
+            Value::Null,
+            -32600,
+            "JSON-RPC batch requests are not supported".into(),
+        ));
+    }
+    request.get("id")?;
+    Some(handle_request(config, request))
 }
 
 /// Run the same focused MCP surface as a stateless Streamable HTTP endpoint.
@@ -132,12 +152,13 @@ async fn http_mcp(
         )
             .into_response();
     }
-    if request.get("id").is_none() {
-        return StatusCode::ACCEPTED.into_response();
-    }
     let config = state.config.clone();
-    match tokio::task::spawn_blocking(move || handle_request(&config, &request)).await {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+    // Same triage as stdio (`dispatch_message`): a batch gets its one error
+    // response, a notification gets the bodiless 202 Streamable HTTP
+    // prescribes, everything else is handled.
+    match tokio::task::spawn_blocking(move || dispatch_message(&config, &request)).await {
+        Ok(Some(response)) => (StatusCode::OK, Json(response)).into_response(),
+        Ok(None) => StatusCode::ACCEPTED.into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("MCP request task failed: {error}") })),
@@ -161,7 +182,11 @@ pub fn handle_request(config: &HostConfig, request: &Value) -> Value {
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "protocolVersion": "2025-03-26",
+                // 2024-11-05, like impress-mcp's stdio server: the 2025-03-26
+                // revision makes JSON-RPC batching mandatory, and this host
+                // refuses batches (see `dispatch_message`), so claiming it
+                // would advertise support that is not there.
+                "protocolVersion": "2024-11-05",
                 "capabilities": { "tools": {}, "resources": {} },
                 "serverInfo": {
                     "name": config.server_name,
@@ -223,10 +248,14 @@ fn handle_tool_call(config: &HostConfig, id: Value, request: &Value) -> Value {
     else {
         return tool_result(id, Err(format!("Unknown tool: {name}")));
     };
-    let arguments = request
-        .pointer("/params/arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    // MCP clients may omit `arguments` entirely or send an explicit null;
+    // the generated deserializers expect an object, so both become `{}` and
+    // zero-argument tools work either way — the same coercion impress-mcp's
+    // stdio server applies.
+    let arguments = match request.pointer("/params/arguments") {
+        Some(value) if !value.is_null() => value.clone(),
+        _ => json!({}),
+    };
     let result = impress_service_core::runtime::block_on((descriptor.handler)(arguments))
         .map_err(|error| error.to_string());
     tool_result(id, result)
@@ -257,14 +286,21 @@ fn handle_resource_read(config: &HostConfig, id: Value, request: &Value) -> Valu
 fn tool_result(id: Value, result: Result<Value, String>) -> Value {
     match result {
         Ok(value) => {
-            let (mut content, structured) = impress_service_core::split_mcp_content(value);
+            let (mut content, raw) = impress_service_core::split_mcp_content(value);
+            // The human-readable text block keeps the RAW pre-envelope shape
+            // (a bare string stays bare, everything else compact JSON) — the
+            // rule impress-mcp's stdio server applies, and compact because a
+            // pretty print duplicates structuredContent at a 30-80% token
+            // premium on every result.
+            let text = match &raw {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
             // MCP requires `structuredContent` to be an object; generated
             // handlers may return arrays, scalars or null (Vec<T>, counts,
             // Option<T> misses), so envelope at the transport like
             // impress-mcp's stdio server does.
-            let structured = impress_service_core::envelope_structured_content(structured);
-            let text = serde_json::to_string_pretty(&structured)
-                .unwrap_or_else(|error| format!("Could not encode structured result: {error}"));
+            let structured = impress_service_core::envelope_structured_content(raw);
             content.push(json!({ "type": "text", "text": text }));
             let is_error = structured
                 .get("ok")
@@ -305,6 +341,25 @@ fn json_rpc_error(id: Value, code: i64, message: String) -> Value {
 mod tests {
     use super::*;
 
+    // A test-only inventory entry: this crate deliberately links no service
+    // crates, so give `tools/call` something real to dispatch to.
+    impress_service_core::inventory::submit! {
+        McpToolDescriptor {
+            name: "allowed-fixture_echo-arguments",
+            description: "Test fixture: echoes the argument object it was handed.",
+            input_schema: fixture_schema,
+            handler: fixture_echo,
+        }
+    }
+
+    fn fixture_schema() -> Value {
+        json!({ "type": "object" })
+    }
+
+    fn fixture_echo(arguments: Value) -> impress_service_core::ServiceFuture {
+        Box::pin(async move { Ok(json!({ "ok": true, "arguments": arguments })) })
+    }
+
     fn config() -> HostConfig {
         HostConfig {
             server_name: "test".into(),
@@ -335,6 +390,9 @@ mod tests {
             &json!({"jsonrpc":"2.0","id":1,"method":"initialize"}),
         );
         assert_eq!(init["result"]["serverInfo"]["name"], "test");
+        // Pinned to impress-mcp's revision: 2025-03-26 makes batching
+        // mandatory and this host refuses batches.
+        assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
         let read = handle_request(
             &config(),
             &json!({
@@ -375,6 +433,80 @@ mod tests {
             HeaderValue::from_static("Basic secret"),
         );
         assert!(!has_bearer_token(&headers, "secret"));
+    }
+
+    /// A JSON-RPC batch used to be dropped without a byte of output (stdio)
+    /// or with a bare 202 (HTTP), leaving the client waiting forever. Both
+    /// transports triage through `dispatch_message`, so this covers both.
+    #[test]
+    fn batches_get_one_invalid_request_error_instead_of_silence() {
+        let batch = json!([
+            {"jsonrpc":"2.0","id":1,"method":"ping"},
+            {"jsonrpc":"2.0","id":2,"method":"tools/list"}
+        ]);
+        let response =
+            dispatch_message(&config(), &batch).expect("a batch is answered, not dropped");
+        assert_eq!(response["id"], Value::Null);
+        assert_eq!(response["error"]["code"], -32600);
+        assert_eq!(
+            response["error"]["message"],
+            "JSON-RPC batch requests are not supported"
+        );
+    }
+
+    /// JSON-RPC 2.0 forbids replying to notifications (id-less messages).
+    #[test]
+    fn notifications_get_no_reply() {
+        let notification = json!({"jsonrpc":"2.0","method":"notifications/roots/list_changed"});
+        assert_eq!(dispatch_message(&config(), &notification), None);
+    }
+
+    /// An explicit `"arguments": null` must reach the generated deserializer
+    /// as `{}`, exactly like an omitted `arguments` — `Some(Null)` fails
+    /// serde deserialization even for zero-argument tools.
+    #[test]
+    fn explicit_null_arguments_reach_the_handler_as_an_empty_object() {
+        for params in [
+            json!({"name": "allowed-fixture_echo-arguments", "arguments": null}),
+            json!({"name": "allowed-fixture_echo-arguments"}),
+        ] {
+            let response = handle_request(
+                &config(),
+                &json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params": params}),
+            );
+            assert_eq!(response["result"]["isError"], false, "{response}");
+            assert_eq!(
+                response["result"]["structuredContent"]["arguments"],
+                json!({}),
+                "arguments must arrive as an object: {response}"
+            );
+        }
+    }
+
+    /// The text block derives from the RAW pre-envelope value — bare strings
+    /// stay bare, everything else compact — matching impress-mcp's stdio
+    /// server instead of pretty-reprinting `structuredContent`.
+    #[test]
+    fn text_block_is_the_raw_value_not_a_pretty_reprint() {
+        let response = tool_result(json!(9), Ok(json!("Café")));
+        assert_eq!(response["result"]["content"][0]["text"], "Café");
+        assert_eq!(
+            response["result"]["structuredContent"],
+            json!({"value": "Café"})
+        );
+
+        let response = tool_result(json!(9), Ok(json!(["a", "b"])));
+        assert_eq!(response["result"]["content"][0]["text"], r#"["a","b"]"#);
+
+        let response = tool_result(json!(9), Ok(json!({"ok": false, "message": "m"})));
+        let text = response["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(!text.contains('\n'), "text must be compact: {text:?}");
+        assert_eq!(
+            serde_json::from_str::<Value>(text).unwrap(),
+            json!({"ok": false, "message": "m"})
+        );
+        // `isError` keeps reading the post-envelope structured value.
+        assert_eq!(response["result"]["isError"], true);
     }
 
     #[test]

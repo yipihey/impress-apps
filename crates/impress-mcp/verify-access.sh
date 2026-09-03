@@ -45,21 +45,39 @@ printf '%s\n' \
     | IMBIB_BACKEND=sqlite "$BINARY" 2>/tmp/impress-mcp-stderr.log \
     | python3 -c "
 import sys, json
+# The server envelopes non-object results (MCP requires structuredContent to
+# be an object): count-publications arrives as {'value': N} and
+# list-libraries as {'items': [...]}. A FAILED call carries isError (and a
+# transport error carries no structuredContent at all) — on this machine
+# that is almost always TCC blocking the store open, so it routes to the
+# same FDA guidance as an empty store.
 count = None
 libs  = None
+blocked = False
 for line in sys.stdin:
     msg = json.loads(line.strip())
     rid = msg.get('id')
+    if rid not in (2, 3):
+        continue
+    result = msg.get('result') or {}
+    sc = result.get('structuredContent')
+    if result.get('isError') or not isinstance(sc, dict):
+        blocked = True
+        continue
     if rid == 2:
-        count = msg['result']['structuredContent']
+        count = sc.get('value')
     elif rid == 3:
-        libs = msg['result']['structuredContent']
+        libs = sc.get('items', [])
 print(f'count-publications: {count}')
 print(f'list-libraries: {len(libs) if libs is not None else None} libraries')
 if libs:
     for lib in libs[:5]:
         print(f'  - {lib[\"name\"]} ({lib[\"publication_count\"]} pubs, default={lib[\"is_default\"]}, inbox={lib[\"is_inbox\"]})')
-if not libs and count == 0:
+# A response that never arrived (the server died mid-stream) is as blocked
+# as an error result.
+if count is None or libs is None:
+    blocked = True
+if blocked or (not libs and count == 0):
     print()
     print('FAIL — store is empty or unreachable.')
     print('Check /tmp/impress-mcp-stderr.log for the underlying error.')

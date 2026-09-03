@@ -41,12 +41,21 @@ pub fn run_server(ctx: ToolContext) -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        let id = request.get("id").cloned().unwrap_or(Value::Null);
+        // JSON-RPC 2.0 forbids replying to notifications, and clients send
+        // more of them than any name whitelist keeps up with (Claude Code
+        // emits `notifications/roots/list_changed`). A notification is
+        // exactly a message without an `id`, so skip on that — the same
+        // guard `impress-mcp-host` uses.
+        let Some(id) = request.get("id").cloned() else {
+            continue;
+        };
         let method = request["method"].as_str().unwrap_or("");
 
         let response = match method {
             "initialize" => handle_initialize(&id),
-            "notifications/initialized" | "notifications/cancelled" => continue,
+            // MCP requires a prompt empty result for pings; a client may use
+            // them as a liveness probe at any time.
+            "ping" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
             "tools/list" => handle_tools_list(&id),
             "tools/call" => handle_tool_call(&ctx, &id, &request),
             "resources/list" => handle_resources_list(&id),
@@ -86,11 +95,12 @@ fn handle_initialize(id: &Value) -> Value {
 
 /// The orientation document a fresh agent should read first.
 ///
-/// Without it, an agent connecting to this server sees ~130 tool names and no
-/// map: nothing says what impress is, that the apps share one store, which of
-/// the overlapping search tools to reach for, or that mutations are
-/// asynchronous. Ported from the TypeScript server during its retirement; tool
-/// names inside were repointed at their generated Rust equivalents.
+/// Without it, an agent connecting to this server sees a wall of tool names
+/// and no map: nothing says what impress is, that the apps share one store,
+/// or which of the overlapping search tools to reach for. Ported from the
+/// TypeScript server during its retirement; every tool name inside is now
+/// verified against the generated inventory (see the review fix that
+/// replaced 35 phantom names).
 const GUIDE_URI: &str = "impress://guide";
 const GUIDE_MARKDOWN: &str = include_str!("guide.md");
 
@@ -133,8 +143,8 @@ fn handle_resources_list(id: &Value) -> Value {
                     "name": "impress: agent guide",
                     "mimeType": "text/markdown",
                     "description": "Read this first. What impress is, what each app does, \
-                                    which search tool to use when, and how asynchronous \
-                                    operations and review checkpoints work.",
+                                    which search tool to use when, and how the grouped \
+                                    domain tools and review checkpoints work.",
                 },
                 {
                     "uri": STORE_SCHEMAS_URI,
@@ -704,12 +714,21 @@ fn wrap_success_result(id: &Value, value: Value) -> Value {
     };
     let structured = impress_service_core::envelope_structured_content(raw);
     content.push(json!({ "type": "text", "text": text }));
+    // Generated fallible methods report failure inside their payload as
+    // `ok: false` rather than as a transport error; surface that as MCP's
+    // `isError` so a client need not parse the payload to notice — the same
+    // rule `impress-mcp-host` applies.
+    let is_error = structured
+        .get("ok")
+        .and_then(Value::as_bool)
+        .is_some_and(|ok| !ok);
     json!({
         "jsonrpc": "2.0",
         "id": id,
         "result": {
             "content": content,
             "structuredContent": structured,
+            "isError": is_error,
         }
     })
 }
@@ -851,6 +870,26 @@ mod tests {
         assert!(mixed["result"]["structuredContent"]
             .get("_mcp_content")
             .is_none());
+    }
+
+    /// `ok: false` payloads surface as MCP's `isError`, matching
+    /// `impress-mcp-host`: generated fallible methods report failure inside
+    /// their result rather than as a transport error, and a client should not
+    /// have to parse the payload to notice.
+    #[test]
+    fn ok_false_payloads_surface_as_is_error() {
+        let id = json!(1);
+        let failed = wrap_success_result(&id, json!({"ok": false, "message": "no store"}));
+        assert_eq!(failed["result"]["isError"], true);
+        // `ok: true`, payloads without an `ok` field, and enveloped
+        // non-object shapes are all plain successes.
+        for shape in [json!({"ok": true}), json!({"status": "done"}), json!(["a"])] {
+            let response = wrap_success_result(&id, shape.clone());
+            assert_eq!(
+                response["result"]["isError"], false,
+                "{shape} wrongly flagged as error"
+            );
+        }
     }
 
     #[test]

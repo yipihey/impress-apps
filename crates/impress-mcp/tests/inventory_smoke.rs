@@ -12,7 +12,9 @@
 //! * `resources/list` offers the guide, the two store-browse resources
 //!   (ADR-0022 WP G6), and the memory brief (ADR-0028 P7), and reading the
 //!   store-browse ones yields JSON that honours `--store-path` rather than
-//!   the default app-group container.
+//!   the default app-group container;
+//! * notifications (id-less messages) get no reply and `ping` gets its
+//!   empty result — the transport behaviour shared with `impress-mcp-host`.
 //!
 //! This complements the unit tests in `src/inventory_bridge.rs` and
 //! `src/server.rs`: those exercise the bridge and the resource handlers
@@ -87,6 +89,17 @@ fn list_and_call_inventory_tool_via_stdio() {
         // answer is a well-formed empty page, not an error.
         r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"store-query-service_list-items","arguments":{"schema_ref":"manuscript","limit":5,"offset":0}}}"#,
         "\n",
+        // Notifications (id-less messages) must get NO reply — JSON-RPC 2.0
+        // forbids one, and answering `roots/list_changed` with a -32601 error
+        // is exactly the bug the id guard replaced the old name whitelist to
+        // fix. Claude Code emits this on startup.
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","method":"notifications/roots/list_changed"}"#,
+        "\n",
+        // A ping must get a prompt empty result (MCP 2024-11-05).
+        r#"{"jsonrpc":"2.0","id":8,"method":"ping"}"#,
+        "\n",
     );
 
     child
@@ -100,7 +113,9 @@ fn list_and_call_inventory_tool_via_stdio() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
-    assert!(lines.len() >= 7, "expected >=7 responses; got: {stdout}");
+    // Exactly one response per id-carrying request, and — pinned by the
+    // equality — zero for the two notifications in between.
+    assert_eq!(lines.len(), 8, "expected 8 responses; got: {stdout}");
 
     // Response 2 is tools/list.
     let v2: serde_json::Value = serde_json::from_str(lines[1]).expect("parse tools/list response");
@@ -245,6 +260,20 @@ fn list_and_call_inventory_tool_via_stdio() {
     assert_eq!(listed["ok"], true, "list_items failed: {v7}");
     assert_eq!(listed["total"], 0);
     assert!(listed["items"].as_array().expect("items array").is_empty());
+    assert_eq!(
+        v7["result"]["isError"], false,
+        "an ok payload must not be flagged: {v7}"
+    );
+
+    // Response 8 is the ping — an empty result, right after the skipped
+    // notifications.
+    let v8: serde_json::Value = serde_json::from_str(lines[7]).expect("parse ping response");
+    assert_eq!(v8["id"], 8);
+    assert_eq!(
+        v8["result"],
+        serde_json::json!({}),
+        "ping must answer an empty result: {v8}"
+    );
 }
 
 /// The default (grouped) projection, end to end against the shipped binary
