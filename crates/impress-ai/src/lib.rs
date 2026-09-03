@@ -5,19 +5,24 @@
 //! shared `impress-core` item graph as the only conversation authority.
 
 pub mod blob;
+pub mod catalogue;
 pub mod error;
 pub mod executor;
 pub mod migration;
 pub mod omlx;
 pub mod presentation;
 pub mod provider;
+pub mod providers;
 pub mod research;
+pub mod secret;
+pub mod sse;
 pub mod store;
 pub mod tools;
 pub mod types;
 pub mod worker;
 
 pub use blob::{BlobDescriptor, BlobStore, FileBlobStore};
+pub use catalogue::{ProviderDescriptor, CATALOGUE};
 pub use error::{Error, Result};
 pub use executor::{AiTaskExecutor, AiTitleTaskExecutor, OmlxTaskExecutor};
 pub use migration::{migrate_localmodels, LocalModelsMigrationReport};
@@ -26,8 +31,10 @@ pub use presentation::{
     tool_options_for_policy, AiAttachmentRow, AiConversationRow, AiConversationView, AiMessageRow,
     AiTaskRow, AiToolInvocationRow, AiToolOption, AiWebSourceRow,
 };
-pub use provider::InferenceProvider;
+pub use provider::{collect_stream, Completion, HealthState, InferenceProvider, ProviderHealth};
+pub use providers::{AnthropicClient, OpenAiCompatibleClient};
 pub use research::{ResearchContext, ResearchContextProvider, ResearchSource, WebResearchProvider};
+pub use secret::Secret;
 pub use store::{
     AiStore, ConversationDraft, ConversationSnapshot, MessageDraft, PreparedTurn, QueuedTurn,
     RunProvenance, TaskProgress, INFERENCE_TASK_KIND, TITLE_SUGGESTION_TASK_KIND,

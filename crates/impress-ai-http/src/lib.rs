@@ -759,7 +759,15 @@ impl From<impress_ai::Error> for ApiError {
             impress_ai::Error::Store(ref message) if message.contains("does not exist") => {
                 StatusCode::NOT_FOUND
             }
-            impress_ai::Error::Omlx(_) | impress_ai::Error::Http(_) => StatusCode::BAD_GATEWAY,
+            impress_ai::Error::Omlx(_)
+            | impress_ai::Error::Http(_)
+            | impress_ai::Error::Unreachable { .. }
+            | impress_ai::Error::RateLimited { .. }
+            | impress_ai::Error::Provider { .. }
+            | impress_ai::Error::Unauthorized { .. } => StatusCode::BAD_GATEWAY,
+            impress_ai::Error::NotConfigured { .. }
+            | impress_ai::Error::HostLaunchRequired { .. } => StatusCode::PRECONDITION_FAILED,
+            impress_ai::Error::ForeignExecutor(_) => StatusCode::NOT_IMPLEMENTED,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self {

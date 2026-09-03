@@ -123,6 +123,10 @@ pub struct PreparedTurn {
     pub triggering_message_id: ItemId,
     pub input_message_ids: Vec<ItemId>,
     pub context_item_ids: Vec<ItemId>,
+    /// The provider the conversation was created with, when it recorded one.
+    /// Executors resolve the actual client from it; `None` means "the
+    /// device default".
+    pub provider: Option<String>,
     pub request: ChatRequest,
 }
 
@@ -796,13 +800,14 @@ impl AiStore {
         let request = ChatRequest {
             model,
             messages,
-            temperature: payload_f64(&conversation, "temperature").unwrap_or(0.2) as f32,
+            temperature: Some(payload_f64(&conversation, "temperature").unwrap_or(0.2) as f32),
             max_tokens: payload_i64(&conversation, "max_tokens")
                 .and_then(|value| u32::try_from(value).ok())
                 .unwrap_or(2048),
             thinking: payload_bool(&conversation, "thinking").unwrap_or(false),
             tools,
             tool_policy,
+            ..Default::default()
         };
         request.validate()?;
         Ok(PreparedTurn {
@@ -810,6 +815,7 @@ impl AiStore {
             triggering_message_id,
             input_message_ids,
             context_item_ids: vec![],
+            provider: payload_string(&conversation, "provider"),
             request,
         })
     }
@@ -866,11 +872,12 @@ impl AiStore {
                 ),
                 ModelMessage::text(Role::User, transcript),
             ],
-            temperature: 0.1,
+            temperature: Some(0.1),
             max_tokens: 48,
             thinking: false,
             tools: vec![],
             tool_policy: ToolPolicy::default(),
+            ..Default::default()
         };
         request.validate()?;
         Ok(PreparedTurn {
@@ -878,6 +885,7 @@ impl AiStore {
             triggering_message_id,
             input_message_ids,
             context_item_ids: vec![],
+            provider: payload_string(&conversation, "provider"),
             request,
         })
     }
@@ -933,7 +941,11 @@ impl AiStore {
             Value::Object(BTreeMap::from([
                 (
                     "temperature".into(),
-                    Value::Float(prepared.request.temperature as f64),
+                    prepared
+                        .request
+                        .temperature
+                        .map(|temperature| Value::Float(temperature as f64))
+                        .unwrap_or(Value::Null),
                 ),
                 (
                     "max_tokens".into(),

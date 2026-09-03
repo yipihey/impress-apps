@@ -629,11 +629,10 @@ fn permanent(error: Error) -> TaskError {
 }
 
 fn classify_transport(error: Error) -> TaskError {
-    match error {
-        Error::Omlx(_) | Error::Http(_) | Error::Io(_) | Error::Web(_) => {
-            TaskError::Retryable(error.to_string())
-        }
-        other => TaskError::Permanent(other.to_string()),
+    if error.is_retryable() {
+        TaskError::Retryable(error.to_string())
+    } else {
+        TaskError::Permanent(error.to_string())
     }
 }
 
