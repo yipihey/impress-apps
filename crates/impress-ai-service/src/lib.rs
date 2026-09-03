@@ -328,11 +328,17 @@ fn parse_ids(values: Vec<String>, kind: &str) -> Result<Vec<Uuid>, String> {
 impl ImpressAiService for DefaultImpressAiService {
     async fn list_models(&self, provider: Option<String>) -> ModelsResult {
         match self.registry.models(provider.as_deref()).await {
-            Ok((provider, models)) => ModelsResult {
-                provider: Some(provider),
-                models,
-                error: None,
-            },
+            Ok((provider, mut models)) => {
+                // Helper pseudo-models (oMLX's MarkItDown) are never
+                // selectable, so the agent surface does not list them; the
+                // GUI keeps them behind its "show helper models" toggle.
+                models.retain(|model| !model.is_helper);
+                ModelsResult {
+                    provider: Some(provider),
+                    models,
+                    error: None,
+                }
+            }
             Err(error) => ModelsResult {
                 provider,
                 models: vec![],
