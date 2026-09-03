@@ -74,6 +74,9 @@ public enum AIPreferencesMigration {
             defaults.removeObject(forKey: key)
         }
         standardDefaults.removeObject(forKey: standardDomainSelectionKey)
+        // impel's hidden per-app model override (no UI ever wrote it after the
+        // suite selection existed); the orchestrator now follows the registry.
+        standardDefaults.removeObject(forKey: "counselModel")
         for providerId in endpointProviderIds {
             await credentials.delete(for: providerId, field: "endpoint")
         }

@@ -427,10 +427,11 @@ public actor TaskOrchestrator {
             conversationSummary: conversation.summary
         )
 
-        // Read config
-        let legacyAnthropicAliases: Set<String> = ["haiku", "sonnet", "opus"]
-        let modelId = UserDefaults.standard.string(forKey: "counselModel")
-            .flatMap { $0.isEmpty || legacyAnthropicAliases.contains($0) ? nil : $0 }
+        // Read config. The model is the suite-wide selection (ADR-0029): with
+        // `modelId` nil, `ConfiguredAIProvider` routes to the provider and
+        // model the Rust registry resolves. The old hidden `counselModel`
+        // default had no UI and is removed by the ImpressAI migration.
+        let modelId: String? = nil
         let maxTurns = UserDefaults.standard.integer(forKey: "counselMaxTurns")
         let effectiveMaxTurns = maxTurns > 0 ? maxTurns : 40
 

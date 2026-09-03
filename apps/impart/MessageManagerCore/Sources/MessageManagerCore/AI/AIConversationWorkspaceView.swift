@@ -412,8 +412,10 @@ private struct AIConversationListColumn: View {
     @Bindable var model: AIConversationWorkspaceModel
     @State private var isCreating = false
     @State private var title = ""
-    @State private var modelID =
-        UserDefaults.standard.string(forKey: AISettingsKey.selectedModelId) ?? ""
+    /// Filled from the suite selection once the host's models are known
+    /// (`chooseDiscoveredModelIfNeeded`); the old `UserDefaults` key it read
+    /// was never written by the suite domain.
+    @State private var modelID = ""
     @State private var enabledTools: Set<String> = []
 
     var body: some View {
@@ -557,6 +559,11 @@ private struct AIConversationListColumn: View {
 
     private func chooseDiscoveredModelIfNeeded() {
         guard !model.availableModels.isEmpty else { return }
+        if modelID.isEmpty,
+           let preferred = MainActor.assumeIsolated({ AISettings.shared.displayedModelId }),
+           model.availableModels.contains(where: { $0.id == preferred }) {
+            modelID = preferred
+        }
         if !model.availableModels.contains(where: { $0.id == modelID }) {
             modelID = model.availableModels.first?.id ?? modelID
         }

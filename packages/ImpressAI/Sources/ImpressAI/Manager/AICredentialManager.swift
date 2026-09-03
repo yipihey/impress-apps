@@ -1,4 +1,6 @@
 import Foundation
+import ImpressKit
+import ImpressLogging
 import KeychainSwift
 
 /// Manages secure storage of AI provider credentials.
@@ -69,11 +71,40 @@ public actor AICredentialManager {
         }
 
         // One-time, best-effort migration from the calling app's old keychain.
-        if accessGroup != nil, let legacyValue = legacyKeychain.get(key) {
+        // Reading another keychain item can raise a SecurityAgent prompt, so
+        // the fallback runs once per device, not on every miss.
+        if accessGroup != nil, !Self.legacyKeychainMigrated, let legacyValue = legacyKeychain.get(key) {
             _ = keychain.set(legacyValue, forKey: key)
             return legacyValue
         }
         return nil
+    }
+
+    /// Whether the legacy (no access group) keychain has been consulted on
+    /// this device. Set after the first full sweep so later misses stay cheap.
+    static var legacyKeychainMigrated: Bool {
+        get { SharedDefaults.suite.bool(forKey: legacyKeychainMigratedKey) }
+        set { SharedDefaults.suite.set(newValue, forKey: legacyKeychainMigratedKey) }
+    }
+
+    static let legacyKeychainMigratedKey = "impressai.legacyKeychainMigrated"
+
+    /// Copies every field of the given providers from the legacy keychain
+    /// once, then marks the device migrated.
+    public func migrateLegacyKeychainIfNeeded(providers: [(id: String, fields: [String])]) async {
+        guard accessGroup != nil, !Self.legacyKeychainMigrated else { return }
+        var copied = 0
+        for provider in providers {
+            for field in provider.fields {
+                let key = makeKey(providerId: provider.id, field: field)
+                if keychain.get(key) == nil, let legacyValue = legacyKeychain.get(key) {
+                    _ = keychain.set(legacyValue, forKey: key)
+                    copied += 1
+                }
+            }
+        }
+        Self.legacyKeychainMigrated = true
+        logInfo("Legacy keychain sweep done: \(copied) item(s) copied into the suite access group", category: "ai.credentials")
     }
 
     /// Checks if a credential exists for a provider field.

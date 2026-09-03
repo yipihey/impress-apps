@@ -13,6 +13,11 @@ let impressLLMAvailable = FileManager.default.fileExists(
 var dependencies: [Package.Dependency] = [
     .package(path: "../ImpressKit"),
     .package(path: "../ImpressLogging"),
+    // The Rust AI registry (ADR-0029): every provider, the catalogue and the
+    // device selection live in `crates/impress-ai`, reached through the UniFFI
+    // bindings in ImpressRustCore. `IMPRESS_RUST_AI` (below) compiles the real
+    // `RustAIBridge`; without it the bridge is an "unavailable" stub.
+    .package(path: "../ImpressRustCore"),
     .package(url: "https://github.com/evgenyneu/keychain-swift.git", from: "21.0.0"),
 ]
 
@@ -20,6 +25,7 @@ var dependencies: [Package.Dependency] = [
 var targetDependencies: [Target.Dependency] = [
     .product(name: "ImpressKit", package: "ImpressKit"),
     .product(name: "ImpressLogging", package: "ImpressLogging"),
+    .product(name: "ImpressRustCore", package: "ImpressRustCore"),
     .product(name: "KeychainSwift", package: "keychain-swift"),
 ]
 
@@ -50,8 +56,10 @@ let package = Package(
             dependencies: targetDependencies,
             swiftSettings: impressLLMAvailable ? [
                 .define("IMPRESS_LLM_AVAILABLE"),
+                .define("IMPRESS_RUST_AI"),
                 .swiftLanguageMode(.v5)
             ] : [
+                .define("IMPRESS_RUST_AI"),
                 .swiftLanguageMode(.v5)
             ]
         ),

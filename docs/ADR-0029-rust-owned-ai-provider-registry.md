@@ -118,6 +118,33 @@ executors read their tier from the `agent.*` task categories.
   UniFFI surface → Swift bridge → Swift cut-over → settings UI → per-app panes →
   retirements. Each step is inert without the next and revertible on its own.
 
+## Implementation notes (Swift side, 2026-09-03)
+
+- `packages/ImpressAI` reaches the registry through one file,
+  `Bridge/RustAIBridge.swift`, compiled behind the `IMPRESS_RUST_AI` define that
+  `Package.swift` sets once `ImpressRustCore` is a *declared* dependency. It is a
+  define rather than `canImport`: inside an app build every sibling package links the
+  framework, so `canImport(ImpressRustCore)` is true even when the bindings predate the
+  registry, and the bridge would then fail to compile. Without the define the class is an
+  "unavailable" stub and the manager registers on-device models only.
+- `AIProviderManager` is the projection: `registerBuiltInProviders()` turns the catalogue
+  into one `RustBridgedAIProvider` per Rust-hosted entry plus the Apple executor, reads
+  the preferences, runs the one-time SharedDefaults import, and pushes keychain secrets into
+  Rust memory. A registry that *refuses* a selection (helper model, unknown provider) is
+  distinguished from one that is *unavailable*: refusals are logged and dropped, never kept
+  as an in-memory fallback.
+- Cross-app change propagation is the file itself: every pane re-reads the preferences
+  (`preferencesChangedSince` is a stat) when it opens or the app activates, and the manager
+  posts an in-process `impressAIPreferencesDidChange`. No Darwin notification was added —
+  the suite has no "current app" identity helper to post from, and the pane-open re-read is
+  what the acceptance criteria require.
+- The old Swift HTTP providers stay in the tree, unregistered, until the retire step;
+  `AITextCompletionService` and imprint's three-case `AIProvider` enum (which mapped every
+  other selection to "Apple") are gone; impel's hidden `counselModel` default is removed by
+  the migration and the orchestrator follows the suite selection.
+- Every app declares `.ai` for macOS only in this change; iOS keeps its previous surface
+  until the keychain-group fallback is verified on a simulator.
+
 ## Acceptance criteria
 
 1. `cargo test -p impress-ai -- --ignored live_omlx` lists the running oMLX's models with
