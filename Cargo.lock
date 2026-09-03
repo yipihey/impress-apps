@@ -4500,10 +4500,12 @@ name = "impress-store-ffi"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "futures-util",
  "impress-ai",
  "impress-core",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "uniffi",

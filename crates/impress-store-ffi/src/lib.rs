@@ -21,10 +21,18 @@ use std::path::Path;
 use std::sync::Arc;
 
 mod ai;
+mod ai_registry;
 
 pub use ai::{
     AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,
     AiQueuedTurn, AiWorkerStatus, SharedAiStore,
+};
+pub use ai_registry::{
+    AiCapabilities, AiCategoryAssignment, AiCategoryEntry, AiChatMessage, AiChatRequest,
+    AiChatResponse, AiChatStream, AiContentPart, AiCredentialField, AiError, AiFinishReason,
+    AiLegacyImportResult, AiLegacyPreferences, AiModelInfo, AiModelRef, AiPreferencesRecord,
+    AiProviderHealth, AiProviderInfo, AiResolvedTarget, AiResponseFormat, AiRole, AiStreamEvent,
+    AiTaskCategoryInfo, AiToolSpec, AiUsage, SharedAiRegistry,
 };
 
 use impress_core::{
