@@ -7,8 +7,17 @@
 
 import Foundation
 import ImpressKit
+import ImpressLogging
 
 // MARK: - Category Manager
+
+/// Where assignments persist. The Rust preferences file is the production
+/// backend (ADR-0029); the UserDefaults store remains for the one-time
+/// migration and for tests.
+public protocol AITaskCategoryStoring: Sendable {
+    func loadAssignments() async -> [String: AITaskCategoryAssignment]
+    func saveAssignments(_ assignments: [String: AITaskCategoryAssignment]) async
+}
 
 /// Actor that manages task category assignments and model retrieval.
 public actor AITaskCategoryManager {
@@ -18,9 +27,9 @@ public actor AITaskCategoryManager {
 
     private var assignments: [String: AITaskCategoryAssignment] = [:]
     private var hasLoadedAssignments = false
-    private let storage: AITaskCategoryStorage
+    private let storage: any AITaskCategoryStoring
 
-    public init(storage: AITaskCategoryStorage = .shared) {
+    public init(storage: any AITaskCategoryStoring = AITaskCategoryStorage.shared) {
         self.storage = storage
     }
 
@@ -195,8 +204,38 @@ public actor AITaskCategoryManager {
 
 // MARK: - Storage
 
-/// Storage backend for task category assignments.
-public actor AITaskCategoryStorage {
+/// Assignments stored in the Rust-owned preferences file, so every app and
+/// daemon on the device sees the same per-category models.
+public actor RustAITaskCategoryStorage: AITaskCategoryStoring {
+    private let bridge: any AIBridge
+
+    public init(bridge: any AIBridge) {
+        self.bridge = bridge
+    }
+
+    public func loadAssignments() async -> [String: AITaskCategoryAssignment] {
+        (try? await bridge.preferences())?.taskAssignments ?? [:]
+    }
+
+    /// Rust stores one category at a time; write every assignment that
+    /// differs from what it holds, and blank out categories that were removed.
+    public func saveAssignments(_ assignments: [String: AITaskCategoryAssignment]) async {
+        let existing = await loadAssignments()
+        for (categoryId, assignment) in assignments where existing[categoryId] != assignment {
+            do {
+                _ = try await bridge.setTaskCategory(categoryId, assignment: assignment)
+            } catch {
+                logError("Save: task category \(categoryId) was not stored: \(error.localizedDescription)", category: "ai.preferences")
+            }
+        }
+        for categoryId in existing.keys where assignments[categoryId] == nil {
+            _ = try? await bridge.setTaskCategory(categoryId, assignment: AITaskCategoryAssignment(categoryId: categoryId))
+        }
+    }
+}
+
+/// UserDefaults storage backend for task category assignments (legacy).
+public actor AITaskCategoryStorage: AITaskCategoryStoring {
 
     /// Shared singleton instance.
     public static let shared = AITaskCategoryStorage()

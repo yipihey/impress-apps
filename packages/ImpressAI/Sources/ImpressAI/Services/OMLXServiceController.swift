@@ -39,7 +39,7 @@ public enum OMLXServiceControllerError: LocalizedError, Sendable {
 /// Concurrent requests in one Impress app process share a single launch. Each
 /// app has its own instance of this actor; Launch Services and oMLX make repeat
 /// launches across sibling app processes idempotent.
-public actor OMLXServiceController: OMLXServiceStarting {
+public actor OMLXServiceController: OMLXServiceStarting, AIHostLaunching {
     public static let shared = OMLXServiceController()
 
     public typealias LaunchAction = @Sendable () async throws -> Void
@@ -58,6 +58,21 @@ public actor OMLXServiceController: OMLXServiceStarting {
     public init(launchAction: @escaping LaunchAction) {
         self.launchAction = launchAction
     }
+
+    /// `AIHostLaunching`: launch the companion app when Rust reports that its
+    /// control socket is absent. The control protocol and the readiness wait
+    /// themselves live in Rust (`impress_ai::omlx_control`); this only asks
+    /// Launch Services to open the app.
+    public func launchApplication(bundleId: String) async throws {
+        guard bundleId == Self.bundleIdentifier else {
+            throw OMLXServiceControllerError.controlUnavailable("unsupported companion application \(bundleId)")
+        }
+        logInfo("Launching \(bundleId) through Launch Services", category: "ai.local-service")
+        try await Self.launchInstalledApplication()
+    }
+
+    /// The oMLX companion app.
+    public static let bundleIdentifier = "app.omlx"
 
     public func startOMLX() async throws {
         if let launchTask {

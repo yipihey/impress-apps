@@ -109,6 +109,26 @@ public actor AICredentialManager {
         }
     }
 
+    /// Deletes exactly the fields a provider declares.
+    public func deleteAll(for providerId: String, fields: [AICredentialField]) async {
+        for field in fields {
+            await delete(for: providerId, field: field.id)
+        }
+    }
+
+    /// Copies the given fields from one provider id to another (used when a
+    /// provider is split or renamed). Existing destination values are kept
+    /// unless `overwrite` is set.
+    public func copy(fields: [String], from source: String, to destination: String, overwrite: Bool = false) async throws {
+        for field in fields {
+            guard let value = await retrieve(for: source, field: field), !value.isEmpty else { continue }
+            if !overwrite, let existing = await retrieve(for: destination, field: field), !existing.isEmpty {
+                continue
+            }
+            try await store(value, for: destination, field: field)
+        }
+    }
+
     /// Validates an API key format.
     ///
     /// - Parameters:
