@@ -328,7 +328,7 @@ public actor AIMultiModelExecutor {
     }
 
     private func prepareForExecution() async {
-        await providerManager.registerAllProviders()
+        await providerManager.registerBuiltInProviders()
         await categoryManager.ensureAssignmentsLoaded()
     }
 

@@ -10,6 +10,7 @@
 
 import Foundation
 import ImpressAI
+import ImpressKit
 import ImpressLogging
 @preconcurrency import ImpressRustCore
 import Observation
@@ -123,7 +124,14 @@ final class AIConversationWorkspaceModel {
         #if os(macOS)
         isCheckingHost = true
         do {
-            try await OMLXServiceController.shared.startOMLX()
+            // Rust decides whether the managed local endpoint may be started
+            // (auto-start preference, loopback-8000 policy) and waits for it;
+            // Swift only launches oMLX.app when Rust asks.
+            let manager = AIProviderManager.shared
+            await manager.registerBuiltInProviders()
+            if let provider = await manager.provider(for: "omlx") as? any AIServiceActivatingProvider {
+                try await provider.activateServiceIfNeeded()
+            }
             isCheckingHost = false
             await refreshHost()
         } catch {
@@ -669,7 +677,7 @@ private struct AIModelHostCard: View {
                         .controlSize(.small)
                 }
             }
-            Text(status?.endpoint ?? OpenAICompatibleProvider.defaultEndpoint.absoluteString)
+            Text(status?.endpoint ?? "http://127.0.0.1:\(SiblingApp.Services.omlxPort)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

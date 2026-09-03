@@ -159,16 +159,6 @@ public actor AIProviderManager {
         }
     }
 
-    /// Kept for callers written against the extended-provider era; the
-    /// registry now supplies every provider.
-    public func registerAllProviders() async {
-        await registerBuiltInProviders()
-    }
-
-    /// Whether extended Rust-backed providers are available. Always true now
-    /// that the registry is the only source of providers.
-    public nonisolated var hasExtendedProviders: Bool { true }
-
     // MARK: - Preferences
 
     /// Re-read the device selection (another app or an agent may have

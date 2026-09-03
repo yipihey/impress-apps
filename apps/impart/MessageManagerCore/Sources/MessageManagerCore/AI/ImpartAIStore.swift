@@ -156,9 +156,14 @@ public actor ImpartAIStore {
     /// Device-local model-host state shaped by Rust. Endpoint/token remain in
     /// the suite keychain and are never written to the synced item graph.
     public func configuredModelHostStatus() async throws -> AiModelHostStatus {
-        let providerID = OpenAICompatibleProvider.providerId
-        let endpoint = await credentialManager.retrieve(for: providerID, field: "endpoint")
-            ?? OpenAICompatibleProvider.defaultEndpoint.absoluteString
+        // The endpoint is the registry's (preference override or catalogue
+        // default, ADR-0029); the key stays in the keychain under the
+        // provider's own id.
+        let providerID = "omlx"
+        await AIProviderManager.shared.registerBuiltInProviders()
+        let descriptor = await AIProviderManager.shared.descriptors.first { $0.id == providerID }
+        let endpoint = descriptor?.endpoint ?? descriptor?.defaultEndpoint
+            ?? "http://127.0.0.1:\(SiblingApp.Services.omlxPort)"
         let apiKey = await credentialManager.retrieve(for: providerID, field: "apiKey")
         aiStoreLog.infoCapture(
             "Discovery: inspecting configured oMLX host (endpoint)", category: "ai-host")

@@ -31,15 +31,18 @@
 //!
 //! # Parsing is tolerant by design
 //!
-//! `impress-llm` has no structured-output mode (the same limitation
-//! `classify_llm` documents), so [`parse_reply`] salvage-parses: strict parse
+//! The registry has no structured-output guarantee across providers (the
+//! same limitation `classify_llm` documents), so [`parse_reply`] salvage-parses: strict parse
 //! first, then the first `[...]` block in the reply (tolerating surrounding
 //! prose), then each array element independently — a title or body missing
 //! or mistyped on one proposed claim drops only that claim, never the rest
 //! of the response.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use impress_llm::{complete_sync, LLMMessage, LLMRequest, LLMRole};
+use impress_ai::blocking::complete_text_sync;
+use impress_ai::{AiRegistry, ResolveTarget};
 
 /// Claims proposed per window, before gating. High enough that a rich window
 /// still gets its best few ideas across; low enough that one distillation
@@ -211,39 +214,37 @@ fn parse_one(value: &serde_json::Value) -> Option<ParsedClaim> {
     })
 }
 
-/// LLM-backed [`ClaimDistiller`] via `impress-llm`. Configuration mirrors
-/// `impel_enrichment::classify_llm::LlmClassifier` exactly — same three env
-/// vars, same all-or-nothing `from_env`, same temperature-0.0 pin:
-///
-/// - `IMPEL_LLM_PROVIDER` — e.g. `groq`, `mistral`, `deepseek`
-/// - `IMPEL_LLM_MODEL`    — provider-specific model id
-/// - `IMPEL_LLM_API_KEY`  — the key, passed per-request
+/// LLM-backed [`ClaimDistiller`] over the Rust AI registry (ADR-0029).
+/// Configuration mirrors `impel_enrichment::classify_llm::LlmClassifier`
+/// exactly — the same `AiRegistry::daemon_target` rule over the
+/// `agent.memory` task category (or the one-release `IMPEL_LLM_*` override),
+/// the same temperature-0.0 pin.
 pub struct LlmDistiller {
-    provider: String,
-    model: String,
-    api_key: String,
+    registry: Arc<AiRegistry>,
+    target: ResolveTarget,
     model_id: String,
 }
 
+/// The task category whose primary model runs this tier.
+pub const CATEGORY: &str = "agent.memory";
+
 impl LlmDistiller {
-    pub fn new(provider: String, model: String, api_key: String) -> Self {
-        let model_id = format!("{provider}/{model}");
+    pub fn new(registry: Arc<AiRegistry>, target: ResolveTarget) -> Self {
+        let model_id = registry.describe_target(&target);
         Self {
-            provider,
-            model,
-            api_key,
+            registry,
+            target,
             model_id,
         }
     }
 
-    /// Build from `IMPEL_LLM_*` env vars; `None` when unconfigured — a
-    /// caller then leaves the tier disabled, exactly like the classifier and
-    /// the throughline drafter fall back to their deterministic tiers.
-    pub fn from_env() -> Option<Self> {
-        let provider = std::env::var("IMPEL_LLM_PROVIDER").ok()?;
-        let model = std::env::var("IMPEL_LLM_MODEL").ok()?;
-        let api_key = std::env::var("IMPEL_LLM_API_KEY").ok()?;
-        Some(Self::new(provider, model, api_key))
+    /// Build from the registry's daemon target for [`CATEGORY`]; `None`
+    /// when unconfigured — a caller then leaves the tier disabled, exactly
+    /// like the classifier and the throughline drafter fall back to their
+    /// deterministic tiers.
+    pub fn from_registry(registry: Arc<AiRegistry>) -> Option<Self> {
+        let target = registry.daemon_target(CATEGORY)?;
+        Some(Self::new(registry, target))
     }
 }
 
@@ -254,25 +255,18 @@ impl ClaimDistiller for LlmDistiller {
     }
 
     async fn distill(&self, prompt: &str) -> Result<String, String> {
-        let request = LLMRequest {
-            provider: self.provider.clone(),
-            model: self.model.clone(),
-            messages: vec![LLMMessage {
-                role: LLMRole::User,
-                content: prompt.to_string(),
-            }],
-            max_tokens: Some(1024),
-            temperature: Some(0.0),
-            top_p: None,
-            api_key: self.api_key.clone(),
-        };
-        // impress-llm is blocking by design; hop off the async worker — same
-        // arrangement as classify_llm and llm_drafter.
-        tokio::task::spawn_blocking(move || complete_sync(&request))
-            .await
-            .map_err(|e| format!("distillation task panicked: {e}"))?
-            .map(|response| response.content)
-            .map_err(|e| format!("{e}"))
+        let registry = Arc::clone(&self.registry);
+        let target = self.target.clone();
+        let prompt = prompt.to_string();
+        // The registry call blocks on its own runtime; hop off the async
+        // worker — same arrangement as classify_llm and llm_drafter.
+        tokio::task::spawn_blocking(move || {
+            complete_text_sync(&registry, &target, None, &prompt, 1024, Some(0.0))
+        })
+        .await
+        .map_err(|e| format!("distillation task panicked: {e}"))?
+        .map(|(_, text)| text)
+        .map_err(|e| format!("{e}"))
     }
 }
 

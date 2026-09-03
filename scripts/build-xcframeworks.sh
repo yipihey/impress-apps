@@ -25,7 +25,6 @@ ALL_CRATES=(
     "implore-core"
     "impart-core"
     "impress-store-ffi"
-    "impress-llm"
     "impress-helix"
     "scix-client-ffi"
     "impel-tools"
