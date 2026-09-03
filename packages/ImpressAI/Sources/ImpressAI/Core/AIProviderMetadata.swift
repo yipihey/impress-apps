@@ -85,6 +85,23 @@ public struct AIModel: Sendable, Identifiable, Equatable, Codable {
     /// Model-specific capabilities (may differ from provider capabilities).
     public let capabilities: AICapabilities?
 
+    /// Whether a local host currently has the model in memory (nil when the
+    /// provider does not report load state).
+    public let isLoaded: Bool?
+
+    /// The provider's own default model, as reported by the host.
+    public let isServerDefault: Bool
+
+    /// Helper pseudo-models (document converters) are listed for
+    /// transparency but never selectable for chat.
+    public let isHelper: Bool
+
+    /// Coarse family reported by the host: `llm`, `vlm`, `embedding`, `helper`.
+    public let kind: String?
+
+    /// Upstream repository the weights came from, when known.
+    public let sourceRepo: String?
+
     public init(
         id: String,
         name: String,
@@ -92,7 +109,12 @@ public struct AIModel: Sendable, Identifiable, Equatable, Codable {
         contextWindow: Int? = nil,
         maxOutputTokens: Int? = nil,
         isDefault: Bool = false,
-        capabilities: AICapabilities? = nil
+        capabilities: AICapabilities? = nil,
+        isLoaded: Bool? = nil,
+        isServerDefault: Bool = false,
+        isHelper: Bool = false,
+        kind: String? = nil,
+        sourceRepo: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -101,6 +123,32 @@ public struct AIModel: Sendable, Identifiable, Equatable, Codable {
         self.maxOutputTokens = maxOutputTokens
         self.isDefault = isDefault
         self.capabilities = capabilities
+        self.isLoaded = isLoaded
+        self.isServerDefault = isServerDefault
+        self.isHelper = isHelper
+        self.kind = kind
+        self.sourceRepo = sourceRepo
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, description, contextWindow, maxOutputTokens, isDefault, capabilities
+        case isLoaded, isServerDefault, isHelper, kind, sourceRepo
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        contextWindow = try container.decodeIfPresent(Int.self, forKey: .contextWindow)
+        maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
+        isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        capabilities = try container.decodeIfPresent(AICapabilities.self, forKey: .capabilities)
+        isLoaded = try container.decodeIfPresent(Bool.self, forKey: .isLoaded)
+        isServerDefault = try container.decodeIfPresent(Bool.self, forKey: .isServerDefault) ?? false
+        isHelper = try container.decodeIfPresent(Bool.self, forKey: .isHelper) ?? false
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        sourceRepo = try container.decodeIfPresent(String.self, forKey: .sourceRepo)
     }
 }
 

@@ -95,7 +95,7 @@ public struct AIModelReference: Codable, Sendable, Hashable, Identifiable {
 // MARK: - Category Assignment
 
 /// Assignment of models to a task category.
-public struct AITaskCategoryAssignment: Codable, Sendable, Identifiable {
+public struct AITaskCategoryAssignment: Codable, Sendable, Identifiable, Equatable {
     /// The category ID this assignment is for.
     public let categoryId: String
 
