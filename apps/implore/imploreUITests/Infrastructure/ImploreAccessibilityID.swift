@@ -65,6 +65,7 @@ enum ImploreAccessibilityID {
             static let rendering = "settings.tabs.rendering"
             static let colormaps = "settings.tabs.colormaps"
             static let keyboard = "settings.tabs.keyboard"
+            static let ai = "settings.tabs.ai"
         }
 
         enum General {

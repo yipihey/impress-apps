@@ -43,6 +43,8 @@ packages:
     path: ../../packages/ImpressKeyboard
   ImpressRustCore:
     path: ../../packages/ImpressRustCore
+  ImpressAI:
+    path: ../../packages/ImpressAI
   ImpressSpotlight:
     path: ../../packages/ImpressSpotlight
   # Stage 2-B (GUI unification): the shared chassis lives in
@@ -96,7 +98,6 @@ targets:
       - path: Implore/Sources
         excludes:
           - "**/.DS_Store"
-          - "**/AI/**"
     settings:
       base:
         INFOPLIST_FILE: Implore/Info.plist
@@ -117,6 +118,7 @@ targets:
       - package: ImpressKit
       - package: ImpressKeyboard
       - package: ImpressSpotlight
+      - package: ImpressAI
       - package: PublicationManagerCore
     info:
       path: Implore/Info.plist

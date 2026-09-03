@@ -21,6 +21,7 @@
 //  (no Spotlight accessor).
 //
 
+import ImpressAI
 import ImpressHelixCore
 import ImpressSpotlight
 import PublicationManagerCore
@@ -41,7 +42,7 @@ struct SettingsView: View {
 
 /// implore's settings registrations.
 ///
-/// Four factories for five tabs. **Spotlight is absent because it is a chassis
+/// Five factories for six tabs. **Spotlight is absent because it is a chassis
 /// builtin**, and it is the clearest case in the suite: implore's tab body was
 /// literally `Form { SpotlightSettingsSection() }.formStyle(.grouped)`, which is
 /// `SpotlightSettingsPane` character for character. That pane is exactly what a
@@ -51,6 +52,10 @@ struct SettingsView: View {
 /// implore does NOT adopt the `appearance` builtin, and that is deliberate rather
 /// than an oversight: implore has no appearance tab. Adding one would grow the
 /// app's settings surface, which is a product decision and not part of a reframe.
+///
+/// `.ai` (ADR-0029) is the shared `AISettingsView` over the Rust-owned suite
+/// selection, with implore's two AI features named underneath so the pane
+/// configures something the app actually runs.
 enum ImploreSettingsSections {
 
     static let factories: [SettingsSectionFactory] = [
@@ -58,6 +63,7 @@ enum ImploreSettingsSections {
         SettingsSectionFactory(section: .rendering) { RenderingSettingsView() },
         SettingsSectionFactory(section: .colormaps) { ColormapSettingsView() },
         SettingsSectionFactory(section: .keyboard) { KeyboardSettingsView() },
+        SettingsSectionFactory(section: .ai) { ImploreAISettingsTab() },
     ]
 
     static let registry: SettingsSectionRegistry =
@@ -243,4 +249,24 @@ struct KeyboardShortcutRow: View {
 
 #Preview {
     SettingsView()
+}
+
+// MARK: - AI
+
+/// The shared AI pane with implore's own uses of the selection listed under
+/// it: `data.generate` (describe a dataset in words, get a plot spec) and
+/// `data.interpret` (explain what a plot shows), both in `AIDataAssistant`.
+struct ImploreAISettingsTab: View {
+    var body: some View {
+        AISettingsView {
+            Section {
+                Label("Generate a plot from a description", systemImage: "wand.and.stars")
+                Label("Interpret the current plot", systemImage: "text.magnifyingglass")
+            } header: {
+                Text("Used in implore")
+            } footer: {
+                Text("Both run on the provider and model selected above — local oMLX models never leave this Mac.")
+            }
+        }
+    }
 }

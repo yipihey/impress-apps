@@ -1255,6 +1255,49 @@ badges, the Story/Edit toggle, and the long-press legend); and the extended
 `ImprintIOSApp` seed, which now writes a throughline, a `citation-usage` record
 through imprint's own writer, the folder tree and a dismissed manuscript.
 
+### Settings surface — AI pane suite-wide (ADR-0029, 2026-09-03)
+
+Every app now declares `.ai`, and every `.ai` pane is the same view
+(`ImpressAI.AISettingsView`) over the same state: the Rust-owned device
+selection in `<workspace>/ai/preferences.json`, read through the UniFFI
+`SharedAiRegistry`. Swift writes nothing of its own any more — the old
+`impressai.selected*` SharedDefaults keys are imported once
+(`AIPreferencesMigration`, helper models such as oMLX's `MarkItDown`
+dropped, `openai-compatible`@loopback:8000 remapped to `omlx`) and removed.
+
+| App | Before | After | Pane body |
+|---|---|---|---|
+| imbib | `.searchAI` (macOS) | unchanged id; inherits the new body | shared pane + embeddings section |
+| imprint | `.ai`, `.aiTasks` | unchanged; tasks pane names "Tasks run on oMLX — Qwen3.5 4B 4bit" | shared pane |
+| impel | `.ai` | unchanged; hidden `counselModel` default retired (orchestrator follows the suite selection) | shared pane |
+| impart | `.ai` | unchanged; privacy bar derives "Local" from the catalogue category | shared pane, privacy header rewritten |
+| implore | none (AI sources excluded from the target since 4948f584) | **5 → 6 tabs**: `("ai", "AI", "sparkles")` at order 45, `settings.tabs.ai`; `Sources/AI/AIDataAssistant.swift` back in the build | shared pane + "Used in implore" section |
+| impress | none ("deliberately absent": a second writer) | **2 → 3 tabs** on macOS: `("ai", "AI", "sparkles")` at order 15; iOS unchanged (`appearance` only) | shared pane |
+
+What the shared pane shows (all of it read from Rust, none of it persisted by
+opening the pane): provider picker grouped local / cloud / aggregator with an
+"Automatic (<resolved>)" row; a health line for local hosts
+(`● oMLX 0.6.4 · 2 of 10 loaded · 28.9 GB of 105 GB`) or the credential
+status for cloud ones; the model list (`AIModelPickerList`: friendly name,
+raw id, loaded dot, context window, output limit, vision, server default;
+helpers listed only behind "Show helper models" and never selectable); an
+endpoint override field and "Start oMLX when needed" for the managed local
+host; keychain-backed secret fields; Test Connection (the one action that may
+launch oMLX.app); task categories. `AIStatusMenuButton` is now a `Menu`
+hosting `AIQuickModelSwitcher` for the same selection without opening
+Settings.
+
+Frozen oracles moved in the same commit: `SettingsSurfacePhase2ContractTests`
+(`testImplorePresetIsTheFrozenSixTabInventory`,
+`testImploreTabIdentifiersAreTheOnesItShipped`,
+`testImpressPresetIsTheFrozenThreeTabInventory`; the factory-coverage scan
+of both registration files), `ImpressShellTests.testSettingsPresetIsFullyResolvable`,
+and `ImpressKitTests/SiblingServicesTests` pinning
+`SiblingApp.Services.omlxPort == 8000` against the Rust catalogue default.
+Three-point trace under `ai.preferences` (Mutation → Save → Display) in every
+app's Console; `ai.settings` logs what the pane displayed and why
+(`origin selected|first_ready|category`).
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
@@ -1298,6 +1341,12 @@ from a store it never reached is worse than no answer.
 | `store-query-service_list-items` | list-row population for any kind (WP G6): a page of envelopes, `modified` desc with an id tiebreak so paging is a partition, `total` alongside. Empty `schema_ref` walks EVERY kind. Withholds nothing — a browse that hid dismissed rows would make its own `total` a lie |
 | `docs-import-service_import-directory` | bulk "New Manuscript" + "file into folder", from a directory of markdown on disk. Ids are UUIDv5 over `"<collection>/<relative path>"`, so the run is **repeatable**: re-import updates bodies and titles in place, never duplicates, never double-files. Sets `format: "markdown"` explicitly; title from the first `# ` heading, filename stem otherwise. `dry_run` writes nothing and reports the counts the real run will produce |
 | `docs-import-service_prune-empty-manuscripts` | Delete column for placeholder shells — manuscripts with a title and no body. Reports by default; deletes only under `apply`, and never touches a manuscript whose body has content (the emptiness test is the interlock). `collection` scopes the scan; `max_body_chars` widens "empty" to "near-empty" |
+| `impress-ai-service_list-providers` | Settings › AI provider picker, every app (ADR-0029): catalogue rows with this device's endpoint, readiness and configured credential fields — never values |
+| `impress-ai-service_list-models` | the model list of the pane (`provider` optional → the resolved selection); helpers flagged, hidden models dropped |
+| `impress-ai-service_ai-preferences` | the pane's displayed state: `<workspace>/ai/preferences.json` plus its path |
+| `impress-ai-service_select-model` | picking a provider/model in ANY app's pane; rejects helper models and unknown providers exactly as the GUI does |
+| `impress-ai-service_set-provider-endpoint` | the endpoint override field (Tailscale hosts); `null` resets to the catalogue default |
+| `impress-ai-service_provider-health` | the health line (`● oMLX 0.6.4 · 2 of 10 loaded …`), passive — never launches oMLX |
 
 `binding` selects the hierarchy: `imbib` \| `manuscript` \| `figure` \|
 `generic` (the mixed-kind `collection@1.0.0` schema). Verb names and argument
