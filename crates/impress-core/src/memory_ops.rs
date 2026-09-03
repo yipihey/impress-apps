@@ -394,7 +394,18 @@ pub fn insert_memory_item(
         payload.insert("claim_type".into(), Value::String(claim_type));
     }
     if let Some(confidence) = draft.confidence {
-        payload.insert("confidence".into(), Value::Float(confidence));
+        // The schema says 0.0–1.0 and the ranker multiplies confidence
+        // straight into the score (`MemoryWeights::confidence`), so an
+        // out-of-range value — a caller stating 90 for "90%" — would outrank
+        // every honest memory forever. Clamp rather than reject: the write is
+        // still a true memory, just an over-stated one. NaN is no statement
+        // at all and is dropped like `None`.
+        if !confidence.is_nan() {
+            payload.insert(
+                "confidence".into(),
+                Value::Float(confidence.clamp(0.0, 1.0)),
+            );
+        }
     }
     let subject_refs = normalized_refs(&draft.subject_refs);
     let evidence_refs = normalized_refs(&draft.evidence_refs);
@@ -536,7 +547,10 @@ pub fn claim_heads(
 /// either side.
 ///
 /// Rejects self-supersession: an item that supersedes itself is never a head
-/// again and would vanish from recall with no way back.
+/// again and would vanish from recall with no way back. Both ends must be
+/// memory rows — a `Supersedes` edge into or out of an arbitrary record would
+/// mint retraction semantics for a kind whose readers never check them, so a
+/// mistyped id is a [`StoreError::Validation`], not a silent graph edit.
 ///
 /// **Attribution deviation, deliberate.** `ItemStore::update` hardcodes the
 /// store's `default_author`, so passing an author to it would be a lie. This
@@ -557,8 +571,14 @@ pub fn supersede(
             "an item cannot supersede itself: it would never be a head again".into(),
         ));
     }
-    if store.get(old_id)?.is_none() {
-        return Err(StoreError::NotFound(old_id));
+    for id in [old_id, new_id] {
+        let item = store.get(id)?.ok_or(StoreError::NotFound(id))?;
+        if MemoryKind::from_schema_ref(&item.schema).is_none() {
+            return Err(StoreError::Validation(format!(
+                "{id} is a '{}' item, not a memory row — supersession links memories only",
+                item.schema
+            )));
+        }
     }
 
     let metadata = reason.map(str::trim).filter(|r| !r.is_empty()).map(|r| {
@@ -593,6 +613,11 @@ pub fn supersede(
 /// [`gate_fts`] returns when it finds one. Same attribution deviation as
 /// [`supersede`] — the author reaches the operation journal through
 /// [`SqliteItemStore::apply_operation`].
+///
+/// `id` must be a memory row: `confirmations` on, say, a manuscript is not a
+/// count anything reads, and writing it would let a mistyped id silently
+/// decorate an unrelated record — so anything else is a
+/// [`StoreError::Validation`].
 pub fn confirm(
     store: &SqliteItemStore,
     id: ItemId,
@@ -600,6 +625,12 @@ pub fn confirm(
     author_kind: ActorKind,
 ) -> Result<u32, StoreError> {
     let item = store.get(id)?.ok_or(StoreError::NotFound(id))?;
+    if MemoryKind::from_schema_ref(&item.schema).is_none() {
+        return Err(StoreError::Validation(format!(
+            "{id} is a '{}' item, not a memory row — only memories take confirmations",
+            item.schema
+        )));
+    }
     let next = confirmations_of(&item).saturating_add(1);
     let batch_id = Some(Uuid::new_v4().to_string());
 
@@ -701,17 +732,75 @@ pub enum GateOutcome {
     Confirm(ItemId),
 }
 
+/// Whether two claim types may be merged by a dedup gate: equal, or either
+/// side unset. The absence of a declaration is not a declaration of
+/// difference — but "the user prefers Typst" and "Typst is faster" can be
+/// nearly the same sentence and are not the same memory, so two SET types
+/// must match exactly. A blank or whitespace-only type counts as unset, so
+/// every tier agrees regardless of how a writer spelled "nothing".
+pub fn claim_types_compatible(a: Option<&str>, b: Option<&str>) -> bool {
+    fn set(s: Option<&str>) -> Option<&str> {
+        s.map(str::trim).filter(|s| !s.is_empty())
+    }
+    match (set(a), set(b)) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
+}
+
+/// Whether the row at `id` may absorb a dedup-gate confirmation for a draft
+/// carrying `draft_claim_type` — the ONE eligibility policy every gate tier
+/// applies (the FTS tier here in [`gate_fts`], the vector tier in
+/// `impress-memory-service`), so the tiers can never drift apart candidate
+/// by candidate.
+///
+/// `true` iff the row exists, is a memory row, nothing supersedes it, it is
+/// not withheld (`no_recall`), and its `claim_type` is compatible with the
+/// draft's ([`claim_types_compatible`]). A superseded memory must never
+/// absorb a confirmation — that would strengthen the version its replacement
+/// already retracted — and a withheld one must not either: `forget` took it
+/// out of recall, and a re-remember of the same prose must fall through to a
+/// fresh row rather than silently feeding the hidden one.
+///
+/// Deliberately a per-id predicate rather than a membership set: a set of
+/// eligible rows has to be built through some capped page, and absence from
+/// the page then reads as ineligibility. [`claim_heads`] caps at
+/// [`MAX_RECALL_LIMIT`], so a page-based check silently stops deduplicating
+/// against exactly the oldest, best-established heads once a kind grows past
+/// 200 of them.
+pub fn absorbs_confirmation(
+    store: &SqliteItemStore,
+    id: ItemId,
+    draft_claim_type: Option<&str>,
+) -> Result<bool, StoreError> {
+    let Some(item) = store.get(id)? else {
+        return Ok(false);
+    };
+    if MemoryKind::from_schema_ref(&item.schema).is_none() {
+        return Ok(false);
+    }
+    if is_superseded(store, id)? || no_recall(&item) {
+        return Ok(false);
+    }
+    Ok(claim_types_compatible(
+        draft_claim_type,
+        string_field(&item, "claim_type").as_deref(),
+    ))
+}
+
 /// Decide whether a draft is new or a restatement of something already stored.
 ///
 /// Returns [`GateOutcome::Confirm`] for the best-scoring near-duplicate at or
-/// above `threshold` whose `claim_type` is compatible with the draft's — where
-/// compatible means equal, or either side unset. A different `claim_type` is
-/// never merged: "the user prefers Typst" and "Typst is faster" can be nearly
-/// the same sentence and are not the same memory.
+/// above `threshold` that [`absorbs_confirmation`] accepts: a live memory row
+/// (nothing supersedes it, not withheld by `forget`) whose `claim_type` is
+/// compatible with the draft's — where compatible means equal, or either side
+/// unset. A different `claim_type` is never merged: "the user prefers Typst"
+/// and "Typst is faster" can be nearly the same sentence and are not the same
+/// memory.
 ///
-/// Candidates are walked in descending overlap, so a near-duplicate whose
-/// `claim_type` disagrees does not block a slightly-lower-scoring one that
-/// agrees; if none of them agree the outcome is [`GateOutcome::Insert`].
+/// Candidates are walked in descending overlap, so an ineligible
+/// near-duplicate does not block a slightly-lower-scoring eligible one; if
+/// none qualify the outcome is [`GateOutcome::Insert`].
 ///
 /// This function never writes. The caller applies the outcome, which keeps
 /// "what would this do?" answerable without touching the store.
@@ -725,20 +814,7 @@ pub fn gate_fts(
     let draft_type = trimmed(&draft.claim_type);
 
     for candidate in candidates.iter().take_while(|c| c.overlap >= threshold) {
-        let Some(item) = store.get(candidate.id)? else {
-            continue;
-        };
-        // A superseded memory must never absorb a confirmation: confirming it
-        // would strengthen the version its replacement already retracted.
-        if is_superseded(store, candidate.id)? {
-            continue;
-        }
-        let stored_type = string_field(&item, "claim_type");
-        let compatible = match (&draft_type, &stored_type) {
-            (Some(a), Some(b)) => a == b,
-            _ => true,
-        };
-        if compatible {
+        if absorbs_confirmation(store, candidate.id, draft_type.as_deref())? {
             return Ok(GateOutcome::Confirm(candidate.id));
         }
     }
@@ -1519,6 +1595,20 @@ mod ranking_tests {
         );
     }
 
+    /// The one claim-type rule both gate tiers share: equal, or either side
+    /// unset — with every blank spelling of "nothing" counting as unset
+    /// rather than as a third type.
+    #[test]
+    fn claim_type_compatibility_is_equal_or_either_unset() {
+        assert!(claim_types_compatible(None, None));
+        assert!(claim_types_compatible(Some("fact"), None));
+        assert!(claim_types_compatible(None, Some("fact")));
+        assert!(claim_types_compatible(Some("fact"), Some("fact")));
+        assert!(!claim_types_compatible(Some("fact"), Some("preference")));
+        assert!(claim_types_compatible(Some("   "), Some("fact")));
+        assert!(claim_types_compatible(Some("fact"), Some("")));
+    }
+
     #[test]
     fn probe_text_is_bounded_and_stripped() {
         let long: String = (0..100)
@@ -1574,6 +1664,46 @@ mod tests {
                 parent: None,
             })
             .expect("insert subject")
+    }
+
+    /// A claim written at an explicit `modified` time — `insert` preserves
+    /// the timestamps it is handed — for tests that need a deterministic
+    /// recency order regardless of wall-clock resolution.
+    fn memory_claim_at(
+        store: &SqliteItemStore,
+        title: &str,
+        body: &str,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> ItemId {
+        let mut payload: BTreeMap<String, Value> = BTreeMap::new();
+        payload.insert("title".into(), Value::String(title.into()));
+        payload.insert("body".into(), Value::String(body.into()));
+        store
+            .insert(Item {
+                id: Uuid::new_v4(),
+                schema: MEMORY_CLAIM_SCHEMA.into(),
+                payload,
+                created: at,
+                modified: at,
+                author: "tester".into(),
+                author_kind: ActorKind::Human,
+                logical_clock: 0,
+                origin: None,
+                canonical_id: None,
+                tags: vec![],
+                flag: None,
+                is_read: false,
+                is_starred: false,
+                priority: Priority::Normal,
+                visibility: Visibility::Private,
+                message_type: None,
+                produced_by: None,
+                version: Some("1.0.0".into()),
+                batch_id: None,
+                references: vec![],
+                parent: None,
+            })
+            .expect("insert memory claim")
     }
 
     fn draft(kind: MemoryKind, title: &str, body: &str) -> MemoryDraft {
@@ -1748,6 +1878,22 @@ mod tests {
         ));
     }
 
+    /// A confidence of 90 (a caller stating a percentage) must not become a
+    /// ranking signal ninety times stronger than full confidence.
+    #[test]
+    fn confidence_is_clamped_into_the_unit_interval() {
+        let store = open();
+        let mut high = draft(MemoryKind::Claim, "High", "Stated as a percentage.");
+        high.confidence = Some(90.0);
+        let mut low = draft(MemoryKind::Claim, "Low", "Stated below zero somehow.");
+        low.confidence = Some(-0.5);
+
+        let high = insert_memory_item(&store, &high).unwrap();
+        let low = insert_memory_item(&store, &low).unwrap();
+        assert_eq!(float_field(&get(&store, high), "confidence"), Some(1.0));
+        assert_eq!(float_field(&get(&store, low), "confidence"), Some(0.0));
+    }
+
     /// Kind-specific fields ride in `extra`; the typed fields win a collision,
     /// so `extra` can never rewrite the body a caller passed explicitly.
     #[test]
@@ -1898,6 +2044,37 @@ mod tests {
         ));
     }
 
+    /// A mistyped id must not decorate an arbitrary record with confirmation
+    /// fields, or link it into the supersession graph.
+    #[test]
+    fn confirm_and_supersede_refuse_a_non_memory_target() {
+        let store = open();
+        let plain = subject_item(&store, "Manuscript");
+        let memory = write(&store, MemoryKind::Claim, "M", "A memory body.");
+
+        assert!(matches!(
+            confirm(&store, plain, "tester", ActorKind::Human),
+            Err(StoreError::Validation(_))
+        ));
+        assert!(
+            !get(&store, plain).payload.contains_key(CONFIRMATIONS_FIELD),
+            "the refused confirm must write nothing"
+        );
+
+        assert!(matches!(
+            supersede(&store, plain, memory, None, "tester", ActorKind::Human),
+            Err(StoreError::Validation(_))
+        ));
+        assert!(matches!(
+            supersede(&store, memory, plain, None, "tester", ActorKind::Human),
+            Err(StoreError::Validation(_))
+        ));
+        assert!(
+            get(&store, memory).references.is_empty() && get(&store, plain).references.is_empty(),
+            "the refused supersessions must write no edge in either direction"
+        );
+    }
+
     // ─── The gate ────────────────────────────────────────────────────────
 
     #[test]
@@ -1979,6 +2156,101 @@ mod tests {
             gate_fts(&store, &restatement, GATE_CONFIRM_THRESHOLD).unwrap(),
             GateOutcome::Insert
         );
+    }
+
+    /// `forget` withholds a row from recall; the gate must not quietly
+    /// strengthen it either. A re-remember of the same prose falls through
+    /// to a fresh insert.
+    #[test]
+    fn the_gate_never_confirms_a_withheld_memory() {
+        let store = open();
+        let body = "The nightly export writes into the scratch volume.";
+        let hidden = write(&store, MemoryKind::Claim, "Export", body);
+        store
+            .update(
+                hidden,
+                vec![FieldMutation::SetPayload(
+                    NO_RECALL_FIELD.into(),
+                    Value::Bool(true),
+                )],
+            )
+            .unwrap();
+
+        let restatement = draft(MemoryKind::Claim, "Export", body);
+        assert_eq!(
+            gate_fts(&store, &restatement, GATE_CONFIRM_THRESHOLD).unwrap(),
+            GateOutcome::Insert
+        );
+    }
+
+    /// The eligibility policy in one pass: only a live, non-withheld memory
+    /// row absorbs, and everything else answers `false` rather than erroring
+    /// — the gates walk candidate lists, and one bad id must not abort a
+    /// whole gate.
+    #[test]
+    fn absorbs_confirmation_screens_out_every_ineligible_row() {
+        let store = open();
+        let live = write(&store, MemoryKind::Claim, "Live", "Still current.");
+        let old = write(&store, MemoryKind::Claim, "Old", "Replaced later.");
+        supersede(&store, old, live, None, "tester", ActorKind::Human).unwrap();
+        let withheld = write(&store, MemoryKind::Claim, "Quiet", "Withheld on request.");
+        store
+            .update(
+                withheld,
+                vec![FieldMutation::SetPayload(
+                    NO_RECALL_FIELD.into(),
+                    Value::Bool(true),
+                )],
+            )
+            .unwrap();
+        let plain = subject_item(&store, "Not a memory");
+
+        assert!(absorbs_confirmation(&store, live, None).unwrap());
+        assert!(!absorbs_confirmation(&store, old, None).unwrap());
+        assert!(!absorbs_confirmation(&store, withheld, None).unwrap());
+        assert!(!absorbs_confirmation(&store, plain, None).unwrap());
+        assert!(!absorbs_confirmation(&store, Uuid::new_v4(), None).unwrap());
+    }
+
+    #[test]
+    fn absorbs_confirmation_applies_the_claim_type_rule() {
+        let store = open();
+        let mut d = draft(MemoryKind::Claim, "Typed", "A typed claim body.");
+        d.claim_type = Some("fact".into());
+        let typed = insert_memory_item(&store, &d).unwrap();
+
+        assert!(absorbs_confirmation(&store, typed, Some("fact")).unwrap());
+        assert!(absorbs_confirmation(&store, typed, None).unwrap());
+        assert!(!absorbs_confirmation(&store, typed, Some("preference")).unwrap());
+    }
+
+    /// The policy is a per-id predicate, never membership in a head page:
+    /// `claim_heads` caps at [`MAX_RECALL_LIMIT`], so a well-established head
+    /// older than the newest 200 is absent from that page while being exactly
+    /// the row a gate must still confirm.
+    #[test]
+    fn an_old_head_beyond_the_recency_page_still_absorbs() {
+        let store = open();
+        let t0 = chrono::Utc::now() - chrono::Duration::hours(1);
+        let old = memory_claim_at(&store, "Old head", "The oldest still-true claim.", t0);
+        for n in 0..MAX_RECALL_LIMIT {
+            memory_claim_at(
+                &store,
+                &format!("Filler {n}"),
+                &format!("Filler body number {n}."),
+                t0 + chrono::Duration::seconds(n as i64 + 1),
+            );
+        }
+
+        let page: BTreeSet<ItemId> = claim_heads(&store, MEMORY_CLAIM_SCHEMA, MAX_RECALL_LIMIT)
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert!(
+            !page.contains(&old),
+            "the scenario needs the old head off the recency page"
+        );
+        assert!(absorbs_confirmation(&store, old, None).unwrap());
     }
 
     #[test]

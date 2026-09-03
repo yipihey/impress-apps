@@ -43,7 +43,7 @@
 //! invents, the established convention for a service-authored write in this
 //! crate family.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use impress_core::item::{ActorKind, ItemId, Value};
@@ -65,7 +65,7 @@ use impress_service_macros::impress_method;
 // DTOs
 // ---------------------------------------------------------------------------
 
-/// Result of [`MemoryService::remember`] and [`MemoryService::supersede_claim`].
+/// Result of [`MemoryService::remember`].
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RememberResult {
     pub ok: bool,
@@ -91,6 +91,24 @@ pub struct RememberResult {
     pub message: String,
 }
 
+/// Result of [`MemoryService::supersede_claim`].
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SupersedeResult {
+    pub ok: bool,
+    /// The replacement row's id. On success, the row now representing the
+    /// memory. On the one partial failure this verb has — the replacement WAS
+    /// written but recording the supersession edge failed — `ok` is `false`
+    /// and this still names the written row rather than pretending nothing
+    /// happened (the old row simply remains a head alongside it, and calling
+    /// again would write a second replacement). Empty when nothing was
+    /// written at all.
+    pub new_id: String,
+    /// The superseded row, echoed back. It is left completely untouched —
+    /// audit and `include_superseded` recalls can still see it.
+    pub old_id: String,
+    pub message: String,
+}
+
 /// One recalled memory, hydrated and scored.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RecallEntryDto {
@@ -99,6 +117,8 @@ pub struct RecallEntryDto {
     /// One of the three memory schema refs (`memory/claim@1.0.0`, …).
     pub schema_ref: String,
     pub title: String,
+    /// The memory itself. A pathologically large stored body arrives cut at
+    /// [`MAX_BODY_BYTES`] with a trailing `… [truncated]` marker.
     pub body: String,
     /// Only meaningful when `schema_ref` is a claim.
     pub claim_type: Option<String>,
@@ -115,13 +135,41 @@ pub struct RecallEntryDto {
     pub subject_refs: Vec<String>,
 }
 
+/// Hard cap on one `body` crossing the DTO boundary — recall entries and
+/// brief sections both — mirroring `impress-store-service`'s
+/// `MAX_PAYLOAD_BYTES` (32 KiB) precedent for `get_item`: a recall page feeds
+/// a context window or a tool result, and one pathological memory body must
+/// not blow either up. Structured truncation, not rejection — the entry still
+/// arrives, marked.
+pub const MAX_BODY_BYTES: usize = 32 * 1024;
+
+/// Appended to a body cut at [`MAX_BODY_BYTES`], so a consumer can tell a
+/// truncated body from one that merely ends abruptly.
+const BODY_TRUNCATION_MARKER: &str = "… [truncated]";
+
+/// `body` unchanged when it fits; otherwise cut to [`MAX_BODY_BYTES`] on a
+/// UTF-8 character boundary — a byte-exact cut could split a codepoint and
+/// yield an invalid string — with [`BODY_TRUNCATION_MARKER`] appended.
+fn cap_body(body: String) -> String {
+    if body.len() <= MAX_BODY_BYTES {
+        return body;
+    }
+    let mut cut = MAX_BODY_BYTES;
+    while cut > 0 && !body.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let mut out = body[..cut].to_string();
+    out.push_str(BODY_TRUNCATION_MARKER);
+    out
+}
+
 impl From<memory_ops::RecallEntry> for RecallEntryDto {
     fn from(e: memory_ops::RecallEntry) -> Self {
         Self {
             id: e.id,
             schema_ref: e.schema_ref,
             title: e.title,
-            body: e.body,
+            body: cap_body(e.body),
             claim_type: e.claim_type,
             confidence: e.confidence.map(|f| f as f64),
             confirmations: e.confirmations,
@@ -276,6 +324,8 @@ pub trait MemoryService: Send + Sync + 'static {
     /// label — the vocabulary is open) and `confidence` (0.0–1.0) may be left
     /// as an empty string / a negative number respectively to mean
     /// "unstated" — that is NOT the same as zero and is not scored as zero.
+    /// A confidence above 1.0 is stored as 1.0, never as a ranking signal
+    /// stronger than full confidence.
     /// `subject_refs` are the lowercase-UUID ids of items this memory is
     /// ABOUT; `evidence_refs` are the ids it was DERIVED FROM (a transcript,
     /// a paper, a run). Either may be empty. An id that does not resolve to a
@@ -357,11 +407,14 @@ pub trait MemoryService: Send + Sync + 'static {
     #[impress_method]
     async fn confirm_claim(&self, id: String) -> ActionResult;
 
-    /// Retract a claim by REPLACING it: writes a new claim from `title` /
-    /// `body`, then records that it supersedes `old_id`. The old row is left
-    /// completely untouched (it stays in the graph for audit — pass
-    /// `include_superseded: true` to a later `recall` to see it again); this
-    /// only stops it being returned by default.
+    /// Retract a memory by REPLACING it: writes a new memory of the SAME
+    /// KIND as `old_id` from `title` / `body` — an instruction's correction
+    /// stays an instruction, an episode's stays an episode — then records
+    /// that it supersedes `old_id`. The old row is left completely untouched
+    /// (it stays in the graph for audit — pass `include_superseded: true` to
+    /// a later `recall` to see it again); this only stops it being returned
+    /// by default. `old_id` must be a memory row; anything else is refused
+    /// with nothing written.
     ///
     /// Use this when a previously-remembered fact turns out to be wrong, or
     /// needs correcting or sharpening. `reason` is optional (empty string
@@ -376,7 +429,7 @@ pub trait MemoryService: Send + Sync + 'static {
         title: String,
         body: String,
         reason: String,
-    ) -> RememberResult;
+    ) -> SupersedeResult;
 
     /// Withhold a memory from `recall` and `memory_brief` WITHOUT deleting it
     /// — for something that turned out to be private, unwanted, or wrong in a
@@ -420,6 +473,23 @@ const AUTHOR: &str = "impress-memory-service";
 /// `forget_hides_a_memory_from_recall`, which asserts through the kernel's
 /// own public `recall` rather than by re-reading this field back.
 const NO_RECALL_FIELD: &str = "no_recall";
+
+/// What every write verb refuses with when the shared store could not be
+/// opened and `impress_store_service::store::store_instance` substituted an
+/// empty in-memory store. A `remember` that "succeeds" against the
+/// substitute persists nothing — the memory is gone when the process exits —
+/// and reporting `ok: true` about it would be exactly the lie
+/// `DefaultCollectionService::migration_store` refuses to tell about
+/// migrations.
+const FALLBACK_WRITE_REFUSAL: &str =
+    "shared store unavailable; refusing to write to the in-memory fallback — nothing would persist";
+
+/// The same condition, stated on read verbs. Reads stay usable — an empty
+/// page is recoverable, and `memory_status` is how the condition gets
+/// diagnosed — but their emptiness must never pass for the user's actual
+/// memory.
+const FALLBACK_READ_NOTE: &str =
+    "shared store unavailable — this reflects the empty in-memory fallback, not persisted memory";
 
 // ---------------------------------------------------------------------------
 // Vector tier (ADR-0028 D6) — opt-in, lazy, process-wide.
@@ -659,6 +729,15 @@ pub struct DefaultMemoryService {
     /// touch the env var or the process-wide static and so never race each
     /// other over either.
     vector_override: Option<Arc<VectorTierInner>>,
+    /// Test-only override forcing
+    /// [`DefaultMemoryService::resolved_store_is_fallback`] to answer `true`.
+    /// `false` in every production instance — the real answer comes from
+    /// `impress_store_service::store::store_is_fallback`, which only a failed
+    /// lazy open of the PROCESS-WIDE store can set, and which a test must
+    /// therefore never trip for real (it would poison every other test in the
+    /// binary through the same `OnceLock`s). Set only by
+    /// [`DefaultMemoryService::with_store_marked_fallback`].
+    fallback_override: bool,
 }
 
 impl DefaultMemoryService {
@@ -666,6 +745,7 @@ impl DefaultMemoryService {
         Self {
             store: None,
             vector_override: None,
+            fallback_override: false,
         }
     }
 
@@ -673,6 +753,7 @@ impl DefaultMemoryService {
         Self {
             store: Some(store),
             vector_override: None,
+            fallback_override: false,
         }
     }
 
@@ -692,6 +773,20 @@ impl DefaultMemoryService {
                 embedding_store,
                 embedder: Box::new(embedder),
             })),
+            fallback_override: false,
+        }
+    }
+
+    /// Test seam: a service that behaves as if `store_instance()` had
+    /// substituted the in-memory fallback for `store` — without tripping the
+    /// process-wide singletons the real flag lives in. See
+    /// [`DefaultMemoryService::fallback_override`].
+    #[cfg(test)]
+    fn with_store_marked_fallback(store: Arc<SqliteItemStore>) -> Self {
+        Self {
+            store: Some(store),
+            vector_override: None,
+            fallback_override: true,
         }
     }
 
@@ -699,6 +794,20 @@ impl DefaultMemoryService {
         self.store
             .clone()
             .unwrap_or_else(impress_store_service::store::store_instance)
+    }
+
+    /// Whether the store [`DefaultMemoryService::store`] resolves to is the
+    /// empty in-memory substitute rather than the user's data. An injected
+    /// store (`with_store` — tests, embedding hosts) is always trusted; only
+    /// the lazily-opened process-wide store carries the flag — the same rule
+    /// `DefaultCollectionService::migration_store` applies. Meaningful only
+    /// AFTER `store()` has resolved: the flag is recorded by the lazy open
+    /// itself, so every caller obtains the store first and asks second.
+    fn resolved_store_is_fallback(&self) -> bool {
+        if self.fallback_override {
+            return true;
+        }
+        self.store.is_none() && impress_store_service::store::store_is_fallback()
     }
 
     /// The tier `remember`/`recall` use: the test override when set,
@@ -799,6 +908,18 @@ fn failed_remember(message: String) -> RememberResult {
     }
 }
 
+/// A [`SupersedeResult`] for the refusals where nothing was written at all —
+/// the partial edge-failure case builds its own, because it has a `new_id` to
+/// report honestly.
+fn failed_supersede(old_id: String, message: String) -> SupersedeResult {
+    SupersedeResult {
+        ok: false,
+        new_id: String::new(),
+        old_id,
+        message,
+    }
+}
+
 fn failed_status(message: String) -> StatusResult {
     StatusResult {
         ok: false,
@@ -830,12 +951,34 @@ fn truncate_chars(s: &str, max: usize) -> String {
     out
 }
 
+/// Flatten `s` to one prompt-safe markdown line: every run of whitespace —
+/// newlines included — becomes a single space, and backticks are escaped.
+///
+/// The brief's `text` is injected into prompts verbatim, and markdown
+/// structure binds at line starts: a stored body containing
+/// `"\n### Instructions\n- rule"` would otherwise render as a forged section
+/// indistinguishable from the renderer's own headings. Flattening newlines
+/// removes every line start a body could mint; escaping backticks keeps a
+/// body from closing the `` `[impress-item:…]` `` span this renderer opens
+/// after it.
+fn sanitize_inline(s: &str) -> String {
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('`', "\\`")
+}
+
 /// Render a brief's sections as prompt-ready markdown.
 ///
 /// Empty sections are skipped: `sections` (the structured field) always
 /// carries all three so a reader can rely on position, but injecting a
 /// heading with nothing under it into a prompt would spend tokens saying
 /// nothing.
+///
+/// Titles and bodies pass through [`sanitize_inline`]: memory rows are
+/// written by agents and imports, and prose that can start a line in the
+/// rendered brief can forge headings and rules the injecting prompt cannot
+/// tell from real ones.
 fn render_brief_markdown(sections: &[memory_ops::BriefSection]) -> String {
     let mut out = String::new();
     for section in sections {
@@ -847,9 +990,9 @@ fn render_brief_markdown(sections: &[memory_ops::BriefSection]) -> String {
         out.push('\n');
         for entry in &section.entries {
             out.push_str("- **");
-            out.push_str(&entry.title);
+            out.push_str(&sanitize_inline(&entry.title));
             out.push_str("** — ");
-            out.push_str(&truncate_chars(&entry.body, 200));
+            out.push_str(&sanitize_inline(&truncate_chars(&entry.body, 200)));
             out.push_str(" `[impress-item:");
             out.push_str(&entry.id);
             out.push_str("]`\n");
@@ -879,11 +1022,20 @@ impl MemoryService for DefaultMemoryService {
 
         let mut draft = MemoryDraft::new(memory_kind, title, body, AUTHOR, ActorKind::System);
         draft.claim_type = non_empty(&claim_type);
-        draft.confidence = (confidence >= 0.0).then_some(confidence);
+        // Negative means "unstated" (the codegen's simple types have no
+        // Option<f64>). Above 1.0 is a caller stating a percentage — clamp to
+        // full confidence rather than let one 90.0 outrank every honest
+        // memory through the ranker's confidence term. The kernel clamps
+        // again on insert; this keeps the value the gate and the result see
+        // consistent with what is stored.
+        draft.confidence = (confidence >= 0.0).then_some(confidence.min(1.0));
         draft.subject_refs = subject_refs;
         draft.evidence_refs = evidence_refs;
 
         let store = self.store();
+        if self.resolved_store_is_fallback() {
+            return failed_remember(FALLBACK_WRITE_REFUSAL.into());
+        }
         let outcome = match memory_ops::gate_fts(&store, &draft, memory_ops::GATE_CONFIRM_THRESHOLD)
         {
             Ok(o) => o,
@@ -946,10 +1098,14 @@ impl MemoryService for DefaultMemoryService {
             Ok(entries) => {
                 let entries = self.rerank_with_vectors(&query, entries);
                 let n = entries.len();
+                let mut message = format!("{n} memor{}.", if n == 1 { "y" } else { "ies" });
+                if self.resolved_store_is_fallback() {
+                    message.push_str(&format!(" ({FALLBACK_READ_NOTE}.)"));
+                }
                 RecallResult {
                     ok: true,
                     entries: entries.into_iter().map(RecallEntryDto::from).collect(),
-                    message: format!("{n} memor{}.", if n == 1 { "y" } else { "ies" }),
+                    message,
                 }
             }
             Err(e) => RecallResult {
@@ -976,14 +1132,18 @@ impl MemoryService for DefaultMemoryService {
             Ok(sections) => {
                 let text = render_brief_markdown(&sections);
                 let total: usize = sections.iter().map(|s| s.entries.len()).sum();
+                let mut message = format!(
+                    "Brief assembled: {total} entr{}.",
+                    if total == 1 { "y" } else { "ies" }
+                );
+                if self.resolved_store_is_fallback() {
+                    message.push_str(&format!(" ({FALLBACK_READ_NOTE}.)"));
+                }
                 BriefResult {
                     ok: true,
                     sections: sections.into_iter().map(BriefSectionDto::from).collect(),
                     text,
-                    message: format!(
-                        "Brief assembled: {total} entr{}.",
-                        if total == 1 { "y" } else { "ies" }
-                    ),
+                    message,
                 }
             }
             Err(e) => BriefResult {
@@ -1003,7 +1163,15 @@ impl MemoryService for DefaultMemoryService {
                 message: "invalid UUID".into(),
             };
         };
-        match memory_ops::confirm(&self.store(), uuid, AUTHOR, ActorKind::System) {
+        let store = self.store();
+        if self.resolved_store_is_fallback() {
+            return ActionResult {
+                ok: false,
+                id,
+                message: FALLBACK_WRITE_REFUSAL.into(),
+            };
+        }
+        match memory_ops::confirm(&store, uuid, AUTHOR, ActorKind::System) {
             Ok(n) => ActionResult {
                 ok: true,
                 id: id.clone(),
@@ -1023,23 +1191,38 @@ impl MemoryService for DefaultMemoryService {
         title: String,
         body: String,
         reason: String,
-    ) -> RememberResult {
+    ) -> SupersedeResult {
         let Ok(old_uuid) = ItemId::parse_str(old_id.trim()) else {
-            return failed_remember(format!("invalid UUID: {old_id}"));
+            return failed_supersede(old_id.clone(), format!("invalid UUID: {old_id}"));
         };
         let store = self.store();
-        match store.get(old_uuid) {
-            Ok(Some(_)) => {}
-            Ok(None) => return failed_remember(format!("not found: {old_id}")),
-            Err(e) => return failed_remember(describe(e)),
+        if self.resolved_store_is_fallback() {
+            return failed_supersede(old_id, FALLBACK_WRITE_REFUSAL.into());
         }
+        let old_item = match store.get(old_uuid) {
+            Ok(Some(item)) => item,
+            Ok(None) => return failed_supersede(old_id.clone(), format!("not found: {old_id}")),
+            Err(e) => return failed_supersede(old_id, describe(e)),
+        };
+        // The replacement keeps the OLD row's kind: a correction changes what
+        // a memory says, never what kind of memory it is — an instruction's
+        // correction still binds as an instruction, an episode's is still a
+        // record of what happened. (The kernel refuses a non-memory old row
+        // too; refusing here as well keeps the replacement from being written
+        // before that refusal could fire.)
+        let Some(old_kind) = MemoryKind::from_schema_ref(&old_item.schema) else {
+            return failed_supersede(
+                old_id.clone(),
+                format!("{old_id} is a '{}' item, not a memory row", old_item.schema),
+            );
+        };
 
         // No gate: a correction is deliberate text the caller already wrote,
         // not a candidate for the dedup heuristic.
-        let draft = MemoryDraft::new(MemoryKind::Claim, title, body, AUTHOR, ActorKind::System);
+        let draft = MemoryDraft::new(old_kind, title, body, AUTHOR, ActorKind::System);
         let new_id = match memory_ops::insert_memory_item(&store, &draft) {
             Ok(id) => id,
-            Err(e) => return failed_remember(describe(e)),
+            Err(e) => return failed_supersede(old_id, describe(e)),
         };
 
         let reason_opt = non_empty(&reason);
@@ -1051,26 +1234,20 @@ impl MemoryService for DefaultMemoryService {
             AUTHOR,
             ActorKind::System,
         ) {
-            Ok(()) => RememberResult {
+            Ok(()) => SupersedeResult {
                 ok: true,
-                action: "inserted".into(),
-                claim_id: new_id.to_string(),
-                matched_id: old_id,
-                // Not a dedup-gate match — `matched_id` here names the OLD
-                // claim being superseded, a different relation entirely.
-                matched_via: String::new(),
+                new_id: new_id.to_string(),
+                old_id,
                 message: format!("{new_id} supersedes {old_uuid}."),
             },
-            // The new claim WAS written even though the supersession edge
-            // failed — report the id rather than pretending nothing happened,
-            // so the caller can retry recording the edge without re-writing
-            // the text.
-            Err(e) => RememberResult {
+            // The replacement WAS written even though the supersession edge
+            // failed — report its id rather than pretending nothing happened,
+            // so the caller is not left with an orphan row they were never
+            // told about (see [`SupersedeResult::new_id`]).
+            Err(e) => SupersedeResult {
                 ok: false,
-                action: "inserted".into(),
-                claim_id: new_id.to_string(),
-                matched_id: old_id,
-                matched_via: String::new(),
+                new_id: new_id.to_string(),
+                old_id,
                 message: format!(
                     "inserted {new_id} but failed to record supersession over {old_uuid}: {}",
                     describe(e)
@@ -1088,6 +1265,13 @@ impl MemoryService for DefaultMemoryService {
             };
         };
         let store = self.store();
+        if self.resolved_store_is_fallback() {
+            return ActionResult {
+                ok: false,
+                id,
+                message: FALLBACK_WRITE_REFUSAL.into(),
+            };
+        }
         match store.get(uuid) {
             Ok(Some(item)) if MemoryKind::from_schema_ref(&item.schema).is_some() => {
                 let outcome = store.apply_operation(OperationSpec {
@@ -1158,12 +1342,20 @@ impl MemoryService for DefaultMemoryService {
         let total_items: u32 = schemas.iter().map(|s| s.total).sum();
         let (vector_tier, embedding_coverage) = self.vector_status(total_items);
 
+        // The status verb is how the fallback condition gets diagnosed, so
+        // it must say so itself — zero counts from an empty substitute look
+        // exactly like "no memories yet" otherwise.
+        let message = if self.resolved_store_is_fallback() {
+            format!("Memory kernel status; {FALLBACK_READ_NOTE}.")
+        } else {
+            "Memory kernel status.".into()
+        };
         StatusResult {
             ok: true,
             schemas,
             embedding_coverage,
             vector_tier,
-            message: "Memory kernel status.".into(),
+            message,
         }
     }
 }
@@ -1250,23 +1442,6 @@ impl DefaultMemoryService {
                 .then_with(|| a.0.cmp(&b.0))
         });
 
-        // Live heads of this draft's kind — a candidate not in this set is
-        // superseded or withheld (`no_recall`), and must never absorb a
-        // confirmation for either reason (mirrors `gate_fts`'s own
-        // `is_superseded` check).
-        let heads: BTreeSet<ItemId> = match memory_ops::claim_heads(
-            store,
-            draft.kind.schema_ref(),
-            memory_ops::MAX_RECALL_LIMIT,
-        ) {
-            Ok(ids) => ids.into_iter().collect(),
-            Err(e) => {
-                eprintln!(
-                    "impress-memory-service: vector gate skipped this call: head lookup failed: {e}"
-                );
-                return None;
-            }
-        };
         let draft_type = draft
             .claim_type
             .as_deref()
@@ -1277,25 +1452,32 @@ impl DefaultMemoryService {
             .into_iter()
             .take_while(|(_, s)| *s >= VECTOR_CONFIRM_THRESHOLD)
         {
-            if !heads.contains(&id) {
-                continue;
-            }
+            // The sidecar holds vectors for every memory kind under one
+            // source_type; this gate is scoped to the draft's own schema,
+            // like the FTS tier — an episode is never a duplicate claim,
+            // however similar the prose.
             let Ok(Some(item)) = store.get(id) else {
                 continue;
             };
-            let stored_type = match item.payload.get("claim_type") {
-                Some(Value::String(s)) if !s.trim().is_empty() => Some(s.as_str()),
-                _ => None,
-            };
-            // Compatible means equal, or either side unset — same rule
-            // `gate_fts` applies, for the same reason: a different
-            // `claim_type` is never the same memory even at high similarity.
-            let compatible = match (draft_type, stored_type) {
-                (Some(a), Some(b)) => a == b,
-                _ => true,
-            };
-            if !compatible {
+            if item.schema != draft.kind.schema_ref() {
                 continue;
+            }
+            // Eligibility through the kernel's own per-id policy — never a
+            // membership set built from a recency page: `claim_heads` caps at
+            // `MAX_RECALL_LIMIT`, so past 200 heads a page-based check reads
+            // exactly the oldest, best-established memories as retracted and
+            // silently stops deduplicating against them. The policy screens
+            // out superseded and withheld rows and incompatible claim types,
+            // same rule `gate_fts` applies.
+            match memory_ops::absorbs_confirmation(store, id, draft_type) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(e) => {
+                    eprintln!(
+                        "impress-memory-service: vector gate skipped this call: eligibility check failed: {e}"
+                    );
+                    return None;
+                }
             }
             return Some(match memory_ops::confirm(store, id, AUTHOR, ActorKind::System) {
                 Ok(n) => RememberResult {
@@ -1428,7 +1610,7 @@ impress_service_impl! {
         recall(query: String, subject_ref: String, limit: i64, include_superseded: bool) -> RecallResult,
         memory_brief(topic: String, subject_ref: String, max_entries: i64) -> BriefResult,
         confirm_claim(id: String) -> ActionResult,
-        supersede_claim(old_id: String, title: String, body: String, reason: String) -> RememberResult,
+        supersede_claim(old_id: String, title: String, body: String, reason: String) -> SupersedeResult,
         forget(id: String) -> ActionResult,
         memory_status() -> StatusResult,
     ],
@@ -1723,13 +1905,12 @@ mod tests {
             )
             .await;
         assert!(replaced.ok, "{}", replaced.message);
-        assert_eq!(replaced.action, "inserted");
-        assert_ne!(replaced.claim_id, old.claim_id);
-        assert_eq!(replaced.matched_id, old.claim_id);
+        assert_ne!(replaced.new_id, old.claim_id);
+        assert_eq!(replaced.old_id, old.claim_id);
 
         let found = svc.recall("flux".into(), String::new(), 0, false).await;
         let ids: Vec<&str> = found.entries.iter().map(|e| e.id.as_str()).collect();
-        assert!(ids.contains(&replaced.claim_id.as_str()), "{ids:?}");
+        assert!(ids.contains(&replaced.new_id.as_str()), "{ids:?}");
         assert!(
             !ids.contains(&old.claim_id.as_str()),
             "the superseded claim must not recall by default: {ids:?}"
@@ -1758,9 +1939,9 @@ mod tests {
             .await;
         assert!(!bad.ok);
         assert!(bad.message.contains("not found"), "{}", bad.message);
-        // Nothing orphaned: no claim id was minted for a supersession that
-        // never happened.
-        assert!(bad.claim_id.is_empty());
+        // Nothing orphaned: no replacement was written for a supersession
+        // that never happened.
+        assert!(bad.new_id.is_empty());
     }
 
     #[tokio::test]
@@ -1802,6 +1983,264 @@ mod tests {
         let r = svc.forget(plain.clone()).await;
         assert!(!r.ok);
         assert!(r.message.contains("not a memory row"), "{}", r.message);
+    }
+
+    /// A withheld row must never absorb the dedup gate's confirmation: the
+    /// user forgot it, and restating the same prose later is a NEW memory,
+    /// not silent evidence for the hidden one.
+    #[tokio::test]
+    async fn re_remembering_after_forget_inserts_a_fresh_row() {
+        let svc = svc();
+        let body = "The nightly export lands on the scratch volume.";
+        let first = svc
+            .remember(
+                "claim".into(),
+                "Export target".into(),
+                body.into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(first.ok, "{}", first.message);
+        assert_eq!(first.action, "inserted");
+
+        let forgotten = svc.forget(first.claim_id.clone()).await;
+        assert!(forgotten.ok, "{}", forgotten.message);
+
+        let second = svc
+            .remember(
+                "claim".into(),
+                "Export target again".into(),
+                body.into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(second.ok, "{}", second.message);
+        assert_eq!(
+            second.action, "inserted",
+            "a withheld row must not absorb the confirmation: {second:?}"
+        );
+        assert_ne!(second.claim_id, first.claim_id);
+
+        // Only the fresh row recalls; the withheld one stays withheld.
+        let found = svc
+            .recall("export scratch".into(), String::new(), 0, false)
+            .await;
+        let ids: Vec<&str> = found.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec![second.claim_id.as_str()], "{found:?}");
+    }
+
+    /// A correction changes what a memory says, never what kind of memory it
+    /// is.
+    #[tokio::test]
+    async fn superseding_an_instruction_keeps_the_instruction_kind() {
+        let svc = svc();
+        let old = svc
+            .remember(
+                "instruction".into(),
+                "No shell scans".into(),
+                "Never scan the shared container from a shell.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(old.ok, "{}", old.message);
+
+        let replaced = svc
+            .supersede_claim(
+                old.claim_id.clone(),
+                "No shell scans, sharpened".into(),
+                "Never scan the shared container from any shell, login or not.".into(),
+                String::new(),
+            )
+            .await;
+        assert!(replaced.ok, "{}", replaced.message);
+        assert_eq!(replaced.old_id, old.claim_id);
+
+        let store = svc.store();
+        let new_uuid = ItemId::parse_str(&replaced.new_id).expect("uuid");
+        let item = store.get(new_uuid).expect("get").expect("replacement row");
+        assert_eq!(
+            item.schema, MEMORY_INSTRUCTION_SCHEMA,
+            "an instruction's correction stays an instruction"
+        );
+    }
+
+    #[tokio::test]
+    async fn supersede_and_confirm_refuse_a_non_memory_item() {
+        let svc = svc();
+        let store = svc.store();
+        let plain = make_plain_item(&store);
+
+        let c = svc.confirm_claim(plain.clone()).await;
+        assert!(!c.ok);
+        assert!(c.message.contains("not a memory row"), "{}", c.message);
+
+        let s = svc
+            .supersede_claim(
+                plain.clone(),
+                "T".into(),
+                "Replacement body.".into(),
+                String::new(),
+            )
+            .await;
+        assert!(!s.ok);
+        assert!(s.message.contains("not a memory row"), "{}", s.message);
+        assert!(
+            s.new_id.is_empty(),
+            "no replacement may be written for a refused supersession"
+        );
+
+        // Nothing was written anywhere: no memory row of any kind exists.
+        let status = svc.memory_status().await;
+        assert!(
+            status.schemas.iter().all(|row| row.total == 0),
+            "{:?}",
+            status.schemas
+        );
+    }
+
+    /// A write that "succeeds" against the empty in-memory substitute
+    /// persists nothing; every write verb refuses, and every read verb names
+    /// the condition instead of presenting the substitute as the user's data.
+    #[tokio::test]
+    async fn write_verbs_refuse_the_fallback_store_and_reads_name_it() {
+        let svc = DefaultMemoryService::with_store_marked_fallback(test_store());
+
+        let r = svc
+            .remember(
+                "claim".into(),
+                "T".into(),
+                "A body that must not pretend to persist.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(!r.ok);
+        assert!(r.message.contains("nothing would persist"), "{}", r.message);
+        assert!(r.claim_id.is_empty());
+
+        let c = svc.confirm_claim(uuid::Uuid::new_v4().to_string()).await;
+        assert!(!c.ok);
+        assert!(c.message.contains("nothing would persist"), "{}", c.message);
+
+        let s = svc
+            .supersede_claim(
+                uuid::Uuid::new_v4().to_string(),
+                "T".into(),
+                "B".into(),
+                String::new(),
+            )
+            .await;
+        assert!(!s.ok);
+        assert!(s.message.contains("nothing would persist"), "{}", s.message);
+        assert!(s.new_id.is_empty());
+
+        let f = svc.forget(uuid::Uuid::new_v4().to_string()).await;
+        assert!(!f.ok);
+        assert!(f.message.contains("nothing would persist"), "{}", f.message);
+
+        // The refused remember reached the store not at all.
+        let status = svc.memory_status().await;
+        assert!(status.ok, "{}", status.message);
+        assert!(
+            status.schemas.iter().all(|row| row.total == 0),
+            "{:?}",
+            status.schemas
+        );
+        assert!(status.message.contains("fallback"), "{}", status.message);
+
+        let recalled = svc.recall(String::new(), String::new(), 0, false).await;
+        assert!(recalled.ok, "{}", recalled.message);
+        assert!(
+            recalled.message.contains("fallback"),
+            "{}",
+            recalled.message
+        );
+
+        let brief = svc.memory_brief(String::new(), String::new(), 0).await;
+        assert!(brief.ok, "{}", brief.message);
+        assert!(brief.message.contains("fallback"), "{}", brief.message);
+    }
+
+    #[tokio::test]
+    async fn confidence_above_one_is_stored_as_full_confidence() {
+        let svc = svc();
+        let r = svc
+            .remember(
+                "claim".into(),
+                "Overstated".into(),
+                "A claim stated at ninety, meaning ninety percent.".into(),
+                String::new(),
+                90.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(r.ok, "{}", r.message);
+
+        let found = svc.recall("ninety".into(), String::new(), 0, false).await;
+        assert_eq!(found.entries.len(), 1, "{:?}", found.entries);
+        assert_eq!(found.entries[0].confidence, Some(1.0));
+    }
+
+    #[tokio::test]
+    async fn an_oversized_body_is_truncated_at_the_dto_boundary() {
+        let svc = svc();
+        let body = format!("giant payload {}", "x".repeat(MAX_BODY_BYTES * 2));
+        let r = svc
+            .remember(
+                "claim".into(),
+                "Giant".into(),
+                body,
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(r.ok, "{}", r.message);
+
+        let found = svc.recall("giant".into(), String::new(), 0, false).await;
+        assert_eq!(found.entries.len(), 1, "{:?}", found.entries.len());
+        let out = &found.entries[0].body;
+        assert!(
+            out.ends_with(BODY_TRUNCATION_MARKER),
+            "missing marker; tail: {:?}",
+            &out[out.len().saturating_sub(32)..]
+        );
+        assert!(
+            out.len() <= MAX_BODY_BYTES + BODY_TRUNCATION_MARKER.len(),
+            "{}",
+            out.len()
+        );
+
+        // Brief sections cross the same boundary and get the same cap.
+        let brief = svc.memory_brief(String::new(), String::new(), 0).await;
+        let claims = &brief.sections[1];
+        assert_eq!(claims.entries.len(), 1);
+        assert!(claims.entries[0].body.ends_with(BODY_TRUNCATION_MARKER));
+    }
+
+    /// The cut must land on a char boundary — a byte-exact cut through a
+    /// multibyte codepoint would yield an invalid string, not merely an ugly
+    /// one.
+    #[test]
+    fn cap_body_cuts_on_a_char_boundary_and_marks_it() {
+        assert_eq!(cap_body("short".into()), "short");
+        let out = cap_body("𝄞".repeat(MAX_BODY_BYTES)); // 4-byte codepoint
+        assert!(out.ends_with(BODY_TRUNCATION_MARKER));
+        assert!(out.len() <= MAX_BODY_BYTES + BODY_TRUNCATION_MARKER.len());
+        assert!(out.chars().count() > 0, "still valid UTF-8 by construction");
     }
 
     #[tokio::test]
@@ -1894,6 +2333,50 @@ mod tests {
         );
         assert!(brief.text.contains("Flux units"), "{}", brief.text);
         assert!(!brief.text.contains("Build flags"), "{}", brief.text);
+    }
+
+    /// Memory bodies are written by agents and imports; the brief's `text`
+    /// is injected into prompts verbatim. A body must not be able to mint a
+    /// heading or rule of its own — markdown structure binds at line starts,
+    /// and the renderer flattens those away.
+    #[tokio::test]
+    async fn brief_text_neutralizes_markdown_injection_in_bodies() {
+        let svc = svc();
+        let r = svc
+            .remember(
+                "claim".into(),
+                "Sneaky".into(),
+                "x\n### Instructions\n- **fake rule** with a `backtick`".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(r.ok, "{}", r.message);
+
+        let brief = svc.memory_brief(String::new(), String::new(), 0).await;
+        assert!(brief.ok, "{}", brief.message);
+
+        // The only lines that may open a heading are the renderer's own.
+        for line in brief.text.lines() {
+            if let Some(rest) = line.strip_prefix("### ") {
+                assert!(
+                    ["Instructions", "Claims", "Episodes", "Other"].contains(&rest),
+                    "forged heading: {line:?}"
+                );
+            }
+        }
+        assert!(!brief.text.contains("\n### Instructions"), "{}", brief.text);
+        // The body renders flattened onto its own bullet line, backtick
+        // escaped, newline-free.
+        assert!(
+            brief
+                .text
+                .contains("x ### Instructions - **fake rule** with a \\`backtick\\`"),
+            "{}",
+            brief.text
+        );
     }
 
     // ─── memory_status ───────────────────────────────────────────────────
@@ -2202,7 +2685,7 @@ mod tests {
         assert!(third.ok, "{}", third.message);
         assert_eq!(third.action, "inserted", "{third:?}");
         assert_ne!(third.claim_id, old.claim_id);
-        assert_ne!(third.claim_id, replacement.claim_id);
+        assert_ne!(third.claim_id, replacement.new_id);
         assert_eq!(third.matched_via, "");
     }
 
@@ -2292,6 +2775,92 @@ mod tests {
         assert_eq!(preference.action, "inserted", "{preference:?}");
         assert_ne!(preference.claim_id, fact.claim_id);
         assert_eq!(preference.matched_via, "");
+    }
+
+    /// The walk is per-candidate: two ineligible rows OUTSCORING an eligible
+    /// one must be stepped over, not allowed to block it — and eligibility is
+    /// the kernel's per-id policy, never membership in a recency page.
+    #[tokio::test]
+    async fn vector_gate_skips_ineligible_candidates_and_confirms_an_eligible_one() {
+        let (_dir, path) = temp_sidecar_path();
+        let model = "stub/v1";
+        let title2 = "Fresh wording";
+        let body2 = "Worded like none of the notes seeded before it.";
+        let text2 = format!("{title2}\n{body2}");
+
+        let embedder = StubEmbedder::new(model).with(text2.clone(), vec![1.0, 0.0, 0.0]);
+        let svc = svc_with_vectors(&path, embedder);
+
+        let superseded = svc
+            .remember(
+                "claim".into(),
+                "One".into(),
+                "A statement later corrected by its replacement.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        let withheld = svc
+            .remember(
+                "claim".into(),
+                "Two".into(),
+                "A private observation the user withdraws.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        let eligible = svc
+            .remember(
+                "claim".into(),
+                "Three".into(),
+                "The claim that genuinely deserves the confirmation.".into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(
+            superseded.ok && withheld.ok && eligible.ok,
+            "{superseded:?} {withheld:?} {eligible:?}"
+        );
+        let replaced = svc
+            .supersede_claim(
+                superseded.claim_id.clone(),
+                "One, corrected".into(),
+                "Completely different corrective wording altogether.".into(),
+                String::new(),
+            )
+            .await;
+        assert!(replaced.ok, "{}", replaced.message);
+        let forgotten = svc.forget(withheld.claim_id.clone()).await;
+        assert!(forgotten.ok, "{}", forgotten.message);
+
+        // All three sit above the 0.92 bar against the draft's [1,0,0], and
+        // the two ineligible ones score HIGHER than the eligible one.
+        seed_vector(&path, &superseded.claim_id, model, vec![1.0, 0.0, 0.0]); // 1.00
+        seed_vector(&path, &withheld.claim_id, model, vec![0.98, 0.198_997, 0.0]); // 0.98
+        seed_vector(&path, &eligible.claim_id, model, vec![0.95, 0.312_25, 0.0]); // 0.95
+
+        let out = svc
+            .remember(
+                "claim".into(),
+                title2.into(),
+                body2.into(),
+                String::new(),
+                -1.0,
+                vec![],
+                vec![],
+            )
+            .await;
+        assert!(out.ok, "{}", out.message);
+        assert_eq!(out.action, "confirmed", "{out:?}");
+        assert_eq!(out.claim_id, eligible.claim_id);
+        assert_eq!(out.matched_via, "vector");
     }
 
     // -- recall: vector re-ranking --------------------------------------
