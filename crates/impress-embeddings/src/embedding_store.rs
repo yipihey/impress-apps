@@ -334,6 +334,76 @@ impl EmbeddingStore {
         .map_err(|e| format!("Query error: {}", e))
     }
 
+    /// Whether the store holds at least one vector for both `source_type` and
+    /// `model`.
+    ///
+    /// Rust-only. The store-wide check above stopped being a safe gate for
+    /// per-type reads the moment the ADR-0028 embed executor started writing
+    /// `memory-item` vectors into the same sidecar: one memory vector for a
+    /// model satisfies the store-wide EXISTS while a strict per-type load for
+    /// that model still returns zero rows. A gate that decides which rows of
+    /// one `source_type` load must ask about that `source_type`.
+    pub fn has_vectors_for_source_and_model(
+        &self,
+        source_type: &str,
+        model: &str,
+    ) -> Result<bool, String> {
+        let conn = self.conn()?;
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM vectors WHERE source_type = ?1 AND model = ?2)",
+            rusqlite::params![source_type, model],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|e| format!("Query error: {}", e))
+    }
+
+    /// Which of `source_ids` already hold a vector under `model`, as
+    /// `(source_id, source_type)` pairs.
+    ///
+    /// Rust-only, like [`EmbeddingStore::load_vectors_by_type_and_model`]:
+    /// this is the embed backfill's already-embedded probe (ADR-0028 D7) —
+    /// one batched read per candidate page, instead of a per-row
+    /// [`EmbeddingStore::get_vectors`] loop or dragging every vector blob
+    /// through the type-and-model load just to learn which ids exist. Pairs
+    /// rather than bare ids because one page can mix source types
+    /// (`"chunk"` and `"memory-item"`), and a hit only counts against the
+    /// type the caller would stamp.
+    pub fn embedded_sources_for_model(
+        &self,
+        source_ids: &[String],
+        model: &str,
+    ) -> Result<Vec<(String, String)>, String> {
+        if source_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn()?;
+        let mut found = Vec::new();
+        // Chunked IN lists: stays far under SQLITE_MAX_VARIABLE_NUMBER (999
+        // on conservative builds) whatever page size the caller scans with.
+        for chunk in source_ids.chunks(500) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = format!(
+                "SELECT source_id, source_type FROM vectors
+                     WHERE model = ? AND source_id IN ({placeholders})"
+            );
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| format!("Prepare error: {}", e))?;
+            let mut params: Vec<&str> = Vec::with_capacity(chunk.len() + 1);
+            params.push(model);
+            params.extend(chunk.iter().map(String::as_str));
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(params), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|e| format!("Query error: {}", e))?;
+            for row in rows {
+                found.push(row.map_err(|e| format!("Row error: {}", e))?);
+            }
+        }
+        Ok(found)
+    }
+
     /// Delete all vectors for a source entity.
     pub fn delete_by_source(&self, source_id: &str) -> Result<u32, String> {
         let conn = self.conn()?;
@@ -1065,6 +1135,133 @@ mod tests {
             .has_vectors_for_model("fastembed/AllMiniLML6V2")
             .unwrap());
         assert!(!store.has_vectors_for_model("apple-nl").unwrap());
+    }
+
+    /// Both predicates must hold: a `memory-item` vector for a model must not
+    /// make the store claim it has `chunk` vectors for that model (and vice
+    /// versa) — that is exactly the confusion the store-wide check permits.
+    #[test]
+    fn test_has_vectors_for_source_and_model() {
+        let store = temp_store();
+        assert!(!store
+            .has_vectors_for_source_and_model("chunk", "fastembed/AllMiniLML6V2")
+            .unwrap());
+
+        store
+            .save_vectors(&[StoredVector {
+                id: "v1".into(),
+                source_id: "m1".into(),
+                source_type: "memory-item".into(),
+                vector: vec![1.0, 0.0],
+                model: "fastembed/AllMiniLML6V2".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+            }])
+            .unwrap();
+
+        // The store-wide check answers yes; the per-type check must not.
+        assert!(store
+            .has_vectors_for_model("fastembed/AllMiniLML6V2")
+            .unwrap());
+        assert!(!store
+            .has_vectors_for_source_and_model("chunk", "fastembed/AllMiniLML6V2")
+            .unwrap());
+        assert!(store
+            .has_vectors_for_source_and_model("memory-item", "fastembed/AllMiniLML6V2")
+            .unwrap());
+        assert!(!store
+            .has_vectors_for_source_and_model("memory-item", "apple-nl")
+            .unwrap());
+
+        store
+            .save_vectors(&[StoredVector {
+                id: "v2".into(),
+                source_id: "c1".into(),
+                source_type: "chunk".into(),
+                vector: vec![0.0, 1.0],
+                model: "fastembed/AllMiniLML6V2".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+            }])
+            .unwrap();
+
+        assert!(store
+            .has_vectors_for_source_and_model("chunk", "fastembed/AllMiniLML6V2")
+            .unwrap());
+    }
+
+    /// The already-embedded probe must be exact on all three axes — a miss
+    /// re-embeds (wasteful, harmless), but a false hit would skip a row
+    /// forever, silently.
+    #[test]
+    fn test_embedded_sources_for_model() {
+        let store = temp_store();
+        let ids: Vec<String> = ["m1", "c1", "never-embedded"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(store
+            .embedded_sources_for_model(&ids, "fastembed/AllMiniLML6V2")
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .embedded_sources_for_model(&[], "any")
+            .unwrap()
+            .is_empty());
+
+        store
+            .save_vectors(&[
+                StoredVector {
+                    id: "v1".into(),
+                    source_id: "m1".into(),
+                    source_type: "memory-item".into(),
+                    vector: vec![1.0, 0.0],
+                    model: "fastembed/AllMiniLML6V2".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                },
+                StoredVector {
+                    id: "v2".into(),
+                    source_id: "c1".into(),
+                    source_type: "chunk".into(),
+                    vector: vec![0.0, 1.0],
+                    model: "fastembed/AllMiniLML6V2".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                },
+                StoredVector {
+                    id: "v3".into(),
+                    source_id: "other-model".into(),
+                    source_type: "chunk".into(),
+                    vector: vec![0.5, 0.5],
+                    model: "apple-nl".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                },
+            ])
+            .unwrap();
+
+        let mut found = store
+            .embedded_sources_for_model(
+                &[
+                    "m1".to_string(),
+                    "c1".to_string(),
+                    "other-model".to_string(),
+                    "never-embedded".to_string(),
+                ],
+                "fastembed/AllMiniLML6V2",
+            )
+            .unwrap();
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                ("c1".to_string(), "chunk".to_string()),
+                ("m1".to_string(), "memory-item".to_string()),
+            ],
+            "a foreign-model vector and an absent id must not report as embedded"
+        );
+
+        // Ids not asked about never come back, even though they exist.
+        let scoped = store
+            .embedded_sources_for_model(&["m1".to_string()], "fastembed/AllMiniLML6V2")
+            .unwrap();
+        assert_eq!(scoped, vec![("m1".to_string(), "memory-item".to_string())]);
     }
 
     #[test]

@@ -152,21 +152,28 @@ fn rebuild_chunk_index(
 /// `rebuild_chunk_index` so the decision itself — which rows load — is
 /// unit-testable without building an HNSW index.
 ///
-/// Once the sidecar holds at least one vector for `model`, only same-model
-/// chunk vectors load: mixing `apple-nl` and `fastembed` vectors in one HNSW
-/// graph makes cosine distance between them meaningless. Until then, every
-/// chunk vector loads regardless of model — exactly the pre-ADR-0028
-/// behavior — so a device that has only ever run imbib.app keeps searching
-/// correctly instead of coming up empty the moment this filter ships ahead
-/// of the backfill executor that will populate fastembed vectors.
+/// Once the sidecar holds at least one **chunk** vector for `model`, only
+/// same-model chunk vectors load: mixing `apple-nl` and `fastembed` vectors
+/// in one HNSW graph makes cosine distance between them meaningless. Until
+/// then, every chunk vector loads regardless of model — exactly the
+/// pre-ADR-0028 behavior — so a device that has only ever run imbib.app keeps
+/// searching correctly instead of coming up empty the moment this filter
+/// ships ahead of the backfill executor that will populate fastembed vectors.
+///
+/// The gate is scoped to `source_type = "chunk"`, not the whole store: the
+/// ADR-0028 embed executor writes `memory-item` vectors into the same sidecar
+/// in this model's space, and a single one of those flipping a store-wide
+/// gate would switch the strict branch on while it still finds zero
+/// `("chunk", model)` rows — an empty chunk index, and a `search_papers`
+/// that silently answers `[]`.
 fn select_chunk_vectors(store: &EmbeddingStore, model: &str) -> Result<Vec<StoredVector>, String> {
-    if store.has_vectors_for_model(model)? {
+    if store.has_vectors_for_source_and_model("chunk", model)? {
         store.load_vectors_by_type_and_model("chunk", model)
     } else {
         eprintln!(
-            "impress-mcp: sidecar holds no '{model}' vectors yet — loading all chunk vectors \
-             regardless of model. Semantic search runs cross-model until the impress backfill \
-             executor (ADR-0028 D7) populates fastembed vectors."
+            "impress-mcp: sidecar holds no '{model}' chunk vectors yet — loading all chunk \
+             vectors regardless of model. Semantic search runs cross-model until the impress \
+             backfill executor (ADR-0028 D7) populates fastembed vectors."
         );
         store.load_vectors_by_type("chunk")
     }
@@ -243,11 +250,11 @@ pub fn tool_search_papers(ctx: &ToolContext, args: &Value) -> Result<String, Str
     };
 
     // 6. Build response sorted by best passage similarity
-    let mut scored: Vec<(f32, Value)> = enriched_passages
+    let mut scored: Vec<(f32, String, Value)> = enriched_passages
         .into_iter()
         .map(|(pub_id, passages)| {
             let meta = metadata.get(&pub_id);
-            let best_sim = passages.iter().map(|p| p.similarity).fold(0.0f32, f32::max);
+            let best_sim = best_similarity(&passages);
 
             let passage_values: Vec<Value> = passages
                 .iter()
@@ -262,6 +269,7 @@ pub fn tool_search_papers(ctx: &ToolContext, args: &Value) -> Result<String, Str
 
             (
                 best_sim,
+                pub_id.clone(),
                 json!({
                     "publication_id": pub_id,
                     "title": meta.map(|m| m.title.as_str()).unwrap_or(""),
@@ -274,11 +282,36 @@ pub fn tool_search_papers(ctx: &ToolContext, args: &Value) -> Result<String, Str
         })
         .collect();
 
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    rank_scored_publications(&mut scored);
 
-    let output: Vec<Value> = scored.into_iter().take(top_k).map(|(_, v)| v).collect();
+    let output: Vec<Value> = scored.into_iter().take(top_k).map(|(_, _, v)| v).collect();
 
     serde_json::to_string_pretty(&output).map_err(|e| e.to_string())
+}
+
+/// The best passage similarity for one publication, folded from
+/// `NEG_INFINITY` rather than `0.0`. Cosine similarity is signed: a
+/// publication whose passages all score negative must keep its true
+/// (negative) best, or every such publication would collapse to a 0.0 tie
+/// and rank in `HashMap` order rather than by how badly it actually matched.
+fn best_similarity(passages: &[EnrichedPassage]) -> f32 {
+    passages
+        .iter()
+        .map(|p| p.similarity)
+        .fold(f32::NEG_INFINITY, f32::max)
+}
+
+/// Order scored publications for output: best similarity descending,
+/// tie-broken by publication id ascending so equal scores cannot reorder
+/// between runs. Pulled out of `tool_search_papers`, like
+/// `select_chunk_vectors` above, so the ordering is unit-testable without
+/// building the embedding stack.
+fn rank_scored_publications(scored: &mut [(f32, String, Value)]) {
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.cmp(&b.1))
+    });
 }
 
 struct PassageHit {
@@ -339,26 +372,27 @@ pub fn tool_list_indexed_papers(ctx: &ToolContext, args: &Value) -> Result<Strin
         return Ok("[]".to_string());
     }
 
-    // Count chunks per publication
-    let mut chunk_counts: HashMap<String, u32> = HashMap::new();
-    for pub_id in &pub_ids {
-        let chunks = sem.embedding_store.get_chunks(pub_id).unwrap_or_default();
-        chunk_counts.insert(pub_id.clone(), chunks.len() as u32);
-    }
-
-    // Enrich with metadata
+    // Enrich with metadata — for every id, not just the returned page,
+    // because the page itself is chosen by title and the titles live here.
     let metadata: HashMap<String, PublicationMeta> = if let Some(conn) = ctx.main_store() {
         list_publications_by_ids(conn, &pub_ids).unwrap_or_default()
     } else {
         HashMap::new()
     };
 
-    let mut output: Vec<Value> = pub_ids
+    // Sort, THEN cut to `limit` — and only count chunks for the rows that
+    // survived the cut.
+    let page = page_of_indexed_papers(pub_ids, &metadata, limit);
+
+    let output: Vec<Value> = page
         .iter()
-        .take(limit)
         .map(|pub_id| {
             let meta = metadata.get(pub_id);
-            let count = chunk_counts.get(pub_id).copied().unwrap_or(0);
+            let count = sem
+                .embedding_store
+                .get_chunks(pub_id)
+                .unwrap_or_default()
+                .len() as u32;
             json!({
                 "publication_id": pub_id,
                 "title": meta.map(|m| m.title.as_str()).unwrap_or(""),
@@ -369,14 +403,32 @@ pub fn tool_list_indexed_papers(ctx: &ToolContext, args: &Value) -> Result<Strin
         })
         .collect();
 
-    // Sort by title for consistent output
-    output.sort_by(|a, b| {
-        let ta = a["title"].as_str().unwrap_or("");
-        let tb = b["title"].as_str().unwrap_or("");
-        ta.cmp(tb)
-    });
-
     serde_json::to_string_pretty(&output).map_err(|e| e.to_string())
+}
+
+/// The page of publication ids `list_indexed_papers` returns: every id sorted
+/// by title (ids without metadata sort first, on the empty string), tie-broken
+/// by publication id, and only then cut to `limit`.
+///
+/// The order of those two steps is the point. `indexed_publications` hands
+/// back `HashSet` iteration order, so taking `limit` ids first meant a page
+/// sampled at random and reshuffled every process — the title sort that
+/// followed only prettified whatever happened to survive. Sorting first (with
+/// the id tie-break for equal or missing titles) makes the page a stable,
+/// well-defined prefix. Pulled out of the tool, like `select_chunk_vectors`
+/// above, so the paging decision is unit-testable without an HNSW index.
+fn page_of_indexed_papers(
+    mut pub_ids: Vec<String>,
+    metadata: &HashMap<String, PublicationMeta>,
+    limit: usize,
+) -> Vec<String> {
+    pub_ids.sort_by(|a, b| {
+        let ta = metadata.get(a).map(|m| m.title.as_str()).unwrap_or("");
+        let tb = metadata.get(b).map(|m| m.title.as_str()).unwrap_or("");
+        ta.cmp(tb).then_with(|| a.cmp(b))
+    });
+    pub_ids.truncate(limit);
+    pub_ids
 }
 
 #[cfg(test)]
@@ -392,10 +444,14 @@ mod tests {
     }
 
     fn vector(id: &str, source_id: &str, model: &str) -> StoredVector {
+        typed_vector(id, source_id, "chunk", model)
+    }
+
+    fn typed_vector(id: &str, source_id: &str, source_type: &str, model: &str) -> StoredVector {
         StoredVector {
             id: id.into(),
             source_id: source_id.into(),
-            source_type: "chunk".into(),
+            source_type: source_type.into(),
             vector: vec![1.0, 0.0],
             model: model.into(),
             created_at: "2026-01-01T00:00:00Z".into(),
@@ -475,5 +531,170 @@ mod tests {
         let selected = select_chunk_vectors(&store, "fastembed/AllMiniLML6V2").unwrap();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].source_id, "c1");
+    }
+
+    /// A `memory-item` vector in the query model's space — what the ADR-0028
+    /// embed executor writes into the same sidecar — must not flip the gate:
+    /// with only foreign-model chunk vectors present, selection stays on the
+    /// fallback and those chunk vectors still load. A store-wide gate flipped
+    /// strict here and loaded zero rows — an empty chunk index and a
+    /// `search_papers` that silently answered `[]`.
+    #[test]
+    fn select_chunk_vectors_ignores_memory_item_vectors_when_gating() {
+        let (store, _dir) = temp_store();
+
+        store
+            .save_vectors(&[
+                typed_vector("v-memory", "m1", "memory-item", "fastembed/AllMiniLML6V2"),
+                vector("v-apple", "c1", "apple-nl"),
+            ])
+            .unwrap();
+
+        let selected = select_chunk_vectors(&store, "fastembed/AllMiniLML6V2").unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].id, "v-apple");
+
+        // Only a *chunk* vector in the query model's space flips the gate:
+        // the strict branch then loads same-model chunk rows exclusively.
+        store
+            .save_vectors(&[vector("v-fastembed", "c2", "fastembed/AllMiniLML6V2")])
+            .unwrap();
+
+        let selected = select_chunk_vectors(&store, "fastembed/AllMiniLML6V2").unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].id, "v-fastembed");
+    }
+
+    /// Signed similarity survives the fold: all-negative passages keep their
+    /// true (negative) best instead of collapsing to a 0.0 floor.
+    #[test]
+    fn best_similarity_keeps_negative_scores() {
+        let passages = vec![
+            EnrichedPassage {
+                text: "worse".into(),
+                page: None,
+                similarity: -0.9,
+            },
+            EnrichedPassage {
+                text: "best of a bad lot".into(),
+                page: None,
+                similarity: -0.2,
+            },
+            EnrichedPassage {
+                text: "middling".into(),
+                page: None,
+                similarity: -0.5,
+            },
+        ];
+        assert_eq!(best_similarity(&passages), -0.2);
+    }
+
+    /// All-negative publications rank truthfully — least-bad first — instead
+    /// of tying at a clamped 0.0 and falling back to `HashMap` order.
+    #[test]
+    fn rank_scored_publications_orders_negative_scores() {
+        let mut scored = vec![
+            (-0.6, "pub-worst".to_string(), json!("worst")),
+            (-0.1, "pub-best".to_string(), json!("best")),
+            (-0.3, "pub-middle".to_string(), json!("middle")),
+        ];
+        rank_scored_publications(&mut scored);
+        let order: Vec<&str> = scored.iter().map(|(_, id, _)| id.as_str()).collect();
+        assert_eq!(order, ["pub-best", "pub-middle", "pub-worst"]);
+    }
+
+    /// Equal similarities tie-break on publication id, so the output order is
+    /// a function of the scores alone — not of `HashMap` iteration order.
+    #[test]
+    fn rank_scored_publications_breaks_ties_on_publication_id() {
+        let mut scored = vec![
+            (0.5, "z-pub".to_string(), json!(1)),
+            (0.9, "m-pub".to_string(), json!(2)),
+            (0.5, "a-pub".to_string(), json!(3)),
+        ];
+        rank_scored_publications(&mut scored);
+        let order: Vec<&str> = scored.iter().map(|(_, id, _)| id.as_str()).collect();
+        assert_eq!(order, ["m-pub", "a-pub", "z-pub"]);
+
+        // Same scores arriving in a different order — same output.
+        let mut reshuffled = vec![
+            (0.5, "a-pub".to_string(), json!(3)),
+            (0.5, "z-pub".to_string(), json!(1)),
+            (0.9, "m-pub".to_string(), json!(2)),
+        ];
+        rank_scored_publications(&mut reshuffled);
+        let order: Vec<&str> = reshuffled.iter().map(|(_, id, _)| id.as_str()).collect();
+        assert_eq!(order, ["m-pub", "a-pub", "z-pub"]);
+    }
+
+    fn meta(id: &str, title: &str) -> (String, PublicationMeta) {
+        (
+            id.to_string(),
+            PublicationMeta {
+                id: id.into(),
+                title: title.into(),
+                authors: String::new(),
+                year: None,
+                cite_key: String::new(),
+            },
+        )
+    }
+
+    /// With more publications than `limit`, the page is the lexicographically
+    /// first titles — exactly those, whatever order the ids arrive in. Taking
+    /// `limit` before sorting returned an arbitrary `HashSet` sample instead,
+    /// reshuffled every process.
+    #[test]
+    fn indexed_papers_page_is_first_titles_regardless_of_arrival_order() {
+        let metadata: HashMap<String, PublicationMeta> = [
+            meta("p1", "Delta"),
+            meta("p2", "Alpha"),
+            meta("p3", "Echo"),
+            meta("p4", "Bravo"),
+            meta("p5", "Charlie"),
+        ]
+        .into_iter()
+        .collect();
+
+        let arrival = ["p1", "p2", "p3", "p4", "p5"].map(String::from).to_vec();
+        let page = page_of_indexed_papers(arrival, &metadata, 3);
+        assert_eq!(page, ["p2", "p4", "p5"]); // Alpha, Bravo, Charlie
+
+        // A different arrival order — the shuffle a `HashSet` hands back —
+        // must produce the identical page.
+        let reshuffled = ["p5", "p3", "p1", "p4", "p2"].map(String::from).to_vec();
+        assert_eq!(page_of_indexed_papers(reshuffled, &metadata, 3), page);
+    }
+
+    /// Equal titles (and ids with no metadata at all, which share the empty
+    /// title) tie-break on publication id, so even a degenerate library pages
+    /// deterministically.
+    #[test]
+    fn indexed_papers_page_breaks_title_ties_on_id() {
+        let metadata: HashMap<String, PublicationMeta> = [
+            meta("p-c", "Same Title"),
+            meta("p-a", "Same Title"),
+            meta("p-b", "Same Title"),
+        ]
+        .into_iter()
+        .collect();
+
+        let arrival = ["p-c", "p-a", "p-b", "p-unknown-2", "p-unknown-1"]
+            .map(String::from)
+            .to_vec();
+        let page = page_of_indexed_papers(arrival, &metadata, 4);
+        // The metadata-less ids sort first on the empty title, by id; the
+        // equal titles follow, by id.
+        assert_eq!(page, ["p-unknown-1", "p-unknown-2", "p-a", "p-b"]);
+    }
+
+    /// A limit past the end returns everything, still in order.
+    #[test]
+    fn indexed_papers_page_with_large_limit_returns_all_sorted() {
+        let metadata: HashMap<String, PublicationMeta> = [meta("p1", "Beta"), meta("p2", "Alpha")]
+            .into_iter()
+            .collect();
+        let page = page_of_indexed_papers(["p1", "p2"].map(String::from).to_vec(), &metadata, 50);
+        assert_eq!(page, ["p2", "p1"]);
     }
 }

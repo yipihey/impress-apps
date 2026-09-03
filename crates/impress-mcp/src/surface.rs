@@ -356,6 +356,21 @@ pub fn dispatch(name: &str, args: &Value) -> Option<Result<Value, String>> {
     };
 
     let Some(tool) = resolve(domain, action) else {
+        // `resolve` sees only reachable tools, so a miss is one of two very
+        // different answers. If the unfiltered inventory knows the action, the
+        // capability exists and its app is closed: give the same honest
+        // refusal the flat path gives — naming the app to open — rather than
+        // "unknown action", which tells an agent the capability does not
+        // exist at all. Only an action the full inventory has never heard of
+        // is genuinely unknown. This covers `describe: true` too: describing
+        // a gated action refuses the same way calling it does.
+        if let Some(reason) = McpToolDescriptor::iter()
+            .filter(|d| domain_of(d.name) == Some(domain))
+            .find(|d| action_of(d.name, domain).as_deref() == Some(action))
+            .and_then(|d| crate::reachability::unavailable_reason(d.name))
+        {
+            return Some(Err(reason));
+        }
         return Some(Err(format!(
             "{domain}: unknown action {action:?}. Call {CAPABILITIES_TOOL} with \
              domain={domain:?} to list the available ones."
@@ -370,12 +385,6 @@ pub fn dispatch(name: &str, args: &Value) -> Option<Result<Value, String>> {
             "description": descriptor.description,
             "inputSchema": (descriptor.input_schema)(),
         })));
-    }
-
-    // A gated tool reached through a stale client list gets the same honest
-    // refusal the flat path gives.
-    if let Some(reason) = crate::reachability::unavailable_reason(tool) {
-        return Some(Err(reason));
     }
 
     let inner = match args.get("args") {
@@ -474,6 +483,40 @@ mod tests {
     #[test]
     fn non_surface_tools_fall_through() {
         assert!(dispatch("imbib-library-service_list-libraries", &json!({})).is_none());
+    }
+
+    /// A gated action with its app closed refuses by naming the app — never
+    /// "unknown action". Tests record no reachability, so every gated app is
+    /// unreachable here (the safe default `reachability` pins); `resolve`
+    /// therefore misses, and before this check lived on the miss path the
+    /// dispatcher answered that a real capability did not exist.
+    #[test]
+    fn gated_action_refuses_with_app_name_not_unknown_action() {
+        let out = dispatch("implore", &json!({ "action": "status" }));
+        match out {
+            Some(Err(e)) => {
+                assert!(e.contains("implore is not running"), "got: {e}");
+                assert!(!e.contains("unknown action"), "got: {e}");
+            }
+            other => panic!("expected a not-running refusal, got {other:?}"),
+        }
+    }
+
+    /// The gate must not swallow the genuine case: an action the full
+    /// inventory has never heard of is still refused as unknown.
+    #[test]
+    fn nonexistent_action_is_still_unknown() {
+        let out = dispatch("implore", &json!({ "action": "definitely-not-real" }));
+        assert!(matches!(out, Some(Err(ref e)) if e.contains("unknown action")));
+    }
+
+    /// `describe: true` on a gated action refuses the same way calling it
+    /// does — describing a schema the client cannot invoke would just spend
+    /// the agent's next turn discovering the app is closed.
+    #[test]
+    fn describe_on_gated_action_also_refuses() {
+        let out = dispatch("implore", &json!({ "action": "status", "describe": true }));
+        assert!(matches!(out, Some(Err(ref e)) if e.contains("implore is not running")));
     }
 
     /// ADR-0024 D6, the invariant the whole design rests on: the projection may
