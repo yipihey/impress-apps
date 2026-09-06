@@ -64,7 +64,7 @@ public struct AITaskCategorySettingsView: View {
                         CategoryAssignmentRow(
                             category: category,
                             assignment: settings.assignment(for: category.id),
-                            availableModels: settings.availableModels,
+                            modelGroups: settings.modelGroups,
                             onPrimaryModelChange: { model in
                                 Task { await settings.setPrimaryModel(model, for: category.id) }
                             },
@@ -94,7 +94,10 @@ public struct AITaskCategorySettingsView: View {
 struct CategoryAssignmentRow: View {
     let category: AITaskCategory
     let assignment: AITaskCategoryAssignment
-    let availableModels: [AIModelReference]
+    /// Selectable models grouped by provider (`AIModelOptions`): the host's
+    /// own list where one could be discovered, and the reason a provider is
+    /// not usable where it cannot serve a request.
+    let modelGroups: [AIModelOptionGroup]
     let onPrimaryModelChange: (AIModelReference?) -> Void
     let onAddComparison: (AIModelReference) -> Void
     let onRemoveComparison: (AIModelReference) -> Void
@@ -204,9 +207,13 @@ struct CategoryAssignmentRow: View {
                 }
 
                 Menu {
-                    ForEach(availableModelsForComparison) { model in
-                        Button(model.displayName) {
-                            onAddComparison(model)
+                    ForEach(comparisonGroups) { group in
+                        Section(group.sectionTitle) {
+                            ForEach(group.models) { model in
+                                Button(model.modelName) {
+                                    onAddComparison(model)
+                                }
+                            }
                         }
                     }
                 } label: {
@@ -220,12 +227,36 @@ struct CategoryAssignmentRow: View {
 
     // MARK: - Helpers
 
-    private var availableModelsForComparison: [AIModelReference] {
-        let excluded = Set(assignment.comparisonModels.map { $0.id })
-        let primaryId = assignment.primaryModel?.id
-        return availableModels.filter {
-            !excluded.contains($0.id) && $0.id != primaryId
+    private var availableModels: [AIModelReference] {
+        modelGroups.flatMap(\.models)
+    }
+
+    /// The groups with `excluded` removed, dropping any group left empty so a
+    /// provider never shows an empty heading.
+    private func groups(excluding excluded: Set<String>) -> [AIModelOptionGroup] {
+        // The assigned model stays listed even when its host is off, so the
+        // picker never renders a selection it has no row for.
+        AIModelOptions.groups(modelGroups, including: assignment.primaryModel).compactMap { group in
+            let models = group.models.filter { !excluded.contains($0.id) }
+            guard !models.isEmpty else { return nil }
+            return AIModelOptionGroup(
+                providerId: group.providerId,
+                providerName: group.providerName,
+                readiness: group.readiness,
+                models: models,
+                isDiscovered: group.isDiscovered
+            )
         }
+    }
+
+    private var comparisonGroups: [AIModelOptionGroup] {
+        var excluded = Set(assignment.comparisonModels.map(\.id))
+        if let primaryId = assignment.primaryModel?.id { excluded.insert(primaryId) }
+        return groups(excluding: excluded)
+    }
+
+    private var availableModelsForComparison: [AIModelReference] {
+        comparisonGroups.flatMap(\.models)
     }
 
     @ViewBuilder
@@ -234,8 +265,7 @@ struct CategoryAssignmentRow: View {
         excluding: [AIModelReference],
         onChange: @escaping (AIModelReference?) -> Void
     ) -> some View {
-        let excludedIds = Set(excluding.map { $0.id })
-        let options = availableModels.filter { !excludedIds.contains($0.id) }
+        let options = groups(excluding: Set(excluding.map(\.id)))
 
         Picker("", selection: Binding(
             get: { selection?.id },
@@ -249,9 +279,15 @@ struct CategoryAssignmentRow: View {
             }
         )) {
             Text("Not configured").tag(String?.none)
-            Divider()
-            ForEach(options) { model in
-                Text(model.displayName).tag(Optional(model.id))
+            // One section per provider, usable providers first; a provider
+            // that needs setup says so in its heading rather than quietly
+            // offering models that cannot run.
+            ForEach(options) { group in
+                Section(group.sectionTitle) {
+                    ForEach(group.models) { model in
+                        Text(model.modelName).tag(Optional(model.id))
+                    }
+                }
             }
         }
         .pickerStyle(.menu)

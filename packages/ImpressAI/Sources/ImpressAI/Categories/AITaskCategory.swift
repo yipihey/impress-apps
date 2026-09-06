@@ -76,6 +76,14 @@ public struct AIModelReference: Codable, Sendable, Hashable, Identifiable {
 
     public var id: String { "\(providerId):\(modelId)" }
 
+    /// The model half of `displayName`, for a picker that already groups by
+    /// provider — "Qwen3.5 4B 4bit" rather than "oMLX - Qwen3.5 4B 4bit".
+    public var modelName: String {
+        let separator = " - "
+        guard let range = displayName.range(of: separator) else { return displayName }
+        return String(displayName[range.upperBound...])
+    }
+
     public init(providerId: String, modelId: String, displayName: String) {
         self.providerId = providerId
         self.modelId = modelId

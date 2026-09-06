@@ -83,6 +83,9 @@ import ImpressLogging
     public private(set) var isProviderReady = false
     /// Endpoint overrides from the preferences file.
     public private(set) var endpointOverrides: [String: String] = [:]
+    /// Selectable models grouped by provider (`AIModelOptions`) — the same
+    /// list the task-category sheet and the quick switcher offer.
+    public private(set) var modelGroups: [AIModelOptionGroup] = []
     /// Whether the Rust registry answered; false means on-device only.
     public private(set) var registryAvailable = false
     /// Error message if any.
@@ -131,6 +134,7 @@ import ImpressLogging
         registryAvailable = await providerManager.registryAvailable
         await applyPreferences()
         await refreshSelectionDerivedState()
+        modelGroups = await AIModelOptions.load(from: providerManager)
         logInfo(
             "Display: settings show \(selectionSummary) (origin \(selectionOriginDescription); \(availableModels.count) models, \(allModels.count - availableModels.count) helpers hidden)",
             category: "ai.settings"
@@ -160,6 +164,9 @@ import ImpressLogging
         }
         health = await providerManager.health(for: providerId, forceRefresh: true)
         isProviderReady = health?.isReady ?? isProviderReady
+        // Keep every other picker (task categories, the quick switcher) on the
+        // same list this refresh just produced.
+        modelGroups = await AIModelOptions.load(from: providerManager)
     }
 
     /// Refreshes credential status for all providers.
@@ -309,17 +316,10 @@ public enum AISettingsKey {
 // MARK: - Category Integration
 
 extension AISettings {
-    /// Model references for category assignment: the displayed provider's
-    /// discovered models plus every other provider's static list.
+    /// Model references for category assignment — one implementation, shared
+    /// with the task-category sheet and the quick switcher.
     public var availableModelReferences: [AIModelReference] {
-        var references: [AIModelReference] = []
-        for provider in availableProviders {
-            let models = provider.id == displayedProviderId ? availableModels : provider.models
-            for model in models where !model.isHelper {
-                references.append(AIModelReference.from(provider: provider, model: model))
-            }
-        }
-        return references
+        modelGroups.flatMap(\.models)
     }
 
     /// The model reference for the current selection.
