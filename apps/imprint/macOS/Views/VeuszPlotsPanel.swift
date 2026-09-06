@@ -1,4 +1,5 @@
 import AppKit
+import ImpressKit
 import ImpressLogging
 import OSLog
 import SwiftUI
@@ -224,6 +225,7 @@ struct VeuszPlotsPanel: View {
             .frame(width: 280)
         }
         .padding(20)
+        .impressResizableSheet(minWidth: 340, minHeight: 170)
     }
 
     private func commitNewPlot() {

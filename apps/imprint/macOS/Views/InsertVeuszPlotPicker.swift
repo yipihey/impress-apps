@@ -1,4 +1,5 @@
 import AppKit
+import ImpressKit
 import SwiftUI
 
 /// Keyboard-driven picker sheet that lists every Veusz plot tracked by the
@@ -47,7 +48,7 @@ struct InsertVeuszPlotPicker: View {
             Divider()
             footer
         }
-        .frame(width: 460, height: 420)
+        .impressResizableSheet(minWidth: 460, minHeight: 420)
         .onAppear { queryFocused = true }
     }
 

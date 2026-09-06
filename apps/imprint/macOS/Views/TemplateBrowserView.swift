@@ -1,3 +1,4 @@
+import ImpressKit
 import SwiftUI
 
 /// Browse and manage document templates
@@ -26,7 +27,7 @@ struct TemplateBrowserView: View {
                 )
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .impressResizableSheet(minWidth: 900, minHeight: 600)
         .searchable(text: $searchQuery, prompt: "Search templates")
     }
 
