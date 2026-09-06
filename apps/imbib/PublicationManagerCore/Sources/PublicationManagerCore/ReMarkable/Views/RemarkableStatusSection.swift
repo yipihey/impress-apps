@@ -6,6 +6,7 @@
 //  ADR-019: reMarkable Tablet Integration
 //
 
+import ImpressKit
 import SwiftUI
 
 // MARK: - Status Section
@@ -322,9 +323,7 @@ struct RemarkableAnnotationsSheet: View {
                 loadAnnotations()
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 400, minHeight: 300)
-        #endif
+        .impressResizableSheet(minWidth: 400, minHeight: 300)
     }
 
     private func loadAnnotations() {

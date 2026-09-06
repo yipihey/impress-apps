@@ -48,6 +48,8 @@ public struct OnboardingSheet: View {
         // content wider than any iPhone (≤440pt) and the sheet overflows.
         // iOS sheets size to the presentation; the per-step ScrollViews
         // handle vertical overflow.
+        // Stays capped (no impressResizableSheet): a designed welcome card,
+        // already user-resizable within its 500–600 × 450–600 range.
         #if os(macOS)
         .frame(minWidth: 500, idealWidth: 550, maxWidth: 600)
         .frame(minHeight: 450, idealHeight: 500, maxHeight: 600)

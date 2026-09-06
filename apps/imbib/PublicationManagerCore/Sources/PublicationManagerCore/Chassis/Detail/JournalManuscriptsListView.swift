@@ -18,6 +18,7 @@
 //  Phase 5 polish work.
 //
 
+import ImpressKit
 import SwiftUI
 
 struct JournalManuscriptsListView: View {
@@ -183,6 +184,7 @@ struct JournalManuscriptsListView: View {
             }
         }
         .padding()
+        .impressResizableSheet(minWidth: 440, minHeight: 180)
     }
 
     // MARK: - Actions

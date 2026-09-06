@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-29.
 //
 
+import ImpressKit
 import SwiftUI
 import OSLog
 #if os(macOS)
@@ -137,9 +138,8 @@ public struct UnifiedExportView: View {
             #endif
             .toolbar { toolbarContent }
         }
-        #if os(macOS)
-        .frame(minWidth: 400, minHeight: 350)
-        #endif
+        // 550×450 matches the floor ContentView's call site used to impose.
+        .impressResizableSheet(minWidth: 550, minHeight: 450)
         .alert("Export Error", isPresented: $showError) {
             Button("OK") { showError = false }
         } message: {

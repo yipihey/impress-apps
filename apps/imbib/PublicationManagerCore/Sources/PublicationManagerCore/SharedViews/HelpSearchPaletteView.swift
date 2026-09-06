@@ -5,6 +5,7 @@
 //  Command palette for searching help documentation.
 //
 
+import ImpressKit
 import SwiftUI
 
 /// A command palette overlay for searching help documentation.
@@ -69,7 +70,13 @@ public struct HelpSearchPaletteView: View {
                     resultsList
                 }
             }
+            #if os(macOS)
+            // Presented as a sheet on macOS — the palette card tracks the
+            // (user-resizable) sheet window instead of pinning it to 600×400.
+            .impressResizableSheet(minWidth: 600, minHeight: 400)
+            #else
             .frame(width: paletteWidth, height: paletteHeight)
+            #endif
             .background(paletteBackground)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.3), radius: 20, y: 10)

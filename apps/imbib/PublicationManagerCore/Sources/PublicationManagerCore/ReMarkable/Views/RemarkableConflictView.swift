@@ -6,6 +6,7 @@
 //  ADR-019: reMarkable Tablet Integration
 //
 
+import ImpressKit
 import SwiftUI
 
 // MARK: - Conflict Model
@@ -86,9 +87,7 @@ public struct RemarkableConflictView: View {
             .foregroundStyle(.secondary)
         }
         .padding(24)
-        #if os(macOS)
-        .frame(width: 500, height: 450)
-        #endif
+        .impressResizableSheet(minWidth: 500, minHeight: 450)
     }
 
     // MARK: - Header

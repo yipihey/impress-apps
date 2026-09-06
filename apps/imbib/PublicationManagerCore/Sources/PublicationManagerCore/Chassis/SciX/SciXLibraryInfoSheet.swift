@@ -5,6 +5,7 @@
 //  imbib
 //
 
+import ImpressKit
 import SwiftUI
 
 /// Sheet showing library details, collaborators, add-collaborator form, and (owner-only) transfer of ownership.
@@ -75,9 +76,7 @@ struct SciXLibraryInfoSheet: View {
                 Text("Transfer ownership of \"\(library.name)\" to \(transferEmail)? You will lose owner access.")
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 480, minHeight: 400)
-        #endif
+        .impressResizableSheet(minWidth: 480, minHeight: 400)
     }
 
     // MARK: - Sections

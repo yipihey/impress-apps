@@ -5,6 +5,7 @@
 //  Sheet showing structured comparison between 2-4 papers.
 //
 
+import ImpressKit
 import SwiftUI
 
 // MARK: - Paper Comparison View
@@ -90,8 +91,9 @@ public struct PaperComparisonView: View {
                 }
             }
         }
-        .frame(minWidth: 600, idealWidth: 700, maxWidth: 900,
-               minHeight: 400, idealHeight: 600, maxHeight: 800)
+        // Wider genuinely shows more here (papers side by side), so no max cap.
+        .impressResizableSheet(minWidth: 600, idealWidth: 700,
+                               minHeight: 400, idealHeight: 600)
         .task {
             if viewModel.result == nil {
                 await viewModel.compare(publicationIDs: publicationIDs)

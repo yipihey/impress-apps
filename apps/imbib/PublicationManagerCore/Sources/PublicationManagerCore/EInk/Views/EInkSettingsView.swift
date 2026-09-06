@@ -5,6 +5,7 @@
 //  Settings interface for configuring E-Ink device integration.
 //
 
+import ImpressKit
 import SwiftUI
 import OSLog
 
@@ -514,7 +515,7 @@ struct AddDeviceSheet: View {
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 400)
+        .impressResizableSheet(minWidth: 400, minHeight: 400)
         .onChange(of: selectedType) { _, newType in
             // Reset method if not supported
             if !newType.supportedSyncMethods.contains(selectedMethod) {
@@ -611,7 +612,7 @@ struct DeviceConfigurationSheet: View {
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 300)
+        .impressResizableSheet(minWidth: 400, minHeight: 300)
         .onAppear {
             folderPath = settings.localFolderPath ?? ""
             email = settings.sendToEmail ?? ""

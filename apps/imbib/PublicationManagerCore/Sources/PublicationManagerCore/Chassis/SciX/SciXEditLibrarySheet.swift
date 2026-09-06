@@ -5,6 +5,7 @@
 //  imbib
 //
 
+import ImpressKit
 import SwiftUI
 
 /// Sheet for editing SciX library metadata (name, description, public visibility).
@@ -80,9 +81,7 @@ struct SciXEditLibrarySheet: View {
             }
             .disabled(isSaving)
         }
-        #if os(macOS)
-        .frame(minWidth: 400, minHeight: 300)
-        #endif
+        .impressResizableSheet(minWidth: 400, minHeight: 300)
     }
 
     private func save() {

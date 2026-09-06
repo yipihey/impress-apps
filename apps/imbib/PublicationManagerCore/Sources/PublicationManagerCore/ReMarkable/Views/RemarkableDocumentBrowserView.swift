@@ -6,6 +6,7 @@
 //  ADR-019: reMarkable Tablet Integration
 //
 
+import ImpressKit
 import SwiftUI
 import OSLog
 
@@ -42,9 +43,7 @@ public struct RemarkableDocumentBrowserView: View {
                 }
             }
             .navigationTitle("reMarkable Documents")
-            #if os(macOS)
-            .frame(minWidth: 500, minHeight: 400)
-            #endif
+            .impressResizableSheet(minWidth: 500, minHeight: 400)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
@@ -328,7 +327,7 @@ private struct RemarkableImportSheet: View {
             }
             .padding()
         }
-        .frame(width: 400)
+        .impressResizableSheet(minWidth: 400, minHeight: 320)
         .alert("Import Error", isPresented: .constant(importError != nil)) {
             Button("OK") { importError = nil }
         } message: {

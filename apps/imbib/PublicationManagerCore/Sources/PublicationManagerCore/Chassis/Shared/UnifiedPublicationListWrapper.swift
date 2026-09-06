@@ -11,6 +11,7 @@ import SwiftUI
 import OSLog
 import ImpressKeyboard
 import ImpressFTUI
+import ImpressKit
 import ImpressStoreKit
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "publicationlist")
@@ -570,7 +571,7 @@ struct UnifiedPublicationListWrapper: View {
             }
             .sheet(isPresented: $showingDropPreview) {
                 dropPreviewSheetContent
-                    .frame(minWidth: 500, minHeight: 400)
+                    .impressResizableSheet(minWidth: 500, minHeight: 400)
             }
     }
 
