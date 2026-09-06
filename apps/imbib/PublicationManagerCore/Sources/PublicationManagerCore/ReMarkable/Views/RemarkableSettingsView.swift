@@ -39,6 +39,15 @@ public struct RemarkableSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("reMarkable")
+        .task {
+            // Show the one-time code field immediately rather than behind a
+            // "Connect" button: preparing a registration is local (it only
+            // mints a device id), and hiding the field made the panel look
+            // like it offered no way to paste the code reMarkable gives you.
+            if !settings.isAuthenticated, !isAuthenticating, pendingBackend == nil {
+                startAuthentication()
+            }
+        }
         #if os(macOS)
         .frame(minWidth: 450)
         #endif
@@ -85,8 +94,18 @@ public struct RemarkableSettingsView: View {
             } else if isAuthenticating {
                 // Authenticating state — user must enter code from reMarkable website
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Connect reMarkable")
-                        .font(.headline)
+                    HStack {
+                        Image(systemName: "tablet")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading) {
+                            Text("Connect your reMarkable")
+                                .font(.headline)
+                            Text("Sync PDFs and import annotations from your reMarkable tablet.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
@@ -112,7 +131,7 @@ public struct RemarkableSettingsView: View {
                     }
 
                     HStack {
-                        Button("Cancel") {
+                        Button("Not Now") {
                             isAuthenticating = false
                             userCode = ""
                             pendingBackend = nil
@@ -154,7 +173,7 @@ public struct RemarkableSettingsView: View {
                     Button {
                         startAuthentication()
                     } label: {
-                        Label("Connect to reMarkable Cloud", systemImage: "link")
+                        Label("Enter a One-Time Code", systemImage: "link")
                     }
                     .buttonStyle(.borderedProminent)
                 }
