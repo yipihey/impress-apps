@@ -145,6 +145,58 @@ impl From<ModelStats> for impress_embeddings::ModelStats {
     }
 }
 
+/// Vectors and distinct sources held for one `source_type`.
+#[derive(uniffi::Record, Clone, Debug, Serialize, Deserialize)]
+pub struct SourceTypeCount {
+    pub source_type: String,
+    pub vectors: u32,
+    pub sources: u32,
+}
+
+impl From<impress_embeddings::SourceTypeCount> for SourceTypeCount {
+    fn from(count: impress_embeddings::SourceTypeCount) -> Self {
+        Self {
+            source_type: count.source_type,
+            vectors: count.vectors,
+            sources: count.sources,
+        }
+    }
+}
+
+/// What the embedding sidecar holds, tier by tier.
+///
+/// Two independent tiers, and a UI must not collapse them: every paper gets a
+/// metadata (title/abstract) vector when the index is built, while a chunk
+/// vector exists only for a paper whose PDF was downloaded and chunked.
+#[derive(uniffi::Record, Clone, Debug, Serialize, Deserialize)]
+pub struct EmbeddingIndexStatus {
+    pub indexed_publications: u32,
+    pub publication_vectors: u32,
+    pub chunked_publications: u32,
+    pub chunk_vectors: u32,
+    pub chunk_count: u32,
+    pub vector_count: u32,
+    pub by_source_type: Vec<SourceTypeCount>,
+}
+
+impl From<impress_embeddings::EmbeddingIndexStatus> for EmbeddingIndexStatus {
+    fn from(status: impress_embeddings::EmbeddingIndexStatus) -> Self {
+        Self {
+            indexed_publications: status.indexed_publications,
+            publication_vectors: status.publication_vectors,
+            chunked_publications: status.chunked_publications,
+            chunk_vectors: status.chunk_vectors,
+            chunk_count: status.chunk_count,
+            vector_count: status.vector_count,
+            by_source_type: status
+                .by_source_type
+                .into_iter()
+                .map(SourceTypeCount::from)
+                .collect(),
+        }
+    }
+}
+
 /// Status of embeddings for a specific publication.
 #[derive(uniffi::Record, Clone, Debug, Serialize, Deserialize)]
 pub struct PublicationEmbeddingStatus {
@@ -668,6 +720,21 @@ pub fn embedding_store_chunked_publication_count(handle: u64) -> u32 {
         store.chunked_publication_count().unwrap_or(0)
     } else {
         0
+    }
+}
+
+/// Every tier of the index in one call — what a settings pane should show
+/// instead of guessing from a single count.
+#[uniffi::export]
+pub fn embedding_store_index_status(handle: u64) -> Option<EmbeddingIndexStatus> {
+    let registry = EMBEDDING_STORE_REGISTRY.read().unwrap();
+    let store = registry.get(&handle)?;
+    match store.index_status() {
+        Ok(status) => Some(EmbeddingIndexStatus::from(status)),
+        Err(e) => {
+            eprintln!("embedding_store_index_status failed: {}", e);
+            None
+        }
     }
 }
 

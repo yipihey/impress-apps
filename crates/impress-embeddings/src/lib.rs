@@ -47,7 +47,8 @@ pub use ann_index::{AnnIndex, AnnIndexConfig, AnnSimilarityResult};
 pub use chunk_index::{ChunkIndex, ChunkSimilarityResult};
 #[cfg(feature = "store")]
 pub use embedding_store::{
-    EmbeddingStore, ModelStats, PublicationEmbeddingStatus, StoredChunk, StoredVector,
+    EmbeddingIndexStatus, EmbeddingStore, ModelStats, PublicationEmbeddingStatus, SourceTypeCount,
+    StoredChunk, StoredVector, SOURCE_TYPE_CHUNK, SOURCE_TYPE_PUBLICATION,
 };
 #[cfg(feature = "embedder")]
 pub use semantic::{EmbeddingError, SemanticSearch, StoredEmbedding};

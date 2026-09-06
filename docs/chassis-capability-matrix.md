@@ -1297,6 +1297,29 @@ hid the rows past its frame, so the form itself now scrolls past every model,
 with a filter field above eight models and the selected model always visible.
 `AIModelPickerListTests` pins the row selection.
 
+A third follow-up on 2026-09-06, after the panes met real data. Model
+pickers are built once, by `AIModelOptions` in `packages/ImpressAI`: it asks
+providers that are *ready* what they actually serve and falls back to the
+catalogue for the rest, then groups by provider with usable providers first
+and the reason attached to the others ("Claude (Anthropic) — needs an API
+key"). Settings › AI, the task-category sheet and the quick switcher all read
+those groups, so a discovery-only host such as oMLX — whose catalogue entry
+declares no static models — is now offered everywhere instead of nowhere, and
+eight unconfigured cloud providers no longer sit unlabelled at the top of the
+list. `AIModelOptionsTests` pins the rules.
+
+The embedding panel gained the same honesty about tiers. `EmbeddingStore::
+index_status` in `crates/impress-embeddings` reports every `source_type` in
+the sidecar (a paper's metadata vector, its full-text chunk vectors, and
+impel's `memory-item` vectors share one file), and imbib's Search & AI pane
+shows the metadata tier and the full-text tier as separate rows. It had shown
+one number, `max(papers with chunks, papers in the in-memory ANN index)`;
+because that index is built lazily per session it read 0 on a fresh launch,
+so a library with a metadata embedding for every paper reported "73 of 2,986
+indexed". `GET /api/embeddings/status` on imbib's automation port answers the
+same question for agents — the sidecar sits in the app's sandbox container,
+where no daemon, CLI or MCP process can reach it.
+
 Frozen oracles moved in the same commit: `SettingsSurfacePhase2ContractTests`
 (`testImplorePresetIsTheFrozenSixTabInventory`,
 `testImploreTabIdentifiersAreTheOnesItShipped`,

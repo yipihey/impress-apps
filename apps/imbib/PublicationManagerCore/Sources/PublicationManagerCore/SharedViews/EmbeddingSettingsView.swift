@@ -8,6 +8,8 @@
 import SwiftUI
 import ImpressAI
 import ImpressEmbeddings
+import ImpressLogging
+import OSLog
 
 // MARK: - Embedding Settings View
 
@@ -44,17 +46,19 @@ public struct EmbeddingSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                LabeledContent("Papers Indexed") {
-                    HStack(spacing: 6) {
-                        Text("\(embeddingStatus.indexedPapers) of \(embeddingStatus.totalPapers)")
-                            .foregroundStyle(.secondary)
-                        if embeddingStatus.totalPapers > 0 {
-                            let pct = Double(embeddingStatus.indexedPapers) / Double(embeddingStatus.totalPapers)
-                            ProgressView(value: pct)
-                                .frame(width: 60)
-                        }
-                    }
-                }
+                // Two tiers, never collapsed into one number: every paper
+                // gets a metadata vector when the index is built, while the
+                // full-text tier needs a downloaded PDF to chunk. Reporting
+                // only the second made a fully embedded library read as
+                // unindexed.
+                tierRow(
+                    "Metadata Indexed",
+                    indexed: embeddingStatus.indexedPapers,
+                    total: embeddingStatus.totalPapers)
+                tierRow(
+                    "Full Text Indexed",
+                    indexed: embeddingStatus.chunkedPapers,
+                    total: embeddingStatus.totalPapers)
 
                 LabeledContent("Chunks Stored") {
                     Text("\(embeddingStatus.chunkCount)")
@@ -68,11 +72,7 @@ public struct EmbeddingSettingsView: View {
             } header: {
                 Text("Embedding Index Status")
             } footer: {
-                if embeddingStatus.indexedPapers < embeddingStatus.totalPapers {
-                    Text("\(embeddingStatus.totalPapers - embeddingStatus.indexedPapers) papers have not been indexed yet.")
-                } else if embeddingStatus.totalPapers > 0 {
-                    Text("All papers are indexed.")
-                }
+                Text(statusFooter)
             }
 
             // Model Statistics
@@ -104,7 +104,9 @@ public struct EmbeddingSettingsView: View {
                         }
                     }
                 }
-                .disabled(isIndexing || embeddingStatus.indexedPapers >= embeddingStatus.totalPapers)
+                // Gated on the full-text tier: that is the one this button
+                // advances, and it is never complete while papers lack a PDF.
+                .disabled(isIndexing || embeddingStatus.chunkedPapers >= embeddingStatus.totalPapers)
 
                 Button("Re-index All Papers", role: .destructive) {
                     Task { await reindexAll() }
@@ -135,9 +137,7 @@ public struct EmbeddingSettingsView: View {
         let opened = await store.openDefault()
         guard opened else { return }
 
-        let vectorCount = await store.vectorCount()
-        let chunkCount = await store.chunkCount()
-        let chunkedPubs = await store.chunkedPublicationCount()
+        let status = await store.indexStatus()
         let stats = await store.modelStats()
         await store.close()
 
@@ -151,8 +151,11 @@ public struct EmbeddingSettingsView: View {
             totalPubs += RustStoreAdapter.shared.queryPublications(parentId: lib.id).count
         }
 
+        // The in-memory ANN index is built lazily per app session, so it is
+        // 0 on a fresh launch; the persisted vector count is the durable
+        // answer and only wins when it is larger.
         let hasIndex = await EmbeddingService.shared.hasIndex
-        let indexCount = hasIndex ? await EmbeddingService.shared.indexedCount() : 0
+        let sessionIndexCount = hasIndex ? await EmbeddingService.shared.indexedCount() : 0
 
         // Query the active provider dynamically
         let registry = EmbeddingProviderRegistry.shared
@@ -163,12 +166,53 @@ public struct EmbeddingSettingsView: View {
         embeddingStatus = EmbeddingStatusInfo(
             providerName: providerName,
             dimension: dimension,
-            indexedPapers: max(Int(chunkedPubs), indexCount),
+            indexedPapers: max(Int(status?.indexedPublications ?? 0), sessionIndexCount),
+            chunkedPapers: Int(status?.chunkedPublications ?? 0),
             totalPapers: totalPubs,
-            vectorCount: Int(vectorCount),
-            chunkCount: Int(chunkCount),
+            vectorCount: Int(status?.vectorCount ?? 0),
+            chunkCount: Int(status?.chunkCount ?? 0),
             modelStats: stats.map { EmbeddingModelStatInfo(model: $0.model, vectorCount: Int($0.vectorCount), dimension: Int($0.dimension)) }
         )
+        Logger.embeddingService.infoCapture(
+            "Display: embedding index — metadata \(embeddingStatus.indexedPapers)/\(totalPubs), full text \(embeddingStatus.chunkedPapers)/\(totalPubs), \(embeddingStatus.vectorCount) vectors",
+            category: "embeddings"
+        )
+    }
+
+    /// One tier's row: "73 of 2,987", or "All 2,987" once the tier covers the
+    /// library. The count can exceed the total — the index also holds papers
+    /// since moved to Dismissed, which the total deliberately excludes — and
+    /// "3,040 of 2,987" reads as a bug rather than as completeness.
+    @ViewBuilder
+    private func tierRow(_ title: String, indexed: Int, total: Int) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 6) {
+                Text(indexed >= total && total > 0 ? "All \(total)" : "\(indexed) of \(total)")
+                    .foregroundStyle(.secondary)
+                if total > 0 {
+                    ProgressView(value: min(Double(indexed) / Double(total), 1.0))
+                        .frame(width: 60)
+                }
+            }
+        }
+    }
+
+    /// Says which tier is short, because "N papers not indexed" was read as a
+    /// failed reindex when the metadata tier was in fact complete.
+    private var statusFooter: String {
+        guard embeddingStatus.totalPapers > 0 else { return "No papers to index yet." }
+        var lines: [String] = []
+        let metadataMissing = embeddingStatus.totalPapers - embeddingStatus.indexedPapers
+        if metadataMissing > 0 {
+            lines.append("\(metadataMissing) papers have no metadata embedding yet.")
+        } else {
+            lines.append("Every paper has a metadata embedding, so semantic search covers the whole library.")
+        }
+        let fullTextMissing = embeddingStatus.totalPapers - embeddingStatus.chunkedPapers
+        if fullTextMissing > 0 {
+            lines.append("Full-text indexing needs a downloaded PDF; \(fullTextMissing) papers have none stored, and indexing skips them.")
+        }
+        return lines.joined(separator: " ")
     }
 
     private func indexUnprocessed() async {
@@ -229,7 +273,10 @@ public struct EmbeddingSettingsView: View {
 struct EmbeddingStatusInfo {
     var providerName: String = "Not configured"
     var dimension: Int = 0
+    /// Papers with a metadata (title/abstract) vector.
     var indexedPapers: Int = 0
+    /// Papers with at least one full-text chunk from a stored PDF.
+    var chunkedPapers: Int = 0
     var totalPapers: Int = 0
     var vectorCount: Int = 0
     var chunkCount: Int = 0
