@@ -9,6 +9,7 @@
 import Foundation
 import SwiftUI
 import OSLog
+import Security
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "remarkableSettings")
 
@@ -50,6 +51,20 @@ public final class RemarkableSettingsStore {
     @ObservationIgnored
     @AppStorage("remarkable.localFolderPath")
     public var localFolderPath: String?
+
+    // MARK: - Local network (Wi-Fi)
+
+    /// The tablet's address on this network. Printed on the tablet under
+    /// Settings → Help → Copyrights and licenses, alongside the password.
+    public var wifiHost: String = ""
+
+    /// SSH port; the tablet's default is 22.
+    public var wifiPort: Int = 22
+
+    /// The host key seen when the tablet was first paired. Trust-on-first-use:
+    /// once stored, a tablet presenting a different key is refused before the
+    /// password is sent.
+    public var wifiFingerprint: String?
 
     /// Security-scoped bookmark for the local folder.
     public var localFolderBookmark: Data? {
@@ -175,6 +190,54 @@ public final class RemarkableSettingsStore {
     }
 
     /// Clear all reMarkable credentials and reset connection state.
+    // MARK: - Wi-Fi password
+
+    private var wifiKeychainAccount: String { "wifiPassword" }
+
+    /// Store the tablet's root password. It never leaves the keychain except
+    /// to be handed to the transport for one connection.
+    public func storeWiFiPassword(_ password: String) throws {
+        let data = Data(password.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: wifiKeychainAccount,
+        ]
+        SecItemDelete(query as CFDictionary)
+        var attributes = query
+        attributes[kSecValueData as String] = data
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw RemarkableError.authFailed("Could not store the tablet password (status \(status))")
+        }
+    }
+
+    public func retrieveWiFiPassword() throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: wifiKeychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Forget the tablet: password, address and pinned key.
+    public func clearWiFiCredentials() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: wifiKeychainAccount,
+        ]
+        SecItemDelete(query as CFDictionary)
+        wifiHost = ""
+        wifiFingerprint = nil
+    }
+
     public func clearCredentials() {
         // Delete from Keychain
         let query: [String: Any] = [

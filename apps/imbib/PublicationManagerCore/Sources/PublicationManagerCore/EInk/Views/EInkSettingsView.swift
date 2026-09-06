@@ -254,6 +254,27 @@ public struct EInkSettingsView: View {
 
     private func addRemarkableDevice(method: EInkSyncMethod) async throws {
         switch method {
+        case .wifi:
+            // SFTP to the tablet on this network. The address and password go
+            // in the reMarkable panel, which the sheet below leads with.
+            let backend = RemarkableWiFiBackend()
+            await MainActor.run { RemarkableBackendManager.shared.registerBackend(backend) }
+            let adapter = await RemarkableDeviceAdapter(backend: backend, syncMethod: .wifi)
+            await deviceManager.registerDevice(adapter)
+            let deviceID = await adapter.deviceID
+            await MainActor.run {
+                settings.updateSettings(for: deviceID) { deviceSettings in
+                    deviceSettings.deviceType = .remarkable
+                    deviceSettings.syncMethod = .wifi
+                    deviceSettings.displayName = "reMarkable (Local Network)"
+                    deviceSettings.isAuthenticated = false
+                }
+                settings.activeDeviceID = deviceID
+                showingRemarkableConnect = true
+            }
+            try? await deviceManager.selectDevice(deviceID)
+            logger.info("Added reMarkable local-network device: \(deviceID)")
+
         case .cloudApi:
             // Create cloud backend
             let cloudBackend = RemarkableCloudBackend()

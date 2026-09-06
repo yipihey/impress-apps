@@ -41,6 +41,9 @@ public actor RemarkableDeviceAdapter: EInkDevice {
         switch syncMethod {
         case .cloudApi:
             return .full
+        case .wifi:
+            // Reading works over SFTP; writing to the tablet does not yet.
+            return [.downloadPDF, .downloadAnnotations]
         case .folderSync:
             return [.upload, .downloadPDF, .downloadAnnotations, .createFolders]
         case .usb:

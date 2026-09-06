@@ -22,11 +22,19 @@ public struct RemarkableSettingsView: View {
     @State private var isConnecting = false
     @State private var showDisconnectConfirmation = false
     @State private var errorMessage: String?
+    @State private var wifiPassword: String = ""
+    @State private var isConnectingWiFi = false
+    @State private var wifiStatus: String?
 
     public init() {}
 
     public var body: some View {
         Form {
+            // The local-network path first: it works today, keeps papers on
+            // this network, and cannot be retired by a vendor API change —
+            // which is exactly what happened to the cloud path below.
+            wifiSection
+
             // Connection Section
             connectionSection
 
@@ -66,6 +74,95 @@ public struct RemarkableSettingsView: View {
         }
     }
 
+    // MARK: - Local Network Section
+
+    @ViewBuilder
+    private var wifiSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Reach the tablet directly over Wi-Fi. Nothing goes through reMarkable's servers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Wake the tablet, then find its address and password on the device under Settings › Help › Copyrights and licenses.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                LabeledContent("Address") {
+                    TextField("10.0.0.42", text: $settings.wifiHost)
+                        .textFieldStyle(.roundedBorder)
+                        #if os(macOS)
+                        .frame(maxWidth: 200)
+                        #endif
+                }
+
+                LabeledContent("Password") {
+                    SecureField("Tablet password", text: $wifiPassword)
+                        .textFieldStyle(.roundedBorder)
+                        #if os(macOS)
+                        .frame(maxWidth: 200)
+                        #endif
+                }
+
+                HStack {
+                    Button {
+                        connectOverWiFi()
+                    } label: {
+                        if isConnectingWiFi {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                Text("Connecting…")
+                            }
+                        } else {
+                            Label("Connect over Wi-Fi", systemImage: "wifi")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isConnectingWiFi
+                        || settings.wifiHost.trimmingCharacters(in: .whitespaces).isEmpty
+                        || wifiPassword.isEmpty)
+
+                    if settings.wifiFingerprint != nil {
+                        Button("Forget") {
+                            settings.clearWiFiCredentials()
+                            wifiPassword = ""
+                            wifiStatus = nil
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                if let wifiStatus {
+                    Label(wifiStatus, systemImage: settings.wifiFingerprint != nil ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(settings.wifiFingerprint != nil ? .green : .orange)
+                }
+            }
+        } header: {
+            Text("Local Network")
+        } footer: {
+            Text("The tablet's key is remembered the first time it answers, so a different device on that address is refused rather than sent your password. Reading documents and annotations works; sending them to the tablet does not yet.")
+        }
+    }
+
+    private func connectOverWiFi() {
+        isConnectingWiFi = true
+        wifiStatus = nil
+        let password = wifiPassword
+        Task {
+            do {
+                try settings.storeWiFiPassword(password)
+                let backend = RemarkableWiFiBackend()
+                try await backend.authenticate()
+                let documents = try await backend.listDocuments()
+                wifiStatus = "Connected — \(documents.count) documents on the tablet."
+            } catch {
+                wifiStatus = error.localizedDescription
+            }
+            isConnectingWiFi = false
+        }
+    }
+
     // MARK: - Connection Section
 
     @ViewBuilder
@@ -101,7 +198,7 @@ public struct RemarkableSettingsView: View {
                         VStack(alignment: .leading) {
                             Text("Connect your reMarkable")
                                 .font(.headline)
-                            Text("Sync PDFs and import annotations from your reMarkable tablet.")
+                            Text("Pairing works, but reMarkable retired the sync API this uses, so documents will not transfer. Prefer the local network above.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
