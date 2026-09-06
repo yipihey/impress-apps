@@ -109,6 +109,25 @@ actor FakeAIBridge: AIBridge {
         return update { $0 = $0.with(selected: AIModelSelection(providerId: providerId, modelId: modelId, displayName: displayName)) }
     }
 
+    func setModelEnabled(providerId: String, modelId: String, enabled: Bool) async throws -> AIPreferences {
+        guard descriptors.contains(where: { $0.id == providerId }) else {
+            throw AIBridgeError(kind: .invalid, message: "unknown AI provider '\(providerId)'")
+        }
+        if enabled, modelsByProvider[providerId]?.first(where: { $0.id == modelId })?.isHelper == true {
+            throw AIBridgeError(kind: .invalid, message: "\(modelId) is a helper model and cannot be selected for chat")
+        }
+        let name = modelsByProvider[providerId]?.first { $0.id == modelId }?.displayName ?? modelId
+        return update { preferences in
+            var models = preferences.enabledModels.filter {
+                !($0.providerId == providerId && $0.modelId == modelId)
+            }
+            if enabled {
+                models.append(AIModelReference(providerId: providerId, modelId: modelId, displayName: name))
+            }
+            preferences = preferences.with(enabledModels: models)
+        }
+    }
+
     func clearSelection() async throws -> AIPreferences {
         update { $0 = $0.with(selected: nil, clearSelection: true) }
     }
@@ -264,7 +283,8 @@ extension AIPreferences {
         autoStartOMLX: Bool? = nil,
         taskAssignments: [String: AITaskCategoryAssignment]? = nil,
         updatedAtMs: Int64? = nil,
-        migratedFromSharedDefaults: Bool? = nil
+        migratedFromSharedDefaults: Bool? = nil,
+        enabledModels: [AIModelReference]? = nil
     ) -> AIPreferences {
         AIPreferences(
             version: version,
@@ -274,7 +294,8 @@ extension AIPreferences {
             taskAssignments: taskAssignments ?? self.taskAssignments,
             updatedAtMs: updatedAtMs ?? self.updatedAtMs,
             path: path,
-            migratedFromSharedDefaults: migratedFromSharedDefaults ?? self.migratedFromSharedDefaults
+            migratedFromSharedDefaults: migratedFromSharedDefaults ?? self.migratedFromSharedDefaults,
+            enabledModels: enabledModels ?? self.enabledModels
         )
     }
 }

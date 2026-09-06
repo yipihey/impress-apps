@@ -83,6 +83,16 @@ pub struct AiPreferences {
     pub auto_start_omlx: bool,
     #[serde(default)]
     pub task_categories: BTreeMap<String, CategoryAssignment>,
+    /// The models the researcher made available to the suite. Task-category
+    /// pickers offer these and nothing else, so choosing a model for a job is
+    /// a choice among the handful that are actually wanted rather than every
+    /// model every catalogued provider lists.
+    ///
+    /// Empty means "no restriction": a device that never curated a list must
+    /// keep seeing every model, and an upgrade must not silently empty every
+    /// picker.
+    #[serde(default)]
+    pub enabled_models: Vec<ModelRef>,
     #[serde(default)]
     pub updated_at_ms: i64,
     /// Set once the Swift-side `SharedDefaults` selection has been imported,
@@ -99,6 +109,7 @@ impl Default for AiPreferences {
             endpoints: BTreeMap::new(),
             auto_start_omlx: true,
             task_categories: BTreeMap::new(),
+            enabled_models: Vec::new(),
             updated_at_ms: 0,
             migrated_from_shared_defaults: false,
         }

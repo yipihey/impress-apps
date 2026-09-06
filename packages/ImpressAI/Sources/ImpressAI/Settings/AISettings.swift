@@ -86,6 +86,9 @@ import ImpressLogging
     /// Selectable models grouped by provider (`AIModelOptions`) — the same
     /// list the task-category sheet and the quick switcher offer.
     public private(set) var modelGroups: [AIModelOptionGroup] = []
+    /// `provider:model` ids the researcher made available to the suite. Empty
+    /// means every model is available.
+    public private(set) var enabledModelIds: Set<String> = []
     /// Whether the Rust registry answered; false means on-device only.
     public private(set) var registryAvailable = false
     /// Error message if any.
@@ -135,6 +138,7 @@ import ImpressLogging
         await applyPreferences()
         await refreshSelectionDerivedState()
         modelGroups = await AIModelOptions.load(from: providerManager)
+        enabledModelIds = Set(await providerManager.enabledModels.map(\.id))
         logInfo(
             "Display: settings show \(selectionSummary) (origin \(selectionOriginDescription); \(availableModels.count) models, \(allModels.count - availableModels.count) helpers hidden)",
             category: "ai.settings"
@@ -147,6 +151,20 @@ import ImpressLogging
         await providerManager.reloadPreferences()
         await applyPreferences()
         await refreshSelectionDerivedState()
+    }
+
+    /// Make a model available to the impress apps, or withdraw it. The
+    /// per-task pickers offer exactly what is enabled here.
+    public func setModelEnabled(_ model: AIModel, provider: AIProviderMetadata, enabled: Bool) async {
+        let reference = AIModelReference.from(provider: provider, model: model)
+        await providerManager.setModelEnabled(reference, enabled: enabled)
+        enabledModelIds = Set(await providerManager.enabledModels.map(\.id))
+    }
+
+    /// Whether a model may be used by the suite. With nothing curated every
+    /// model may, which is what a fresh device should see.
+    public func isModelEnabled(_ model: AIModel, provider: AIProviderMetadata) -> Bool {
+        enabledModelIds.isEmpty || enabledModelIds.contains("\(provider.id):\(model.id)")
     }
 
     /// Force a fresh discovery + health probe for the displayed provider.
@@ -167,6 +185,7 @@ import ImpressLogging
         // Keep every other picker (task categories, the quick switcher) on the
         // same list this refresh just produced.
         modelGroups = await AIModelOptions.load(from: providerManager)
+        enabledModelIds = Set(await providerManager.enabledModels.map(\.id))
     }
 
     /// Refreshes credential status for all providers.

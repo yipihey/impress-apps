@@ -301,7 +301,15 @@ public struct AISettingsView: View {
                 AIModelPickerList(
                     models: settings.allModels,
                     selection: $settings.selectedModelId,
-                    showHelpers: settings.showHelperModels
+                    showHelpers: settings.showHelperModels,
+                    isEnabled: { model in
+                        guard let provider = settings.selectedProviderMetadata else { return true }
+                        return settings.isModelEnabled(model, provider: provider)
+                    },
+                    onToggleEnabled: { model, enabled in
+                        guard let provider = settings.selectedProviderMetadata else { return }
+                        Task { await settings.setModelEnabled(model, provider: provider, enabled: enabled) }
+                    }
                 )
                 if let modelId = settings.displayedModelId,
                    settings.selectedModelId == nil,
@@ -337,7 +345,10 @@ public struct AISettingsView: View {
                 .help("Discover models again")
             }
         } footer: {
-            Text(modelFooter)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(modelFooter)
+                Text("Tick the models the impress apps may use, and select one as the default. Task Categories then choose among the ticked models. With none ticked, every model is available.")
+            }
         }
     }
 

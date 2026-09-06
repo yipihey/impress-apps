@@ -98,6 +98,42 @@ final class AIModelOptionsTests: XCTestCase {
             "nothing is added when nothing is assigned")
     }
 
+    func testTheEnabledSetNarrowsWhatPerTaskPickersOffer() {
+        let providers = [
+            provider("omlx", "oMLX", category: .local),
+            provider("anthropic", "Claude (Anthropic)", models: [
+                AIModel(id: "claude-opus-5", name: "Claude Opus 5"),
+                AIModel(id: "claude-sonnet-5", name: "Claude Sonnet 5"),
+            ]),
+        ]
+        let readiness: [String: AIProviderReadiness] = ["omlx": .ready, "anthropic": .ready]
+
+        // Nothing curated: every model is on offer.
+        let unrestricted = AIModelOptions.groups(
+            providers: providers, readiness: readiness, discovered: ["omlx": omlxModels])
+        XCTAssertEqual(unrestricted.flatMap(\.models).count, 3)
+
+        // Curated: only what Settings › AI made available.
+        let narrowed = AIModelOptions.groups(
+            providers: providers,
+            readiness: readiness,
+            discovered: ["omlx": omlxModels],
+            enabled: ["omlx:mlx-community--Qwen3.5-4B-4bit", "anthropic:claude-sonnet-5"])
+        XCTAssertEqual(
+            narrowed.flatMap(\.models).map(\.id),
+            ["omlx:mlx-community--Qwen3.5-4B-4bit", "anthropic:claude-sonnet-5"])
+        XCTAssertEqual(narrowed.count, 2, "a provider keeps its heading when one of its models is enabled")
+
+        // A provider with nothing enabled disappears rather than showing an
+        // empty heading.
+        let single = AIModelOptions.groups(
+            providers: providers,
+            readiness: readiness,
+            discovered: ["omlx": omlxModels],
+            enabled: ["anthropic:claude-opus-5"])
+        XCTAssertEqual(single.map(\.providerId), ["anthropic"])
+    }
+
     func testAReferenceKnowsItsModelHalfForProviderGroupedPickers() {
         let reference = AIModelReference(
             providerId: "omlx",

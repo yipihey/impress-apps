@@ -827,7 +827,18 @@ public protocol SharedAiRegistryProtocol : AnyObject {
     
     func setAutoStartOmlx(enabled: Bool) throws  -> AiPreferencesRecord
     
+    /**
+     * Replace the whole set at once.
+     */
+    func setEnabledModels(models: [AiModelRef]) throws  -> AiPreferencesRecord
+    
     func setForeignProviderAvailable(provider: String, available: Bool) 
+    
+    /**
+     * Add or remove one model from the set the suite may use. The
+     * task-category pickers offer exactly this set once it is non-empty.
+     */
+    func setModelEnabled(provider: String, model: String, enabled: Bool) throws  -> AiPreferencesRecord
     
     func setProviderEndpoint(provider: String, endpoint: String?) throws  -> AiPreferencesRecord
     
@@ -1052,12 +1063,37 @@ open func setAutoStartOmlx(enabled: Bool)throws  -> AiPreferencesRecord {
 })
 }
     
+    /**
+     * Replace the whole set at once.
+     */
+open func setEnabledModels(models: [AiModelRef])throws  -> AiPreferencesRecord {
+    return try  FfiConverterTypeAiPreferencesRecord.lift(try rustCallWithError(FfiConverterTypeAiError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedairegistry_set_enabled_models(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeAiModelRef.lower(models),$0
+    )
+})
+}
+    
 open func setForeignProviderAvailable(provider: String, available: Bool) {try! rustCall() {
     uniffi_impress_store_ffi_fn_method_sharedairegistry_set_foreign_provider_available(self.uniffiClonePointer(),
         FfiConverterString.lower(provider),
         FfiConverterBool.lower(available),$0
     )
 }
+}
+    
+    /**
+     * Add or remove one model from the set the suite may use. The
+     * task-category pickers offer exactly this set once it is non-empty.
+     */
+open func setModelEnabled(provider: String, model: String, enabled: Bool)throws  -> AiPreferencesRecord {
+    return try  FfiConverterTypeAiPreferencesRecord.lift(try rustCallWithError(FfiConverterTypeAiError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedairegistry_set_model_enabled(self.uniffiClonePointer(),
+        FfiConverterString.lower(provider),
+        FfiConverterString.lower(model),
+        FfiConverterBool.lower(enabled),$0
+    )
+})
 }
     
 open func setProviderEndpoint(provider: String, endpoint: String?)throws  -> AiPreferencesRecord {
@@ -5370,10 +5406,21 @@ public struct AiPreferencesRecord {
     public var updatedAtMs: Int64
     public var path: String
     public var migratedFromSharedDefaults: Bool
+    /**
+     * Models the researcher made available to the suite. Empty means every
+     * model is available, so a device that never curated a list is not left
+     * with empty pickers.
+     */
+    public var enabledModels: [AiModelRef]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(version: UInt32, selected: AiModelRef?, endpoints: [String: String], autoStartOmlx: Bool, taskCategories: [AiCategoryEntry], updatedAtMs: Int64, path: String, migratedFromSharedDefaults: Bool) {
+    public init(version: UInt32, selected: AiModelRef?, endpoints: [String: String], autoStartOmlx: Bool, taskCategories: [AiCategoryEntry], updatedAtMs: Int64, path: String, migratedFromSharedDefaults: Bool, 
+        /**
+         * Models the researcher made available to the suite. Empty means every
+         * model is available, so a device that never curated a list is not left
+         * with empty pickers.
+         */enabledModels: [AiModelRef]) {
         self.version = version
         self.selected = selected
         self.endpoints = endpoints
@@ -5382,6 +5429,7 @@ public struct AiPreferencesRecord {
         self.updatedAtMs = updatedAtMs
         self.path = path
         self.migratedFromSharedDefaults = migratedFromSharedDefaults
+        self.enabledModels = enabledModels
     }
 }
 
@@ -5413,6 +5461,9 @@ extension AiPreferencesRecord: Equatable, Hashable {
         if lhs.migratedFromSharedDefaults != rhs.migratedFromSharedDefaults {
             return false
         }
+        if lhs.enabledModels != rhs.enabledModels {
+            return false
+        }
         return true
     }
 
@@ -5425,6 +5476,7 @@ extension AiPreferencesRecord: Equatable, Hashable {
         hasher.combine(updatedAtMs)
         hasher.combine(path)
         hasher.combine(migratedFromSharedDefaults)
+        hasher.combine(enabledModels)
     }
 }
 
@@ -5443,7 +5495,8 @@ public struct FfiConverterTypeAiPreferencesRecord: FfiConverterRustBuffer {
                 taskCategories: FfiConverterSequenceTypeAiCategoryEntry.read(from: &buf), 
                 updatedAtMs: FfiConverterInt64.read(from: &buf), 
                 path: FfiConverterString.read(from: &buf), 
-                migratedFromSharedDefaults: FfiConverterBool.read(from: &buf)
+                migratedFromSharedDefaults: FfiConverterBool.read(from: &buf), 
+                enabledModels: FfiConverterSequenceTypeAiModelRef.read(from: &buf)
         )
     }
 
@@ -5456,6 +5509,7 @@ public struct FfiConverterTypeAiPreferencesRecord: FfiConverterRustBuffer {
         FfiConverterInt64.write(value.updatedAtMs, into: &buf)
         FfiConverterString.write(value.path, into: &buf)
         FfiConverterBool.write(value.migratedFromSharedDefaults, into: &buf)
+        FfiConverterSequenceTypeAiModelRef.write(value.enabledModels, into: &buf)
     }
 }
 
@@ -13001,7 +13055,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedairegistry_set_auto_start_omlx() != 24518) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedairegistry_set_enabled_models() != 41916) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedairegistry_set_foreign_provider_available() != 63950) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedairegistry_set_model_enabled() != 45165) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedairegistry_set_provider_endpoint() != 29586) {

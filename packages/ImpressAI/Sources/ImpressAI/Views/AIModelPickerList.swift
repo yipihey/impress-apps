@@ -17,6 +17,10 @@ public struct AIModelPickerList: View {
     @Binding private var selection: String?
     private let showHelpers: Bool
     private let compact: Bool
+    /// When set, each row gets a checkbox for "available to the impress
+    /// apps", which is what the per-task pickers then offer.
+    private let isEnabled: ((AIModel) -> Bool)?
+    private let onToggleEnabled: ((AIModel, Bool) -> Void)?
     @State private var query = ""
 
     /// - Parameters:
@@ -24,11 +28,20 @@ public struct AIModelPickerList: View {
     ///   - selection: The selected model id.
     ///   - showHelpers: Whether helper pseudo-models are listed (disabled).
     ///   - compact: Single-line rows for menus and popovers.
-    public init(models: [AIModel], selection: Binding<String?>, showHelpers: Bool = false, compact: Bool = false) {
+    public init(
+        models: [AIModel],
+        selection: Binding<String?>,
+        showHelpers: Bool = false,
+        compact: Bool = false,
+        isEnabled: ((AIModel) -> Bool)? = nil,
+        onToggleEnabled: ((AIModel, Bool) -> Void)? = nil
+    ) {
         self.models = models
         self._selection = selection
         self.showHelpers = showHelpers
         self.compact = compact
+        self.isEnabled = isEnabled
+        self.onToggleEnabled = onToggleEnabled
     }
 
     /// The rows the list shows: helpers only on request, then the filter.
@@ -77,23 +90,40 @@ public struct AIModelPickerList: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(visibleModels) { model in
-                Button {
-                    guard !model.isHelper else { return }
-                    selection = model.id
-                } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Image(systemName: selection == model.id ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(selection == model.id ? Color.accentColor : Color.secondary)
-                            .accessibilityHidden(true)
-                        AIModelRow(model: model, compact: compact)
-                        Spacer(minLength: 0)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if let isEnabled, let onToggleEnabled {
+                        Toggle(
+                            "Available to the impress apps",
+                            isOn: Binding(
+                                get: { isEnabled(model) },
+                                set: { onToggleEnabled(model, $0) })
+                        )
+                        .labelsHidden()
+                        #if os(macOS)
+                        .toggleStyle(.checkbox)
+                        #endif
+                        .disabled(model.isHelper)
+                        .accessibilityIdentifier("ai.model.enabled.\(model.id)")
                     }
-                    .contentShape(Rectangle())
+
+                    Button {
+                        guard !model.isHelper else { return }
+                        selection = model.id
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: selection == model.id ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selection == model.id ? Color.accentColor : Color.secondary)
+                                .accessibilityHidden(true)
+                            AIModelRow(model: model, compact: compact)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.isHelper)
+                    .accessibilityAddTraits(selection == model.id ? [.isSelected] : [])
+                    .accessibilityIdentifier("ai.model.\(model.id)")
                 }
-                .buttonStyle(.plain)
-                .disabled(model.isHelper)
-                .accessibilityAddTraits(selection == model.id ? [.isSelected] : [])
-                .accessibilityIdentifier("ai.model.\(model.id)")
             }
         }
     }

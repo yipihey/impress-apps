@@ -258,6 +258,10 @@ pub struct AiPreferencesRecord {
     pub updated_at_ms: i64,
     pub path: String,
     pub migrated_from_shared_defaults: bool,
+    /// Models the researcher made available to the suite. Empty means every
+    /// model is available, so a device that never curated a list is not left
+    /// with empty pickers.
+    pub enabled_models: Vec<AiModelRef>,
 }
 
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
@@ -585,6 +589,11 @@ fn preferences_record(preferences: AiPreferences, path: String) -> AiPreferences
         updated_at_ms: preferences.updated_at_ms,
         path,
         migrated_from_shared_defaults: preferences.migrated_from_shared_defaults,
+        enabled_models: preferences
+            .enabled_models
+            .into_iter()
+            .map(model_ref)
+            .collect(),
     }
 }
 
@@ -904,6 +913,43 @@ impl SharedAiRegistry {
     ) -> Result<AiPreferencesRecord, AiError> {
         let preferences = self.registry.select_model(&provider, model)?;
         Ok(preferences_record(preferences, self.path()))
+    }
+
+    /// Add or remove one model from the set the suite may use. The
+    /// task-category pickers offer exactly this set once it is non-empty.
+    pub fn set_model_enabled(
+        &self,
+        provider: String,
+        model: String,
+        enabled: bool,
+    ) -> Result<AiPreferencesRecord, AiError> {
+        let preferences = self
+            .registry
+            .set_model_enabled(&provider, &model, enabled)?;
+        Ok(preferences_record(
+            preferences,
+            self.registry.preferences().path().display().to_string(),
+        ))
+    }
+
+    /// Replace the whole set at once.
+    pub fn set_enabled_models(
+        &self,
+        models: Vec<AiModelRef>,
+    ) -> Result<AiPreferencesRecord, AiError> {
+        let refs = models
+            .into_iter()
+            .map(|entry| ModelRef {
+                provider: entry.provider,
+                model: entry.model,
+                display_name: entry.display_name,
+            })
+            .collect();
+        let preferences = self.registry.set_enabled_models(refs)?;
+        Ok(preferences_record(
+            preferences,
+            self.registry.preferences().path().display().to_string(),
+        ))
     }
 
     pub fn clear_selection(&self) -> Result<AiPreferencesRecord, AiError> {

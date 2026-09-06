@@ -73,6 +73,25 @@ public actor AIProviderManager {
     /// The last preferences snapshot read from the registry.
     public var currentPreferences: AIPreferences? { preferences }
 
+    /// Models the researcher made available to the suite. Empty means every
+    /// model is available.
+    public var enabledModels: [AIModelReference] {
+        preferences?.enabledModels ?? []
+    }
+
+    /// Add or remove one model from that set.
+    public func setModelEnabled(_ model: AIModelReference, enabled: Bool) async {
+        logInfo("Mutation: \(enabled ? "enable" : "disable") \(model.id) for the suite", category: "ai.preferences")
+        do {
+            preferences = try await bridge.setModelEnabled(
+                providerId: model.providerId, modelId: model.modelId, enabled: enabled)
+            logSave()
+        } catch {
+            logError("Save: availability for \(model.id) not stored: \(error.localizedDescription)", category: "ai.preferences")
+        }
+        notifyPreferencesChanged()
+    }
+
     /// Creates a new provider manager.
     ///
     /// - Parameters:

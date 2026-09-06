@@ -717,6 +717,75 @@ impl AiRegistry {
             .map_err(Error::Io)
     }
 
+    /// Add or remove a model from the set the suite may use.
+    ///
+    /// Selecting a model implicitly enables it — a device default that no
+    /// picker would offer is a contradiction — and the last enabled model
+    /// cannot be removed while it is the selection, because an empty set
+    /// means "no restriction" and would silently widen the list instead of
+    /// narrowing it.
+    pub fn set_model_enabled(
+        &self,
+        provider: &str,
+        model: &str,
+        enabled: bool,
+    ) -> Result<AiPreferences> {
+        self.descriptor(provider)?;
+        if model.trim().is_empty() {
+            return Err(Error::Invalid("a model id is required".into()));
+        }
+        if enabled && is_helper_model(model) {
+            return Err(Error::Invalid(format!(
+                "{model} is a helper model and cannot be selected for chat"
+            )));
+        }
+        self.preferences
+            .update(|preferences| {
+                preferences.enabled_models.retain(|entry| {
+                    !(entry.provider == provider && entry.model.as_deref() == Some(model))
+                });
+                if enabled {
+                    preferences.enabled_models.push(ModelRef {
+                        provider: provider.to_string(),
+                        model: Some(model.to_string()),
+                        display_name: None,
+                    });
+                }
+            })
+            .map_err(Error::Io)
+    }
+
+    /// Replace the whole set at once.
+    pub fn set_enabled_models(&self, models: Vec<ModelRef>) -> Result<AiPreferences> {
+        for entry in &models {
+            self.descriptor(&entry.provider)?;
+            if let Some(model) = &entry.model {
+                if is_helper_model(model) {
+                    return Err(Error::Invalid(format!(
+                        "{model} is a helper model and cannot be selected for chat"
+                    )));
+                }
+            }
+        }
+        self.preferences
+            .update(|preferences| preferences.enabled_models = models)
+            .map_err(Error::Io)
+    }
+
+    /// Whether a model may be used. An empty set means every model may.
+    pub fn is_model_enabled(&self, provider: &str, model: &str) -> bool {
+        let Ok(preferences) = self.preferences.load() else {
+            return true;
+        };
+        if preferences.enabled_models.is_empty() {
+            return true;
+        }
+        preferences
+            .enabled_models
+            .iter()
+            .any(|entry| entry.provider == provider && entry.model.as_deref() == Some(model))
+    }
+
     pub fn clear_selection(&self) -> Result<AiPreferences> {
         self.preferences
             .update(|preferences| preferences.selected = None)
@@ -980,6 +1049,47 @@ mod tests {
             registry.provider("apple-on-device"),
             Err(Error::ForeignExecutor(_))
         ));
+    }
+
+    #[test]
+    fn the_enabled_set_narrows_the_pickers_and_never_hides_everything() {
+        let memory = InMemoryCredentials::new();
+        let (_directory, registry) = registry_with(&memory);
+
+        // An empty set is "no restriction", so a fresh device sees every
+        // model rather than none.
+        assert!(registry.is_model_enabled("omlx", "mlx-community--Qwen3.5-4B-4bit"));
+        assert!(registry.is_model_enabled("anthropic", "claude-opus-5"));
+
+        registry
+            .set_model_enabled("omlx", "mlx-community--Qwen3.5-4B-4bit", true)
+            .unwrap();
+        assert!(registry.is_model_enabled("omlx", "mlx-community--Qwen3.5-4B-4bit"));
+        assert!(
+            !registry.is_model_enabled("anthropic", "claude-opus-5"),
+            "once a set exists it is the whole list"
+        );
+
+        // Enabling twice does not duplicate the row.
+        registry
+            .set_model_enabled("omlx", "mlx-community--Qwen3.5-4B-4bit", true)
+            .unwrap();
+        let preferences = registry.preferences().load().unwrap();
+        assert_eq!(preferences.enabled_models.len(), 1);
+
+        // Helpers are refused here exactly as they are for the selection.
+        assert!(registry
+            .set_model_enabled("omlx", "MarkItDown", true)
+            .is_err());
+        assert!(registry.set_model_enabled("nonesuch", "m", true).is_err());
+
+        registry
+            .set_model_enabled("omlx", "mlx-community--Qwen3.5-4B-4bit", false)
+            .unwrap();
+        assert!(
+            registry.is_model_enabled("anthropic", "claude-opus-5"),
+            "emptying the set restores the unrestricted list"
+        );
     }
 
     #[test]

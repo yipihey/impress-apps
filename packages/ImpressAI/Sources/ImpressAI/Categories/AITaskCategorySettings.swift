@@ -67,7 +67,8 @@ public final class AITaskCategorySettings {
 
         await categoryManager.loadAssignments()
 
-        modelGroups = await AIModelOptions.load(from: providerManager)
+        // Only the models Settings › AI made available to the suite.
+        modelGroups = await AIModelOptions.loadEnabled(from: providerManager)
 
         // Load current assignments
         for category in leafCategories {

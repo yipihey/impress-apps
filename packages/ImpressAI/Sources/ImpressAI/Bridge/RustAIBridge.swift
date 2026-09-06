@@ -111,6 +111,13 @@ public final class RustAIBridge: AIBridge, @unchecked Sendable {
         try await onQueue { registry in Self.preferences(try registry.selectModel(provider: providerId, model: modelId)) }
     }
 
+    public func setModelEnabled(providerId: String, modelId: String, enabled: Bool) async throws -> AIPreferences {
+        try await onQueue { registry in
+            Self.preferences(
+                try registry.setModelEnabled(provider: providerId, model: modelId, enabled: enabled))
+        }
+    }
+
     public func clearSelection() async throws -> AIPreferences {
         try await onQueue { registry in Self.preferences(try registry.clearSelection()) }
     }
@@ -313,7 +320,8 @@ public final class RustAIBridge: AIBridge, @unchecked Sendable {
             taskAssignments: assignments,
             updatedAtMs: record.updatedAtMs,
             path: record.path,
-            migratedFromSharedDefaults: record.migratedFromSharedDefaults
+            migratedFromSharedDefaults: record.migratedFromSharedDefaults,
+            enabledModels: record.enabledModels.map(reference)
         )
     }
 
@@ -474,6 +482,7 @@ public final class RustAIBridge: AIBridge, @unchecked Sendable {
     public func preferences() async throws -> AIPreferences { throw unavailable }
     public func preferencesChangedSince(updatedAtMs: Int64) async throws -> Bool { throw unavailable }
     public func selectModel(providerId: String, modelId: String?) async throws -> AIPreferences { throw unavailable }
+    public func setModelEnabled(providerId: String, modelId: String, enabled: Bool) async throws -> AIPreferences { throw unavailable }
     public func clearSelection() async throws -> AIPreferences { throw unavailable }
     public func setProviderEndpoint(providerId: String, endpoint: String?) async throws -> AIPreferences { throw unavailable }
     public func setAutoStartOMLX(_ enabled: Bool) async throws -> AIPreferences { throw unavailable }

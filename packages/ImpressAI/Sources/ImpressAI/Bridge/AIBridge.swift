@@ -23,6 +23,8 @@ public protocol AIBridge: Sendable {
     func preferences() async throws -> AIPreferences
     func preferencesChangedSince(updatedAtMs: Int64) async throws -> Bool
     func selectModel(providerId: String, modelId: String?) async throws -> AIPreferences
+    /// Add or remove one model from the set the suite may use.
+    func setModelEnabled(providerId: String, modelId: String, enabled: Bool) async throws -> AIPreferences
     func clearSelection() async throws -> AIPreferences
     func setProviderEndpoint(providerId: String, endpoint: String?) async throws -> AIPreferences
     func setAutoStartOMLX(_ enabled: Bool) async throws -> AIPreferences
@@ -300,6 +302,10 @@ public struct AIPreferences: Sendable, Equatable {
     public let updatedAtMs: Int64
     public let path: String
     public let migratedFromSharedDefaults: Bool
+    /// Models the researcher made available to the suite. Empty means every
+    /// model is available, so a device that never curated a list keeps full
+    /// pickers rather than empty ones.
+    public let enabledModels: [AIModelReference]
 
     public init(
         version: Int = 1,
@@ -309,7 +315,8 @@ public struct AIPreferences: Sendable, Equatable {
         taskAssignments: [String: AITaskCategoryAssignment] = [:],
         updatedAtMs: Int64 = 0,
         path: String = "",
-        migratedFromSharedDefaults: Bool = false
+        migratedFromSharedDefaults: Bool = false,
+        enabledModels: [AIModelReference] = []
     ) {
         self.version = version
         self.selected = selected
@@ -319,6 +326,7 @@ public struct AIPreferences: Sendable, Equatable {
         self.updatedAtMs = updatedAtMs
         self.path = path
         self.migratedFromSharedDefaults = migratedFromSharedDefaults
+        self.enabledModels = enabledModels
     }
 }
 

@@ -81,11 +81,17 @@ public enum AIModelOptions {
     public static func groups(
         providers: [AIProviderMetadata],
         readiness: [String: AIProviderReadiness],
-        discovered: [String: [AIModel]] = [:]
+        discovered: [String: [AIModel]] = [:],
+        enabled: Set<String> = []
     ) -> [AIModelOptionGroup] {
         let groups: [AIModelOptionGroup] = providers.compactMap { provider in
             let isDiscovered = discovered[provider.id] != nil
-            let models = (discovered[provider.id] ?? provider.models).filter { !$0.isHelper }
+            var models = (discovered[provider.id] ?? provider.models).filter { !$0.isHelper }
+            if !enabled.isEmpty {
+                // Settings › AI decides which models the suite may use; the
+                // per-task pickers choose among those and nothing else.
+                models = models.filter { enabled.contains("\(provider.id):\($0.id)") }
+            }
             guard !models.isEmpty else { return nil }
             return AIModelOptionGroup(
                 providerId: provider.id,
@@ -128,7 +134,17 @@ public enum AIModelOptions {
     ///
     /// Discovery runs concurrently, so the cost is one round trip rather than
     /// one per provider, and an unready provider is never probed at all.
-    public static func load(from manager: AIProviderManager) async -> [AIModelOptionGroup] {
+    /// The options a per-task picker should offer: the enabled set when the
+    /// researcher curated one, everything otherwise.
+    public static func loadEnabled(from manager: AIProviderManager) async -> [AIModelOptionGroup] {
+        let enabled = Set(await manager.enabledModels.map(\.id))
+        return await load(from: manager, enabled: enabled)
+    }
+
+    public static func load(
+        from manager: AIProviderManager,
+        enabled: Set<String> = []
+    ) async -> [AIModelOptionGroup] {
         await manager.registerBuiltInProviders()
         let providers = await manager.allProviderMetadata
         let descriptors = await manager.descriptors
@@ -151,6 +167,7 @@ public enum AIModelOptions {
             }
         }
 
-        return groups(providers: providers, readiness: readiness, discovered: discovered)
+        return groups(
+            providers: providers, readiness: readiness, discovered: discovered, enabled: enabled)
     }
 }

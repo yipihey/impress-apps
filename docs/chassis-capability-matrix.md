@@ -1356,6 +1356,37 @@ The code cannot be obtained by an agent — reMarkable issues it only to a
 signed-in browser session — so the route takes a code the researcher pastes
 rather than performing a login. The code is never stored or logged.
 
+Pairing then turned out to be the smaller half of the problem: the token is
+accepted, but `document-storage/json/2/docs` answers 404, because reMarkable
+retired that API. Probed 2026-09-06: the auth host answers (405 to a GET on
+`token/json/2/user/new`), the document-storage host does not (404), and the
+replacement `internal.cloud.remarkable.com/sync/v3/root` does (401). So the
+cloud path pairs and cannot sync.
+
+### reMarkable over the local network (imbib, 2026-09-06)
+
+The tablet does not need the cloud at all. It runs Linux with an SSH server on
+its Wi-Fi interface, and xochitl stores each document as plain sibling files
+under `/home/root/.local/share/remarkable/xochitl` — `<id>.metadata`,
+`<id>.content`, `<id>.pdf`, and a `<id>/` directory of per-page `.rm` strokes.
+No database, so a file transport is sufficient.
+
+`crates/impress-remarkable` is that transport: SFTP over the tablet's own SSH
+server, pure Rust (`russh`) because a C binding would not cross-compile into
+ImbibCore's iOS slices. Host keys are trust-on-first-use with an explicit pin,
+and a changed key fails before the password is sent. `search/remarkable_ffi.rs`
+mirrors it to Swift, `RemarkableWiFiBackend` projects it onto imbib's backend
+protocol, and Settings › reMarkable leads with it.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/wifi/status` | Whether the tablet is configured and answering, with its document count |
+| `GET` | `/api/remarkable/wifi/documents` | What is on the tablet |
+| `POST` | `/api/remarkable/wifi/connect` | `{"host": …, "password": …}` — stores both (password to the keychain), reaches the tablet once and pins its host key |
+
+Reading works; writing to the tablet does not yet and says so rather than
+failing silently. The tablet must be awake, since it drops Wi-Fi in standby.
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
