@@ -58,7 +58,7 @@ public struct EmbeddingSettingsView: View {
                 tierRow(
                     "Full Text Indexed",
                     indexed: embeddingStatus.chunkedPapers,
-                    total: embeddingStatus.totalPapers)
+                    total: embeddingStatus.papersWithPDF)
 
                 LabeledContent("Chunks Stored") {
                     Text("\(embeddingStatus.chunkCount)")
@@ -106,7 +106,7 @@ public struct EmbeddingSettingsView: View {
                 }
                 // Gated on the full-text tier: that is the one this button
                 // advances, and it is never complete while papers lack a PDF.
-                .disabled(isIndexing || embeddingStatus.chunkedPapers >= embeddingStatus.totalPapers)
+                .disabled(isIndexing || embeddingStatus.chunkedPapers >= embeddingStatus.papersWithPDF)
 
                 Button("Re-index All Papers", role: .destructive) {
                     Task { await reindexAll() }
@@ -150,6 +150,9 @@ public struct EmbeddingSettingsView: View {
         for lib in libraries {
             totalPubs += RustStoreAdapter.shared.queryPublications(parentId: lib.id).count
         }
+        // Full-text indexing reads a stored PDF, so papers without one are not
+        // part of that tier's denominator.
+        let papersWithPDF = RustStoreAdapter.shared.countPublicationsWithLocalPDF()
 
         // The in-memory ANN index is built lazily per app session, so it is
         // 0 on a fresh launch; the persisted vector count is the durable
@@ -169,12 +172,13 @@ public struct EmbeddingSettingsView: View {
             indexedPapers: max(Int(status?.indexedPublications ?? 0), sessionIndexCount),
             chunkedPapers: Int(status?.chunkedPublications ?? 0),
             totalPapers: totalPubs,
+            papersWithPDF: papersWithPDF,
             vectorCount: Int(status?.vectorCount ?? 0),
             chunkCount: Int(status?.chunkCount ?? 0),
             modelStats: stats.map { EmbeddingModelStatInfo(model: $0.model, vectorCount: Int($0.vectorCount), dimension: Int($0.dimension)) }
         )
         Logger.embeddingService.infoCapture(
-            "Display: embedding index — metadata \(embeddingStatus.indexedPapers)/\(totalPubs), full text \(embeddingStatus.chunkedPapers)/\(totalPubs), \(embeddingStatus.vectorCount) vectors",
+            "Display: embedding index — metadata \(embeddingStatus.indexedPapers)/\(totalPubs), full text \(embeddingStatus.chunkedPapers)/\(papersWithPDF) with a stored PDF, \(embeddingStatus.vectorCount) vectors",
             category: "embeddings"
         )
     }
@@ -208,9 +212,15 @@ public struct EmbeddingSettingsView: View {
         } else {
             lines.append("Every paper has a metadata embedding, so semantic search covers the whole library.")
         }
-        let fullTextMissing = embeddingStatus.totalPapers - embeddingStatus.chunkedPapers
-        if fullTextMissing > 0 {
-            lines.append("Full-text indexing needs a downloaded PDF; \(fullTextMissing) papers have none stored, and indexing skips them.")
+        let withoutPDF = embeddingStatus.totalPapers - embeddingStatus.papersWithPDF
+        let unindexedWithPDF = embeddingStatus.papersWithPDF - embeddingStatus.chunkedPapers
+        if unindexedWithPDF > 0 {
+            lines.append("\(unindexedWithPDF) papers have a stored PDF that is not indexed yet — use Index Unprocessed Papers.")
+        } else if embeddingStatus.papersWithPDF > 0 {
+            lines.append("Every stored PDF is indexed.")
+        }
+        if withoutPDF > 0 {
+            lines.append("\(withoutPDF) papers have no PDF on this device, so full-text indexing cannot reach them.")
         }
         return lines.joined(separator: " ")
     }
@@ -278,6 +288,8 @@ struct EmbeddingStatusInfo {
     /// Papers with at least one full-text chunk from a stored PDF.
     var chunkedPapers: Int = 0
     var totalPapers: Int = 0
+    /// Papers that have a PDF on this device — the ceiling for full text.
+    var papersWithPDF: Int = 0
     var vectorCount: Int = 0
     var chunkCount: Int = 0
     var modelStats: [EmbeddingModelStatInfo] = []

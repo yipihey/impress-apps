@@ -1895,6 +1895,20 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// How many publications have a PDF stored on this device.
+    ///
+    /// The honest denominator for full-text indexing: chunking reads a local
+    /// file, so papers with no stored PDF can never be indexed and counting
+    /// them makes a working index look broken.
+    public func countPublicationsWithLocalPDF() -> Int {
+        do {
+            return Int(try store.countPublicationsWithLocalPdf())
+        } catch {
+            Logger.library.error("countPublicationsWithLocalPdf failed: \(error)")
+            return 0
+        }
+    }
+
     // MARK: - Annotation Operations
 
     /// List annotations for a linked file.

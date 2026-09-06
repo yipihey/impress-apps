@@ -652,6 +652,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleRemarkableStatus()
         }
 
+        if path == "/api/remarkable/wifi/status" {
+            return await handleRemarkableWiFiStatus()
+        }
+
+        if path == "/api/remarkable/wifi/documents" {
+            return await handleRemarkableWiFiDocuments()
+        }
+
         if path == "/api/commands" {
             return handleCommands()
         }
@@ -908,6 +916,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/remarkable/connect" {
             return await handleRemarkableConnect(request)
+        }
+
+        if path == "/api/remarkable/wifi/connect" {
+            return await handleRemarkableWiFiConnect(request)
         }
 
         if path == "/api/remarkable/disconnect" {
@@ -1908,6 +1920,121 @@ public actor HTTPAutomationRouter: HTTPRouter {
         ])
     }
 
+    /// GET /api/remarkable/wifi/status — can we reach the tablet on this
+    /// network, and what did it say?
+    private func handleRemarkableWiFiStatus() async -> HTTPResponse {
+        let (host, port, pinned) = await MainActor.run {
+            (RemarkableSettingsStore.shared.wifiHost,
+             RemarkableSettingsStore.shared.wifiPort,
+             RemarkableSettingsStore.shared.wifiFingerprint)
+        }
+        guard !host.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return .json([
+                "status": "ok",
+                "configured": false,
+                "detail": "No tablet address. POST /api/remarkable/wifi/connect with {host, password}; both are printed on the tablet under Settings › Help › Copyrights and licenses.",
+            ])
+        }
+        let backend = RemarkableWiFiBackend()
+        do {
+            let info = try await backend.getDeviceInfo()
+            let documents = try await backend.listDocuments()
+            return .json([
+                "status": "ok",
+                "configured": true,
+                "reachable": true,
+                "host": host,
+                "port": port,
+                "device": info.deviceName,
+                "hostKeyPinned": pinned != nil,
+                "documentCount": documents.count,
+            ])
+        } catch {
+            return .json([
+                "status": "ok",
+                "configured": true,
+                "reachable": false,
+                "host": host,
+                "port": port,
+                "hostKeyPinned": pinned != nil,
+                "error": error.localizedDescription,
+            ])
+        }
+    }
+
+    /// GET /api/remarkable/wifi/documents — what is on the tablet.
+    private func handleRemarkableWiFiDocuments() async -> HTTPResponse {
+        do {
+            let documents = try await RemarkableWiFiBackend().listDocuments()
+            return .json([
+                "status": "ok",
+                "count": documents.count,
+                "documents": documents.prefix(200).map { document in
+                    [
+                        "id": document.id,
+                        "name": document.name,
+                        "pageCount": document.pageCount,
+                        "hasAnnotations": document.hasAnnotations,
+                        "lastModified": ISO8601DateFormatter().string(from: document.lastModified),
+                    ]
+                },
+            ])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription], status: 502)
+        }
+    }
+
+    /// POST /api/remarkable/wifi/connect {"host": "10.0.0.x", "password": "…", "port"?: 22}
+    ///
+    /// Stores the address and password (keychain), then reaches the tablet
+    /// once and pins its host key. The password is never logged.
+    private func handleRemarkableWiFiConnect(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Expected JSON object body")
+        }
+        guard let host = (json["host"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else {
+            return .badRequest("Expected a \"host\" string (the tablet's address on this network)")
+        }
+        guard let password = json["password"] as? String, !password.isEmpty else {
+            return .badRequest("Expected a \"password\" string (the tablet's root password)")
+        }
+        let port = (json["port"] as? Int) ?? 22
+
+        do {
+            try await MainActor.run {
+                let settings = RemarkableSettingsStore.shared
+                // A new address means the pinned key no longer applies.
+                if settings.wifiHost != host { settings.wifiFingerprint = nil }
+                settings.wifiHost = host
+                settings.wifiPort = port
+                try settings.storeWiFiPassword(password)
+            }
+            try await RemarkableWiFiBackend().authenticate()
+        } catch {
+            routerLogger.errorCapture(
+                "reMarkable Wi-Fi connect failed: \(error.localizedDescription)", category: "remarkable")
+            return .json([
+                "status": "error",
+                "connected": false,
+                "error": error.localizedDescription,
+            ], status: 502)
+        }
+
+        let backend = RemarkableWiFiBackend()
+        let info = try? await backend.getDeviceInfo()
+        let documents = (try? await backend.listDocuments()) ?? []
+        routerLogger.infoCapture(
+            "reMarkable reachable at \(host) with \(documents.count) documents", category: "remarkable")
+        return .json([
+            "status": "ok",
+            "connected": true,
+            "host": host,
+            "device": info?.deviceName ?? "reMarkable",
+            "documentCount": documents.count,
+        ])
+    }
+
     /// POST /api/remarkable/disconnect — forget the stored device token.
     private func handleRemarkableDisconnect() async -> HTTPResponse {
         await RemarkableCloudBackend().disconnect()
@@ -1943,9 +2070,15 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 .reduce(0) { $0 + store.queryPublications(parentId: $1.id).count }
         }
 
+        // The ceiling for full-text indexing: chunking reads a stored PDF.
+        let papersWithPDF = await MainActor.run {
+            RustStoreAdapter.shared.countPublicationsWithLocalPDF()
+        }
+
         return .json([
             "status": "ok",
             "totalPapers": totalPapers,
+            "papersWithStoredPDF": papersWithPDF,
             "metadataIndexedPapers": Int(status.indexedPublications),
             "fullTextIndexedPapers": Int(status.chunkedPublications),
             "publicationVectors": Int(status.publicationVectors),
