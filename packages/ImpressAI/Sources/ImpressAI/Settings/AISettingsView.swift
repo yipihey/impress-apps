@@ -1,3 +1,4 @@
+import ImpressKit
 import SwiftUI
 
 /// SwiftUI view for configuring AI providers.
@@ -88,7 +89,9 @@ public struct AISettingsView: View {
                         }
                     }
             }
-            .frame(minWidth: 500, minHeight: 500)
+            // Resizable by default (impress rule for modal sheets): a long
+            // model name once overflowed this sheet with no way to widen it.
+            .impressResizableSheet(minWidth: 500, idealWidth: 560, minHeight: 500, idealHeight: 620)
         }
     }
 

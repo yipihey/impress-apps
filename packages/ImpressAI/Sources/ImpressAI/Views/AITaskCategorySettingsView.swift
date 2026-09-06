@@ -5,6 +5,7 @@
 //  SwiftUI view for configuring task categories with multi-model assignments.
 //
 
+import ImpressFTUI
 import SwiftUI
 
 // MARK: - Main Settings View
@@ -157,6 +158,9 @@ struct CategoryAssignmentRow: View {
                         ) { model in
                             onPrimaryModelChange(model)
                         }
+                        // Bounded so a long selected title truncates inside
+                        // the row instead of widening it past the sheet.
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     }
 
                     // Comparison models (if supported)
@@ -303,9 +307,16 @@ struct ComparisonModelChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(model.displayName)
+            // The chip lives in a picker context that already groups by
+            // provider, so it shows the model half of the name — the full
+            // "oMLX — local models on this Mac - …" form made one chip wider
+            // than the sheet. Middle truncation keeps both the family and the
+            // quant suffix readable when even the short form is long; the
+            // full name stays one hover away.
+            Text(model.modelName)
                 .font(.caption)
                 .lineLimit(1)
+                .truncationMode(.middle)
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
@@ -314,6 +325,7 @@ struct ComparisonModelChip: View {
             }
             .buttonStyle(.plain)
         }
+        .help(model.displayName)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
@@ -323,52 +335,9 @@ struct ComparisonModelChip: View {
     }
 }
 
-// MARK: - Flow Layout
-
-/// Simple flow layout for wrapping chips.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = flowLayout(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = flowLayout(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
-        }
-    }
-
-    private func flowLayout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var totalHeight: CGFloat = 0
-        var totalWidth: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-
-            if currentX + size.width > maxWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + spacing
-                lineHeight = 0
-            }
-
-            positions.append(CGPoint(x: currentX, y: currentY))
-            lineHeight = max(lineHeight, size.height)
-            currentX += size.width + spacing
-            totalWidth = max(totalWidth, currentX - spacing)
-            totalHeight = currentY + lineHeight
-        }
-
-        return (CGSize(width: totalWidth, height: totalHeight), positions)
-    }
-}
+// The chips flow through ImpressFTUI's shared FlowLayout — a local copy
+// lived here until 2026-09-06, carrying the same single-wide-chip overflow
+// bug as the shared one. One implementation, one fix.
 
 // MARK: - Preview
 

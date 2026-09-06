@@ -17,17 +17,40 @@ public struct FlowLayout: Layout {
     }
 
     public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        return layout(sizes: sizes, containerWidth: proposal.width ?? .infinity).size
+        let width = proposal.width ?? .infinity
+        let sizes = subviews.map { measured($0, containerWidth: width) }
+        return layout(sizes: sizes.map(\.size), containerWidth: width).size
     }
 
     public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let offsets = layout(sizes: sizes, containerWidth: bounds.width).offsets
+        let sizes = subviews.map { measured($0, containerWidth: bounds.width) }
+        let offsets = layout(sizes: sizes.map(\.size), containerWidth: bounds.width).offsets
 
-        for (subview, offset) in zip(subviews, offsets) {
-            subview.place(at: CGPoint(x: bounds.minX + offset.x, y: bounds.minY + offset.y), proposal: .unspecified)
+        for (index, (subview, offset)) in zip(subviews, offsets).enumerated() {
+            subview.place(
+                at: CGPoint(x: bounds.minX + offset.x, y: bounds.minY + offset.y),
+                proposal: sizes[index].proposal
+            )
         }
+    }
+
+    /// Wrapping only breaks BETWEEN subviews, so a single subview wider than
+    /// the container would be placed at its ideal width and overflow the
+    /// layout's bounds (seen live: one long oMLX model-name chip pushing its
+    /// remove button past the sheet edge). Clamp such a subview to the
+    /// container width and hand it that same proposal at placement, so its
+    /// content truncates instead of escaping.
+    private func measured(
+        _ subview: LayoutSubviews.Element, containerWidth: CGFloat
+    ) -> (size: CGSize, proposal: ProposedViewSize) {
+        var size = subview.sizeThatFits(.unspecified)
+        guard containerWidth.isFinite, size.width > containerWidth else {
+            return (size, .unspecified)
+        }
+        let clamped = ProposedViewSize(width: containerWidth, height: nil)
+        size = subview.sizeThatFits(clamped)
+        size.width = min(size.width, containerWidth)
+        return (size, clamped)
     }
 
     private func layout(sizes: [CGSize], containerWidth: CGFloat) -> (offsets: [CGPoint], size: CGSize) {

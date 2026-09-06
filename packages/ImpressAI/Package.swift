@@ -6,6 +6,10 @@ import PackageDescription
 var dependencies: [Package.Dependency] = [
     .package(path: "../ImpressKit"),
     .package(path: "../ImpressLogging"),
+    // Shared chip/flow UI — the one FlowLayout. A local copy had drifted
+    // into this package; both copies carried the same single-wide-chip
+    // overflow bug, and fixing it once requires there being one.
+    .package(path: "../ImpressFTUI"),
     // The Rust AI registry (ADR-0029): every provider, the catalogue and the
     // device selection live in `crates/impress-ai`, reached through the UniFFI
     // bindings in ImpressRustCore. `IMPRESS_RUST_AI` (below) compiles the real
@@ -18,6 +22,7 @@ var dependencies: [Package.Dependency] = [
 var targetDependencies: [Target.Dependency] = [
     .product(name: "ImpressKit", package: "ImpressKit"),
     .product(name: "ImpressLogging", package: "ImpressLogging"),
+    .product(name: "ImpressFTUI", package: "ImpressFTUI"),
     .product(name: "ImpressRustCore", package: "ImpressRustCore"),
     .product(name: "KeychainSwift", package: "keychain-swift"),
 ]
