@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-19.
 //
 
+import ImpressKit
 import SwiftUI
 import PublicationManagerCore
 
@@ -278,7 +279,7 @@ struct TrainingHistoryView: View {
                 }
             }
         }
-        .frame(minWidth: 500, minHeight: 400)
+        .impressResizableSheet(minWidth: 500, minHeight: 400)
         .task {
             events = await SignalCollector.shared.recentEvents(limit: 100)
             isLoading = false

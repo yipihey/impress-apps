@@ -190,8 +190,8 @@ struct ContentView: View {
             ))
             #endif
             .sheet(item: $importPreviewData) { data in
+                // Sizing lives on ImportPreviewView's own impressResizableSheet.
                 importPreviewSheet(for: data)
-                    .frame(minWidth: 600, minHeight: 500)
             }
             .sheet(item: $unifiedExportData) { data in
                 UnifiedExportView(
@@ -201,7 +201,6 @@ struct ContentView: View {
                         set: { if !$0 { unifiedExportData = nil } }
                     )
                 )
-                .frame(minWidth: 550, minHeight: 450)
             }
             .sheet(item: $unifiedImportData) { data in
                 UnifiedImportView(
@@ -212,7 +211,6 @@ struct ContentView: View {
                         set: { if !$0 { unifiedImportData = nil } }
                     )
                 )
-                .frame(minWidth: 550, minHeight: 450)
             }
             // Vim-style pane focus cycling (h/l keys)
             .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in

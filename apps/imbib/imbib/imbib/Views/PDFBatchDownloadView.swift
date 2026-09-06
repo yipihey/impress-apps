@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-10.
 //
 
+import ImpressKit
 import SwiftUI
 import PublicationManagerCore
 import OSLog
@@ -84,7 +85,9 @@ struct PDFBatchDownloadView: View {
             .padding(.top, 8)
         }
         .padding(24)
-        .frame(width: 350)
+        // Resizable so long paper titles (middle-truncated above) can be
+        // revealed by widening the sheet.
+        .impressResizableSheet(minWidth: 350, minHeight: 260)
         .onAppear {
             startDownload()
         }
