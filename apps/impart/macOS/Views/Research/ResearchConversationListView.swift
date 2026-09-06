@@ -5,6 +5,7 @@
 //  Sidebar list of research conversations.
 //
 
+import ImpressKit
 import SwiftUI
 import MessageManagerCore
 
@@ -257,7 +258,7 @@ private struct NewConversationSheet: View {
             }
         }
         .padding()
-        .frame(width: 350)
+        .impressResizableSheet(minWidth: 350, minHeight: 240)
     }
 }
 
