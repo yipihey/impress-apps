@@ -21,6 +21,8 @@ public struct EInkSettingsView: View {
     @State private var showingAddDevice = false
     @State private var selectedDeviceForConfig: String?
     @State private var authCode: String?
+    /// Presents the reMarkable cloud connect sheet (the one-time code flow).
+    @State private var showingRemarkableConnect = false
     @State private var errorMessage: String?
 
     public init() {}
@@ -40,6 +42,18 @@ public struct EInkSettingsView: View {
         .formStyle(.grouped)
         .task {
             await refreshDeviceInfo()
+        }
+        .sheet(isPresented: $showingRemarkableConnect) {
+            NavigationStack {
+                RemarkableSettingsView()
+                    .navigationTitle("Connect reMarkable")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingRemarkableConnect = false }
+                        }
+                    }
+            }
+            .frame(minWidth: 520, minHeight: 460)
         }
         .sheet(isPresented: $showingAddDevice) {
             AddDeviceSheet(onAdd: { deviceType, syncMethod in
@@ -253,8 +267,13 @@ public struct EInkSettingsView: View {
             let adapter = await RemarkableDeviceAdapter(backend: cloudBackend, syncMethod: .cloudApi)
             await deviceManager.registerDevice(adapter)
 
-            // Start authentication flow
-            try await cloudBackend.authenticate()
+            // Pairing is a two-step flow that needs a one-time code from the
+            // researcher's signed-in browser, so it cannot run here:
+            // `authenticate()` exists only to say so, and calling it was a
+            // dead end that told the user to open a panel this app never
+            // presented. Show the connect sheet instead, or drive it headless
+            // with POST /api/remarkable/connect.
+            await MainActor.run { showingRemarkableConnect = true }
 
             // Store device settings
             let deviceID = await adapter.deviceID
@@ -263,7 +282,7 @@ public struct EInkSettingsView: View {
                     deviceSettings.deviceType = .remarkable
                     deviceSettings.syncMethod = .cloudApi
                     deviceSettings.displayName = "reMarkable Cloud"
-                    deviceSettings.isAuthenticated = true
+                    deviceSettings.isAuthenticated = false
                 }
                 settings.activeDeviceID = deviceID
             }

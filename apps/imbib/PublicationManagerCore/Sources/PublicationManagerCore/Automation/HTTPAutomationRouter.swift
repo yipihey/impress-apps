@@ -644,6 +644,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleGetAppearance()
         }
 
+        if path == "/api/embeddings/status" {
+            return await handleEmbeddingIndexStatus()
+        }
+
+        if path == "/api/remarkable/status" {
+            return await handleRemarkableStatus()
+        }
+
         if path == "/api/commands" {
             return handleCommands()
         }
@@ -896,6 +904,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/papers/resolve" {
             return await handleResolvePaper(request)
+        }
+
+        if path == "/api/remarkable/connect" {
+            return await handleRemarkableConnect(request)
+        }
+
+        if path == "/api/remarkable/disconnect" {
+            return await handleRemarkableDisconnect()
         }
 
         // ===== Phase D: new POST routes =====
@@ -1782,6 +1798,147 @@ public actor HTTPAutomationRouter: HTTPRouter {
     }
 
     /// GET /api/appearance — per-surface appearance (authoritative stores).
+    // MARK: - reMarkable
+
+    /// GET /api/remarkable/status — whether this Mac is paired with the
+    /// reMarkable cloud, and whether the stored token still refreshes.
+    private func handleRemarkableStatus() async -> HTTPResponse {
+        let hasToken = await MainActor.run {
+            ((try? RemarkableSettingsStore.shared.retrieveToken()) ?? nil)?.isEmpty == false
+        }
+        guard hasToken else {
+            return .json([
+                "status": "ok",
+                "connected": false,
+                "detail": "No device token stored. POST /api/remarkable/connect with a one-time code from https://my.remarkable.com/device/browser/connect",
+            ])
+        }
+        // `isAvailable()` refreshes the user token, which is the only way to
+        // learn that a stored device token was revoked on reMarkable's side.
+        let usable = await RemarkableCloudBackend().isAvailable()
+        return .json([
+            "status": "ok",
+            "connected": usable,
+            "detail": usable
+                ? "Device token stored and accepted by reMarkable."
+                : "A device token is stored but reMarkable rejected it; reconnect with a fresh one-time code.",
+        ])
+    }
+
+    /// POST /api/remarkable/connect {"code": "one-time code"}
+    ///
+    /// The whole pairing in one call: the code is exchanged for a device
+    /// token, the device token for a user token, and the token is written to
+    /// the login keychain. The code itself is never stored or logged.
+    ///
+    /// The code has to come from the researcher — reMarkable issues it only to
+    /// a signed-in browser session at
+    /// `https://my.remarkable.com/device/browser/connect` — which is exactly
+    /// why this is a route rather than something an agent can do end to end.
+    private func handleRemarkableConnect(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Expected JSON object body")
+        }
+        guard let rawCode = json["code"] as? String else {
+            return .badRequest("Expected a \"code\" string (the one-time code from my.remarkable.com)")
+        }
+        let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else {
+            return .badRequest("The one-time code is empty")
+        }
+
+        let backend = RemarkableCloudBackend()
+        do {
+            _ = try await backend.startAuthentication()
+            try await backend.completeRegistration(userCode: code)
+        } catch {
+            // Never echo the code back; the reason is enough to act on.
+            routerLogger.errorCapture(
+                "reMarkable pairing failed: \(error.localizedDescription)", category: "remarkable")
+            return .json([
+                "status": "error",
+                "connected": false,
+                "error": error.localizedDescription,
+            ], status: 502)
+        }
+
+        // Same registration the E-Ink settings tab performs, so a paired
+        // device shows up in the UI rather than only in the keychain.
+        await MainActor.run { RemarkableBackendManager.shared.registerBackend(backend) }
+        let adapter = await RemarkableDeviceAdapter(backend: backend, syncMethod: .cloudApi)
+        await EInkDeviceManager.shared.registerDevice(adapter)
+        let deviceID = await adapter.deviceID
+        await MainActor.run {
+            EInkSettingsStore.shared.updateSettings(for: deviceID) { deviceSettings in
+                deviceSettings.deviceType = .remarkable
+                deviceSettings.syncMethod = .cloudApi
+                deviceSettings.displayName = "reMarkable Cloud"
+                deviceSettings.isAuthenticated = true
+            }
+            EInkSettingsStore.shared.activeDeviceID = deviceID
+        }
+        try? await EInkDeviceManager.shared.selectDevice(deviceID)
+
+        routerLogger.infoCapture(
+            "reMarkable paired and registered as \(deviceID)", category: "remarkable")
+        return .json([
+            "status": "ok",
+            "connected": true,
+            "deviceID": deviceID,
+            "detail": "Paired with the reMarkable cloud and selected as the active device.",
+        ])
+    }
+
+    /// POST /api/remarkable/disconnect — forget the stored device token.
+    private func handleRemarkableDisconnect() async -> HTTPResponse {
+        await RemarkableCloudBackend().disconnect()
+        routerLogger.infoCapture("reMarkable credentials cleared", category: "remarkable")
+        return .json(["status": "ok", "connected": false])
+    }
+
+    /// GET /api/embeddings/status — every tier of the embedding sidecar.
+    ///
+    /// The sidecar lives in this app's sandbox container, so no daemon, CLI or
+    /// MCP process can read it; the app's own automation API is the only
+    /// surface that can answer, which is why this route exists rather than an
+    /// `#[impress_service]` verb.
+    private func handleEmbeddingIndexStatus() async -> HTTPResponse {
+        let store = RustEmbeddingStoreSession()
+        guard await store.openDefault() else {
+            return .json(["status": "error", "error": "embedding store unavailable"])
+        }
+        let status = await store.indexStatus()
+        await store.close()
+        guard let status else {
+            return .json(["status": "error", "error": "index status unavailable"])
+        }
+
+        // Same denominator the Settings pane uses: the non-special libraries.
+        let totalPapers = await MainActor.run {
+            let store = RustStoreAdapter.shared
+            return store.listLibraries()
+                .filter { library in
+                    let name = library.name.lowercased()
+                    return name != "dismissed" && name != "exploration"
+                }
+                .reduce(0) { $0 + store.queryPublications(parentId: $1.id).count }
+        }
+
+        return .json([
+            "status": "ok",
+            "totalPapers": totalPapers,
+            "metadataIndexedPapers": Int(status.indexedPublications),
+            "fullTextIndexedPapers": Int(status.chunkedPublications),
+            "publicationVectors": Int(status.publicationVectors),
+            "chunkVectors": Int(status.chunkVectors),
+            "chunks": Int(status.chunkCount),
+            "vectors": Int(status.vectorCount),
+            "bySourceType": status.bySourceType.map { tier in
+                ["sourceType": tier.sourceType, "vectors": Int(tier.vectors), "sources": Int(tier.sources)]
+            },
+        ])
+    }
+
     private func handleGetAppearance() async -> HTTPResponse {
         let app = await ThemeSettingsStore.shared.settings.appearanceMode.rawValue
         let pdfDark = await PDFSettingsStore.shared.settings.darkModeEnabled

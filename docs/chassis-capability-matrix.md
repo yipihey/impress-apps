@@ -1331,6 +1331,31 @@ Three-point trace under `ai.preferences` (Mutation → Save → Display) in ever
 app's Console; `ai.settings` logs what the pane displayed and why
 (`origin selected|first_ready|category`).
 
+### reMarkable pairing (imbib, 2026-09-06)
+
+Connecting a reMarkable to the cloud backend was a dead end. imbib's E-Ink
+tab called `RemarkableCloudBackend.authenticate()`, which exists only to
+throw "Use the reMarkable settings panel to connect your account" — and
+`RemarkableSettingsView`, the panel that message names, was registered
+nowhere: unreachable code whose only other references were planning docs.
+Pairing genuinely needs two steps (`startAuthentication` for a device id,
+then `completeRegistration(userCode:)` with a one-time code the researcher
+fetches from a signed-in browser at `my.remarkable.com/device/browser/
+connect`), and nothing shipped could take that code.
+
+The E-Ink tab's Cloud API path now presents that panel as a sheet, and the
+same flow is drivable headlessly:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/status` | Whether a device token is stored, and whether reMarkable still accepts it (a refresh is the only way to see a revoked token) |
+| `POST` | `/api/remarkable/connect` | `{"code": "…"}` — exchanges the one-time code for a device token, stores it in the login keychain, and registers the device so it appears in the E-Ink tab |
+| `POST` | `/api/remarkable/disconnect` | Forgets the stored token |
+
+The code cannot be obtained by an agent — reMarkable issues it only to a
+signed-in browser session — so the route takes a code the researcher pastes
+rather than performing a login. The code is never stored or logged.
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
