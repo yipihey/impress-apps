@@ -1287,6 +1287,16 @@ launch oMLX.app); task categories. `AIStatusMenuButton` is now a `Menu`
 hosting `AIQuickModelSwitcher` for the same selection without opening
 Settings.
 
+Two follow-ups on 2026-09-06, from using the pane: every app's Settings
+window is now resizable (`MacSettingsSceneContent.resizable(configuration:width:height:)`
+replaces the pinned `.fixed` shape implore, impel and impart shipped; imbib's
+sidebar renderer lost its 1200 × 900 ceiling; imprint and impress were already
+free), and `AIModelPickerList` renders its rows inline instead of inside a
+nested `List`: a scroll view inside a grouped macOS `Form` did not scroll and
+hid the rows past its frame, so the form itself now scrolls past every model,
+with a filter field above eight models and the selected model always visible.
+`AIModelPickerListTests` pins the row selection.
+
 Frozen oracles moved in the same commit: `SettingsSurfacePhase2ContractTests`
 (`testImplorePresetIsTheFrozenSixTabInventory`,
 `testImploreTabIdentifiersAreTheOnesItShipped`,

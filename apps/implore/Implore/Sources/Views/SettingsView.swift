@@ -30,9 +30,9 @@ import SwiftUI
 /// Settings view for implore preferences
 struct SettingsView: View {
     var body: some View {
-        // `.fixed`: implore shipped `.frame(width: 500, height: 400)`, a pinned
-        // size rather than a floor, and the renderer honours that exactly.
-        MacSettingsSceneContent.fixed(
+        // Opens at implore's shipped 500 × 400 and resizes from there (the
+        // AI pane's model list and task categories need the room).
+        MacSettingsSceneContent.resizable(
             configuration: .implore, width: 500, height: 400)
             .environment(\.settingsSectionRegistry, ImploreSettingsSections.registry)
     }

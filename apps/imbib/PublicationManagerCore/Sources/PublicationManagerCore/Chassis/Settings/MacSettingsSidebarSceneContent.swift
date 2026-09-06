@@ -76,8 +76,10 @@ public struct MacSettingsSidebarSceneContent: View {
     /// passes `selection:` and drives it.
     @State private var internalSelection: SettingsSectionID?
 
-    /// Defaults are imbib's shipped Settings-window metrics, so adopting this
-    /// renderer does not resize anybody's window.
+    /// Defaults are imbib's shipped Settings-window metrics for the floor and
+    /// the opening size; the window has no ceiling since 2026-09-06 (every
+    /// app's Settings window is resizable, and long panes such as the AI
+    /// model list scroll inside the pane rather than hide behind the edge).
     public init(
         configuration: AppSettingsConfiguration,
         selection: Binding<SettingsSectionID?>? = nil,
@@ -87,10 +89,10 @@ public struct MacSettingsSidebarSceneContent: View {
         sidebarMaxWidth: CGFloat = 250,
         minWidth: CGFloat = 700,
         idealWidth: CGFloat = 850,
-        maxWidth: CGFloat? = 1200,
+        maxWidth: CGFloat? = nil,
         minHeight: CGFloat = 500,
         idealHeight: CGFloat = 650,
-        maxHeight: CGFloat? = 900
+        maxHeight: CGFloat? = nil
     ) {
         self.configuration = configuration
         self.externalSelection = selection
