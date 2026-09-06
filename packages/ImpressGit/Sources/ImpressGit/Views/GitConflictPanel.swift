@@ -1,4 +1,5 @@
 #if os(macOS)
+import ImpressKit
 import SwiftUI
 
 /// Panel for reviewing and resolving git merge conflicts.
@@ -89,7 +90,7 @@ public struct GitConflictPanel: View {
             }
             .padding()
         }
-        .frame(minWidth: 500, minHeight: 300)
+        .impressResizableSheet(minWidth: 500, minHeight: 300)
     }
 
     private func resolutionButtons(for file: String) -> some View {

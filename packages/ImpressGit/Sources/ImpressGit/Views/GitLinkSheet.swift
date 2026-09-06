@@ -1,4 +1,5 @@
 #if os(macOS)
+import ImpressKit
 import SwiftUI
 
 /// Sheet for cloning a remote repo or linking an existing local git repo.
@@ -126,7 +127,7 @@ public struct GitLinkSheet: View {
             }
         }
         .padding()
-        .frame(width: 500)
+        .impressResizableSheet(minWidth: 500, minHeight: 340)
         .onAppear {
             if destination.isEmpty { destination = defaultDestination }
         }

@@ -1,4 +1,5 @@
 #if os(macOS)
+import ImpressKit
 import SwiftUI
 
 /// Sheet for creating a new GitHub repository from a local project.
@@ -75,7 +76,7 @@ public struct GitCreateSheet: View {
             }
         }
         .padding()
-        .frame(width: 480)
+        .impressResizableSheet(minWidth: 480, minHeight: 360)
         .task { await checkGitAvailability() }
     }
 
