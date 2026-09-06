@@ -1,3 +1,4 @@
+import ImpressKit
 import SwiftUI
 
 /// Interactive log-log polynomial editor for power spectrum control
@@ -124,7 +125,7 @@ struct PolynomialEditorSheet: View {
             }
         }
         .padding()
-        .frame(width: 400)
+        .impressResizableSheet(minWidth: 400, minHeight: 420)
         .onAppear {
             editedCoeffs = coefficients.isEmpty ? [-2.0, 0.0] : coefficients
             updatePreview()

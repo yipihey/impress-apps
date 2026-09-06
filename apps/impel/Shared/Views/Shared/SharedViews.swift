@@ -71,7 +71,7 @@ struct KeyboardHelpView: View {
             Spacer()
         }
         .padding()
-        .frame(width: 350, height: 400)
+        .impressResizableSheet(minWidth: 350, minHeight: 400)
     }
 
     private func shortcutSection(_ title: String, shortcuts: [(String, String)]) -> some View {
