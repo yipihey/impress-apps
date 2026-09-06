@@ -193,7 +193,18 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
-            throw RemarkableError.downloadFailed("Failed to list documents")
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            // 404 here means the endpoint itself is gone, not that the token
+            // is bad: this backend speaks the retired document-storage API
+            // (`/document-storage/json/2/*`), which reMarkable replaced with
+            // the content-addressed `/sync/v3` API on `internal.cloud.
+            // remarkable.com`. Pairing still succeeds against the auth host,
+            // so "connected but nothing syncs" is the expected symptom until
+            // the sync calls are ported.
+            let hint = code == 404
+                ? " — reMarkable retired this endpoint; imbib's sync calls need porting to the /sync/v3 API"
+                : ""
+            throw RemarkableError.downloadFailed("Failed to list documents (HTTP \(code))\(hint)")
         }
 
         let docs = try JSONDecoder().decode([CloudDocument].self, from: data)

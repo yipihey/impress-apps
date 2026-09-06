@@ -1815,14 +1815,33 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
         // `isAvailable()` refreshes the user token, which is the only way to
         // learn that a stored device token was revoked on reMarkable's side.
-        let usable = await RemarkableCloudBackend().isAvailable()
-        return .json([
+        let backend = RemarkableCloudBackend()
+        let usable = await backend.isAvailable()
+        guard usable else {
+            return .json([
+                "status": "ok",
+                "connected": false,
+                "detail": "A device token is stored but reMarkable rejected it; reconnect with a fresh one-time code.",
+            ])
+        }
+
+        // Authentication and sync are different hosts, so a valid token does
+        // not prove the sync API answers. Listing documents is the cheapest
+        // call that exercises it end to end.
+        var payload: [String: Any] = [
             "status": "ok",
-            "connected": usable,
-            "detail": usable
-                ? "Device token stored and accepted by reMarkable."
-                : "A device token is stored but reMarkable rejected it; reconnect with a fresh one-time code.",
-        ])
+            "connected": true,
+            "detail": "Device token stored and accepted by reMarkable.",
+        ]
+        do {
+            let documents = try await backend.listDocuments()
+            payload["syncReachable"] = true
+            payload["documentCount"] = documents.count
+        } catch {
+            payload["syncReachable"] = false
+            payload["syncError"] = error.localizedDescription
+        }
+        return .json(payload)
     }
 
     /// POST /api/remarkable/connect {"code": "one-time code"}
