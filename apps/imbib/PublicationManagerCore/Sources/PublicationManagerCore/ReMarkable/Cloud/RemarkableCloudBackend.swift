@@ -102,13 +102,46 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
     ///
     /// POSTs `{ code, deviceDesc, deviceID }` to the device token endpoint,
     /// then exchanges the resulting device token for a user token.
+    /// Process-wide cache for the user token.
+    ///
+    /// Its lifetime is deliberately shorter than the token's: a stale token
+    /// costs one failed request and a refresh, while minting one per call
+    /// costs the rate limit.
+    actor UserTokenCache {
+        static let shared = UserTokenCache()
+
+        private var cached: String?
+        private var mintedAt: Date?
+        private let lifetime: TimeInterval = 3600
+
+        func token() -> String? {
+            guard let cached, let mintedAt, Date().timeIntervalSince(mintedAt) < lifetime else {
+                return nil
+            }
+            return cached
+        }
+
+        func store(_ token: String) {
+            cached = token
+            mintedAt = Date()
+        }
+
+        /// Forget the token, so the next call mints a fresh one.
+        func invalidate() {
+            cached = nil
+            mintedAt = nil
+        }
+    }
+
     public func completeRegistration(userCode: String) async throws {
         guard let deviceID = pendingDeviceID else {
             throw RemarkableError.authFailed("No pending registration — call startAuthentication() first")
         }
 
         let deviceToken = try await fetchDeviceToken(code: userCode, deviceID: deviceID)
+        await UserTokenCache.shared.invalidate()
         userToken = try await refreshUserToken(deviceToken: deviceToken)
+        await UserTokenCache.shared.store(userToken!)
         pendingDeviceID = nil
 
         await MainActor.run {
@@ -174,7 +207,42 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
         throw RemarkableError.authFailed("Use the reMarkable settings panel to connect your account")
     }
 
+    /// Authenticated GET against reMarkable's sync host, for working out what
+    /// the current API actually returns.
+    ///
+    /// The v3 API is content-addressed and community-documented rather than
+    /// published, so the port is developed against the live service. This
+    /// returns the response; the token stays inside this actor.
+    public func diagnosticGet(
+        path: String,
+        host: String? = nil,
+        headers: [String: String] = [:],
+        method: String = "GET",
+        body: String? = nil
+    ) async throws -> (Int, String) {
+        try await ensureAuthenticated()
+        let base = host ?? "https://internal.cloud.remarkable.com"
+        guard let url = URL(string: base + path) else {
+            throw RemarkableError.notConfigured("bad diagnostic path")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if let body {
+            request.httpBody = Data(body.utf8)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        request.setValue("Bearer \(userToken!)", forHTTPHeaderField: "Authorization")
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let body = String(data: data.prefix(4000), encoding: .utf8) ?? "<\(data.count) bytes, not UTF-8>"
+        return (status, body)
+    }
+
     public func disconnect() async {
+        await UserTokenCache.shared.invalidate()
         userToken = nil
         await MainActor.run {
             settings.clearCredentials()
@@ -496,12 +564,22 @@ public actor RemarkableCloudBackend: RemarkableSyncBackend {
             return  // Already authenticated
         }
 
-        // Try to refresh from stored device token
-        if let deviceToken = try? await MainActor.run(body: { try settings.retrieveToken() }) {
-            userToken = try await refreshUserToken(deviceToken: deviceToken)
-        } else {
+        // A user token is a short-lived JWT, but "short-lived" is hours, and
+        // reMarkable rate-limits the endpoint that mints it. Callers create a
+        // fresh backend per request, so without a process-wide cache every
+        // call minted a new token and the service started refusing — which
+        // surfaces as "authentication failed" on a perfectly good pairing.
+        if let cached = await UserTokenCache.shared.token() {
+            userToken = cached
+            return
+        }
+
+        guard let deviceToken = try? await MainActor.run(body: { try settings.retrieveToken() }) else {
             throw RemarkableError.notAuthenticated
         }
+        let refreshed = try await refreshUserToken(deviceToken: deviceToken)
+        await UserTokenCache.shared.store(refreshed)
+        userToken = refreshed
     }
 
     private func updateUploadStatus(documentID: String, version: Int) async throws {

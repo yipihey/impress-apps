@@ -652,6 +652,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleRemarkableStatus()
         }
 
+        if path == "/api/remarkable/cloud/get" {
+            return await handleRemarkableCloudGet(request)
+        }
+
         if path == "/api/remarkable/wifi/status" {
             return await handleRemarkableWiFiStatus()
         }
@@ -1918,6 +1922,37 @@ public actor HTTPAutomationRouter: HTTPRouter {
             "deviceID": deviceID,
             "detail": "Paired with the reMarkable cloud and selected as the active device.",
         ])
+    }
+
+    /// GET /api/remarkable/cloud/get?path=/sync/v3/root[&host=…]
+    ///
+    /// An authenticated GET against reMarkable's sync host, so the version 3
+    /// port can be developed against the live service. Read-only, and the
+    /// token never leaves the backend actor.
+    private func handleRemarkableCloudGet(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let path = request.queryParams["path"], path.hasPrefix("/") else {
+            return .badRequest("Expected ?path=/sync/v3/…")
+        }
+        do {
+            // `headers=rm-filename:root,x:y` — the v3 blob endpoint rejects a
+            // request without `rm-filename`, so the probe has to be able to
+            // set it.
+            var headers: [String: String] = [:]
+            for pair in (request.queryParams["headers"] ?? "").split(separator: ",") {
+                let parts = pair.split(separator: ":", maxSplits: 1).map(String.init)
+                if parts.count == 2 { headers[parts[0]] = parts[1] }
+            }
+            let (status, body) = try await RemarkableCloudBackend()
+                .diagnosticGet(
+                    path: path,
+                    host: request.queryParams["host"],
+                    headers: headers,
+                    method: request.queryParams["method"] ?? "GET",
+                    body: request.queryParams["body"])
+            return .json(["status": "ok", "httpStatus": status, "body": body])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription], status: 502)
+        }
     }
 
     /// GET /api/remarkable/wifi/status — can we reach the tablet on this
