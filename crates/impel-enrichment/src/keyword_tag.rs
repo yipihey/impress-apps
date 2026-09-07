@@ -82,6 +82,30 @@ impl KeywordTagExecutor {
         Ok(())
     }
 
+    /// One sentence naming what this run actually decided, for the run
+    /// record's `result_summary` (the string every task surface shows).
+    fn outcome_summary(applied: &[String], band: &[(String, f64)], dropped: usize) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if !applied.is_empty() {
+            parts.push(format!("applied {}", applied.join(", ")));
+        }
+        if !band.is_empty() {
+            let listed = band
+                .iter()
+                .map(|(tag, confidence)| format!("{tag} ({confidence:.2})"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            parts.push(format!("review opened for {listed}"));
+        }
+        if dropped > 0 {
+            parts.push(format!("{dropped} below the review floor"));
+        }
+        if parts.is_empty() {
+            return "no tags proposed".into();
+        }
+        parts.join("; ")
+    }
+
     /// Tags recorded in a review item's `context_proposed_tags`.
     fn proposed_tags(review: &Item) -> Vec<String> {
         match review.payload.get("context_proposed_tags") {
@@ -142,7 +166,28 @@ impl TaskExecutor for KeywordTagExecutor {
 
         let proposals = self.classifier.classify(&title, &abstract_text).await;
 
-        // Reproducibility record regardless of branch.
+        // ── Per-proposal policy: apply / review-band / drop ────────────
+        let review_floor = self.confidence_threshold * 0.7;
+        let mut applied: Vec<String> = Vec::new();
+        let mut band: Vec<(String, f64)> = Vec::new();
+        let mut dropped = 0_usize;
+        for p in &proposals {
+            if p.confidence >= self.confidence_threshold {
+                applied.push(p.tag.clone());
+            } else if p.confidence >= review_floor {
+                band.push((p.tag.clone(), p.confidence));
+            } else {
+                // Weak evidence is not worth a human decision at library
+                // scale — but it IS worth saying so in the run record.
+                dropped += 1;
+            }
+        }
+
+        // Reproducibility record regardless of branch. The summary names
+        // the OUTCOME — which tags, at what confidence — because "3 tag
+        // proposal(s)" told a reader the count of a decision they could
+        // not see and left the actual result discoverable only by diffing
+        // the paper's tags.
         let mut hasher = Sha256::new();
         hasher.update(title.as_bytes());
         hasher.update(abstract_text.as_bytes());
@@ -152,28 +197,15 @@ impl TaskExecutor for KeywordTagExecutor {
                 agent_id: self.actor.clone(),
                 model: self.classifier.model_id().into(),
                 prompt_hash: format!("{:x}", hasher.finalize()),
-                result_summary: Some(format!("{} tag proposal(s)", proposals.len())),
+                result_summary: Some(Self::outcome_summary(&applied, &band, dropped)),
                 token_count: None,
                 duration_ms: Some(started.elapsed().as_millis() as i64),
+                executor_kind: Some(self.classifier.executor_kind().into()),
             },
         )?;
 
         if proposals.is_empty() {
             return Ok(ExecutionOutcome::Complete);
-        }
-
-        // ── Per-proposal policy: apply / review-band / drop ────────────
-        let review_floor = self.confidence_threshold * 0.7;
-        let mut applied: Vec<String> = Vec::new();
-        let mut band: Vec<(String, f64)> = Vec::new();
-        for p in &proposals {
-            if p.confidence >= self.confidence_threshold {
-                applied.push(p.tag.clone());
-            } else if p.confidence >= review_floor {
-                band.push((p.tag.clone(), p.confidence));
-            }
-            // Below the floor: dropped — weak evidence is not worth a
-            // human decision at library scale.
         }
         if !applied.is_empty() {
             self.apply_tags(publication.id, &applied, store)?;

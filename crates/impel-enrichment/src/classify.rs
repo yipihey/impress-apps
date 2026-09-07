@@ -20,6 +20,15 @@ pub trait Classifier: Send + Sync {
     /// `"claude-opus-4-8"`).
     fn model_id(&self) -> &str;
 
+    /// Whether [`Self::model_id`] names an inference call or deterministic
+    /// code. Recorded as `agent-run.executor_kind` so a reader can tell a
+    /// keyword table from a language model — `heuristic-v1` reads exactly
+    /// like a model id otherwise. Default: deterministic, since a
+    /// classifier that calls a model knows it and can say so.
+    fn executor_kind(&self) -> &str {
+        impel_core::EXECUTOR_DETERMINISTIC
+    }
+
     async fn classify(&self, title: &str, abstract_text: &str) -> Vec<Classification>;
 }
 

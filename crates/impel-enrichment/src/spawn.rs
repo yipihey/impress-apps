@@ -21,6 +21,10 @@ impl SpawnRule for EnrichmentSpawnRule {
         BIBLIOGRAPHY_ENTRY_SCHEMA
     }
 
+    fn rule_id(&self) -> &str {
+        "impel/enrichment-spawn"
+    }
+
     async fn spawn(
         &self,
         trigger: &Item,

@@ -62,6 +62,8 @@ public struct AgentRecordDetailPane: View {
     @State private var runRow: AgentRunRowData?
     /// The displayed task's newest recorded run (Task View tab), if any.
     @State private var latestRun: AgentRunRowData?
+    /// The item the task operates on (its subject/input), if any.
+    @State private var subject: (id: UUID, title: String)?
 
     public init(
         kind: AgentDetailKind,
@@ -114,6 +116,9 @@ public struct AgentRecordDetailPane: View {
                 .flatMap { TaskRowData(from: $0) }
             latestRun = reader.fetchLatestRun(forTask: id.uuidString)
                 .flatMap { AgentRunRowData(from: $0) }
+            subject = reader.fetchSubject(forTask: id.uuidString).flatMap { row in
+                UUID(uuidString: row.id).map { ($0, AgentStoreReader.displayTitle(for: row)) }
+            }
             runRow = nil
         case .run:
             runRow = reader.fetchRun(id: id.uuidString)
@@ -175,7 +180,14 @@ public struct AgentRecordDetailPane: View {
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                     infoRow("State", AgentStoreReader.stateDisplayName(row.state))
+                    // What CREATED the task, then what RAN it. Only the
+                    // second used to be shown, so every task looked as
+                    // though impel-taskd had decided to run it by itself.
+                    infoRow("Launched By", row.spawnedBy ?? "—")
                     infoRow("Assigned To", row.assignedTo ?? "—")
+                    if let subject {
+                        infoRow("Subject", subject.title)
+                    }
                     infoRow("Created", row.dateCreated.formatted(date: .abbreviated, time: .shortened))
                     infoRow("Modified", row.dateModified.formatted(date: .abbreviated, time: .shortened))
                 }
@@ -194,11 +206,20 @@ public struct AgentRecordDetailPane: View {
                         .font(.headline)
                     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                         infoRow("Agent", latestRun.agentID.isEmpty ? "—" : latestRun.agentID)
-                        infoRow("Model", latestRun.model.isEmpty ? "—" : latestRun.model)
+                        infoRow("Model", latestRun.modelDisplay)
                         if let metrics = latestRun.metricsText {
                             infoRow("Metrics", metrics)
                         }
                         infoRow("Recorded", latestRun.dateCreated.formatted(date: .abbreviated, time: .shortened))
+                    }
+                    // The OUTCOME. It was recorded all along but rendered
+                    // only on the Source/View tabs, so the tab people open
+                    // first showed everything about the run except what it
+                    // did.
+                    if let summary = latestRun.resultSummary, !summary.isEmpty {
+                        Text(summary)
+                            .textSelection(.enabled)
+                            .font(.callout)
                     }
                 }
 
@@ -225,7 +246,7 @@ public struct AgentRecordDetailPane: View {
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                     infoRow("Agent", row.agentID.isEmpty ? "—" : row.agentID)
-                    infoRow("Model", row.model.isEmpty ? "—" : row.model)
+                    infoRow("Model", row.modelDisplay)
                     if let promptHash = row.promptHash {
                         infoRow("Prompt Hash", promptHash, monospaced: true)
                     }
@@ -236,6 +257,14 @@ public struct AgentRecordDetailPane: View {
                         infoRow("Duration", String(format: "%.1f s", Double(durationMs) / 1000.0))
                     }
                     infoRow("Recorded", row.dateCreated.formatted(date: .abbreviated, time: .shortened))
+                }
+
+                if let summary = row.resultSummary, !summary.isEmpty {
+                    Divider()
+                    Text("Result")
+                        .font(.headline)
+                    Text(summary)
+                        .textSelection(.enabled)
                 }
 
                 // ADR-0022 D8 (G5): the task this run answered, the artifacts

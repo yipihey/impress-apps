@@ -129,6 +129,7 @@ impl TaskExecutor for Scripted {
                     result_summary: Some("scripted run".into()),
                     token_count: Some(0),
                     duration_ms: Some(1),
+                    executor_kind: Some(impel_core::EXECUTOR_DETERMINISTIC.into()),
                 },
             )?;
         }
@@ -622,4 +623,158 @@ async fn unready_kind_is_deferred_without_burning_attempts() {
     ready_sched.register(Scripted::new("alpha", vec![Step::Complete]));
     let r2 = ready_sched.run_once().await.unwrap();
     assert_eq!(r2.completed, 1, "{r2:?}");
+}
+
+/// Spawn provenance (ADR-0005 §10): every task records the RULE that
+/// created it and carries a `triggered-by` edge to the item that caused
+/// it. Before this, `assigned_to` (the executor that later picked the
+/// task up) was the only origin story a task could tell, and the
+/// `triggered-by` edge — declared in the task schema's expected edges
+/// since it was written — had no writer anywhere in the tree.
+#[tokio::test]
+async fn spawned_tasks_record_their_rule_and_trigger() {
+    use impel_core::{create_task_dag_from, SpawnProvenance};
+
+    let s = store();
+    // A trigger item distinct from the subject, the case that carries
+    // information (a throughline sync is triggered by an edited section
+    // but operates on the throughline).
+    let trigger = TaskStoreApi::create_item(s.as_ref(), {
+        let mut item = impress_core::item::Item {
+            id: uuid::Uuid::new_v4(),
+            schema: "manuscript-section".into(),
+            payload: std::collections::BTreeMap::new(),
+            created: chrono::Utc::now(),
+            modified: chrono::Utc::now(),
+            author: "tester".into(),
+            author_kind: ActorKind::Human,
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: impress_core::item::Priority::Normal,
+            visibility: impress_core::item::Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: None,
+        };
+        item.payload
+            .insert("title".into(), Value::String("edited section".into()));
+        item
+    })
+    .unwrap();
+    let subject = TaskStoreApi::create_item(s.as_ref(), {
+        let mut item = impress_core::item::Item {
+            id: uuid::Uuid::new_v4(),
+            schema: "throughline".into(),
+            payload: std::collections::BTreeMap::new(),
+            created: chrono::Utc::now(),
+            modified: chrono::Utc::now(),
+            author: "tester".into(),
+            author_kind: ActorKind::Human,
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: impress_core::item::Priority::Normal,
+            visibility: impress_core::item::Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: None,
+        };
+        item.payload
+            .insert("title".into(), Value::String("the throughline".into()));
+        item
+    })
+    .unwrap();
+
+    let ids = create_task_dag_from(
+        s.as_ref(),
+        &[TaskSpec {
+            kind: "throughline-sync".into(),
+            description: None,
+            depends_on: vec![],
+            operates_on: Some(subject),
+            output_schema: None,
+        }],
+        "impel-taskd",
+        Some(&SpawnProvenance {
+            rule_id: "impel/throughline-spawn".into(),
+            trigger: Some(trigger),
+        }),
+    )
+    .unwrap();
+
+    let task = TaskStoreApi::get_item(s.as_ref(), ids[0]).unwrap().unwrap();
+    assert!(
+        matches!(task.payload.get("spawned_by"),
+                 Some(Value::String(rule)) if rule == "impel/throughline-spawn"),
+        "the rule that created the task is named: {:?}",
+        task.payload.get("spawned_by")
+    );
+    let triggered: Vec<_> = task
+        .references
+        .iter()
+        .filter(|r| r.edge_type == EdgeType::Custom("triggered-by".into()))
+        .map(|r| r.target)
+        .collect();
+    assert_eq!(triggered, vec![trigger], "trigger edge points at the cause");
+    assert!(
+        task.references
+            .iter()
+            .any(|r| r.edge_type == EdgeType::OperatesOn && r.target == subject),
+        "subject edge is untouched"
+    );
+
+    // When trigger IS the subject (enrichment), the redundant second edge
+    // is skipped — the rule name still records the cause.
+    let self_triggered = create_task_dag_from(
+        s.as_ref(),
+        &[TaskSpec {
+            kind: "keyword-tag".into(),
+            description: None,
+            depends_on: vec![],
+            operates_on: Some(subject),
+            output_schema: None,
+        }],
+        "impel-taskd",
+        Some(&SpawnProvenance {
+            rule_id: "impel/enrichment-spawn".into(),
+            trigger: Some(subject),
+        }),
+    )
+    .unwrap();
+    let task2 = TaskStoreApi::get_item(s.as_ref(), self_triggered[0])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        task2
+            .references
+            .iter()
+            .filter(|r| r.target == subject)
+            .count(),
+        1,
+        "no duplicate edge to the same item"
+    );
+    assert!(matches!(task2.payload.get("spawned_by"),
+                     Some(Value::String(rule)) if rule == "impel/enrichment-spawn"));
+
+    // The provenance-free form stays provenance-free.
+    let plain = create_task_dag(s.as_ref(), &two_task_dag(), "spawner").unwrap();
+    let plain_task = TaskStoreApi::get_item(s.as_ref(), plain[0])
+        .unwrap()
+        .unwrap();
+    assert!(!plain_task.payload.contains_key("spawned_by"));
 }

@@ -296,6 +296,7 @@ impl TaskExecutor for EmbedBackfillExecutor {
                     result_summary: Some("0 embedded (window empty)".into()),
                     token_count: None,
                     duration_ms: Some(started.elapsed().as_millis() as i64),
+                    executor_kind: Some(impel_core::EXECUTOR_MODEL.into()),
                 },
             )?;
             return Ok(ExecutionOutcome::Complete);
@@ -470,6 +471,7 @@ impl TaskExecutor for EmbedBackfillExecutor {
                 )),
                 token_count: None,
                 duration_ms: Some(started.elapsed().as_millis() as i64),
+                executor_kind: Some(impel_core::EXECUTOR_MODEL.into()),
             },
         )?;
         Ok(ExecutionOutcome::Complete)

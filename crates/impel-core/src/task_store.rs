@@ -41,15 +41,29 @@ pub enum TaskStoreError {
 }
 
 /// Provenance record for one agent/tool invocation (ADR-0005 §5).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AgentRunRecord {
     pub agent_id: String,
+    /// Identifier of what produced the result. NOT always a model — see
+    /// [`Self::executor_kind`], without which `heuristic-v1` reads like an
+    /// LLM in every surface that shows it.
     pub model: String,
     pub prompt_hash: String,
     pub result_summary: Option<String>,
     pub token_count: Option<i64>,
     pub duration_ms: Option<i64>,
+    /// How the result was produced: [`EXECUTOR_DETERMINISTIC`] for code
+    /// that cannot vary given the same input (keyword tables, API
+    /// pipelines), [`EXECUTOR_MODEL`] for an inference call. Readers
+    /// render it beside `model` so a reader can tell a lookup table from
+    /// a language model at a glance.
+    pub executor_kind: Option<String>,
 }
+
+/// `executor_kind`: produced by deterministic code, not inference.
+pub const EXECUTOR_DETERMINISTIC: &str = "deterministic";
+/// `executor_kind`: produced by a model inference call.
+pub const EXECUTOR_MODEL: &str = "model";
 
 /// A human-review checkpoint request (ADR-0005 §8 `AwaitHumanResponse`).
 #[derive(Debug, Clone)]
@@ -246,6 +260,9 @@ impl TaskStoreApi for SqliteItemStore {
         }
         if let Some(d) = run.duration_ms {
             payload.insert("duration_ms".into(), Value::Int(d));
+        }
+        if let Some(kind) = run.executor_kind {
+            payload.insert("executor_kind".into(), Value::String(kind));
         }
         // The run knows which task triggered it…
         let run_item = kernel_item(

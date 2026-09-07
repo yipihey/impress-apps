@@ -93,6 +93,10 @@ impl Classifier for LlmClassifier {
         &self.model_id
     }
 
+    fn executor_kind(&self) -> &str {
+        impel_core::EXECUTOR_MODEL
+    }
+
     async fn classify(&self, title: &str, abstract_text: &str) -> Vec<Classification> {
         let request = LLMRequest {
             provider: self.provider.clone(),

@@ -808,6 +808,7 @@ async fn an_episode_carries_the_task_kind_of_the_run_it_distils() {
             result_summary: Some("resolved 7 field(s)".into()),
             token_count: None,
             duration_ms: Some(120),
+            executor_kind: Some(impel_core::EXECUTOR_DETERMINISTIC.into()),
         },
     )
     .expect("record run");

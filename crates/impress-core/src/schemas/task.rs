@@ -73,6 +73,12 @@ pub fn task_schema() -> Schema {
                 "Executor dispatch key (`Scheduler::register`). A task without \
                  one is not schedulable: see `ready_tasks`.",
             ),
+            described(
+                optional_string("spawned_by"),
+                "The SpawnRule that created this task (`SpawnRule::rule_id`). \
+                 `assigned_to` names the executor that later ran it — this \
+                 names what caused it to exist.",
+            ),
             optional_string("assigned_to"),
             field("attempts", FieldType::Int, false),
             described(
@@ -118,7 +124,16 @@ pub fn agent_run_schema() -> Schema {
             ),
             described(
                 required_string("model"),
-                "LLM model identifier used for this run",
+                "Identifier of what produced the result. NOT always an LLM: \
+                 deterministic executors record their algorithm here \
+                 (\"heuristic-v1\", \"api-pipeline\") — read `executor_kind` \
+                 to tell which.",
+            ),
+            described(
+                optional_string("executor_kind"),
+                "\"deterministic\" (keyword tables, API pipelines — same input, \
+                 same output) or \"model\" (an inference call). Absent on rows \
+                 written before 2026-09.",
             ),
             described(
                 required_string("prompt_hash"),

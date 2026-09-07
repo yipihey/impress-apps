@@ -553,3 +553,76 @@ async fn expired_resolution_completes_without_applying_the_band() {
         publication.tags
     );
 }
+
+/// The run record names the OUTCOME, not a count, and says whether a
+/// model was involved. "3 tag proposal(s)" left the actual result — which
+/// tags, at what confidence — discoverable only by diffing the paper.
+#[tokio::test]
+async fn the_run_record_names_the_tags_and_the_executor_kind() {
+    let s = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let entry = bibliography_entry("10.1000/xyz", "old title");
+    let entry_id = TaskStoreApi::create_item(s.as_ref(), entry).unwrap();
+    let trigger = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    let specs = EnrichmentSpawnRule
+        .spawn(&trigger, s.as_ref())
+        .await
+        .unwrap();
+    let task_ids = create_task_dag(s.as_ref(), &specs, "impel").unwrap();
+
+    let sched = band_scheduler(s.clone(), 0.5); // applies 0.9, reviews 0.45, drops 0.2
+    sched.run_once().await.unwrap();
+    sched.run_once().await.unwrap();
+
+    let runs = ItemStore::query(
+        s.as_ref(),
+        &ItemQuery {
+            schema: Some("agent-run@1.0.0".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let tagging_run = runs
+        .iter()
+        .find(|r| {
+            matches!(r.payload.get("agent_id"),
+                           Some(Value::String(a)) if a == "impel/keyword-tag")
+        })
+        .expect("keyword-tag recorded a run");
+
+    let summary = match tagging_run.payload.get("result_summary") {
+        Some(Value::String(s)) => s.clone(),
+        other => panic!("no result_summary: {other:?}"),
+    };
+    assert!(
+        summary.contains("ai/topic/confident"),
+        "the applied tag is named: {summary:?}"
+    );
+    assert!(
+        summary.contains("ai/topic/borderline"),
+        "the reviewed tag is named: {summary:?}"
+    );
+    assert!(
+        summary.contains("below the review floor"),
+        "the dropped proposal is accounted for: {summary:?}"
+    );
+    assert!(
+        matches!(tagging_run.payload.get("executor_kind"),
+                 Some(Value::String(k)) if k == "deterministic"),
+        "a keyword table is not a model: {:?}",
+        tagging_run.payload.get("executor_kind")
+    );
+
+    // The DAG's first stage says the same about itself.
+    let resolve_run = runs
+        .iter()
+        .find(|r| {
+            matches!(r.payload.get("agent_id"),
+                           Some(Value::String(a)) if a == "impel/metadata-resolve")
+        })
+        .expect("metadata-resolve recorded a run");
+    assert!(matches!(resolve_run.payload.get("executor_kind"),
+                     Some(Value::String(k)) if k == "deterministic"));
+    let _ = task_ids;
+}

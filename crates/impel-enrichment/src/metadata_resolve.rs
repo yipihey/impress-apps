@@ -418,6 +418,9 @@ impl TaskExecutor for MetadataResolveExecutor {
                 )),
                 token_count: None,
                 duration_ms: Some(started.elapsed().as_millis() as i64),
+                // An API merge pipeline: same identifier + same sources →
+                // same fields. No inference anywhere in it.
+                executor_kind: Some(impel_core::EXECUTOR_DETERMINISTIC.into()),
             },
         )?;
 

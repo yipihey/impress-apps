@@ -293,6 +293,7 @@ impl TaskExecutor for MemoryConsolidationExecutor {
                 result_summary: Some(summary),
                 token_count: None,
                 duration_ms: Some(started.elapsed().as_millis() as i64),
+                executor_kind: None,
             },
         )?;
 

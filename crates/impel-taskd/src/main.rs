@@ -32,7 +32,8 @@ use std::time::Duration;
 
 use imbib_core::enrichment::priority::SourcePriority;
 use impel_core::{
-    create_task_dag, PassReport, Scheduler, SchedulerConfig, SpawnRule, TaskStoreApi, TASK_SCHEMA,
+    create_task_dag_from, PassReport, Scheduler, SchedulerConfig, SpawnProvenance, SpawnRule,
+    TaskStoreApi, TASK_SCHEMA,
 };
 use impel_enrichment::classify::{Classifier, HeuristicClassifier};
 use impel_enrichment::metadata_resolve::ConfiguredSource;
@@ -891,10 +892,14 @@ async fn main() {
                                 item.id
                             );
                         } else {
-                            match create_task_dag(
+                            match create_task_dag_from(
                                 store.as_ref() as &dyn TaskStoreApi,
                                 &specs,
                                 ACTOR,
+                                Some(&SpawnProvenance {
+                                    rule_id: rule.rule_id().into(),
+                                    trigger: Some(item.id),
+                                }),
                             ) {
                                 Ok(ids) => eprintln!(
                                     "impel-taskd: spawned {} task(s) for {}: {ids:?}",
@@ -948,10 +953,18 @@ async fn main() {
                                 "impel-taskd[dry]: would spawn throughline-sync for doc {doc_id}"
                             );
                         } else {
-                            match create_task_dag(
+                            match create_task_dag_from(
                                 store.as_ref() as &dyn TaskStoreApi,
                                 &specs,
                                 ACTOR,
+                                // Trigger is the edited SECTION; the task
+                                // operates on the throughline. Recording
+                                // both is what makes "why did this run?"
+                                // answerable.
+                                Some(&SpawnProvenance {
+                                    rule_id: tl_rule.rule_id().into(),
+                                    trigger: Some(section.id),
+                                }),
                             ) {
                                 Ok(ids) => eprintln!(
                                     "impel-taskd: spawned throughline-sync for doc {doc_id}: {ids:?}"

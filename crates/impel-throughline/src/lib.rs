@@ -151,6 +151,10 @@ impl SpawnRule for ThroughlineSpawnRule {
         MANUSCRIPT_SECTION_SCHEMA
     }
 
+    fn rule_id(&self) -> &str {
+        "impel/throughline-spawn"
+    }
+
     async fn spawn(
         &self,
         trigger: &Item,
@@ -252,6 +256,13 @@ impl SyncDirection {
 pub trait ProposalDrafter: Send + Sync {
     /// Identifier recorded in the agent-run provenance row.
     fn model_id(&self) -> &str;
+
+    /// Whether [`Self::model_id`] names an inference call or deterministic
+    /// code (recorded as `agent-run.executor_kind`). Default:
+    /// deterministic — `TemplateDrafter` fills a fixed template.
+    fn executor_kind(&self) -> &str {
+        impel_core::EXECUTOR_DETERMINISTIC
+    }
 
     /// Draft the proposed replacement text. `paragraph` is the current
     /// throughline paragraph; `sections` are the anchored sections' current
@@ -436,6 +447,7 @@ impl ThroughlineSyncExecutor {
                 )),
                 token_count: None,
                 duration_ms: Some(started.elapsed().as_millis() as i64),
+                executor_kind: Some(self.drafter.executor_kind().into()),
             },
         )?;
 

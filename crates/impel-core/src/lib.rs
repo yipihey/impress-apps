@@ -84,10 +84,12 @@ pub use persona::{
 pub use schemas::register_impel_schemas;
 pub use task_executor::{ExecutionOutcome, TaskError, TaskExecutor};
 pub use task_scheduler::{PassReport, Scheduler, SchedulerConfig};
-pub use task_spawn::{create_task_dag, SpawnError, SpawnRule, TaskSpec};
+pub use task_spawn::{
+    create_task_dag, create_task_dag_from, SpawnError, SpawnProvenance, SpawnRule, TaskSpec,
+};
 pub use task_store::{
     AgentRunRecord, ReviewRequest, TaskStoreApi, TaskStoreError, AGENT_RUN_SCHEMA,
-    REVIEW_REQUEST_SCHEMA, TASK_SCHEMA,
+    EXECUTOR_DETERMINISTIC, EXECUTOR_MODEL, REVIEW_REQUEST_SCHEMA, TASK_SCHEMA,
 };
 
 // Setup UniFFI when the feature is enabled

@@ -146,7 +146,8 @@ final class ChassisPayloadVocabularyTests: XCTestCase {
         let row = AgentStoreWriter.taskRow(
             id: "55555555-5555-4555-8555-555555555551",
             title: "Recompute the Bernoulli table", state: "queued",
-            description: "Revised eighth term.", assignedTo: "counsel")
+            description: "Revised eighth term.", assignedTo: "counsel",
+            spawnedBy: "impel/enrichment-spawn")
         XCTAssertEqual(
             try payloadKeys(of: row),
             readerKeys(AgentTaskPayload.CodingKeys.self),
@@ -156,14 +157,15 @@ final class ChassisPayloadVocabularyTests: XCTestCase {
     func testTaskVocabularyIsFrozen() {
         XCTAssertEqual(
             readerKeys(AgentTaskPayload.CodingKeys.self),
-            ["title", "state", "description", "assigned_to"])
+            ["title", "state", "description", "assigned_to", "spawned_by"])
     }
 
     func testAgentRunReaderKeysEqualWriterKeys() throws {
         let row = AgentStoreWriter.agentRunRow(
             id: "66666666-6666-4666-8666-666666666661",
             agentID: "counsel", model: "opus", promptHash: "abc",
-            resultSummary: "done", tokenCount: 12, durationMs: 34)
+            resultSummary: "done", tokenCount: 12, durationMs: 34,
+            executorKind: "model")
         XCTAssertEqual(
             try payloadKeys(of: row),
             readerKeys(AgentRunPayload.CodingKeys.self),
@@ -174,7 +176,7 @@ final class ChassisPayloadVocabularyTests: XCTestCase {
         XCTAssertEqual(
             readerKeys(AgentRunPayload.CodingKeys.self),
             ["model", "agent_id", "prompt_hash", "result_summary",
-             "token_count", "duration_ms"])
+             "token_count", "duration_ms", "executor_kind"])
     }
 
     /// The task lifecycle field the reader QUERIES on is the decoder's own key
@@ -227,7 +229,8 @@ final class ChassisPayloadVocabularyTests: XCTestCase {
         let row = AgentStoreWriter.taskRow(
             id: "55555555-5555-4555-8555-555555555551",
             title: "Recompute the Bernoulli table", state: "queued",
-            description: "Revised eighth term.", assignedTo: "counsel")
+            description: "Revised eighth term.", assignedTo: "counsel",
+            spawnedBy: "impel/enrichment-spawn")
         let data = try XCTUnwrap(row.payloadJson.data(using: .utf8))
         let decoded = try JSONDecoder().decode(AgentTaskPayload.self, from: data)
 
@@ -235,13 +238,15 @@ final class ChassisPayloadVocabularyTests: XCTestCase {
         XCTAssertEqual(decoded.state, "queued")
         XCTAssertEqual(decoded.description, "Revised eighth term.")
         XCTAssertEqual(decoded.assignedTo, "counsel")
+        XCTAssertEqual(decoded.spawnedBy, "impel/enrichment-spawn")
     }
 
     func testAgentRunRoundTripsThroughTheReadersDecoder() throws {
         let row = AgentStoreWriter.agentRunRow(
             id: "66666666-6666-4666-8666-666666666661",
             agentID: "counsel", model: "opus", promptHash: "abc",
-            resultSummary: "done", tokenCount: 12, durationMs: 34)
+            resultSummary: "done", tokenCount: 12, durationMs: 34,
+            executorKind: "model")
         let data = try XCTUnwrap(row.payloadJson.data(using: .utf8))
         let decoded = try JSONDecoder().decode(AgentRunPayload.self, from: data)
 

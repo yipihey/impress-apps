@@ -295,6 +295,8 @@ fn task_schema_matches_adr_field_table() {
             // WP C4: the kernel's executor dispatch key. `ready_tasks` requires
             // it, so a task without one is not schedulable.
             "task_kind",
+            // 2026-09 provenance: which SpawnRule created this task.
+            "spawned_by",
             "assigned_to",
             "attempts",
             // 2026-09 review fixes: retry backoff not-before, honored by

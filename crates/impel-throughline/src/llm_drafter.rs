@@ -56,6 +56,10 @@ impl ProposalDrafter for LlmDrafter {
         &self.model_id
     }
 
+    fn executor_kind(&self) -> &str {
+        impel_core::EXECUTOR_MODEL
+    }
+
     async fn draft(
         &self,
         direction: &SyncDirection,

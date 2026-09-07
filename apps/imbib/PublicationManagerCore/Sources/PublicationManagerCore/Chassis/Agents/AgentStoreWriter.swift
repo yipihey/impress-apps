@@ -44,6 +44,7 @@ public enum AgentStoreWriter {
         state: String?,
         description: String? = nil,
         assignedTo: String? = nil,
+        spawnedBy: String? = nil,
         createdMs: Int64? = nil,
         isStarred: Bool? = nil
     ) -> SharedItemUpsert {
@@ -52,6 +53,7 @@ public enum AgentStoreWriter {
         payload.state = state
         payload.description = description
         payload.assignedTo = assignedTo
+        payload.spawnedBy = spawnedBy
         return ChassisPayloadRow.upsert(
             id: id, schemaRef: taskSchemaRef, parentID: nil,
             payload: payload, createdMs: createdMs, isStarred: isStarred)
@@ -70,6 +72,7 @@ public enum AgentStoreWriter {
         resultSummary: String? = nil,
         tokenCount: Int64? = nil,
         durationMs: Int64? = nil,
+        executorKind: String? = nil,
         createdMs: Int64? = nil
     ) -> SharedItemUpsert {
         var payload = AgentRunPayload()
@@ -79,6 +82,7 @@ public enum AgentStoreWriter {
         payload.resultSummary = resultSummary
         payload.tokenCount = tokenCount
         payload.durationMs = durationMs
+        payload.executorKind = executorKind
         return ChassisPayloadRow.upsert(
             id: id, schemaRef: agentRunSchemaRef, parentID: nil,
             payload: payload, createdMs: createdMs)

@@ -26,6 +26,9 @@ public struct TaskRowData: Identifiable, Hashable, Sendable {
     public let state: String
     public let taskDescription: String
     public let assignedTo: String?
+    /// The SpawnRule that created this task — the answer to "what launched
+    /// this?", which `assignedTo` (the executor) never was.
+    public let spawnedBy: String?
     public let isReadState: Bool
     public let isStarredState: Bool
     public let flag: PublicationFlag?
@@ -43,6 +46,7 @@ public struct TaskRowData: Identifiable, Hashable, Sendable {
         self.state = payload?.state ?? "queued"
         self.taskDescription = payload?.description ?? ""
         self.assignedTo = payload?.assignedTo
+        self.spawnedBy = payload?.spawnedBy
         self.isReadState = row.isRead
         self.isStarredState = row.isStarred
 
@@ -104,6 +108,8 @@ public struct AgentRunRowData: Identifiable, Hashable, Sendable {
     public let model: String
     public let promptHash: String?
     public let resultSummary: String?
+    /// "deterministic" | "model" — see `modelDisplay`.
+    public let executorKind: String?
     public let tokenCount: Int64?
     public let durationMs: Int64?
     public let isReadState: Bool
@@ -122,6 +128,7 @@ public struct AgentRunRowData: Identifiable, Hashable, Sendable {
         self.model = payload?.model ?? ""
         self.promptHash = payload?.promptHash
         self.resultSummary = payload?.resultSummary
+        self.executorKind = payload?.executorKind
         self.tokenCount = payload?.tokenCount
         self.durationMs = payload?.durationMs
         self.isReadState = row.isRead
@@ -143,6 +150,18 @@ public struct AgentRunRowData: Identifiable, Hashable, Sendable {
         }
         self.dateCreated = Date(timeIntervalSince1970: TimeInterval(row.createdMs) / 1000.0)
         self.dateModified = Date(timeIntervalSince1970: TimeInterval(row.modifiedMs) / 1000.0)
+    }
+
+    /// `model`, qualified so a lookup table cannot pass for an LLM:
+    /// "heuristic-v1 (deterministic)". Rows written before
+    /// `executor_kind` existed show the bare id, unchanged.
+    public var modelDisplay: String {
+        let name = model.isEmpty ? "—" : model
+        switch executorKind {
+        case "deterministic": return "\(name) (deterministic)"
+        case "model": return "\(name) (model)"
+        default: return name
+        }
     }
 
     /// "1.2k tok · 3.4s" metadata line for rows and the Info tab.

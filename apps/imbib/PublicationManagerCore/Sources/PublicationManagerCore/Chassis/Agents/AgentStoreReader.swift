@@ -36,10 +36,15 @@ struct AgentTaskPayload: Codable {
     var state: String?
     var description: String?
     var assignedTo: String?
+    /// The SpawnRule that CREATED this task (`impel/enrichment-spawn`, …).
+    /// `assignedTo` names the executor that later ran it — a different
+    /// question, and the only one the pane used to be able to answer.
+    var spawnedBy: String?
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case title, state, description
         case assignedTo = "assigned_to"
+        case spawnedBy = "spawned_by"
     }
 }
 
@@ -51,6 +56,9 @@ struct AgentRunPayload: Codable {
     var resultSummary: String?
     var tokenCount: Int64?
     var durationMs: Int64?
+    /// "deterministic" | "model" — whether `model` names an inference call
+    /// or code that cannot vary. Absent on rows written before 2026-09.
+    var executorKind: String?
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case model
@@ -59,6 +67,7 @@ struct AgentRunPayload: Codable {
         case resultSummary = "result_summary"
         case tokenCount = "token_count"
         case durationMs = "duration_ms"
+        case executorKind = "executor_kind"
     }
 }
 
@@ -209,6 +218,33 @@ public final class AgentStoreReader {
     /// The newest run recorded for a task (the Task detail's View tab).
     public func fetchLatestRun(forTask taskID: String) -> SharedItemRow? {
         fetchRuns(forTask: taskID).first
+    }
+
+    /// Best display title for ANY record kind: payload `title`, else the
+    /// schema ref. `SharedItemRow` carries no title column — every kind
+    /// keeps its own in the payload.
+    public static func displayTitle(for row: SharedItemRow) -> String {
+        if let data = row.payloadJson.data(using: .utf8),
+           let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let title = payload["title"] as? String,
+           !title.isEmpty
+        {
+            return title
+        }
+        return row.schemaRef
+    }
+
+    /// The item a task operates on — the paper being enriched, the
+    /// throughline being synced. The task's INPUT, in other words: it was
+    /// reachable only by walking edges, so the detail pane could describe
+    /// a run in full without ever naming what it ran ON.
+    public func fetchSubject(forTask taskID: String) -> SharedItemRow? {
+        guard let store else { return nil }
+        guard let refs = try? store.getItemReferences(id: taskID.lowercased()) else { return nil }
+        return refs
+            .first { $0.edgeType == "OperatesOn" }
+            .flatMap { try? store.getItem(id: $0.targetId) }
+            .flatMap { $0 }
     }
 
     // MARK: - Counts (sidebar badges)
