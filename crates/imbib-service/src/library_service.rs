@@ -85,6 +85,10 @@ pub struct PublicationSummary {
     // `has_pdf`. Accept either.
     #[serde(alias = "hasDownloadedPDF", alias = "hasPDF", default)]
     pub has_pdf: bool,
+    /// State on the configured e-ink tablet, when a device in individual
+    /// mode is configured; see `BibliographyRow::eink_state`.
+    #[serde(alias = "einkState", default)]
+    pub eink_state: Option<String>,
 }
 
 impl From<&imbib_core::unified::shaped_queries::BibliographyRow> for PublicationSummary {
@@ -103,6 +107,7 @@ impl From<&imbib_core::unified::shaped_queries::BibliographyRow> for Publication
             flag_color: r.flag_color.clone(),
             tags: r.tags.iter().map(|t| t.path.clone()).collect(),
             has_pdf: r.has_downloaded_pdf,
+            eink_state: r.eink_state.clone(),
         }
     }
 }
@@ -217,6 +222,17 @@ pub struct LinkedFileRecord {
     pub is_locally_materialized: bool,
     #[serde(alias = "dateAdded", default)]
     pub date_added: i64,
+    #[serde(alias = "fileType", default)]
+    pub file_type: Option<String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
+    #[serde(alias = "displayName", default)]
+    pub display_name: Option<String>,
+    /// `primary` (absent in older rows), `eink-annotated` or `eink-rmdoc`.
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(alias = "sourceRemoteId", default)]
+    pub source_remote_id: Option<String>,
 }
 
 impl From<&imbib_core::unified::shaped_queries::LinkedFileRow> for LinkedFileRecord {
@@ -229,6 +245,11 @@ impl From<&imbib_core::unified::shaped_queries::LinkedFileRow> for LinkedFileRec
             is_pdf: r.is_pdf,
             is_locally_materialized: r.is_locally_materialized,
             date_added: r.date_added,
+            file_type: r.file_type.clone(),
+            sha256: r.sha256.clone(),
+            display_name: r.display_name.clone(),
+            role: r.role.clone(),
+            source_remote_id: r.source_remote_id.clone(),
         }
     }
 }
