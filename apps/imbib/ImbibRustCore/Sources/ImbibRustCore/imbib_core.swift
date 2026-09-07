@@ -415,6 +415,22 @@ fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
+    typealias FfiType = UInt16
+    typealias SwiftType = UInt16
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt16 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -684,6 +700,16 @@ public protocol ImbibStoreProtocol : AnyObject {
      * instead of deserializing all rows — much faster for widget badge counts.
      */
     func countPublications(parentId: String?) throws  -> UInt32
+    
+    /**
+     * How many publications have a PDF stored on this device.
+     *
+     * The denominator for full-text indexing: chunking reads a local file,
+     * so a library of 3,000 papers with 400 stored PDFs can never show more
+     * than 400 indexed, and measuring against 3,000 reports a working index
+     * as broken.
+     */
+    func countPublicationsWithLocalPdf() throws  -> UInt32
     
     /**
      * Count publications referenced by a SciX library. Uses SELECT COUNT(*).
@@ -1888,6 +1914,21 @@ open func countPublications(parentId: String?)throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_count_publications(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(parentId),$0
+    )
+})
+}
+    
+    /**
+     * How many publications have a PDF stored on this device.
+     *
+     * The denominator for full-text indexing: chunking reads a local file,
+     * so a library of 3,000 papers with 400 stored PDFs can never show more
+     * than 400 indexed, and measuring against 3,000 reports a working index
+     * as broken.
+     */
+open func countPublicationsWithLocalPdf()throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_count_publications_with_local_pdf(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -8729,6 +8770,119 @@ public func FfiConverterTypeDuplicateGroup_lift(_ buf: RustBuffer) throws -> Dup
 #endif
 public func FfiConverterTypeDuplicateGroup_lower(_ value: DuplicateGroup) -> RustBuffer {
     return FfiConverterTypeDuplicateGroup.lower(value)
+}
+
+
+/**
+ * What the embedding sidecar holds, tier by tier.
+ *
+ * Two independent tiers, and a UI must not collapse them: every paper gets a
+ * metadata (title/abstract) vector when the index is built, while a chunk
+ * vector exists only for a paper whose PDF was downloaded and chunked.
+ */
+public struct EmbeddingIndexStatus {
+    public var indexedPublications: UInt32
+    public var publicationVectors: UInt32
+    public var chunkedPublications: UInt32
+    public var chunkVectors: UInt32
+    public var chunkCount: UInt32
+    public var vectorCount: UInt32
+    public var bySourceType: [SourceTypeCount]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(indexedPublications: UInt32, publicationVectors: UInt32, chunkedPublications: UInt32, chunkVectors: UInt32, chunkCount: UInt32, vectorCount: UInt32, bySourceType: [SourceTypeCount]) {
+        self.indexedPublications = indexedPublications
+        self.publicationVectors = publicationVectors
+        self.chunkedPublications = chunkedPublications
+        self.chunkVectors = chunkVectors
+        self.chunkCount = chunkCount
+        self.vectorCount = vectorCount
+        self.bySourceType = bySourceType
+    }
+}
+
+
+
+extension EmbeddingIndexStatus: Equatable, Hashable {
+    public static func ==(lhs: EmbeddingIndexStatus, rhs: EmbeddingIndexStatus) -> Bool {
+        if lhs.indexedPublications != rhs.indexedPublications {
+            return false
+        }
+        if lhs.publicationVectors != rhs.publicationVectors {
+            return false
+        }
+        if lhs.chunkedPublications != rhs.chunkedPublications {
+            return false
+        }
+        if lhs.chunkVectors != rhs.chunkVectors {
+            return false
+        }
+        if lhs.chunkCount != rhs.chunkCount {
+            return false
+        }
+        if lhs.vectorCount != rhs.vectorCount {
+            return false
+        }
+        if lhs.bySourceType != rhs.bySourceType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(indexedPublications)
+        hasher.combine(publicationVectors)
+        hasher.combine(chunkedPublications)
+        hasher.combine(chunkVectors)
+        hasher.combine(chunkCount)
+        hasher.combine(vectorCount)
+        hasher.combine(bySourceType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEmbeddingIndexStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EmbeddingIndexStatus {
+        return
+            try EmbeddingIndexStatus(
+                indexedPublications: FfiConverterUInt32.read(from: &buf), 
+                publicationVectors: FfiConverterUInt32.read(from: &buf), 
+                chunkedPublications: FfiConverterUInt32.read(from: &buf), 
+                chunkVectors: FfiConverterUInt32.read(from: &buf), 
+                chunkCount: FfiConverterUInt32.read(from: &buf), 
+                vectorCount: FfiConverterUInt32.read(from: &buf), 
+                bySourceType: FfiConverterSequenceTypeSourceTypeCount.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EmbeddingIndexStatus, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.indexedPublications, into: &buf)
+        FfiConverterUInt32.write(value.publicationVectors, into: &buf)
+        FfiConverterUInt32.write(value.chunkedPublications, into: &buf)
+        FfiConverterUInt32.write(value.chunkVectors, into: &buf)
+        FfiConverterUInt32.write(value.chunkCount, into: &buf)
+        FfiConverterUInt32.write(value.vectorCount, into: &buf)
+        FfiConverterSequenceTypeSourceTypeCount.write(value.bySourceType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddingIndexStatus_lift(_ buf: RustBuffer) throws -> EmbeddingIndexStatus {
+    return try FfiConverterTypeEmbeddingIndexStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddingIndexStatus_lower(_ value: EmbeddingIndexStatus) -> RustBuffer {
+    return FfiConverterTypeEmbeddingIndexStatus.lower(value)
 }
 
 
@@ -16901,6 +17055,405 @@ public func FfiConverterTypeRestoreReportRow_lower(_ value: RestoreReportRow) ->
 
 
 /**
+ * How to reach one tablet. The password comes from the app's keychain and
+ * is never written to the item graph or a log.
+ */
+public struct RmCredentials {
+    public var host: String
+    public var port: UInt16
+    public var username: String
+    public var password: String
+    /**
+     * Pinned host-key fingerprint; `None` on the first connection only.
+     */
+    public var fingerprint: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(host: String, port: UInt16, username: String, password: String, 
+        /**
+         * Pinned host-key fingerprint; `None` on the first connection only.
+         */fingerprint: String?) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.fingerprint = fingerprint
+    }
+}
+
+
+
+extension RmCredentials: Equatable, Hashable {
+    public static func ==(lhs: RmCredentials, rhs: RmCredentials) -> Bool {
+        if lhs.host != rhs.host {
+            return false
+        }
+        if lhs.port != rhs.port {
+            return false
+        }
+        if lhs.username != rhs.username {
+            return false
+        }
+        if lhs.password != rhs.password {
+            return false
+        }
+        if lhs.fingerprint != rhs.fingerprint {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(host)
+        hasher.combine(port)
+        hasher.combine(username)
+        hasher.combine(password)
+        hasher.combine(fingerprint)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRmCredentials: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RmCredentials {
+        return
+            try RmCredentials(
+                host: FfiConverterString.read(from: &buf), 
+                port: FfiConverterUInt16.read(from: &buf), 
+                username: FfiConverterString.read(from: &buf), 
+                password: FfiConverterString.read(from: &buf), 
+                fingerprint: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RmCredentials, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.host, into: &buf)
+        FfiConverterUInt16.write(value.port, into: &buf)
+        FfiConverterString.write(value.username, into: &buf)
+        FfiConverterString.write(value.password, into: &buf)
+        FfiConverterOptionString.write(value.fingerprint, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRmCredentials_lift(_ buf: RustBuffer) throws -> RmCredentials {
+    return try FfiConverterTypeRmCredentials.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRmCredentials_lower(_ value: RmCredentials) -> RustBuffer {
+    return FfiConverterTypeRmCredentials.lower(value)
+}
+
+
+/**
+ * What answered on that address.
+ */
+public struct RmDeviceInfo {
+    public var host: String
+    public var fingerprint: String
+    public var firmware: String?
+    public var documentCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(host: String, fingerprint: String, firmware: String?, documentCount: UInt32) {
+        self.host = host
+        self.fingerprint = fingerprint
+        self.firmware = firmware
+        self.documentCount = documentCount
+    }
+}
+
+
+
+extension RmDeviceInfo: Equatable, Hashable {
+    public static func ==(lhs: RmDeviceInfo, rhs: RmDeviceInfo) -> Bool {
+        if lhs.host != rhs.host {
+            return false
+        }
+        if lhs.fingerprint != rhs.fingerprint {
+            return false
+        }
+        if lhs.firmware != rhs.firmware {
+            return false
+        }
+        if lhs.documentCount != rhs.documentCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(host)
+        hasher.combine(fingerprint)
+        hasher.combine(firmware)
+        hasher.combine(documentCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRmDeviceInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RmDeviceInfo {
+        return
+            try RmDeviceInfo(
+                host: FfiConverterString.read(from: &buf), 
+                fingerprint: FfiConverterString.read(from: &buf), 
+                firmware: FfiConverterOptionString.read(from: &buf), 
+                documentCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RmDeviceInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.host, into: &buf)
+        FfiConverterString.write(value.fingerprint, into: &buf)
+        FfiConverterOptionString.write(value.firmware, into: &buf)
+        FfiConverterUInt32.write(value.documentCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRmDeviceInfo_lift(_ buf: RustBuffer) throws -> RmDeviceInfo {
+    return try FfiConverterTypeRmDeviceInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRmDeviceInfo_lower(_ value: RmDeviceInfo) -> RustBuffer {
+    return FfiConverterTypeRmDeviceInfo.lower(value)
+}
+
+
+/**
+ * One entry on the tablet.
+ */
+public struct RmDocument {
+    public var id: String
+    public var visibleName: String
+    /**
+     * `document`, `folder` or `unknown`.
+     */
+    public var kind: String
+    public var parent: String
+    public var lastModifiedMs: Int64
+    public var pinned: Bool
+    /**
+     * `pdf`, `epub`, or empty for a notebook.
+     */
+    public var fileType: String
+    public var pageCount: UInt32
+    public var hasAnnotations: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, visibleName: String, 
+        /**
+         * `document`, `folder` or `unknown`.
+         */kind: String, parent: String, lastModifiedMs: Int64, pinned: Bool, 
+        /**
+         * `pdf`, `epub`, or empty for a notebook.
+         */fileType: String, pageCount: UInt32, hasAnnotations: Bool) {
+        self.id = id
+        self.visibleName = visibleName
+        self.kind = kind
+        self.parent = parent
+        self.lastModifiedMs = lastModifiedMs
+        self.pinned = pinned
+        self.fileType = fileType
+        self.pageCount = pageCount
+        self.hasAnnotations = hasAnnotations
+    }
+}
+
+
+
+extension RmDocument: Equatable, Hashable {
+    public static func ==(lhs: RmDocument, rhs: RmDocument) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.visibleName != rhs.visibleName {
+            return false
+        }
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.parent != rhs.parent {
+            return false
+        }
+        if lhs.lastModifiedMs != rhs.lastModifiedMs {
+            return false
+        }
+        if lhs.pinned != rhs.pinned {
+            return false
+        }
+        if lhs.fileType != rhs.fileType {
+            return false
+        }
+        if lhs.pageCount != rhs.pageCount {
+            return false
+        }
+        if lhs.hasAnnotations != rhs.hasAnnotations {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(visibleName)
+        hasher.combine(kind)
+        hasher.combine(parent)
+        hasher.combine(lastModifiedMs)
+        hasher.combine(pinned)
+        hasher.combine(fileType)
+        hasher.combine(pageCount)
+        hasher.combine(hasAnnotations)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRmDocument: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RmDocument {
+        return
+            try RmDocument(
+                id: FfiConverterString.read(from: &buf), 
+                visibleName: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                parent: FfiConverterString.read(from: &buf), 
+                lastModifiedMs: FfiConverterInt64.read(from: &buf), 
+                pinned: FfiConverterBool.read(from: &buf), 
+                fileType: FfiConverterString.read(from: &buf), 
+                pageCount: FfiConverterUInt32.read(from: &buf), 
+                hasAnnotations: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RmDocument, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.visibleName, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.parent, into: &buf)
+        FfiConverterInt64.write(value.lastModifiedMs, into: &buf)
+        FfiConverterBool.write(value.pinned, into: &buf)
+        FfiConverterString.write(value.fileType, into: &buf)
+        FfiConverterUInt32.write(value.pageCount, into: &buf)
+        FfiConverterBool.write(value.hasAnnotations, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRmDocument_lift(_ buf: RustBuffer) throws -> RmDocument {
+    return try FfiConverterTypeRmDocument.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRmDocument_lower(_ value: RmDocument) -> RustBuffer {
+    return FfiConverterTypeRmDocument.lower(value)
+}
+
+
+/**
+ * Files pulled off the tablet.
+ */
+public struct RmDownload {
+    public var id: String
+    public var sourcePath: String?
+    public var annotationPaths: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, sourcePath: String?, annotationPaths: [String]) {
+        self.id = id
+        self.sourcePath = sourcePath
+        self.annotationPaths = annotationPaths
+    }
+}
+
+
+
+extension RmDownload: Equatable, Hashable {
+    public static func ==(lhs: RmDownload, rhs: RmDownload) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.sourcePath != rhs.sourcePath {
+            return false
+        }
+        if lhs.annotationPaths != rhs.annotationPaths {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(sourcePath)
+        hasher.combine(annotationPaths)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRmDownload: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RmDownload {
+        return
+            try RmDownload(
+                id: FfiConverterString.read(from: &buf), 
+                sourcePath: FfiConverterOptionString.read(from: &buf), 
+                annotationPaths: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RmDownload, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.sourcePath, into: &buf)
+        FfiConverterSequenceString.write(value.annotationPaths, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRmDownload_lift(_ buf: RustBuffer) throws -> RmDownload {
+    return try FfiConverterTypeRmDownload.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRmDownload_lower(_ value: RmDownload) -> RustBuffer {
+    return FfiConverterTypeRmDownload.lower(value)
+}
+
+
+/**
  * SciX (ADS) remote library summary.
  */
 public struct SciXLibraryRow {
@@ -19068,6 +19621,83 @@ public func FfiConverterTypeSourcePriorityRow_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeSourcePriorityRow_lower(_ value: SourcePriorityRow) -> RustBuffer {
     return FfiConverterTypeSourcePriorityRow.lower(value)
+}
+
+
+/**
+ * Vectors and distinct sources held for one `source_type`.
+ */
+public struct SourceTypeCount {
+    public var sourceType: String
+    public var vectors: UInt32
+    public var sources: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sourceType: String, vectors: UInt32, sources: UInt32) {
+        self.sourceType = sourceType
+        self.vectors = vectors
+        self.sources = sources
+    }
+}
+
+
+
+extension SourceTypeCount: Equatable, Hashable {
+    public static func ==(lhs: SourceTypeCount, rhs: SourceTypeCount) -> Bool {
+        if lhs.sourceType != rhs.sourceType {
+            return false
+        }
+        if lhs.vectors != rhs.vectors {
+            return false
+        }
+        if lhs.sources != rhs.sources {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(sourceType)
+        hasher.combine(vectors)
+        hasher.combine(sources)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSourceTypeCount: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SourceTypeCount {
+        return
+            try SourceTypeCount(
+                sourceType: FfiConverterString.read(from: &buf), 
+                vectors: FfiConverterUInt32.read(from: &buf), 
+                sources: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SourceTypeCount, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sourceType, into: &buf)
+        FfiConverterUInt32.write(value.vectors, into: &buf)
+        FfiConverterUInt32.write(value.sources, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSourceTypeCount_lift(_ buf: RustBuffer) throws -> SourceTypeCount {
+    return try FfiConverterTypeSourceTypeCount.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSourceTypeCount_lower(_ value: SourceTypeCount) -> RustBuffer {
+    return FfiConverterTypeSourceTypeCount.lower(value)
 }
 
 
@@ -24313,6 +24943,125 @@ extension RisType: Equatable, Hashable {}
 
 
 
+/**
+ * Mirrors `impress_remarkable::Error` so Swift can tell a sleeping tablet
+ * from a wrong password from a changed host key.
+ */
+public enum RmError {
+
+    
+    
+    case Unreachable(message: String
+    )
+    case Authentication(message: String
+    )
+    case HostKeyChanged(message: String
+    )
+    case Transport(message: String
+    )
+    case NotARemarkable(message: String
+    )
+    case DocumentNotFound(message: String
+    )
+    case Io(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRmError: FfiConverterRustBuffer {
+    typealias SwiftType = RmError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RmError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Unreachable(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Authentication(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .HostKeyChanged(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 4: return .Transport(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 5: return .NotARemarkable(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 6: return .DocumentNotFound(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 7: return .Io(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RmError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Unreachable(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Authentication(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .HostKeyChanged(message):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Transport(message):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .NotARemarkable(message):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .DocumentNotFound(message):
+            writeInt(&buf, Int32(6))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Io(message):
+            writeInt(&buf, Int32(7))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension RmError: Equatable, Hashable {}
+
+extension RmError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
 public enum SearchIndexError {
 
     
@@ -24907,6 +25656,30 @@ fileprivate struct FfiConverterOptionTypeConflict: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeConflict.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeEmbeddingIndexStatus: FfiConverterRustBuffer {
+    typealias SwiftType = EmbeddingIndexStatus?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeEmbeddingIndexStatus.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeEmbeddingIndexStatus.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -26995,6 +27768,31 @@ fileprivate struct FfiConverterSequenceTypeRect: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeRmDocument: FfiConverterRustBuffer {
+    typealias SwiftType = [RmDocument]
+
+    public static func write(_ value: [RmDocument], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRmDocument.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RmDocument] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RmDocument]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRmDocument.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSciXLibraryRow: FfiConverterRustBuffer {
     typealias SwiftType = [SciXLibraryRow]
 
@@ -27237,6 +28035,31 @@ fileprivate struct FfiConverterSequenceTypeSourcePriorityRow: FfiConverterRustBu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSourcePriorityRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSourceTypeCount: FfiConverterRustBuffer {
+    typealias SwiftType = [SourceTypeCount]
+
+    public static func write(_ value: [SourceTypeCount], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSourceTypeCount.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SourceTypeCount] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SourceTypeCount]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSourceTypeCount.read(from: &buf))
         }
         return seq
     }
@@ -28392,6 +29215,17 @@ public func embeddingStoreGetVectors(handle: UInt64, sourceId: String) -> [Store
     uniffi_imbib_core_fn_func_embedding_store_get_vectors(
         FfiConverterUInt64.lower(handle),
         FfiConverterString.lower(sourceId),$0
+    )
+})
+}
+/**
+ * Every tier of the index in one call — what a settings pane should show
+ * instead of guessing from a single count.
+ */
+public func embeddingStoreIndexStatus(handle: UInt64) -> EmbeddingIndexStatus? {
+    return try!  FfiConverterOptionTypeEmbeddingIndexStatus.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_embedding_store_index_status(
+        FfiConverterUInt64.lower(handle),$0
     )
 })
 }
@@ -29662,6 +30496,98 @@ public func reanchorComment(body: String, anchorStart: UInt64, anchorEnd: UInt64
 })
 }
 /**
+ * Pull one document's source file and stroke files into `destination`.
+ */
+public func remarkableDownloadDocument(credentials: RmCredentials, id: String, destination: String)throws  -> RmDownload {
+    return try  FfiConverterTypeRmDownload.lift(try rustCallWithError(FfiConverterTypeRmError.lift) {
+    uniffi_imbib_core_fn_func_remarkable_download_document(
+        FfiConverterTypeRmCredentials.lower(credentials),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(destination),$0
+    )
+})
+}
+/**
+ * Every document on the tablet, newest first, deleted ones excluded.
+ */
+public func remarkableListDocuments(credentials: RmCredentials)throws  -> [RmDocument] {
+    return try  FfiConverterSequenceTypeRmDocument.lift(try rustCallWithError(FfiConverterTypeRmError.lift) {
+    uniffi_imbib_core_fn_func_remarkable_list_documents(
+        FfiConverterTypeRmCredentials.lower(credentials),$0
+    )
+})
+}
+/**
+ * Reach the tablet and report its host key, firmware and document count.
+ */
+public func remarkableProbe(credentials: RmCredentials)throws  -> RmDeviceInfo {
+    return try  FfiConverterTypeRmDeviceInfo.lift(try rustCallWithError(FfiConverterTypeRmError.lift) {
+    uniffi_imbib_core_fn_func_remarkable_probe(
+        FfiConverterTypeRmCredentials.lower(credentials),$0
+    )
+})
+}
+/**
+ * Restart the tablet's UI so it notices files written underneath it.
+ */
+public func remarkableRestartUi(credentials: RmCredentials)throws  {try rustCallWithError(FfiConverterTypeRmError.lift) {
+    uniffi_imbib_core_fn_func_remarkable_restart_ui(
+        FfiConverterTypeRmCredentials.lower(credentials),$0
+    )
+}
+}
+/**
+ * Where the tablet answers over USB.
+ */
+public func remarkableUsbDefaultUrl() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imbib_core_fn_func_remarkable_usb_default_url($0
+    )
+})
+}
+/**
+ * Download one document as a PDF with its annotations rendered in.
+ */
+public func remarkableUsbDownloadDocument(baseUrl: String, id: String, destination: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeRmError.lift) {
+    uniffi_imbib_core_fn_func_remarkable_usb_download_document(
+        FfiConverterString.lower(baseUrl),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(destination),$0
+    )
+})
+}
+/**
+ * Everything on the tablet, newest first.
+ */
+public func remarkableUsbListDocuments(baseUrl: String)throws  -> [RmDocument] {
+    return try  FfiConverterSequenceTypeRmDocument.lift(try rustCallWithError(FfiConverterTypeRmError.lift) {
+    uniffi_imbib_core_fn_func_remarkable_usb_list_documents(
+        FfiConverterString.lower(baseUrl),$0
+    )
+})
+}
+/**
+ * How many entries the tablet is serving; also the reachability check.
+ */
+public func remarkableUsbProbe(baseUrl: String)throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeRmError.lift) {
+    uniffi_imbib_core_fn_func_remarkable_usb_probe(
+        FfiConverterString.lower(baseUrl),$0
+    )
+})
+}
+/**
+ * Send a document to the tablet.
+ */
+public func remarkableUsbUploadDocument(baseUrl: String, file: String)throws  {try rustCallWithError(FfiConverterTypeRmError.lift) {
+    uniffi_imbib_core_fn_func_remarkable_usb_upload_document(
+        FfiConverterString.lower(baseUrl),
+        FfiConverterString.lower(file),$0
+    )
+}
+}
+/**
  * Replace LaTeX Greek letter commands with Unicode characters
  */
 public func replaceGreekLetters(text: String) -> String {
@@ -30355,6 +31281,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_embedding_store_get_vectors() != 51051) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_embedding_store_index_status() != 28371) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_embedding_store_load_all_vectors() != 2465) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -30736,6 +31665,33 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_func_reanchor_comment() != 50524) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_func_remarkable_download_document() != 54799) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_remarkable_list_documents() != 23970) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_remarkable_probe() != 32164) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_remarkable_restart_ui() != 5576) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_remarkable_usb_default_url() != 17718) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_remarkable_usb_download_document() != 20760) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_remarkable_usb_list_documents() != 5581) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_remarkable_usb_probe() != 49473) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_func_remarkable_usb_upload_document() != 50706) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_func_replace_greek_letters() != 55256) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -30920,6 +31876,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_publications() != 30615) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_count_publications_with_local_pdf() != 60904) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_count_scix_library_publications() != 36137) {
