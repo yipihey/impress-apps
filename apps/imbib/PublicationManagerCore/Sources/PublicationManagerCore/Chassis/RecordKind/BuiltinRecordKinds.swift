@@ -419,6 +419,14 @@ public enum TaskRecordKind {
         // list row's header and the detail pane's State row all read one
         // declaration. Order is canonical pipeline order and IS the sidebar
         // order.
+        //
+        // TWO VOCABULARIES, ONE READER CONTRACT: these keys are the GRDB-
+        // mirror spellings; the kernel writes `pending`/`done`
+        // (impress-core `TaskState.as_str`). `AgentStoreReader
+        // .stateSpellings` aliases queued↔pending and completed↔done on
+        // every state-filtered read, so kernel rows count under "Queued"/
+        // "Completed" — declaring only one spelling here previously made
+        // every kernel task invisible to its state child.
         lifecycle: RecordLifecycleSpec(
             payloadField: "state",
             states: [

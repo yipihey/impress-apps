@@ -61,7 +61,13 @@ impl Error {
             | Self::Web(_)
             | Self::Unreachable { .. }
             | Self::RateLimited { .. } => true,
-            Self::Provider { status, .. } => status.is_none_or(|status| status >= 500),
+            // 408 (request timeout) and 429 (rate limit) are environmental
+            // even when a path hands them over as a bare Provider status
+            // instead of the dedicated RateLimited/Unreachable variants —
+            // retrying is exactly what those statuses ask for.
+            Self::Provider { status, .. } => {
+                status.is_none_or(|status| status >= 500 || status == 408 || status == 429)
+            }
             _ => false,
         }
     }

@@ -112,6 +112,7 @@ fn pipeline_scheduler(store: Arc<SqliteItemStore>, threshold: f64) -> Scheduler 
             batch: 8,
             start_delay: Duration::ZERO,
             poll_interval: Duration::ZERO,
+            retry_base_ms: 0, // tight-loop tests: no retry delay
         },
     );
     sched.register(Arc::new(MetadataResolveExecutor::new(
@@ -164,16 +165,27 @@ async fn pipeline_enriches_and_autotags_when_confident() {
     assert_eq!(state_of(&store, task_ids[0]), TaskState::Done);
     assert_eq!(state_of(&store, task_ids[1]), TaskState::Pending);
 
-    // The publication was enriched — only changed fields written.
+    // The publication was enriched FILL-ONLY: empty fields (abstract,
+    // venue) take the source's values, but the record's own non-empty
+    // title is PRESERVED — the record outranks the sources. The previous
+    // behavior (source title replacing "old title") silently reverted
+    // user corrections on every resolve, and this test enshrined it.
     let publication = TaskStoreApi::get_item(store.as_ref(), entry_id)
         .unwrap()
         .unwrap();
     assert!(matches!(publication.payload.get("abstract_text"),
                      Some(Value::String(a)) if a.contains("hydrodynamic")));
     assert!(matches!(publication.payload.get("title"),
-                     Some(Value::String(t)) if t.contains("galaxy formation")));
+                     Some(Value::String(t)) if t == "old title"));
     assert!(matches!(publication.payload.get("venue"),
                      Some(Value::String(v)) if v == "ApJ"));
+    // Authors land where imbib reads them (author_text/authors_json), not
+    // under the reader-less bare `authors` key.
+    assert!(matches!(publication.payload.get("author_text"),
+                     Some(Value::String(a)) if a.contains("Abel, T.")));
+    assert!(matches!(publication.payload.get("authors_json"),
+                     Some(Value::String(j)) if j.contains("\"family_name\":\"Abel\"")));
+    assert!(!publication.payload.contains_key("authors"));
 
     // Pass 2: keyword-tag unblocked, classifies confidently, tags apply.
     let r2 = sched.run_once().await.unwrap();
@@ -217,8 +229,12 @@ async fn low_confidence_suspends_until_human_approves() {
         .unwrap();
     let task_ids = create_task_dag(store.as_ref(), &specs, "impel").unwrap();
 
-    // Impossible threshold: every proposal is "low confidence".
-    let sched = pipeline_scheduler(store.clone(), 1.1);
+    // Threshold 0.9 (review floor 0.63): the heuristic's 2-of-3-keyword
+    // hits (0.67) land in the borderline band → a review opens. Anything
+    // below the floor is DROPPED, not reviewed — with the old all-or-
+    // nothing gate an impossible threshold reviewed every paper, which is
+    // how 1,018 reviews piled up unanswered in production.
+    let sched = pipeline_scheduler(store.clone(), 0.9);
 
     // Pass 1 completes metadata-resolve; pass 2 suspends keyword-tag.
     sched.run_once().await.unwrap();
@@ -364,4 +380,176 @@ async fn spawn_rule_yields_the_dag_for_a_real_imbib_row() {
         .unwrap();
     assert_eq!(specs.len(), 2, "metadata-resolve ← keyword-tag");
     assert!(specs.iter().all(|s| s.operates_on == Some(id)));
+}
+
+// ── the 2026-09 per-proposal review policy ─────────────────────────────
+
+/// Fixed-confidence classifier: one proposal per (tag, confidence) pair.
+struct FixedClassifier(Vec<(&'static str, f64)>);
+
+#[async_trait]
+impl impel_enrichment::Classifier for FixedClassifier {
+    fn model_id(&self) -> &str {
+        "fixed-test"
+    }
+    async fn classify(
+        &self,
+        _title: &str,
+        _abstract_text: &str,
+    ) -> Vec<impel_enrichment::classify::Classification> {
+        self.0
+            .iter()
+            .map(
+                |(tag, confidence)| impel_enrichment::classify::Classification {
+                    tag: (*tag).into(),
+                    confidence: *confidence,
+                },
+            )
+            .collect()
+    }
+}
+
+fn band_scheduler(store: Arc<SqliteItemStore>, threshold: f64) -> Scheduler {
+    let mut sched = Scheduler::new(
+        store,
+        SchedulerConfig {
+            actor: "impel".into(),
+            batch: 8,
+            start_delay: Duration::ZERO,
+            poll_interval: Duration::ZERO,
+            retry_base_ms: 0,
+        },
+    );
+    sched.register(Arc::new(MetadataResolveExecutor::new(
+        vec![ConfiguredSource {
+            plugin: Arc::new(FakeAds),
+            credentials: None,
+        }],
+        SourcePriority::default(),
+    )));
+    sched.register(Arc::new(KeywordTagExecutor::new(
+        Arc::new(FixedClassifier(vec![
+            ("ai/topic/confident", 0.9),
+            ("ai/topic/borderline", 0.45),
+            ("ai/topic/weak", 0.2),
+        ])),
+        threshold,
+    )));
+    sched
+}
+
+/// Per-proposal policy: ≥ threshold applies immediately, the borderline
+/// band (≥ 0.7·threshold) goes to review ALONE, below the floor is
+/// dropped. The old all() gate held the 0.9 tag hostage to the 0.2 one
+/// and reviewed the whole set — one review per paper, library-wide.
+#[tokio::test]
+async fn confident_tags_apply_while_only_the_band_is_reviewed() {
+    let s = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let entry = bibliography_entry("10.1000/xyz", "old title");
+    let entry_id = TaskStoreApi::create_item(s.as_ref(), entry).unwrap();
+    let trigger = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    let specs = EnrichmentSpawnRule
+        .spawn(&trigger, s.as_ref())
+        .await
+        .unwrap();
+    let task_ids = create_task_dag(s.as_ref(), &specs, "impel").unwrap();
+
+    let sched = band_scheduler(s.clone(), 0.5); // floor = 0.35
+    sched.run_once().await.unwrap(); // metadata-resolve
+    let r2 = sched.run_once().await.unwrap(); // keyword-tag
+    assert_eq!(r2.suspended, 1, "{r2:?}");
+
+    // The confident tag applied IMMEDIATELY, before any human decision.
+    let publication = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    assert!(publication.tags.iter().any(|t| t == "ai/topic/confident"));
+    assert!(!publication.tags.iter().any(|t| t == "ai/topic/borderline"));
+    assert!(!publication.tags.iter().any(|t| t == "ai/topic/weak"));
+
+    // The review lists ONLY the band (with its confidence), never the
+    // applied or dropped proposals as pending decisions.
+    let (unresolved, _) = TaskStoreApi::reviews_for(s.as_ref(), task_ids[1]).unwrap();
+    assert_eq!(unresolved.len(), 1);
+    match unresolved[0].payload.get("context_proposed_tags") {
+        Some(Value::Array(tags)) => {
+            assert_eq!(tags.len(), 1, "band only: {tags:?}");
+            assert!(matches!(&tags[0], Value::String(t) if t == "ai/topic/borderline"));
+        }
+        other => panic!("no proposals: {other:?}"),
+    }
+    match unresolved[0].payload.get("context_applied_tags") {
+        Some(Value::Array(tags)) => assert_eq!(tags.len(), 1),
+        other => panic!("applied tags not recorded for the reviewer: {other:?}"),
+    }
+
+    // Approving applies the band tag on resume.
+    s.apply_operation(OperationSpec {
+        target_id: unresolved[0].id,
+        op_type: OperationType::SetPayload("resolution".into(), Value::String("approved".into())),
+        intent: OperationIntent::Editorial,
+        reason: None,
+        batch_id: None,
+        author: "tom".into(),
+        author_kind: ActorKind::Human,
+        retention: RetentionTier::Durable,
+    })
+    .unwrap();
+    let r4 = sched.run_once().await.unwrap();
+    assert_eq!(r4.resumed, 1, "{r4:?}");
+    let publication = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    assert!(publication.tags.iter().any(|t| t == "ai/topic/borderline"));
+}
+
+/// An `"expired"` resolution (impel-taskd's hourly sweep over unanswered
+/// reviews) completes the task WITHOUT applying the band — the queue is
+/// capacity-bounded, and silence is a decision.
+#[tokio::test]
+async fn expired_resolution_completes_without_applying_the_band() {
+    let s = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let entry = bibliography_entry("10.1000/xyz", "old title");
+    let entry_id = TaskStoreApi::create_item(s.as_ref(), entry).unwrap();
+    let trigger = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    let specs = EnrichmentSpawnRule
+        .spawn(&trigger, s.as_ref())
+        .await
+        .unwrap();
+    let task_ids = create_task_dag(s.as_ref(), &specs, "impel").unwrap();
+
+    let sched = band_scheduler(s.clone(), 0.5);
+    sched.run_once().await.unwrap();
+    let r2 = sched.run_once().await.unwrap();
+    assert_eq!(r2.suspended, 1, "{r2:?}");
+
+    let (unresolved, _) = TaskStoreApi::reviews_for(s.as_ref(), task_ids[1]).unwrap();
+    s.apply_operation(OperationSpec {
+        target_id: unresolved[0].id,
+        op_type: OperationType::SetPayload("resolution".into(), Value::String("expired".into())),
+        intent: OperationIntent::Routine,
+        reason: Some("review expired unanswered".into()),
+        batch_id: None,
+        author: "impel-taskd/expiry".into(),
+        author_kind: ActorKind::Agent,
+        retention: RetentionTier::Durable,
+    })
+    .unwrap();
+
+    let r3 = sched.run_once().await.unwrap();
+    assert_eq!(r3.resumed, 1, "{r3:?}");
+    assert_eq!(state_of(&s, task_ids[1]), TaskState::Done);
+    let publication = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    assert!(publication.tags.iter().any(|t| t == "ai/topic/confident"));
+    assert!(
+        !publication.tags.iter().any(|t| t == "ai/topic/borderline"),
+        "expired ⇒ band NOT applied: {:?}",
+        publication.tags
+    );
 }

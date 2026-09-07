@@ -1788,6 +1788,7 @@ async fn the_scheduler_drives_both_kinds_to_done() {
             batch: 8,
             start_delay: std::time::Duration::ZERO,
             poll_interval: std::time::Duration::ZERO,
+            retry_base_ms: 0, // tight-loop tests: no retry delay
         },
     );
     scheduler.register(Arc::new(

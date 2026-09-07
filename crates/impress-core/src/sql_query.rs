@@ -268,6 +268,12 @@ fn sort_field_to_column(field: &str) -> String {
         "is_read" => "is_read".to_string(),
         "is_starred" => "is_starred".to_string(),
         "flag_color" => "flag_color".to_string(),
+        // Envelope columns usable as keyset-cursor tie-breakers. Without
+        // these a sort on "id"/"logical_clock" silently compiled to
+        // json_extract(payload, '$.id') — always NULL — i.e. no ordering
+        // at all, which is how the limit-N-no-ORDER-BY scan wedges shipped.
+        "id" => "id".to_string(),
+        "logical_clock" => "logical_clock".to_string(),
         f if f.starts_with("payload.") => {
             let json_path = format!("$.{}", &f["payload.".len()..]);
             sanitized_json_extract(&json_path)

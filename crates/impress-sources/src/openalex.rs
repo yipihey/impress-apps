@@ -35,6 +35,8 @@ impl OpenAlexSource {
             base_url: base_url.into(),
             client: reqwest::Client::builder()
                 .user_agent("impress-sources/0.1 (openalex-client)")
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(20))
                 .build()
                 .expect("reqwest client"),
         }

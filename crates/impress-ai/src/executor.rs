@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -55,6 +55,33 @@ impl Inference {
                 let client = registry.provider(&resolved.provider)?;
                 Ok((client, resolved.provider, resolved.endpoint_id))
             }
+        }
+    }
+
+    /// Reachability preflight for the scheduler's per-kind readiness gate:
+    /// probe the client this executor would use for a DEFAULT task —
+    /// the fixed provider, or the registry's device-default resolution.
+    /// `models()` is the cheapest authenticated round-trip the provider
+    /// trait offers. Per-conversation pins to OTHER providers share the
+    /// verdict (a coarse gate beats acquiring provably-doomed work; the
+    /// old behavior burned the whole retry budget per task in ~15s).
+    async fn readiness_probe(&self) -> std::result::Result<(), String> {
+        let (client, label) = match self {
+            Self::Fixed(provider) => (provider.clone(), provider.endpoint_id().to_string()),
+            Self::Registry(registry) => {
+                let resolved = registry
+                    .resolve(&ResolveTarget::default())
+                    .map_err(|error| format!("registry resolution failed: {error}"))?;
+                let client = registry
+                    .provider(&resolved.provider)
+                    .map_err(|error| format!("{}: {error}", resolved.provider))?;
+                (client, resolved.endpoint_id)
+            }
+        };
+        match tokio::time::timeout(Duration::from_secs(3), client.models()).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(format!("provider {label} unreachable: {error}")),
+            Err(_) => Err(format!("provider {label} probe timed out")),
         }
     }
 }
@@ -182,9 +209,15 @@ impl TaskExecutor for AiTaskExecutor {
         if self.ai.has_completed_run(task.id).map_err(permanent)? {
             return Ok(ExecutionOutcome::Complete);
         }
+        // LIVE catalog: with an adapter installed, re-derive per task so an
+        // app that launched (or quit) after daemon start changes what the
+        // model is shown. The construction-time snapshot froze the tool
+        // surface for the daemon's whole life.
+        let live_catalog = self.tool_adapter.as_ref().map(|adapter| adapter.catalog());
+        let catalog = live_catalog.as_ref().unwrap_or(&self.tool_catalog);
         let mut prepared = self
             .ai
-            .prepare_request(task.id, self.blobs.as_ref(), &self.tool_catalog)
+            .prepare_request(task.id, self.blobs.as_ref(), catalog)
             .map_err(permanent)?;
         let (client, provider_id, endpoint_id) = self
             .inference
@@ -441,8 +474,18 @@ impl TaskExecutor for AiTaskExecutor {
         Ok(ExecutionOutcome::Complete)
     }
 
+    /// Reachability preflight: the scheduler defers this whole kind while
+    /// the provider is down instead of acquiring tasks that can only burn
+    /// their retry budget against a connection refusal. `models()` is the
+    /// cheapest authenticated round-trip the provider trait offers.
+    async fn readiness(&self) -> std::result::Result<(), String> {
+        self.inference.readiness_probe().await
+    }
+
+    // With backoff (45s·3^n) this covers ~30 minutes of provider outage
+    // before escalating, instead of the old ~15 seconds.
     fn max_retries(&self) -> u32 {
-        2
+        4
     }
 }
 
@@ -513,8 +556,12 @@ impl TaskExecutor for AiTitleTaskExecutor {
         Ok(ExecutionOutcome::Complete)
     }
 
+    async fn readiness(&self) -> std::result::Result<(), String> {
+        self.inference.readiness_probe().await
+    }
+
     fn max_retries(&self) -> u32 {
-        2
+        4
     }
 }
 
@@ -786,7 +833,9 @@ mod tests {
             blobs,
         );
         assert_eq!(executor.task_kind(), INFERENCE_TASK_KIND);
-        assert_eq!(executor.max_retries(), 2);
+        // 4 retries × the scheduler's exponential backoff ≈ 30 minutes of
+        // provider-outage coverage before escalation (was 2 ≈ 15 seconds).
+        assert_eq!(executor.max_retries(), 4);
     }
 
     #[test]
