@@ -47,9 +47,10 @@ lazy_static! {
     static ref FIRST_ARXIV_OLD_REGEX: Regex =
         Regex::new(r"(?i)(?:arXiv:)?([a-z-]+/\d{7}(?:v\d+)?)").unwrap();
 
-    // Bibcodes are exactly 19 characters: YYYYJJJJJVVVVMPPPPA.
+    // Bibcodes are exactly 19 characters: YYYYJJJJJVVVVMPPPPA. Built from the
+    // canonical `BIBCODE_PATTERN` so this cannot drift from the validator.
     static ref FIRST_BIBCODE_REGEX: Regex =
-        Regex::new(r"\b((?:19|20)\d{2}[A-Za-z&.]{5}[.\d]{4}[A-Za-z.][.\d]{4}[A-Za-z.])\b").unwrap();
+        Regex::new(&format!(r"\b({})\b", crate::validators::BIBCODE_PATTERN)).unwrap();
 
     static ref FIRST_PMID_REGEX: Regex =
         Regex::new(r"(?i)(?:PMID|PubMed(?:\s*ID)?)[:\s]+(\d{6,9})").unwrap();

@@ -541,7 +541,10 @@
     "entities" : "1998A&A...333L..47M",
     "html" : "1998A&A...333L..47M",
     "identifiers" : [
-
+      {
+        "kind" : "bibcode",
+        "value" : "1998A&A...333L..47M"
+      }
     ],
     "title" : null
   },

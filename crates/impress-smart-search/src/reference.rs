@@ -10,6 +10,7 @@
 //!   identifiers the model invented, because a hallucinated DOI resolves to
 //!   the *wrong paper* silently, which is worse than no result.
 
+use im_identifiers::is_bibcode;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Deserialize;
@@ -28,8 +29,6 @@ lazy_static! {
     static ref RE_DOI: Regex = Regex::new(r"\A10\.\d{4,9}/\S+\z").unwrap();
     static ref RE_ARXIV: Regex =
         Regex::new(r"\A(\d{4}\.\d{4,5}(v\d+)?|[a-z\-]+(\.[A-Z]{2})?/\d{7}(v\d+)?)\z").unwrap();
-    static ref RE_BIBCODE: Regex =
-        Regex::new(r"\A\d{4}[A-Za-z&.][A-Za-z&.]{1,7}[.\d][.\d]+[A-Z]\z").unwrap();
 }
 
 /// Turn a raw model parse into a `CitationInput`, dropping anything that
@@ -46,7 +45,7 @@ pub fn validate(p: &ParsedReference, raw: &str) -> CitationInput {
     } else {
         None
     };
-    let bibcode = if p.bibcode.chars().count() == 19 && RE_BIBCODE.is_match(&p.bibcode) {
+    let bibcode = if is_bibcode(&p.bibcode) {
         Some(p.bibcode.clone())
     } else {
         None

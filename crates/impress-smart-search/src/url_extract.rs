@@ -27,8 +27,9 @@ lazy_static! {
     static ref RE_ARXIV_BARE: Regex = Regex::new(r"\b(\d{4}\.\d{4,5})\b").unwrap();
     static ref RE_ARXIV_OLD: Regex =
         Regex::new(r"\b([a-z\-]{2,12}(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?\b").unwrap();
+    // Word-bounded form of the canonical bibcode shape, for scraping HTML.
     static ref RE_BIBCODE: Regex =
-        Regex::new(r"\b(\d{4}[A-Za-z&.][A-Za-z&.]{1,7}[.\d][.\d]+[A-Z])\b").unwrap();
+        Regex::new(&format!(r"\b({})\b", im_identifiers::BIBCODE_PATTERN)).unwrap();
     static ref RE_PMID_LABEL: Regex = Regex::new(r"(?i)\bpmid[:\s]+(\d{5,9})\b").unwrap();
     static ref RE_PUBMED_URL: Regex =
         Regex::new(r"pubmed\.ncbi\.nlm\.nih\.gov/(\d{5,9})").unwrap();

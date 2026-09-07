@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The canonical bibcode / identifier shapes live here — never restate them.
+im-identifiers = { workspace = true }
 regex = { workspace = true }
 lazy_static = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
