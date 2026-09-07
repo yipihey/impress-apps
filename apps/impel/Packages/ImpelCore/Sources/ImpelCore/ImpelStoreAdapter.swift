@@ -96,14 +96,19 @@ public final class ImpelStoreAdapter: @unchecked Sendable {
 
     // MARK: - Mapping
 
-    /// Kernel task lifecycle → GUI thread state
-    /// (queued | running | waiting_review | completed | failed | cancelled).
+    /// Task lifecycle → GUI thread state, accepting BOTH vocabularies:
+    /// the GRDB-mirror spellings (queued | waiting_review | completed) AND
+    /// the kernel's canonical ones (pending | done — impress-core
+    /// `TaskState.as_str`). `fetchThreads` reads all `task@1.0.0` rows,
+    /// which since WP C4 includes every task impel-taskd writes; mapping
+    /// only the mirror vocabulary rendered every daemon-completed task
+    /// ("done") as a perpetually queued embryo.
     static func threadState(fromTaskState raw: String) -> ThreadState {
         switch raw {
-        case "queued": return .embryo
+        case "queued", "pending": return .embryo
         case "running": return .active
         case "waiting_review": return .review
-        case "completed": return .complete
+        case "completed", "done": return .complete
         case "failed": return .blocked
         case "cancelled": return .killed
         default: return .embryo

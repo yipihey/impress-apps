@@ -209,6 +209,12 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         self.imbibStore = s
         self.kernelStore = Self.openKernelStore(at: dbPath)
         Logger.library.infoCapture("RustStoreAdapter initialized at \(dbPath)", category: "rust-store")
+        // Cross-process receive half: daemon writes (impel-taskd's tasks
+        // and review-requests) reach dataVersion/sidebar only through this
+        // observer — before it, they surfaced only on the next unrelated
+        // local mutation or relaunch. Production singleton only, never the
+        // scratch/in-memory test inits.
+        StoreMutationObserver.shared.start()
     }
 
     /// Open an explicit scratch database file (UI testing).
@@ -3760,11 +3766,34 @@ extension RustStoreAdapter {
     /// Schema string for agent review requests in the shared store.
     public static let reviewRequestSchema = "review-request@1.0.0"
 
+    /// Walk EVERY review-request row, paged. The query pages created-DESC
+    /// over resolved and unresolved alike, so a single newest-N page is
+    /// wrong twice over: with more than N rows total, older UNRESOLVED
+    /// reviews fall outside the window forever (they were unlistable,
+    /// uncountable, and therefore unapprovable — 1,018 tasks sat suspended
+    /// behind exactly this), and once the visible page is fully resolved
+    /// the count reads 0 and the section hides while work remains.
+    private func allReviewRows() throws -> [SharedItemRow] {
+        guard let shared = sharedReviewStore() else { return [] }
+        var rows: [SharedItemRow] = []
+        let pageSize: UInt32 = 500
+        var offset: UInt32 = 0
+        // Hard cap of 40 pages (20k rows) as a runaway guard; review
+        // expiry in impel-taskd keeps the real population far below this.
+        while offset < 20_000 {
+            let page = try shared.queryBySchema(
+                schemaRef: Self.reviewRequestSchema, limit: pageSize, offset: offset)
+            rows.append(contentsOf: page)
+            if page.count < Int(pageSize) { break }
+            offset += pageSize
+        }
+        return rows
+    }
+
     /// List unresolved review requests, newest first.
     public func listPendingReviews() -> [PendingReview] {
-        guard let shared = sharedReviewStore() else { return [] }
         do {
-            let rows = try shared.queryBySchema(schemaRef: Self.reviewRequestSchema, limit: 500, offset: 0)
+            let rows = try allReviewRows()
             let pending = rows.compactMap { PendingReview(row: $0) }.filter { !$0.isResolved }
             Logger.library.infoCapture(
                 "Display: \(pending.count) pending reviews (of \(rows.count) review items)",
@@ -3781,13 +3810,13 @@ extension RustStoreAdapter {
     ///
     /// Fast path: `count_by_schema` == 0 means nothing to parse. When review
     /// items exist, resolved ones must be excluded, which requires payload
-    /// parsing — bounded by the same limit as `listPendingReviews`.
+    /// parsing — over the FULL population, not a newest-N page.
     public func countPendingReviews() -> Int {
         guard let shared = sharedReviewStore() else { return 0 }
         do {
             let total = try shared.countBySchema(schemaRef: Self.reviewRequestSchema)
             guard total > 0 else { return 0 }
-            let rows = try shared.queryBySchema(schemaRef: Self.reviewRequestSchema, limit: 500, offset: 0)
+            let rows = try allReviewRows()
             return rows.compactMap { PendingReview(row: $0) }.filter { !$0.isResolved }.count
         } catch {
             return 0

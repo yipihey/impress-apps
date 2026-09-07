@@ -331,10 +331,25 @@ enum ThroughlineCoordinator {
     /// Read-only; resolution is the only write, and application happens in
     /// the task executor when the suspended task resumes — the UI never
     /// applies edits directly (one apply path, ADR-0016 D6).
+    ///
+    /// Pages through the WHOLE review-request population: the query orders
+    /// created-DESC over every review kind and resolution state, so a
+    /// single newest-N page let unrelated tag reviews crowd this
+    /// document's proposals out of the window entirely (the imbib review
+    /// queue had the same filter-after-page bug at limit 500).
     static func pendingProposals(documentID: UUID) -> [SyncProposal] {
         let docID = documentID.uuidString.lowercased()
-        let rows = (try? ManuscriptStoreAdapter.shared.sharedStore.queryBySchema(
-            schemaRef: "review-request@1.0.0", limit: 200, offset: 0)) ?? []
+        let pageSize: UInt32 = 500
+        var offset: UInt32 = 0
+        var rows = (try? ManuscriptStoreAdapter.shared.sharedStore.queryBySchema(
+            schemaRef: "review-request@1.0.0", limit: pageSize, offset: 0)) ?? []
+        while rows.count == Int(offset + pageSize), offset < 20_000 {
+            offset += pageSize
+            let page = (try? ManuscriptStoreAdapter.shared.sharedStore.queryBySchema(
+                schemaRef: "review-request@1.0.0", limit: pageSize, offset: offset)) ?? []
+            if page.isEmpty { break }
+            rows.append(contentsOf: page)
+        }
         var out: [SyncProposal] = []
         for row in rows {
             guard let data = row.payloadJson.data(using: .utf8),

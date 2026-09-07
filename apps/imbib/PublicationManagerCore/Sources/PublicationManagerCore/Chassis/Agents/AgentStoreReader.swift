@@ -109,23 +109,50 @@ public final class AgentStoreReader {
 
     // MARK: - Reads
 
+    /// Two writer populations share `task@1.0.0` with two state
+    /// vocabularies: impel's GRDB mirror writes `queued`/`completed`, the
+    /// kernel (impel-taskd) writes `pending`/`done` (`TaskState.as_str`,
+    /// bridged by `parse_compat` on the Rust side). An exact `payloadEq`
+    /// on ONE spelling silently missed the other population — the sidebar's
+    /// "Completed" child matched zero kernel tasks while 1,018 suspended
+    /// tasks were invisible under any state. Every state-filtered read
+    /// queries BOTH spellings.
+    private static func stateSpellings(_ state: String) -> [String] {
+        switch state {
+        case "queued", "pending": return ["queued", "pending"]
+        case "completed", "done": return ["completed", "done"]
+        default: return [state]
+        }
+    }
+
     /// Task rows, optionally filtered by payload `state`, newest-modified
     /// first (the kernel bumps `modified` on every transition).
     public func fetchTasks(state: String? = nil, limit: UInt32 = 5000) -> [SharedItemRow] {
         guard let store else { return [] }
-        let eq: [SharedFieldEq] = state.map {
-            [SharedFieldEq(
+        guard let state else {
+            return (try? store.queryItems(query: SharedItemQuery(
+                schemaRef: Self.taskSchema, parentId: nil, payloadEq: [],
+                modifiedAfterMs: nil, sortField: "modified",
+                ascending: false, limit: limit, offset: 0))) ?? []
+        }
+        var merged: [SharedItemRow] = []
+        for spelling in Self.stateSpellings(state) {
+            let eq = [SharedFieldEq(
                 // The FIELD NAME from the decoder's own key. `TaskRecordKind
                 // .descriptor.lifecycle.payloadField` declares the same string;
                 // a `payloadEq` that disagrees with either matches nothing,
                 // silently, forever.
                 field: AgentTaskPayload.CodingKeys.state.rawValue,
-                valueJson: Self.jsonString($0))]
-        } ?? []
-        return (try? store.queryItems(query: SharedItemQuery(
-            schemaRef: Self.taskSchema, parentId: nil, payloadEq: eq,
-            modifiedAfterMs: nil, sortField: "modified",
-            ascending: false, limit: limit, offset: 0))) ?? []
+                valueJson: Self.jsonString(spelling))]
+            let rows = (try? store.queryItems(query: SharedItemQuery(
+                schemaRef: Self.taskSchema, parentId: nil, payloadEq: eq,
+                modifiedAfterMs: nil, sortField: "modified",
+                ascending: false, limit: limit, offset: 0))) ?? []
+            merged.append(contentsOf: rows)
+        }
+        merged.sort { $0.modifiedMs > $1.modifiedMs }
+        if merged.count > Int(limit) { merged.removeLast(merged.count - Int(limit)) }
+        return merged
     }
 
     /// Agent-run rows, newest first by creation (runs are append-only).
@@ -186,23 +213,34 @@ public final class AgentStoreReader {
 
     // MARK: - Counts (sidebar badges)
 
-    /// Count of tasks, optionally per payload `state` (pushed to the store).
+    /// Count of tasks, optionally per payload `state` (pushed to the
+    /// store, summed over both vocabulary spellings — see
+    /// `stateSpellings`).
     public func taskCount(state: String? = nil) -> Int {
         guard let store else { return 0 }
-        let eq: [SharedFieldEq] = state.map {
-            [SharedFieldEq(
+        guard let state else {
+            let count = (try? store.countItems(query: SharedItemQuery(
+                schemaRef: Self.taskSchema, parentId: nil, payloadEq: [],
+                modifiedAfterMs: nil, sortField: "", ascending: false,
+                limit: 0, offset: 0))) ?? 0
+            return Int(count)
+        }
+        var total = 0
+        for spelling in Self.stateSpellings(state) {
+            let eq = [SharedFieldEq(
                 // The FIELD NAME from the decoder's own key. `TaskRecordKind
                 // .descriptor.lifecycle.payloadField` declares the same string;
                 // a `payloadEq` that disagrees with either matches nothing,
                 // silently, forever.
                 field: AgentTaskPayload.CodingKeys.state.rawValue,
-                valueJson: Self.jsonString($0))]
-        } ?? []
-        let count = (try? store.countItems(query: SharedItemQuery(
-            schemaRef: Self.taskSchema, parentId: nil, payloadEq: eq,
-            modifiedAfterMs: nil, sortField: "", ascending: false,
-            limit: 0, offset: 0))) ?? 0
-        return Int(count)
+                valueJson: Self.jsonString(spelling))]
+            let count = (try? store.countItems(query: SharedItemQuery(
+                schemaRef: Self.taskSchema, parentId: nil, payloadEq: eq,
+                modifiedAfterMs: nil, sortField: "", ascending: false,
+                limit: 0, offset: 0))) ?? 0
+            total += Int(count)
+        }
+        return total
     }
 
     /// Count of agent-run rows.
