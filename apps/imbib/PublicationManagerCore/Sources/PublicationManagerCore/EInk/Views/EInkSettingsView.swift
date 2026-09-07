@@ -584,6 +584,9 @@ struct DeviceConfigurationSheet: View {
     @State private var folderPath: String = ""
     @State private var email: String = ""
     @State private var isAuthenticating = false
+    @State private var isCheckingUSB = false
+    @State private var usbReachable: Bool?
+    @State private var usbStatus: String?
 
     init(deviceID: String) {
         self.deviceID = deviceID
@@ -602,14 +605,48 @@ struct DeviceConfigurationSheet: View {
                     }
                 }
 
-                if settings.syncMethod == .folderSync || settings.syncMethod == .usb {
-                    Section("Folder Location") {
+                // Folder sync mirrors a directory some other tool fills; the
+                // USB cable talks to the tablet itself and needs no folder.
+                if settings.syncMethod == .folderSync {
+                    Section {
                         TextField("Folder path", text: $folderPath)
                             .textFieldStyle(.roundedBorder)
 
                         Button("Choose Folder...") {
                             chooseFolder()
                         }
+                    } header: {
+                        Text("Folder Location")
+                    } footer: {
+                        Text("Point this at a directory another tool keeps in step with the tablet. To reach the tablet directly, use the USB Cable method instead.")
+                    }
+                }
+
+                if settings.syncMethod == .usb {
+                    Section {
+                        HStack {
+                            Image(systemName: usbReachable == true ? "checkmark.circle.fill" : "cable.connector")
+                                .foregroundStyle(usbReachable == true ? .green : .secondary)
+                            Text(usbStatus ?? "Not checked yet")
+                        }
+
+                        Button {
+                            checkUSBConnection()
+                        } label: {
+                            if isCheckingUSB {
+                                HStack {
+                                    ProgressView().controlSize(.small)
+                                    Text("Checking…")
+                                }
+                            } else {
+                                Text("Check Connection")
+                            }
+                        }
+                        .disabled(isCheckingUSB)
+                    } header: {
+                        Text("Connection")
+                    } footer: {
+                        Text("Connect the cable and turn on Settings › Storage › USB web interface on the tablet. imbib reads documents and their annotations straight from the device — no password, no folder, and nothing through reMarkable's servers.")
                     }
                 }
 
@@ -665,6 +702,25 @@ struct DeviceConfigurationSheet: View {
         .onAppear {
             folderPath = settings.localFolderPath ?? ""
             email = settings.sendToEmail ?? ""
+        }
+    }
+
+    /// Ask the tablet what it is serving, so "configured" means "answered".
+    private func checkUSBConnection() {
+        isCheckingUSB = true
+        usbStatus = nil
+        Task {
+            let backend = RemarkableUSBWebBackend()
+            do {
+                let documents = try await backend.listDocuments()
+                let folders = try await backend.listFolders()
+                usbReachable = true
+                usbStatus = "Connected — \(documents.count) documents, \(folders.count) folders"
+            } catch {
+                usbReachable = false
+                usbStatus = error.localizedDescription
+            }
+            isCheckingUSB = false
         }
     }
 
