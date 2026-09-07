@@ -928,6 +928,22 @@ impl AiStore {
                     .collect(),
             ),
         );
+        // Honesty about degradation: `enabled_tools` records what the
+        // POLICY asked for; this records what the model was actually shown
+        // after intersecting with the live catalog. A run that answered
+        // tool-less because its app was closed is now visibly degraded in
+        // provenance instead of affirmatively looking tool-enabled.
+        payload.insert(
+            "available_tools".into(),
+            Value::Array(
+                prepared
+                    .request
+                    .tools
+                    .iter()
+                    .map(|tool| Value::String(tool.name.clone()))
+                    .collect(),
+            ),
+        );
         payload.insert(
             "parameters".into(),
             Value::Object(BTreeMap::from([

@@ -75,6 +75,12 @@ pub fn task_schema() -> Schema {
             ),
             optional_string("assigned_to"),
             field("attempts", FieldType::Int, false),
+            described(
+                field("next_attempt_at", FieldType::Int, false),
+                "Retry backoff: ms-since-epoch before which `ready_tasks` will \
+                 not select this row (ADR-0005 §9 exponential backoff). Absent \
+                 or 0 = always eligible.",
+            ),
             field("due_at", FieldType::Int, false),
             optional_string("output_schema"),
             optional_string("error"),
@@ -292,6 +298,7 @@ mod tests {
             "output_schema",
             "assigned_to",
             "attempts",
+            "next_attempt_at",
             "error",
         ] {
             assert!(names.contains(&key), "kernel writes {key:?}");

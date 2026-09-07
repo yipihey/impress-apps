@@ -44,9 +44,29 @@ pub struct WorkerStatusSnapshot {
     pub last_error: Option<String>,
     pub acquired_total: u64,
     pub completed_total: u64,
+    /// GAUGE, not a counter: the CURRENT number of suspended
+    /// (running-with-unresolved-review) tasks as of the last pass. The
+    /// scheduler re-counts the standing population every pass, so summing
+    /// it inflated by the whole backlog every 5 seconds (~17M/day at a
+    /// 1,018-task backlog) — useless for the one question it exists to
+    /// answer. Field name kept for reader compatibility.
     pub suspended_total: u64,
     pub retried_total: u64,
     pub failed_total: u64,
+    /// Executions triggered by a resolved review (counter).
+    #[serde(default)]
+    pub resumed_total: u64,
+    /// Ready tasks deferred because their kind's readiness probe failed
+    /// (counter) — the visible trace of "not acquiring doomed work".
+    #[serde(default)]
+    pub deferred_total: u64,
+    /// Wedged running-without-assignee tasks adopted back to pending
+    /// (counter).
+    #[serde(default)]
+    pub adopted_total: u64,
+    /// Pending dependents cancelled after an upstream failure (counter).
+    #[serde(default)]
+    pub cancelled_total: u64,
 }
 
 impl WorkerStatusSnapshot {
@@ -73,6 +93,10 @@ impl WorkerStatusSnapshot {
             suspended_total: 0,
             retried_total: 0,
             failed_total: 0,
+            resumed_total: 0,
+            deferred_total: 0,
+            adopted_total: 0,
+            cancelled_total: 0,
         }
     }
 
@@ -108,6 +132,30 @@ pub fn write_worker_status(
     workspace: impl AsRef<Path>,
     status: &WorkerStatusSnapshot,
 ) -> io::Result<()> {
+    write_worker_status_inner(workspace, status, true)
+}
+
+/// Like [`write_worker_status`] but WITHOUT the `sync_all` device flush.
+///
+/// Heartbeats and idle-pass publishes happen every ~5 seconds forever; on
+/// macOS each `sync_all` is an `F_FULLFSYNC` full device-cache barrier
+/// (~34,560/day at idle, on the same volume as the store's WAL — the
+/// status file was out-fsyncing the database). A liveness file with a 20s
+/// staleness window tolerates losing its last write on power loss; the
+/// atomic tmp-then-rename still guarantees readers never see a torn file.
+/// Lifecycle STATE changes should keep using the durable variant.
+pub fn write_worker_status_fast(
+    workspace: impl AsRef<Path>,
+    status: &WorkerStatusSnapshot,
+) -> io::Result<()> {
+    write_worker_status_inner(workspace, status, false)
+}
+
+fn write_worker_status_inner(
+    workspace: impl AsRef<Path>,
+    status: &WorkerStatusSnapshot,
+    durable: bool,
+) -> io::Result<()> {
     let runtime = worker_runtime_directory(workspace);
     fs::create_dir_all(&runtime)?;
     let destination = runtime.join(STATUS_FILE);
@@ -117,7 +165,9 @@ pub fn write_worker_status(
     let write_result = (|| {
         let mut file = File::create(&temporary)?;
         file.write_all(&bytes)?;
-        file.sync_all()?;
+        if durable {
+            file.sync_all()?;
+        }
         fs::rename(&temporary, &destination)
     })();
     if write_result.is_err() {

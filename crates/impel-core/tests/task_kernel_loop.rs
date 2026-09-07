@@ -30,6 +30,9 @@ fn scheduler(store: Arc<SqliteItemStore>) -> Scheduler {
             batch: 16,
             start_delay: std::time::Duration::ZERO,
             poll_interval: std::time::Duration::ZERO,
+            // Tests drive run_once in a tight loop; a real backoff would
+            // make every retried task invisible to the next pass.
+            retry_base_ms: 0,
         },
     )
 }
@@ -431,4 +434,192 @@ async fn missing_executor_escalates_to_failed() {
     assert!(
         matches!(item.payload.get("error"), Some(Value::String(e)) if e.contains("no executor"))
     );
+}
+
+// ── the 2026-09 review fixes ───────────────────────────────────────────
+
+/// Retry stamps `next_attempt_at` and `ready_tasks` honors it: with a
+/// real backoff base the retried task is INVISIBLE to the next pass
+/// instead of head-of-line-blocking the batch every 5 seconds. This is
+/// the counterfactual for the outage livelock: under the old scheduler
+/// the second pass re-acquired the same doomed task immediately.
+#[tokio::test]
+async fn retry_backoff_defers_the_next_attempt() {
+    let s = store();
+    let ids = create_task_dag(
+        s.as_ref(),
+        &[TaskSpec {
+            kind: "alpha".into(),
+            description: None,
+            depends_on: vec![],
+            operates_on: None,
+            output_schema: None,
+        }],
+        "spawner",
+    )
+    .unwrap();
+
+    let mut sched = Scheduler::new(
+        s.clone(),
+        SchedulerConfig {
+            actor: "impel-test".into(),
+            batch: 16,
+            start_delay: std::time::Duration::ZERO,
+            poll_interval: std::time::Duration::ZERO,
+            retry_base_ms: 60_000, // a REAL backoff, unlike the shared helper
+        },
+    );
+    // Scripted pops from the BACK: last element runs first.
+    sched.register(Scripted::new(
+        "alpha",
+        vec![Step::Complete, Step::RetryableFail],
+    ));
+
+    let r1 = sched.run_once().await.unwrap();
+    assert_eq!(r1.retried, 1, "{r1:?}");
+    assert_eq!(state_of(&s, ids[0]), TaskState::Pending);
+    let task = TaskStoreApi::get_item(s.as_ref(), ids[0]).unwrap().unwrap();
+    let not_before = match task.payload.get("next_attempt_at") {
+        Some(Value::Int(ms)) => *ms,
+        other => panic!("retry did not stamp next_attempt_at: {other:?}"),
+    };
+    assert!(
+        not_before > chrono::Utc::now().timestamp_millis() + 30_000,
+        "backoff at least ~60s out, got {not_before}"
+    );
+
+    // The doomed task no longer monopolizes the queue: nothing acquirable.
+    let r2 = sched.run_once().await.unwrap();
+    assert_eq!(r2.acquired, 0, "backoff must defer re-acquisition: {r2:?}");
+    assert_eq!(state_of(&s, ids[0]), TaskState::Pending);
+}
+
+/// A terminal upstream failure cancels its pending dependents (ADR-0005
+/// §4). Under the old scheduler the dependent stayed `pending` forever —
+/// never ready (the readiness SQL blocks on any dep not done), never
+/// failed, invisible to every surface.
+#[tokio::test]
+async fn terminal_failure_cancels_pending_dependents() {
+    let s = store();
+    let ids = create_task_dag(s.as_ref(), &two_task_dag(), "spawner").unwrap();
+
+    let mut sched = scheduler(s.clone());
+    sched.register(Scripted::new("alpha", vec![Step::PermanentFail]));
+    sched.register(Scripted::new("beta", vec![Step::Complete]));
+
+    let r1 = sched.run_once().await.unwrap();
+    assert_eq!(r1.failed, 1, "{r1:?}");
+    assert_eq!(r1.cancelled, 1, "dependent must be cancelled: {r1:?}");
+    assert_eq!(state_of(&s, ids[0]), TaskState::Failed);
+    assert_eq!(state_of(&s, ids[1]), TaskState::Cancelled);
+    let beta = TaskStoreApi::get_item(s.as_ref(), ids[1]).unwrap().unwrap();
+    assert!(
+        matches!(beta.payload.get("error"),
+                 Some(Value::String(e)) if e.contains("dependency")),
+        "cancellation reason recorded"
+    );
+
+    // And nothing is left for later passes to chew on.
+    let r2 = sched.run_once().await.unwrap();
+    assert_eq!(r2.acquired + r2.failed + r2.cancelled, 0, "{r2:?}");
+}
+
+/// A `running` task with no `assigned_to` — the wedge a crash mid-acquire
+/// used to strand — is adopted back to `pending` and then runs. Under the
+/// old scheduler it matched neither `ready_tasks` nor `running_tasks` and
+/// was permanently invisible.
+#[tokio::test]
+async fn orphaned_running_task_is_adopted_and_completes() {
+    let s = store();
+    let ids = create_task_dag(
+        s.as_ref(),
+        &[TaskSpec {
+            kind: "alpha".into(),
+            description: None,
+            depends_on: vec![],
+            operates_on: None,
+            output_schema: None,
+        }],
+        "spawner",
+    )
+    .unwrap();
+
+    // Simulate the stranded state: running, but no assignee ever written.
+    s.apply_operation(OperationSpec {
+        target_id: ids[0],
+        op_type: OperationType::SetPayload("state".into(), Value::String("running".into())),
+        intent: OperationIntent::Routine,
+        reason: None,
+        batch_id: None,
+        author: "crash".into(),
+        author_kind: ActorKind::Agent,
+        retention: RetentionTier::Compactable,
+    })
+    .unwrap();
+
+    let mut sched = scheduler(s.clone());
+    sched.register(Scripted::new("alpha", vec![Step::Complete]));
+
+    let r1 = sched.run_once().await.unwrap();
+    assert_eq!(r1.adopted, 1, "orphan must be adopted: {r1:?}");
+    assert_eq!(r1.completed, 1, "and then executed: {r1:?}");
+    assert_eq!(state_of(&s, ids[0]), TaskState::Done);
+}
+
+/// An executor whose `readiness()` fails defers its whole kind: tasks are
+/// NOT acquired, burn no attempts, and stay cleanly pending. Under the
+/// old scheduler every such task was acquired, failed against the dead
+/// dependency, and burned its full retry budget in ~15 seconds.
+#[tokio::test]
+async fn unready_kind_is_deferred_without_burning_attempts() {
+    struct NeverReady;
+    #[async_trait]
+    impl TaskExecutor for NeverReady {
+        fn task_kind(&self) -> &str {
+            "alpha"
+        }
+        async fn readiness(&self) -> Result<(), String> {
+            Err("provider down".into())
+        }
+        async fn execute(
+            &self,
+            _task: &Item,
+            _store: &dyn TaskStoreApi,
+        ) -> Result<ExecutionOutcome, TaskError> {
+            panic!("must never execute while unready");
+        }
+    }
+
+    let s = store();
+    let ids = create_task_dag(
+        s.as_ref(),
+        &[TaskSpec {
+            kind: "alpha".into(),
+            description: None,
+            depends_on: vec![],
+            operates_on: None,
+            output_schema: None,
+        }],
+        "spawner",
+    )
+    .unwrap();
+
+    let mut sched = scheduler(s.clone());
+    sched.register(Arc::new(NeverReady));
+
+    let r1 = sched.run_once().await.unwrap();
+    assert_eq!(r1.deferred, 1, "{r1:?}");
+    assert_eq!(r1.acquired, 0, "{r1:?}");
+    assert_eq!(state_of(&s, ids[0]), TaskState::Pending);
+    let task = TaskStoreApi::get_item(s.as_ref(), ids[0]).unwrap().unwrap();
+    assert!(
+        !task.payload.contains_key("attempts"),
+        "no attempts burned while deferred"
+    );
+
+    // A ready scheduler (fresh instance, no negative cache) runs it fine.
+    let mut ready_sched = scheduler(s.clone());
+    ready_sched.register(Scripted::new("alpha", vec![Step::Complete]));
+    let r2 = ready_sched.run_once().await.unwrap();
+    assert_eq!(r2.completed, 1, "{r2:?}");
 }

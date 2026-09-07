@@ -5,6 +5,24 @@
 //! `merge_metadata`, and persists **only** `changed_fields` as attributed
 //! `SetPayload` operations (Durable — corrected fields are part of the
 //! research record, ADR-0005 §9 retention table).
+//!
+//! ## The record outranks the sources (fill-only persistence)
+//!
+//! `merge_metadata` ranks the stored record `usize::MAX` (it has no
+//! source id), so inside the merge every configured source "wins" over
+//! it — which is the right way to COMBINE sources, and exactly the wrong
+//! thing to WRITE BACK: a user-corrected title would be silently reverted
+//! to whatever arXiv serves. Persistence therefore applies descriptive
+//! and identifier fields **fill-only**: a field the record already holds
+//! non-empty is never overwritten. Volatile fields (`citation_count`) and
+//! additive ones (`pdf_urls`, a union) still update freely.
+//!
+//! ## Authors land where imbib reads them
+//!
+//! imbib's readers consume `authors_json` (structured) with an
+//! `author_text` fallback — never a bare `authors` array. Resolved
+//! authors are written to those two keys (fill-only, like every other
+//! descriptive field).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -132,9 +150,9 @@ impl MetadataResolveExecutor {
         match field {
             "title" => s(&merged.title),
             "year" => merged.year.map(|y| Value::Int(y as i64)),
-            "authors" => Some(Value::Array(
-                merged.authors.iter().cloned().map(Value::String).collect(),
-            )),
+            // "authors" is handled by persist_changes directly (it writes
+            // author_text/authors_json — the keys imbib actually reads).
+            "authors" => None,
             "abstract_text" => s(&merged.abstract_text),
             "venue" => s(&merged.venue),
             "doi" => s(&merged.doi),
@@ -149,30 +167,140 @@ impl MetadataResolveExecutor {
         }
     }
 
-    fn persist_changes(
+    /// Fields persisted fill-only: never overwrite a non-empty stored
+    /// value. Everything descriptive or identifying — a user correction to
+    /// any of these must survive every later resolve.
+    const FILL_ONLY_FIELDS: &'static [&'static str] = &[
+        "title",
+        "year",
+        "authors",
+        "abstract_text",
+        "venue",
+        "doi",
+        "arxiv_id",
+        "bibcode",
+        "pmid",
+    ];
+
+    /// Does the stored record already carry a real value for `field`?
+    fn field_present(publication: &Item, field: &str) -> bool {
+        let non_empty_str = |key: &str| {
+            matches!(publication.payload.get(key),
+                     Some(Value::String(s)) if !s.is_empty())
+        };
+        match field {
+            "year" => matches!(publication.payload.get("year"), Some(Value::Int(_))),
+            "authors" => {
+                // Any of the three author representations counts.
+                non_empty_str("author_text")
+                    || non_empty_str("authors_json")
+                    || matches!(publication.payload.get("authors"),
+                                Some(Value::Array(a)) if !a.is_empty())
+            }
+            _ => non_empty_str(field),
+        }
+    }
+
+    fn write_field(
         &self,
         publication: ItemId,
-        merged: &MergeMetadata,
-        changed: &[&'static str],
+        field: &str,
+        value: Value,
         store: &dyn TaskStoreApi,
     ) -> Result<(), TaskError> {
+        store.apply(OperationSpec {
+            target_id: publication,
+            op_type: OperationType::SetPayload(field.into(), value),
+            intent: OperationIntent::Routine,
+            reason: Some("enrichment: metadata-resolve".into()),
+            batch_id: None,
+            author: self.actor.clone(),
+            author_kind: ActorKind::Agent,
+            // Corrected fields are part of the research record.
+            retention: RetentionTier::Durable,
+        })?;
+        Ok(())
+    }
+
+    fn persist_changes(
+        &self,
+        original: &Item,
+        merged: &MergeMetadata,
+        changed: &[&'static str],
+        structured_authors: Option<&[impress_sources::types::Author]>,
+        store: &dyn TaskStoreApi,
+    ) -> Result<usize, TaskError> {
+        let mut written = 0;
         for field in changed {
+            if Self::FILL_ONLY_FIELDS.contains(field) && Self::field_present(original, field) {
+                continue; // the record's own value wins
+            }
+            if *field == "authors" {
+                // Write the representations imbib reads; the bare
+                // `authors` key had no reader anywhere in the suite.
+                if merged.authors.is_empty() {
+                    continue;
+                }
+                let (author_text, authors_json) =
+                    Self::author_payloads(&merged.authors, structured_authors);
+                self.write_field(
+                    original.id,
+                    "author_text",
+                    Value::String(author_text),
+                    store,
+                )?;
+                if let Some(json) = authors_json {
+                    self.write_field(original.id, "authors_json", Value::String(json), store)?;
+                }
+                written += 1;
+                continue;
+            }
             let Some(value) = Self::payload_value(merged, field) else {
                 continue;
             };
-            store.apply(OperationSpec {
-                target_id: publication,
-                op_type: OperationType::SetPayload((*field).into(), value),
-                intent: OperationIntent::Routine,
-                reason: Some("enrichment: metadata-resolve".into()),
-                batch_id: None,
-                author: self.actor.clone(),
-                author_kind: ActorKind::Agent,
-                // Corrected fields are part of the research record.
-                retention: RetentionTier::Durable,
-            })?;
+            self.write_field(original.id, field, value, store)?;
+            written += 1;
         }
-        Ok(())
+        Ok(written)
+    }
+
+    /// Build imbib's two author representations. `author_text` follows the
+    /// suite convention `Family, Given; Family, Given`; `authors_json` is
+    /// the structured array imbib's readers parse, built from the winning
+    /// source's structured authors when available.
+    fn author_payloads(
+        display_names: &[String],
+        structured: Option<&[impress_sources::types::Author]>,
+    ) -> (String, Option<String>) {
+        if let Some(authors) = structured {
+            if !authors.is_empty() {
+                let text = authors
+                    .iter()
+                    .map(|a| match &a.given_name {
+                        Some(given) if !given.is_empty() => {
+                            format!("{}, {}", a.family_name, given)
+                        }
+                        _ => a.family_name.clone(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let json = serde_json::json!(authors
+                    .iter()
+                    .map(|a| {
+                        serde_json::json!({
+                            "id": uuid::Uuid::new_v4().to_string(),
+                            "given_name": a.given_name,
+                            "family_name": a.family_name,
+                            "suffix": null,
+                            "orcid": a.orcid,
+                            "affiliation": null,
+                        })
+                    })
+                    .collect::<Vec<_>>());
+                return (text, Some(json.to_string()));
+            }
+        }
+        (display_names.join("; "), None)
     }
 }
 
@@ -199,6 +327,9 @@ impl TaskExecutor for MetadataResolveExecutor {
         let mut all_changed: Vec<&'static str> = Vec::new();
         let mut fetched_from: Vec<&str> = Vec::new();
         let mut last_err: Option<SourceError> = None;
+        // Structured authors from the highest-priority source that returned
+        // any — the basis for `authors_json` when the record has none.
+        let mut best_authors: Option<(usize, Vec<impress_sources::types::Author>)> = None;
 
         for source in &self.sources {
             match source
@@ -208,6 +339,14 @@ impl TaskExecutor for MetadataResolveExecutor {
             {
                 Ok(m) => {
                     fetched_from.push(source.plugin.id());
+                    if !m.authors.is_empty() {
+                        let rank = self
+                            .priority
+                            .rank(&EnrichmentSourceId(source.plugin.id().to_string()));
+                        if best_authors.as_ref().is_none_or(|(r, _)| rank < *r) {
+                            best_authors = Some((rank, m.authors.clone()));
+                        }
+                    }
                     let incoming = Self::convert(source.plugin.id(), m);
                     let outcome = merge_metadata(merged, incoming, &self.priority);
                     merged = outcome.merged;
@@ -250,7 +389,13 @@ impl TaskExecutor for MetadataResolveExecutor {
             }
         }
 
-        self.persist_changes(publication.id, &merged, &all_changed, store)?;
+        let written = self.persist_changes(
+            &publication,
+            &merged,
+            &all_changed,
+            best_authors.as_ref().map(|(_, a)| a.as_slice()),
+            store,
+        )?;
 
         // Reproducibility record (ADR-0005 §5): the "prompt" of an API
         // pipeline is the identifier + source set.
@@ -266,9 +411,10 @@ impl TaskExecutor for MetadataResolveExecutor {
                 model: "api-pipeline".into(),
                 prompt_hash: format!("{:x}", hasher.finalize()),
                 result_summary: Some(format!(
-                    "resolved via [{}]; {} field(s) updated",
+                    "resolved via [{}]; {} field(s) updated ({} preserved)",
                     fetched_from.join(","),
-                    all_changed.len()
+                    written,
+                    all_changed.len().saturating_sub(written),
                 )),
                 token_count: None,
                 duration_ms: Some(started.elapsed().as_millis() as i64),
@@ -278,7 +424,9 @@ impl TaskExecutor for MetadataResolveExecutor {
         Ok(ExecutionOutcome::Complete)
     }
 
+    // With the scheduler's exponential backoff (45s·3^n) this rides out
+    // ~30 minutes of network outage before escalating.
     fn max_retries(&self) -> u32 {
-        3
+        5
     }
 }

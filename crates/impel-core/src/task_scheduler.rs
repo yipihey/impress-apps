@@ -33,6 +33,10 @@ pub struct SchedulerConfig {
     pub start_delay: Duration,
     /// Polling interval between passes of `run`.
     pub poll_interval: Duration,
+    /// Base of the exponential retry backoff (`base · 3^(attempt−1)`,
+    /// capped at 30 minutes) stamped as `next_attempt_at` on every retry.
+    /// 0 disables the delay — tests drive `run_once` in a tight loop.
+    pub retry_base_ms: i64,
 }
 
 impl Default for SchedulerConfig {
@@ -42,6 +46,7 @@ impl Default for SchedulerConfig {
             batch: 8,
             start_delay: Duration::from_secs(90),
             poll_interval: Duration::from_secs(5),
+            retry_base_ms: 45_000,
         }
     }
 }
@@ -55,12 +60,44 @@ pub struct PassReport {
     pub resumed: usize,
     pub retried: usize,
     pub failed: usize,
+    /// Ready tasks NOT acquired because their kind's `readiness()` probe
+    /// failed — they stay `pending`, burning no attempts.
+    pub deferred: usize,
+    /// Wedged `running`-without-assignee tasks adopted back to `pending`.
+    pub adopted: usize,
+    /// Pending dependents cancelled because an upstream task failed.
+    pub cancelled: usize,
 }
+
+/// Retry backoff (ADR-0005 §9, ADR-0015 D5 — a port of the SEMANTICS of
+/// `imbib_core::enrichment::retry::RetryPolicy`, kept local so the kernel
+/// does not depend on an app core crate): base · 3^(n−1), capped at 30
+/// minutes. At the default 45s base: attempt 1 → 45s, 2 → 2m15s,
+/// 3 → 6m45s, 4 → 20m15s, 5+ → 30m. No jitter: one daemon per store
+/// (WorkerLease) means no thundering herd.
+fn retry_backoff_ms(attempt: u32, base_ms: i64) -> i64 {
+    const CAP_MS: i64 = 30 * 60 * 1000;
+    let exp = attempt.saturating_sub(1).min(8);
+    base_ms
+        .saturating_mul(3_i64.saturating_pow(exp))
+        .min(CAP_MS)
+}
+
+/// How long a failed `readiness()` verdict is trusted before re-probing.
+const READINESS_NEGATIVE_CACHE: Duration = Duration::from_secs(60);
+
+/// kind → (probed_at, verdict) for the per-pass readiness gate.
+type ReadinessCache = std::sync::Mutex<HashMap<String, (std::time::Instant, Result<(), String>)>>;
 
 pub struct Scheduler {
     store: Arc<dyn TaskStoreApi>,
     executors: HashMap<String, Arc<dyn TaskExecutor>>,
     config: SchedulerConfig,
+    /// Ok verdicts are re-checked every pass boundary anyway (probes are
+    /// cheap when healthy); failed verdicts are held for
+    /// `READINESS_NEGATIVE_CACHE` so a down provider costs one probe a
+    /// minute, not one per pass.
+    readiness: ReadinessCache,
 }
 
 impl Scheduler {
@@ -69,6 +106,7 @@ impl Scheduler {
             store,
             executors: HashMap::new(),
             config,
+            readiness: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -78,21 +116,39 @@ impl Scheduler {
             .insert(executor.task_kind().to_string(), executor);
     }
 
-    /// One full pass: resume suspended tasks whose reviews resolved, then
-    /// acquire + execute ready tasks. Returns what happened.
+    /// One full pass: adopt orphans, resume suspended tasks whose reviews
+    /// resolved, then acquire + execute ready tasks (skipping kinds whose
+    /// `readiness()` probe fails). Returns what happened.
     pub async fn run_once(&self) -> Result<PassReport, TaskStoreError> {
         let mut report = PassReport::default();
 
+        // ── Adoption pass: heal running-without-assignee wedges ────────
+        // A crash (or, before acquires were atomic, a mid-acquire BUSY)
+        // could strand a task `running` with no `assigned_to` — invisible
+        // to both `ready_tasks` and `running_tasks`. Re-pend it.
+        for task in self.store.orphaned_running_tasks()? {
+            if self
+                .store
+                .transition(task.id, TaskState::Pending, &self.config.actor, None)
+                .is_ok()
+            {
+                report.adopted += 1;
+            }
+        }
+
         // ── Resume pass: running tasks assigned to us ──────────────────
-        // A running task with an unresolved review is suspended — skip.
-        // With all reviews resolved (or none, i.e. a crash left it
-        // running), re-execute: executors re-derive state from the graph.
+        // The suspension set is derived in ONE query (unresolved reviews →
+        // their OperatesOn targets) instead of one reviews_for per task.
+        // A running task in the set is suspended — skip. Otherwise
+        // re-execute: executors re-derive state from the graph (resolved
+        // review, or a crash left it running).
+        let suspended_targets = self.store.unresolved_review_targets()?;
         for task in self.store.running_tasks(&self.config.actor)? {
-            let (unresolved, resolved) = self.store.reviews_for(task.id)?;
-            if !unresolved.is_empty() {
+            if suspended_targets.contains(&task.id) {
                 report.suspended += 1;
                 continue;
             }
+            let (_, resolved) = self.store.reviews_for(task.id)?;
             if !resolved.is_empty() {
                 report.resumed += 1;
             }
@@ -100,8 +156,18 @@ impl Scheduler {
         }
 
         // ── Acquire pass ───────────────────────────────────────────────
+        // Readiness gate (per KIND, not per task): an executor whose
+        // dependency is provably down defers its whole kind — tasks stay
+        // `pending`, burn no attempts, and wake when a later probe passes.
         for task in self.store.ready_tasks(self.config.batch)? {
-            self.acquire(&task)?;
+            let kind = task_kind(&task);
+            if let Err(_reason) = self.kind_readiness(&kind).await {
+                report.deferred += 1;
+                continue;
+            }
+            // Atomic: transition + assigned_to + attempts in one
+            // transaction — a BUSY here leaves the task cleanly `pending`.
+            self.store.acquire_task(&task, &self.config.actor)?;
             report.acquired += 1;
             // Re-fetch: acquire wrote state/assigned_to/attempts.
             let task = self
@@ -111,6 +177,29 @@ impl Scheduler {
             self.execute_and_finalize(&task, &mut report).await?;
         }
         Ok(report)
+    }
+
+    /// Cached `readiness()` verdict for one executor kind. Unknown kinds
+    /// report ready — `execute_and_finalize` escalates them properly.
+    async fn kind_readiness(&self, kind: &str) -> Result<(), String> {
+        let Some(executor) = self.executors.get(kind) else {
+            return Ok(());
+        };
+        if let Ok(cache) = self.readiness.lock() {
+            if let Some((probed_at, verdict)) = cache.get(kind) {
+                if verdict.is_err() && probed_at.elapsed() < READINESS_NEGATIVE_CACHE {
+                    return verdict.clone();
+                }
+            }
+        }
+        let verdict = executor.readiness().await;
+        if let Ok(mut cache) = self.readiness.lock() {
+            cache.insert(
+                kind.to_string(),
+                (std::time::Instant::now(), verdict.clone()),
+            );
+        }
+        verdict
     }
 
     /// The production loop: waits `start_delay`, then polls forever.
@@ -123,29 +212,6 @@ impl Scheduler {
     }
 
     // ── internals ──────────────────────────────────────────────────────
-
-    fn acquire(&self, task: &Item) -> Result<(), TaskStoreError> {
-        self.store
-            .transition(task.id, TaskState::Running, &self.config.actor, None)?;
-        // assigned_to + attempts ride along as sibling operations.
-        let attempts = payload_i64(task, "attempts").unwrap_or(0) + 1;
-        for (field, value) in [
-            ("assigned_to", Value::String(self.config.actor.clone())),
-            ("attempts", Value::Int(attempts)),
-        ] {
-            self.store.apply(OperationSpec {
-                target_id: task.id,
-                op_type: OperationType::SetPayload(field.into(), value),
-                intent: OperationIntent::Routine,
-                reason: None,
-                batch_id: None,
-                author: self.config.actor.clone(),
-                author_kind: impress_core::item::ActorKind::Agent,
-                retention: RetentionTier::Compactable,
-            })?;
-        }
-        Ok(())
-    }
 
     async fn execute_and_finalize(
         &self,
@@ -168,7 +234,24 @@ impl Scheduler {
             return Ok(());
         };
 
-        match executor.execute(task, self.store.as_ref()).await {
+        // Backstop against a wedged executor (a black-holed connection, a
+        // hung subprocess): no single task may stall the sequential pass
+        // loop forever. Generous — the longest legitimate work (a full
+        // oMLX generation, an ONNX embed batch) finishes well inside it.
+        const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+        let outcome = match tokio::time::timeout(
+            EXECUTOR_TIMEOUT,
+            executor.execute(task, self.store.as_ref()),
+        )
+        .await
+        {
+            Ok(outcome) => outcome,
+            Err(_elapsed) => Err(TaskError::Retryable(format!(
+                "executor '{kind}' timed out after {}s",
+                EXECUTOR_TIMEOUT.as_secs()
+            ))),
+        };
+        match outcome {
             Ok(ExecutionOutcome::Complete) => {
                 self.store
                     .transition(task.id, TaskState::Done, &self.config.actor, None)?;
@@ -181,8 +264,27 @@ impl Scheduler {
             Err(err) => {
                 let attempts = payload_i64(task, "attempts").unwrap_or(1) as u32;
                 if executor.is_retryable(&err) && attempts <= executor.max_retries() {
-                    // Retry: running → pending reset, visible in the op
-                    // history as the retry ledger (ADR-0005 §2).
+                    // Retry with exponential backoff (ADR-0005 §9): stamp
+                    // the not-before that `ready_tasks` honors, then reset
+                    // running → pending — visible in the op history as the
+                    // retry ledger (ADR-0005 §2). Without the stamp the
+                    // oldest doomed tasks re-sorted to the FRONT of the
+                    // queue every 5s pass and monopolized the batch.
+                    let not_before = chrono::Utc::now().timestamp_millis()
+                        + retry_backoff_ms(attempts, self.config.retry_base_ms);
+                    self.store.apply(OperationSpec {
+                        target_id: task.id,
+                        op_type: OperationType::SetPayload(
+                            "next_attempt_at".into(),
+                            Value::Int(not_before),
+                        ),
+                        intent: OperationIntent::Routine,
+                        reason: None,
+                        batch_id: None,
+                        author: self.config.actor.clone(),
+                        author_kind: impress_core::item::ActorKind::Agent,
+                        retention: RetentionTier::Compactable,
+                    })?;
                     self.store
                         .transition(task.id, TaskState::Pending, &self.config.actor, None)?;
                     report.retried += 1;
@@ -201,7 +303,49 @@ impl Scheduler {
                     )?;
                     self.set_error(task.id, &err.to_string())?;
                     report.failed += 1;
+                    // Failure propagation (ADR-0005 §4): a dependent whose
+                    // prerequisite terminally failed can never become
+                    // ready — without this it sat `pending` forever as an
+                    // invisible zombie. Cancel the whole downstream chain.
+                    self.cancel_dependents(task.id, report)?;
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Cancel every PENDING transitive dependent of `failed_task`. Running
+    /// dependents (impossible while the dep gate holds, but defensive) are
+    /// left to finish; terminal ones are already settled.
+    fn cancel_dependents(
+        &self,
+        failed_task: impress_core::item::ItemId,
+        report: &mut PassReport,
+    ) -> Result<(), TaskStoreError> {
+        let mut frontier = vec![failed_task];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(upstream) = frontier.pop() {
+            if !seen.insert(upstream) {
+                continue;
+            }
+            for dependent in self.store.dependents_of(upstream)? {
+                let is_pending = matches!(dependent.payload.get("state"),
+                                          Some(Value::String(s))
+                                              if TaskState::parse_compat(s)
+                                                  == Some(TaskState::Pending));
+                if is_pending
+                    && self
+                        .store
+                        .transition(dependent.id, TaskState::Cancelled, &self.config.actor, None)
+                        .is_ok()
+                {
+                    self.set_error(
+                        dependent.id,
+                        &format!("cancelled: dependency {upstream} failed"),
+                    )?;
+                    report.cancelled += 1;
+                }
+                frontier.push(dependent.id);
             }
         }
         Ok(())

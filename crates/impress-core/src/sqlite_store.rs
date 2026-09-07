@@ -24,6 +24,47 @@ use crate::store::{FieldMutation, ItemStore, StoreError};
 /// because `:memory:` databases are private to a single connection.
 const READER_POOL_SIZE: usize = 4;
 
+/// Darwin notification name posted (throttled) after every store mutation,
+/// so OTHER processes can refresh views fed by this store. Swift observers
+/// use `CFNotificationCenterGetDarwinNotifyCenter` — the same notifyd
+/// namespace `notify_post` targets. Payload-free by design: receivers pull.
+pub const STORE_MUTATED_DARWIN_NOTE: &str = "com.impress.suite.store.mutated";
+
+/// Throttled cross-process mutation signal. No-op off macOS and in unit
+/// tests would be noise-free anyway (notifyd names are cheap and carry no
+/// data), so there is deliberately no test gate — determinism is preserved
+/// because nothing in-process ever listens to it.
+fn post_cross_process_mutation_note() {
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::atomic::{AtomicI64, Ordering};
+        /// Minimum interval between Darwin posts. Bulk writes (imports,
+        /// daemon spawn bursts) collapse to ≤2 posts/second; receivers
+        /// debounce further.
+        const DARWIN_NOTE_MIN_INTERVAL_MS: i64 = 500;
+        static LAST_POST_MS: AtomicI64 = AtomicI64::new(0);
+        extern "C" {
+            fn notify_post(name: *const std::os::raw::c_char) -> u32;
+        }
+        let now_ms = Utc::now().timestamp_millis();
+        let last = LAST_POST_MS.load(Ordering::Relaxed);
+        if now_ms.saturating_sub(last) < DARWIN_NOTE_MIN_INTERVAL_MS {
+            return;
+        }
+        if LAST_POST_MS
+            .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return; // another thread just posted
+        }
+        // Static NUL-terminated name; no allocation on the write path.
+        const NAME: &[u8] = b"com.impress.suite.store.mutated\0";
+        unsafe {
+            notify_post(NAME.as_ptr() as *const std::os::raw::c_char);
+        }
+    }
+}
+
 /// WAL checkpoint flavours (see `SqliteItemStore::checkpoint_wal`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WalCheckpointMode {
@@ -734,6 +775,15 @@ impl SqliteItemStore {
             "CREATE INDEX IF NOT EXISTS idx_items_last_activity
                 ON items(json_extract(payload, '$.last_activity_at') DESC, logical_clock DESC)
                 WHERE json_extract(payload, '$.last_activity_at') IS NOT NULL",
+            // Task-kernel state lookups (ready_tasks, running_tasks, the
+            // scheduler's per-pass scans) filter on json_extract state over a
+            // kind that is a sliver of an op-row-dominated table; without
+            // this partial expression index each pass re-walks every task
+            // row ever created (5,883 live at time of writing, growing ~2
+            // per ingested paper).
+            "CREATE INDEX IF NOT EXISTS idx_items_task_state
+                ON items(json_extract(payload, '$.state'))
+                WHERE schema_ref = 'task@1.0.0'",
         ] {
             // .ok() — on existing DBs these columns don't exist yet; migrate_schema handles it
             let _ = conn.execute(idx_sql, []);
@@ -1432,6 +1482,13 @@ impl SqliteItemStore {
     /// `schema` (None = undeterminable → deliver to all). Subscribers with
     /// dropped receivers are pruned here.
     pub(crate) fn emit(&self, schema: Option<&str>, event: ItemEvent) {
+        // Cross-process half of the event bus: the in-process subscribers
+        // below can never see a write made by ANOTHER process (imbib's
+        // review queue went stale against impel-taskd's writes for exactly
+        // this reason), so every mutation also posts a throttled Darwin
+        // notification. Swift observers (CFNotificationCenter darwin ==
+        // notifyd) receive it and pull state; the name carries no payload.
+        post_cross_process_mutation_note();
         let Ok(mut subs) = self.subscribers.lock() else {
             return;
         };
@@ -1496,11 +1553,17 @@ impl SqliteItemStore {
     /// schedulable.
     pub fn ready_tasks(&self, limit: usize) -> Result<Vec<Item>, StoreError> {
         self.with_read(|conn| {
+            // `next_attempt_at` is the scheduler's retry backoff (ADR-0005
+            // §9's "exponential backoff", ADR-0015 D5): a retried task is
+            // reset to `pending` with a not-before timestamp, and is simply
+            // not ready until that moment. Absent field = 0 = always ready,
+            // so every pre-backoff row keeps its old semantics.
             let sql = format!(
                 "SELECT {ITEM_COLUMNS} FROM items t
                  WHERE t.schema_ref = 'task@1.0.0'
                    AND json_extract(t.payload, '$.state') IN ('pending', 'queued')
                    AND COALESCE(json_extract(t.payload, '$.task_kind'), '') != ''
+                   AND COALESCE(json_extract(t.payload, '$.next_attempt_at'), 0) <= ?2
                    AND NOT EXISTS (
                        SELECT 1 FROM item_references r
                        LEFT JOIN items dep ON dep.id = r.target_id
@@ -1513,11 +1576,12 @@ impl SqliteItemStore {
                  ORDER BY t.created ASC
                  LIMIT ?1"
             );
+            let now_ms = Utc::now().timestamp_millis();
             let mut stmt = conn
-                .prepare(&sql)
+                .prepare_cached(&sql)
                 .map_err(|e| StoreError::Storage(format!("prepare ready_tasks: {}", e)))?;
             let rows = stmt
-                .query_map(params![limit as i64], |row| {
+                .query_map(params![limit as i64, now_ms], |row| {
                     Ok(Self::row_to_item_partial(row))
                 })
                 .map_err(|e| StoreError::Storage(format!("ready_tasks: {}", e)))?;
@@ -1541,6 +1605,92 @@ impl SqliteItemStore {
                 }
             }
             Ok(items)
+        })
+    }
+
+    /// Arrival-ordered keyset page: items of `schema` whose table rowid is
+    /// strictly greater than `after_rowid`, oldest-arrival first.
+    ///
+    /// This is THE cross-process trigger scan primitive. Timestamp-keyed
+    /// scans are wrong for triggers twice over: (a) `created`/HLC clocks
+    /// are preserved verbatim on sync-apply (ADR-0007), so a row synced
+    /// from another device arrives "in the past" and a forward-only
+    /// watermark never selects it; (b) a limit-N page with a value-keyed
+    /// watermark cannot advance past N same-window rows — the >64-entry
+    /// import wedge. The rowid is assigned at local INSERT time, is
+    /// monotonic per store file, and is the page cursor itself, so bursts
+    /// of any size page through and late-arriving synced rows are simply
+    /// the next rows. Returns `(rowid, item)` pairs; the caller persists
+    /// `max(rowid)` as its cursor. Tags/references are not hydrated —
+    /// trigger consumers read payloads only.
+    pub fn items_arrived_after(
+        &self,
+        schema: &str,
+        after_rowid: i64,
+        limit: usize,
+    ) -> Result<Vec<(i64, Item)>, StoreError> {
+        self.with_read(|conn| {
+            // rowid rides LAST (and by name) so `row_to_item_partial`'s
+            // positional reads stay untouched.
+            let sql = format!(
+                "SELECT {ITEM_COLUMNS}, rowid AS arrival_rowid FROM items
+                 WHERE schema_ref = ?1 AND rowid > ?2
+                 ORDER BY rowid ASC
+                 LIMIT ?3"
+            );
+            let mut stmt = conn
+                .prepare_cached(&sql)
+                .map_err(|e| StoreError::Storage(format!("prepare items_arrived_after: {}", e)))?;
+            let rows = stmt
+                .query_map(params![schema, after_rowid, limit as i64], |row| {
+                    let rowid: i64 = row.get("arrival_rowid")?;
+                    Ok((rowid, Self::row_to_item_partial(row)))
+                })
+                .map_err(|e| StoreError::Storage(format!("items_arrived_after: {}", e)))?;
+            let mut out = Vec::new();
+            for row_result in rows {
+                let (rowid, item_result) =
+                    row_result.map_err(|e| StoreError::Storage(format!("row: {}", e)))?;
+                out.push((rowid, item_result?));
+            }
+            Ok(out)
+        })
+    }
+
+    /// The largest items rowid — a store-wide arrival generation counter.
+    /// Every mutation inserts at least a `core/operation` row, so an
+    /// unchanged value means "nothing whatsoever happened since you last
+    /// asked" and an idle scheduler pass can skip its scans outright.
+    pub fn max_rowid(&self) -> Result<i64, StoreError> {
+        self.with_read(|conn| {
+            conn.query_row("SELECT COALESCE(MAX(rowid), 0) FROM items", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| StoreError::Storage(format!("max_rowid: {}", e)))
+        })
+    }
+
+    /// The rowid just BEFORE the first `schema` row created at or after
+    /// `created_ms` — the starting cursor for an opt-in backfill window.
+    /// Falls back to `max_rowid()` (nothing to backfill) when no row
+    /// qualifies.
+    pub fn rowid_before_created(&self, schema: &str, created_ms: i64) -> Result<i64, StoreError> {
+        self.with_read(|conn| {
+            let first: Option<i64> = conn
+                .query_row(
+                    "SELECT MIN(rowid) FROM items WHERE schema_ref = ?1 AND created >= ?2",
+                    params![schema, created_ms],
+                    |row| row.get(0),
+                )
+                .map_err(|e| StoreError::Storage(format!("rowid_before_created: {}", e)))?;
+            match first {
+                Some(rowid) => Ok(rowid - 1),
+                None => conn
+                    .query_row("SELECT COALESCE(MAX(rowid), 0) FROM items", [], |row| {
+                        row.get(0)
+                    })
+                    .map_err(|e| StoreError::Storage(format!("rowid_before_created: {}", e))),
+            }
         })
     }
 
@@ -4566,8 +4716,11 @@ impl ItemStore for SqliteItemStore {
                 .map(|p| p as &dyn rusqlite::types::ToSql)
                 .collect();
 
+            // Cached: recurring query shapes (the scheduler's per-pass scans,
+            // sidebar counts) re-execute identical SQL — re-parsing it every
+            // call was measurable at daemon cadences.
             let mut stmt = conn
-                .prepare(&sql)
+                .prepare_cached(&sql)
                 .map_err(|e| StoreError::Storage(format!("prepare query: {} (sql: {})", e, sql)))?;
 
             // Phase 1: Collect items with empty tags/references (no per-row sub-queries)
@@ -7455,5 +7608,96 @@ mod tests {
             store.list_tombstones_since(0).unwrap().is_empty(),
             "remote deletions must not create local tombstones"
         );
+    }
+
+    /// `items_arrived_after` is ARRIVAL-ordered keyset pagination: a burst
+    /// larger than any page drains page by page (the value-keyed watermark
+    /// wedged forever on >limit same-window bursts), and a row carrying an
+    /// OLD created/HLC timestamp — exactly what CloudKit sync-apply
+    /// preserves — is still returned, because rowid is local insert order.
+    #[test]
+    fn items_arrived_after_pages_bursts_and_sees_late_timestamps() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        for i in 0..150 {
+            store
+                .insert(make_item("imbib/bibliography-entry", &format!("burst {i}")))
+                .unwrap();
+        }
+        // A sync-applied row: created a year ago, nonzero clock preserved.
+        let mut late = make_item("imbib/bibliography-entry", "synced from iPhone");
+        late.created = Utc::now() - chrono::Duration::days(365);
+        late.logical_clock = 42; // nonzero ⇒ preserved verbatim on insert
+        store.insert(late).unwrap();
+        // Noise from another kind must never surface.
+        store
+            .insert(make_item("manuscript", "not a trigger"))
+            .unwrap();
+
+        let mut cursor = 0_i64;
+        let mut seen = Vec::new();
+        loop {
+            let page = store
+                .items_arrived_after("imbib/bibliography-entry", cursor, 64)
+                .unwrap();
+            if page.is_empty() {
+                break;
+            }
+            for (rowid, item) in &page {
+                assert!(*rowid > cursor, "strictly ascending rowids");
+                cursor = *rowid;
+                seen.push(item.payload.get("title").cloned());
+            }
+        }
+        assert_eq!(seen.len(), 151, "150 burst rows + the late-created one");
+        assert!(
+            matches!(seen.last().unwrap(), Some(Value::String(t)) if t == "synced from iPhone"),
+            "late-timestamp row arrives LAST in arrival order — a created-keyed \
+             watermark would never have selected it"
+        );
+        // Cursor is now exhausted; the next page is empty, not a re-serve.
+        assert!(store
+            .items_arrived_after("imbib/bibliography-entry", cursor, 64)
+            .unwrap()
+            .is_empty());
+    }
+
+    /// `ready_tasks` honors `next_attempt_at`: a future stamp defers the
+    /// row, a past (or absent) stamp keeps the old semantics.
+    #[test]
+    fn ready_tasks_defers_until_next_attempt_at() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let mut task = make_item("task@1.0.0", "backoff");
+        task.payload
+            .insert("state".into(), Value::String("pending".into()));
+        task.payload
+            .insert("task_kind".into(), Value::String("alpha".into()));
+        task.payload.insert(
+            "next_attempt_at".into(),
+            Value::Int(Utc::now().timestamp_millis() + 60_000),
+        );
+        let id = store.insert(task).unwrap();
+        assert!(
+            store.ready_tasks(8).unwrap().is_empty(),
+            "future next_attempt_at must defer"
+        );
+
+        store
+            .apply_operation(OperationSpec {
+                target_id: id,
+                op_type: OperationType::SetPayload(
+                    "next_attempt_at".into(),
+                    Value::Int(Utc::now().timestamp_millis() - 1_000),
+                ),
+                intent: OperationIntent::Routine,
+                reason: None,
+                batch_id: None,
+                author: "test".into(),
+                author_kind: ActorKind::Agent,
+                retention: RetentionTier::Compactable,
+            })
+            .unwrap();
+        let ready = store.ready_tasks(8).unwrap();
+        assert_eq!(ready.len(), 1, "past stamp is eligible again");
+        assert_eq!(ready[0].id, id);
     }
 }

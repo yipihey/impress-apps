@@ -75,38 +75,83 @@ pub struct Reachability {
 
 #[derive(Clone)]
 pub struct ImpressToolAdapter {
-    reachable: Reachability,
+    /// LIVE reachability, shared across clones (the daemon's refresh loop
+    /// and the executor's catalog reads see one state). The first version
+    /// captured a `Reachability` by value at `probe()` — an app closed at
+    /// daemon boot had its tools withheld for the daemon's whole life, and
+    /// one that launched later was never noticed.
+    reachable: std::sync::Arc<std::sync::RwLock<Reachability>>,
 }
 
 impl ImpressToolAdapter {
     /// Probe sibling automation services without blocking the async executor.
     /// Store-backed and pure tools remain available when every app is closed.
     pub async fn probe() -> Result<Self> {
-        let reachable = tokio::task::spawn_blocking(|| Reachability {
+        let reachable = Self::probe_reachability().await?;
+        Ok(Self {
+            reachable: std::sync::Arc::new(std::sync::RwLock::new(reachable)),
+        })
+    }
+
+    /// Re-probe and update the shared reachability. Long-running hosts
+    /// (impel-taskd) call this on a cadence so app launches after daemon
+    /// start bring their tools online (the probe also installs the HTTP
+    /// backend if none was installed yet).
+    ///
+    /// KNOWN LIMIT: a backend already installed for an app that has since
+    /// QUIT stays installed (the service backend registries are set-once),
+    /// so those calls degrade to their documented empty/refusing behavior
+    /// until the app relaunches. Reachability gating still withholds the
+    /// `*-app-service` tools meanwhile.
+    pub async fn refresh(&self) -> Result<Reachability> {
+        let fresh = Self::probe_reachability().await?;
+        if let Ok(mut guard) = self.reachable.write() {
+            *guard = fresh;
+        }
+        Ok(fresh)
+    }
+
+    async fn probe_reachability() -> Result<Reachability> {
+        tokio::task::spawn_blocking(|| Reachability {
             imbib: imbib_service_http::maybe_install_http_backend(),
             imprint: imprint_service_http::maybe_install_http_backend(),
             implore: implore_service_http::maybe_install_http_backend(),
             impart: impart_service_http::maybe_install_http_backend(),
         })
         .await
-        .map_err(|error| Error::Invalid(format!("tool backend probe failed: {error}")))?;
-        Ok(Self { reachable })
+        .map_err(|error| Error::Invalid(format!("tool backend probe failed: {error}")))
     }
 
     pub fn with_reachability(reachable: Reachability) -> Self {
-        Self { reachable }
+        Self {
+            reachable: std::sync::Arc::new(std::sync::RwLock::new(reachable)),
+        }
+    }
+
+    fn snapshot(&self) -> Reachability {
+        self.reachable
+            .read()
+            .map(|guard| *guard)
+            .unwrap_or_default()
     }
 
     fn available(&self) -> impl Iterator<Item = &'static McpToolDescriptor> + '_ {
-        McpToolDescriptor::iter().filter(|descriptor| self.is_available(descriptor.name))
+        let reachable = self.snapshot();
+        McpToolDescriptor::iter()
+            .filter(move |descriptor| Self::is_available_with(reachable, descriptor.name))
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     fn is_available(&self, name: &str) -> bool {
+        Self::is_available_with(self.snapshot(), name)
+    }
+
+    fn is_available_with(reachable: Reachability, name: &str) -> bool {
         match required_app(name) {
-            Some("imbib") => self.reachable.imbib,
-            Some("imprint") => self.reachable.imprint,
-            Some("implore") => self.reachable.implore,
-            Some("impart") => self.reachable.impart,
+            Some("imbib") => reachable.imbib,
+            Some("imprint") => reachable.imprint,
+            Some("implore") => reachable.implore,
+            Some("impart") => reachable.impart,
             Some(_) => false,
             None => true,
         }

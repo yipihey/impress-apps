@@ -6,6 +6,13 @@ pub enum Error {
     Invalid(String),
     #[error("oMLX is unavailable: {0}")]
     Omlx(String),
+    /// A non-success HTTP status from the provider, with the status kept
+    /// STRUCTURED so the task executor can classify it: a 4xx is a
+    /// deterministic request problem (no retry will change it), while a
+    /// 5xx/408/429 is environmental. Folding both into `Omlx(String)` made
+    /// a permanent 400 retry exactly like a connection refusal.
+    #[error("oMLX HTTP {status}: {detail}")]
+    OmlxStatus { status: u16, detail: String },
     #[error("shared store failed: {0}")]
     Store(String),
     #[error("content blob failed: {0}")]

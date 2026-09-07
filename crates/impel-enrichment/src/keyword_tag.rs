@@ -1,12 +1,21 @@
 //! `keyword-tag` — ADR-0005 §9's classification stage, and the live
 //! demonstration of the `AwaitHumanResponse` checkpoint (ADR-0015 D4/D6).
 //!
-//! Confident proposals apply immediately as `AddTag` operations
-//! (Durable — tags are research record). Low-confidence proposals open a
-//! `review-request` and suspend; on resume, an `"approved"` resolution
-//! applies the proposals recorded in the review, anything else completes
-//! without tagging. Today's imbib behavior (silently skip below the
-//! threshold) becomes an explicit, resumable human decision.
+//! Policy is PER PROPOSAL, with a capacity model (the earlier all-or-
+//! nothing gate held every confident tag hostage to the weakest proposal
+//! and opened a human review for essentially every paper — 1,018 of them
+//! were pending, unreviewed, when this was rewritten):
+//!
+//! - `confidence ≥ threshold` → applied immediately as `AddTag`
+//!   operations (Durable — tags are research record, `ai/`-namespaced and
+//!   individually revertible, which is the undo story).
+//! - `review_floor ≤ confidence < threshold` (the borderline band, floor
+//!   = 0.7·threshold) → a `review-request` listing ONLY the band, with
+//!   per-tag confidences; the task suspends.
+//! - below the floor → dropped silently, like imbib's own auto-tagger.
+//!
+//! On resume, an `"approved"` resolution applies the tags recorded in the
+//! review; anything else (`rejected`, `expired`) completes without them.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -153,42 +162,58 @@ impl TaskExecutor for KeywordTagExecutor {
             return Ok(ExecutionOutcome::Complete);
         }
 
-        let confident = proposals
-            .iter()
-            .all(|p| p.confidence >= self.confidence_threshold);
-        let tags: Vec<String> = proposals.iter().map(|p| p.tag.clone()).collect();
-
-        if confident {
-            self.apply_tags(publication.id, &tags, store)?;
+        // ── Per-proposal policy: apply / review-band / drop ────────────
+        let review_floor = self.confidence_threshold * 0.7;
+        let mut applied: Vec<String> = Vec::new();
+        let mut band: Vec<(String, f64)> = Vec::new();
+        for p in &proposals {
+            if p.confidence >= self.confidence_threshold {
+                applied.push(p.tag.clone());
+            } else if p.confidence >= review_floor {
+                band.push((p.tag.clone(), p.confidence));
+            }
+            // Below the floor: dropped — weak evidence is not worth a
+            // human decision at library scale.
+        }
+        if !applied.is_empty() {
+            self.apply_tags(publication.id, &applied, store)?;
+        }
+        if band.is_empty() {
             return Ok(ExecutionOutcome::Complete);
         }
 
-        // ── Low confidence → the human checkpoint (ADR-0005 §8) ────────
+        // ── Borderline band → the human checkpoint (ADR-0005 §8) ───────
         let mut context = BTreeMap::new();
         context.insert(
             "proposed_tags".to_string(),
-            Value::Array(tags.iter().cloned().map(Value::String).collect()),
+            Value::Array(band.iter().map(|(t, _)| Value::String(t.clone())).collect()),
         );
         context.insert(
+            "confidences".to_string(),
+            Value::Array(band.iter().map(|(_, c)| Value::Float(*c)).collect()),
+        );
+        if !applied.is_empty() {
+            context.insert(
+                "applied_tags".to_string(),
+                Value::Array(applied.iter().cloned().map(Value::String).collect()),
+            );
+        }
+        context.insert(
             "min_confidence".to_string(),
-            Value::Float(
-                proposals
-                    .iter()
-                    .map(|p| p.confidence)
-                    .fold(f64::INFINITY, f64::min),
-            ),
+            Value::Float(band.iter().map(|(_, c)| *c).fold(f64::INFINITY, f64::min)),
         );
         store.open_review(
             task.id,
             ReviewRequest {
                 question: format!(
-                    "Apply {} proposed tag(s) to \"{}\"? Confidence below {:.2}.",
-                    tags.len(),
+                    "Apply {} borderline tag(s) to \"{}\"? Confidence {:.2}–{:.2}.",
+                    band.len(),
                     if title.is_empty() {
                         "(untitled)"
                     } else {
                         &title
                     },
+                    review_floor,
                     self.confidence_threshold
                 ),
                 context: Some(context),

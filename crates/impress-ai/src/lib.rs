@@ -35,7 +35,7 @@ pub use store::{
 pub use tools::{PendingToolCall, ToolAdapter};
 pub use types::*;
 pub use worker::{
-    read_worker_status, write_worker_status, WorkerLease, WorkerLifecycleState,
-    WorkerStatusSnapshot, WORKER_HEARTBEAT_INTERVAL_SECS, WORKER_PROTOCOL_VERSION,
-    WORKER_STALE_AFTER_SECS,
+    read_worker_status, worker_runtime_directory, write_worker_status, write_worker_status_fast,
+    WorkerLease, WorkerLifecycleState, WorkerStatusSnapshot, WORKER_HEARTBEAT_INTERVAL_SECS,
+    WORKER_PROTOCOL_VERSION, WORKER_STALE_AFTER_SECS,
 };

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -120,9 +120,15 @@ impl TaskExecutor for AiTaskExecutor {
         if self.ai.has_completed_run(task.id).map_err(permanent)? {
             return Ok(ExecutionOutcome::Complete);
         }
+        // LIVE catalog: with an adapter installed, re-derive per task so an
+        // app that launched (or quit) after daemon start changes what the
+        // model is shown. The construction-time snapshot froze the tool
+        // surface for the daemon's whole life.
+        let live_catalog = self.tool_adapter.as_ref().map(|adapter| adapter.catalog());
+        let catalog = live_catalog.as_ref().unwrap_or(&self.tool_catalog);
         let mut prepared = self
             .ai
-            .prepare_request(task.id, self.blobs.as_ref(), &self.tool_catalog)
+            .prepare_request(task.id, self.blobs.as_ref(), catalog)
             .map_err(permanent)?;
 
         let research_context = if prepared.request.tool_policy.allows("web") {
@@ -380,8 +386,28 @@ impl TaskExecutor for AiTaskExecutor {
         Ok(ExecutionOutcome::Complete)
     }
 
+    /// Reachability preflight: the scheduler defers this whole kind while
+    /// the provider is down instead of acquiring tasks that can only burn
+    /// their retry budget against a connection refusal. `models()` is the
+    /// cheapest authenticated round-trip the provider trait offers.
+    async fn readiness(&self) -> std::result::Result<(), String> {
+        match tokio::time::timeout(Duration::from_secs(3), self.provider.models()).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(format!(
+                "provider {} unreachable: {error}",
+                self.provider.endpoint_id()
+            )),
+            Err(_) => Err(format!(
+                "provider {} probe timed out",
+                self.provider.endpoint_id()
+            )),
+        }
+    }
+
+    // With backoff (45s·3^n) this covers ~30 minutes of provider outage
+    // before escalating, instead of the old ~15 seconds.
     fn max_retries(&self) -> u32 {
-        2
+        4
     }
 }
 
@@ -453,8 +479,22 @@ impl TaskExecutor for AiTitleTaskExecutor {
         Ok(ExecutionOutcome::Complete)
     }
 
+    async fn readiness(&self) -> std::result::Result<(), String> {
+        match tokio::time::timeout(Duration::from_secs(3), self.provider.models()).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(format!(
+                "provider {} unreachable: {error}",
+                self.provider.endpoint_id()
+            )),
+            Err(_) => Err(format!(
+                "provider {} probe timed out",
+                self.provider.endpoint_id()
+            )),
+        }
+    }
+
     fn max_retries(&self) -> u32 {
-        2
+        4
     }
 }
 
@@ -630,9 +670,21 @@ fn permanent(error: Error) -> TaskError {
 
 fn classify_transport(error: Error) -> TaskError {
     match error {
-        Error::Omlx(_) | Error::Http(_) | Error::Io(_) | Error::Web(_) => {
-            TaskError::Retryable(error.to_string())
+        // Deterministic request failures: a 4xx (bad request, unknown
+        // model, oversized payload) will fail identically on every retry —
+        // fail fast instead of re-running the whole request ladder. 408
+        // (timeout) and 429 (rate limit) are environmental and stay
+        // retryable.
+        Error::OmlxStatus { status, .. }
+            if (400..500).contains(&status) && status != 408 && status != 429 =>
+        {
+            TaskError::Permanent(error.to_string())
         }
+        Error::Omlx(_)
+        | Error::OmlxStatus { .. }
+        | Error::Http(_)
+        | Error::Io(_)
+        | Error::Web(_) => TaskError::Retryable(error.to_string()),
         other => TaskError::Permanent(other.to_string()),
     }
 }
@@ -727,7 +779,9 @@ mod tests {
             blobs,
         );
         assert_eq!(executor.task_kind(), INFERENCE_TASK_KIND);
-        assert_eq!(executor.max_retries(), 2);
+        // 4 retries × the scheduler's exponential backoff ≈ 30 minutes of
+        // provider-outage coverage before escalation (was 2 ≈ 15 seconds).
+        assert_eq!(executor.max_retries(), 4);
     }
 
     #[test]

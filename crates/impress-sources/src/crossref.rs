@@ -40,6 +40,8 @@ impl CrossrefSource {
             base_url: base_url.into(),
             client: reqwest::Client::builder()
                 .user_agent("impress-sources/0.1 (https://github.com/yipihey/impress-apps; mailto:contact@imbib.app)")
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(20))
                 .build()
                 .expect("reqwest client"),
         }

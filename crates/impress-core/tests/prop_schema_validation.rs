@@ -297,6 +297,9 @@ fn task_schema_matches_adr_field_table() {
             "task_kind",
             "assigned_to",
             "attempts",
+            // 2026-09 review fixes: retry backoff not-before, honored by
+            // `ready_tasks` (ADR-0005 §9's exponential backoff, finally).
+            "next_attempt_at",
             "due_at",
             "output_schema",
             "error",

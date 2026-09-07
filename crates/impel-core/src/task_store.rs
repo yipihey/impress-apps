@@ -111,6 +111,33 @@ pub trait TaskStoreApi: Send + Sync {
 
     /// Tasks currently `running` (used for suspension recovery on restart).
     fn running_tasks(&self, assigned_to: &str) -> Result<Vec<Item>, TaskStoreError>;
+
+    /// Apply several operations atomically (one transaction, one batch id).
+    /// A crash or a sibling-writer BUSY timeout either applies ALL of them
+    /// or NONE — the primitive `acquire_task` needs so a task can never be
+    /// stranded `running` with no `assigned_to`.
+    fn apply_batch(&self, specs: Vec<OperationSpec>) -> Result<(), TaskStoreError>;
+
+    /// Atomically acquire `task`: transition → `running`, stamp
+    /// `assigned_to` and the incremented `attempts` — one transaction.
+    fn acquire_task(&self, task: &Item, actor: &str) -> Result<(), TaskStoreError>;
+
+    /// Target task ids of every UNRESOLVED review-request in the store —
+    /// the suspension set, derived in ONE query per pass instead of one
+    /// `reviews_for` per running task (the old shape cost ~1,019 queries
+    /// per 5s pass at the live backlog).
+    fn unresolved_review_targets(
+        &self,
+    ) -> Result<std::collections::HashSet<ItemId>, TaskStoreError>;
+
+    /// `running` tasks with NO assignee — the wedge a non-atomic acquire
+    /// used to strand (invisible to both `ready_tasks` and
+    /// `running_tasks`). The scheduler adopts them back to `pending`.
+    fn orphaned_running_tasks(&self) -> Result<Vec<Item>, TaskStoreError>;
+
+    /// Tasks that declare `DependsOn → task_id` (direct dependents), for
+    /// failure/cancellation propagation (ADR-0005 §4).
+    fn dependents_of(&self, task_id: ItemId) -> Result<Vec<Item>, TaskStoreError>;
 }
 
 /// Build a bare item envelope for kernel-created items.
@@ -267,6 +294,15 @@ impl TaskStoreApi for SqliteItemStore {
         let q = ItemQuery {
             schema: Some(REVIEW_REQUEST_SCHEMA.into()),
             predicates: vec![Predicate::HasReference(EdgeType::OperatesOn, task_id)],
+            // Newest first, for real — the doc promised it while the query
+            // had no ORDER BY, so `resolved.first()` picked an arbitrary
+            // review whenever a task had several.
+            sort: vec![impress_core::query::SortDescriptor {
+                field: "created".into(),
+                ascending: false,
+            }],
+            include_tags: false,
+            include_references: false,
             ..Default::default()
         };
         let mut unresolved = Vec::new();
@@ -293,6 +329,101 @@ impl TaskStoreApi for SqliteItemStore {
                     Value::String(assigned_to.into()),
                 ),
             ],
+            // Executors re-find their subject via references; tags are
+            // never read on the scheduler path.
+            include_tags: false,
+            ..Default::default()
+        };
+        Ok(ItemStore::query(self, &q)?)
+    }
+
+    fn apply_batch(&self, specs: Vec<OperationSpec>) -> Result<(), TaskStoreError> {
+        SqliteItemStore::apply_operation_batch(self, specs)?;
+        Ok(())
+    }
+
+    fn acquire_task(&self, task: &Item, actor: &str) -> Result<(), TaskStoreError> {
+        let transition = transition_op(
+            task,
+            TaskState::Running,
+            ActorId::from(actor),
+            ActorKind::Agent,
+            None,
+        )?;
+        let attempts = match task.payload.get("attempts") {
+            Some(Value::Int(i)) => *i,
+            _ => 0,
+        } + 1;
+        let sibling = |field: &str, value: Value| OperationSpec {
+            target_id: task.id,
+            op_type: OperationType::SetPayload(field.into(), value),
+            intent: OperationIntent::Routine,
+            reason: None,
+            batch_id: None,
+            author: ActorId::from(actor),
+            author_kind: ActorKind::Agent,
+            retention: RetentionTier::Compactable,
+        };
+        self.apply_batch(vec![
+            transition,
+            sibling("assigned_to", Value::String(actor.into())),
+            sibling("attempts", Value::Int(attempts)),
+        ])
+    }
+
+    fn unresolved_review_targets(
+        &self,
+    ) -> Result<std::collections::HashSet<ItemId>, TaskStoreError> {
+        let q = ItemQuery {
+            schema: Some(REVIEW_REQUEST_SCHEMA.into()),
+            include_tags: false,
+            // References ARE the payload here: the OperatesOn edge names
+            // the suspended task.
+            include_references: true,
+            ..Default::default()
+        };
+        let mut targets = std::collections::HashSet::new();
+        for review in ItemStore::query(self, &q)? {
+            let resolved = matches!(review.payload.get("resolution"),
+                                    Some(Value::String(s)) if !s.is_empty());
+            if resolved {
+                continue;
+            }
+            for r in &review.references {
+                if r.edge_type == EdgeType::OperatesOn {
+                    targets.insert(r.target);
+                }
+            }
+        }
+        Ok(targets)
+    }
+
+    fn orphaned_running_tasks(&self) -> Result<Vec<Item>, TaskStoreError> {
+        let q = ItemQuery {
+            schema: Some(TASK_SCHEMA.into()),
+            predicates: vec![Predicate::Eq(
+                "payload.state".into(),
+                Value::String(TaskState::Running.as_str().into()),
+            )],
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        };
+        Ok(ItemStore::query(self, &q)?
+            .into_iter()
+            .filter(|t| {
+                !matches!(t.payload.get("assigned_to"),
+                          Some(Value::String(s)) if !s.is_empty())
+            })
+            .collect())
+    }
+
+    fn dependents_of(&self, task_id: ItemId) -> Result<Vec<Item>, TaskStoreError> {
+        let q = ItemQuery {
+            schema: Some(TASK_SCHEMA.into()),
+            predicates: vec![Predicate::HasReference(EdgeType::DependsOn, task_id)],
+            include_tags: false,
+            include_references: true,
             ..Default::default()
         };
         Ok(ItemStore::query(self, &q)?)

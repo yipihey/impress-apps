@@ -177,7 +177,10 @@ impl OmlxClient {
         if !response.status().is_success() {
             let status = response.status();
             let detail = response.text().await.unwrap_or_default();
-            return Err(Error::Omlx(format!("HTTP {status}: {detail}")));
+            return Err(Error::OmlxStatus {
+                status: status.as_u16(),
+                detail,
+            });
         }
 
         let (sender, receiver) = mpsc::channel(64);

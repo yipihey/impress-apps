@@ -49,6 +49,20 @@ pub trait TaskExecutor: Send + Sync {
     /// item's `task_kind` payload field, falling back to `title`).
     fn task_kind(&self) -> &str;
 
+    /// Is this executor's external dependency reachable RIGHT NOW?
+    ///
+    /// Consulted once per kind per scheduler pass (with a negative cache)
+    /// BEFORE any task of the kind is acquired. `Err(reason)` defers the
+    /// whole kind: its tasks stay `pending`, burn no attempts, write no
+    /// state, and become eligible again the moment a later probe passes.
+    /// This is the "aware of its own state" contract: an executor whose
+    /// sole dependency (a local model server, a required app) is provably
+    /// down must say so here instead of failing tasks one by one.
+    /// Default: always ready (pure/heuristic executors).
+    async fn readiness(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Execute the task. Output items are written via `store`; the
     /// executor must NOT transition task state — that is the scheduler's
     /// job (ADR-0005 §7).
