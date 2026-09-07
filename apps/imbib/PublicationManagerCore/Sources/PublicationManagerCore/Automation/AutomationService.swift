@@ -612,6 +612,63 @@ public actor AutomationService: AutomationOperations {
         return count
     }
 
+    // MARK: - reMarkable USB mirror (ADR-025)
+
+    /// Mark or unmark papers for the tablet. Resolves identifiers first so
+    /// the store call is one batch and the outcome names every row.
+    public func setEInkMirrored(identifiers: [PaperIdentifier], mirrored: Bool) async throws -> EInkMirrorUpdateResult {
+        try await checkAuthorization()
+
+        var ids: [UUID] = []
+        var notFound: [String] = []
+        for identifier in identifiers {
+            if let pub = await findPublication(by: identifier) {
+                ids.append(pub.id)
+            } else {
+                notFound.append(identifier.value)
+            }
+        }
+
+        guard !ids.isEmpty else {
+            return EInkMirrorUpdateResult(deviceId: nil, changed: [], unchanged: [], awaitingSource: [], notFound: notFound)
+        }
+
+        let outcome = await withStore { store in
+            mirrored ? store.einkMark(ids: ids) : store.einkUnmark(ids: ids)
+        }
+        guard let outcome else {
+            throw AutomationOperationError.operationFailed(
+                "The e-ink mirror could not \(mirrored ? "mark" : "unmark") the papers — is a reMarkable configured?")
+        }
+        logger.info("eink \(mirrored ? "mark" : "unmark") via automation: changed=\(outcome.changed.count) unchanged=\(outcome.unchanged.count) awaitingSource=\(outcome.awaitingSource.count) notFound=\(notFound.count)")
+        return EInkMirrorUpdateResult(
+            deviceId: outcome.deviceId,
+            changed: outcome.changed,
+            unchanged: outcome.unchanged,
+            awaitingSource: outcome.awaitingSource,
+            notFound: notFound)
+    }
+
+    /// The mirror subsystem's status (`GET /api/eink/status`).
+    public func eInkStatus() async throws -> EInkStatusSnapshot? {
+        try await checkAuthorization()
+        return await RustStoreAdapter.shared.einkStatusBackground()
+    }
+
+    /// The mirror row for one paper, if any (`GET /api/papers/{citeKey}` → `eink`).
+    public func eInkMirror(for identifier: PaperIdentifier) async throws -> EInkMirrorRecord? {
+        try await checkAuthorization()
+        guard let pub = await findPublication(by: identifier) else { return nil }
+        return await withStore { store in store.einkMirrorRecord(publicationId: pub.id) }
+    }
+
+    /// Run one sync pass against the tablet now (`POST /api/eink/sync`).
+    /// Blocking network work runs off the main thread inside the adapter.
+    public func eInkSync(importAnnotations: Bool) async throws -> EInkSyncReport {
+        try await checkAuthorization()
+        return try await RustStoreAdapter.shared.einkSync(import: importAnnotations)
+    }
+
     // MARK: - Collection Operations
 
     public func listCollections(libraryID: UUID?) async throws -> [CollectionResult] {
@@ -1277,7 +1334,8 @@ public actor AutomationService: AutomationOperations {
         pageNumber: Int,
         contents: String?,
         selectedText: String?,
-        color: String?
+        color: String?,
+        authorName: String? = nil
     ) async throws -> AnnotationResult {
         try await checkAuthorization()
 
@@ -1317,7 +1375,8 @@ public actor AutomationService: AutomationOperations {
                 boundsJson: boundsJson,
                 color: hexColor,
                 contents: contents,
-                selectedText: selectedText
+                selectedText: selectedText,
+                authorName: authorName
             )
         }) else {
             throw AutomationOperationError.operationFailed("Failed to create annotation")
@@ -2291,4 +2350,30 @@ public actor AutomationService: AutomationOperations {
 
 public extension Notification.Name {
     static let downloadPDF = Notification.Name("com.imbib.downloadPDF")
+}
+
+// MARK: - reMarkable mirror result (ADR-025)
+
+/// What `AutomationOperations.setEInkMirrored` did, per paper.
+public struct EInkMirrorUpdateResult: Sendable, Equatable {
+    /// The device the marks were written for; nil when nothing resolved.
+    public let deviceId: String?
+    /// Papers whose mirror row changed.
+    public let changed: [UUID]
+    /// Papers already in the requested state.
+    public let unchanged: [UUID]
+    /// Marked papers with no local PDF/ePUB yet (`awaiting_source`).
+    public let awaitingSource: [UUID]
+    /// Identifiers that matched no paper.
+    public let notFound: [String]
+
+    public init(deviceId: String?, changed: [UUID], unchanged: [UUID], awaitingSource: [UUID], notFound: [String]) {
+        self.deviceId = deviceId
+        self.changed = changed
+        self.unchanged = unchanged
+        self.awaitingSource = awaitingSource
+        self.notFound = notFound
+    }
+
+    public var updated: Int { changed.count }
 }

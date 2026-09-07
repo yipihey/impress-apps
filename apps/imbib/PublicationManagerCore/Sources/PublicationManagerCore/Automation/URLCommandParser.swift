@@ -149,6 +149,11 @@ public enum PaperAction: Sendable {
     // imprint integration
     case annotations
     case openInImprint
+
+    /// Mark (`true`) or unmark (`false`) the paper for the reMarkable USB
+    /// mirror (ADR-025): `imbib://paper/<citeKey>/eink?mirrored=true|false`
+    /// (missing `mirrored` means mark).
+    case setEInkMirrored(Bool)
 }
 
 // MARK: - Selected Papers Action
@@ -510,6 +515,13 @@ public struct URLCommandParser {
         // imprint integration
         case "annotations": action = .annotations
         case "open-in-imprint": action = .openInImprint
+        // reMarkable USB mirror (ADR-025)
+        case "eink":
+            switch (params["mirrored"] ?? "true").lowercased() {
+            case "true", "1", "yes": action = .setEInkMirrored(true)
+            case "false", "0", "no": action = .setEInkMirrored(false)
+            default: throw AutomationError.invalidParameter("mirrored", params["mirrored"] ?? "")
+            }
         default:
             throw AutomationError.invalidParameter("action", actionStr)
         }

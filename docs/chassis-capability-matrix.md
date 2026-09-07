@@ -73,7 +73,7 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 
 | Row kind | Select→detail | Multi-select | Context menu | Drag | Keyboard | Delete flow |
 |---|---|---|---|---|---|---|
-| Publication (`MailStylePublicationRow`) | ✅ `.id(source.viewID)` | ✅ Set + combined BibTeX | ✅ full (flag/tag/collections/…) | ✅ multi, cross-app ref | ✅ j/k + guarded | soft-delete → Dismissed, Undo — **on both platforms as of Stage 5d**; iOS's list had its own `handleDelete` calling `deletePublications` unconditionally, from every scope |
+| Publication (`MailStylePublicationRow`) | ✅ `.id(source.viewID)` | ✅ Set + combined BibTeX | ✅ full (flag/tag/collections/…) + **Mirror to reMarkable / Remove from reMarkable** (ADR-025, P6 2026-09-07: shown only while a device in individual mode is configured — `EInkMirrorModel.showsIndividualControls`; label follows the row's `einkState.menuVerb`; replaces the dead "Send to E-Ink Device", which posted a notification nobody observed); iOS swipe-leading gets Mirror/Unmirror beside Star | ✅ multi, cross-app ref | ✅ j/k + guarded; **`e`** = toggle the mirror mark (`TriageKeyGrammar.toggleEinkMirror`, imbib profile `toggleEInkMirrorVim`), any-unmirrored → mirror-all like `s`; ⌃⌘E from the Paper menu is the same action on the selection | soft-delete → Dismissed, Undo — **on both platforms as of Stage 5d**; iOS's list had its own `handleDelete` calling `deletePublications` unconditionally, from every scope |
 | Manuscript (`ManuscriptListWrapper`) | ✅ `.id(scope)` only (no pane `.id` — rebuilding the NSTextView made selection sluggish) | ✅ Set, primary drives detail | ✅ Open/Duplicate/Rename…/Star/Archive/Flag/Tags/Folder/Delete — Rename (2026-08-05) is an alert-with-TextField over `RecordTriageActions.onRename` → payload `title` write (`updateField`, undo via op log; kernel hosts get prior-title capture), so the op history renders it as "Renamed" | ✅ multi → folders (pasteboard + `RecordDragSession.manuscript` fallback) | ✅ j/k/n/s guarded | confirm alert → hard delete + Undo, session discarded; swipe = archive (status) / delete |
 | Manuscript — **impress-iOS** (`IOSImpressListColumn.loadManuscripts`) | ➖ host column, not the wrapper | ➖ | ➖ inherits the shared `TriageMenu` | ➖ | ➖ | **Every host that switches on `ManuscriptListScope` owes ALL FIVE cases.** ADR-0023 W3 added `.tag(String)` and updated PMC's wrapper and imprint's adapter but not this column, and impress-iOS is the only lane that compiles it — so `Switch must be exhaustive` was the FIRST signal, two commits later (fixed 2026-08-01). `.tag` must be a POST-filter on `tagDisplays`, never a `queryManuscripts` argument: tags live on the item envelope, so a query parameter would need an FFI verb whose only caller is this one row kind |
 | Artifact | ✅ | ❌ | partial | ❌ | ✅ | ✅ |
@@ -134,15 +134,15 @@ viewer-registry factory → section wiring → preset lines (incl. `impress`) �
 mixed-kind surfaces and the MCP tool surface, which cost ZERO new code
 because every tool in the section below is store-generic.
 
-| Kind | schemaRefs | Tabs (availability) | Star | Flag | Tag | Dismiss semantics | Archive | Delete semantics | Create | Open behavior |
-|---|---|---|---|---|---|---|---|---|---|---|
-| publication | imbib/bibliography-entry | info, pdf, notes (editable only), bibtex | ✅ | ✅ | ✅ | library-move → Dismissed library (never re-enters inbox) | ➖ | soft (move to Dismissed); hard only from Dismissed | import/search | detail pane; handoff n/a |
-| manuscript | manuscript | info, source, pdf-as-Preview (hidden for plaintext) | ✅ | ✅ | ✅ | status=dismissed (restore→draft) | status=archived | confirm alert → hard delete + undo, session discarded first | n (format menu: typst/latex/markdown/plaintext) | imprint: window "manuscript-editor"; imbib: app handoff imprint:// |
-| artifact | artifact schemas | info (+type-specific) | ❌ | partial | ✅ | ➖ | ➖ | ✅ | detail pane |
-| figure | figure | info, pdf-as-View (hidden without data_hash; presence encoded via RecordTabContext.previewKind = compiledPDF/none) | ✅ | ✅ | ✅ | ➖ (no status field today) | ➖ | confirm alert → hard delete + undo | ➖ (canvas/generators create) | window "canvas" (value = figure id string) |
-| message | email-message, chat-message | info, source, pdf-as-View (all always available) | ✅ | ✅ | ✅ | ➖ (no status field; `.statusChange` would be wrong — lifecycle is IMAP-owned; archive-to-folder is a Stage-2-A2 follow-up) | ➖ | ➖ `.none` — deletion goes through impart's IMAP flows, never the store | ➖ compose stays in impart's classic window (v1) | detail pane |
-| task | task@1.0.0 (VERSIONED — impel-core TaskStoreApi) | info, source (description/prompt), pdf-as-View (latest run's result_summary via MarkdownUI; all always available) | ✅ | ✅ | ✅ | ➖ `.none` — task state moves ONLY through `TaskStoreApi.transition` (kernel-owned, ADR-0015 D1; a `.statusChange` dismissal would bypass the kernel; `statuses` declared empty because the lifecycle lives in payload `state`, not the chassis `status` machinery) | ➖ | ➖ `.none` — kernel-owned | ➖ scheduled by impel-taskd/counsel, never `n` | detail pane |
-| agent-run | agent-run@1.0.0 | info, source (raw result_summary), pdf-as-View (MarkdownUI; all always available) | ✅ | ✅ | ✅ | ➖ immutable provenance record (ADR-0005 §5) | ➖ | ➖ `.none` | ➖ recorded by the kernel | detail pane |
+| Kind | schemaRefs | Tabs (availability) | Star | Flag | Tag | Mirror | Dismiss semantics | Archive | Delete semantics | Create | Open behavior |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| publication | imbib/bibliography-entry | info, pdf, notes (editable only), bibtex | ✅ | ✅ | ✅ | ✅ `canMirrorToEink` (ADR-025) — the ONLY kind; the verbs still need a device in individual mode (`TriageRowState.isMirrored` non-nil) | library-move → Dismissed library (never re-enters inbox) | ➖ | soft (move to Dismissed); hard only from Dismissed | import/search | detail pane; handoff n/a |
+| manuscript | manuscript | info, source, pdf-as-Preview (hidden for plaintext) | ✅ | ✅ | ✅ | ❌ | status=dismissed (restore→draft) | status=archived | confirm alert → hard delete + undo, session discarded first | n (format menu: typst/latex/markdown/plaintext) | imprint: window "manuscript-editor"; imbib: app handoff imprint:// |
+| artifact | artifact schemas | info (+type-specific) | ❌ | partial | ✅ | ❌ | ➖ | ➖ | ✅ | detail pane |
+| figure | figure | info, pdf-as-View (hidden without data_hash; presence encoded via RecordTabContext.previewKind = compiledPDF/none) | ✅ | ✅ | ✅ | ❌ | ➖ (no status field today) | ➖ | confirm alert → hard delete + undo | ➖ (canvas/generators create) | window "canvas" (value = figure id string) |
+| message | email-message, chat-message | info, source, pdf-as-View (all always available) | ✅ | ✅ | ✅ | ❌ | ➖ (no status field; `.statusChange` would be wrong — lifecycle is IMAP-owned; archive-to-folder is a Stage-2-A2 follow-up) | ➖ | ➖ `.none` — deletion goes through impart's IMAP flows, never the store | ➖ compose stays in impart's classic window (v1) | detail pane |
+| task | task@1.0.0 (VERSIONED — impel-core TaskStoreApi) | info, source (description/prompt), pdf-as-View (latest run's result_summary via MarkdownUI; all always available) | ✅ | ✅ | ✅ | ❌ | ➖ `.none` — task state moves ONLY through `TaskStoreApi.transition` (kernel-owned, ADR-0015 D1; a `.statusChange` dismissal would bypass the kernel; `statuses` declared empty because the lifecycle lives in payload `state`, not the chassis `status` machinery) | ➖ | ➖ `.none` — kernel-owned | ➖ scheduled by impel-taskd/counsel, never `n` | detail pane |
+| agent-run | agent-run@1.0.0 | info, source (raw result_summary), pdf-as-View (MarkdownUI; all always available) | ✅ | ✅ | ✅ | ❌ | ➖ immutable provenance record (ADR-0005 §5) | ➖ | ➖ `.none` | ➖ recorded by the kernel | detail pane |
 
 Frozen shell-preset truth table (AppShellConfiguration v2 parity target).
 **`impress` SHIPS an app target since 2026-07-30** (ADR-0022 D9). The column was
@@ -1441,6 +1441,23 @@ import half in `tests/eink_import.rs`). Folders the tablet lacks are a
 checklist (parents first) and the affected papers wait in
 `awaiting_folder`; nothing is re-sent silently (`stale`,
 `removed_on_device`, `unmarked` are explicit states with "send again").
+
+**Swift projection, P6 (2026-09-07).** The GUI consumes the engine through
+`RustStoreAdapter+EInk.swift` (every `eink*` UniFFI verb, `throws` absorbed
+into logged nil/empty results; `einkSync` / `einkPlan` / `einkReachable` are
+`nonisolated` and hop to a detached task because they block on the USB
+interface) and the Swift records in `EInk/EInkMirrorRecords.swift` — no view
+imports `ImbibRustCore`. What each surface owes:
+
+| Surface | What P6 wired |
+|---|---|
+| Row marker | `PublicationRowData.einkState: EInkMirrorState?` (mapped in `init?(from: BibliographyRow)`; nil unless a device in individual mode is configured) → `MailStyleItem.leadingMarker` (new, default nil; `packages/ImpressMailStyle`) rendered in `MailStyleRow`'s indicator column under the star. impart/impel rows unaffected |
+| Store events | `MutationKind.einkMirror` (`packages/ImpressStoreKit`); `einkMark`/`einkUnmark` emit `.itemsMutated(kind: .einkMirror, ids: changed)`; device config, resend and a real sync emit `.structural` |
+| Gates | `EInkMirrorModel.shared` (`@Observable`, `SyncStatusModel` shape): `isConfigured` (any enabled device) gates the Paper-menu items, palette entries and the PDF-tab chip; `showsIndividualControls` (marker device set) gates every per-row verb. Refreshes off-main on `.einkMirror` / `.structural` events, coalesced; reads only, never posts |
+| Verbs | context menu (`PublicationListView.contextMenuItems`, `MailStylePublicationRow`, shared `TriageMenu`), iOS leading swipe (`TriageSwipe` + the row), `e` (`TriageKeyGrammar.toggleEinkMirror`; the four other list wrappers return `.ignored`), ⌃⌘E / Paper ▸ Mirror to reMarkable (`.toggleEInkMirror`), Paper ▸ Sync reMarkable Now (`.einkSyncNow`), Paper ▸ Import reMarkable Annotations (`.einkImportAnnotations`), command palette (those three + "E-Ink Settings…" → `.showEInkSettings`). `RecordTriageActions.onToggleEink` with a store-backed default; `TriageCapabilities.canMirrorToEink` (publication only); `TriageRowState.isMirrored` / `mirrorMenuVerb` |
+| PDF tab | the two dead "Send to E-Ink Device" buttons are one state chip (toggle in individual mode, read-only label in `all` mode) |
+| Automation | `PUT /api/papers/eink {identifiers, mirrored}` (before the `/api/papers/{citeKey}` catch-all, shape of `PUT /api/papers/star`; `AutomationService.setEInkMirrored`), `GET /api/eink/status` (`EInkStatusSnapshot.jsonDictionary()`), `POST /api/eink/sync {import}` (off-main `einkSync`; answers the report + trace), `GET /api/papers/{citeKey}` gains `eink {state, marked, remotePath, uploadedAt, lastError}` when a mirror row exists; `imbib://paper/<citeKey>/eink?mirrored=true|false` (`PaperAction.setEInkMirrored`, written straight through the adapter — no notification carries a cite key to the list). `POST /api/papers/{citeKey}/annotations` and `POST /api/files/{id}/annotations` accept `authorName` |
+| Deferred to P7/P8 | `.einkSyncNow` / `.einkImportAnnotations` have NO observer yet (`EInkSyncCoordinator`); `POST /api/eink/{folders/check,import}`; the Settings › E-Ink pane over `einkConfigureDevice`; the Info-tab section, Notes-tab section and PDF-switcher label; `EInkSourceFetcher` for `awaiting_source` rows; `.showEInkSettings` is still unobserved by `SettingsView` |
 
 ## MCP surface
 

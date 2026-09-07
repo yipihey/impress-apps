@@ -115,6 +115,14 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// after the row is constructed; nil in single-source views.
     public var libraryName: String?
 
+    // MARK: - E-Ink Mirror (ADR-025)
+
+    /// The reMarkable mirror marker. `nil` means "no marker": either no
+    /// device in individual mode is configured (Rust leaves the field unset)
+    /// or the paper is not marked. Two rows differing only here are unequal,
+    /// which is what makes the marker refresh through the row diff.
+    public let einkState: EInkMirrorState?
+
     // MARK: - Memberwise Init
 
     /// Direct memberwise initializer for creating PublicationRowData from any source.
@@ -144,7 +152,8 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         categories: [String] = [],
         tagDisplays: [TagDisplayData] = [],
         enrichmentDate: String? = nil,
-        libraryName: String? = nil
+        libraryName: String? = nil,
+        einkState: EInkMirrorState? = nil
     ) {
         self.id = id
         self.citeKey = citeKey
@@ -172,6 +181,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.tagDisplays = tagDisplays
         self.enrichmentDate = enrichmentDate
         self.libraryName = libraryName
+        self.einkState = einkState
     }
 }
 
@@ -209,4 +219,7 @@ extension PublicationRowData: MailStyleItem {
     public var hasAttachment: Bool { hasDownloadedPDF }
 
     public var hasSecondaryAttachment: Bool { hasOtherAttachments }
+
+    /// The reMarkable mirror marker, under the star in the indicator column.
+    public var leadingMarker: MailStyleLeadingMarker? { einkState?.marker }
 }

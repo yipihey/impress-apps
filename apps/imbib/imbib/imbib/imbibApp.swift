@@ -1246,14 +1246,25 @@ struct AppCommands: Commands {
 
             Divider()
 
-            Button("Send to E-Ink Device") {
-                NotificationCenter.default.post(name: .sendToEInkDevice, object: nil)
+            // reMarkable USB mirror (ADR-025). All three are disabled until a
+            // device is configured (Settings › E-Ink); the toggle additionally
+            // applies per-row only in individual mode — the list wrapper that
+            // observes `.toggleEInkMirror` checks that itself.
+            Button("Mirror to reMarkable") {
+                NotificationCenter.default.post(name: .toggleEInkMirror, object: nil)
             }
             .keyboardShortcut("e", modifiers: [.control, .command])
+            .disabled(!EInkMirrorModel.shared.isConfigured)
 
-            Button("Sync E-Ink Annotations") {
-                NotificationCenter.default.post(name: .syncEInkAnnotations, object: nil)
+            Button("Sync reMarkable Now") {
+                NotificationCenter.default.post(name: .einkSyncNow, object: nil)
             }
+            .disabled(!EInkMirrorModel.shared.isConfigured)
+
+            Button("Import reMarkable Annotations") {
+                NotificationCenter.default.post(name: .einkImportAnnotations, object: nil)
+            }
+            .disabled(!EInkMirrorModel.shared.isConfigured)
 
             Divider()
 

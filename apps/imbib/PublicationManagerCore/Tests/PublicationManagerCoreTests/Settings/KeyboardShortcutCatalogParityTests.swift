@@ -10,6 +10,11 @@
 //  what the user sees — all of which this snapshot pins, plus the id /
 //  notification name / customizability that `mergeWithDefaults` depends on.
 //
+//  Deliberate changes since the move: 2026-09-07 (ADR-025) added the two
+//  reMarkable mirror bindings — `toggleEInkMirror` (⌃⌘E, the chord the
+//  old "Send to E-Ink Device" item already used) and `toggleEInkMirrorVim`
+//  (`e`, previously unbound) — both in Paper Actions.
+//
 //  If this test fails, the resolved list changed. That is either a bug in the
 //  shared-catalog resolution or a deliberate vocabulary change; either way it
 //  is never invisible again.
@@ -117,6 +122,7 @@ addToCollection|Add to Collection|Paper Actions|l|1|addToCollection|1|⌘l
 removeFromCollection|Remove from Collection|Paper Actions|l|3|removeFromCollection|1|⇧⌘l
 moveToCollection|Move to Collection|Paper Actions|m|9|moveToCollection|1|⌃⌘m
 sharePapers|Share|Paper Actions|f|3|sharePapers|1|⇧⌘f
+toggleEInkMirror|Mirror to reMarkable|Paper Actions|e|9|toggleEInkMirror|1|⌃⌘e
 deleteSelectedPapers|Delete|Paper Actions|delete|1|deleteSelectedPapers|1|⌘⌫
 copyPublications|Copy BibTeX|Clipboard|c|1|copyPublications|1|⌘c
 copyAsCitation|Copy as Citation|Clipboard|c|3|copyAsCitation|1|⇧⌘c
@@ -139,6 +145,7 @@ flagMode|Flag Mode|Paper Actions|f|0|enterFlagMode|1|f
 tagMode|Tag Mode|Paper Actions|t|0|enterTagMode|1|t
 tagDeleteMode|Tag Delete Mode|Paper Actions|t|2|enterTagDeleteMode|1|Shift+t
 filterMode|Filter Mode|Paper Actions|/|0|enterFilterMode|1|/
+toggleEInkMirrorVim|Mirror to reMarkable (Vim)|Paper Actions|e|0|toggleEInkMirror|1|e
 pdfPageDown|Page Down|PDF Viewer|space|0|pdfPageDown|1|Space
 pdfPageUp|Page Up|PDF Viewer|space|2|pdfPageUp|1|Shift+Space
 pdfZoomIn|Zoom In|PDF Viewer|plus|3|pdfZoomIn|1|⇧⌘+
@@ -191,11 +198,13 @@ Paper Actions/addToCollection/⌘l
 Paper Actions/removeFromCollection/⇧⌘l
 Paper Actions/moveToCollection/⌃⌘m
 Paper Actions/sharePapers/⇧⌘f
+Paper Actions/toggleEInkMirror/⌃⌘e
 Paper Actions/deleteSelectedPapers/⌘⌫
 Paper Actions/flagMode/f
 Paper Actions/tagMode/t
 Paper Actions/tagDeleteMode/Shift+t
 Paper Actions/filterMode//
+Paper Actions/toggleEInkMirrorVim/e
 Clipboard/copyPublications/⌘c
 Clipboard/copyAsCitation/⇧⌘c
 Clipboard/copyIdentifier/⌥⌘c

@@ -97,7 +97,8 @@ public final class AnnotationPersistence {
             boundsJson: boundsJson,
             color: pdfAnnotation.color.hexString,
             contents: pdfAnnotation.contents,
-            selectedText: selectedText
+            selectedText: selectedText,
+            authorName: resolveAuthorName()
         )
 
         if result != nil {
@@ -595,7 +596,8 @@ extension AnnotationPersistence {
                     boundsJson: bounds,
                     color: data.color,
                     contents: data.content,
-                    selectedText: nil
+                    selectedText: nil,
+                    authorName: resolveAuthorName()
                 )
             }
 

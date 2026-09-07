@@ -30,6 +30,10 @@ import OSLog
 /// selection).
 public struct RecordTriageActions {
     public var onToggleStar: (Set<UUID>, Bool) -> Void = { _, _ in }
+    /// Mark (`true`) or unmark (`false`) the selection for the e-ink tablet
+    /// (ADR-025). Only kinds with `TriageCapabilities.canMirrorToEink` surface
+    /// it, and only while `TriageRowState.isMirrored` is non-nil.
+    public var onToggleEink: (Set<UUID>, Bool) -> Void = { _, _ in }
     public var onSetFlag: (Set<UUID>, FlagColor?) -> Void = { _, _ in }
     public var onAddTag: (Set<UUID>, String) -> Void = { _, _ in }
     public var onRemoveTag: (Set<UUID>, String) -> Void = { _, _ in }
@@ -71,6 +75,17 @@ public struct RecordTriageActions {
         let triage = descriptor.triage
         a.onToggleStar = { ids, starred in
             RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: starred)
+        }
+        if triage.canMirrorToEink {
+            // The adapter logs the three-point trace and fans out
+            // `.itemsMutated(kind: .einkMirror)` for the rows that changed.
+            a.onToggleEink = { ids, mirrored in
+                if mirrored {
+                    RustStoreAdapter.shared.einkMark(ids: Array(ids))
+                } else {
+                    RustStoreAdapter.shared.einkUnmark(ids: Array(ids))
+                }
+            }
         }
         a.onSetFlag = { ids, color in
             RustStoreAdapter.shared.setFlag(ids: Array(ids), color: color?.rawValue)
@@ -185,11 +200,35 @@ public struct TriageRowState {
     public let isDismissed: Bool
     /// Whether the row is already archived.
     public let isArchived: Bool
+    /// Whether the row is marked for the e-ink tablet (ADR-025). `nil` means
+    /// the marker does not apply right now — no device in individual mode
+    /// is configured — and hides the mirror verbs even for kinds that can
+    /// mirror. Hosts derive it from `PublicationRowData.einkState` gated on
+    /// `EInkMirrorModel.shared.showsIndividualControls`.
+    public let isMirrored: Bool?
+    /// The verb the menu shows while `isMirrored == true` (state-specific:
+    /// "Remove from reMarkable" once a copy is on the tablet, "Stop Mirroring
+    /// to reMarkable" before). `nil` falls back to the generic pair.
+    public let mirrorMenuVerb: String?
 
-    public init(isStarred: Bool, isDismissed: Bool, isArchived: Bool = false) {
+    public init(
+        isStarred: Bool,
+        isDismissed: Bool,
+        isArchived: Bool = false,
+        isMirrored: Bool? = nil,
+        mirrorMenuVerb: String? = nil
+    ) {
         self.isStarred = isStarred
         self.isDismissed = isDismissed
         self.isArchived = isArchived
+        self.isMirrored = isMirrored
+        self.mirrorMenuVerb = mirrorMenuVerb
+    }
+
+    /// The menu / swipe label for the mirror toggle in this row's state.
+    var mirrorToggleLabel: String {
+        if isMirrored == true { return mirrorMenuVerb ?? "Remove from reMarkable" }
+        return EInkMirrorState.mirrorVerb
     }
 }
 
@@ -259,6 +298,16 @@ public enum TriageSwipe {
             }
             .tint(.yellow)
         }
+        if triage.canMirrorToEink, let mirrored = row.isMirrored {
+            Button {
+                actions.onToggleEink(targets, !mirrored)
+            } label: {
+                Label(
+                    mirrored ? "Unmirror" : "Mirror",
+                    systemImage: mirrored ? "rectangle.portrait.slash" : "rectangle.portrait")
+            }
+            .tint(.green)
+        }
     }
 }
 
@@ -279,6 +328,11 @@ public enum TriageMenu {
         if triage.canStar {
             Button(row.isStarred ? "Unstar" : "Star") {
                 actions.onToggleStar(targets, !row.isStarred)
+            }
+        }
+        if triage.canMirrorToEink, let mirrored = row.isMirrored {
+            Button(row.mirrorToggleLabel) {
+                actions.onToggleEink(targets, !mirrored)
             }
         }
         if row.isDismissed {

@@ -317,7 +317,15 @@ final class PublicationDetailSharedSurfaceTests: XCTestCase {
                 isPdf: true,
                 isLocallyMaterialized: materialized,
                 pdfCloudAvailable: cloudAvailable,
-                dateAdded: 0))
+                dateAdded: 0,
+                fileType: "pdf",
+                sha256: nil,
+                displayName: nil,
+                mimeType: nil,
+                role: nil,
+                sourceDeviceId: nil,
+                sourceRemoteId: nil,
+                sourceRemoteModifiedMs: nil))
     }
 
     private static func publication(
@@ -347,7 +355,15 @@ final class PublicationDetailSharedSurfaceTests: XCTestCase {
                         isPdf: file.isPDF,
                         isLocallyMaterialized: file.isLocallyMaterialized,
                         pdfCloudAvailable: file.pdfCloudAvailable,
-                        dateAdded: 0)
+                        dateAdded: 0,
+                        fileType: file.fileType,
+                        sha256: file.sha256,
+                        displayName: file.displayName,
+                        mimeType: file.mimeType,
+                        role: file.role,
+                        sourceDeviceId: file.sourceDeviceId,
+                        sourceRemoteId: file.sourceRemoteId,
+                        sourceRemoteModifiedMs: nil)
                 },
                 citationCount: 0,
                 referenceCount: 0,

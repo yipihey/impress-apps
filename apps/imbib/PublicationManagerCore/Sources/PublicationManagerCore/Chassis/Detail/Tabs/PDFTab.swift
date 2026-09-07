@@ -59,13 +59,21 @@ struct PDFTab: View {
     // PDF dark mode setting
     @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
 
-    // E-Ink device state
-    @State private var einkDeviceManager = EInkDeviceManager.shared
-    @State private var isSendingToEInk = false
+    // reMarkable USB mirror (ADR-025): the chip reads the model's gates and
+    // the paper's mirror row; toggling goes through the one store-backed
+    // triage action, the same path as the context menu and `e`.
+    @State private var einkModel = EInkMirrorModel.shared
 
     // Computed publication from Rust store
     private var publication: PublicationModel? {
         publicationID.flatMap { RustStoreAdapter.shared.getPublicationDetail(id: $0) }
+    }
+
+    /// The paper's mirror state, read only while a device is configured
+    /// (one row lookup, same cost class as `publication` above).
+    private func einkMirrorState(for publicationID: UUID) -> EInkMirrorState? {
+        guard einkModel.isConfigured else { return nil }
+        return RustStoreAdapter.shared.einkMirrorRecord(publicationId: publicationID)?.state
     }
 
     var body: some View {
@@ -159,23 +167,10 @@ struct PDFTab: View {
         }
         .background(pdfDarkModeEnabled ? Color.black : Color.clear)
         .overlay(alignment: .topTrailing) {
-            // E-Ink send button overlay (shown when device is configured)
-            if einkDeviceManager.isAnyDeviceAvailable {
-                Button {
-                    Task { await sendToEInkDevice() }
-                } label: {
-                    if isSendingToEInk {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isSendingToEInk)
-                .help("Send to E-Ink Device")
-                .padding(8)
+            // reMarkable mirror state chip (shown when a device is configured)
+            if einkModel.isConfigured {
+                einkMirrorChip(for: pub.id, compact: true)
+                    .padding(8)
             }
         }
         .onAppear {
@@ -329,26 +324,66 @@ struct PDFTab: View {
             .buttonStyle(.bordered)
             .help("Attach a local PDF file")
 
-            // E-Ink device button (shown when device is configured)
-            if einkDeviceManager.isAnyDeviceAvailable {
+            // reMarkable mirror state chip (shown when a device is configured).
+            // Marking a paper that has no PDF yet parks it in `awaiting_source`;
+            // the source fetcher sends it once a PDF arrives.
+            if einkModel.isConfigured, let pub = publication {
                 Divider()
                     .frame(height: 20)
 
-                Button {
-                    Task { await sendToEInkDevice() }
-                } label: {
-                    if isSendingToEInk {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Label("Send to E-Ink Device", systemImage: "rectangle.portrait.on.rectangle.portrait.angled")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isSendingToEInk)
-                .help("Download and send PDF to reMarkable, Supernote, or Kindle Scribe")
+                einkMirrorChip(for: pub.id, compact: false)
             }
         }
+    }
+
+    // MARK: - reMarkable mirror chip (ADR-025)
+
+    /// The paper's mirror state as a chip. In individual mode it toggles the
+    /// mark through the store-backed triage action (same path as the context
+    /// menu, swipe and `e`); in `all` mode it is a read-only label, because
+    /// everything with a PDF is mirrored automatically.
+    @ViewBuilder
+    private func einkMirrorChip(for publicationID: UUID, compact: Bool) -> some View {
+        let state = einkMirrorState(for: publicationID)
+        if einkModel.showsIndividualControls {
+            Button {
+                toggleEInkMirror(publicationID: publicationID, currentState: state)
+            } label: {
+                if compact {
+                    Image(systemName: state?.systemImage ?? "rectangle.portrait")
+                        .foregroundStyle(state?.color ?? .secondary)
+                } else {
+                    Label(state?.label ?? EInkMirrorState.mirrorVerb,
+                          systemImage: state?.systemImage ?? "rectangle.portrait")
+                        .foregroundStyle(state?.color ?? .primary)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(compact ? .small : .regular)
+            .help(state.map { "\($0.label). \($0.explanation) Click to \($0.menuVerb.lowercased())." }
+                  ?? "Mirror this paper to the reMarkable over USB (also `e` or ⌃⌘E in the list).")
+        } else if let state {
+            // `all` mode: everything with a PDF is mirrored automatically, so
+            // the chip only reports.
+            Group {
+                if compact {
+                    Image(systemName: state.systemImage)
+                } else {
+                    Label(state.label, systemImage: state.systemImage)
+                        .font(.callout)
+                }
+            }
+            .foregroundStyle(state.color)
+            .help("\(state.label). \(state.explanation)")
+        }
+    }
+
+    private func toggleEInkMirror(publicationID: UUID, currentState: EInkMirrorState?) {
+        let mirrored = currentState == nil
+        logger.info("[PDFTab] eink.toggle \(publicationID) → mirrored=\(mirrored)")
+        RecordTriageActions
+            .storeBacked(descriptor: PublicationRecordKind.descriptor)
+            .onToggleEink([publicationID], mirrored)
     }
 
     private var noPDFView: some View {
@@ -723,48 +758,6 @@ struct PDFTab: View {
                 downloadError = error
             }
         }
-    }
-
-    // MARK: - E-Ink Device Actions
-
-    private func sendToEInkDevice() async {
-        guard let pub = publication else {
-            logger.warning("[PDFTab] Cannot send to E-Ink: no publication")
-            return
-        }
-
-        logger.info("[PDFTab] Sending to E-Ink device: \(pub.citeKey)")
-        isSendingToEInk = true
-
-        defer {
-            Task { @MainActor in
-                isSendingToEInk = false
-            }
-        }
-
-        // If we don't have a local PDF yet, download it first
-        if linkedFile == nil {
-            logger.info("[PDFTab] No local PDF, downloading first...")
-            await downloadPDF()
-
-            // Check if download succeeded
-            guard linkedFile != nil else {
-                logger.warning("[PDFTab] PDF download failed, cannot send to E-Ink")
-                return
-            }
-        }
-
-        // Post notification to trigger E-Ink sync
-        // The EInkDeviceManager will handle the actual sync
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: .sendToEInkDevice,
-                object: nil,
-                userInfo: ["publicationIDs": [pub.id]]
-            )
-        }
-
-        logger.info("[PDFTab] E-Ink sync notification posted for: \(pub.citeKey)")
     }
 
     // MARK: - Keyboard Navigation

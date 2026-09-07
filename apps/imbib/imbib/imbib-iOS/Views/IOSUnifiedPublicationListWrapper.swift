@@ -378,6 +378,10 @@ struct IOSUnifiedPublicationListWrapper: View {
                 a.onOpenPDF = { pubID in handleOpenPDF(pubID) }
                 a.onSaveToLibrary = isInbox ? { ids, targetLibraryID in await handleSaveToLibrary(ids, targetLibraryID) } : nil
                 a.onDismiss = { ids in await handleDismiss(ids) }
+                // ADR-025: only while a device in individual mode is configured.
+                if EInkMirrorModel.shared.showsIndividualControls {
+                    a.onToggleEink = { ids in handleToggleEink(ids) }
+                }
                 a.onSetFlag = { ids, color in await handleSetFlag(ids, color) }
                 a.onClearFlag = { ids in await handleClearFlag(ids) }
                 a.onRemoveTag = { pubID, tagID in handleRemoveTag(pubID: pubID, tagID: tagID) }
@@ -625,6 +629,19 @@ struct IOSUnifiedPublicationListWrapper: View {
 
     private func handleClearFlag(_ ids: Set<UUID>) async {
         RustStoreAdapter.shared.setFlag(ids: Array(ids), color: nil)
+        core.reload()
+    }
+
+    /// Toggle the reMarkable mirror mark (ADR-025) — the macOS rule: if ANY
+    /// selected row is unmirrored, mirror ALL; otherwise unmirror ALL.
+    private func handleToggleEink(_ ids: Set<UUID>) {
+        guard !ids.isEmpty, EInkMirrorModel.shared.showsIndividualControls else { return }
+        let anyUnmirrored = core.rows.filter { ids.contains($0.id) }.contains { $0.einkState == nil }
+        if anyUnmirrored {
+            RustStoreAdapter.shared.einkMark(ids: Array(ids))
+        } else {
+            RustStoreAdapter.shared.einkUnmark(ids: Array(ids))
+        }
         core.reload()
     }
 

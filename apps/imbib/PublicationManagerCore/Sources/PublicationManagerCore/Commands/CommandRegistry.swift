@@ -167,6 +167,13 @@ public final class CommandRegistry: @unchecked Sendable {
         register(Command(id: "deletePapers", title: "Delete", category: .paper, shortcut: "⌘⌫", notificationName: .deleteSelectedPapers))
         register(Command(id: "openReferences", title: "Open References", category: .paper, shortcut: "⇧⌘R", notificationName: .openReferences))
 
+        // reMarkable USB mirror (ADR-025) — the Paper-menu items and the
+        // Settings deep link, so every verb is one fuzzy search away.
+        register(Command(id: "toggleEInkMirror", title: "Mirror to reMarkable", category: .paper, shortcut: "⌃⌘E", notificationName: .toggleEInkMirror))
+        register(Command(id: "einkSyncNow", title: "Sync reMarkable Now", category: .paper, shortcut: nil, notificationName: .einkSyncNow))
+        register(Command(id: "einkImportAnnotations", title: "Import reMarkable Annotations", category: .paper, shortcut: nil, notificationName: .einkImportAnnotations))
+        register(Command(id: "showEInkSettings", title: "E-Ink Settings…", category: .app, shortcut: nil, notificationName: .showEInkSettings))
+
         // Search
         register(Command(
             id: "nlSearch",

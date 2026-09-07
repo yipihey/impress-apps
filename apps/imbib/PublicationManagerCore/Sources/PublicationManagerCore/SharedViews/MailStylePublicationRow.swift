@@ -234,8 +234,10 @@ public struct MailStylePublicationRow: View, Equatable {
     /// Available libraries for "Add to Library" menu
     public var libraries: [LibraryModel] = []
 
-    /// Action when Send to E-Ink Device is requested
-    public var onSendToEInkDevice: (() -> Void)?
+    /// Mark / unmark this paper for the reMarkable (ADR-025). The host sets
+    /// it only while a device in individual mode is configured; the label
+    /// follows `data.einkState`.
+    public var onToggleEink: (() -> Void)?
 
     /// Recommendation score to display (when sorting by recommended)
     public var recommendationScore: Double?
@@ -272,6 +274,7 @@ public struct MailStylePublicationRow: View, Equatable {
         onSave: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
         onToggleStar: (() -> Void)? = nil,
+        onToggleEink: (() -> Void)? = nil,
         onSetFlag: ((FlagColor) -> Void)? = nil,
         onClearFlag: (() -> Void)? = nil,
         onAddTag: (() -> Void)? = nil,
@@ -312,6 +315,7 @@ public struct MailStylePublicationRow: View, Equatable {
         self.onSave = onSave
         self.onDismiss = onDismiss
         self.onToggleStar = onToggleStar
+        self.onToggleEink = onToggleEink
         self.onSetFlag = onSetFlag
         self.onClearFlag = onClearFlag
         self.onAddTag = onAddTag
@@ -488,6 +492,19 @@ public struct MailStylePublicationRow: View, Equatable {
                 .tint(.yellow)
             }
 
+            // Mirror to reMarkable (green) — only while individual mode applies
+            if let onToggleEink = onToggleEink {
+                Button {
+                    onToggleEink()
+                } label: {
+                    Label(
+                        data.einkState == nil ? "Mirror" : "Unmirror",
+                        systemImage: data.einkState == nil ? "rectangle.portrait" : "rectangle.portrait.slash"
+                    )
+                }
+                .tint(.green)
+            }
+
             // Toggle Read (blue)
             if let onToggleRead = onToggleRead {
                 Button {
@@ -649,16 +666,19 @@ public struct MailStylePublicationRow: View, Equatable {
             }
         }
 
-        // Send to E-Ink Device
-        if let onSendToEInkDevice = onSendToEInkDevice {
+        // Mirror to reMarkable (ADR-025); label follows the row's state
+        if let onToggleEink = onToggleEink {
             Button {
-                onSendToEInkDevice()
+                onToggleEink()
             } label: {
-                Label("Send to E-Ink Device", systemImage: "rectangle.portrait.on.rectangle.portrait.angled")
+                Label(
+                    data.einkState?.menuVerb ?? EInkMirrorState.mirrorVerb,
+                    systemImage: data.einkState == nil ? "rectangle.portrait" : "rectangle.portrait.slash"
+                )
             }
         }
 
-        if hasPDF || !hasPDF && onDownloadPDF != nil || onOpenInBrowser != nil || onSendToEInkDevice != nil {
+        if hasPDF || !hasPDF && onDownloadPDF != nil || onOpenInBrowser != nil || onToggleEink != nil {
             Divider()
         }
     }

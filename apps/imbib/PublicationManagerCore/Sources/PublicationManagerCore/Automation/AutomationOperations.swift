@@ -104,6 +104,15 @@ public protocol AutomationOperations: Actor {
     /// - Returns: Number of papers updated
     func toggleStar(identifiers: [PaperIdentifier]) async throws -> Int
 
+    /// Mark or unmark papers for the reMarkable USB mirror (ADR-025).
+    ///
+    /// - Parameters:
+    ///   - identifiers: Paper identifiers to mark / unmark
+    ///   - mirrored: `true` to mirror, `false` to stop mirroring
+    /// - Returns: Which rows changed, which were already so, which wait for a
+    ///   PDF, and which identifiers matched nothing
+    func setEInkMirrored(identifiers: [PaperIdentifier], mirrored: Bool) async throws -> EInkMirrorUpdateResult
+
     // MARK: - Collection Operations
 
     /// List all collections, optionally filtered by library.

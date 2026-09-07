@@ -34,6 +34,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/tags/tree` - Get tag tree
 /// - `GET /api/logs` - Query log entries
 /// - `GET /api/sync/status` - CloudKit sync state (ADR-0007 Phase 3)
+/// - `GET /api/eink/status` - reMarkable USB mirror status: devices, marker device, per-state counts (ADR-025)
 /// - `GET /api/backups` - List library backups (newest first)
 /// - `GET /api/backups/inspect?path=` - Validate a backup file
 /// - `POST /api/backups` - Create a consistent whole-store snapshot
@@ -65,6 +66,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `POST /api/artifacts` - Create artifact (JSON body)
 /// - `POST /api/artifacts/{id}/link` - Link artifact to publication
 /// - `POST /api/sync/nudge` - Trigger a sync pass (ADR-0007 Phase 3)
+/// - `POST /api/eink/sync` - Run one reMarkable mirror pass now (body: `{"import": true}`); returns the report + trace (ADR-025)
 /// - `POST /api/manuscripts` - Create a manuscript (body: title, body?/template?, format?, authors?)
 /// - `POST /api/manuscripts/from-template` - Create a manuscript from a journal
 ///   template (body: template_id, title, authors?, affiliations?, abstract?,
@@ -106,6 +108,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// API Endpoints (PUT):
 /// - `PUT /api/papers/read` - Mark papers read/unread
 /// - `PUT /api/papers/star` - Toggle star
+/// - `PUT /api/papers/eink` - Mark / unmark papers for the reMarkable mirror (body: `{"identifiers":[…],"mirrored":true}`) (ADR-025)
 /// - `PUT /api/papers/tags` - Add/remove tags
 /// - `PUT /api/papers/flag` - Set/clear flags
 /// - `PUT /api/papers/{citeKey}/notes` - Update publication notes
@@ -623,6 +626,11 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleSyncStatus()
         }
 
+        // reMarkable USB mirror (ADR-025)
+        if path == "/api/eink/status" {
+            return await handleEInkStatus()
+        }
+
         // Library backup (see BackupAutomationHandler for the contract).
         if path == "/api/backups/inspect" {
             let out = await BackupAutomationHandler.inspectBackup(path: request.queryParams["path"])
@@ -885,6 +893,11 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleSyncNudge()
         }
 
+        // reMarkable USB mirror (ADR-025): one sync pass, now.
+        if path == "/api/eink/sync" {
+            return await handleEInkSync(request)
+        }
+
         // Library backup. POST /api/backups/restore REPLACES the whole shared
         // store — see BackupAutomationHandler for the sync guard.
         if path == "/api/backups/restore" {
@@ -1128,6 +1141,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/papers/star" {
             return await handleToggleStar(request)
+        }
+
+        if path == "/api/papers/eink" {
+            return await handleSetEInkMirrored(request)
         }
 
         if path == "/api/papers/tags" {
@@ -1593,9 +1610,22 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .notFound("Paper not found: \(decodedKey)")
             }
 
+            var paperDict = paperToDict(paper)
+            // reMarkable mirror row (ADR-025): present only when one exists.
+            if let mirror = try await automationService.eInkMirror(for: identifier) {
+                var eink: [String: Any] = [
+                    "state": mirror.stateRaw,
+                    "marked": mirror.marked,
+                ]
+                eink["remotePath"] = mirror.remotePath ?? NSNull()
+                eink["uploadedAt"] = mirror.uploadedAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull()
+                eink["lastError"] = mirror.lastError ?? NSNull()
+                paperDict["eink"] = eink
+            }
+
             let response: [String: Any] = [
                 "status": "ok",
-                "paper": paperToDict(paper)
+                "paper": paperDict
             ]
 
             return .json(response)
@@ -1735,6 +1765,71 @@ public actor HTTPAutomationRouter: HTTPRouter {
             "accepted": outcome.accepted,
             "reason": outcome.reason
         ])
+    }
+
+    // MARK: - reMarkable USB mirror (ADR-025)
+
+    /// GET /api/eink/status — devices, the marker device, per-state counts,
+    /// last sync and error. The same snapshot the Settings pane renders.
+    private func handleEInkStatus() async -> HTTPResponse {
+        do {
+            guard let snapshot = try await automationService.eInkStatus() else {
+                return .serverError("The e-ink mirror status could not be read")
+            }
+            var json = snapshot.jsonDictionary()
+            json["status"] = "ok"
+            return .json(json)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// POST /api/eink/sync — run one mirror pass now. Body (optional):
+    /// `{"import": true}` — also import annotations that came back (default true).
+    /// Answers the full report plus the engine's trace lines, so an agent can
+    /// read what happened without the app's console.
+    private func handleEInkSync(_ request: HTTPRequest) async -> HTTPResponse {
+        let json = parseJSONBody(request) ?? [:]
+        let importAnnotations = (json["import"] as? Bool) ?? true
+        do {
+            let report = try await automationService.eInkSync(importAnnotations: importAnnotations)
+            var body = report.jsonDictionary()
+            body["status"] = "ok"
+            return .json(body)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// PUT /api/papers/eink — mark / unmark papers for the tablet.
+    /// Body: `{"identifiers": [...], "mirrored": true|false}`.
+    private func handleSetEInkMirrored(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let identifiers = parseIdentifiers(json) else {
+            return .badRequest("Missing or invalid 'identifiers' array")
+        }
+        guard let mirrored = json["mirrored"] as? Bool else {
+            return .badRequest("Missing or invalid 'mirrored' boolean")
+        }
+
+        do {
+            let result = try await automationService.setEInkMirrored(identifiers: identifiers, mirrored: mirrored)
+            var body: [String: Any] = [
+                "status": "ok",
+                "mirrored": mirrored,
+                "updated": result.updated,
+                "changed": result.changed.map(\.uuidString),
+                "unchanged": result.unchanged.map(\.uuidString),
+                "awaiting_source": result.awaitingSource.map(\.uuidString),
+                "not_found": result.notFound,
+            ]
+            body["device_id"] = result.deviceId ?? NSNull()
+            return .json(body)
+        } catch {
+            return mapError(error)
+        }
     }
 
     // MARK: - Layout & Appearance (declarative pane-layout system)
@@ -3523,6 +3618,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let contents = json["contents"] as? String
         let selectedText = json["selectedText"] as? String
         let color = json["color"] as? String
+        let authorName = json["authorName"] as? String ?? json["author_name"] as? String
 
         do {
             let annotation = try await automationService.addAnnotation(
@@ -3531,7 +3627,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 pageNumber: pageNumber,
                 contents: contents,
                 selectedText: selectedText,
-                color: color
+                color: color,
+                authorName: authorName
             )
             return .json([
                 "status": "ok",
@@ -4580,6 +4677,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let color = json["color"] as? String
         let contents = json["contents"] as? String
         let selected = json["selected_text"] as? String ?? json["selectedText"] as? String
+        let authorName = json["author_name"] as? String ?? json["authorName"] as? String
         do {
             let ann = try RustStoreAdapter.shared.imbibStore.createAnnotation(
                 linkedFileId: linkedFileID.uuidString,
@@ -4588,7 +4686,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 boundsJson: bounds,
                 color: color,
                 contents: contents,
-                selectedText: selected
+                selectedText: selected,
+                authorName: authorName
             )
             var d: [String: Any] = [
                 "id": ann.id,

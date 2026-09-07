@@ -59,6 +59,11 @@ public protocol MailStyleItem: Identifiable, Hashable, Sendable where ID == UUID
 
     /// Year text shown after the header (e.g., "2024"), controlled by configuration.showYear
     var yearText: String? { get }
+
+    /// A glyph rendered in the indicator column under the star (imbib: the
+    /// paper's reMarkable mirror state). `nil` — the default — renders
+    /// nothing, so items that never set it are unaffected.
+    var leadingMarker: MailStyleLeadingMarker? { get }
 }
 
 // MARK: - Default Implementations
@@ -73,4 +78,5 @@ public extension MailStyleItem {
     var flag: PublicationFlag? { nil }
     var tagDisplays: [TagDisplayData] { [] }
     var yearText: String? { nil }
+    var leadingMarker: MailStyleLeadingMarker? { nil }
 }

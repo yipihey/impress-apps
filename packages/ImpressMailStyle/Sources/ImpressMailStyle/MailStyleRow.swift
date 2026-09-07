@@ -51,11 +51,15 @@ public struct MailStyleRow<Item: MailStyleItem, TrailingHeader: View>: View {
                 FlagStripe(flag: item.flag, rowHeight: 44)
             }
 
-            // Indicators column: unread dot and star
-            if configuration.showUnreadIndicator {
+            // Indicators column: unread dot, star, then the item's leading
+            // marker (imbib's reMarkable mirror state). The column also
+            // appears — dot hidden — when a marker exists but the unread
+            // indicator is switched off, so the marker always has a home.
+            if configuration.showUnreadIndicator || item.leadingMarker != nil {
                 VStack(spacing: 2) {
                     Circle()
-                        .fill(isUnread ? MailStyleTokens.unreadDotColor(from: colors) : .clear)
+                        .fill(isUnread && configuration.showUnreadIndicator
+                              ? MailStyleTokens.unreadDotColor(from: colors) : .clear)
                         .frame(
                             width: MailStyleTokens.unreadDotSize,
                             height: MailStyleTokens.unreadDotSize
@@ -65,6 +69,13 @@ public struct MailStyleRow<Item: MailStyleItem, TrailingHeader: View>: View {
                         Image(systemName: "star.fill")
                             .font(.system(size: 10 * fontScale))
                             .foregroundStyle(.yellow)
+                    }
+
+                    if let marker = item.leadingMarker {
+                        Image(systemName: marker.systemImage)
+                            .font(.system(size: 9 * fontScale))
+                            .foregroundStyle(marker.tint.color)
+                            .accessibilityLabel(marker.accessibilityLabel)
                     }
                 }
                 .padding(.top, 6)

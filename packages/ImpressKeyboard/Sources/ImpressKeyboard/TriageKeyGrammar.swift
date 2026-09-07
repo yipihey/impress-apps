@@ -24,6 +24,12 @@ public enum TriageCommand: String, CaseIterable, Sendable {
     case create
     /// Toggle star on the selection.
     case toggleStar
+    /// Toggle the e-ink mirror mark on the selection (imbib's reMarkable USB
+    /// mirror, ADR-025). Only the publication kind declares the capability
+    /// (`TriageCapabilities.canMirrorToEink`); every other surface returns
+    /// `.ignored`. `e` was unbound in every app, is the mnemonic, and pairs
+    /// with the pre-existing ⌃⌘E chord in imbib's Paper menu.
+    case toggleEinkMirror
     /// Dismiss the selection — or restore it when already in Dismissed.
     case dismissOrRestore
     /// Open the selection's working surface (window/handoff per shell).
@@ -47,6 +53,7 @@ public enum TriageKeyGrammar {
         "k": .navigateUp,
         "n": .create,
         "s": .toggleStar,
+        "e": .toggleEinkMirror,
         "d": .dismissOrRestore,
         "o": .open,
         "/": .focusFilter,

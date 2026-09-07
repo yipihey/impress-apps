@@ -306,7 +306,9 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// - Parameter structural: `true` (default) for mutations that add, remove, or move
     ///   publications (requiring a full list refresh). `false` for in-place field changes
     ///   (read/star/flag/tag) that are handled by row-level notifications (O(1) updates).
-    private func didMutate(
+    /// Internal (not private) so domain extensions in sibling files —
+    /// `RustStoreAdapter+EInk.swift` — fan out the same way `setStarred` does.
+    func didMutate(
         structural: Bool = true,
         affectedIDs: Set<UUID>? = nil,
         kind: MutationKind? = nil
@@ -1935,7 +1937,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         boundsJson: String? = nil,
         color: String? = nil,
         contents: String? = nil,
-        selectedText: String? = nil
+        selectedText: String? = nil,
+        authorName: String? = nil
     ) -> AnnotationModel? {
         do {
             let row = try store.createAnnotation(
@@ -1945,7 +1948,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                 boundsJson: boundsJson,
                 color: color,
                 contents: contents,
-                selectedText: selectedText
+                selectedText: selectedText,
+                authorName: authorName
             )
             didMutate()
             return AnnotationModel(from: row)
@@ -3742,6 +3746,10 @@ nonisolated extension PublicationRowData {
 
         self.enrichmentDate = row.enrichmentDate
         self.libraryName = row.libraryName
+        // Rust sets `einkState` only while a device in individual mode is
+        // configured, and never to `superseded`/`unmarked` — an unknown
+        // spelling maps to "no marker" rather than crashing the row.
+        self.einkState = row.einkState.flatMap(EInkMirrorState.init(rawValue:))
     }
 }
 

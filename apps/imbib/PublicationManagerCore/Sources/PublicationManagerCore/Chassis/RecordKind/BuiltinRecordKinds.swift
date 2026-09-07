@@ -35,7 +35,10 @@ public enum PublicationRecordKind {
             dismissal: .libraryMove,
             archiveStatus: nil,
             deletion: .softToDismissed,
-            statuses: []
+            statuses: [],
+            // ADR-025: the reMarkable USB mirror sends this kind's PDF/ePUB;
+            // the verbs still hide unless a device in individual mode exists.
+            canMirrorToEink: true
         ),
         creation: [],   // publications arrive by import/search, not `n`
         defaultOpenBehavior: .detailPane,
