@@ -88,8 +88,13 @@ public struct RemarkableSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                // `prompt:` plus `labelsHidden()`, not a bare title: inside a
+                // LabeledContent the field's own title renders as a SECOND
+                // label beside the box, so `TextField("10.0.0.42", …)` printed
+                // the example address next to an empty field instead of in it.
                 LabeledContent("Address") {
-                    TextField("10.0.0.42", text: $settings.wifiHost)
+                    TextField("Address", text: $settings.wifiHost, prompt: Text("10.0.0.42"))
+                        .labelsHidden()
                         .textFieldStyle(.roundedBorder)
                         #if os(macOS)
                         .frame(maxWidth: 200)
@@ -97,7 +102,8 @@ public struct RemarkableSettingsView: View {
                 }
 
                 LabeledContent("Password") {
-                    SecureField("Tablet password", text: $wifiPassword)
+                    SecureField("Password", text: $wifiPassword, prompt: Text("Tablet password"))
+                        .labelsHidden()
                         .textFieldStyle(.roundedBorder)
                         #if os(macOS)
                         .frame(maxWidth: 200)
