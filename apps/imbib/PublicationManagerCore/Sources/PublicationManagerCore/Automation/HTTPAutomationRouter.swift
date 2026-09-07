@@ -656,6 +656,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleRemarkableCloudGet(request)
         }
 
+        if path == "/api/remarkable/usb/status" {
+            return await handleRemarkableUSBStatus()
+        }
+
+        if path == "/api/remarkable/usb/documents" {
+            return await handleRemarkableUSBDocuments()
+        }
+
         if path == "/api/remarkable/wifi/status" {
             return await handleRemarkableWiFiStatus()
         }
@@ -1950,6 +1958,53 @@ public actor HTTPAutomationRouter: HTTPRouter {
                     method: request.queryParams["method"] ?? "GET",
                     body: request.queryParams["body"])
             return .json(["status": "ok", "httpStatus": status, "body": body])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription], status: 502)
+        }
+    }
+
+    /// GET /api/remarkable/usb/status — is the tablet's own web interface up?
+    ///
+    /// The transport that needs no credential: connect the cable and turn on
+    /// Settings › Storage › USB web interface.
+    private func handleRemarkableUSBStatus() async -> HTTPResponse {
+        let backend = RemarkableUSBWebBackend()
+        do {
+            let info = try await backend.getDeviceInfo()
+            let documents = try await backend.listDocuments()
+            let folders = try await backend.listFolders()
+            return .json([
+                "status": "ok",
+                "reachable": true,
+                "device": info.deviceName,
+                "documentCount": documents.count,
+                "folderCount": folders.count,
+            ])
+        } catch {
+            return .json([
+                "status": "ok",
+                "reachable": false,
+                "error": error.localizedDescription,
+            ])
+        }
+    }
+
+    /// GET /api/remarkable/usb/documents — what is on the tablet.
+    private func handleRemarkableUSBDocuments() async -> HTTPResponse {
+        do {
+            let documents = try await RemarkableUSBWebBackend().listDocuments()
+            return .json([
+                "status": "ok",
+                "count": documents.count,
+                "documents": documents.prefix(200).map { document in
+                    [
+                        "id": document.id,
+                        "name": document.name,
+                        "pageCount": document.pageCount,
+                        "lastModified": ISO8601DateFormatter().string(from: document.lastModified),
+                    ]
+                },
+            ])
         } catch {
             return .json(["status": "error", "error": error.localizedDescription], status: 502)
         }

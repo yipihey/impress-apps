@@ -62,3 +62,25 @@ pub fn download_document(
 pub fn restart_ui(credentials: &DeviceCredentials) -> Result<()> {
     block_on(crate::transport::restart_ui(credentials))
 }
+
+// --- the USB web interface (no credential of any kind) ---
+
+pub fn usb_list_documents(base_url: &str) -> Result<Vec<RemarkableDocument>> {
+    block_on(crate::usb_web::list_documents(base_url))
+}
+
+pub fn usb_probe(base_url: &str) -> Result<u32> {
+    block_on(crate::usb_web::probe(base_url))
+}
+
+pub fn usb_download_document(
+    base_url: &str,
+    id: &str,
+    destination: &Path,
+) -> Result<std::path::PathBuf> {
+    block_on(crate::usb_web::download_document(base_url, id, destination))
+}
+
+pub fn usb_upload_document(base_url: &str, file: &Path) -> Result<()> {
+    block_on(crate::usb_web::upload_document(base_url, file))
+}

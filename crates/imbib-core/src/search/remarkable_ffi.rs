@@ -161,6 +161,62 @@ pub fn remarkable_download_document(
     })
 }
 
+// --- USB web interface -------------------------------------------------
+//
+// The transport that needs no credential: the tablet's own HTTP server over
+// the USB network. Preferred on current firmware, where SSH is behind
+// Developer mode and the cloud's document endpoints are closed.
+
+/// Where the tablet answers over USB.
+#[uniffi::export]
+pub fn remarkable_usb_default_url() -> String {
+    impress_remarkable::usb_web::DEFAULT_BASE_URL.to_string()
+}
+
+/// How many entries the tablet is serving; also the reachability check.
+#[uniffi::export]
+pub fn remarkable_usb_probe(base_url: String) -> Result<u32, RmError> {
+    Ok(blocking::usb_probe(&base_url)?)
+}
+
+/// Everything on the tablet, newest first.
+#[uniffi::export]
+pub fn remarkable_usb_list_documents(base_url: String) -> Result<Vec<RmDocument>, RmError> {
+    let documents = blocking::usb_list_documents(&base_url)?;
+    Ok(documents
+        .into_iter()
+        .map(|document| RmDocument {
+            id: document.id,
+            visible_name: document.visible_name,
+            kind: document_kind(document.kind),
+            parent: document.parent,
+            last_modified_ms: document.last_modified_ms,
+            pinned: document.pinned,
+            file_type: document.file_type,
+            page_count: document.page_count,
+            has_annotations: document.has_annotations,
+        })
+        .collect())
+}
+
+/// Download one document as a PDF with its annotations rendered in.
+#[uniffi::export]
+pub fn remarkable_usb_download_document(
+    base_url: String,
+    id: String,
+    destination: String,
+) -> Result<String, RmError> {
+    let path = blocking::usb_download_document(&base_url, &id, std::path::Path::new(&destination))?;
+    Ok(path.display().to_string())
+}
+
+/// Send a document to the tablet.
+#[uniffi::export]
+pub fn remarkable_usb_upload_document(base_url: String, file: String) -> Result<(), RmError> {
+    blocking::usb_upload_document(&base_url, std::path::Path::new(&file))?;
+    Ok(())
+}
+
 /// Restart the tablet's UI so it notices files written underneath it.
 #[uniffi::export]
 pub fn remarkable_restart_ui(credentials: RmCredentials) -> Result<(), RmError> {

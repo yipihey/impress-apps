@@ -21,6 +21,7 @@
 mod documents;
 mod error;
 mod transport;
+pub mod usb_web;
 
 pub mod blocking;
 

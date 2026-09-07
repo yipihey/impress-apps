@@ -329,15 +329,25 @@ public struct EInkSettingsView: View {
             logger.info("Added reMarkable folder sync device, awaiting configuration")
 
         case .usb:
-            // USB is similar to folder sync
-            let deviceID = "remarkable-usb-\(UUID().uuidString.prefix(8))"
+            // The tablet's own web interface over the USB cable — the only
+            // transport that needs no credential at all.
+            let backend = RemarkableUSBWebBackend()
+            await MainActor.run { RemarkableBackendManager.shared.registerBackend(backend) }
+            let adapter = await RemarkableDeviceAdapter(backend: backend, syncMethod: .usb)
+            await deviceManager.registerDevice(adapter)
+            let deviceID = await adapter.deviceID
+            let reachable = await backend.isAvailable()
             await MainActor.run {
                 settings.updateSettings(for: deviceID) { deviceSettings in
                     deviceSettings.deviceType = .remarkable
                     deviceSettings.syncMethod = .usb
                     deviceSettings.displayName = "reMarkable (USB)"
+                    deviceSettings.isAuthenticated = reachable
                 }
+                settings.activeDeviceID = deviceID
             }
+            try? await deviceManager.selectDevice(deviceID)
+            logger.info("Added reMarkable USB device: \(deviceID), reachable: \(reachable)")
             selectedDeviceForConfig = deviceID
             logger.info("Added reMarkable USB device, awaiting configuration")
 

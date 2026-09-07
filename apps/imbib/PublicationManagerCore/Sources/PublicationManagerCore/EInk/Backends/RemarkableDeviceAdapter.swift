@@ -47,7 +47,10 @@ public actor RemarkableDeviceAdapter: EInkDevice {
         case .folderSync:
             return [.upload, .downloadPDF, .downloadAnnotations, .createFolders]
         case .usb:
-            return [.upload, .downloadPDF, .downloadAnnotations]
+            // Annotations arrive rendered into the downloaded PDF rather than
+            // as separate strokes, so there is no annotation capability to
+            // claim — but documents move both ways.
+            return [.upload, .downloadPDF]
         default:
             return .readOnly
         }

@@ -12,6 +12,7 @@ russh = "0.45"
 russh-sftp = "2.0"
 russh-keys = "0.45"
 async-trait = { workspace = true }
+reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "io-util", "macros", "time"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

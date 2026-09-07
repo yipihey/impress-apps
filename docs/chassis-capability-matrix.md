@@ -1387,6 +1387,36 @@ protocol, and Settings › reMarkable leads with it.
 Reading works; writing to the tablet does not yet and says so rather than
 failing silently. The tablet must be awake, since it drops Wi-Fi in standby.
 
+### reMarkable over USB — the transport that needs no credential (2026-09-06)
+
+Probing Tom's Paper Pro settled which transports are actually open:
+
+| Transport | State |
+|---|---|
+| Cloud | Pairing works; document endpoints closed (410 "update this application"). Dead for third-party clients. |
+| SSH over Wi-Fi or USB | Port 22 accepts a connection and never sends an identification string — the daemon is behind Developer mode, which erases a Paper Pro when enabled. |
+| **USB web interface** | **Works, and asks for nothing.** |
+
+Settings → Storage → "USB web interface" makes the tablet serve HTTP on
+`http://10.11.99.1` over the USB network. Its own client bundle names the API:
+`GET /documents/` (and `/documents/{folder}`), `GET /download/{id}/placeholder`
+for the document as a PDF **with the handwritten annotations rendered in**, and
+`POST /upload` (multipart, field `file`). No token, no password, no developer
+mode. Unknown paths hang rather than 404, so probe only what the bundle names.
+
+`impress_remarkable::usb_web` is the client, `RemarkableUSBWebBackend` the
+projection, and the E-Ink tab offers "USB Cable" first. Verified against the
+device: 92 documents, 13 folders, a 24 MB annotated PDF.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/usb/status` | Whether the interface is up, with document and folder counts |
+| `GET` | `/api/remarkable/usb/documents` | What is on the tablet |
+
+Annotations arrive rendered into the PDF rather than as strokes, so this
+backend claims `.downloadPDF` and `.upload` but not `.downloadAnnotations` —
+`RMFileParser` has nothing to parse here.
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
