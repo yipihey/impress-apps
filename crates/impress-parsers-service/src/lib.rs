@@ -169,9 +169,10 @@ pub trait ParsersService: Send + Sync + 'static {
     #[impress_method]
     async fn resolve_publisher_pdf(&self, doi: String) -> PdfResolutionReport;
 
-    /// The whole publisher rule table — 16 rules covering the astronomy and
-    /// physics literature. Read this to understand why a given DOI resolves the
-    /// way it does.
+    /// The whole publisher rule table covering the astronomy and physics
+    /// literature. Read this to understand why a given DOI resolves the way
+    /// it does. (No count in this sentence on purpose: the table grows —
+    /// `rule_table_is_complete` pins the number so drift goes red.)
     #[impress_method]
     async fn list_publisher_rules(&self) -> Vec<PublisherRuleReport>;
 
