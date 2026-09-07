@@ -1,7 +1,7 @@
 //! UniFFI surface over `impress-remarkable`.
 //!
-//! The transport (SFTP to the tablet's own SSH server) lives in
-//! `impress-remarkable`; what lives here is the mirror records and the
+//! The transports (the USB web interface and SFTP to the tablet's own SSH
+//! server) live in `impress-remarkable`; what lives here is the mirror records and the
 //! `#[uniffi::export]` shims, because imbib-core is the crate that ships a
 //! framework to Swift — the same split `embeddings_ffi` uses.
 //!
@@ -59,6 +59,17 @@ pub struct RmDocument {
     pub has_annotations: bool,
 }
 
+/// What the tablet did with an upload, learned by listing the folder again.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct RmUploadReceipt {
+    /// The id the tablet assigned, when the re-listing showed our entry.
+    pub id: Option<String>,
+    /// The folder listed before the upload (`""` for the top level).
+    pub parent: String,
+    /// The name the tablet shows, from the filename stem.
+    pub visible_name: String,
+}
+
 /// Files pulled off the tablet.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct RmDownload {
@@ -85,6 +96,16 @@ pub enum RmError {
     DocumentNotFound { message: String },
     #[error("{message}")]
     Io { message: String },
+    #[error("{message}")]
+    Misplaced { message: String },
+    #[error("{message}")]
+    Timeout { message: String },
+    #[error("{message}")]
+    Archive { message: String },
+    #[error("{message}")]
+    Format { message: String },
+    #[error("{message}")]
+    Invalid { message: String },
 }
 
 impl From<impress_remarkable::Error> for RmError {
@@ -100,7 +121,25 @@ impl From<impress_remarkable::Error> for RmError {
                 Self::DocumentNotFound { message }
             }
             impress_remarkable::Error::Io { .. } => Self::Io { message },
+            impress_remarkable::Error::Misplaced { .. } => Self::Misplaced { message },
+            impress_remarkable::Error::Timeout { .. } => Self::Timeout { message },
+            impress_remarkable::Error::Archive { .. } => Self::Archive { message },
+            impress_remarkable::Error::Format { .. } => Self::Format { message },
         }
+    }
+}
+
+fn rm_document(document: impress_remarkable::RemarkableDocument) -> RmDocument {
+    RmDocument {
+        id: document.id,
+        visible_name: document.visible_name,
+        kind: document_kind(document.kind),
+        parent: document.parent,
+        last_modified_ms: document.last_modified_ms,
+        pinned: document.pinned,
+        file_type: document.file_type,
+        page_count: document.page_count,
+        has_annotations: document.has_annotations,
     }
 }
 
@@ -129,20 +168,7 @@ pub fn remarkable_probe(credentials: RmCredentials) -> Result<RmDeviceInfo, RmEr
 #[uniffi::export]
 pub fn remarkable_list_documents(credentials: RmCredentials) -> Result<Vec<RmDocument>, RmError> {
     let documents = blocking::list_documents(&credentials.into())?;
-    Ok(documents
-        .into_iter()
-        .map(|document| RmDocument {
-            id: document.id,
-            visible_name: document.visible_name,
-            kind: document_kind(document.kind),
-            parent: document.parent,
-            last_modified_ms: document.last_modified_ms,
-            pinned: document.pinned,
-            file_type: document.file_type,
-            page_count: document.page_count,
-            has_annotations: document.has_annotations,
-        })
-        .collect())
+    Ok(documents.into_iter().map(rm_document).collect())
 }
 
 /// Pull one document's source file and stroke files into `destination`.
@@ -183,20 +209,7 @@ pub fn remarkable_usb_probe(base_url: String) -> Result<u32, RmError> {
 #[uniffi::export]
 pub fn remarkable_usb_list_documents(base_url: String) -> Result<Vec<RmDocument>, RmError> {
     let documents = blocking::usb_list_documents(&base_url)?;
-    Ok(documents
-        .into_iter()
-        .map(|document| RmDocument {
-            id: document.id,
-            visible_name: document.visible_name,
-            kind: document_kind(document.kind),
-            parent: document.parent,
-            last_modified_ms: document.last_modified_ms,
-            pinned: document.pinned,
-            file_type: document.file_type,
-            page_count: document.page_count,
-            has_annotations: document.has_annotations,
-        })
-        .collect())
+    Ok(documents.into_iter().map(rm_document).collect())
 }
 
 /// Download one document as a PDF with its annotations rendered in.
@@ -210,11 +223,69 @@ pub fn remarkable_usb_download_document(
     Ok(path.display().to_string())
 }
 
-/// Send a document to the tablet.
+/// Send a document to the tablet's current folder. Prefer
+/// `remarkable_usb_upload_document_into`, which chooses the folder and
+/// reports the id.
 #[uniffi::export]
 pub fn remarkable_usb_upload_document(base_url: String, file: String) -> Result<(), RmError> {
     blocking::usb_upload_document(&base_url, std::path::Path::new(&file))?;
     Ok(())
+}
+
+/// A two-second TCP probe: is the tablet plugged in and serving? Never
+/// throws, so a UI can poll it.
+#[uniffi::export]
+pub fn remarkable_usb_reachable(base_url: String) -> bool {
+    blocking::usb_reachable(&base_url)
+}
+
+/// One folder's entries (`None` = the top level), newest first.
+#[uniffi::export]
+pub fn remarkable_usb_list_folder(
+    base_url: String,
+    folder_id: Option<String>,
+) -> Result<Vec<RmDocument>, RmError> {
+    let documents = blocking::usb_list_folder(&base_url, folder_id.as_deref())?;
+    Ok(documents.into_iter().map(rm_document).collect())
+}
+
+/// Download one document as `pdf`, `placeholder` (the same rendition) or
+/// `rmdoc` (the raw archive) into `dest_dir`; returns the file written.
+#[uniffi::export]
+pub fn remarkable_usb_download_document_as(
+    base_url: String,
+    id: String,
+    kind: String,
+    dest_dir: String,
+) -> Result<String, RmError> {
+    let kind = impress_remarkable::DownloadKind::parse(&kind).ok_or_else(|| RmError::Invalid {
+        message: format!("unknown download kind {kind:?}; use pdf, placeholder or rmdoc"),
+    })?;
+    let path =
+        blocking::usb_download_document_as(&base_url, &id, kind, std::path::Path::new(&dest_dir))?;
+    Ok(path.display().to_string())
+}
+
+/// List the folder, upload `file` under `upload_name`, list again, and
+/// report the id the tablet assigned.
+#[uniffi::export]
+pub fn remarkable_usb_upload_document_into(
+    base_url: String,
+    folder_id: Option<String>,
+    file: String,
+    upload_name: String,
+) -> Result<RmUploadReceipt, RmError> {
+    let receipt = blocking::usb_upload_document_into(
+        &base_url,
+        folder_id.as_deref(),
+        std::path::Path::new(&file),
+        &upload_name,
+    )?;
+    Ok(RmUploadReceipt {
+        id: receipt.id,
+        parent: receipt.parent,
+        visible_name: receipt.visible_name,
+    })
 }
 
 /// Restart the tablet's UI so it notices files written underneath it.

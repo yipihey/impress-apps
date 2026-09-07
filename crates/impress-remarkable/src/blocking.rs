@@ -84,3 +84,49 @@ pub fn usb_download_document(
 pub fn usb_upload_document(base_url: &str, file: &Path) -> Result<()> {
     block_on(crate::usb_web::upload_document(base_url, file))
 }
+
+/// One folder's entries (`None` = the top level).
+pub fn usb_list_folder(base_url: &str, folder_id: Option<&str>) -> Result<Vec<RemarkableDocument>> {
+    block_on(crate::usb_web::list_folder(base_url, folder_id))
+}
+
+/// A short TCP probe; never an error, just an answer.
+pub fn usb_reachable(base_url: &str) -> bool {
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                runtime().block_on(crate::usb_web::reachable(
+                    base_url,
+                    crate::usb_web::REACHABLE_TIMEOUT,
+                ))
+            })
+            .join()
+            .unwrap_or(false)
+    })
+}
+
+pub fn usb_download_document_as(
+    base_url: &str,
+    id: &str,
+    kind: crate::usb_web::DownloadKind,
+    dest_dir: &Path,
+) -> Result<std::path::PathBuf> {
+    block_on(crate::usb_web::download_document_as(
+        base_url, id, kind, dest_dir,
+    ))
+}
+
+/// List the folder, upload, list again; see `usb_web::upload_document_into`.
+pub fn usb_upload_document_into(
+    base_url: &str,
+    folder_id: Option<&str>,
+    file: &Path,
+    upload_name: &str,
+) -> Result<crate::usb_web::UploadReceipt> {
+    block_on(crate::usb_web::upload_document_into(
+        base_url,
+        folder_id,
+        file,
+        upload_name,
+    ))
+}

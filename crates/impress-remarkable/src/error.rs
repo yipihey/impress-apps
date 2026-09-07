@@ -40,6 +40,25 @@ pub enum Error {
     /// Local filesystem failure while writing a download.
     #[error("could not write {path}: {detail}")]
     Io { path: String, detail: String },
+    /// An upload was accepted but the tablet filed it somewhere else than
+    /// the folder that was listed just before — the caller must not record
+    /// the id under the wrong parent.
+    #[error("{host} filed document {id} under {actual_parent:?} instead of {expected_parent:?}")]
+    Misplaced {
+        host: String,
+        id: String,
+        expected_parent: String,
+        actual_parent: String,
+    },
+    /// The tablet answered nothing within the time the caller allowed.
+    #[error("{operation} on {host} timed out")]
+    Timeout { host: String, operation: String },
+    /// A `.rmdoc` archive that is not a zip, or lacks the files it needs.
+    #[error("not a reMarkable archive: {detail}")]
+    Archive { detail: String },
+    /// A stroke or metadata file whose bytes do not follow the format.
+    #[error("{path}: {detail}")]
+    Format { path: String, detail: String },
 }
 
 impl Error {

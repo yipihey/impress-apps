@@ -2,7 +2,7 @@
 name = "impress-remarkable"
 version = "0.1.0"
 edition = "2021"
-description = "Local-network transport for reMarkable tablets: SFTP over the tablet's own SSH server, so documents and annotations move without a cloud round trip."
+description = "Transports and file formats for reMarkable tablets: the USB web interface (no credential), SFTP over the tablet's own SSH server, and the .rmdoc archive, so documents and annotations move without a cloud round trip."
 
 [dependencies]
 # Pure-Rust SSH. A C binding (libssh2/openssl) would not cross-compile into
@@ -13,12 +13,17 @@ russh-sftp = "2.0"
 russh-keys = "0.45"
 async-trait = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "io-util", "macros", "time"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "io-util", "macros", "net", "time"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
+# The tablet's `.rmdoc` export is a zip of its on-disk document files.
+zip = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+mockito = { workspace = true }
+# The P0 spike example talks to the tablet with blocking reqwest.
+reqwest = { workspace = true, features = ["blocking"] }
