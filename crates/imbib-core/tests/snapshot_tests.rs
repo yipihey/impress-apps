@@ -231,6 +231,19 @@ fn test_bibtex_with_special_characters() {
 }
 
 #[test]
+fn test_bibtex_with_dollar_signs() {
+    let mut entry = BibTeXEntry::new("Dollars".into(), BibTeXEntryType::Article);
+    // A lone unescaped `$` is a literal dollar amount: the formatter must
+    // escape it to `\$`, not balance it with a fabricated closing `$`.
+    entry.add_field("title", "Save $5 on subscriptions");
+    // An already-escaped `\$` passes through byte-identical.
+    entry.add_field("abstract", "Escaped \\$10 stays escaped");
+    entry.add_field("year", "2024");
+
+    assert_snapshot!(format_entry(entry));
+}
+
+#[test]
 fn test_bibtex_with_latex() {
     let mut entry = BibTeXEntry::new("Latex".into(), BibTeXEntryType::Article);
     entry.add_field("author", "M{\\\"u}ller, Hans");

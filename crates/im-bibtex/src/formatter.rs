@@ -96,7 +96,12 @@ fn format_field_value(value: &str) -> String {
 ///
 /// Well-formed values pass through byte-identical. A value with unbalanced
 /// braces loses its brace characters (the grouping was already meaningless);
-/// a value with an odd count of unescaped `$` gets one closing `$` appended.
+/// a value with an odd count of unescaped `$` has its unpaired `$` — the last
+/// one, since TeX pairs `$` delimiters sequentially — escaped to a literal
+/// `\$`. Escaping beats appending a closing `$`: an odd count is usually a
+/// literal dollar amount ("Cost: $100"), and a fabricated math region around
+/// it mis-renders and can itself be invalid TeX (an `&` in the swallowed text
+/// is an alignment tab in math mode).
 fn sanitize_field_value(value: &str) -> String {
     let mut depth: i64 = 0;
     let mut balanced = true;
@@ -139,7 +144,20 @@ fn sanitize_field_value(value: &str) -> String {
         filtered
     };
     if !dollars.is_multiple_of(2) {
-        out.push('$');
+        // Brace filtering never removes a backslash (or a brace that follows
+        // one), so escape status is unchanged and the unpaired `$` can be
+        // located in `out` directly.
+        let mut prev = false;
+        let mut unpaired = None;
+        for (i, c) in out.char_indices() {
+            if c == '$' && !prev {
+                unpaired = Some(i);
+            }
+            prev = c == '\\' && !prev;
+        }
+        if let Some(i) = unpaired {
+            out.insert(i, '\\');
+        }
     }
     out
 }
@@ -260,11 +278,26 @@ mod sanitize_tests {
     }
 
     #[test]
-    fn unclosed_math_gets_closed() {
-        // The truncated-abstract case that broke the ULDM bibliography.
+    fn unpaired_dollar_becomes_literal() {
+        // The truncated-abstract case that broke the ULDM bibliography: the
+        // field must stay parseable, and the `$` renders as a dollar sign
+        // rather than opening a math region.
         assert_eq!(
             sanitize_field_value("mixes with the environment when $H"),
-            "mixes with the environment when $H$"
+            r"mixes with the environment when \$H"
+        );
+        // A literal dollar amount keeps its meaning.
+        assert_eq!(
+            sanitize_field_value("Cost: $100 & Benefits > Costs"),
+            r"Cost: \$100 & Benefits > Costs"
+        );
+        // An already-escaped dollar passes through untouched.
+        assert_eq!(sanitize_field_value(r"Cost: \$100"), r"Cost: \$100");
+        // Well-paired math earlier in the value is left alone; only the
+        // unpaired trailing `$` is escaped.
+        assert_eq!(
+            sanitize_field_value("energy $E = mc^2$ plus $5"),
+            r"energy $E = mc^2$ plus \$5"
         );
     }
 
@@ -281,6 +314,6 @@ mod sanitize_tests {
         entry.add_field("title", "Fine Title");
         entry.add_field("abstract", "truncated at math $H");
         let formatted = format_entry(entry);
-        assert!(formatted.contains("abstract = {truncated at math $H$},"));
+        assert!(formatted.contains(r"abstract = {truncated at math \$H},"));
     }
 }
