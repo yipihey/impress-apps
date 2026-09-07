@@ -651,6 +651,13 @@ public struct AppSettingsConfiguration: Sendable {
     /// which is `SpotlightSettingsPane` verbatim. The other four are app content
     /// (rendering, colormaps, a shortcut reference table) and register from
     /// implore.
+    ///
+    /// `.ai` arrived with ADR-0029 (2026-09-03): implore's `AIDataAssistant`
+    /// (`data.generate` / `data.interpret`) had been excluded from the build
+    /// since 4948f584, so a pane would have configured a feature the app did
+    /// not run. The sources are back in the target and the pane is the shared
+    /// `AISettingsView` over the Rust-owned suite selection — the same
+    /// provider and model every other app shows.
     public static let implore = AppSettingsConfiguration(
         appID: "implore",
         sections: [
@@ -682,6 +689,13 @@ public struct AppSettingsConfiguration: Sendable {
                 subtitle: "Shortcut reference",
                 availability: .macOSOnly(),
                 order: 40),
+            SettingsSectionDescriptor(
+                id: .ai,
+                title: "AI",
+                systemImage: "sparkles",
+                subtitle: "Provider, model, and task categories",
+                availability: .macOSOnly(),
+                order: 45),
             SettingsSectionDescriptor(
                 id: .spotlight,
                 title: "Spotlight",
@@ -813,13 +827,14 @@ public struct AppSettingsConfiguration: Sendable {
         ],
         defaultSection: .accounts)
 
-    /// impress: TWO panes, one of which the chassis already owns.
+    /// impress: THREE panes, one of which the chassis already owns.
     ///
     /// The unifying shell has the SMALLEST settings surface in the suite, and
     /// that is the D9 claim showing up in a second place. impress adds no
     /// feature of its own — it hosts every facet through the chassis — so it
-    /// configures only what a shell genuinely has: how it looks, and its
-    /// automation port.
+    /// configures only what a shell genuinely has: how it looks, which AI
+    /// provider and model the facets it hosts talk to, and its automation
+    /// port.
     ///
     ///  * `.appearance` is `.everywhere` and comes from
     ///    `SettingsSectionRegistry.builtin`. impress registers no factory for
@@ -833,12 +848,21 @@ public struct AppSettingsConfiguration: Sendable {
     ///    CAPABILITY reason rather than a policy one: iOS never grants
     ///    `com.apple.security.network.server`.
     ///
+    ///  * `.ai` (ADR-0029, 2026-09-03) is the shared `AISettingsView` over the
+    ///    Rust-owned device selection (`<workspace>/ai/preferences.json`).
+    ///    Before ADR-0029 an AI pane here would have been a second writer to
+    ///    one set of Swift defaults keys; now there is exactly one writer — the
+    ///    Rust registry — and every app's pane is a view of it, so the shell
+    ///    that hosts every AI-using facet shows the same row they do. macOS-only
+    ///    like every other app's `.ai` for this change (the iOS keychain-group
+    ///    fallback is unverified).
+    ///
     /// What is deliberately ABSENT, because declaring it would describe a
     /// surface impress does not run:
     ///  * `.spotlight` — impress installs no CoreSpotlight coordinator. The
     ///    other four macOS apps each install one in their `init()`; adding the
     ///    tab without the coordinator would configure an index nothing writes.
-    ///  * `.ai`, `.keyboard`, `.accounts`, `.sync`, `.backup`, `.advanced` —
+    ///  * `.keyboard`, `.accounts`, `.sync`, `.backup`, `.advanced` —
     ///    features impress hosts but does not own. Their configuration lives in
     ///    the app that owns the feature; a duplicate here would be a second
     ///    writer to one set of keys.
@@ -852,6 +876,13 @@ public struct AppSettingsConfiguration: Sendable {
                 subtitle: "Light, dark, or system",
                 availability: .everywhere,
                 order: 10),
+            SettingsSectionDescriptor(
+                id: .ai,
+                title: "AI",
+                systemImage: "sparkles",
+                subtitle: "Provider and model for every facet",
+                availability: .macOSOnly(),
+                order: 15),
             SettingsSectionDescriptor(
                 id: .automation,
                 title: "Automation",

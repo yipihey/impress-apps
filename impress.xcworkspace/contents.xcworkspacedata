@@ -26,9 +26,6 @@
       location = "group:packages/ImpressKit">
    </FileRef>
    <FileRef
-      location = "group:packages/ImpressLLM">
-   </FileRef>
-   <FileRef
       location = "group:packages/ImpressTestKit">
    </FileRef>
 </Workspace>

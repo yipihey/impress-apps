@@ -22,11 +22,19 @@ public struct RemarkableSettingsView: View {
     @State private var isConnecting = false
     @State private var showDisconnectConfirmation = false
     @State private var errorMessage: String?
+    @State private var wifiPassword: String = ""
+    @State private var isConnectingWiFi = false
+    @State private var wifiStatus: String?
 
     public init() {}
 
     public var body: some View {
         Form {
+            // The local-network path first: it works today, keeps papers on
+            // this network, and cannot be retired by a vendor API change —
+            // which is exactly what happened to the cloud path below.
+            wifiSection
+
             // Connection Section
             connectionSection
 
@@ -39,6 +47,15 @@ public struct RemarkableSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("reMarkable")
+        .task {
+            // Show the one-time code field immediately rather than behind a
+            // "Connect" button: preparing a registration is local (it only
+            // mints a device id), and hiding the field made the panel look
+            // like it offered no way to paste the code reMarkable gives you.
+            if !settings.isAuthenticated, !isAuthenticating, pendingBackend == nil {
+                startAuthentication()
+            }
+        }
         #if os(macOS)
         .frame(minWidth: 450)
         #endif
@@ -54,6 +71,101 @@ public struct RemarkableSettingsView: View {
             Button("OK") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    // MARK: - Local Network Section
+
+    @ViewBuilder
+    private var wifiSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Reach the tablet directly over Wi-Fi. Nothing goes through reMarkable's servers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Wake the tablet, then find its address and password on the device under Settings › Help › Copyrights and licenses.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                // `prompt:` plus `labelsHidden()`, not a bare title: inside a
+                // LabeledContent the field's own title renders as a SECOND
+                // label beside the box, so `TextField("10.0.0.42", …)` printed
+                // the example address next to an empty field instead of in it.
+                LabeledContent("Address") {
+                    TextField("Address", text: $settings.wifiHost, prompt: Text("10.0.0.42"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        #if os(macOS)
+                        .frame(maxWidth: 200)
+                        #endif
+                }
+
+                LabeledContent("Password") {
+                    SecureField("Password", text: $wifiPassword, prompt: Text("Tablet password"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        #if os(macOS)
+                        .frame(maxWidth: 200)
+                        #endif
+                }
+
+                HStack {
+                    Button {
+                        connectOverWiFi()
+                    } label: {
+                        if isConnectingWiFi {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                Text("Connecting…")
+                            }
+                        } else {
+                            Label("Connect over Wi-Fi", systemImage: "wifi")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isConnectingWiFi
+                        || settings.wifiHost.trimmingCharacters(in: .whitespaces).isEmpty
+                        || wifiPassword.isEmpty)
+
+                    if settings.wifiFingerprint != nil {
+                        Button("Forget") {
+                            settings.clearWiFiCredentials()
+                            wifiPassword = ""
+                            wifiStatus = nil
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                if let wifiStatus {
+                    Label(wifiStatus, systemImage: settings.wifiFingerprint != nil ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(settings.wifiFingerprint != nil ? .green : .orange)
+                }
+            }
+        } header: {
+            Text("Local Network")
+        } footer: {
+            Text("The tablet's key is remembered the first time it answers, so a different device on that address is refused rather than sent your password. Reading documents and annotations works; sending them to the tablet does not yet.")
+        }
+    }
+
+    private func connectOverWiFi() {
+        isConnectingWiFi = true
+        wifiStatus = nil
+        let password = wifiPassword
+        Task {
+            do {
+                try settings.storeWiFiPassword(password)
+                let backend = RemarkableWiFiBackend()
+                try await backend.authenticate()
+                let documents = try await backend.listDocuments()
+                wifiStatus = "Connected — \(documents.count) documents on the tablet."
+            } catch {
+                wifiStatus = error.localizedDescription
+            }
+            isConnectingWiFi = false
         }
     }
 
@@ -85,8 +197,18 @@ public struct RemarkableSettingsView: View {
             } else if isAuthenticating {
                 // Authenticating state — user must enter code from reMarkable website
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Connect reMarkable")
-                        .font(.headline)
+                    HStack {
+                        Image(systemName: "tablet")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading) {
+                            Text("Connect your reMarkable")
+                                .font(.headline)
+                            Text("Pairing works, but reMarkable retired the sync API this uses, so documents will not transfer. Prefer the local network above.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
@@ -112,7 +234,7 @@ public struct RemarkableSettingsView: View {
                     }
 
                     HStack {
-                        Button("Cancel") {
+                        Button("Not Now") {
                             isAuthenticating = false
                             userCode = ""
                             pendingBackend = nil
@@ -154,7 +276,7 @@ public struct RemarkableSettingsView: View {
                     Button {
                         startAuthentication()
                     } label: {
-                        Label("Connect to reMarkable Cloud", systemImage: "link")
+                        Label("Enter a One-Time Code", systemImage: "link")
                     }
                     .buttonStyle(.borderedProminent)
                 }

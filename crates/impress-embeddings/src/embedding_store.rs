@@ -80,6 +80,50 @@ pub struct ModelStats {
     pub dimension: u32,
 }
 
+/// `vectors.source_type` for a paper's metadata (title/abstract) embedding.
+pub const SOURCE_TYPE_PUBLICATION: &str = "publication";
+/// `vectors.source_type` for one chunk of a paper's full text.
+pub const SOURCE_TYPE_CHUNK: &str = "chunk";
+
+/// Vectors and distinct sources held for one `source_type`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SourceTypeCount {
+    pub source_type: String,
+    /// Rows in `vectors` with this source type.
+    pub vectors: u32,
+    /// Distinct `source_id`s — papers, chunks or memory items.
+    pub sources: u32,
+}
+
+/// What the sidecar actually holds, tier by tier.
+///
+/// The sidecar is multi-tenant (a paper's metadata vector, its full-text
+/// chunk vectors, and impel's `memory-item` vectors share one file), and the
+/// tiers are populated by different pipelines: every paper gets a metadata
+/// vector when the index is built, while a chunk vector exists only for a
+/// paper whose PDF is downloaded and chunked. A caller that collapses them
+/// into one "indexed" number reports a fully embedded library as unindexed,
+/// which is exactly what imbib's settings pane did before this type existed.
+/// `by_source_type` keeps the same answer available to tenants this crate
+/// does not know about.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct EmbeddingIndexStatus {
+    /// Papers with a metadata (title/abstract) vector.
+    pub indexed_publications: u32,
+    /// Vectors of source type `publication`.
+    pub publication_vectors: u32,
+    /// Papers with at least one stored full-text chunk.
+    pub chunked_publications: u32,
+    /// Vectors of source type `chunk`.
+    pub chunk_vectors: u32,
+    /// Rows in `chunks`; more than `chunk_vectors` means a partial index.
+    pub chunk_count: u32,
+    /// Every vector, whatever its tenant.
+    pub vector_count: u32,
+    /// Every tier present, sorted by name.
+    pub by_source_type: Vec<SourceTypeCount>,
+}
+
 /// Status of embeddings for a specific publication.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PublicationEmbeddingStatus {
@@ -646,6 +690,57 @@ impl EmbeddingStore {
         Ok(count)
     }
 
+    /// Every tier of the index in one pass — the honest answer to "how much
+    /// of the library is embedded?", which no single count can give.
+    pub fn index_status(&self) -> Result<EmbeddingIndexStatus, String> {
+        let conn = self.conn()?;
+        let mut statement = conn
+            .prepare(
+                "SELECT source_type, COUNT(*), COUNT(DISTINCT source_id)
+                     FROM vectors GROUP BY source_type",
+            )
+            .map_err(|e| format!("Prepare error: {}", e))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(SourceTypeCount {
+                    source_type: row.get(0)?,
+                    vectors: row.get(1)?,
+                    sources: row.get(2)?,
+                })
+            })
+            .map_err(|e| format!("Query error: {}", e))?;
+        let mut by_source_type: Vec<SourceTypeCount> = Vec::new();
+        for row in rows {
+            by_source_type.push(row.map_err(|e| format!("Row error: {}", e))?);
+        }
+        by_source_type.sort_by(|a, b| a.source_type.cmp(&b.source_type));
+
+        let (chunked_publications, chunk_count): (u32, u32) = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT publication_id), COUNT(*) FROM chunks",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|e| format!("Count error: {}", e))?;
+
+        let publication = by_source_type
+            .iter()
+            .find(|tier| tier.source_type == SOURCE_TYPE_PUBLICATION);
+        let chunk = by_source_type
+            .iter()
+            .find(|tier| tier.source_type == SOURCE_TYPE_CHUNK);
+        let status = EmbeddingIndexStatus {
+            indexed_publications: publication.map_or(0, |tier| tier.sources),
+            publication_vectors: publication.map_or(0, |tier| tier.vectors),
+            chunked_publications,
+            chunk_vectors: chunk.map_or(0, |tier| tier.vectors),
+            chunk_count,
+            vector_count: by_source_type.iter().map(|tier| tier.vectors).sum(),
+            by_source_type: by_source_type.clone(),
+        };
+        Ok(status)
+    }
+
     /// Number of publications with chunks.
     pub fn chunked_publication_count(&self) -> Result<u32, String> {
         let conn = self.conn()?;
@@ -815,6 +910,78 @@ mod tests {
         let path = dir.path().join("test_embeddings.sqlite");
         let store = EmbeddingStore::open(path.to_str().unwrap()).unwrap();
         TestStore { store, _dir: dir }
+    }
+
+    fn vector(id: &str, source_id: &str, source_type: &str) -> StoredVector {
+        StoredVector {
+            id: id.into(),
+            source_id: source_id.into(),
+            source_type: source_type.into(),
+            vector: vec![0.1, 0.2, 0.3, 0.4],
+            model: "test-model-4".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }
+    }
+
+    fn chunk(id: &str, publication_id: &str, index: u32) -> StoredChunk {
+        StoredChunk {
+            id: id.into(),
+            publication_id: publication_id.into(),
+            text: format!("chunk {index}"),
+            page_number: Some(index),
+            char_offset: index * 100,
+            char_length: 100,
+            chunk_index: index,
+        }
+    }
+
+    #[test]
+    fn index_status_separates_the_metadata_tier_from_the_full_text_tier() {
+        let store = temp_store();
+
+        // Two papers with a metadata vector; only one of them has a PDF that
+        // was chunked (two chunks), plus an unrelated tenant's vector.
+        store
+            .save_vectors(&[
+                vector("pub-a", "paper-a", SOURCE_TYPE_PUBLICATION),
+                vector("pub-b", "paper-b", SOURCE_TYPE_PUBLICATION),
+                vector("paper-a-chunk-0", "paper-a-chunk-0", SOURCE_TYPE_CHUNK),
+                vector("paper-a-chunk-1", "paper-a-chunk-1", SOURCE_TYPE_CHUNK),
+                vector("mem-1", "mem-1", "memory-item"),
+            ])
+            .unwrap();
+        store
+            .save_chunks(&[
+                chunk("paper-a-chunk-0", "paper-a", 0),
+                chunk("paper-a-chunk-1", "paper-a", 1),
+            ])
+            .unwrap();
+
+        let status = store.index_status().unwrap();
+        assert_eq!(status.indexed_publications, 2, "both papers have metadata");
+        assert_eq!(status.publication_vectors, 2);
+        assert_eq!(status.chunked_publications, 1, "only one PDF was chunked");
+        assert_eq!(status.chunk_vectors, 2);
+        assert_eq!(status.chunk_count, 2);
+        assert_eq!(status.vector_count, 5, "every tenant's vectors");
+        assert_eq!(
+            status
+                .by_source_type
+                .iter()
+                .map(|tier| tier.source_type.as_str())
+                .collect::<Vec<_>>(),
+            vec!["chunk", "memory-item", "publication"],
+            "tiers are reported by name for tenants this crate does not know"
+        );
+    }
+
+    #[test]
+    fn index_status_of_an_empty_store_is_all_zeroes() {
+        let store = temp_store();
+        assert_eq!(
+            store.index_status().unwrap(),
+            EmbeddingIndexStatus::default()
+        );
     }
 
     #[test]

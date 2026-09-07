@@ -12,7 +12,7 @@ imbib-core = { workspace = true, features = ["native"] }
 impress-domain = { workspace = true }
 im-identifiers = { workspace = true }
 
-impress-llm = { path = "../impress-llm" }
+impress-ai = { workspace = true }
 
 async-trait = { workspace = true }
 thiserror = { workspace = true }

@@ -16,8 +16,8 @@ members = [
     "crates/impress-tags",
     "crates/imprint-core",
     "crates/imbib-core",
-    # impress-llm - extended LLM provider support via graniet/llm
-    "crates/impress-llm",
+    # local-network (SFTP) transport for reMarkable tablets
+    "crates/impress-remarkable",
     # provenance-first local/remote inference over the shared item graph
     "crates/impress-ai",
     "crates/impress-ai-service",
@@ -176,7 +176,7 @@ impress-memory-service = { path = "crates/impress-memory-service" }
 impress-git = { path = "crates/impress-git" }
 impress-store-ffi = { path = "crates/impress-store-ffi" }
 scix-client-ffi = { path = "crates/scix-client-ffi" }
-impress-llm = { path = "crates/impress-llm" }
+impress-remarkable = { path = "crates/impress-remarkable" }
 impress-ai = { path = "crates/impress-ai" }
 impress-ai-service = { path = "crates/impress-ai-service" }
 impress-ai-tools = { path = "crates/impress-ai-tools" }

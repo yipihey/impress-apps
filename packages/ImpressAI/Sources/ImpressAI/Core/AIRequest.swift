@@ -260,16 +260,22 @@ public struct AIStreamChunk: Sendable {
     /// Usage statistics (typically only in final chunk).
     public let usage: AIUsage?
 
+    /// Reasoning ("thinking") text streamed alongside the answer, for models
+    /// that expose it. Not part of `text`.
+    public let reasoning: String?
+
     public init(
         id: String? = nil,
         content: [AIContent],
         finishReason: AIFinishReason? = nil,
-        usage: AIUsage? = nil
+        usage: AIUsage? = nil,
+        reasoning: String? = nil
     ) {
         self.id = id
         self.content = content
         self.finishReason = finishReason
         self.usage = usage
+        self.reasoning = reasoning
     }
 
     /// Combined text content of this chunk.

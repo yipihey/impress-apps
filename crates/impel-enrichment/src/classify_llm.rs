@@ -1,47 +1,48 @@
-//! LLM-backed [`Classifier`] via `impress-llm` (ADR-0015 D6 follow-up).
+//! LLM-backed [`Classifier`] over the Rust AI registry (ADR-0029).
 //!
-//! Prompt-JSON + parse: `impress-llm` has no structured-output mode, so
-//! the prompt demands a bare JSON array and parsing salvages the first
-//! `[...]` block. Configuration comes from the environment (the daemon's
-//! convention — no keychain in headless contexts):
-//!
-//! - `IMPEL_LLM_PROVIDER` — e.g. `groq`, `mistral`, `deepseek`
-//! - `IMPEL_LLM_MODEL`    — provider-specific model id
-//! - `IMPEL_LLM_API_KEY`  — the key, passed per-request
+//! Prompt-JSON + parse: the prompt demands a bare JSON array and parsing
+//! salvages the first `[...]` block. The target comes from the registry
+//! (`AiRegistry::daemon_target`): `IMPEL_LLM_PROVIDER` + `IMPEL_LLM_MODEL`
+//! (kept for one release) beat the `agent.classify` task-category
+//! assignment; with neither, callers keep the heuristic tier. Background
+//! tiers deliberately do not inherit the interactive suite selection, so a
+//! cloud model picked for chat never creates daemon spend silently.
 //!
 //! Determinism note: temperature is pinned to 0.0 so `prompt_hash`
 //! reproducibility (ADR-0005 §5) is as meaningful as the provider allows.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use impress_llm::{complete_sync, LLMMessage, LLMRequest, LLMRole};
+use impress_ai::blocking::complete_text_sync;
+use impress_ai::{AiRegistry, ResolveTarget};
 
 use crate::classify::{Classification, Classifier};
 
+/// The task category whose primary model runs this tier.
+pub const CATEGORY: &str = "agent.classify";
+
 pub struct LlmClassifier {
-    provider: String,
-    model: String,
-    api_key: String,
+    registry: Arc<AiRegistry>,
+    target: ResolveTarget,
     model_id: String,
 }
 
 impl LlmClassifier {
-    pub fn new(provider: String, model: String, api_key: String) -> Self {
-        let model_id = format!("{provider}/{model}");
+    pub fn new(registry: Arc<AiRegistry>, target: ResolveTarget) -> Self {
+        let model_id = registry.describe_target(&target);
         Self {
-            provider,
-            model,
-            api_key,
+            registry,
+            target,
             model_id,
         }
     }
 
-    /// Build from `IMPEL_LLM_*` env vars; `None` when unconfigured
-    /// (callers fall back to the heuristic classifier).
-    pub fn from_env() -> Option<Self> {
-        let provider = std::env::var("IMPEL_LLM_PROVIDER").ok()?;
-        let model = std::env::var("IMPEL_LLM_MODEL").ok()?;
-        let api_key = std::env::var("IMPEL_LLM_API_KEY").ok()?;
-        Some(Self::new(provider, model, api_key))
+    /// Build from the registry's daemon target for [`CATEGORY`]; `None`
+    /// when unconfigured (callers fall back to the heuristic classifier).
+    pub fn from_registry(registry: Arc<AiRegistry>) -> Option<Self> {
+        let target = registry.daemon_target(CATEGORY)?;
+        Some(Self::new(registry, target))
     }
 
     fn prompt(title: &str, abstract_text: &str) -> String {
@@ -94,63 +95,19 @@ impl Classifier for LlmClassifier {
     }
 
     async fn classify(&self, title: &str, abstract_text: &str) -> Vec<Classification> {
-        let request = LLMRequest {
-            provider: self.provider.clone(),
-            model: self.model.clone(),
-            messages: vec![LLMMessage {
-                role: LLMRole::User,
-                content: Self::prompt(title, abstract_text),
-            }],
-            max_tokens: Some(512),
-            temperature: Some(0.0),
-            top_p: None,
-            api_key: self.api_key.clone(),
-        };
-        // impress-llm is blocking by design; hop off the async worker.
-        let reply = tokio::task::spawn_blocking(move || complete_sync(&request))
-            .await
-            .ok()
-            .and_then(|r| r.ok());
+        let registry = Arc::clone(&self.registry);
+        let target = self.target.clone();
+        let prompt = Self::prompt(title, abstract_text);
+        // The registry call blocks on its own runtime; hop off the async worker.
+        let reply = tokio::task::spawn_blocking(move || {
+            complete_text_sync(&registry, &target, None, &prompt, 512, Some(0.0))
+        })
+        .await
+        .ok()
+        .and_then(|r| r.ok());
         match reply {
-            Some(response) => Self::parse_reply(&response.content),
+            Some((_, text)) => Self::parse_reply(&text),
             None => vec![], // provider failure → no proposals (executor completes)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_clean_json() {
-        let out = LlmClassifier::parse_reply(
-            r#"[{"tag":"ai/topic/cosmology","confidence":0.9},{"tag":"ai/methods/ml","confidence":0.4}]"#,
-        );
-        assert_eq!(out.len(), 2);
-        assert_eq!(out[0].tag, "ai/topic/cosmology");
-    }
-
-    #[test]
-    fn salvages_json_from_prose() {
-        let out = LlmClassifier::parse_reply(
-            "Sure! Here are the tags:\n[{\"tag\":\"ai/methods/simulation\",\"confidence\":0.7}]\nHope that helps.",
-        );
-        assert_eq!(out.len(), 1);
-    }
-
-    #[test]
-    fn drops_out_of_namespace_and_clamps() {
-        let out = LlmClassifier::parse_reply(
-            r#"[{"tag":"random/thing","confidence":0.9},{"tag":"ai/topic/galaxies","confidence":1.7}]"#,
-        );
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].confidence, 1.0);
-    }
-
-    #[test]
-    fn garbage_is_empty() {
-        assert!(LlmClassifier::parse_reply("no json here").is_empty());
-        assert!(LlmClassifier::parse_reply("[not valid").is_empty());
     }
 }

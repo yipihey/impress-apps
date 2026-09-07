@@ -21,6 +21,8 @@ public struct EInkSettingsView: View {
     @State private var showingAddDevice = false
     @State private var selectedDeviceForConfig: String?
     @State private var authCode: String?
+    /// Presents the reMarkable cloud connect sheet (the one-time code flow).
+    @State private var showingRemarkableConnect = false
     @State private var errorMessage: String?
 
     public init() {}
@@ -40,6 +42,18 @@ public struct EInkSettingsView: View {
         .formStyle(.grouped)
         .task {
             await refreshDeviceInfo()
+        }
+        .sheet(isPresented: $showingRemarkableConnect) {
+            NavigationStack {
+                RemarkableSettingsView()
+                    .navigationTitle("Connect reMarkable")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingRemarkableConnect = false }
+                        }
+                    }
+            }
+            .frame(minWidth: 520, minHeight: 460)
         }
         .sheet(isPresented: $showingAddDevice) {
             AddDeviceSheet(onAdd: { deviceType, syncMethod in
@@ -240,6 +254,27 @@ public struct EInkSettingsView: View {
 
     private func addRemarkableDevice(method: EInkSyncMethod) async throws {
         switch method {
+        case .wifi:
+            // SFTP to the tablet on this network. The address and password go
+            // in the reMarkable panel, which the sheet below leads with.
+            let backend = RemarkableWiFiBackend()
+            await MainActor.run { RemarkableBackendManager.shared.registerBackend(backend) }
+            let adapter = await RemarkableDeviceAdapter(backend: backend, syncMethod: .wifi)
+            await deviceManager.registerDevice(adapter)
+            let deviceID = await adapter.deviceID
+            await MainActor.run {
+                settings.updateSettings(for: deviceID) { deviceSettings in
+                    deviceSettings.deviceType = .remarkable
+                    deviceSettings.syncMethod = .wifi
+                    deviceSettings.displayName = "reMarkable (Local Network)"
+                    deviceSettings.isAuthenticated = false
+                }
+                settings.activeDeviceID = deviceID
+                showingRemarkableConnect = true
+            }
+            try? await deviceManager.selectDevice(deviceID)
+            logger.info("Added reMarkable local-network device: \(deviceID)")
+
         case .cloudApi:
             // Create cloud backend
             let cloudBackend = RemarkableCloudBackend()
@@ -253,8 +288,13 @@ public struct EInkSettingsView: View {
             let adapter = await RemarkableDeviceAdapter(backend: cloudBackend, syncMethod: .cloudApi)
             await deviceManager.registerDevice(adapter)
 
-            // Start authentication flow
-            try await cloudBackend.authenticate()
+            // Pairing is a two-step flow that needs a one-time code from the
+            // researcher's signed-in browser, so it cannot run here:
+            // `authenticate()` exists only to say so, and calling it was a
+            // dead end that told the user to open a panel this app never
+            // presented. Show the connect sheet instead, or drive it headless
+            // with POST /api/remarkable/connect.
+            await MainActor.run { showingRemarkableConnect = true }
 
             // Store device settings
             let deviceID = await adapter.deviceID
@@ -263,7 +303,7 @@ public struct EInkSettingsView: View {
                     deviceSettings.deviceType = .remarkable
                     deviceSettings.syncMethod = .cloudApi
                     deviceSettings.displayName = "reMarkable Cloud"
-                    deviceSettings.isAuthenticated = true
+                    deviceSettings.isAuthenticated = false
                 }
                 settings.activeDeviceID = deviceID
             }
@@ -289,15 +329,25 @@ public struct EInkSettingsView: View {
             logger.info("Added reMarkable folder sync device, awaiting configuration")
 
         case .usb:
-            // USB is similar to folder sync
-            let deviceID = "remarkable-usb-\(UUID().uuidString.prefix(8))"
+            // The tablet's own web interface over the USB cable — the only
+            // transport that needs no credential at all.
+            let backend = RemarkableUSBWebBackend()
+            await MainActor.run { RemarkableBackendManager.shared.registerBackend(backend) }
+            let adapter = await RemarkableDeviceAdapter(backend: backend, syncMethod: .usb)
+            await deviceManager.registerDevice(adapter)
+            let deviceID = await adapter.deviceID
+            let reachable = await backend.isAvailable()
             await MainActor.run {
                 settings.updateSettings(for: deviceID) { deviceSettings in
                     deviceSettings.deviceType = .remarkable
                     deviceSettings.syncMethod = .usb
                     deviceSettings.displayName = "reMarkable (USB)"
+                    deviceSettings.isAuthenticated = reachable
                 }
+                settings.activeDeviceID = deviceID
             }
+            try? await deviceManager.selectDevice(deviceID)
+            logger.info("Added reMarkable USB device: \(deviceID), reachable: \(reachable)")
             selectedDeviceForConfig = deviceID
             logger.info("Added reMarkable USB device, awaiting configuration")
 
@@ -534,6 +584,9 @@ struct DeviceConfigurationSheet: View {
     @State private var folderPath: String = ""
     @State private var email: String = ""
     @State private var isAuthenticating = false
+    @State private var isCheckingUSB = false
+    @State private var usbReachable: Bool?
+    @State private var usbStatus: String?
 
     init(deviceID: String) {
         self.deviceID = deviceID
@@ -552,14 +605,48 @@ struct DeviceConfigurationSheet: View {
                     }
                 }
 
-                if settings.syncMethod == .folderSync || settings.syncMethod == .usb {
-                    Section("Folder Location") {
+                // Folder sync mirrors a directory some other tool fills; the
+                // USB cable talks to the tablet itself and needs no folder.
+                if settings.syncMethod == .folderSync {
+                    Section {
                         TextField("Folder path", text: $folderPath)
                             .textFieldStyle(.roundedBorder)
 
                         Button("Choose Folder...") {
                             chooseFolder()
                         }
+                    } header: {
+                        Text("Folder Location")
+                    } footer: {
+                        Text("Point this at a directory another tool keeps in step with the tablet. To reach the tablet directly, use the USB Cable method instead.")
+                    }
+                }
+
+                if settings.syncMethod == .usb {
+                    Section {
+                        HStack {
+                            Image(systemName: usbReachable == true ? "checkmark.circle.fill" : "cable.connector")
+                                .foregroundStyle(usbReachable == true ? .green : .secondary)
+                            Text(usbStatus ?? "Not checked yet")
+                        }
+
+                        Button {
+                            checkUSBConnection()
+                        } label: {
+                            if isCheckingUSB {
+                                HStack {
+                                    ProgressView().controlSize(.small)
+                                    Text("Checking…")
+                                }
+                            } else {
+                                Text("Check Connection")
+                            }
+                        }
+                        .disabled(isCheckingUSB)
+                    } header: {
+                        Text("Connection")
+                    } footer: {
+                        Text("Connect the cable and turn on Settings › Storage › USB web interface on the tablet. imbib reads documents and their annotations straight from the device — no password, no folder, and nothing through reMarkable's servers.")
                     }
                 }
 
@@ -615,6 +702,25 @@ struct DeviceConfigurationSheet: View {
         .onAppear {
             folderPath = settings.localFolderPath ?? ""
             email = settings.sendToEmail ?? ""
+        }
+    }
+
+    /// Ask the tablet what it is serving, so "configured" means "answered".
+    private func checkUSBConnection() {
+        isCheckingUSB = true
+        usbStatus = nil
+        Task {
+            let backend = RemarkableUSBWebBackend()
+            do {
+                let documents = try await backend.listDocuments()
+                let folders = try await backend.listFolders()
+                usbReachable = true
+                usbStatus = "Connected — \(documents.count) documents, \(folders.count) folders"
+            } catch {
+                usbReachable = false
+                usbStatus = error.localizedDescription
+            }
+            isCheckingUSB = false
         }
     }
 

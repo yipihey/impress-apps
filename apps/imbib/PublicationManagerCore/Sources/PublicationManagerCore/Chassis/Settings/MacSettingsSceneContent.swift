@@ -45,12 +45,11 @@ public struct MacSettingsSceneContent: View {
     ///
     /// `maxWidth` / `maxHeight` / `containerIdentifier` are Stage 6 phase-2
     /// additions with imprint's behaviour as the default (`nil` max = resizable,
-    /// `settings.container`). They exist because imprint's Settings window is
-    /// resizable and implore's, impel's and impart's are NOT — all three shipped
-    /// a `.frame(width:height:)`, which is a fixed frame rather than a floor.
-    /// Adopting the renderer with min/ideal only would have made three
-    /// previously fixed windows resizable, which is a visible change to a
-    /// surface the migration promises not to change.
+    /// `settings.container`). They were added because implore's, impel's and
+    /// impart's windows shipped pinned (`.frame(width:height:)`) and the
+    /// migration promised not to change that. Since 2026-09-06 all six apps
+    /// use resizable windows (`resizable(configuration:width:height:)`), and
+    /// `fixed` remains only for source compatibility.
     public init(
         configuration: AppSettingsConfiguration,
         minWidth: CGFloat = 700,
@@ -71,7 +70,28 @@ public struct MacSettingsSceneContent: View {
         self.containerIdentifier = containerIdentifier
     }
 
-    /// A window pinned to one size — the implore / impel / impart shape.
+    /// A resizable window that opens at `width` × `height` and treats that
+    /// size as its floor. Every app's Settings window is resizable since
+    /// 2026-09-06: panes that grew with the suite-wide AI settings (a
+    /// provider's full model list, task categories) need the room, and a
+    /// pinned frame hid rows behind the window edge instead of scrolling.
+    public static func resizable(
+        configuration: AppSettingsConfiguration,
+        width: CGFloat,
+        height: CGFloat,
+        containerIdentifier: String = "settings.container"
+    ) -> MacSettingsSceneContent {
+        MacSettingsSceneContent(
+            configuration: configuration,
+            minWidth: width, idealWidth: width, maxWidth: nil,
+            minHeight: height, idealHeight: height, maxHeight: nil,
+            containerIdentifier: containerIdentifier)
+    }
+
+    /// A window pinned to one size — the shape implore, impel and impart
+    /// shipped before their windows became resizable. Kept so out-of-tree
+    /// adopters compile; new code uses `resizable`.
+    @available(*, deprecated, message: "Settings windows are resizable suite-wide; use resizable(configuration:width:height:)")
     public static func fixed(
         configuration: AppSettingsConfiguration,
         width: CGFloat,

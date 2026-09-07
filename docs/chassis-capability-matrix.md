@@ -1255,6 +1255,168 @@ badges, the Story/Edit toggle, and the long-press legend); and the extended
 `ImprintIOSApp` seed, which now writes a throughline, a `citation-usage` record
 through imprint's own writer, the folder tree and a dismissed manuscript.
 
+### Settings surface — AI pane suite-wide (ADR-0029, 2026-09-03)
+
+Every app now declares `.ai`, and every `.ai` pane is the same view
+(`ImpressAI.AISettingsView`) over the same state: the Rust-owned device
+selection in `<workspace>/ai/preferences.json`, read through the UniFFI
+`SharedAiRegistry`. Swift writes nothing of its own any more — the old
+`impressai.selected*` SharedDefaults keys are imported once
+(`AIPreferencesMigration`, helper models such as oMLX's `MarkItDown`
+dropped, `openai-compatible`@loopback:8000 remapped to `omlx`) and removed.
+
+| App | Before | After | Pane body |
+|---|---|---|---|
+| imbib | `.searchAI` (macOS) | unchanged id; inherits the new body | shared pane + embeddings section |
+| imprint | `.ai`, `.aiTasks` | unchanged; tasks pane names "Tasks run on oMLX — Qwen3.5 4B 4bit" | shared pane |
+| impel | `.ai` | unchanged; hidden `counselModel` default retired (orchestrator follows the suite selection) | shared pane |
+| impart | `.ai` | unchanged; privacy bar derives "Local" from the catalogue category | shared pane, privacy header rewritten |
+| implore | none (AI sources excluded from the target since 4948f584) | **5 → 6 tabs**: `("ai", "AI", "sparkles")` at order 45, `settings.tabs.ai`; `Sources/AI/AIDataAssistant.swift` back in the build | shared pane + "Used in implore" section |
+| impress | none ("deliberately absent": a second writer) | **2 → 3 tabs** on macOS: `("ai", "AI", "sparkles")` at order 15; iOS unchanged (`appearance` only) | shared pane |
+
+What the shared pane shows (all of it read from Rust, none of it persisted by
+opening the pane): provider picker grouped local / cloud / aggregator with an
+"Automatic (<resolved>)" row; a health line for local hosts
+(`● oMLX 0.6.4 · 2 of 10 loaded · 28.9 GB of 105 GB`) or the credential
+status for cloud ones; the model list (`AIModelPickerList`: friendly name,
+raw id, loaded dot, context window, output limit, vision, server default;
+helpers listed only behind "Show helper models" and never selectable); an
+endpoint override field and "Start oMLX when needed" for the managed local
+host; keychain-backed secret fields; Test Connection (the one action that may
+launch oMLX.app); task categories. `AIStatusMenuButton` is now a `Menu`
+hosting `AIQuickModelSwitcher` for the same selection without opening
+Settings.
+
+Two follow-ups on 2026-09-06, from using the pane: every app's Settings
+window is now resizable (`MacSettingsSceneContent.resizable(configuration:width:height:)`
+replaces the pinned `.fixed` shape implore, impel and impart shipped; imbib's
+sidebar renderer lost its 1200 × 900 ceiling; imprint and impress were already
+free), and `AIModelPickerList` renders its rows inline instead of inside a
+nested `List`: a scroll view inside a grouped macOS `Form` did not scroll and
+hid the rows past its frame, so the form itself now scrolls past every model,
+with a filter field above eight models and the selected model always visible.
+`AIModelPickerListTests` pins the row selection.
+
+A third follow-up on 2026-09-06, after the panes met real data. Model
+pickers are built once, by `AIModelOptions` in `packages/ImpressAI`: it asks
+providers that are *ready* what they actually serve and falls back to the
+catalogue for the rest, then groups by provider with usable providers first
+and the reason attached to the others ("Claude (Anthropic) — needs an API
+key"). Settings › AI, the task-category sheet and the quick switcher all read
+those groups, so a discovery-only host such as oMLX — whose catalogue entry
+declares no static models — is now offered everywhere instead of nowhere, and
+eight unconfigured cloud providers no longer sit unlabelled at the top of the
+list. `AIModelOptionsTests` pins the rules.
+
+The embedding panel gained the same honesty about tiers. `EmbeddingStore::
+index_status` in `crates/impress-embeddings` reports every `source_type` in
+the sidecar (a paper's metadata vector, its full-text chunk vectors, and
+impel's `memory-item` vectors share one file), and imbib's Search & AI pane
+shows the metadata tier and the full-text tier as separate rows. It had shown
+one number, `max(papers with chunks, papers in the in-memory ANN index)`;
+because that index is built lazily per session it read 0 on a fresh launch,
+so a library with a metadata embedding for every paper reported "73 of 2,986
+indexed". `GET /api/embeddings/status` on imbib's automation port answers the
+same question for agents — the sidecar sits in the app's sandbox container,
+where no daemon, CLI or MCP process can reach it.
+
+Frozen oracles moved in the same commit: `SettingsSurfacePhase2ContractTests`
+(`testImplorePresetIsTheFrozenSixTabInventory`,
+`testImploreTabIdentifiersAreTheOnesItShipped`,
+`testImpressPresetIsTheFrozenThreeTabInventory`; the factory-coverage scan
+of both registration files), `ImpressShellTests.testSettingsPresetIsFullyResolvable`,
+and `ImpressKitTests/SiblingServicesTests` pinning
+`SiblingApp.Services.omlxPort == 8000` against the Rust catalogue default.
+Three-point trace under `ai.preferences` (Mutation → Save → Display) in every
+app's Console; `ai.settings` logs what the pane displayed and why
+(`origin selected|first_ready|category`).
+
+### reMarkable pairing (imbib, 2026-09-06)
+
+Connecting a reMarkable to the cloud backend was a dead end. imbib's E-Ink
+tab called `RemarkableCloudBackend.authenticate()`, which exists only to
+throw "Use the reMarkable settings panel to connect your account" — and
+`RemarkableSettingsView`, the panel that message names, was registered
+nowhere: unreachable code whose only other references were planning docs.
+Pairing genuinely needs two steps (`startAuthentication` for a device id,
+then `completeRegistration(userCode:)` with a one-time code the researcher
+fetches from a signed-in browser at `my.remarkable.com/device/browser/
+connect`), and nothing shipped could take that code.
+
+The E-Ink tab's Cloud API path now presents that panel as a sheet, and the
+same flow is drivable headlessly:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/status` | Whether a device token is stored, and whether reMarkable still accepts it (a refresh is the only way to see a revoked token) |
+| `POST` | `/api/remarkable/connect` | `{"code": "…"}` — exchanges the one-time code for a device token, stores it in the login keychain, and registers the device so it appears in the E-Ink tab |
+| `POST` | `/api/remarkable/disconnect` | Forgets the stored token |
+
+The code cannot be obtained by an agent — reMarkable issues it only to a
+signed-in browser session — so the route takes a code the researcher pastes
+rather than performing a login. The code is never stored or logged.
+
+Pairing then turned out to be the smaller half of the problem: the token is
+accepted, but `document-storage/json/2/docs` answers 404, because reMarkable
+retired that API. Probed 2026-09-06: the auth host answers (405 to a GET on
+`token/json/2/user/new`), the document-storage host does not (404), and the
+replacement `internal.cloud.remarkable.com/sync/v3/root` does (401). So the
+cloud path pairs and cannot sync.
+
+### reMarkable over the local network (imbib, 2026-09-06)
+
+The tablet does not need the cloud at all. It runs Linux with an SSH server on
+its Wi-Fi interface, and xochitl stores each document as plain sibling files
+under `/home/root/.local/share/remarkable/xochitl` — `<id>.metadata`,
+`<id>.content`, `<id>.pdf`, and a `<id>/` directory of per-page `.rm` strokes.
+No database, so a file transport is sufficient.
+
+`crates/impress-remarkable` is that transport: SFTP over the tablet's own SSH
+server, pure Rust (`russh`) because a C binding would not cross-compile into
+ImbibCore's iOS slices. Host keys are trust-on-first-use with an explicit pin,
+and a changed key fails before the password is sent. `search/remarkable_ffi.rs`
+mirrors it to Swift, `RemarkableWiFiBackend` projects it onto imbib's backend
+protocol, and Settings › reMarkable leads with it.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/wifi/status` | Whether the tablet is configured and answering, with its document count |
+| `GET` | `/api/remarkable/wifi/documents` | What is on the tablet |
+| `POST` | `/api/remarkable/wifi/connect` | `{"host": …, "password": …}` — stores both (password to the keychain), reaches the tablet once and pins its host key |
+
+Reading works; writing to the tablet does not yet and says so rather than
+failing silently. The tablet must be awake, since it drops Wi-Fi in standby.
+
+### reMarkable over USB — the transport that needs no credential (2026-09-06)
+
+Probing Tom's Paper Pro settled which transports are actually open:
+
+| Transport | State |
+|---|---|
+| Cloud | Pairing works; document endpoints closed (410 "update this application"). Dead for third-party clients. |
+| SSH over Wi-Fi or USB | Port 22 accepts a connection and never sends an identification string — the daemon is behind Developer mode, which erases a Paper Pro when enabled. |
+| **USB web interface** | **Works, and asks for nothing.** |
+
+Settings → Storage → "USB web interface" makes the tablet serve HTTP on
+`http://10.11.99.1` over the USB network. Its own client bundle names the API:
+`GET /documents/` (and `/documents/{folder}`), `GET /download/{id}/placeholder`
+for the document as a PDF **with the handwritten annotations rendered in**, and
+`POST /upload` (multipart, field `file`). No token, no password, no developer
+mode. Unknown paths hang rather than 404, so probe only what the bundle names.
+
+`impress_remarkable::usb_web` is the client, `RemarkableUSBWebBackend` the
+projection, and the E-Ink tab offers "USB Cable" first. Verified against the
+device: 92 documents, 13 folders, a 24 MB annotated PDF.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/usb/status` | Whether the interface is up, with document and folder counts |
+| `GET` | `/api/remarkable/usb/documents` | What is on the tablet |
+
+Annotations arrive rendered into the PDF rather than as strokes, so this
+backend claims `.downloadPDF` and `.upload` but not `.downloadAnnotations` —
+`RMFileParser` has nothing to parse here.
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
@@ -1298,6 +1460,12 @@ from a store it never reached is worse than no answer.
 | `store-query-service_list-items` | list-row population for any kind (WP G6): a page of envelopes, `modified` desc with an id tiebreak so paging is a partition, `total` alongside. Empty `schema_ref` walks EVERY kind. Withholds nothing — a browse that hid dismissed rows would make its own `total` a lie |
 | `docs-import-service_import-directory` | bulk "New Manuscript" + "file into folder", from a directory of markdown on disk. Ids are UUIDv5 over `"<collection>/<relative path>"`, so the run is **repeatable**: re-import updates bodies and titles in place, never duplicates, never double-files. Sets `format: "markdown"` explicitly; title from the first `# ` heading, filename stem otherwise. `dry_run` writes nothing and reports the counts the real run will produce |
 | `docs-import-service_prune-empty-manuscripts` | Delete column for placeholder shells — manuscripts with a title and no body. Reports by default; deletes only under `apply`, and never touches a manuscript whose body has content (the emptiness test is the interlock). `collection` scopes the scan; `max_body_chars` widens "empty" to "near-empty" |
+| `impress-ai-service_list-providers` | Settings › AI provider picker, every app (ADR-0029): catalogue rows with this device's endpoint, readiness and configured credential fields — never values |
+| `impress-ai-service_list-models` | the model list of the pane (`provider` optional → the resolved selection); helpers flagged, hidden models dropped |
+| `impress-ai-service_ai-preferences` | the pane's displayed state: `<workspace>/ai/preferences.json` plus its path |
+| `impress-ai-service_select-model` | picking a provider/model in ANY app's pane; rejects helper models and unknown providers exactly as the GUI does |
+| `impress-ai-service_set-provider-endpoint` | the endpoint override field (Tailscale hosts); `null` resets to the catalogue default |
+| `impress-ai-service_provider-health` | the health line (`● oMLX 0.6.4 · 2 of 10 loaded …`), passive — never launches oMLX |
 
 `binding` selects the hierarchy: `imbib` \| `manuscript` \| `figure` \|
 `generic` (the mixed-kind `collection@1.0.0` schema). Verb names and argument

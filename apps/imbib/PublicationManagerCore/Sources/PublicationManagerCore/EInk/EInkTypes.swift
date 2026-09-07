@@ -38,7 +38,10 @@ public enum EInkDeviceType: String, Codable, CaseIterable, Sendable {
     public var supportedSyncMethods: [EInkSyncMethod] {
         switch self {
         case .remarkable:
-            return [.cloudApi, .folderSync, .usb]
+            // USB first: it is the only transport that needs no credential,
+            // and on current firmware the others are gated — SSH behind
+            // Developer mode, and the cloud's document endpoints closed.
+            return [.usb, .wifi, .folderSync, .cloudApi]
         case .supernote:
             return [.folderSync, .cloudApi]
         case .kindleScribe:
@@ -61,6 +64,8 @@ public enum EInkDeviceType: String, Codable, CaseIterable, Sendable {
 /// Methods for syncing with E-Ink devices.
 public enum EInkSyncMethod: String, Codable, CaseIterable, Sendable {
     case cloudApi = "cloud_api"
+    /// SFTP to the tablet's own SSH server on the local network.
+    case wifi = "wifi"
     case folderSync = "folder_sync"
     case usb = "usb"
     case email = "email"
@@ -69,8 +74,9 @@ public enum EInkSyncMethod: String, Codable, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .cloudApi: return "Cloud API"
+        case .wifi: return "Local Network (Wi-Fi)"
         case .folderSync: return "Folder Sync"
-        case .usb: return "USB Connection"
+        case .usb: return "USB Cable"
         case .email: return "Email"
         }
     }
@@ -79,8 +85,9 @@ public enum EInkSyncMethod: String, Codable, CaseIterable, Sendable {
     public var methodDescription: String {
         switch self {
         case .cloudApi: return "Sync via official cloud service"
+        case .wifi: return "Reach the tablet directly over Wi-Fi — no cloud"
         case .folderSync: return "Monitor a local folder for changes"
-        case .usb: return "Direct USB connection to device"
+        case .usb: return "The tablet's own web interface — no password"
         case .email: return "Send documents via email"
         }
     }
@@ -89,6 +96,7 @@ public enum EInkSyncMethod: String, Codable, CaseIterable, Sendable {
     public var requiresAuthentication: Bool {
         switch self {
         case .cloudApi: return true
+        case .wifi: return true  // the tablet's own password
         case .folderSync: return false
         case .usb: return false
         case .email: return true  // Email address required
@@ -99,6 +107,8 @@ public enum EInkSyncMethod: String, Codable, CaseIterable, Sendable {
     public var supportsBidirectionalSync: Bool {
         switch self {
         case .cloudApi: return true
+        case .wifi: return false  // reading works; writing to the tablet does not yet
+
         case .folderSync: return true  // If folder is mounted
         case .usb: return true
         case .email: return false  // Upload only

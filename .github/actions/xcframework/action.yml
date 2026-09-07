@@ -139,15 +139,6 @@ runs:
             )
             REQUIRED=("$F/ImpressHelix.xcframework")
             ;;
-          impress-llm)
-            CACHE=(
-              "$F/ImpressLLM.xcframework"
-              "$F/generated"
-              "$F/headers"
-              "$F/impress_llm.swift"
-            )
-            REQUIRED=("$F/ImpressLLM.xcframework")
-            ;;
           impress-store-ffi)
             CACHE=(
               "$F/ImpressStoreFfi.xcframework"

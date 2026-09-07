@@ -2148,6 +2148,31 @@ impl ImbibStore {
         Ok(self.store.count(&q)? as u32)
     }
 
+    /// How many publications have a PDF stored on this device.
+    ///
+    /// The denominator for full-text indexing: chunking reads a local file,
+    /// so a library of 3,000 papers with 400 stored PDFs can never show more
+    /// than 400 indexed, and measuring against 3,000 reports a working index
+    /// as broken.
+    pub fn count_publications_with_local_pdf(&self) -> Result<u32, StoreApiError> {
+        let q = ItemQuery {
+            schema: Some("imbib/linked-file".into()),
+            predicates: vec![
+                Predicate::Eq("is_pdf".into(), Value::Bool(true)),
+                Predicate::Eq("is_locally_materialized".into(), Value::Bool(true)),
+            ],
+            ..Default::default()
+        };
+        // Distinct parents: a paper with three stored PDFs is one paper.
+        let mut publications = std::collections::HashSet::new();
+        for item in self.store.query(&q)? {
+            if let Some(parent) = item.parent {
+                publications.insert(parent);
+            }
+        }
+        Ok(publications.len() as u32)
+    }
+
     // --- Smart search operations ---
 
     #[allow(clippy::too_many_arguments)]

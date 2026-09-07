@@ -24,17 +24,17 @@ public actor ConfiguredAIProvider: AIProvider {
     }
 
     public func complete(_ request: AICompletionRequest) async throws -> AICompletionResponse {
-        await manager.registerAllProviders()
+        await manager.registerBuiltInProviders()
         return try await manager.complete(request)
     }
 
     public func stream(_ request: AICompletionRequest) async throws -> AsyncThrowingStream<AIStreamChunk, Error> {
-        await manager.registerAllProviders()
+        await manager.registerBuiltInProviders()
         return try await manager.stream(request)
     }
 
     public func validate() async throws -> AIProviderStatus {
-        await manager.registerAllProviders()
+        await manager.registerBuiltInProviders()
         guard await manager.effectiveDefaultProvider() != nil else {
             return .unavailable(reason: "No suite-wide AI provider is ready")
         }

@@ -17,7 +17,7 @@ struct AISettingsTab: View {
                 Label("Your Privacy", systemImage: "lock.shield")
                     .font(.headline)
 
-                Text("API keys are stored in your macOS Keychain and never synced. Conversations stay on your device. When you send a message, only that conversation is sent to your chosen AI provider.")
+                Text("The provider and model are one suite-wide selection shared by every impress app. On-device Apple Intelligence and local oMLX or Ollama models never leave this Mac; a cloud provider receives only the conversation you send. API keys stay in your macOS Keychain and are never synced.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

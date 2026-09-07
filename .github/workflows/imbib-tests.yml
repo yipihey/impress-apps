@@ -108,6 +108,18 @@ jobs:
           crate: imprint-core
           env-extra: IMPRINT_SKIP_IOS=1
 
+      # ImpressAI is the GUI projection over the Rust AI registry (ADR-0029)
+      # and every app links it; no other lane runs its tests.
+      - name: Test ImpressAI
+        working-directory: packages/ImpressAI
+        run: |
+          set -o pipefail
+          swift test --parallel 2>&1 | tee impressai-test-output.txt
+          if grep -qE "Test Suite.*failed|error:" impressai-test-output.txt; then
+            echo "::error::ImpressAI tests failed"
+            exit 1
+          fi
+
       - name: Build and Test PublicationManagerCore
         working-directory: apps/imbib/PublicationManagerCore
         run: |

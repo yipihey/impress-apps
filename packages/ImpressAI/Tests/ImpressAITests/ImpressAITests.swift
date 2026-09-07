@@ -8,27 +8,6 @@
 import XCTest
 @testable import ImpressAI
 
-private final class OpenAICompatibleURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        do {
-            guard let handler = Self.handler else { throw URLError(.badServerResponse) }
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
-}
-
 private actor TestReadyProvider: AIProvider {
     let metadata = AIProviderMetadata(
         id: "test-ready",
@@ -75,16 +54,6 @@ private actor TestUnavailableSelectedProvider: AIProvider {
     }
 }
 
-private actor TestOMLXStarter: OMLXServiceStarting {
-    private var starts = 0
-
-    func startOMLX() async throws {
-        starts += 1
-    }
-
-    func startCount() -> Int { starts }
-}
-
 private actor TestLaunchProbe {
     private var launches = 0
 
@@ -115,11 +84,6 @@ private final class TestWorkerLaunchProbe: @unchecked Sendable {
 }
 
 final class ImpressAITests: XCTestCase {
-
-    override func tearDown() {
-        OpenAICompatibleURLProtocol.handler = nil
-        super.tearDown()
-    }
 
     // MARK: - AIProviderMetadata Tests
 
@@ -287,95 +251,6 @@ final class ImpressAITests: XCTestCase {
         XCTAssertGreaterThan(providers.count, 0, "Manager should have registered providers")
     }
 
-    // MARK: - OpenAI-compatible local provider workflow tests
-
-    func testOpenAICompatibleDiscoversOMLXModelAndRefinesManuscript() async throws {
-        let provider = makeOpenAICompatibleProvider { request in
-            if request.url?.path == "/v1/models" {
-                return Self.jsonResponse(request, object: [
-                    "object": "list",
-                    "data": [["id": "gpt-oss-120b-mxfp4-bf16", "object": "model"]],
-                ])
-            }
-
-            XCTAssertEqual(request.url?.path, "/v1/chat/completions")
-            let body = try XCTUnwrap(Self.bodyData(from: request))
-            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-            XCTAssertEqual(json["model"] as? String, "gpt-oss-120b-mxfp4-bf16")
-            let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
-            XCTAssertTrue(messages.contains { ($0["content"] as? String)?.contains("primordial chemistry") == true })
-            return Self.jsonResponse(request, object: [
-                "id": "refinement-1",
-                "model": "gpt-oss-120b-mxfp4-bf16",
-                "choices": [[
-                    "message": ["role": "assistant", "content": "The revised paragraph is clearer and preserves the numerical claim."],
-                    "finish_reason": "stop",
-                ]],
-                "usage": ["prompt_tokens": 31, "completion_tokens": 12],
-            ])
-        }
-
-        let models = try await provider.discoverModels()
-        XCTAssertEqual(models.map(\.id), ["gpt-oss-120b-mxfp4-bf16"])
-
-        let response = try await provider.complete(AICompletionRequest(
-            messages: [AIMessage(role: .user, text: "Refine this paragraph on primordial chemistry.")],
-            systemPrompt: "You are an MNRAS manuscript editor."
-        ))
-        XCTAssertTrue(response.text.contains("revised paragraph"))
-        XCTAssertEqual(response.usage?.totalTokens, 43)
-    }
-
-    func testOpenAICompatibleParsesPublicationCurationToolCall() async throws {
-        let provider = makeOpenAICompatibleProvider { request in
-            if request.url?.path == "/v1/models" {
-                return Self.jsonResponse(request, object: ["data": [["id": "curator-model"]]])
-            }
-            let body = try XCTUnwrap(Self.bodyData(from: request))
-            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-            let tools = try XCTUnwrap(json["tools"] as? [[String: Any]])
-            XCTAssertEqual((tools.first?["function"] as? [String: Any])?["name"] as? String, "curate_publication")
-
-            return Self.jsonResponse(request, object: [
-                "id": "curation-1",
-                "model": "curator-model",
-                "choices": [[
-                    "message": [
-                        "role": "assistant",
-                        "content": NSNull(),
-                        "tool_calls": [[
-                            "id": "call-1",
-                            "type": "function",
-                            "function": [
-                                "name": "curate_publication",
-                                "arguments": "{\"tags\":[\"primordial-chemistry\",\"reaction-network\"],\"keep\":true}",
-                            ],
-                        ]],
-                    ],
-                    "finish_reason": "tool_calls",
-                ]],
-            ])
-        }
-
-        let request = AICompletionRequest(
-            modelId: "curator-model",
-            messages: [AIMessage(role: .user, text: "Curate this publication for the chemistry manuscript.")],
-            tools: [AITool(
-                name: "curate_publication",
-                description: "Assign tags and decide whether to keep a publication",
-                inputSchema: ["type": AnySendable("object")]
-            )]
-        )
-        let response = try await provider.complete(request)
-        XCTAssertEqual(response.finishReason, .toolUse)
-        guard case .toolUse(let call) = try XCTUnwrap(response.content.first) else {
-            return XCTFail("Expected a parsed tool call")
-        }
-        XCTAssertEqual(call.name, "curate_publication")
-        XCTAssertEqual(call.input["keep"]?.get() as Bool?, true)
-        XCTAssertEqual(call.input["tags"]?.get() as [AnySendable]?, [AnySendable("primordial-chemistry"), AnySendable("reaction-network")])
-    }
-
     func testCategoryExecutionFallsBackToSuiteDefaultWithoutOpeningSettings() async throws {
         let suiteName = "ImpressAITests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -423,90 +298,14 @@ final class ImpressAITests: XCTestCase {
         XCTAssertEqual(response.text, "selected provider was attempted")
     }
 
-    func testExplicitCompletionStartsOMLXAndRetriesOnce() async throws {
-        let starter = TestOMLXStarter()
-        var chatAttempts = 0
-        let provider = makeOpenAICompatibleProvider(
-            endpoint: URL(string: "http://127.0.0.1:8000/v1")!,
-            serviceStarter: starter,
-            automaticallyStartOMLX: true
-        ) { request in
-            if request.url?.path == "/v1/models" {
-                return Self.jsonResponse(request, object: ["data": [["id": "local-model"]]])
-            }
-
-            chatAttempts += 1
-            if chatAttempts == 1 {
-                throw URLError(.cannotConnectToHost)
-            }
-            return Self.jsonResponse(request, object: [
-                "id": "retry-response",
-                "model": "local-model",
-                "choices": [[
-                    "message": ["role": "assistant", "content": "ready after launch"],
-                    "finish_reason": "stop",
-                ]],
-            ])
-        }
-
-        let response = try await provider.complete(AICompletionRequest(
-            modelId: "local-model",
-            messages: [AIMessage(role: .user, text: "Hello")]
-        ))
-
-        XCTAssertEqual(response.text, "ready after launch")
-        XCTAssertEqual(chatAttempts, 2)
-        let startCount = await starter.startCount()
-        XCTAssertEqual(startCount, 1)
-    }
-
-    func testPassiveValidationNeverStartsOMLX() async throws {
-        let starter = TestOMLXStarter()
-        let provider = makeOpenAICompatibleProvider(
-            endpoint: URL(string: "http://127.0.0.1:8000/v1")!,
-            serviceStarter: starter,
-            automaticallyStartOMLX: true
-        ) { _ in
-            throw URLError(.cannotConnectToHost)
-        }
-
-        let status = try await provider.validate()
-        XCTAssertFalse(status.isReady)
-        let startCount = await starter.startCount()
-        XCTAssertEqual(startCount, 0)
-    }
-
-    func testAutoStartDoesNotClaimAnotherLocalRuntimePort() async throws {
-        let starter = TestOMLXStarter()
-        let provider = makeOpenAICompatibleProvider(
-            endpoint: URL(string: "http://127.0.0.1:1234/v1")!,
-            serviceStarter: starter,
-            automaticallyStartOMLX: true
-        ) { _ in
-            throw URLError(.cannotConnectToHost)
-        }
-
-        do {
-            _ = try await provider.complete(AICompletionRequest(
-                modelId: "other-runtime-model",
-                messages: [AIMessage(role: .user, text: "Hello")]
-            ))
-            XCTFail("Expected the unreachable custom runtime to fail")
-        } catch {
-            XCTAssertEqual((error as? URLError)?.code, .cannotConnectToHost)
-        }
-        let startCount = await starter.startCount()
-        XCTAssertEqual(startCount, 0)
-    }
-
     func testOMLXControllerCoalescesConcurrentLaunchRequests() async throws {
         let probe = TestLaunchProbe()
         let controller = OMLXServiceController {
             try await probe.launch()
         }
 
-        async let first: Void = controller.startOMLX()
-        async let second: Void = controller.startOMLX()
+        async let first: Void = controller.launchApplication(bundleId: OMLXServiceController.bundleIdentifier)
+        async let second: Void = controller.launchApplication(bundleId: OMLXServiceController.bundleIdentifier)
         _ = try await (first, second)
 
         let launchCount = await probe.launchCount()
@@ -524,27 +323,6 @@ final class ImpressAITests: XCTestCase {
         _ = try await (first, second)
 
         XCTAssertEqual(probe.launchCount(), 1)
-    }
-
-    private func makeOpenAICompatibleProvider(
-        endpoint: URL = URL(string: "http://omlx.test/v1")!,
-        serviceStarter: any OMLXServiceStarting = TestOMLXStarter(),
-        automaticallyStartOMLX: Bool = true,
-        handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
-    ) -> OpenAICompatibleProvider {
-        OpenAICompatibleURLProtocol.handler = handler
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [OpenAICompatibleURLProtocol.self]
-        return OpenAICompatibleProvider(
-            credentialManager: AICredentialManager(accessGroup: nil),
-            endpoint: endpoint,
-            apiKey: "test-token",
-            urlSession: URLSession(configuration: configuration),
-            serviceStarter: serviceStarter,
-            automaticallyStartOMLX: automaticallyStartOMLX,
-            startupTimeout: 0.25,
-            startupPollInterval: 0.01
-        )
     }
 
     private static func jsonResponse(

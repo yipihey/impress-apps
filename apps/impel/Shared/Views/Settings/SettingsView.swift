@@ -39,9 +39,9 @@ import PublicationManagerCore
 
 struct SettingsView: View {
     var body: some View {
-        // `.fixed`: impel shipped `.frame(width: 550, height: 560)`, a pinned
-        // size rather than a floor.
-        MacSettingsSceneContent.fixed(
+        // Opens at impel's shipped 550 × 560 and resizes from there (the
+        // AI pane's model list and task categories need the room).
+        MacSettingsSceneContent.resizable(
             configuration: .impel, width: 550, height: 560)
             .environment(\.settingsSectionRegistry, ImpelSettingsSections.registry)
     }

@@ -34,6 +34,11 @@ pub mod help_search;
 #[cfg(feature = "native")]
 pub mod embeddings_ffi;
 
+// The reMarkable transport is `impress-remarkable`; this is its UniFFI
+// surface, here for the same reason the embedding one is.
+#[cfg(feature = "native")]
+pub mod remarkable_ffi;
+
 #[cfg(feature = "native")]
 pub use query_builder::{
     build_arxiv_author_category_query, build_classic_query, build_paper_query,
@@ -59,6 +64,9 @@ pub use snippets::*;
 // mirrors deliberately share names with their engine twins.
 #[cfg(feature = "native")]
 pub use embeddings_ffi::*;
+
+#[cfg(feature = "native")]
+pub use remarkable_ffi::*;
 
 #[cfg(feature = "native")]
 pub use impress_embeddings::{AnnIndex, AnnIndexConfig, ChunkIndex, EmbeddingStore};

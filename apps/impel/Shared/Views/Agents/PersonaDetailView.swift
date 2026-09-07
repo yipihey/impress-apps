@@ -29,12 +29,10 @@ struct PersonaDetailView: View {
 
     private var isCounsel: Bool { persona.id == "counsel" }
 
+    /// The suite-wide selection as the Rust registry resolves it
+    /// ("oMLX — Qwen3.5 4B 4bit"), pinned or automatic.
     private var selectedModelDescription: String {
-        let provider = aiSettings.selectedProviderMetadata?.name ?? "No provider"
-        let model = aiSettings.availableModels.first { $0.id == aiSettings.selectedModelId }?.name
-            ?? aiSettings.selectedModelId
-            ?? "No model"
-        return "\(provider) — \(model)"
+        aiSettings.selectionSummary
     }
 
     /// The effective prompt: for counsel, use the persisted value; for others, show the persona's built-in prompt.

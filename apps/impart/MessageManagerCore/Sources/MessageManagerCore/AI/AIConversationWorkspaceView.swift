@@ -10,6 +10,7 @@
 
 import Foundation
 import ImpressAI
+import ImpressKit
 import ImpressLogging
 @preconcurrency import ImpressRustCore
 import Observation
@@ -123,7 +124,14 @@ final class AIConversationWorkspaceModel {
         #if os(macOS)
         isCheckingHost = true
         do {
-            try await OMLXServiceController.shared.startOMLX()
+            // Rust decides whether the managed local endpoint may be started
+            // (auto-start preference, loopback-8000 policy) and waits for it;
+            // Swift only launches oMLX.app when Rust asks.
+            let manager = AIProviderManager.shared
+            await manager.registerBuiltInProviders()
+            if let provider = await manager.provider(for: "omlx") as? any AIServiceActivatingProvider {
+                try await provider.activateServiceIfNeeded()
+            }
             isCheckingHost = false
             await refreshHost()
         } catch {
@@ -412,8 +420,10 @@ private struct AIConversationListColumn: View {
     @Bindable var model: AIConversationWorkspaceModel
     @State private var isCreating = false
     @State private var title = ""
-    @State private var modelID =
-        UserDefaults.standard.string(forKey: AISettingsKey.selectedModelId) ?? ""
+    /// Filled from the suite selection once the host's models are known
+    /// (`chooseDiscoveredModelIfNeeded`); the old `UserDefaults` key it read
+    /// was never written by the suite domain.
+    @State private var modelID = ""
     @State private var enabledTools: Set<String> = []
 
     var body: some View {
@@ -557,6 +567,11 @@ private struct AIConversationListColumn: View {
 
     private func chooseDiscoveredModelIfNeeded() {
         guard !model.availableModels.isEmpty else { return }
+        if modelID.isEmpty,
+           let preferred = MainActor.assumeIsolated({ AISettings.shared.displayedModelId }),
+           model.availableModels.contains(where: { $0.id == preferred }) {
+            modelID = preferred
+        }
         if !model.availableModels.contains(where: { $0.id == modelID }) {
             modelID = model.availableModels.first?.id ?? modelID
         }
@@ -662,7 +677,7 @@ private struct AIModelHostCard: View {
                         .controlSize(.small)
                 }
             }
-            Text(status?.endpoint ?? OpenAICompatibleProvider.defaultEndpoint.absoluteString)
+            Text(status?.endpoint ?? "http://127.0.0.1:\(SiblingApp.Services.omlxPort)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

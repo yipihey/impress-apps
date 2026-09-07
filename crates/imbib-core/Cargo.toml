@@ -40,6 +40,7 @@ impress-smart-search = { workspace = true }
 # `native` turns on the store + index engines, and nothing in imbib-core wants
 # the fastembed `embedder` (impress-mcp is the only crate that does).
 impress-embeddings = { workspace = true }
+impress-remarkable = { workspace = true }
 
 # UniFFI for Swift/Kotlin bindings (optional, native only)
 uniffi = { workspace = true, features = ["tokio"], optional = true }

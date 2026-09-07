@@ -41,10 +41,16 @@ public actor RemarkableDeviceAdapter: EInkDevice {
         switch syncMethod {
         case .cloudApi:
             return .full
+        case .wifi:
+            // Reading works over SFTP; writing to the tablet does not yet.
+            return [.downloadPDF, .downloadAnnotations]
         case .folderSync:
             return [.upload, .downloadPDF, .downloadAnnotations, .createFolders]
         case .usb:
-            return [.upload, .downloadPDF, .downloadAnnotations]
+            // Annotations arrive rendered into the downloaded PDF rather than
+            // as separate strokes, so there is no annotation capability to
+            // claim — but documents move both ways.
+            return [.upload, .downloadPDF]
         default:
             return .readOnly
         }

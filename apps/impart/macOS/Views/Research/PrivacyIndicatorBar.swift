@@ -74,9 +74,14 @@ struct PrivacyIndicatorBar: View {
         let settings = AISettings.shared
         await settings.load()
 
-        if let providerId = settings.selectedProviderId {
-            let isLocal = providerId == "ollama" || providerId.contains("local")
-            let name = settings.availableProviders.first { $0.id == providerId }?.name ?? providerId
+        // The displayed provider is the pinned one or, failing that, the one
+        // the Rust registry resolved; locality comes from the catalogue's
+        // category (oMLX, Ollama and Apple on-device never leave this Mac),
+        // not from guessing at the id.
+        if let providerId = settings.displayedProviderId {
+            let metadata = settings.availableProviders.first { $0.id == providerId }
+            let isLocal = metadata?.category == .local || providerId == "apple-on-device"
+            let name = metadata?.name ?? providerId
 
             providerInfo = ProviderInfo(
                 name: name,

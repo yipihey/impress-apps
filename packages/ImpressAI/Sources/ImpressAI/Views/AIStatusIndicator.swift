@@ -170,7 +170,9 @@ public struct AIStatusIndicator: View {
 
 // MARK: - Menu Bar Button
 
-/// A button suitable for menu bars that shows AI status and opens settings.
+/// A menu-bar control that shows AI status and, when opened, the suite-wide
+/// quick model switcher (`AIQuickModelSwitcher`); "AI Settings…" runs the
+/// given action.
 public struct AIStatusMenuButton: View {
     @Environment(\.aiAvailability) private var availability
 
@@ -178,16 +180,21 @@ public struct AIStatusMenuButton: View {
 
     /// Creates a new AI status menu button.
     ///
-    /// - Parameter action: Action to perform when tapped (typically opens settings).
+    /// - Parameter action: Opens the app's AI settings pane.
     public init(action: @escaping () -> Void) {
         self.action = action
     }
 
     public var body: some View {
-        Button(action: action) {
+        Menu {
+            AIQuickModelSwitcher(openSettings: action)
+        } label: {
             AIStatusIndicator(style: .standard)
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityIdentifier("ai.status.menu")
     }
 }
 

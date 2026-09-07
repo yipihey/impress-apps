@@ -1,0 +1,24 @@
+[package]
+name = "impress-remarkable"
+version = "0.1.0"
+edition = "2021"
+description = "Local-network transport for reMarkable tablets: SFTP over the tablet's own SSH server, so documents and annotations move without a cloud round trip."
+
+[dependencies]
+# Pure-Rust SSH. A C binding (libssh2/openssl) would not cross-compile into
+# the iOS slices of ImbibCore.xcframework; russh and russh-sftp are pure Rust
+# and build for every target this workspace ships.
+russh = "0.45"
+russh-sftp = "2.0"
+russh-keys = "0.45"
+async-trait = { workspace = true }
+reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "io-util", "macros", "time"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

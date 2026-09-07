@@ -23,6 +23,7 @@ on:
       - 'apps/imbib/PublicationManagerCore/**'
       - 'crates/impress-core/**'
       - 'crates/impress-store-ffi/**'
+      - 'crates/impress-ai/**'
       - '.github/workflows/impel-swift.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
