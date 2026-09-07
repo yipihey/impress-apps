@@ -405,8 +405,13 @@ mod tests {
     #[tokio::test]
     async fn rule_table_is_complete() {
         let rules = service().list_publisher_rules().await;
-        assert_eq!(rules.len(), 16);
+        // 17 since 2026-08-31: `theoj-astro` (Open Journal of Astrophysics
+        // arXiv-overlay) joined imbib-core's table. This count is the whole
+        // point of the test — a service that silently drops rules must go
+        // red — so it moves in the same commit as every table change.
+        assert_eq!(rules.len(), 17);
         assert!(rules.iter().any(|r| r.id == "cambridge"));
+        assert!(rules.iter().any(|r| r.id == "theoj-astro"));
     }
 
     #[tokio::test]
