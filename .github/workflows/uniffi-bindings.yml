@@ -1,0 +1,63 @@
+name: UniFFI bindings match the Rust
+
+# Every app compiles against a COMMITTED copy of the Swift that uniffi-bindgen
+# generates. Nothing regenerates it at build time — it is a checked-in source
+# file, refreshed only when a human runs the crate's build-xcframework.sh. So a
+# `#[uniffi::export]` added without that rebuild leaves the Rust and the Swift
+# describing different APIs, and nothing says so.
+#
+# On 2026-09-07 four commits (e2ad2f31, 7c86469b, 23765bc5, 29f99298) added 11
+# exports to crates/imbib-core without regenerating imbib_core.swift.
+# PublicationManagerCore stopped compiling — `value of type 'ImbibStore' has no
+# member 'countPublicationsWithLocalPdf'`.
+#
+# A regenerate-and-diff guard for exactly this existed in imbib-rust.yml, and
+# did not catch it, for two structural reasons this lane fixes:
+#
+#   1. It covered ONE of the eight tracked bindings. imprint, implore, impel,
+#      impress-store-ffi, scix-client-ffi and impress-helix had no guard at all
+#      — and the last three have no Rust workflow of any kind.
+#   2. It runs on `push: [main]` only. The `pull_request` trigger was removed
+#      2026-07-28 because that lane is self-hosted and this repo is public
+#      (fork PRs must never reach that machine), which makes it a post-merge
+#      detector that structurally CANNOT block a branch.
+#
+# So this job is deliberately cheap enough to run hosted: no cargo, no Xcode,
+# no Swift toolchain, well under a second. It camelCases the exported `pub fn`
+# names and asserts each has a matching `func` in the committed binding. That
+# catches export ADDITIONS — the class that accumulates silently — for all
+# eight bindings, on a runner fork PRs may safely use.
+#
+# It does NOT catch a changed signature or a renamed type; those move the
+# UniFFI checksum and produce the launch-time "API checksum mismatch" crash.
+# The full regenerate-and-diff guards in the per-app Rust lanes cover those,
+# post-merge, on the self-hosted runner that can actually build the crates.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: uniffi-bindings-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bindings-current:
+    name: Committed bindings declare every export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # No toolchain setup: the lint is bash + python3, both already on the
+      # image. That is the whole point — a guard cheap enough to gate every
+      # PR is worth more than a thorough one that only runs after merge.
+      - name: UniFFI binding staleness lint
+        run: ./scripts/check-uniffi-bindings.sh
+
+      - name: Export inventory
+        if: always()
+        run: ./scripts/check-uniffi-bindings.sh --list

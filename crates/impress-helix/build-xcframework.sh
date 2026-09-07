@@ -161,6 +161,21 @@ echo "Copying Swift bindings..."
 cp "$FRAMEWORK_DIR/generated/impress_helix.swift" "$FRAMEWORK_DIR/impress_helix.swift"
 echo "  Copied impress_helix.swift"
 
+# Keep the package's committed bindings paired with the freshly built
+# framework (imbib, imprint, implore and impel-tools all do the same). Until
+# 2026-09-07 this script had no such step, so packages/ImpressHelixCore's
+# committed copy had to be hand-copied after every build — and a hand step
+# that is easy to forget is exactly how imbib's bindings went stale and broke
+# the PublicationManagerCore build.
+#
+# Resolve via git, not $0: the script cds internally, so a relative $0 breaks
+# when invoked from the repo root (as scripts/build-xcframeworks.sh does).
+PKG_BINDINGS_DIR="$(git rev-parse --show-toplevel)/packages/ImpressHelixCore/Sources/ImpressHelixCore"
+if [ -d "$PKG_BINDINGS_DIR" ]; then
+    cp "$FRAMEWORK_DIR/generated/impress_helix.swift" "$PKG_BINDINGS_DIR/impress_helix.swift"
+    echo "  Synced bindings to ImpressHelixCore package"
+fi
+
 echo ""
 echo "=== Build complete! ==="
 echo ""

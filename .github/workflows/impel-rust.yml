@@ -168,3 +168,41 @@ jobs:
         with:
           name: impel-swift-bindings
           path: crates/impel-core/generated/
+
+      # The steps above generate impel-core's bindings, which are an artifact
+      # and nothing else — impel commits no impel_core.swift. The binding the
+      # app actually compiles against is impel-tools', under CounselEngine, and
+      # until now nothing checked it. impel-tools has no features and links the
+      # service crates purely to populate the inventory, so this is a plain
+      # build.
+      - name: Build impel-tools
+        run: cargo build -p impel-tools --release
+
+      - name: Generate impel-tools Swift bindings
+        run: |
+          # uniffi-bindgen auto-applies swiftformat when it is on PATH, which
+          # reformats the output away from the raw committed form and makes the
+          # guard below cry wolf. Remove it when present.
+          if command -v swiftformat >/dev/null 2>&1; then
+            sudo -n rm -f "$(command -v swiftformat)" || \
+              echo "::warning::swiftformat present but not removable; bindings diff may reformat"
+          fi
+          mkdir -p crates/impel-tools/generated
+          cargo run -p impel-tools --release --bin uniffi-bindgen generate \
+            --library target/release/libimpel_tools.dylib \
+            --language swift \
+            --out-dir crates/impel-tools/generated
+
+      # The cheap name-level lint in uniffi-bindings.yml blocks PRs on a
+      # missing export; this full diff additionally catches a changed
+      # signature, which moves the UniFFI checksum and crashes at launch.
+      - name: Committed Swift bindings match the Rust
+        run: |
+          # -b -B tolerate pure reformatting (see the swiftformat note above).
+          if ! diff -u -b -B \
+              apps/impel/Packages/CounselEngine/Sources/ImpelToolsFFI/impel_tools.swift \
+              crates/impel-tools/generated/impel_tools.swift; then
+            echo "::error::Committed impel_tools.swift is stale."
+            echo "Run crates/impel-tools/build-xcframework.sh and commit the result."
+            exit 1
+          fi

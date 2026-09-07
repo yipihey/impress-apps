@@ -48,7 +48,21 @@ apps/*/*.xcodeproj/
 **/generated/
 **/frameworks/
 **/*.xcframework/
-**/*RustCore/
+# NOTE: do NOT re-add `**/*RustCore/`. It was here until 2026-09-07 and it
+# ignored nothing: every file in ImbibRustCore/, ImpressRustCore/,
+# ImploreRustCore/ and ImprintRustCore/ is tracked (Package.swift, Exports.swift
+# and the committed UniFFI bindings). The generated artifacts those packages
+# actually accumulate — generated/, frameworks/, *.xcframework/ — are already
+# covered by the three rules above.
+#
+# What the rule did instead was make `git add` on a real, tracked source path
+# print "The following paths are ignored" and exit NON-ZERO *while still
+# staging the file*. That is the worst of both: a scripted
+# `git add <binding> && git commit` leaves the change staged and never commits.
+# It hit exactly the paths most likely to be scripted — the committed Swift
+# bindings, which must be staged alongside the Rust that generates them
+# (see scripts/check-uniffi-bindings.sh). If a path here ever does need
+# ignoring, scope the rule to the artifact subdirectory, not the package root.
 # NOTE: do NOT add an ignore rule for `apps/*/Packages/*/Tests/`. It was
 # here until 2026-07-26 on the false premise that these tests are "built
 # into the app target" — they are not; app unit tests live in

@@ -119,11 +119,51 @@ jobs:
 
       - name: Generate Swift bindings
         run: |
+          # uniffi-bindgen auto-applies swiftformat when it is on PATH, which
+          # reformats the output (`if cond` vs `if (cond)`) away from the raw
+          # form the committed file is in — the staleness guard below would
+          # then cry wolf on every run. Remove it when present (sudo -n:
+          # hosted runners have passwordless sudo, the self-hosted runner has
+          # neither sudo nor swiftformat). Same treatment as imbib-rust.yml.
+          if command -v swiftformat >/dev/null 2>&1; then
+            sudo -n rm -f "$(command -v swiftformat)" || \
+              echo "::warning::swiftformat present but not removable; bindings diff may reformat"
+          fi
           mkdir -p generated
           cargo run --release --features native --bin uniffi-bindgen generate \
             --library ../../target/release/libimprint_core.dylib \
             --language swift \
             --out-dir generated
+
+      # imprint commits the SAME generated file twice: once for the app-local
+      # package and once for the SPM package the iOS target consumes. Both are
+      # what the app actually compiles against, and both must match the Rust.
+      #
+      # The cheap name-level lint in uniffi-bindings.yml already blocks PRs on
+      # a missing export. This is the thorough half: a full diff also catches a
+      # CHANGED signature or renamed type, which moves the UniFFI checksum and
+      # crashes at launch with "API checksum mismatch" rather than failing the
+      # build. It needs a real cargo build, so it lives here, post-merge.
+      - name: Committed Swift bindings match the Rust
+        run: |
+          # -b -B tolerate pure reformatting (see the swiftformat note above);
+          # an export present in the Rust and absent from the committed file is
+          # not whitespace, so the check that matters still fires.
+          status=0
+          for committed in \
+            ../../apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift \
+            ../../apps/imprint/Packages/ImprintCore/Sources/ImprintCore/imprint_core.swift; do
+            if ! diff -u -b -B "$committed" generated/imprint_core.swift; then
+              echo "::error::Committed $committed is stale."
+              status=1
+            fi
+          done
+          if [ "$status" -ne 0 ]; then
+            echo "Run crates/imprint-core/build-xcframework.sh and commit the result."
+            echo "Judge the diff by declarations gained/lost, not diffstat:"
+            echo "uniffi-bindgen reorders freely."
+            exit 1
+          fi
 
       - name: Upload Swift bindings
         uses: actions/upload-artifact@v4
