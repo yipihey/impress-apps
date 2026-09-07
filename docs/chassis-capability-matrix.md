@@ -1417,6 +1417,31 @@ Annotations arrive rendered into the PDF rather than as strokes, so this
 backend claims `.downloadPDF` and `.upload` but not `.downloadAnnotations` —
 `RMFileParser` has nothing to parse here.
 
+### reMarkable mirror engine over USB (imbib, 2026-09-07, ADR-025)
+
+The P0 spike against the Paper Pro (uploading hand-built `.rmdoc` archives)
+settled what the USB interface allows, and the engine is built on exactly
+that:
+
+| Question | Answer from the device |
+|---|---|
+| Listing keys | every entry carries BOTH `VisibleName` and the historical typo `VissibleName` (a serde alias trips on the duplicate; read both) |
+| Where an upload lands | the folder listed last; the tablet assigns the id |
+| Can a folder be created? | **No** — a `CollectionType` archive imports as an empty notebook |
+| Does an archive's `id`/`parent` count? | No; its `visibleName` does — so uploads are wrapped in archives (`upload_format = rmdoc`) and show exact names; a bare PDF is shown as `<name>.pdf` |
+| Rendition download | `GET /download/{id}/pdf` (handwriting drawn in), `GET /download/{id}/rmdoc` (archive with `.rm` stroke files: v5 for old notebooks, v6 for new pages) |
+| Coordinate frame (`bestFit`) | page WIDTH fitted into 1853.5 scene units, x from the page centre, y from ≈ 22 units below the origin, growing down — `crates/imbib-core/src/eink/import/geometry.rs`, pinned by `tests/fixtures/calibration` |
+
+State is store records (`imbib/eink-device`, `imbib/eink-mirror`, parent =
+the publication); `BibliographyRow.eink_state` carries the list-row marker
+and is `None` unless a device in `individual` mode is configured. Engine:
+`crates/imbib-core/src/eink/` (planner is pure and fixture-tested; the
+executor runs against `MockTransport` in `tests/eink_end_to_end.rs`; the
+import half in `tests/eink_import.rs`). Folders the tablet lacks are a
+checklist (parents first) and the affected papers wait in
+`awaiting_folder`; nothing is re-sent silently (`stale`,
+`removed_on_device`, `unmarked` are explicit states with "send again").
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
@@ -1466,6 +1491,15 @@ from a store it never reached is worse than no answer.
 | `impress-ai-service_select-model` | picking a provider/model in ANY app's pane; rejects helper models and unknown providers exactly as the GUI does |
 | `impress-ai-service_set-provider-endpoint` | the endpoint override field (Tailscale hosts); `null` resets to the catalogue default |
 | `impress-ai-service_provider-health` | the health line (`● oMLX 0.6.4 · 2 of 10 loaded …`), passive — never launches oMLX |
+| `imbib-eink-service_eink-status` | Settings › E-Ink Devices header: devices, counts (queued / on tablet / awaiting PDF / awaiting folder / stale / failed), which device puts markers on rows, last sync |
+| `imbib-eink-service_eink-devices` / `eink-configure-device` / `eink-remove-device` | the device card: mode (`all` \| `individual`), root folder, "mirror library and collection folders", upload format, import toggles |
+| `imbib-eink-service_eink-mark` / `eink-unmark` | the list row's "Mirror to reMarkable" / "Remove from reMarkable" (context menu, `e`, ⌃⌘E); `awaiting_source` names the papers only the running app can fetch a PDF for |
+| `imbib-eink-service_eink-resend` | "Send again" on a stale / removed / un-marked row |
+| `imbib-eink-service_eink-list-mirrored` / `eink-awaiting-source` | the mirror rows behind the markers and the fetch queue |
+| `imbib-eink-service_eink-reachable` | the connection dot (2 s TCP probe, never a listing) |
+| `imbib-eink-service_eink-plan` | "what would a sync do" — dry run, includes the folder checklist; touches the tablet, writes nothing |
+| `imbib-eink-service_eink-sync` | "Sync now": upload into `imbib/<Library>/<Collection>` folders that exist, record what changed, optionally import changed documents (annotated PDF as a second linked file, highlights / typed text / ink groups as `imbib/annotation` rows) |
+| `imbib-eink-service_eink-folder-checklist` | the "create these folders on the tablet, parents first" list |
 
 `binding` selects the hierarchy: `imbib` \| `manuscript` \| `figure` \|
 `generic` (the mixed-kind `collection@1.0.0` schema). Verb names and argument

@@ -135,6 +135,13 @@ pub fn linked_file_schema() -> Schema {
             field("is_pdf", FieldType::Bool, false),
             field("is_locally_materialized", FieldType::Bool, false),
             field("pdf_cloud_available", FieldType::Bool, false),
+            // Which copy this is: absent or `primary` for the file the user
+            // attached, `eink-annotated` for the tablet's rendition with the
+            // handwriting burned in, `eink-rmdoc` for the raw archive.
+            optional_string("role"),
+            optional_string("source_device_id"),
+            optional_string("source_remote_id"),
+            optional_int("source_remote_modified_ms"),
         ],
         expected_edges: vec![],
         inherits: None,
@@ -239,6 +246,95 @@ pub fn annotation_schema() -> Schema {
             optional_string("selected_text"),
             optional_string("author_name"),
             optional_string("sync_state"),
+            // Provenance for rows an e-ink import wrote: where they came from
+            // (`remarkable`), which tablet document, page and stroke item, so a
+            // re-import updates rather than duplicates.
+            optional_string("source"),
+            optional_string("source_device_id"),
+            optional_string("source_remote_id"),
+            optional_string("source_page_id"),
+            optional_string("source_item_id"),
+            // Container-relative path of a rendered PNG of the strokes.
+            optional_string("image_path"),
+            optional_string("pen"),
+            optional_string("strokes_hash"),
+            field("ocr_confidence", FieldType::Float, false),
+            optional_int("imported_at_ms"),
+        ],
+        expected_edges: vec![],
+        inherits: None,
+    }
+}
+
+/// Schema for an e-ink tablet imbib mirrors papers to (one row per device).
+/// No parent. Written only by `ImbibStore::eink_configure_device` and the
+/// mirror engine's per-sync stamps (`crates/imbib-core/src/eink/store.rs`).
+pub fn eink_device_schema() -> Schema {
+    Schema {
+        id: "imbib/eink-device".into(),
+        name: "E-ink Device".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            required_string("name"),
+            required_string("transport"),
+            optional_string("base_url"),
+            required_string("mirror_mode"),
+            optional_string("root_folder_name"),
+            field("mirror_collections", FieldType::Bool, false),
+            field("include_library_level", FieldType::Bool, false),
+            field("include_inbox", FieldType::Bool, false),
+            optional_string("folder_strategy"),
+            optional_string("upload_format"),
+            field("auto_fetch_source", FieldType::Bool, false),
+            field("import_annotated_pdf", FieldType::Bool, false),
+            field("import_rmdoc", FieldType::Bool, false),
+            field("import_highlights", FieldType::Bool, false),
+            field("import_ink", FieldType::Bool, false),
+            field("import_typed_text", FieldType::Bool, false),
+            field("run_ocr", FieldType::Bool, false),
+            field("auto_import_on_connect", FieldType::Bool, false),
+            field("enabled", FieldType::Bool, false),
+            optional_int("last_sync_at_ms"),
+            optional_int("last_seen_at_ms"),
+            optional_int("sync_started_at_ms"),
+            optional_string("last_error"),
+        ],
+        expected_edges: vec![],
+        inherits: None,
+    }
+}
+
+/// Schema for one publication's presence on one e-ink device.
+/// Parent: the bibliography-entry item, so `HasParent` finds a paper's rows
+/// and the row goes with the paper into undo snapshots. Written only by the
+/// mirror engine (`crates/imbib-core/src/eink/store.rs`).
+pub fn eink_mirror_schema() -> Schema {
+    Schema {
+        id: "imbib/eink-mirror".into(),
+        name: "E-ink Mirror".into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            required_string("device_id"),
+            field("marked", FieldType::Bool, false),
+            optional_int("marked_at_ms"),
+            optional_string("linked_file_id"),
+            optional_string("source_kind"),
+            optional_string("remote_id"),
+            optional_string("remote_parent_id"),
+            optional_string("remote_name"),
+            optional_string("remote_path"),
+            optional_string("uploaded_sha256"),
+            optional_int("uploaded_size"),
+            optional_int("uploaded_at_ms"),
+            optional_string("superseded_remote_id"),
+            required_string("state"),
+            optional_string("last_error"),
+            optional_int("attempts"),
+            optional_int("last_attempt_ms"),
+            optional_int("remote_modified_ms"),
+            optional_int("imported_modified_ms"),
+            optional_string("annotated_file_id"),
+            field("resend", FieldType::Bool, false),
         ],
         expected_edges: vec![],
         inherits: None,
@@ -404,6 +500,12 @@ pub fn register_all(registry: &mut impress_core::SchemaRegistry) {
     registry
         .register(core_operation_schema())
         .expect("core/operation schema registration");
+    registry
+        .register(eink_device_schema())
+        .expect("eink-device schema registration");
+    registry
+        .register(eink_mirror_schema())
+        .expect("eink-mirror schema registration");
 }
 
 fn required_string(name: &str) -> FieldDef {
@@ -466,6 +568,8 @@ mod tests {
         assert!(reg.get("imbib/activity-record").is_some());
         assert!(reg.get("imbib/recommendation-profile").is_some());
         assert!(reg.get("core/operation").is_some());
+        assert!(reg.get("imbib/eink-device").is_some());
+        assert!(reg.get("imbib/eink-mirror").is_some());
     }
 
     #[test]

@@ -380,10 +380,14 @@ impl From<impress_core::sync::SyncCounts> for SyncCounts {
 pub struct ImbibStore {
     // `pub(super)` so sibling modules of `unified` (e.g. `backup_api`) can add
     // exported methods without living in this 7k-line file.
-    pub(super) store: SqliteItemStore,
+    pub(crate) store: SqliteItemStore,
     #[allow(dead_code)] // Available for validation in future phases
     registry: impress_core::SchemaRegistry,
     tag_defs_cache: std::sync::Mutex<Option<Vec<TagDisplayRow>>>,
+    /// Which e-ink device (if any) puts a marker on list rows; see
+    /// `crate::eink::store`. Keyed by a fingerprint of the device rows so a
+    /// device configured from another process is noticed on the next query.
+    pub(crate) eink_marker_cache: std::sync::Mutex<Option<crate::eink::store::EinkMarkerCache>>,
 }
 
 /// Private helpers (not exported via UniFFI).
@@ -557,6 +561,7 @@ impl ImbibStore {
             store,
             registry,
             tag_defs_cache: std::sync::Mutex::new(None),
+            eink_marker_cache: std::sync::Mutex::new(None),
         }))
     }
 
@@ -570,6 +575,7 @@ impl ImbibStore {
             store,
             registry,
             tag_defs_cache: std::sync::Mutex::new(None),
+            eink_marker_cache: std::sync::Mutex::new(None),
         }))
     }
 
@@ -3121,6 +3127,7 @@ impl ImbibStore {
         color: Option<String>,
         contents: Option<String>,
         selected_text: Option<String>,
+        author_name: Option<String>,
     ) -> Result<AnnotationRow, StoreApiError> {
         let file_uuid = parse_uuid(&linked_file_id)?;
         let item = conversion::annotation_to_item(
@@ -3131,6 +3138,7 @@ impl ImbibStore {
             color.as_deref(),
             contents.as_deref(),
             selected_text.as_deref(),
+            author_name.as_deref(),
         );
         self.store.insert(item.clone())?;
         Ok(item_to_annotation_row(&item))
@@ -5095,12 +5103,19 @@ impl ImbibStore {
     ) -> Result<Vec<BibliographyRow>, StoreApiError> {
         let pub_ids: Vec<Uuid> = items.iter().map(|i| i.id).collect();
         let lf_status = self.load_linked_file_status(&pub_ids)?;
+        let eink_states = self.load_eink_states(&pub_ids)?;
         Ok(items
             .iter()
             .map(|item| {
                 let (has_pdf, has_other) =
                     lf_status.get(&item.id).copied().unwrap_or((false, false));
-                item_to_bibliography_row(item, tag_defs, has_pdf, has_other)
+                item_to_bibliography_row(
+                    item,
+                    tag_defs,
+                    has_pdf,
+                    has_other,
+                    eink_states.get(&item.id).cloned(),
+                )
             })
             .collect())
     }
@@ -5321,7 +5336,7 @@ fn is_input_dismissed(
             .is_some_and(|b| dismissed.contains(&b.to_lowercase()))
 }
 
-fn parse_uuid(s: &str) -> Result<Uuid, StoreApiError> {
+pub(crate) fn parse_uuid(s: &str) -> Result<Uuid, StoreApiError> {
     Uuid::parse_str(s).map_err(|e| StoreApiError::InvalidInput(format!("invalid UUID: {}", e)))
 }
 
@@ -6570,9 +6585,11 @@ mod tests {
                 Some("#ffff00".into()),
                 None,
                 Some("dark matter".into()),
+                Some("Tom".into()),
             )
             .unwrap();
         assert_eq!(ann.annotation_type, "highlight");
+        assert_eq!(ann.author_name.as_deref(), Some("Tom"));
         assert_eq!(ann.page_number, 5);
 
         let anns = store.list_annotations(lf.id.clone(), None).unwrap();

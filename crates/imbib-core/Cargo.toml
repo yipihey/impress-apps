@@ -84,7 +84,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # UUID generation for domain models
-uuid = { workspace = true, features = ["js"] }
+uuid = { workspace = true, features = ["js", "v5"] }
 
 # Plist encoding/decoding for BibDesk file references
 plist = "1.6"
@@ -94,6 +94,10 @@ base64 = "0.22"
 
 # Timestamps for annotations
 chrono = { workspace = true }
+# Content hashes for e-ink mirror rows (did the PDF change since upload?).
+sha2 = "0.10"
+# Renders handwriting groups to PNG for the OCR pass (pure Rust, builds for every slice).
+tiny-skia = "0.11"
 
 rusqlite = { workspace = true, optional = true }  # unified/store_api.rs
 
