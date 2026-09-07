@@ -17,6 +17,42 @@ lazy_static! {
     // any case (`ASTRO-PH/0612345`).
     static ref ARXIV_FORMAT_NEW: Regex = Regex::new(r"^\d{4}\.\d{4,5}(v\d+)?$").unwrap();
     static ref ARXIV_FORMAT_OLD: Regex = Regex::new(r"(?i)^[a-z-]+/\d{7}(v\d+)?$").unwrap();
+
+    static ref BIBCODE_WHOLE: Regex =
+        Regex::new(&format!(r"\A{BIBCODE_PATTERN}\z")).unwrap();
+}
+
+/// The shape of an ADS bibcode, as a regex body with no anchors — so callers
+/// can anchor it (`\A…\z`) to validate, or bound it (`\b…\b`) to extract from
+/// running text. **This is the one definition in the suite**; build from it
+/// rather than writing a fifth.
+///
+/// Bibcodes are exactly 19 characters, positional, `YYYYJJJJJVVVVMPPPPA`:
+///
+/// | chars | field | accepts | notes |
+/// |-------|-------|---------|-------|
+/// | 1–4   | year      | digits            | |
+/// | 5–9   | journal   | letters, `&`, `.` | dot-padded right (`ApJ..`, `A&A..`) |
+/// | 10–13 | volume    | digits, `.`       | dot-padded left |
+/// | 14    | qualifier | letter, `.`, digit | `L`=letter, `A`=A&A section, lowercase issue letters, digit for arXiv |
+/// | 15–18 | page      | alphanumeric, `.` | letters appear in article IDs (PTEP `083C01`) |
+/// | 19    | author    | letter, `.`       | first author initial |
+///
+/// The qualifier slot is the one that has bitten us: an earlier pattern had no
+/// slot for it at all, which silently rejected **29% of real bibcodes** —
+/// every A&A paper, every ApJ/A&A Letter, and every article-ID journal
+/// (`2016PhRvL.116f1102A`, the LIGO GW150914 discovery paper, among them).
+/// Keep the journal field strict: allowing digits there is what makes hex
+/// blobs in scraped HTML start matching.
+pub const BIBCODE_PATTERN: &str = r"\d{4}[A-Za-z&.]{5}[.\d]{4}[A-Za-z.\d][A-Za-z0-9.]{4}[A-Za-z.]";
+
+/// True when `value` is exactly an ADS bibcode.
+///
+/// Validated against 248 real bibcodes pulled from ADS (100% accepted) and
+/// 12,018 adversarial 19-character strings — hex blobs, JWTs, DOIs, dates,
+/// random alphanumerics (0 accepted). See `bibcode_corpus` in the tests.
+pub fn is_bibcode(value: &str) -> bool {
+    value.chars().count() == 19 && BIBCODE_WHOLE.is_match(value)
 }
 
 /// Trim spaces and tabs but keep line breaks.

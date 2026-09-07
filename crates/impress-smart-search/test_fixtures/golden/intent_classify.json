@@ -649,10 +649,11 @@
     "value" : "2023MNRAS.518.1234S"
   },
   {
+    "idKind" : "bibcode",
     "input" : "1998A&A...333L..47M",
-    "kind" : "freeText",
-    "label" : "Free-text search",
-    "query" : "1998A&A...333L..47M"
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "1998A&A...333L..47M"
   },
   {
     "input" : "2024ApJL.960L..12X",
@@ -668,10 +669,11 @@
     "value" : "1974ApJ...187..425P"
   },
   {
+    "idKind" : "bibcode",
     "input" : "2002Sci...295...93a",
-    "kind" : "freeText",
-    "label" : "Free-text search",
-    "query" : "2002Sci...295...93a"
+    "kind" : "identifier",
+    "label" : "Bibcode",
+    "value" : "2002Sci...295...93a"
   },
   {
     "input" : "2002Sci...295...93",
