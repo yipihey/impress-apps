@@ -1,0 +1,9 @@
+---
+source: tests/snapshot_tests.rs
+expression: format_entry(entry)
+---
+@article{Dollars,
+    title = {Save \$5 on subscriptions},
+    abstract = {Escaped \$10 stays escaped},
+    year = 2024,
+}
