@@ -653,21 +653,31 @@ async fn main() {
     )));
     // LLM classifier when IMPEL_LLM_{PROVIDER,MODEL,API_KEY} are set;
     // deterministic heuristic otherwise.
-    let classifier: Arc<dyn impel_enrichment::Classifier> =
+    // The keyword table also stands BEHIND the LLM: when the provider cannot
+    // be reached at all, a deterministic verdict recorded under `heuristic-v1`
+    // beats both an outage-shaped retry loop and the empty tag set that used to
+    // be written under the LLM's own name. `None` when the heuristic already IS
+    // the classifier — there is nothing to fall back to.
+    let (classifier, fallback): (Arc<dyn Classifier>, Option<Arc<dyn Classifier>>) =
         match impel_enrichment::LlmClassifier::from_env() {
             Some(llm) => {
-                eprintln!("impel-taskd: classifier = {}", llm.model_id());
-                Arc::new(llm)
+                eprintln!(
+                    "impel-taskd: classifier = {} (fallback heuristic-v1)",
+                    llm.model_id()
+                );
+                (
+                    Arc::new(llm),
+                    Some(Arc::new(HeuristicClassifier::default_vocabulary())),
+                )
             }
             None => {
                 eprintln!("impel-taskd: classifier = heuristic-v1 (set IMPEL_LLM_* for LLM)");
-                Arc::new(HeuristicClassifier::default_vocabulary())
+                (Arc::new(HeuristicClassifier::default_vocabulary()), None)
             }
         };
-    scheduler.register(Arc::new(KeywordTagExecutor::new(
-        classifier,
-        args.confidence_threshold,
-    )));
+    scheduler.register(Arc::new(
+        KeywordTagExecutor::new(classifier, args.confidence_threshold).with_fallback(fallback),
+    ));
     // Throughline sync (ADR-0016). LLM drafter when IMPEL_LLM_* are set
     // (carries the D6 authority-split contract in its system prompt);
     // deterministic TemplateDrafter otherwise — the review checkpoint

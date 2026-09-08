@@ -11,6 +11,9 @@ impress-sources = { workspace = true }
 imbib-core = { workspace = true, features = ["native"] }
 impress-domain = { workspace = true }
 im-identifiers = { workspace = true }
+# Tag-path canonicalization: proposals from a model arrive in whatever case
+# and spacing it chose, and the store treats spellings as distinct tags.
+impress-tags = { workspace = true }
 
 impress-llm = { path = "../impress-llm" }
 

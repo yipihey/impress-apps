@@ -97,7 +97,11 @@ impl Classifier for LlmClassifier {
         impel_core::EXECUTOR_MODEL
     }
 
-    async fn classify(&self, title: &str, abstract_text: &str) -> Vec<Classification> {
+    async fn classify(
+        &self,
+        title: &str,
+        abstract_text: &str,
+    ) -> Result<Vec<Classification>, String> {
         let request = LLMRequest {
             provider: self.provider.clone(),
             model: self.model.clone(),
@@ -113,12 +117,12 @@ impl Classifier for LlmClassifier {
         // impress-llm is blocking by design; hop off the async worker.
         let reply = tokio::task::spawn_blocking(move || complete_sync(&request))
             .await
-            .ok()
-            .and_then(|r| r.ok());
-        match reply {
-            Some(response) => Self::parse_reply(&response.content),
-            None => vec![], // provider failure → no proposals (executor completes)
-        }
+            .map_err(|e| format!("classifier worker: {e}"))?
+            .map_err(|e| format!("{}: {e}", self.model_id))?;
+        // A reply that parses to nothing IS a verdict — the model looked and
+        // proposed no tag. Only never getting a reply is an error; see the
+        // `Classifier` trait docs.
+        Ok(Self::parse_reply(&reply.content))
     }
 }
 

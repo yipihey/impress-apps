@@ -42,6 +42,9 @@
 
 use std::sync::Mutex;
 
+use impel_core::{TaskError, TaskStoreApi};
+use impress_core::item::{ActorKind, ItemId, Value};
+use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
 use uuid::Uuid;
 
 pub mod claim_distill;
@@ -101,6 +104,40 @@ pub fn vector_id(source_id: &str, model: &str) -> Uuid {
         &VECTOR_ID_NAMESPACE,
         format!("{source_id}:{model}").as_bytes(),
     )
+}
+
+/// Write one payload field on an existing item, through the kernel.
+///
+/// Legal, and worth being explicit about: only a *task's* `state` is
+/// scheduler-exclusive (ADR-0015 D1). Every other payload field is ordinary
+/// mutable item data, and going through `apply` means the write lands in the
+/// operation journal with this executor's attribution, like every other kernel
+/// write.
+///
+/// Shared by both executors: the embed cursor, the consolidation truncation
+/// cursor and the consolidation finalization marker are one operation with
+/// three different fields.
+pub(crate) fn set_payload(
+    store: &dyn TaskStoreApi,
+    target_id: ItemId,
+    field: &str,
+    value: Value,
+    actor: &str,
+) -> Result<(), TaskError> {
+    store.apply(OperationSpec {
+        target_id,
+        op_type: OperationType::SetPayload(field.into(), value),
+        intent: OperationIntent::Routine,
+        reason: None,
+        batch_id: None,
+        author: actor.to_string(),
+        author_kind: ActorKind::Agent,
+        // Compactable: a cursor or a completion marker is bookkeeping, not
+        // research record. The next task's cursor supersedes it, and the chain
+        // of done tasks is what D8 reads.
+        retention: RetentionTier::Compactable,
+    })?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

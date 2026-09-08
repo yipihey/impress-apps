@@ -396,8 +396,9 @@ impl impel_enrichment::Classifier for FixedClassifier {
         &self,
         _title: &str,
         _abstract_text: &str,
-    ) -> Vec<impel_enrichment::classify::Classification> {
-        self.0
+    ) -> Result<Vec<impel_enrichment::classify::Classification>, String> {
+        Ok(self
+            .0
             .iter()
             .map(
                 |(tag, confidence)| impel_enrichment::classify::Classification {
@@ -405,7 +406,27 @@ impl impel_enrichment::Classifier for FixedClassifier {
                     confidence: *confidence,
                 },
             )
-            .collect()
+            .collect())
+    }
+}
+
+/// A classifier that can never reach a verdict — the provider-outage shape.
+struct UnreachableClassifier;
+
+#[async_trait]
+impl impel_enrichment::Classifier for UnreachableClassifier {
+    fn model_id(&self) -> &str {
+        "unreachable-test"
+    }
+    fn executor_kind(&self) -> &str {
+        impel_core::EXECUTOR_MODEL
+    }
+    async fn classify(
+        &self,
+        _title: &str,
+        _abstract_text: &str,
+    ) -> Result<Vec<impel_enrichment::classify::Classification>, String> {
+        Err("connection refused".into())
     }
 }
 
@@ -625,4 +646,201 @@ async fn the_run_record_names_the_tags_and_the_executor_kind() {
     assert!(matches!(resolve_run.payload.get("executor_kind"),
                      Some(Value::String(k)) if k == "deterministic"));
     let _ = task_ids;
+}
+
+// ── the 2026-09 outage and tag-normalization fixes ─────────────────────
+
+/// Build a scheduler whose keyword-tag stage uses the given classifier pair.
+fn tagging_scheduler(
+    store: Arc<SqliteItemStore>,
+    classifier: Arc<dyn impel_enrichment::Classifier>,
+    fallback: Option<Arc<dyn impel_enrichment::Classifier>>,
+    threshold: f64,
+) -> Scheduler {
+    let mut sched = Scheduler::new(
+        store,
+        SchedulerConfig {
+            actor: "impel".into(),
+            batch: 8,
+            start_delay: Duration::ZERO,
+            poll_interval: Duration::ZERO,
+            retry_base_ms: 0,
+        },
+    );
+    sched.register(Arc::new(MetadataResolveExecutor::new(
+        vec![ConfiguredSource {
+            plugin: Arc::new(FakeAds),
+            credentials: None,
+        }],
+        SourcePriority::default(),
+    )));
+    sched.register(Arc::new(
+        KeywordTagExecutor::new(classifier, threshold).with_fallback(fallback),
+    ));
+    sched
+}
+
+/// Spawn the enrichment DAG for one entry and drive metadata-resolve, leaving
+/// keyword-tag as the next ready task. Returns `(entry_id, tagging_task_id)`.
+async fn staged_tagging_task(
+    store: &Arc<SqliteItemStore>,
+    sched: &Scheduler,
+) -> (uuid::Uuid, uuid::Uuid) {
+    let entry = bibliography_entry("10.1000/xyz", "old title");
+    let entry_id = TaskStoreApi::create_item(store.as_ref(), entry).unwrap();
+    let trigger = TaskStoreApi::get_item(store.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    let specs = EnrichmentSpawnRule
+        .spawn(&trigger, store.as_ref())
+        .await
+        .unwrap();
+    let task_ids = create_task_dag(store.as_ref(), &specs, "impel").unwrap();
+    sched.run_once().await.unwrap(); // metadata-resolve
+    (entry_id, task_ids[1])
+}
+
+/// A provider that cannot be reached is not a paper with no tags. Before this,
+/// the outage completed the task, wrote a run claiming zero proposals under the
+/// LLM's own name, and marked the paper enriched forever — so every paper
+/// ingested during an outage stayed permanently untagged.
+#[tokio::test]
+async fn an_unreachable_classifier_retries_instead_of_completing_untagged() {
+    let s = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let sched = tagging_scheduler(s.clone(), Arc::new(UnreachableClassifier), None, 0.5);
+    let (entry_id, task_id) = staged_tagging_task(&s, &sched).await;
+
+    let report = sched.run_once().await.unwrap();
+    assert_eq!(report.completed, 0, "{report:?}");
+    assert_eq!(report.retried, 1, "the outage is retryable: {report:?}");
+
+    let task = TaskStoreApi::get_item(s.as_ref(), task_id)
+        .unwrap()
+        .unwrap();
+    assert!(
+        !matches!(task.payload.get("state"),
+                  Some(Value::String(state)) if state == "done"),
+        "an unanswered classification must not be filed as finished"
+    );
+    let publication = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    assert!(publication.tags.is_empty());
+}
+
+/// With a fallback wired in — taskd's production shape — the outage degrades
+/// to a deterministic verdict instead of stalling. The run must say so: a
+/// heuristic result filed under the LLM's name is a provenance lie.
+#[tokio::test]
+async fn a_fallback_classifier_answers_and_the_run_names_it() {
+    let s = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let sched = tagging_scheduler(
+        s.clone(),
+        Arc::new(UnreachableClassifier),
+        Some(Arc::new(FixedClassifier(vec![("ai/topic/cosmology", 0.9)]))),
+        0.5,
+    );
+    let (entry_id, _) = staged_tagging_task(&s, &sched).await;
+
+    let report = sched.run_once().await.unwrap();
+    assert_eq!(report.completed, 1, "{report:?}");
+
+    let publication = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    assert!(publication.tags.iter().any(|t| t == "ai/topic/cosmology"));
+
+    let run = tagging_run(&s);
+    assert!(
+        matches!(run.payload.get("model"), Some(Value::String(m)) if m == "fixed-test"),
+        "the classifier that answered is the one recorded: {:?}",
+        run.payload.get("model")
+    );
+    assert!(
+        matches!(run.payload.get("executor_kind"),
+                 Some(Value::String(k)) if k == "deterministic"),
+        "and its kind, not the unreachable model's"
+    );
+    let summary = match run.payload.get("result_summary") {
+        Some(Value::String(s)) => s.clone(),
+        other => panic!("no summary: {other:?}"),
+    };
+    assert!(
+        summary.contains("unreachable-test unavailable"),
+        "the degradation is on the record: {summary:?}"
+    );
+}
+
+/// A model asked for `ai/topic/*` answers in whatever case and spacing it
+/// likes, and the store treats every spelling as a separate tag — a shadow
+/// tree no filter or sidebar node ever joins back up. Proposals are
+/// canonicalized where they enter, and paths that collide after
+/// canonicalization keep the higher confidence.
+#[tokio::test]
+async fn proposed_tags_are_canonicalized_before_they_reach_the_store() {
+    let s = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let sched = tagging_scheduler(
+        s.clone(),
+        Arc::new(FixedClassifier(vec![
+            ("ai/topic/Dark Energy", 0.9),
+            // The same tag, spelled the other way, below the threshold: if
+            // the collapse kept the LAST confidence this would go to review
+            // instead of applying.
+            ("ai/Topic/dark-energy", 0.4),
+            ("ai/methods/Machine_Learning", 0.8),
+        ])),
+        None,
+        0.5,
+    );
+    let (entry_id, _) = staged_tagging_task(&s, &sched).await;
+
+    let report = sched.run_once().await.unwrap();
+    assert_eq!(
+        report.completed, 1,
+        "no review: both survivors are confident"
+    );
+
+    let publication = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    let mut tags = publication.tags.clone();
+    tags.sort();
+    assert_eq!(
+        tags,
+        vec![
+            "ai/methods/machine-learning".to_string(),
+            "ai/topic/dark-energy".to_string()
+        ],
+        "one canonical spelling per concept"
+    );
+
+    let run = tagging_run(&s);
+    let summary = match run.payload.get("result_summary") {
+        Some(Value::String(s)) => s.clone(),
+        other => panic!("no summary: {other:?}"),
+    };
+    assert!(
+        !summary.contains("Dark Energy"),
+        "the record names the tag that was written: {summary:?}"
+    );
+}
+
+/// The one `agent-run` the keyword-tag stage produced. These tests enrich a
+/// single entry, so there is exactly one.
+fn tagging_run(store: &Arc<SqliteItemStore>) -> Item {
+    ItemStore::query(
+        store.as_ref(),
+        &ItemQuery {
+            schema: Some("agent-run@1.0.0".into()),
+            include_tags: false,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .into_iter()
+    .find(|r| {
+        matches!(r.payload.get("agent_id"),
+                       Some(Value::String(a)) if a == "impel/keyword-tag")
+    })
+    .expect("keyword-tag recorded a run")
 }

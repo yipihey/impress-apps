@@ -30,11 +30,20 @@ use impress_core::operation::{OperationIntent, OperationSpec, OperationType, Ret
 use impress_core::reference::EdgeType;
 use sha2::{Digest, Sha256};
 
-use crate::classify::Classifier;
+use crate::classify::{Classification, Classifier};
 use crate::KIND_KEYWORD_TAG;
 
 pub struct KeywordTagExecutor {
     classifier: Arc<dyn Classifier>,
+    /// Consulted only when [`Self::classifier`] returns `Err` — it could not
+    /// reach a verdict, as opposed to reaching the verdict "no tags".
+    ///
+    /// `None` (the default) makes such a failure a retryable task error, which
+    /// is the right answer when there is nothing else to ask. With a fallback
+    /// wired in, the run records the FALLBACK's `model`/`executor_kind` and
+    /// says so in its summary: a degraded result must never be filed under the
+    /// name of the classifier that did not answer.
+    fallback: Option<Arc<dyn Classifier>>,
     /// Proposals below this minimum confidence trigger a review.
     confidence_threshold: f64,
     actor: String,
@@ -44,9 +53,19 @@ impl KeywordTagExecutor {
     pub fn new(classifier: Arc<dyn Classifier>, confidence_threshold: f64) -> Self {
         Self {
             classifier,
+            fallback: None,
             confidence_threshold,
             actor: "impel/keyword-tag".into(),
         }
+    }
+
+    /// Wire a second classifier to consult when the first cannot answer.
+    /// Mirrors `impel_throughline::LlmDrafter`'s per-call degradation to
+    /// `TemplateDrafter`, except that here the degradation is recorded rather
+    /// than invisible.
+    pub fn with_fallback(mut self, fallback: Option<Arc<dyn Classifier>>) -> Self {
+        self.fallback = fallback;
+        self
     }
 
     fn target_of(task: &Item, store: &dyn TaskStoreApi) -> Result<Item, TaskError> {
@@ -80,6 +99,74 @@ impl KeywordTagExecutor {
             })?;
         }
         Ok(())
+    }
+
+    /// Ask the classifier, degrading to the fallback if it cannot answer.
+    ///
+    /// Returns the proposals alongside the classifier that actually produced
+    /// them, so the run record names the right one.
+    async fn propose(
+        &self,
+        title: &str,
+        abstract_text: &str,
+    ) -> Result<(Vec<Classification>, &dyn Classifier, Option<String>), TaskError> {
+        let primary = self.classifier.classify(title, abstract_text).await;
+        match (primary, self.fallback.as_ref()) {
+            (Ok(proposals), _) => Ok((proposals, self.classifier.as_ref(), None)),
+            (Err(reason), Some(fallback)) => {
+                let proposals = fallback
+                    .classify(title, abstract_text)
+                    .await
+                    // Both silent is nothing left to try, and the kernel's
+                    // backoff is a better answer than an empty tag set.
+                    .map_err(|second| {
+                        TaskError::Retryable(format!(
+                            "{} unavailable ({reason}); fallback {} also failed ({second})",
+                            self.classifier.model_id(),
+                            fallback.model_id()
+                        ))
+                    })?;
+                Ok((
+                    proposals,
+                    fallback.as_ref(),
+                    Some(format!(
+                        "{} unavailable: {reason}",
+                        self.classifier.model_id()
+                    )),
+                ))
+            }
+            // No fallback: retry rather than record a verdict nobody reached.
+            // ADR-0005 §9's ladder then escalates if the outage outlasts it.
+            (Err(reason), None) => Err(TaskError::Retryable(reason)),
+        }
+    }
+
+    /// Canonicalize proposed tag paths and collapse the collisions that
+    /// canonicalization creates.
+    ///
+    /// A model asked for `ai/topic/*` answers `ai/topic/Dark Energy` about as
+    /// often as `ai/topic/dark-energy`, and the store treats those as two
+    /// unrelated tags — so an LLM-classified library grows a shadow tag tree
+    /// that no filter, count or sidebar node ever joins back up. Every tag the
+    /// suite writes goes through `normalize_tag_path`; this is the one place
+    /// proposals enter, so it is the one place that has to.
+    ///
+    /// Two proposals can normalize to the same path; the higher confidence
+    /// wins, since the policy below is a threshold test.
+    fn normalize(proposals: Vec<Classification>) -> Vec<Classification> {
+        let mut out: Vec<Classification> = Vec::with_capacity(proposals.len());
+        for mut proposal in proposals {
+            proposal.tag = impress_tags::normalize_tag_path(&proposal.tag);
+            // Normalization can empty a path entirely ("///", "  ").
+            if proposal.tag.is_empty() {
+                continue;
+            }
+            match out.iter_mut().find(|kept| kept.tag == proposal.tag) {
+                Some(kept) => kept.confidence = kept.confidence.max(proposal.confidence),
+                None => out.push(proposal),
+            }
+        }
+        out
     }
 
     /// One sentence naming what this run actually decided, for the run
@@ -164,7 +251,8 @@ impl TaskExecutor for KeywordTagExecutor {
             return Ok(ExecutionOutcome::Complete); // nothing to classify
         }
 
-        let proposals = self.classifier.classify(&title, &abstract_text).await;
+        let (proposals, classifier, degraded) = self.propose(&title, &abstract_text).await?;
+        let proposals = Self::normalize(proposals);
 
         // ── Per-proposal policy: apply / review-band / drop ────────────
         let review_floor = self.confidence_threshold * 0.7;
@@ -191,16 +279,20 @@ impl TaskExecutor for KeywordTagExecutor {
         let mut hasher = Sha256::new();
         hasher.update(title.as_bytes());
         hasher.update(abstract_text.as_bytes());
+        let mut summary = Self::outcome_summary(&applied, &band, dropped);
+        if let Some(note) = degraded {
+            summary.push_str(&format!(" [{note}]"));
+        }
         store.record_agent_run(
             task.id,
             AgentRunRecord {
                 agent_id: self.actor.clone(),
-                model: self.classifier.model_id().into(),
+                model: classifier.model_id().into(),
                 prompt_hash: format!("{:x}", hasher.finalize()),
-                result_summary: Some(Self::outcome_summary(&applied, &band, dropped)),
+                result_summary: Some(summary),
                 token_count: None,
                 duration_ms: Some(started.elapsed().as_millis() as i64),
-                executor_kind: Some(self.classifier.executor_kind().into()),
+                executor_kind: Some(classifier.executor_kind().into()),
             },
         )?;
 

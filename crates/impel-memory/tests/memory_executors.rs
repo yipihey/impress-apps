@@ -18,7 +18,8 @@ use impel_core::{
     AGENT_RUN_SCHEMA, TASK_SCHEMA,
 };
 use impel_memory::consolidate::{
-    CONSOLIDATE_AGENT_ID, DETERMINISTIC_MODEL, SOURCE_KIND_AGENT_RUNS,
+    CONSOLIDATE_AGENT_ID, CONSUMED_THROUGH_FIELD, DETERMINISTIC_MODEL, MAX_SOURCE_RUNS,
+    RUN_FINALIZED_FIELD, SOURCE_KIND_AGENT_RUNS, TRUNCATED_FIELD,
 };
 use impel_memory::embed::{EMBED_AGENT_ID, KIND_EMBED};
 use impel_memory::spawn::{FAILED_COOLOFF_MS, WINDOW_LAG_MS, WINDOW_MS};
@@ -999,6 +1000,162 @@ async fn a_task_that_already_has_its_run_short_circuits() {
         count_schema(&store, AGENT_RUN_SCHEMA),
         runs_after_first,
         "a short-circuited replay writes no second provenance run"
+    );
+    assert!(
+        matches!(
+            consolidate_run(&store).payload.get(RUN_FINALIZED_FIELD),
+            Some(Value::Bool(true))
+        ),
+        "a completed window's run carries the finalization marker"
+    );
+}
+
+/// The failure the finalization marker exists for: the provenance run must be
+/// written BEFORE the episodes (each episode cites it as `agent_run_ref`), so a
+/// crash in between leaves a marker with nothing behind it. Short-circuiting on
+/// the run's mere existence loses that window permanently — the task is
+/// `running`, the resume pass re-executes it, sees a run, and reports success.
+#[tokio::test]
+async fn an_unfinalized_run_replays_the_window_instead_of_short_circuiting() {
+    let store = store();
+    let executor = MemoryConsolidationExecutor::new(store.clone());
+    seed_run(&store, "agent/a", "m1", "did a thing", None);
+    seed_run(&store, "agent/b", "m2", "did another thing", None);
+
+    let task_id = consolidate_task(&store, now_ms() - 60_000, now_ms() + 60_000);
+    // Exactly what a crash between `record_agent_run` and the first episode
+    // insert leaves behind: the run, both its edges, and no memory at all.
+    TaskStoreApi::record_agent_run(
+        store.as_ref(),
+        task_id,
+        impel_core::AgentRunRecord {
+            agent_id: CONSOLIDATE_AGENT_ID.into(),
+            model: DETERMINISTIC_MODEL.into(),
+            prompt_hash: "interrupted".into(),
+            result_summary: Some("2 episode(s) from 2 run(s)".into()),
+            ..Default::default()
+        },
+    )
+    .expect("seed interrupted run");
+    assert_eq!(count_schema(&store, MemoryKind::Episode.schema_ref()), 0);
+
+    run_task(&executor, &store, task_id).await.expect("resume");
+
+    assert_eq!(
+        count_schema(&store, MemoryKind::Episode.schema_ref()),
+        2,
+        "the resumed pass distils the window the crash dropped"
+    );
+    // `consolidate_run` asserts there is exactly one: the resume re-uses the
+    // interrupted run rather than leaving a trail of half-finished ones.
+    let run = consolidate_run(&store);
+    assert_eq!(
+        payload_string(&run, "prompt_hash").as_deref(),
+        Some("interrupted"),
+        "the re-used run is the same item, not a replacement"
+    );
+    assert!(matches!(
+        run.payload.get(RUN_FINALIZED_FIELD),
+        Some(Value::Bool(true))
+    ));
+
+    // And it is now genuinely finished: another pass changes nothing.
+    let again = fetch(&store, task_id);
+    assert_eq!(
+        executor
+            .execute(&again, store.as_ref() as &dyn TaskStoreApi)
+            .await
+            .expect("second resume"),
+        ExecutionOutcome::Complete
+    );
+    assert_eq!(count_schema(&store, MemoryKind::Episode.schema_ref()), 2);
+}
+
+/// A window with more terminal runs than the cap can carry used to complete
+/// normally and let the chain start the next window at its `window_end_ms` —
+/// so every run past the cap was skipped forever, silently. The tail is handed
+/// to a follow-up window instead, and that follow-up jumps the
+/// one-window-per-day debounce, since it is distilling history rather than
+/// sampling a fresh slice of time.
+#[tokio::test]
+async fn a_truncated_window_hands_its_tail_to_the_next_window() {
+    let store = store();
+    let executor = MemoryConsolidationExecutor::new(store.clone());
+    let now = now_ms();
+    // An hour back, one run per millisecond, so the cursor has somewhere
+    // unambiguous to land.
+    let base = now - 3_600_000;
+    let overflow = MAX_SOURCE_RUNS + 1;
+    for i in 0..overflow {
+        // Distinct summaries: identical ones are exactly what the D6 gate is
+        // for, and a window of them would confirm rather than insert — hiding
+        // whether the tail was reached at all.
+        seed_run_at(
+            &store,
+            "agent/bulk",
+            "m",
+            &format!("bulk run {i}"),
+            None,
+            base + i as i64,
+        );
+    }
+
+    let task_id = consolidate_task(&store, base - 1_000, now - WINDOW_LAG_MS);
+    run_task(&executor, &store, task_id).await.expect("execute");
+
+    let task = fetch(&store, task_id);
+    assert!(
+        matches!(task.payload.get(TRUNCATED_FIELD), Some(Value::Bool(true))),
+        "the window says it stopped short of its own end"
+    );
+    assert_eq!(
+        payload_i64(&task, CONSUMED_THROUGH_FIELD),
+        Some(base + (MAX_SOURCE_RUNS - 1) as i64),
+        "the cursor is the last run actually consumed"
+    );
+    assert_eq!(
+        count_schema(&store, MemoryKind::Episode.schema_ref()),
+        MAX_SOURCE_RUNS,
+        "exactly the capped window was distilled"
+    );
+    assert!(consolidate_run(&store)
+        .payload
+        .get("result_summary")
+        .map(|v| matches!(v, Value::String(s) if s.contains("truncated")))
+        .unwrap_or(false));
+
+    drive(&store, task_id, TaskState::Done);
+    let planned = plan_memory_tasks(&store, now, &plan_config(false, true)).expect("plan");
+    assert_eq!(
+        planned.len(),
+        1,
+        "the tail is planned now, not after the daily debounce"
+    );
+    let follow_up = fetch(&store, planned[0]);
+    assert_eq!(
+        payload_i64(&follow_up, "window_start_ms"),
+        payload_i64(&task, CONSUMED_THROUGH_FIELD),
+        "the follow-up resumes at the cursor, re-scanning that millisecond"
+    );
+
+    // Draining the tail returns the chain to its ordinary daily cadence.
+    run_task(&executor, &store, planned[0]).await.expect("tail");
+    let tail = fetch(&store, planned[0]);
+    assert!(
+        !tail.payload.contains_key(TRUNCATED_FIELD),
+        "the follow-up fits, so it claims no tail of its own"
+    );
+    assert_eq!(
+        count_schema(&store, MemoryKind::Episode.schema_ref()),
+        overflow,
+        "every seeded run is distilled exactly once across the two windows"
+    );
+    drive(&store, planned[0], TaskState::Done);
+    assert!(
+        plan_memory_tasks(&store, now, &plan_config(false, true))
+            .expect("plan")
+            .is_empty(),
+        "one window per day again"
     );
 }
 

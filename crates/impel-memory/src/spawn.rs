@@ -35,7 +35,9 @@ use impress_core::store::ItemStore;
 use impress_core::task::TaskState;
 use uuid::Uuid;
 
-use crate::consolidate::{consolidate_task_payload, KIND_CONSOLIDATE};
+use crate::consolidate::{
+    consolidate_task_payload, CONSUMED_THROUGH_FIELD, KIND_CONSOLIDATE, TRUNCATED_FIELD,
+};
 use crate::embed::{embed_task_payload, DEFAULT_BATCH_LIMIT, KIND_EMBED};
 
 /// Env gate for the embed backfill: `1`/`true` registers and plans it.
@@ -211,16 +213,23 @@ fn plan_consolidate(
         return Ok(None);
     }
     let start = match newest_done_task(store, KIND_CONSOLIDATE)? {
-        Some(task) => {
-            let last_end = payload_i64(&task, "window_end_ms").unwrap_or(now_ms - WINDOW_MS);
-            // One window per day. Without this the daemon would spawn a
-            // minute-wide window every poll interval and consolidate the same
-            // near-empty slice of time forever.
-            if last_end > now_ms - WINDOW_MS {
-                return Ok(None);
+        Some(task) => match truncation_resume(&task) {
+            // The last window hit `MAX_SOURCE_RUNS` and stopped short of its
+            // own end. Resume where it actually stopped, and skip the
+            // one-window-per-day debounce below: the tail is already-written
+            // history waiting to be distilled, not a slice of near-empty time.
+            Some(resume_ms) => resume_ms,
+            None => {
+                let last_end = payload_i64(&task, "window_end_ms").unwrap_or(now_ms - WINDOW_MS);
+                // One window per day. Without this the daemon would spawn a
+                // minute-wide window every poll interval and consolidate the
+                // same near-empty slice of time forever.
+                if last_end > now_ms - WINDOW_MS {
+                    return Ok(None);
+                }
+                last_end
             }
-            last_end
-        }
+        },
         None => now_ms - WINDOW_MS,
     };
     let end = (now_ms - WINDOW_LAG_MS).min(start + WINDOW_MS);
@@ -231,6 +240,25 @@ fn plan_consolidate(
         store,
         task_item(consolidate_task_payload(start, end)),
     )?))
+}
+
+/// Where a completed consolidation window wants its follow-up to start, if it
+/// truncated at [`crate::consolidate::MAX_SOURCE_RUNS`].
+///
+/// `None` for the ordinary case — no truncation, no cursor, or a cursor that
+/// would not advance. The last of those is the guard that matters: if a whole
+/// window's worth of runs shares the `modified` millisecond the cursor lands
+/// on, resuming there would spawn a byte-identical window that truncates at the
+/// same place, forever. That takes ~512 agent-runs written inside one
+/// millisecond, which nothing in this suite can do; the guard trades an
+/// impossible infinite loop for a bounded, logged skip.
+fn truncation_resume(task: &Item) -> Option<i64> {
+    if !matches!(task.payload.get(TRUNCATED_FIELD), Some(Value::Bool(true))) {
+        return None;
+    }
+    let resume_ms = payload_i64(task, CONSUMED_THROUGH_FIELD)?;
+    let window_start = payload_i64(task, "window_start_ms")?;
+    (resume_ms > window_start).then_some(resume_ms)
 }
 
 // ---------------------------------------------------------------------------

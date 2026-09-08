@@ -78,10 +78,40 @@ pub const DETERMINISTIC_MODEL: &str = "deterministic-v1";
 /// Source runs examined per task.
 ///
 /// A cap rather than a page: one task is a bounded unit of work, and a window
-/// that overflows it says so in the run summary instead of silently dropping
-/// the tail. The window arithmetic in [`crate::plan_memory_tasks`] (24 h) keeps
-/// normal operation far below this.
+/// that overflows it hands the tail to a follow-up window instead of silently
+/// dropping it (see [`TRUNCATED_FIELD`]). The window arithmetic in
+/// [`crate::plan_memory_tasks`] (24 h) keeps normal operation far below this.
 pub const MAX_SOURCE_RUNS: usize = 512;
+
+/// Task payload flag: this window hit [`MAX_SOURCE_RUNS`] and did NOT reach its
+/// own `window_end_ms`.
+///
+/// Without it the chain in [`crate::spawn::plan_memory_tasks`] starts the next
+/// window at this task's `window_end_ms`, and every run past the cap is skipped
+/// forever — silently, because the task still completed. Read together with
+/// [`CONSUMED_THROUGH_FIELD`].
+pub const TRUNCATED_FIELD: &str = "window_truncated";
+
+/// Task payload cursor: `modified` of the last run this window actually
+/// consumed, in ms. Where a truncated window's follow-up resumes.
+///
+/// Inclusive on purpose — the follow-up re-scans that millisecond and re-derives
+/// the same `deterministic_key` for anything already distilled, so the overlap
+/// costs a gate probe rather than a duplicate episode. Skipping it would be the
+/// unrecoverable direction.
+pub const CONSUMED_THROUGH_FIELD: &str = "consumed_through_ms";
+
+/// Agent-run payload flag written **after** every episode, claim and edge of the
+/// window has landed.
+///
+/// This is the idempotency marker, and its position is the whole point. The run
+/// item itself cannot be it: the run must exist before the memory rows, because
+/// each row cites it as `agent_run_ref` — so a crash between "run written" and
+/// "episodes written" used to leave a marker with nothing behind it, and the
+/// scheduler's resume pass would see the run, return `Complete`, and lose the
+/// window permanently. A run without this flag means "a previous attempt died
+/// mid-write"; `execute` then re-uses that run rather than minting a second one.
+pub const RUN_FINALIZED_FIELD: &str = "consolidation_finalized";
 
 /// `source_kind` payload value this v1 understands.
 pub const SOURCE_KIND_AGENT_RUNS: &str = "agent-runs";
@@ -129,20 +159,23 @@ impl MemoryConsolidationExecutor {
         self
     }
 
-    /// The provenance run this task already produced, if any.
+    /// The provenance run this task already produced, if any, and whether that
+    /// run is [`RUN_FINALIZED_FIELD`]-complete.
     ///
     /// `record_agent_run` writes the edge in BOTH directions (run —ProducedBy→
     /// task, and task —ProducedBy→ run), so either side answers the question.
     /// Both are checked because the two are separate writes: a crash between
     /// them leaves exactly one, and a replay that consulted only the missing
     /// side would redo the whole window.
-    fn existing_run(&self, task: &Item) -> Result<Option<ItemId>, TaskError> {
+    fn existing_run(&self, task: &Item) -> Result<Option<(ItemId, bool)>, TaskError> {
         for reference in &task.references {
             if reference.edge_type != EdgeType::ProducedBy {
                 continue;
             }
             match ItemStore::get(self.store.as_ref(), reference.target) {
-                Ok(Some(item)) if item.schema == AGENT_RUN_SCHEMA => return Ok(Some(item.id)),
+                Ok(Some(item)) if item.schema == AGENT_RUN_SCHEMA => {
+                    return Ok(Some((item.id, is_finalized(&item))))
+                }
                 Ok(_) => {}
                 Err(e) => return Err(TaskError::Retryable(format!("load run reference: {e}"))),
             }
@@ -159,7 +192,7 @@ impl MemoryConsolidationExecutor {
             },
         )
         .map_err(|e| TaskError::Retryable(format!("query existing run: {e}")))?;
-        Ok(runs.first().map(|item| item.id))
+        Ok(runs.first().map(|item| (item.id, is_finalized(item))))
     }
 
     /// Terminal agent-runs modified within `[start, end)`, oldest first.
@@ -207,8 +240,10 @@ impl TaskExecutor for MemoryConsolidationExecutor {
 
         // Idempotency FIRST, before any scan or write: the scheduler's resume
         // pass re-executes a task a crash left `running`, and a window already
-        // distilled must not be distilled twice.
-        if self.existing_run(task)?.is_some() {
+        // distilled must not be distilled twice. Only a FINALIZED run counts as
+        // "already distilled" — see [`RUN_FINALIZED_FIELD`].
+        let prior_run = self.existing_run(task)?;
+        if matches!(prior_run, Some((_, true))) {
             return Ok(ExecutionOutcome::Complete);
         }
 
@@ -257,14 +292,21 @@ impl TaskExecutor for MemoryConsolidationExecutor {
             .count();
         let to_confirm = drafts.len() - to_insert;
 
+        // Where a truncated window actually stopped. `runs` is already capped,
+        // so this is the last run consumed — the follow-up window's inclusive
+        // start. `None` only when the cap is 0, which it never is.
+        let consumed_through_ms = truncated
+            .then(|| runs.last().map(|run| run.modified.timestamp_millis()))
+            .flatten();
+
         let mut summary = format!(
             "{} episode(s) from {} run(s) ({to_insert} inserted, {to_confirm} confirmed)",
             drafts.len(),
             runs.len()
         );
-        if truncated {
+        if let Some(through) = consumed_through_ms {
             summary.push_str(&format!(
-                "; window truncated at {MAX_SOURCE_RUNS} runs — a follow-up window is needed"
+                "; window truncated at {MAX_SOURCE_RUNS} runs — follow-up window resumes at {through}"
             ));
         }
 
@@ -279,23 +321,51 @@ impl TaskExecutor for MemoryConsolidationExecutor {
         if let Some(suffix) = &claim_tier.summary_suffix {
             summary.push_str(suffix);
         }
+        // `model` and `executor_kind` are read together by every provenance
+        // surface: a completed claim-tier call means an inference produced part
+        // of this window, and `deterministic-v1` means nothing did.
+        let executor_kind = match &claim_tier.model {
+            Some(_) => impel_core::EXECUTOR_MODEL,
+            None => impel_core::EXECUTOR_DETERMINISTIC,
+        };
         let model = claim_tier
             .model
             .clone()
             .unwrap_or_else(|| DETERMINISTIC_MODEL.to_string());
 
-        let run_id = store.record_agent_run(
-            task.id,
-            AgentRunRecord {
-                agent_id: self.actor.clone(),
-                model,
-                prompt_hash: window_hash(window_start, window_end, &runs),
-                result_summary: Some(summary),
-                token_count: None,
-                duration_ms: Some(started.elapsed().as_millis() as i64),
-                executor_kind: None,
-            },
-        )?;
+        let duration_ms = started.elapsed().as_millis() as i64;
+        let run_id = match prior_run {
+            // A previous attempt wrote its provenance run and died before the
+            // memory rows landed. Re-use that run instead of minting a second
+            // one — a replay must not leave a trail of half-finished runs, and
+            // the rows below re-derive the same deterministic ids either way.
+            // Its summary/model/duration describe the attempt that failed, so
+            // they are overwritten with this pass's.
+            Some((run_id, _)) => {
+                self.set_payload(store, run_id, "result_summary", Value::String(summary))?;
+                self.set_payload(store, run_id, "model", Value::String(model))?;
+                self.set_payload(
+                    store,
+                    run_id,
+                    "executor_kind",
+                    Value::String(executor_kind.into()),
+                )?;
+                self.set_payload(store, run_id, "duration_ms", Value::Int(duration_ms))?;
+                run_id
+            }
+            None => store.record_agent_run(
+                task.id,
+                AgentRunRecord {
+                    agent_id: self.actor.clone(),
+                    model,
+                    prompt_hash: window_hash(window_start, window_end, &runs),
+                    result_summary: Some(summary),
+                    token_count: None,
+                    duration_ms: Some(duration_ms),
+                    executor_kind: Some(executor_kind.into()),
+                },
+            )?,
+        };
 
         for (draft, outcome) in drafts {
             self.apply_gate_outcome(draft, outcome, run_id, "episode")?;
@@ -307,6 +377,17 @@ impl TaskExecutor for MemoryConsolidationExecutor {
         for run in &runs {
             store.add_edge(run_id, run.id, EdgeType::DerivedFrom, &self.actor)?;
         }
+
+        // Hand the tail to a follow-up window before declaring this one done,
+        // so a crash here leaves the task un-finalized and the whole pass
+        // replayable rather than the tail lost.
+        if let Some(through) = consumed_through_ms {
+            self.set_payload(store, task.id, CONSUMED_THROUGH_FIELD, Value::Int(through))?;
+            self.set_payload(store, task.id, TRUNCATED_FIELD, Value::Bool(true))?;
+        }
+
+        // The marker, LAST. Everything this window promised is now in the store.
+        self.set_payload(store, run_id, RUN_FINALIZED_FIELD, Value::Bool(true))?;
 
         Ok(ExecutionOutcome::Complete)
     }
@@ -584,6 +665,19 @@ impl MemoryConsolidationExecutor {
         }
     }
 
+    /// Write one payload field on an item this executor owns — the truncation
+    /// cursor on the task, the finalization marker on the run. See
+    /// [`crate::set_payload`] for why an executor may write payload at all.
+    fn set_payload(
+        &self,
+        store: &dyn TaskStoreApi,
+        target_id: ItemId,
+        field: &str,
+        value: Value,
+    ) -> Result<(), TaskError> {
+        crate::set_payload(store, target_id, field, value, &self.actor)
+    }
+
     /// Write one gated draft (episode or claim): insert on [`GateOutcome::Insert`]
     /// (stamping this consolidation's own provenance run as its producer),
     /// confirm the existing row on [`GateOutcome::Confirm`]. `kind_label` only
@@ -640,6 +734,18 @@ fn claim_text_hash(title: &str, body: &str) -> String {
     hasher.update([0u8]);
     hasher.update(body.trim().as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+/// Whether a provenance run carries [`RUN_FINALIZED_FIELD`].
+///
+/// Absent counts as NOT finalized, which is what makes this safe to add to a
+/// store full of runs written before the flag existed: the worst an old run
+/// costs is one replayed window, and every write in that replay is idempotent.
+fn is_finalized(run: &Item) -> bool {
+    matches!(
+        run.payload.get(RUN_FINALIZED_FIELD),
+        Some(Value::Bool(true))
+    )
 }
 
 /// Whether a run is terminal, and not one of ours. See the module docs.

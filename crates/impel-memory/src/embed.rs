@@ -37,8 +37,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use impel_core::{AgentRunRecord, ExecutionOutcome, TaskError, TaskExecutor, TaskStoreApi};
-use impress_core::item::{ActorKind, Item, ItemId, Value};
-use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_core::item::{Item, ItemId, Value};
 use impress_core::schemas::memory::{
     MEMORY_CLAIM_SCHEMA, MEMORY_EPISODE_SCHEMA, MEMORY_INSTRUCTION_SCHEMA,
 };
@@ -215,12 +214,8 @@ impl EmbedBackfillExecutor {
             .collect())
     }
 
-    /// Write one payload field on the task item itself.
-    ///
-    /// Legal, and worth being explicit about: only `state` is scheduler-exclusive
-    /// (ADR-0015 D1). Payload is ordinary mutable item data, and going through
-    /// `apply` means the cursor advance lands in the operation journal with this
-    /// executor's attribution, like every other kernel write.
+    /// Write one payload field on the task item itself — the cursor advance.
+    /// See [`crate::set_payload`] for why an executor may write payload.
     fn set_payload(
         &self,
         task_id: ItemId,
@@ -228,20 +223,7 @@ impl EmbedBackfillExecutor {
         value: Value,
         store: &dyn TaskStoreApi,
     ) -> Result<(), TaskError> {
-        store.apply(OperationSpec {
-            target_id: task_id,
-            op_type: OperationType::SetPayload(field.into(), value),
-            intent: OperationIntent::Routine,
-            reason: None,
-            batch_id: None,
-            author: self.actor.clone(),
-            author_kind: ActorKind::Agent,
-            // Compactable: a cursor is bookkeeping, not research record. The
-            // NEXT task's cursor supersedes it, and the chain of done tasks is
-            // what D8 reads.
-            retention: RetentionTier::Compactable,
-        })?;
-        Ok(())
+        crate::set_payload(store, task_id, field, value, &self.actor)
     }
 }
 

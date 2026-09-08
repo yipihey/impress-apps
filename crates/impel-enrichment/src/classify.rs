@@ -14,6 +14,16 @@ pub struct Classification {
 /// Produces tag proposals for a paper. Implementations must be pure with
 /// respect to their inputs (same title/abstract → same proposals) so
 /// `prompt_hash` reproducibility holds.
+///
+/// # Why `classify` is fallible
+///
+/// "The model said nothing fits" and "the model never answered" are the same
+/// value if the return type is a bare `Vec` — and they are opposite outcomes.
+/// The first is a decision worth recording; the second used to complete the
+/// task, write a run saying `0 tags`, and mark the paper enriched forever, so
+/// a provider outage silently and permanently un-tagged everything ingested
+/// during it. An implementation returns `Err` only for that second case: it
+/// could not reach a verdict at all.
 #[async_trait]
 pub trait Classifier: Send + Sync {
     /// Identifier recorded in `agent-run.model` (e.g. `"heuristic-v1"`,
@@ -29,7 +39,13 @@ pub trait Classifier: Send + Sync {
         impel_core::EXECUTOR_DETERMINISTIC
     }
 
-    async fn classify(&self, title: &str, abstract_text: &str) -> Vec<Classification>;
+    /// Propose tags, or explain why no verdict could be reached. `Ok(vec![])`
+    /// means "nothing fits"; `Err` means "ask again later".
+    async fn classify(
+        &self,
+        title: &str,
+        abstract_text: &str,
+    ) -> Result<Vec<Classification>, String>;
 }
 
 /// Keyword-table classifier. Confidence is the fraction of a tag's
@@ -75,9 +91,16 @@ impl Classifier for HeuristicClassifier {
         "heuristic-v1"
     }
 
-    async fn classify(&self, title: &str, abstract_text: &str) -> Vec<Classification> {
+    /// Infallible in practice — a keyword table has nothing to be unreachable
+    /// — which is exactly why it makes a usable fallback for one that isn't.
+    async fn classify(
+        &self,
+        title: &str,
+        abstract_text: &str,
+    ) -> Result<Vec<Classification>, String> {
         let text = format!("{title} {abstract_text}").to_lowercase();
-        self.table
+        Ok(self
+            .table
             .iter()
             .filter_map(|(tag, keywords)| {
                 let hits = keywords
@@ -92,6 +115,6 @@ impl Classifier for HeuristicClassifier {
                     confidence: hits as f64 / keywords.len() as f64,
                 })
             })
-            .collect()
+            .collect())
     }
 }
