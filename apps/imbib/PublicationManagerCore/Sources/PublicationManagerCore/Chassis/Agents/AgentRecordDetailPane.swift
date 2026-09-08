@@ -243,7 +243,7 @@ public struct AgentRecordDetailPane: View {
                         .font(.headline)
                     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                         infoRow("Agent", latestRun.agentID.isEmpty ? "—" : latestRun.agentID)
-                        infoRow("Model", latestRun.modelDisplay)
+                        infoRow(latestRun.modelRowLabel, latestRun.modelDisplay)
                         if let metrics = latestRun.metricsText {
                             infoRow("Metrics", metrics)
                         }
@@ -283,7 +283,7 @@ public struct AgentRecordDetailPane: View {
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                     infoRow("Agent", row.agentID.isEmpty ? "—" : row.agentID)
-                    infoRow("Model", row.modelDisplay)
+                    infoRow(row.modelRowLabel, row.modelDisplay)
                     if let promptHash = row.promptHash {
                         infoRow("Prompt Hash", promptHash, monospaced: true)
                     }

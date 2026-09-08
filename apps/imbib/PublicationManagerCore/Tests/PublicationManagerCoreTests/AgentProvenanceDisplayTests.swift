@@ -95,3 +95,57 @@ final class PendingReviewParsingTests: XCTestCase {
         XCTAssertTrue(review.isResolved)
     }
 }
+
+// MARK: - "Which model did the tagging?"
+
+/// A row labelled "Model" showing `heuristic-v1 (deterministic)` invites the
+/// reader to assume `heuristic-v1` is one. It is a keyword table, and the
+/// honest answer to "which model was used" is "none" — which the pane has to
+/// say, not imply through a parenthetical.
+final class ModelAttributionTests: XCTestCase {
+
+    private func run(model: String, executorKind: String?) -> AgentRunRowData {
+        let kindJSON = executorKind.map { ",\"executor_kind\":\"\($0)\"" } ?? ""
+        let row = SharedItemRow(
+            id: "33333333-3333-4333-8333-333333333333",
+            schemaRef: "agent-run@1.0.0",
+            payloadJson: "{\"agent_id\":\"impel/keyword-tag\",\"model\":\"\(model)\"\(kindJSON)}",
+            createdMs: 1_757_000_000_000,
+            modifiedMs: 1_757_000_000_000,
+            parentId: nil,
+            isRead: false,
+            isStarred: false,
+            tags: [],
+            flagColor: nil
+        )
+        return AgentRunRowData(from: row)!
+    }
+
+    func testDeterministicRunSaysNoModelWasUsed() {
+        let r = run(model: "heuristic-v1", executorKind: "deterministic")
+        XCTAssertEqual(r.modelRowLabel, "Method", "a keyword table is not a model")
+        XCTAssertTrue(
+            r.modelDisplay.contains("no model"),
+            "the absence of a model must be stated: \(r.modelDisplay)"
+        )
+    }
+
+    /// When something DID infer, the row names it plainly — that is the case
+    /// the question was really about.
+    func testAModelRunNamesTheModelAndNothingElse() {
+        let r = run(model: "anthropic/claude-opus-4-8", executorKind: "model")
+        XCTAssertEqual(r.modelRowLabel, "Model")
+        XCTAssertEqual(
+            r.modelDisplay, "anthropic/claude-opus-4-8",
+            "no qualifier to read past — the model id is the answer"
+        )
+    }
+
+    /// Rows written before `executor_kind` existed genuinely do not say which
+    /// it was, so the pane must not claim either way.
+    func testRunsPredatingExecutorKindAreNotGuessed() {
+        let r = run(model: "heuristic-v1", executorKind: nil)
+        XCTAssertEqual(r.modelDisplay, "heuristic-v1")
+        XCTAssertFalse(r.modelDisplay.contains("no model"))
+    }
+}
