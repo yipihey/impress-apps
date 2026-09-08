@@ -110,6 +110,11 @@ final class EInkSyncCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(ran, "the queued reason runs once the gate opens")
         XCTAssertEqual(gateOpened.count, 1, "the migration hook runs exactly once, when the gate opens")
+        // The runner is called before the coordinator records the run, so
+        // waiting on the call log alone can read `lastRun` while it is still
+        // nil. Wait for the record, which is written last.
+        let recorded = try await EInkTestSupport.waitUntil { await coordinator.lastRun != nil }
+        XCTAssertTrue(recorded, "the run is recorded after the runner returns")
         let awaited8 = await coordinator.lastRun?.reason
         XCTAssertEqual(awaited8, .connected)
         XCTAssertEqual(afterRun["connected"], 1)
