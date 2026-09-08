@@ -132,6 +132,15 @@ struct PDFTab: View {
                 resetAndCheckPDF()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showPDFTab)) { notification in
+            // "Show annotated PDF" (Info tab, ADR-025) names the file to open;
+            // the tab switch itself is DetailView's.
+            guard let fileID = notification.userInfo?["linkedFileID"] as? UUID,
+                  let pub = publication,
+                  let file = pub.linkedFiles.first(where: { $0.id == fileID })
+            else { return }
+            linkedFile = file
+        }
         .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { notification in
             // Refresh dark mode setting when it changes
             Task {
@@ -427,7 +436,7 @@ struct PDFTab: View {
                 Logger.files.infoCapture("[PDFTab] linkedFile[\(i)]: \(file.filename), isPDF=\(file.isPDF), path=\(file.relativePath ?? "nil")", category: "pdf")
             }
 
-            if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+            if let firstPDF = linkedFiles.preferredPDF {
                 Logger.files.infoCapture("[PDFTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF

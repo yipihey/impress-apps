@@ -73,6 +73,10 @@ public final class EInkServices {
             sync: { deviceId, importAnnotations in
                 try await RustStoreAdapter.shared.einkSync(deviceId: deviceId, import: importAnnotations)
             },
+            importOnly: { deviceId in
+                // "Import annotations now": import-only in Rust, nothing uploads.
+                try await RustStoreAdapter.shared.einkImport(publicationId: nil, deviceId: deviceId)
+            },
             onGateOpened: {
                 await MainActor.run { _ = migration.runIfNeeded() }
             },
@@ -91,6 +95,9 @@ public final class EInkServices {
                             + "lastError=\(status.lastError ?? "none")",
                         category: "eink")
                 }
+            },
+            onRunStateChanged: { running, reason in
+                await MainActor.run { EInkMirrorModel.shared.setSyncing(running, reason: reason) }
             }
         ))
         self.coordinator = coordinator
@@ -135,7 +142,14 @@ public final class EInkServices {
     /// Tell the services the device record changed (the Settings pane, P8):
     /// the monitor re-reads the device list; the coordinator gets a nudge.
     public func settingsChanged() async {
+        // A device added from the pane after launch has a record but no
+        // legacy registration (the registrar ran at start); adopt it so the
+        // pieces that still gate on `EInkDeviceManager` see it (P9 retires them).
+        if EInkDeviceManager.shared.activeDevice == nil {
+            _ = await EInkDeviceRegistrar.registerConfiguredDevices()
+        }
         monitor?.reconcile()
+        await EInkMirrorModel.shared.refresh()
         await coordinator?.nudge(.settingsChanged)
     }
 }

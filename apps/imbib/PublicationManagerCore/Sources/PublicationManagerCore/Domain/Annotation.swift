@@ -40,7 +40,17 @@ public struct AnnotationModel: Identifiable, Hashable, Sendable {
     public let ocrConfidence: Double?
     public let importedAt: Date?
 
-    public var isFromEInkDevice: Bool { source == "eink" }
+    /// Rows an e-ink import wrote. Rust spells the source `remarkable`
+    /// (`imbib-core::eink::import::reconcile::SOURCE_REMARKABLE`); `eink` is
+    /// accepted for the generic spelling an earlier draft used.
+    public var isFromEInkDevice: Bool { source == "remarkable" || source == "eink" }
+
+    /// The author name every imported row carries — the one string the PDF
+    /// persistence layer keys its "never burn into the primary PDF" rule on.
+    public static let einkAuthorName = "reMarkable"
+
+    /// True when this row came from the tablet (by provenance or by author).
+    public var isEInkAuthored: Bool { isFromEInkDevice || authorName == Self.einkAuthorName }
     public var isInk: Bool { imagePath != nil }
 
     public init(from row: ImbibRustCore.AnnotationRow) {

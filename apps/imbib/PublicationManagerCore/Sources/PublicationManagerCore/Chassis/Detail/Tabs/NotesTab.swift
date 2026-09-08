@@ -225,7 +225,7 @@ struct NotesTab: View {
             let linkedFiles = publication.linkedFiles
             Logger.files.infoCapture("[NotesTab] linkedFiles count = \(linkedFiles.count)", category: "pdf")
 
-            if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+            if let firstPDF = linkedFiles.preferredPDF {
                 Logger.files.infoCapture("[NotesTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF
@@ -275,7 +275,7 @@ struct NotesTab: View {
                     return
                 }
                 let files = RustStoreAdapter.shared.listLinkedFiles(publicationId: pubID)
-                linkedFile = files.first(where: { $0.isPDF }) ?? files.first
+                linkedFile = files.preferredPDF
                 Logger.files.infoCapture("[NotesTab] downloadPDF() complete - PDF loaded", category: "pdf")
             }
         } catch {
@@ -380,12 +380,48 @@ struct NotesPanel: View {
             // Inline annotation fields at top
             annotationFieldsSection
 
+            // What the reMarkable sent back (ADR-025): highlights, typed
+            // text, read handwriting; nothing until a device is configured.
+            EInkNotesSection(publication: currentPublication, onNotesAppended: reloadFromStore)
+
             // Freeform notes fills remaining space
             freeformNotesSection
                 .frame(maxHeight: .infinity)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .task(id: publication.id) {
+            // The `publication` this panel holds is a snapshot. When the note
+            // field changes underneath it — "Append reMarkable notes" here,
+            // or an agent through the store — re-read it, but never while
+            // the user is typing (the debounced writer owns the buffer then).
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                guard case .itemsMutated(_, let ids) = event, ids.contains(publication.id) else { continue }
+                guard !isEditingFreeformNotes, !isFreeformNotesFocused else { continue }
+                reloadFromStore()
+            }
+        }
+    }
+
+    /// The publication as last re-read from the store, else the snapshot.
+    @State private var refreshedPublication: PublicationModel?
+
+    private var currentPublication: PublicationModel {
+        refreshedPublication.flatMap { $0.id == publication.id ? $0 : nil } ?? publication
+    }
+
+    /// Re-read the paper and rebuild the notes document from its `note` field.
+    private func reloadFromStore() {
+        guard let fresh = RustStoreAdapter.shared.getPublicationDetail(id: publication.id) else { return }
+        refreshedPublication = fresh
+        notesWriter.cancelPending()
+        let document = PublicationNotesDocument(publication: fresh, settings: annotationSettings)
+        annotations = document.annotations
+        freeformNotes = document.freeform
+        activeAnnotations = document.populatedAnnotationIDs
+        Logger.library.infoCapture(
+            "eink.notes display: re-read note field for \(publication.id) (\(freeformNotes.count) chars freeform)",
+            category: "eink")
     }
 
     // MARK: - Horizontal Header Bar (for below/top position)

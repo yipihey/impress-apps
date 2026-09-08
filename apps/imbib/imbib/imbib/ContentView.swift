@@ -49,6 +49,8 @@ struct ContentView: View {
 
     /// Data for unified import sheet (nil = not shown)
     @State private var unifiedImportData: UnifiedImportData?
+    /// "Import from reMarkable…" (ADR-025): the tablet-authored documents browser.
+    @State private var showEInkImportBrowser = false
 
     /// Centralized focus tracking for vim-style pane navigation (h/l cycling, j/k per-pane)
     /// Using @State instead of @FocusState because we're tracking logical pane focus, not SwiftUI keyboard focus
@@ -176,6 +178,7 @@ struct ContentView: View {
                 importPreviewData: $importPreviewData,
                 unifiedExportData: $unifiedExportData,
                 unifiedImportData: $unifiedImportData,
+                showEInkImportBrowser: $showEInkImportBrowser,
                 libraryManager: libraryManager,
                 selectedPublications: selectedPublicationsForExport,
                 onShowImportPanel: showImportPanel,
@@ -213,6 +216,9 @@ struct ContentView: View {
                     )
                 )
                 .frame(minWidth: 550, minHeight: 450)
+            }
+            .sheet(isPresented: $showEInkImportBrowser) {
+                EInkImportBrowserView(isPresented: $showEInkImportBrowser)
             }
             // Vim-style pane focus cycling (h/l keys)
             .onReceive(NotificationCenter.default.publisher(for: .cycleFocusLeft)) { _ in
@@ -636,6 +642,7 @@ struct ImportExportHandlersModifier: ViewModifier {
     @Binding var importPreviewData: ImportPreviewData?
     @Binding var unifiedExportData: UnifiedExportData?
     @Binding var unifiedImportData: UnifiedImportData?
+    @Binding var showEInkImportBrowser: Bool
     let libraryManager: LibraryManager
     let selectedPublications: [PublicationRowData]
     let onShowImportPanel: () -> Void
@@ -675,6 +682,12 @@ struct ImportExportHandlersModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .showUnifiedImport)) { notification in
                 let targetLibraryID = notification.userInfo?["libraryID"] as? UUID
                 unifiedImportData = UnifiedImportData(fileURL: nil, targetLibraryID: targetLibraryID)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showEInkImportBrowser)) { _ in
+                // Paper ▸ Import from reMarkable… / the palette. The menu item
+                // is disabled without a device; the palette entry is not.
+                guard EInkMirrorModel.shared.isConfigured else { return }
+                showEInkImportBrowser = true
             }
     }
 }

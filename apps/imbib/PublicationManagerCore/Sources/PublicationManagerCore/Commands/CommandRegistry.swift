@@ -172,6 +172,7 @@ public final class CommandRegistry: @unchecked Sendable {
         register(Command(id: "toggleEInkMirror", title: "Mirror to reMarkable", category: .paper, shortcut: "⌃⌘E", notificationName: .toggleEInkMirror))
         register(Command(id: "einkSyncNow", title: "Sync reMarkable Now", category: .paper, shortcut: nil, notificationName: .einkSyncNow))
         register(Command(id: "einkImportAnnotations", title: "Import reMarkable Annotations", category: .paper, shortcut: nil, notificationName: .einkImportAnnotations))
+        register(Command(id: "showEInkImportBrowser", title: "Import from reMarkable…", category: .paper, shortcut: nil, notificationName: .showEInkImportBrowser))
         register(Command(id: "showEInkSettings", title: "E-Ink Settings…", category: .app, shortcut: nil, notificationName: .showEInkSettings))
 
         // Search

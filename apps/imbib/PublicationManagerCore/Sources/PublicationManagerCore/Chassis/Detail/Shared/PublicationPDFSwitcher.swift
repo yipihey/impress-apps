@@ -79,7 +79,7 @@ public struct PublicationPDFSwitcher: View {
                         if pdf.id == current.id {
                             Image(systemName: "checkmark")
                         }
-                        Text(pdf.filename)
+                        Text(Self.label(for: pdf))
                         Text("(\(Self.formattedFileSize(pdf.fileSize)))")
                             .foregroundStyle(.secondary)
                     }
@@ -87,7 +87,7 @@ public struct PublicationPDFSwitcher: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text(current.filename)
+                Text(Self.label(for: current))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
@@ -115,5 +115,31 @@ public struct PublicationPDFSwitcher: View {
     /// `ByteCountFormatter`, which is what macOS shipped.
     public static func formattedFileSize(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    /// The label for the reMarkable-annotated rendition a sync downloaded.
+    public static let einkAnnotatedLabel = "reMarkable — annotated"
+
+    /// What the picker calls a file: the rendition with the tablet's marks
+    /// drawn in is named for what it IS rather than by its generated
+    /// filename (ADR-025); every other file keeps its filename.
+    public static func label(for file: LinkedFileModel) -> String {
+        file.isEInkAnnotated ? einkAnnotatedLabel : file.filename
+    }
+}
+
+public extension Array where Element == LinkedFileModel {
+    /// The PDF a viewer opens by default: the PRIMARY PDF when one exists,
+    /// never the reMarkable-annotated rendition (a variant the switcher
+    /// offers, not the paper's own copy); then any PDF; then any file at
+    /// all — the fallback both detail tabs had before ADR-025 added roles.
+    var preferredPDF: LinkedFileModel? {
+        // An explicit `primary` role first; older rows carry no role at all
+        // and are primary by definition (`isPrimary`), so they come next.
+        first(where: { $0.isPDF && $0.role == "primary" })
+            ?? first(where: { $0.isPDF && $0.isPrimary })
+            ?? first(where: { $0.isPDF && !$0.isEInkAnnotated })
+            ?? first(where: { $0.isPDF })
+            ?? first
     }
 }

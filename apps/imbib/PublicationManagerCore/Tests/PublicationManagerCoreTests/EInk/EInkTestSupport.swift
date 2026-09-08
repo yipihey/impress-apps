@@ -28,7 +28,7 @@ enum EInkTestSupport {
         let row = ImbibRustCore.EinkSyncReport(
             deviceId: device, reachable: true, dryRun: false, summary: summary,
             uploaded: uploaded.map(\.uuidString), failed: [], folderNeeds: [], foldersCreated: [],
-            imports: imports, pendingImports: 0, trace: [], durationMs: 1)
+            imports: imports, pendingImports: 0, pendingUploads: 0, trace: [], durationMs: 1)
         return PublicationManagerCore.EInkSyncReport(from: row)
     }
 

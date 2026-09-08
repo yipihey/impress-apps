@@ -620,6 +620,12 @@ public extension Notification.Name {
     /// Opens the Settings window and navigates to the E-Ink tab.
     static let showEInkSettings = Notification.Name("showEInkSettings")
 
+    /// Open the "Import from reMarkable" browser (Paper ▸ Import from
+    /// reMarkable…, the palette, Settings › E-Ink): the tablet's documents
+    /// no mirror row accounts for, brought in as publications or notes.
+    /// Observed by `ContentView`, which presents the sheet.
+    static let showEInkImportBrowser = Notification.Name("showEInkImportBrowser")
+
     // MARK: - Settings Navigation
 
     /// Open Inbox settings panel

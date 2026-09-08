@@ -57,6 +57,9 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showExplorationSettings)) { _ in
             selectedSection = .advanced
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showEInkSettings)) { _ in
+            selectedSection = .eink
+        }
     }
 }
 

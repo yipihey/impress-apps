@@ -87,24 +87,36 @@ public struct EInkSyncEnvironment: Sendable {
     public var isConnected: @Sendable () async -> Bool
     /// One engine pass for one device.
     public var sync: @Sendable (_ deviceId: String, _ importAnnotations: Bool) async throws -> EInkSyncReport
+    /// The import-only pass for one device (`.importOnly`): nothing goes up.
+    /// nil = `sync(deviceId, true)`, which is what the fake runners in the
+    /// tests observe; the live wiring supplies `einkImport` (P8), the pass
+    /// that is import-only in Rust rather than a full sync with import on.
+    public var importOnly: (@Sendable (_ deviceId: String) async throws -> EInkSyncReport)?
     /// Runs once when the gate opens, before any automatic run (the
     /// settings migration lives here).
     public var onGateOpened: @Sendable () async -> Void
     /// Runs after every completed engine pass (OCR kick, status refresh).
     public var afterRun: @Sendable (_ report: EInkSyncReport, _ reason: EInkSyncReason) async -> Void
+    /// Runs when a run starts (`true`) and when it ends (`false`), so a
+    /// surface can show "syncing" without polling the actor.
+    public var onRunStateChanged: @Sendable (_ running: Bool, _ reason: EInkSyncReason) async -> Void
 
     public init(
         targets: @escaping @Sendable () async -> [EInkSyncTarget],
         isConnected: @escaping @Sendable () async -> Bool = { true },
         sync: @escaping @Sendable (String, Bool) async throws -> EInkSyncReport,
+        importOnly: (@Sendable (String) async throws -> EInkSyncReport)? = nil,
         onGateOpened: @escaping @Sendable () async -> Void = {},
-        afterRun: @escaping @Sendable (EInkSyncReport, EInkSyncReason) async -> Void = { _, _ in }
+        afterRun: @escaping @Sendable (EInkSyncReport, EInkSyncReason) async -> Void = { _, _ in },
+        onRunStateChanged: @escaping @Sendable (Bool, EInkSyncReason) async -> Void = { _, _ in }
     ) {
         self.targets = targets
         self.isConnected = isConnected
         self.sync = sync
+        self.importOnly = importOnly
         self.onGateOpened = onGateOpened
         self.afterRun = afterRun
+        self.onRunStateChanged = onRunStateChanged
     }
 }
 
@@ -283,6 +295,7 @@ public actor EInkSyncCoordinator {
         }
         isRunning = true
         defer { isRunning = false }
+        await environment.onRunStateChanged(true, reason)
         runCount += 1
         let runNumber = runCount
         let startedAt = Date()
@@ -296,7 +309,13 @@ public actor EInkSyncCoordinator {
                 "eink.coordinator run #\(runNumber) reason=\(reason.rawValue) device=\(target.id) '\(target.name)' import=\(importAnnotations)",
                 category: "eink")
             do {
-                let report = try await environment.sync(target.id, importAnnotations)
+                let report: EInkSyncReport
+                if reason == .importOnly, let importOnly = environment.importOnly {
+                    // Import-only in Rust: nothing uploads, whatever the device's switches say.
+                    report = try await importOnly(target.id)
+                } else {
+                    report = try await environment.sync(target.id, importAnnotations)
+                }
                 reports.append(report)
                 // Save: what the engine did (the wrapper already posted the store event).
                 let pendingOCR = report.imports.reduce(0) { $0 + $1.inkPendingOCR }
@@ -315,6 +334,7 @@ public actor EInkSyncCoordinator {
             }
         }
 
+        await environment.onRunStateChanged(false, reason)
         lastRun = RunSummary(
             reason: reason, startedAt: startedAt, finishedAt: Date(),
             reports: reports, error: firstError?.localizedDescription)

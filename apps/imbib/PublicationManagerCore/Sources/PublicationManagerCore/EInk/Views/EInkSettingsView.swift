@@ -2,11 +2,30 @@
 //  EInkSettingsView.swift
 //  PublicationManagerCore
 //
-//  Settings interface for configuring E-Ink device integration.
+//  Settings › E-Ink (ADR-025 P8). The reMarkable over USB is the engine's
+//  device: its record lives in the store (`imbib/eink-device`) and the pane
+//  edits it through `EInkUSBDeviceCard`. Adding a reMarkable creates that
+//  record with USB defaults — no transport picker, no credential, nothing
+//  through reMarkable's servers.
+//
+//  The other kinds (Supernote, Kindle Scribe) and the reMarkable's legacy
+//  transports (local network, folder, cloud) keep the `EInkDeviceManager` /
+//  `EInkSettingsStore` UI they had, below the card, until their own pass
+//  (P9 retires the reMarkable duplicates). Their generic sections (auto-
+//  sync, organisation, annotation import) are shown only while such a
+//  device is registered, because the USB device's answers to those
+//  questions are on its record — the pane must never show two answers to
+//  one question (the migration's rule, P7).
+//
+//  Pane id, title, symbol and subtitle are declared in
+//  `AppSettingsConfiguration.imbib` and pinned by
+//  `SettingsSurfacePhase2ContractTests`; nothing here names them.
 //
 
-import SwiftUI
+import ImpressKit
+import ImpressLogging
 import OSLog
+import SwiftUI
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "einkSettings")
 
@@ -16,24 +35,41 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "einkSettings"
 public struct EInkSettingsView: View {
     @State private var settings = EInkSettingsStore.shared
     @State private var deviceManager = EInkDeviceManager.shared
+    @State private var einkModel = EInkMirrorModel.shared
     @State private var deviceInfoList: [DeviceRowInfo] = []
     @State private var activeDeviceID: String?
     @State private var showingAddDevice = false
     @State private var selectedDeviceForConfig: String?
     @State private var authCode: String?
-    /// Presents the reMarkable cloud connect sheet (the one-time code flow).
+    /// Presents the reMarkable cloud / local-network connect sheet.
     @State private var showingRemarkableConnect = false
+    @State private var showingImportBrowser = false
+    @State private var isAddingUSB = false
     @State private var errorMessage: String?
 
     public init() {}
 
+    /// The USB device record the card edits, if any.
+    private var usbDevice: EInkDeviceRecord? { EInkUSBDevicePaneModel.usbDevice(in: einkModel.status) }
+
+    /// Legacy (non-engine) devices still registered in memory.
+    private var legacyDevices: [DeviceRowInfo] {
+        deviceInfoList.filter { !($0.deviceType == .remarkable && $0.syncMethod == .usb) }
+    }
+
     public var body: some View {
         Form {
-            // Device list
-            devicesSection
+            if usbDevice != nil {
+                EInkUSBDeviceCard(onImportFromTablet: { showingImportBrowser = true })
+            } else {
+                addRemarkableSection
+            }
 
-            // Global sync options
-            if deviceManager.isAnyDeviceAvailable {
+            otherDevicesSection
+
+            // Generic options only for the legacy kinds: the USB device's
+            // are on its record, edited by the card above.
+            if !legacyDevices.isEmpty {
                 syncOptionsSection
                 organizationSection
                 annotationOptionsSection
@@ -42,6 +78,10 @@ public struct EInkSettingsView: View {
         .formStyle(.grouped)
         .task {
             await refreshDeviceInfo()
+            await einkModel.refresh()
+        }
+        .sheet(isPresented: $showingImportBrowser) {
+            EInkImportBrowserView(isPresented: $showingImportBrowser)
         }
         .sheet(isPresented: $showingRemarkableConnect) {
             NavigationStack {
@@ -53,7 +93,7 @@ public struct EInkSettingsView: View {
                         }
                     }
             }
-            .frame(minWidth: 520, minHeight: 460)
+            .impressResizableSheet(minWidth: 520, minHeight: 460)
         }
         .sheet(isPresented: $showingAddDevice) {
             AddDeviceSheet(onAdd: { deviceType, syncMethod in
@@ -110,6 +150,57 @@ public struct EInkSettingsView: View {
         }
     }
 
+    // MARK: - Add reMarkable (USB)
+
+    private var addRemarkableSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                Image(systemName: "rectangle.portrait")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No reMarkable configured")
+                        .fontWeight(.semibold)
+                    Text("Keep papers on the tablet over the USB cable and bring their highlights and notes back.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    addUSBDevice()
+                } label: {
+                    if isAddingUSB {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Add reMarkable (USB)")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isAddingUSB)
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Text("reMarkable")
+        } footer: {
+            Text("Connect the cable and turn on Settings › Storage › USB web interface on the tablet. No account, no password, nothing through reMarkable's servers.")
+        }
+    }
+
+    private func addUSBDevice() {
+        isAddingUSB = true
+        Task {
+            let record = await EInkUSBDeviceCreation.addUSBDevice()
+            isAddingUSB = false
+            if let record {
+                Logger.library.infoCapture("eink.pane added USB device \(record.id)", category: "eink")
+                await refreshDeviceInfo()
+            } else {
+                errorMessage = "The reMarkable could not be added; see the Console (category eink)."
+            }
+        }
+    }
+
     // MARK: - Device Info Loading
 
     private func refreshDeviceInfo() async {
@@ -122,41 +213,33 @@ public struct EInkSettingsView: View {
         activeDeviceID = await deviceManager.activeDevice?.deviceID
     }
 
-    // MARK: - Devices Section
+    // MARK: - Other Devices Section
 
-    private var devicesSection: some View {
+    private var otherDevicesSection: some View {
         Section {
-            if deviceInfoList.isEmpty {
-                ContentUnavailableView(
-                    "No Devices",
-                    systemImage: "rectangle.portrait",
-                    description: Text("Add an E-Ink device to sync your papers")
+            ForEach(legacyDevices) { info in
+                DeviceRow(
+                    deviceInfo: info,
+                    isActive: activeDeviceID == info.id,
+                    settings: settings.settings(for: info.id),
+                    onSelect: { selectDevice(info.id) },
+                    onConfigure: { selectedDeviceForConfig = info.id }
                 )
-            } else {
-                ForEach(deviceInfoList) { info in
-                    DeviceRow(
-                        deviceInfo: info,
-                        isActive: activeDeviceID == info.id,
-                        settings: settings.settings(for: info.id),
-                        onSelect: { selectDevice(info.id) },
-                        onConfigure: { selectedDeviceForConfig = info.id }
-                    )
-                }
             }
 
             Button {
                 showingAddDevice = true
             } label: {
-                Label("Add Device", systemImage: "plus.circle")
+                Label("Add Device…", systemImage: "plus.circle")
             }
         } header: {
-            Text("E-Ink Devices")
+            Text("Other Devices")
         } footer: {
-            Text("Connect reMarkable, Supernote, or Kindle Scribe tablets")
+            Text("Supernote and Kindle Scribe, and a reMarkable over the local network, a synced folder or the cloud. The USB reMarkable above is the only device the mirror engine speaks to.")
         }
     }
 
-    // MARK: - Sync Options Section
+    // MARK: - Sync Options Section (legacy kinds)
 
     private var syncOptionsSection: some View {
         Section {
@@ -178,11 +261,11 @@ public struct EInkSettingsView: View {
                 }
             }
         } header: {
-            Text("Sync Options")
+            Text("Sync Options (other devices)")
         }
     }
 
-    // MARK: - Organization Section
+    // MARK: - Organization Section (legacy kinds)
 
     private var organizationSection: some View {
         Section {
@@ -193,13 +276,13 @@ public struct EInkSettingsView: View {
 
             Toggle("Create Reading Queue folder", isOn: $settings.useReadingQueueFolder)
         } header: {
-            Text("Organization")
+            Text("Organization (other devices)")
         } footer: {
-            Text("How papers are organized on your E-Ink device")
+            Text("How papers are organized on Supernote and Kindle Scribe devices")
         }
     }
 
-    // MARK: - Annotation Options Section
+    // MARK: - Annotation Options Section (legacy kinds)
 
     private var annotationOptionsSection: some View {
         Section {
@@ -217,7 +300,7 @@ public struct EInkSettingsView: View {
                 Toggle("Enable OCR for handwriting", isOn: $settings.enableOCR)
             }
         } header: {
-            Text("Annotation Import")
+            Text("Annotation Import (other devices)")
         }
     }
 
@@ -254,6 +337,13 @@ public struct EInkSettingsView: View {
 
     private func addRemarkableDevice(method: EInkSyncMethod) async throws {
         switch method {
+        case .usb:
+            // The engine's device: a store record with USB defaults.
+            guard let record = await EInkUSBDeviceCreation.addUSBDevice() else {
+                throw EInkError.deviceNotFound("The reMarkable record could not be created")
+            }
+            logger.info("Added reMarkable USB device record: \(record.id)")
+
         case .wifi:
             // SFTP to the tablet on this network. The address and password go
             // in the reMarkable panel, which the sheet below leads with.
@@ -276,27 +366,19 @@ public struct EInkSettingsView: View {
             logger.info("Added reMarkable local-network device: \(deviceID)")
 
         case .cloudApi:
-            // Create cloud backend
             let cloudBackend = RemarkableCloudBackend()
-
-            // Register with RemarkableBackendManager
             await MainActor.run {
                 RemarkableBackendManager.shared.registerBackend(cloudBackend)
             }
-
-            // Create and register EInk adapter
             let adapter = await RemarkableDeviceAdapter(backend: cloudBackend, syncMethod: .cloudApi)
             await deviceManager.registerDevice(adapter)
 
             // Pairing is a two-step flow that needs a one-time code from the
-            // researcher's signed-in browser, so it cannot run here:
-            // `authenticate()` exists only to say so, and calling it was a
-            // dead end that told the user to open a panel this app never
-            // presented. Show the connect sheet instead, or drive it headless
-            // with POST /api/remarkable/connect.
+            // researcher's signed-in browser, so it cannot run here: show the
+            // connect sheet instead, or drive it headless with
+            // POST /api/remarkable/connect.
             await MainActor.run { showingRemarkableConnect = true }
 
-            // Store device settings
             let deviceID = await adapter.deviceID
             await MainActor.run {
                 settings.updateSettings(for: deviceID) { deviceSettings in
@@ -307,15 +389,11 @@ public struct EInkSettingsView: View {
                 }
                 settings.activeDeviceID = deviceID
             }
-
-            // Select as active device
             try await deviceManager.selectDevice(deviceID)
-
             logger.info("Added reMarkable Cloud device: \(deviceID)")
 
         case .folderSync:
-            // For folder sync, we need to prompt for folder selection first
-            // This is handled by the configuration sheet after initial add
+            // Folder sync needs a folder first; the configuration sheet asks.
             let deviceID = "remarkable-local-\(UUID().uuidString.prefix(8))"
             await MainActor.run {
                 settings.updateSettings(for: deviceID) { deviceSettings in
@@ -324,32 +402,8 @@ public struct EInkSettingsView: View {
                     deviceSettings.displayName = "reMarkable (Folder Sync)"
                 }
             }
-            // Open configuration sheet to choose folder
             selectedDeviceForConfig = deviceID
             logger.info("Added reMarkable folder sync device, awaiting configuration")
-
-        case .usb:
-            // The tablet's own web interface over the USB cable — the only
-            // transport that needs no credential at all.
-            let backend = RemarkableUSBWebBackend()
-            await MainActor.run { RemarkableBackendManager.shared.registerBackend(backend) }
-            let adapter = await RemarkableDeviceAdapter(backend: backend, syncMethod: .usb)
-            await deviceManager.registerDevice(adapter)
-            let deviceID = await adapter.deviceID
-            let reachable = await backend.isAvailable()
-            await MainActor.run {
-                settings.updateSettings(for: deviceID) { deviceSettings in
-                    deviceSettings.deviceType = .remarkable
-                    deviceSettings.syncMethod = .usb
-                    deviceSettings.displayName = "reMarkable (USB)"
-                    deviceSettings.isAuthenticated = reachable
-                }
-                settings.activeDeviceID = deviceID
-            }
-            try? await deviceManager.selectDevice(deviceID)
-            logger.info("Added reMarkable USB device: \(deviceID), reachable: \(reachable)")
-            selectedDeviceForConfig = deviceID
-            logger.info("Added reMarkable USB device, awaiting configuration")
 
         default:
             throw EInkError.unsupportedSyncMethod(method)
@@ -359,7 +413,6 @@ public struct EInkSettingsView: View {
     private func addSupernoteDevice(method: EInkSyncMethod) async throws {
         let deviceID = "supernote-\(UUID().uuidString.prefix(8))"
 
-        // Create and register the device
         let device = SupernoteDevice(
             deviceID: deviceID,
             displayName: "Supernote",
@@ -367,7 +420,6 @@ public struct EInkSettingsView: View {
         )
         await deviceManager.registerDevice(device)
 
-        // Store device settings
         await MainActor.run {
             settings.updateSettings(for: deviceID) { deviceSettings in
                 deviceSettings.deviceType = .supernote
@@ -378,7 +430,6 @@ public struct EInkSettingsView: View {
 
         logger.info("Added Supernote device: \(deviceID)")
 
-        // Show configuration sheet to choose folder
         await MainActor.run {
             selectedDeviceForConfig = deviceID
         }
@@ -387,7 +438,6 @@ public struct EInkSettingsView: View {
     private func addKindleScribeDevice(method: EInkSyncMethod) async throws {
         let deviceID = "kindle-scribe-\(UUID().uuidString.prefix(8))"
 
-        // Create device based on sync method
         let device: KindleScribeDevice
         switch method {
         case .usb:
@@ -406,10 +456,8 @@ public struct EInkSettingsView: View {
             throw EInkError.unsupportedSyncMethod(method)
         }
 
-        // Register the device
         await deviceManager.registerDevice(device)
 
-        // Store device settings
         await MainActor.run {
             settings.updateSettings(for: deviceID) { deviceSettings in
                 deviceSettings.deviceType = .kindleScribe
@@ -420,7 +468,6 @@ public struct EInkSettingsView: View {
 
         logger.info("Added Kindle Scribe device: \(deviceID)")
 
-        // Show configuration sheet
         await MainActor.run {
             selectedDeviceForConfig = deviceID
         }
@@ -458,13 +505,11 @@ struct DeviceRow: View {
 
     var body: some View {
         HStack {
-            // Device icon
             Image(systemName: deviceInfo.deviceType.iconName)
                 .font(.title2)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .frame(width: 32)
 
-            // Device info
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(deviceInfo.displayName)
@@ -495,7 +540,6 @@ struct DeviceRow: View {
 
             Spacer()
 
-            // Actions
             Button(action: onConfigure) {
                 Image(systemName: "gearshape")
             }
@@ -517,7 +561,9 @@ struct AddDeviceSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedType: EInkDeviceType = .remarkable
-    @State private var selectedMethod: EInkSyncMethod = .cloudApi
+    /// USB is the reMarkable's default: the only transport that needs no
+    /// credential, and the one the mirror engine speaks (ADR-025).
+    @State private var selectedMethod: EInkSyncMethod = .usb
 
     var body: some View {
         NavigationStack {
@@ -564,11 +610,11 @@ struct AddDeviceSheet: View {
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 400)
+        .impressResizableSheet(minWidth: 400, minHeight: 400)
         .onChange(of: selectedType) { _, newType in
             // Reset method if not supported
             if !newType.supportedSyncMethods.contains(selectedMethod) {
-                selectedMethod = newType.supportedSyncMethods.first ?? .cloudApi
+                selectedMethod = newType.supportedSyncMethods.first ?? .usb
             }
         }
     }
@@ -584,9 +630,6 @@ struct DeviceConfigurationSheet: View {
     @State private var folderPath: String = ""
     @State private var email: String = ""
     @State private var isAuthenticating = false
-    @State private var isCheckingUSB = false
-    @State private var usbReachable: Bool?
-    @State private var usbStatus: String?
 
     init(deviceID: String) {
         self.deviceID = deviceID
@@ -605,9 +648,8 @@ struct DeviceConfigurationSheet: View {
                     }
                 }
 
-                // Folder sync mirrors a directory some other tool fills; the
-                // USB cable talks to the tablet itself and needs no folder.
-                if settings.syncMethod == .folderSync {
+                // Folder sync mirrors a directory some other tool fills.
+                if settings.syncMethod == .folderSync || (settings.syncMethod == .usb && settings.deviceType == .kindleScribe) {
                     Section {
                         TextField("Folder path", text: $folderPath)
                             .textFieldStyle(.roundedBorder)
@@ -618,35 +660,9 @@ struct DeviceConfigurationSheet: View {
                     } header: {
                         Text("Folder Location")
                     } footer: {
-                        Text("Point this at a directory another tool keeps in step with the tablet. To reach the tablet directly, use the USB Cable method instead.")
-                    }
-                }
-
-                if settings.syncMethod == .usb {
-                    Section {
-                        HStack {
-                            Image(systemName: usbReachable == true ? "checkmark.circle.fill" : "cable.connector")
-                                .foregroundStyle(usbReachable == true ? .green : .secondary)
-                            Text(usbStatus ?? "Not checked yet")
-                        }
-
-                        Button {
-                            checkUSBConnection()
-                        } label: {
-                            if isCheckingUSB {
-                                HStack {
-                                    ProgressView().controlSize(.small)
-                                    Text("Checking…")
-                                }
-                            } else {
-                                Text("Check Connection")
-                            }
-                        }
-                        .disabled(isCheckingUSB)
-                    } header: {
-                        Text("Connection")
-                    } footer: {
-                        Text("Connect the cable and turn on Settings › Storage › USB web interface on the tablet. imbib reads documents and their annotations straight from the device — no password, no folder, and nothing through reMarkable's servers.")
+                        Text(settings.deviceType == .kindleScribe
+                             ? "The Kindle's documents folder while it is mounted over USB."
+                             : "Point this at a directory another tool keeps in step with the tablet. To reach a reMarkable directly, use Add reMarkable (USB) instead.")
                     }
                 }
 
@@ -698,29 +714,10 @@ struct DeviceConfigurationSheet: View {
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 300)
+        .impressResizableSheet(minWidth: 400, minHeight: 300)
         .onAppear {
             folderPath = settings.localFolderPath ?? ""
             email = settings.sendToEmail ?? ""
-        }
-    }
-
-    /// Ask the tablet what it is serving, so "configured" means "answered".
-    private func checkUSBConnection() {
-        isCheckingUSB = true
-        usbStatus = nil
-        Task {
-            let backend = RemarkableUSBWebBackend()
-            do {
-                let documents = try await backend.listDocuments()
-                let folders = try await backend.listFolders()
-                usbReachable = true
-                usbStatus = "Connected — \(documents.count) documents, \(folders.count) folders"
-            } catch {
-                usbReachable = false
-                usbStatus = error.localizedDescription
-            }
-            isCheckingUSB = false
         }
     }
 
@@ -739,9 +736,8 @@ struct DeviceConfigurationSheet: View {
 
     private func authenticate() {
         isAuthenticating = true
-        // Trigger authentication flow
         Task {
-            // Authentication logic would go here
+            // The cloud pairing flow lives in RemarkableSettingsView.
             isAuthenticating = false
         }
     }
@@ -757,7 +753,6 @@ struct DeviceConfigurationSheet: View {
 
     private func save() {
         Task {
-            // Update settings store
             await MainActor.run {
                 EInkSettingsStore.shared.updateSettings(for: deviceID) { deviceSettings in
                     deviceSettings.localFolderPath = folderPath.isEmpty ? nil : folderPath
@@ -765,11 +760,9 @@ struct DeviceConfigurationSheet: View {
                 }
             }
 
-            // Configure the actual device
             if let device = await MainActor.run(body: { EInkDeviceManager.shared.device(withID: deviceID) }) {
                 if !folderPath.isEmpty {
                     let folderURL = URL(fileURLWithPath: folderPath)
-                    // Configure based on device type
                     if let supernote = device as? SupernoteDevice {
                         await supernote.configure(folderPath: folderURL)
                     } else if let kindle = device as? KindleScribeDevice {

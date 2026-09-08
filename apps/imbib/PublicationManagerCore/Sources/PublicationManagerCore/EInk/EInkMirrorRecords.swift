@@ -588,6 +588,8 @@ public struct EInkSyncReport: Sendable, Equatable, Hashable {
     public let imports: [EInkImportedDocument]
     /// Documents with new annotations that were not imported this run.
     public let pendingImports: Int
+    /// Papers due for upload that an import-only pass left queued.
+    public let pendingUploads: Int
     public let trace: [String]
     public let duration: TimeInterval
 
@@ -602,6 +604,7 @@ public struct EInkSyncReport: Sendable, Equatable, Hashable {
         foldersCreated = row.foldersCreated
         imports = row.imports.map(EInkImportedDocument.init(from:))
         pendingImports = Int(row.pendingImports)
+        pendingUploads = Int(row.pendingUploads)
         trace = row.trace
         duration = TimeInterval(row.durationMs) / 1000
     }
@@ -625,8 +628,182 @@ public struct EInkSyncReport: Sendable, Equatable, Hashable {
             "folders_created": foldersCreated,
             "imports": imports.map { $0.jsonDictionary() },
             "pending_imports": pendingImports,
+            "pending_uploads": pendingUploads,
             "trace": trace,
             "duration_ms": Int(duration * 1000),
         ]
+    }
+}
+
+// MARK: - Tablet-authored documents (P5b)
+
+/// A document on the tablet that no mirror row accounts for
+/// (`eink-list-unmatched`): a notebook the user wrote, or a PDF/ePUB they
+/// put there themselves. `libraryId` / `collectionId` are resolved from the
+/// folder names when they match a library and a collection chain.
+public struct EInkUnmatchedDocument: Sendable, Equatable, Hashable, Identifiable {
+    public let remoteId: String
+    public let name: String
+    /// `notebook`, `pdf` or `epub`.
+    public let kind: String
+    /// Folder names from the top, joined with `/` (empty at the top level).
+    public let remotePath: String
+    public let remoteParentId: String
+    /// Under the device's root folder.
+    public let inImbibTree: Bool
+    public let libraryId: UUID?
+    public let collectionId: UUID?
+    public let modifiedAt: Date
+    public let pageCount: Int
+
+    public var id: String { remoteId }
+
+    /// True for a hand-written notebook (no source PDF on the tablet).
+    public var isNotebook: Bool { kind == "notebook" }
+
+    /// The system image for the kind.
+    public var systemImage: String {
+        switch kind {
+        case "notebook": return "pencil.and.scribble"
+        case "epub": return "book.closed"
+        default: return "doc.richtext"
+        }
+    }
+
+    init(from row: EinkUnmatchedDocument) {
+        remoteId = row.remoteId
+        name = row.name
+        kind = row.kind
+        remotePath = row.remotePath
+        remoteParentId = row.remoteParentId
+        inImbibTree = row.inImbibTree
+        libraryId = row.libraryId.flatMap(UUID.init(uuidString:))
+        collectionId = row.collectionId.flatMap(UUID.init(uuidString:))
+        modifiedAt = date(fromMs: row.modifiedMs) ?? Date(timeIntervalSince1970: 0)
+        pageCount = Int(row.pageCount)
+    }
+
+    /// A hand-built value for previews and tests (the FFI row is the only
+    /// production source).
+    public init(
+        remoteId: String, name: String, kind: String, remotePath: String,
+        remoteParentId: String = "", inImbibTree: Bool, libraryId: UUID? = nil,
+        collectionId: UUID? = nil, modifiedAt: Date = Date(), pageCount: Int = 0
+    ) {
+        self.remoteId = remoteId
+        self.name = name
+        self.kind = kind
+        self.remotePath = remotePath
+        self.remoteParentId = remoteParentId
+        self.inImbibTree = inImbibTree
+        self.libraryId = libraryId
+        self.collectionId = collectionId
+        self.modifiedAt = modifiedAt
+        self.pageCount = pageCount
+    }
+
+    public func jsonDictionary() -> [String: Any] {
+        var json: [String: Any] = [
+            "remote_id": remoteId,
+            "name": name,
+            "kind": kind,
+            "remote_path": remotePath,
+            "remote_parent_id": remoteParentId,
+            "in_imbib_tree": inImbibTree,
+            "modified_ms": ms(from: modifiedAt) ?? 0,
+            "page_count": pageCount,
+        ]
+        json["library_id"] = libraryId?.uuidString ?? NSNull()
+        json["collection_id"] = collectionId?.uuidString ?? NSNull()
+        return json
+    }
+}
+
+/// What `eink-import-document` did with one tablet document.
+public struct EInkDocumentImportOutcome: Sendable, Equatable, Hashable {
+    public let remoteId: String
+    /// `publication` or `note`.
+    public let asKind: String
+    public let publicationId: UUID?
+    public let artifactId: UUID?
+    /// The bytes matched a file already in the store, so that publication
+    /// was adopted instead of a new one being created.
+    public let adoptedExisting: Bool
+    public let linkedFileId: UUID?
+    public let mirrorId: String?
+    public let annotationsCreated: Int
+    public let annotationsUpdated: Int
+    public let inkPendingOCR: Int
+    public let warnings: [String]
+    public let trace: [String]
+
+    init(from row: EinkDocumentImportOutcome) {
+        remoteId = row.remoteId
+        asKind = row.asKind
+        publicationId = row.publicationId.flatMap(UUID.init(uuidString:))
+        artifactId = row.artifactId.flatMap(UUID.init(uuidString:))
+        adoptedExisting = row.adoptedExisting
+        linkedFileId = row.linkedFileId.flatMap(UUID.init(uuidString:))
+        mirrorId = row.mirrorId
+        annotationsCreated = Int(row.annotationsCreated)
+        annotationsUpdated = Int(row.annotationsUpdated)
+        inkPendingOCR = Int(row.inkPendingOcr)
+        warnings = row.warnings
+        trace = row.trace
+    }
+
+    /// A hand-built value for previews and tests.
+    public init(
+        remoteId: String, asKind: String, publicationId: UUID? = nil, artifactId: UUID? = nil,
+        adoptedExisting: Bool = false, linkedFileId: UUID? = nil, mirrorId: String? = nil,
+        annotationsCreated: Int = 0, annotationsUpdated: Int = 0, inkPendingOCR: Int = 0,
+        warnings: [String] = [], trace: [String] = []
+    ) {
+        self.remoteId = remoteId
+        self.asKind = asKind
+        self.publicationId = publicationId
+        self.artifactId = artifactId
+        self.adoptedExisting = adoptedExisting
+        self.linkedFileId = linkedFileId
+        self.mirrorId = mirrorId
+        self.annotationsCreated = annotationsCreated
+        self.annotationsUpdated = annotationsUpdated
+        self.inkPendingOCR = inkPendingOCR
+        self.warnings = warnings
+        self.trace = trace
+    }
+
+    /// The one-line verdict the browser shows per document.
+    public var summary: String {
+        if asKind == "note" {
+            return "Saved as a note"
+        }
+        var line = adoptedExisting ? "Adopted the existing paper" : "Created a new paper"
+        let annotations = annotationsCreated + annotationsUpdated
+        if annotations > 0 {
+            line += " · \(annotations) annotation\(annotations == 1 ? "" : "s")"
+        }
+        if inkPendingOCR > 0 {
+            line += " · \(inkPendingOCR) handwritten to read"
+        }
+        return line
+    }
+
+    public func jsonDictionary() -> [String: Any] {
+        var json: [String: Any] = [
+            "remote_id": remoteId,
+            "as_kind": asKind,
+            "adopted_existing": adoptedExisting,
+            "annotations_created": annotationsCreated,
+            "annotations_updated": annotationsUpdated,
+            "ink_pending_ocr": inkPendingOCR,
+            "warnings": warnings,
+            "trace": trace,
+        ]
+        json["publication_id"] = publicationId?.uuidString ?? NSNull()
+        json["artifact_id"] = artifactId?.uuidString ?? NSNull()
+        json["linked_file_id"] = linkedFileId?.uuidString ?? NSNull()
+        json["mirror_id"] = mirrorId ?? NSNull()
+        return json
     }
 }

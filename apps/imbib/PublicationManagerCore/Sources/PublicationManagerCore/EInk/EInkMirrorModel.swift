@@ -37,6 +37,20 @@ public final class EInkMirrorModel {
     /// When `status` was last read from the store.
     public private(set) var lastRefreshAt: Date?
 
+    /// True while the coordinator runs an engine pass (set by `EInkServices`
+    /// from the coordinator's run-state callback) — the toolbar glyph and
+    /// the Settings card read it; nothing else does.
+    public private(set) var isSyncing = false
+
+    /// What the last run was for, while `isSyncing`.
+    public private(set) var syncingReason: EInkSyncReason?
+
+    /// Record the coordinator's run state. Main-actor by construction.
+    public func setSyncing(_ running: Bool, reason: EInkSyncReason) {
+        isSyncing = running
+        syncingReason = running ? reason : nil
+    }
+
     /// At least one enabled device exists — gates the Paper-menu items,
     /// the command-palette entries and the PDF-tab chip.
     public var isConfigured: Bool { status?.isConfigured ?? false }

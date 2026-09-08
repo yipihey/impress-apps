@@ -1273,6 +1273,11 @@ struct AppCommands: Commands {
             }
             .disabled(!EInkMirrorModel.shared.isConfigured)
 
+            Button("Import from reMarkable…") {
+                NotificationCenter.default.post(name: .showEInkImportBrowser, object: nil)
+            }
+            .disabled(!EInkMirrorModel.shared.isConfigured)
+
             Divider()
 
             Button("Delete") {

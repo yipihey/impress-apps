@@ -278,6 +278,116 @@ extension RustStoreAdapter {
         }.value
     }
 
+    /// An import-only pass (`eink-import`): pull every document with new
+    /// annotations back, send NOTHING up (`pendingUploads` counts what stayed
+    /// queued). With a `publicationId` it imports that one paper whether or
+    /// not the tablet reports a change — the way to re-run an import after
+    /// changing the device's import switches. Blocks on the USB interface,
+    /// so it runs detached; the completion posts one `.einkMirror` event.
+    nonisolated public func einkImport(publicationId: UUID? = nil, deviceId: String? = nil) async throws -> EInkSyncReport {
+        Logger.library.infoCapture(
+            "eink.import starting device=\(deviceId ?? "default") publication=\(publicationId?.uuidString ?? "all changed")",
+            category: "eink")
+        let report = try await Task.detached(priority: .userInitiated) { [self] in
+            EInkSyncReport(from: try self.imbibStore.einkImport(publicationId: publicationId?.uuidString, deviceId: deviceId))
+        }.value
+        let annotations = report.imports.reduce(0) { $0 + $1.created + $1.updated }
+        Logger.library.infoCapture(
+            "eink.import done device=\(report.deviceId) reachable=\(report.reachable) "
+                + "imports=\(report.imports.count) annotations=\(annotations) pendingImports=\(report.pendingImports) "
+                + "pendingUploads=\(report.pendingUploads) in \(Int(report.duration * 1000)) ms",
+            category: "eink")
+        await notifyEInkImport(touched: report.touchedPublicationIds)
+        return report
+    }
+
+    /// Post the store event for an import that ran off-main: row-scoped when
+    /// the report names the papers, structural when it does not.
+    @MainActor private func notifyEInkImport(touched: Set<UUID>) {
+        if touched.isEmpty {
+            didMutate(structural: true)
+        } else {
+            didMutate(structural: false, affectedIDs: touched, kind: .einkMirror)
+        }
+    }
+
+    // MARK: - Tablet-authored documents (P5b)
+
+    /// Documents on the tablet that no mirror row accounts for
+    /// (`eink-list-unmatched`): in-tree first, each with the library and
+    /// collection its folder names resolve to. Lists the whole tablet, so
+    /// never on the main thread.
+    nonisolated public func einkListUnmatched(deviceId: String? = nil) async -> [EInkUnmatchedDocument] {
+        await Task.detached(priority: .userInitiated) { [self] in
+            do {
+                let rows = try self.imbibStore.einkListUnmatched(deviceId: deviceId).map(EInkUnmatchedDocument.init(from:))
+                Logger.library.infoCapture(
+                    "eink.listUnmatched device=\(deviceId ?? "default"): \(rows.count) document(s), "
+                        + "\(rows.filter(\.inImbibTree).count) in the imbib tree",
+                    category: "eink")
+                return rows
+            } catch {
+                Logger.library.errorCapture("eink.listUnmatched failed: \(error)", category: "eink")
+                return []
+            }
+        }.value
+    }
+
+    /// Bring one tablet document into the store (`eink-import-document`): as
+    /// a publication (a notebook becomes `@misc` with the rendered PDF; a
+    /// PDF/ePUB whose bytes match a file already here adopts that
+    /// publication) or, with `asKind == "note"`, as a note artifact.
+    /// `libraryId` may be nil for a document under `imbib/<Library>` on the
+    /// tablet. Downloads from the tablet, so never on the main thread; a
+    /// success is a structural event (a publication may have appeared).
+    nonisolated public func einkImportDocument(
+        remoteId: String,
+        libraryId: UUID? = nil,
+        collectionId: UUID? = nil,
+        asKind: String? = nil,
+        deviceId: String? = nil
+    ) async throws -> EInkDocumentImportOutcome {
+        // Mutation
+        Logger.library.infoCapture(
+            "eink.importDocument requested remote=\(remoteId) as=\(asKind ?? "publication") "
+                + "library=\(libraryId?.uuidString ?? "resolved") collection=\(collectionId?.uuidString ?? "resolved")",
+            category: "eink")
+        let outcome = try await Task.detached(priority: .userInitiated) { [self] in
+            EInkDocumentImportOutcome(from: try self.imbibStore.einkImportDocument(
+                remoteId: remoteId,
+                libraryId: libraryId?.uuidString,
+                collectionId: collectionId?.uuidString,
+                asKind: asKind,
+                deviceId: deviceId))
+        }.value
+        // Save
+        Logger.library.infoCapture(
+            "eink.importDocument done remote=\(remoteId) as=\(outcome.asKind) "
+                + "publication=\(outcome.publicationId?.uuidString ?? "none") adopted=\(outcome.adoptedExisting) "
+                + "annotations=\(outcome.annotationsCreated)+\(outcome.annotationsUpdated) "
+                + "inkPendingOCR=\(outcome.inkPendingOCR) warnings=\(outcome.warnings.count)",
+            category: "eink")
+        for warning in outcome.warnings {
+            Logger.library.warningCapture("eink.importDocument \(remoteId): \(warning)", category: "eink")
+        }
+        await notifyMutationFromBackground()
+        return outcome
+    }
+
+    /// Full-text search over the annotations a device import wrote
+    /// (highlight text, typed text, OCR text), newest first.
+    public func einkSearchAnnotations(query: String, limit: Int = 50) -> [AnnotationModel] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        do {
+            return try imbibStore.einkSearchAnnotations(query: trimmed, limit: UInt32(max(1, limit)))
+                .map(AnnotationModel.init(from:))
+        } catch {
+            Logger.library.errorCapture("eink.searchAnnotations failed: \(error)", category: "eink")
+            return []
+        }
+    }
+
     // MARK: - Imported annotations
 
     /// Annotations imported from the tablet for a publication (highlights,
