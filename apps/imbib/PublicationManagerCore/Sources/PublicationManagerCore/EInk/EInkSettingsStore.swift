@@ -44,72 +44,6 @@ public final class EInkSettingsStore {
         }
     }
 
-    // MARK: - Global Sync Options
-
-    /// Whether automatic sync is enabled.
-    @ObservationIgnored
-    @AppStorage("eink.autoSyncEnabled")
-    public var autoSyncEnabled: Bool = true
-
-    /// Sync interval in seconds.
-    @ObservationIgnored
-    @AppStorage("eink.syncInterval")
-    public var syncInterval: TimeInterval = 3600  // 1 hour
-
-    /// Global conflict resolution strategy.
-    @ObservationIgnored
-    @AppStorage("eink.conflictResolution")
-    private var conflictResolutionRaw: String = EInkConflictResolution.ask.rawValue
-
-    public var conflictResolution: EInkConflictResolution {
-        get { EInkConflictResolution(rawValue: conflictResolutionRaw) ?? .ask }
-        set { conflictResolutionRaw = newValue.rawValue }
-    }
-
-    // MARK: - Organization Options
-
-    /// Whether to create folders based on imbib collections.
-    @ObservationIgnored
-    @AppStorage("eink.createFoldersByCollection")
-    public var createFoldersByCollection: Bool = true
-
-    /// Whether to create a "Reading Queue" folder for Inbox papers.
-    @ObservationIgnored
-    @AppStorage("eink.useReadingQueueFolder")
-    public var useReadingQueueFolder: Bool = true
-
-    /// Name of the root folder on devices for imbib documents.
-    @ObservationIgnored
-    @AppStorage("eink.rootFolderName")
-    public var rootFolderName: String = "imbib"
-
-    // MARK: - Annotation Options
-
-    /// Whether to import highlights from devices.
-    @ObservationIgnored
-    @AppStorage("eink.importHighlights")
-    public var importHighlights: Bool = true
-
-    /// Whether to import handwritten ink notes from devices.
-    @ObservationIgnored
-    @AppStorage("eink.importInkNotes")
-    public var importInkNotes: Bool = true
-
-    /// Whether to run OCR on handwritten notes.
-    @ObservationIgnored
-    @AppStorage("eink.enableOCR")
-    public var enableOCR: Bool = true
-
-    /// Annotation import mode.
-    @ObservationIgnored
-    @AppStorage("eink.annotationImportMode")
-    private var annotationImportModeRaw: String = AnnotationImportMode.autoImport.rawValue
-
-    public var annotationImportMode: AnnotationImportMode {
-        get { AnnotationImportMode(rawValue: annotationImportModeRaw) ?? .autoImport }
-        set { annotationImportModeRaw = newValue.rawValue }
-    }
-
     // MARK: - Device-Specific Settings
 
     /// Get settings for a specific device.
@@ -240,23 +174,8 @@ public struct EInkDeviceSettings: Codable, Sendable {
     public init() {}
 }
 
-// MARK: - Annotation Import Mode
-
-/// Mode for importing annotations from E-Ink devices.
-public enum AnnotationImportMode: String, Codable, CaseIterable, Sendable {
-    case autoImport = "auto"
-    case reviewFirst = "review"
-    case manual = "manual"
-
-    public var displayName: String {
-        switch self {
-        case .autoImport: return "Auto-import when syncing"
-        case .reviewFirst: return "Review before importing"
-        case .manual: return "Manual import only"
-        }
-    }
-}
-
-// Note: The existing RemarkableSettingsStore in ReMarkable/ continues to work
-// for reMarkable-specific functionality. This EInkSettingsStore provides
-// unified settings for all E-Ink devices.
+// Note: `RemarkableSettingsStore` in ReMarkable/ keeps the reMarkable's own
+// connection state (cloud pairing, Wi-Fi). The organisation / annotation /
+// auto-sync preferences both stores once held live on the device record
+// (`imbib/eink-device`, ADR-025); `EInkSettingsMigration` carries the legacy
+// `eink.*` keys across once and removes them.

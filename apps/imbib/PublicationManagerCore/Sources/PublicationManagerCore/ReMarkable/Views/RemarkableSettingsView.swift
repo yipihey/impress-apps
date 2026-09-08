@@ -2,8 +2,12 @@
 //  RemarkableSettingsView.swift
 //  PublicationManagerCore
 //
-//  SwiftUI settings view for reMarkable integration.
-//  ADR-019: reMarkable Tablet Integration
+//  The connect sheet for the reMarkable's credentialed transports: the
+//  local network (SFTP, rM1/rM2) and the cloud pairing. ADR-019.
+//
+//  Organisation / annotation / auto-sync are not asked here: they live on
+//  the USB device record (ADR-025) and are edited by `EInkUSBDeviceCard`.
+//  The duplicated sections this view once carried went in P9.
 //
 
 import SwiftUI
@@ -37,13 +41,6 @@ public struct RemarkableSettingsView: View {
 
             // Connection Section
             connectionSection
-
-            // Sync Options Section
-            if settings.isAvailable {
-                syncOptionsSection
-                organizationSection
-                annotationOptionsSection
-            }
         }
         .formStyle(.grouped)
         .navigationTitle("reMarkable")
@@ -286,70 +283,6 @@ public struct RemarkableSettingsView: View {
         } footer: {
             if !settings.isAuthenticated && !isAuthenticating {
                 Text("Connect to sync your PDFs to reMarkable and import your handwritten annotations back to imbib.")
-            }
-        }
-    }
-
-    // MARK: - Sync Options Section
-
-    @ViewBuilder
-    private var syncOptionsSection: some View {
-        Section {
-            Toggle("Automatic Sync", isOn: $settings.autoSyncEnabled)
-
-            if settings.autoSyncEnabled {
-                Picker("Sync Interval", selection: $settings.syncInterval) {
-                    Text("Every 15 minutes").tag(TimeInterval(900))
-                    Text("Every hour").tag(TimeInterval(3600))
-                    Text("Every 6 hours").tag(TimeInterval(21600))
-                    Text("Daily").tag(TimeInterval(86400))
-                }
-            }
-
-            Picker("Conflict Resolution", selection: $settings.conflictResolution) {
-                ForEach(ConflictResolution.allCases, id: \.self) { resolution in
-                    Text(resolution.displayName).tag(resolution)
-                }
-            }
-        } header: {
-            Text("Sync Options")
-        }
-    }
-
-    // MARK: - Organization Section
-
-    @ViewBuilder
-    private var organizationSection: some View {
-        Section {
-            TextField("Root Folder Name", text: $settings.rootFolderName)
-                .textFieldStyle(.roundedBorder)
-
-            Toggle("Create Folders by Collection", isOn: $settings.createFoldersByCollection)
-
-            Toggle("Use Reading Queue Folder", isOn: $settings.useReadingQueueFolder)
-        } header: {
-            Text("Organization")
-        } footer: {
-            Text("Documents will be organized in a '\(settings.rootFolderName)' folder on your reMarkable.")
-        }
-    }
-
-    // MARK: - Annotation Options Section
-
-    @ViewBuilder
-    private var annotationOptionsSection: some View {
-        Section {
-            Toggle("Import Highlights", isOn: $settings.importHighlights)
-            Toggle("Import Handwritten Notes", isOn: $settings.importInkNotes)
-
-            if settings.importInkNotes {
-                Toggle("Enable OCR for Handwriting", isOn: $settings.enableOCR)
-            }
-        } header: {
-            Text("Annotation Import")
-        } footer: {
-            if settings.enableOCR {
-                Text("OCR will attempt to convert your handwritten notes to searchable text.")
             }
         }
     }

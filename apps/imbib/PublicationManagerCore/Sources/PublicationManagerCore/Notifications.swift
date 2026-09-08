@@ -603,8 +603,9 @@ public extension Notification.Name {
     /// which applies the any-unmirrored → mirror-all rule and ignores the
     /// request unless a device in individual mode is configured.
     ///
-    /// Replaces `sendToEInkDevice`, which posted into the void: the three
-    /// send routes it named were retired with the Swift sync manager.
+    /// Replaces the old send-to-device notification, which posted into the
+    /// void: the three send routes it named were retired with the Swift
+    /// sync manager.
     static let toggleEInkMirror = Notification.Name("toggleEInkMirror")
 
     /// Run one sync pass against the tablet now (Paper ▸ Sync reMarkable Now).

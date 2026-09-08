@@ -157,25 +157,6 @@ public struct RemarkableDeviceInfo: Codable, Sendable {
     }
 }
 
-// MARK: - Conflict Resolution
-
-/// Resolution strategy for annotation conflicts.
-public enum ConflictResolution: String, Codable, CaseIterable, Sendable {
-    case preferRemarkable = "preferRemarkable"
-    case preferLocal = "preferLocal"
-    case keepBoth = "keepBoth"
-    case ask = "ask"
-
-    public var displayName: String {
-        switch self {
-        case .preferRemarkable: return "Prefer reMarkable"
-        case .preferLocal: return "Prefer imbib"
-        case .keepBoth: return "Keep both versions"
-        case .ask: return "Ask each time"
-        }
-    }
-}
-
 // MARK: - Sync State
 
 /// Sync state for a reMarkable document.
@@ -315,17 +296,4 @@ extension RemarkableRawAnnotation {
         }
         return codable.cgRect
     }
-}
-
-// MARK: - Notifications
-
-public extension Notification.Name {
-    /// Posted when the authentication code should be shown to the user.
-    static let remarkableShowAuthCode = Notification.Name("remarkableShowAuthCode")
-
-    /// Posted when reMarkable sync state changes.
-    static let remarkableSyncStateChanged = Notification.Name("remarkableSyncStateChanged")
-
-    /// Posted when annotations are imported from reMarkable.
-    static let remarkableAnnotationsImported = Notification.Name("remarkableAnnotationsImported")
 }

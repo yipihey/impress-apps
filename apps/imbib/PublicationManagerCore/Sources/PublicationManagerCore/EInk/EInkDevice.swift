@@ -13,8 +13,7 @@ import Foundation
 /// Protocol for E-Ink device sync backends.
 ///
 /// Implementations include:
-/// - `RemarkableCloudDevice`: reMarkable Cloud API
-/// - `RemarkableLocalDevice`: reMarkable local folder sync
+/// - `RemarkableDeviceAdapter`: a `RemarkableSyncBackend` (USB web, local network, cloud)
 /// - `SupernoteDevice`: Supernote folder/cloud sync
 /// - `KindleScribeDevice`: Kindle Scribe USB/email sync
 public protocol EInkDevice: Actor {

@@ -5,6 +5,11 @@
 //  User preferences for reMarkable integration.
 //  ADR-019: reMarkable Tablet Integration
 //
+//  Connection state only (cloud pairing, local folder, Wi-Fi). The
+//  organisation / annotation / auto-sync preferences moved to the device
+//  record (`imbib/eink-device`, ADR-025); `EInkSettingsMigration` carries the
+//  legacy `remarkable.*` keys across once and removes them.
+//
 
 import Foundation
 import SwiftUI
@@ -83,62 +88,6 @@ public final class RemarkableSettingsStore {
             UserDefaults.standard.set(newValue, forKey: "remarkable.localFolderBookmark")
         }
     }
-
-    // MARK: - Sync Options
-
-    /// Whether automatic sync is enabled.
-    @ObservationIgnored
-    @AppStorage("remarkable.autoSyncEnabled")
-    public var autoSyncEnabled: Bool = true
-
-    /// Sync interval in seconds.
-    @ObservationIgnored
-    @AppStorage("remarkable.syncInterval")
-    public var syncInterval: TimeInterval = 3600  // 1 hour
-
-    /// Conflict resolution strategy.
-    @ObservationIgnored
-    @AppStorage("remarkable.conflictResolution")
-    private var conflictResolutionRaw: String = ConflictResolution.ask.rawValue
-
-    public var conflictResolution: ConflictResolution {
-        get { ConflictResolution(rawValue: conflictResolutionRaw) ?? .ask }
-        set { conflictResolutionRaw = newValue.rawValue }
-    }
-
-    // MARK: - Organization Options
-
-    /// Whether to create folders on reMarkable based on imbib collections.
-    @ObservationIgnored
-    @AppStorage("remarkable.createFoldersByCollection")
-    public var createFoldersByCollection: Bool = true
-
-    /// Whether to create a "Reading Queue" folder for Inbox papers.
-    @ObservationIgnored
-    @AppStorage("remarkable.useReadingQueueFolder")
-    public var useReadingQueueFolder: Bool = true
-
-    /// Name of the root folder on reMarkable for imbib documents.
-    @ObservationIgnored
-    @AppStorage("remarkable.rootFolderName")
-    public var rootFolderName: String = "imbib"
-
-    // MARK: - Annotation Options
-
-    /// Whether to import highlights from reMarkable.
-    @ObservationIgnored
-    @AppStorage("remarkable.importHighlights")
-    public var importHighlights: Bool = true
-
-    /// Whether to import handwritten ink notes from reMarkable.
-    @ObservationIgnored
-    @AppStorage("remarkable.importInkNotes")
-    public var importInkNotes: Bool = true
-
-    /// Whether to run OCR on handwritten notes.
-    @ObservationIgnored
-    @AppStorage("remarkable.enableOCR")
-    public var enableOCR: Bool = true
 
     // MARK: - Credential Management
 

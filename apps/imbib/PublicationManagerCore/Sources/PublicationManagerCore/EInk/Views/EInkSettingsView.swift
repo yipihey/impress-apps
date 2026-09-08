@@ -10,12 +10,12 @@
 //
 //  The other kinds (Supernote, Kindle Scribe) and the reMarkable's legacy
 //  transports (local network, folder, cloud) keep the `EInkDeviceManager` /
-//  `EInkSettingsStore` UI they had, below the card, until their own pass
-//  (P9 retires the reMarkable duplicates). Their generic sections (auto-
-//  sync, organisation, annotation import) are shown only while such a
-//  device is registered, because the USB device's answers to those
-//  questions are on its record — the pane must never show two answers to
-//  one question (the migration's rule, P7).
+//  `EInkSettingsStore` device list they had, below the card. The generic
+//  auto-sync / organisation / annotation sections that once sat under it
+//  were retired in P9: the USB device's answers to those questions are on
+//  its record, the migration (P7) removed the legacy keys they read, and
+//  nothing that still runs honoured them — the pane must never show two
+//  answers to one question.
 //
 //  Pane id, title, symbol and subtitle are declared in
 //  `AppSettingsConfiguration.imbib` and pinned by
@@ -40,7 +40,6 @@ public struct EInkSettingsView: View {
     @State private var activeDeviceID: String?
     @State private var showingAddDevice = false
     @State private var selectedDeviceForConfig: String?
-    @State private var authCode: String?
     /// Presents the reMarkable cloud / local-network connect sheet.
     @State private var showingRemarkableConnect = false
     @State private var showingImportBrowser = false
@@ -66,14 +65,6 @@ public struct EInkSettingsView: View {
             }
 
             otherDevicesSection
-
-            // Generic options only for the legacy kinds: the USB device's
-            // are on its record, edited by the card above.
-            if !legacyDevices.isEmpty {
-                syncOptionsSection
-                organizationSection
-                annotationOptionsSection
-            }
         }
         .formStyle(.grouped)
         .task {
@@ -102,34 +93,6 @@ public struct EInkSettingsView: View {
                     await addDevice(type: deviceType, method: syncMethod)
                 }
             })
-        }
-        .alert("Authentication Code", isPresented: .constant(authCode != nil)) {
-            Button("Copy") {
-                if let code = authCode {
-                    #if os(macOS)
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(code, forType: .string)
-                    #endif
-                }
-                authCode = nil
-            }
-            Button("Cancel", role: .cancel) {
-                authCode = nil
-            }
-        } message: {
-            if let code = authCode {
-                Text("Enter this code at your device's website:\n\n\(code)")
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .einkShowAuthCode)) { notification in
-            if let code = notification.userInfo?["code"] as? String {
-                authCode = code
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .remarkableShowAuthCode)) { notification in
-            if let code = notification.userInfo?["code"] as? String {
-                authCode = code
-            }
         }
         .alert("Error", isPresented: .constant(errorMessage != nil)) {
             Button("OK") {
@@ -236,71 +199,6 @@ public struct EInkSettingsView: View {
             Text("Other Devices")
         } footer: {
             Text("Supernote and Kindle Scribe, and a reMarkable over the local network, a synced folder or the cloud. The USB reMarkable above is the only device the mirror engine speaks to.")
-        }
-    }
-
-    // MARK: - Sync Options Section (legacy kinds)
-
-    private var syncOptionsSection: some View {
-        Section {
-            Toggle("Auto-sync when available", isOn: $settings.autoSyncEnabled)
-
-            if settings.autoSyncEnabled {
-                Picker("Sync interval", selection: $settings.syncInterval) {
-                    Text("Every 15 minutes").tag(TimeInterval(900))
-                    Text("Every 30 minutes").tag(TimeInterval(1800))
-                    Text("Every hour").tag(TimeInterval(3600))
-                    Text("Every 4 hours").tag(TimeInterval(14400))
-                    Text("Daily").tag(TimeInterval(86400))
-                }
-            }
-
-            Picker("Conflict resolution", selection: $settings.conflictResolution) {
-                ForEach(EInkConflictResolution.allCases, id: \.self) { resolution in
-                    Text(resolution.displayName).tag(resolution)
-                }
-            }
-        } header: {
-            Text("Sync Options (other devices)")
-        }
-    }
-
-    // MARK: - Organization Section (legacy kinds)
-
-    private var organizationSection: some View {
-        Section {
-            TextField("Root folder name", text: $settings.rootFolderName)
-                .textFieldStyle(.roundedBorder)
-
-            Toggle("Create folders by collection", isOn: $settings.createFoldersByCollection)
-
-            Toggle("Create Reading Queue folder", isOn: $settings.useReadingQueueFolder)
-        } header: {
-            Text("Organization (other devices)")
-        } footer: {
-            Text("How papers are organized on Supernote and Kindle Scribe devices")
-        }
-    }
-
-    // MARK: - Annotation Options Section (legacy kinds)
-
-    private var annotationOptionsSection: some View {
-        Section {
-            Picker("Import mode", selection: $settings.annotationImportMode) {
-                ForEach(AnnotationImportMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-
-            Toggle("Import highlights", isOn: $settings.importHighlights)
-
-            Toggle("Import handwritten notes", isOn: $settings.importInkNotes)
-
-            if settings.importInkNotes {
-                Toggle("Enable OCR for handwriting", isOn: $settings.enableOCR)
-            }
-        } header: {
-            Text("Annotation Import (other devices)")
         }
     }
 

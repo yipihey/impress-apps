@@ -13,10 +13,13 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "remarkableAda
 
 // MARK: - Remarkable Device Adapter
 
-/// Adapts existing RemarkableSyncBackend implementations to the EInkDevice protocol.
+/// Adapts a `RemarkableSyncBackend` to the `EInkDevice` protocol.
 ///
-/// This adapter wraps the existing reMarkable backends (Cloud, Local, Dropbox)
-/// to provide a unified interface for multi-device E-Ink support.
+/// Instances are made where a transport is chosen: `EInkDeviceRegistrar`
+/// (the USB web backend, from the device record), the E-Ink pane and
+/// `POST /api/remarkable/connect` (local network, cloud). The old sweep
+/// that registered every `RemarkableBackendManager` backend at once went
+/// with the Swift sync stack (ADR-025 P9).
 public actor RemarkableDeviceAdapter: EInkDevice {
 
     // MARK: - Properties
@@ -212,36 +215,5 @@ public actor RemarkableDeviceAdapter: EInkDevice {
             storageUsed: rmInfo.storageUsed,
             storageTotal: rmInfo.storageTotal
         )
-    }
-}
-
-// MARK: - RemarkableDeviceAdapter Factory
-
-public extension RemarkableDeviceAdapter {
-    /// Register all available reMarkable backends with the EInkDeviceManager.
-    @MainActor
-    static func registerWithDeviceManager() async {
-        let backendManager = RemarkableBackendManager.shared
-
-        for backend in backendManager.availableBackends {
-            let backendID = await backend.backendID
-            let syncMethod: EInkSyncMethod
-
-            switch backendID {
-            case "cloud":
-                syncMethod = .cloudApi
-            case "local":
-                syncMethod = .folderSync
-            case "dropbox":
-                syncMethod = .folderSync
-            default:
-                syncMethod = .folderSync
-            }
-
-            let adapter = await RemarkableDeviceAdapter(backend: backend, syncMethod: syncMethod)
-            await EInkDeviceManager.shared.registerDevice(adapter)
-        }
-
-        logger.info("Registered reMarkable backends with EInkDeviceManager")
     }
 }

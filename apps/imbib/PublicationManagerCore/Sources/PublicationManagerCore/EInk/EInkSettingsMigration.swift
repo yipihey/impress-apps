@@ -5,8 +5,9 @@
 //  Moves the legacy `eink.*` / `remarkable.*` UserDefaults — folder
 //  organisation, annotation import, auto-sync — into the device record
 //  (`eink-configure-device`), once (ADR-025 P7). Those keys were read by
-//  `EInkSettingsStore` / `RemarkableSettingsStore` and honoured by nothing
-//  that still runs; the engine reads the record. After a successful write
+//  settings sections P9 retired and honoured by nothing that still runs;
+//  the engine reads the record, and the key names live only here now (no
+//  store declares them any more). After a successful write
 //  the keys are removed and `eink.migration.v1` is set, so the pane never
 //  shows two answers to one question.
 //

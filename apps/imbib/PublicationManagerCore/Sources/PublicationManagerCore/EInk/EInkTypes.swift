@@ -317,25 +317,6 @@ public enum EInkSyncState: String, Codable, CaseIterable, Sendable {
     }
 }
 
-// MARK: - Conflict Resolution
-
-/// Resolution strategy for annotation conflicts.
-public enum EInkConflictResolution: String, Codable, CaseIterable, Sendable {
-    case preferDevice = "preferDevice"
-    case preferLocal = "preferLocal"
-    case keepBoth = "keepBoth"
-    case ask = "ask"
-
-    public var displayName: String {
-        switch self {
-        case .preferDevice: return "Prefer E-Ink Device"
-        case .preferLocal: return "Prefer imbib"
-        case .keepBoth: return "Keep both versions"
-        case .ask: return "Ask each time"
-        }
-    }
-}
-
 // MARK: - Errors
 
 /// Errors that can occur during E-Ink operations.
@@ -402,25 +383,6 @@ public enum EInkError: LocalizedError, Sendable {
             return "Sync method '\(method.displayName)' is not supported for this device."
         }
     }
-}
-
-// MARK: - Notifications
-
-public extension Notification.Name {
-    /// Posted when the authentication code should be shown to the user.
-    static let einkShowAuthCode = Notification.Name("einkShowAuthCode")
-
-    /// Posted when E-Ink sync state changes.
-    static let einkSyncStateChanged = Notification.Name("einkSyncStateChanged")
-
-    /// Posted when annotations are imported from an E-Ink device.
-    static let einkAnnotationsImported = Notification.Name("einkAnnotationsImported")
-
-    /// Posted when a new device is connected.
-    static let einkDeviceConnected = Notification.Name("einkDeviceConnected")
-
-    /// Posted when a device is disconnected.
-    static let einkDeviceDisconnected = Notification.Name("einkDeviceDisconnected")
 }
 
 // Note: The existing RemarkableTypes.swift in ReMarkable/ continues to provide

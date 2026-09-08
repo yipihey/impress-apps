@@ -144,7 +144,7 @@ public final class EInkServices {
     public func settingsChanged() async {
         // A device added from the pane after launch has a record but no
         // legacy registration (the registrar ran at start); adopt it so the
-        // pieces that still gate on `EInkDeviceManager` see it (P9 retires them).
+        // pane's device list, which still reads `EInkDeviceManager`, sees it.
         if EInkDeviceManager.shared.activeDevice == nil {
             _ = await EInkDeviceRegistrar.registerConfiguredDevices()
         }
