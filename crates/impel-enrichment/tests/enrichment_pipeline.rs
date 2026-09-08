@@ -844,3 +844,60 @@ fn tagging_run(store: &Arc<SqliteItemStore>) -> Item {
     })
     .expect("keyword-tag recorded a run")
 }
+
+/// Deleting a publication cascades away the `OperatesOn` edge of every task
+/// aimed at it, leaving tasks that look perfectly runnable and cannot run.
+/// The scheduler used to dispatch them, the executor discovered the missing
+/// target, and each became a permanent failure — 1,694 of them on the live
+/// store, all reading the same line. They are cancelled before acquisition
+/// now: no attempt burned, no failure filed, and a state that says what
+/// actually happened.
+#[tokio::test]
+async fn a_task_whose_subject_was_deleted_is_cancelled_not_failed() {
+    let s = Arc::new(SqliteItemStore::open_in_memory().unwrap());
+    let entry = bibliography_entry("10.1000/xyz", "old title");
+    let entry_id = TaskStoreApi::create_item(s.as_ref(), entry).unwrap();
+    let trigger = TaskStoreApi::get_item(s.as_ref(), entry_id)
+        .unwrap()
+        .unwrap();
+    let specs = EnrichmentSpawnRule
+        .spawn(&trigger, s.as_ref())
+        .await
+        .unwrap();
+    let task_ids = create_task_dag(s.as_ref(), &specs, "impel").unwrap();
+
+    // The paper goes away — the edge goes with it, by FK cascade.
+    ItemStore::delete(s.as_ref(), entry_id).unwrap();
+    let orphan = TaskStoreApi::get_item(s.as_ref(), task_ids[0])
+        .unwrap()
+        .unwrap();
+    assert!(
+        orphan.references.is_empty(),
+        "the cascade is the premise of this test"
+    );
+
+    let sched = pipeline_scheduler(s.clone(), 0.5);
+    let report = sched.run_once().await.unwrap();
+    assert_eq!(report.cancelled, 1, "{report:?}");
+    assert_eq!(
+        report.acquired, 0,
+        "no attempt is burned on unrunnable work"
+    );
+    assert_eq!(report.failed, 0, "and no failure is filed");
+    assert_eq!(state_of(&s, task_ids[0]), TaskState::Cancelled);
+
+    // The attempt counter never moved, which is what distinguishes "never
+    // dispatched" from "tried and gave up".
+    let task = TaskStoreApi::get_item(s.as_ref(), task_ids[0])
+        .unwrap()
+        .unwrap();
+    assert!(
+        !matches!(task.payload.get("attempts"), Some(Value::Int(n)) if *n > 0),
+        "attempts: {:?}",
+        task.payload.get("attempts")
+    );
+
+    // And it stays cancelled: a later pass finds nothing to do.
+    let quiet = sched.run_once().await.unwrap();
+    assert_eq!(quiet.cancelled, 0, "{quiet:?}");
+}

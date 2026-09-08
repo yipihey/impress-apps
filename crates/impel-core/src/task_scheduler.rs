@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use impress_core::item::{Item, Value};
 use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_core::reference::EdgeType;
 use impress_core::task::TaskState;
 
 use crate::task_executor::{ExecutionOutcome, TaskError, TaskExecutor};
@@ -165,6 +166,22 @@ impl Scheduler {
                 report.deferred += 1;
                 continue;
             }
+            // An executor that works ON something cannot work on nothing.
+            // Deleting a publication cascades away the `OperatesOn` edge of
+            // every task aimed at it, and those tasks stay `pending` looking
+            // perfectly runnable. Dispatching one burns an attempt and files a
+            // permanent failure for work that was never possible — cancel it
+            // here instead, where the fact is already in hand.
+            if self.is_orphaned(&kind, &task) {
+                self.store.transition(
+                    task.id,
+                    TaskState::Cancelled,
+                    &self.config.actor,
+                    Some(OperationIntent::Routine),
+                )?;
+                report.cancelled += 1;
+                continue;
+            }
             // Atomic: transition + assigned_to + attempts in one
             // transaction — a BUSY here leaves the task cleanly `pending`.
             self.store.acquire_task(&task, &self.config.actor)?;
@@ -177,6 +194,20 @@ impl Scheduler {
             self.execute_and_finalize(&task, &mut report).await?;
         }
         Ok(report)
+    }
+
+    /// Whether this task's executor needs an `OperatesOn` target the task no
+    /// longer has. An unknown kind is never orphaned — `execute_and_finalize`
+    /// escalates it properly, and guessing here would cancel work whose
+    /// executor simply is not registered in this process.
+    fn is_orphaned(&self, kind: &str, task: &Item) -> bool {
+        self.executors
+            .get(kind)
+            .is_some_and(|executor| executor.requires_operates_on())
+            && !task
+                .references
+                .iter()
+                .any(|r| r.edge_type == EdgeType::OperatesOn)
     }
 
     /// Cached `readiness()` verdict for one executor kind. Unknown kinds

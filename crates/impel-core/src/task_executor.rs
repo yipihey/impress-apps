@@ -63,6 +63,25 @@ pub trait TaskExecutor: Send + Sync {
         Ok(())
     }
 
+    /// Does this executor need the task's `OperatesOn` target to exist?
+    ///
+    /// The scheduler checks this BEFORE acquiring, and cancels a task whose
+    /// required target is gone instead of dispatching it. `false` (the
+    /// default) is for sweep-shaped executors that operate on a window rather
+    /// than an item — the memory embed and consolidation passes carry no
+    /// target at all, and a blanket rule would cancel every one of them.
+    ///
+    /// Why it exists: deleting a publication cascades away the `OperatesOn`
+    /// edge of every task pointing at it, and the tasks stay `pending`. The
+    /// scheduler dispatched them, the executor discovered the missing target,
+    /// and each one became a permanent failure — 1,694 of them on the live
+    /// store, all reading `permanent: task has no OperatesOn target`, all
+    /// unrunnable from the moment the paper was deleted. Cancelled is what
+    /// they are; failed is a claim that something went wrong.
+    fn requires_operates_on(&self) -> bool {
+        false
+    }
+
     /// Execute the task. Output items are written via `store`; the
     /// executor must NOT transition task state — that is the scheduler's
     /// job (ADR-0005 §7).

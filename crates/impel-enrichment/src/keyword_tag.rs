@@ -347,6 +347,13 @@ impl TaskExecutor for KeywordTagExecutor {
         Ok(ExecutionOutcome::Suspended)
     }
 
+    /// Every one of these works on the paper the task points at: `target_of`
+    /// is its first act, and a missing target is not a failure to report but
+    /// a task that should never have been dispatched.
+    fn requires_operates_on(&self) -> bool {
+        true
+    }
+
     fn max_retries(&self) -> u32 {
         2
     }

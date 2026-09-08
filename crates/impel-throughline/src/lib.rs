@@ -1054,6 +1054,12 @@ impl TaskExecutor for ThroughlineSyncExecutor {
         }
     }
 
+    /// The task operates on the throughline item; without it there is no
+    /// ledger to read and nothing to propose.
+    fn requires_operates_on(&self) -> bool {
+        true
+    }
+
     fn max_retries(&self) -> u32 {
         2
     }

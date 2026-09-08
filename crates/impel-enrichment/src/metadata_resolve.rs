@@ -429,6 +429,13 @@ impl TaskExecutor for MetadataResolveExecutor {
 
     // With the scheduler's exponential backoff (45s·3^n) this rides out
     // ~30 minutes of network outage before escalating.
+    /// Every one of these works on the paper the task points at: `target_of`
+    /// is its first act, and a missing target is not a failure to report but
+    /// a task that should never have been dispatched.
+    fn requires_operates_on(&self) -> bool {
+        true
+    }
+
     fn max_retries(&self) -> u32 {
         5
     }
