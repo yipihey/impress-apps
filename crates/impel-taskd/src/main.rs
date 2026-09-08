@@ -44,8 +44,8 @@ use impel_memory::{
     plan_memory_tasks, EmbedBackfillExecutor, MemoryConsolidationExecutor, MemoryPlanConfig,
 };
 use impel_throughline::{
-    ProposalDrafter, TemplateDrafter, ThroughlineSpawnRule, ThroughlineSyncExecutor,
-    MANUSCRIPT_SECTION_SCHEMA,
+    ProposalDrafter, TemplateDrafter, ThroughlineSourceSpawnRule, ThroughlineSpawnRule,
+    ThroughlineSyncExecutor, MANUSCRIPT_SECTION_SCHEMA,
 };
 use impress_ai::{
     write_worker_status, AiStore, AiTitleTaskExecutor, FileBlobStore, OmlxClient, OmlxTaskExecutor,
@@ -276,20 +276,24 @@ fn has_open_sync_task(store: &SqliteItemStore, throughline_id: uuid::Uuid) -> bo
     }
 }
 
-/// Cross-process trigger detection for throughline sync: manuscript
-/// sections MODIFIED since the cursor (edits arrive as operations from
-/// the imprint app process, invisible to the in-process bus). Keyset on
-/// `(modified, id)` with a real ORDER BY, so any burst pages through
-/// instead of wedging on a value-keyed watermark.
-fn scan_modified_sections(
+/// Cross-process trigger detection: items of one schema MODIFIED since the
+/// cursor (edits arrive as operations from an app process, invisible to the
+/// in-process bus). Keyset on `(modified, id)` with a real ORDER BY, so any
+/// burst pages through instead of wedging on a value-keyed watermark.
+///
+/// Used for both halves of throughline sync — manuscript sections and the
+/// throughline source itself — because "what changed since I last looked" is
+/// the same question regardless of which side of the sync changed.
+fn scan_modified(
     store: &SqliteItemStore,
+    schema: &str,
     after_modified_ms: i64,
     after_id: &str,
 ) -> Vec<impress_core::item::Item> {
     use impress_core::item::Value;
     use impress_core::query::SortDescriptor;
     let q = ItemQuery {
-        schema: Some(MANUSCRIPT_SECTION_SCHEMA.into()),
+        schema: Some(schema.into()),
         predicates: vec![Predicate::Or(vec![
             Predicate::Gt("modified".into(), Value::Int(after_modified_ms)),
             Predicate::And(vec![
@@ -315,7 +319,7 @@ fn scan_modified_sections(
     match ItemStore::query(store, &q) {
         Ok(items) => items,
         Err(e) => {
-            eprintln!("impel-taskd: section scan failed: {e}");
+            eprintln!("impel-taskd: {schema} scan failed: {e}");
             Vec::new()
         }
     }
@@ -335,6 +339,11 @@ struct ScanCursors {
     /// Keyset cursor for the manuscript-section modification scan.
     sections_modified_ms: i64,
     sections_last_id: String,
+    /// Keyset cursor for the throughline-source modification scan — the
+    /// other half of the two-way sync. Absent from a v1 file written before
+    /// this scan existed; see `load`.
+    throughlines_modified_ms: i64,
+    throughlines_last_id: String,
 }
 
 impl ScanCursors {
@@ -345,10 +354,22 @@ impl ScanCursors {
     fn load(workspace: &std::path::Path) -> Option<Self> {
         let text = std::fs::read_to_string(Self::path(workspace)).ok()?;
         let mut parts = text.split_whitespace();
+        let entries_rowid = parts.next()?.parse().ok()?;
+        let sections_modified_ms = parts.next()?.parse().ok()?;
+        let sections_last_id = parts.next().unwrap_or("").to_string();
         Some(Self {
-            entries_rowid: parts.next()?.parse().ok()?,
-            sections_modified_ms: parts.next()?.parse().ok()?,
-            sections_last_id: parts.next().unwrap_or("").to_string(),
+            entries_rowid,
+            sections_modified_ms,
+            // Files written before the throughline-source scan existed end
+            // here. Inheriting the section cursor rather than defaulting to 0
+            // keeps the first pass after an upgrade from re-examining every
+            // throughline in the store — the two scans watch the same clock.
+            throughlines_modified_ms: parts
+                .next()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(sections_modified_ms),
+            throughlines_last_id: parts.next().unwrap_or("").to_string(),
+            sections_last_id,
         })
     }
 
@@ -362,8 +383,12 @@ impl ScanCursors {
         let _ = std::fs::write(
             &path,
             format!(
-                "{} {} {}",
-                self.entries_rowid, self.sections_modified_ms, self.sections_last_id
+                "{} {} {} {} {}",
+                self.entries_rowid,
+                self.sections_modified_ms,
+                self.sections_last_id,
+                self.throughlines_modified_ms,
+                self.throughlines_last_id
             ),
         );
     }
@@ -778,6 +803,7 @@ async fn main() {
 
     let rule = EnrichmentSpawnRule;
     let tl_rule = ThroughlineSpawnRule;
+    let tl_source_rule = ThroughlineSourceSpawnRule;
 
     // ── Scan cursors (persisted; see ScanCursors) ──────────────────────
     //
@@ -816,6 +842,8 @@ async fn main() {
                 // edit. Small slack for the insert-vs-startup race.
                 sections_modified_ms: chrono::Utc::now().timestamp_millis() - 60_000,
                 sections_last_id: String::new(),
+                throughlines_modified_ms: chrono::Utc::now().timestamp_millis() - 60_000,
+                throughlines_last_id: String::new(),
             }
         }
     };
@@ -933,8 +961,9 @@ async fn main() {
             // costs nothing for documents without a throughline.
             // `has_open_sync_task` debounces concurrent spawns per
             // document.
-            let tl_scanned = scan_modified_sections(
+            let tl_scanned = scan_modified(
                 &store,
+                MANUSCRIPT_SECTION_SCHEMA,
                 cursors.sections_modified_ms,
                 &cursors.sections_last_id,
             );
@@ -987,6 +1016,66 @@ async fn main() {
                     }
                     Ok(_) => {}
                     Err(e) => eprintln!("impel-taskd: throughline rule error for {doc_id}: {e}"),
+                }
+            }
+
+            // The OTHER half of the two-way sync: the throughline source
+            // itself. An edit here is what `throughline-ahead` is for, and
+            // until this scan existed nothing watched for it — a researcher
+            // who rewrote the narrative and touched no section got no
+            // proposal. The rule's own `any_stale` gate is what keeps the
+            // executor's ledger writes from re-triggering it.
+            let tl_source_scanned = scan_modified(
+                &store,
+                imprint_service::throughline::THROUGHLINE_SCHEMA_REF,
+                cursors.throughlines_modified_ms,
+                &cursors.throughlines_last_id,
+            );
+            for tl_item in tl_source_scanned {
+                cursors.throughlines_modified_ms = tl_item.modified.timestamp_millis();
+                cursors.throughlines_last_id = tl_item.id.to_string();
+                if has_open_sync_task(&store, tl_item.id) {
+                    continue;
+                }
+                match tl_source_rule
+                    .spawn(&tl_item, store.as_ref() as &dyn TaskStoreApi)
+                    .await
+                {
+                    Ok(specs) if !specs.is_empty() => {
+                        if args.dry_run {
+                            eprintln!(
+                                "impel-taskd[dry]: would spawn throughline-sync for edited throughline {}",
+                                tl_item.id
+                            );
+                        } else {
+                            match create_task_dag_from(
+                                store.as_ref() as &dyn TaskStoreApi,
+                                &specs,
+                                ACTOR,
+                                // Trigger and target are the same item here:
+                                // the throughline was edited, and the task
+                                // operates on it.
+                                Some(&SpawnProvenance {
+                                    rule_id: tl_source_rule.rule_id().into(),
+                                    trigger: Some(tl_item.id),
+                                }),
+                            ) {
+                                Ok(ids) => eprintln!(
+                                    "impel-taskd: spawned throughline-sync for edited throughline {}: {ids:?}",
+                                    tl_item.id
+                                ),
+                                Err(e) => eprintln!(
+                                    "impel-taskd: throughline-source spawn failed for {}: {e}",
+                                    tl_item.id
+                                ),
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!(
+                        "impel-taskd: throughline-source rule error for {}: {e}",
+                        tl_item.id
+                    ),
                 }
             }
             cursors.save(&workspace);

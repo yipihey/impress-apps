@@ -14,7 +14,7 @@
 //! derivation) is imported from `imprint_service::throughline` — the
 //! canonical implementation (ADR-0016 D4).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -205,15 +205,71 @@ impl SpawnRule for ThroughlineSpawnRule {
             return Ok(vec![]);
         }
 
-        Ok(vec![TaskSpec {
-            kind: KIND_THROUGHLINE_SYNC.into(),
-            description: Some(format!(
-                "Propose throughline sync for document {document_id}"
-            )),
-            depends_on: vec![],
-            operates_on: Some(tl_item.id),
-            output_schema: None,
-        }])
+        Ok(vec![sync_spec(document_id, tl_item.id)])
+    }
+}
+
+/// Spawns a `throughline-sync` task when the THROUGHLINE ITSELF mutates.
+///
+/// [`ThroughlineSpawnRule`] watches manuscript sections, which is one half of
+/// a two-way sync: an edit to the narrative paragraph is precisely what
+/// [`SyncDirection::ThroughlineAhead`] exists for, and nothing was watching for
+/// it. That direction only ever surfaced by accident — when a section edit
+/// happened to spawn a task that then noticed the paragraph had also drifted —
+/// so a researcher who rewrote the throughline and did not touch the manuscript
+/// got no proposal at all, which is the exact case ADR-0016 D6 calls
+/// claims-authoritative.
+///
+/// No `write_throughline` feedback loop: the executor rebaselines the ledger as
+/// it writes, so a self-triggered pass finds every anchor synced and the
+/// `any_stale` gate below returns no spec. `has_open_sync_task` covers the
+/// window before that.
+pub struct ThroughlineSourceSpawnRule;
+
+#[async_trait]
+impl SpawnRule for ThroughlineSourceSpawnRule {
+    fn trigger_schema(&self) -> &str {
+        imprint_service::throughline::THROUGHLINE_SCHEMA_REF
+    }
+
+    fn rule_id(&self) -> &str {
+        "impel/throughline-source-spawn"
+    }
+
+    async fn spawn(
+        &self,
+        trigger: &Item,
+        store: &dyn TaskStoreApi,
+    ) -> Result<Vec<TaskSpec>, SpawnError> {
+        // The trigger IS the throughline item — no opt-in gate needed, its
+        // existence is the opt-in.
+        let Ok(document_id) = ThroughlineSyncExecutor::document_id(trigger) else {
+            return Ok(vec![]);
+        };
+        let Ok((map, source)) = throughline_state(trigger) else {
+            return Ok(vec![]);
+        };
+        let sections = ledger_sections(store, document_id, &map)
+            .map_err(|e| SpawnError::InvalidSpec(e.to_string()))?;
+        let paragraphs = extract_paragraphs(&source);
+        let states = derive_anchor_states(&map, &sections, &paragraphs);
+        if states.iter().all(|a| a.is_synced()) {
+            return Ok(vec![]);
+        }
+        Ok(vec![sync_spec(document_id, trigger.id)])
+    }
+}
+
+/// The one task spec both spawn rules produce.
+fn sync_spec(document_id: Uuid, throughline_id: ItemId) -> TaskSpec {
+    TaskSpec {
+        kind: KIND_THROUGHLINE_SYNC.into(),
+        description: Some(format!(
+            "Propose throughline sync for document {document_id}"
+        )),
+        depends_on: vec![],
+        operates_on: Some(throughline_id),
+        output_schema: None,
     }
 }
 
@@ -346,6 +402,29 @@ impl ProposalDrafter for TemplateDrafter {
 // Executor
 // ---------------------------------------------------------------------------
 
+/// What became of an approved proposal.
+///
+/// The distinction the earlier `bool` could not carry: [`Stale`] means the
+/// human said yes and the graph moved underneath them, and it is the one
+/// outcome that must NOT close the anchor's question. Consuming a stale
+/// approval as if it were a decision discarded the answer AND marked the
+/// anchor reviewed, so the drift survived silently until the next section
+/// edit happened to spawn another task.
+///
+/// [`Stale`]: ApplyOutcome::Stale
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApplyOutcome {
+    /// The proposal was written to the graph.
+    Applied,
+    /// The proposal was invalidated by a concurrent edit; nothing written.
+    /// A fresh proposal is opened for the same anchor in this same pass.
+    Stale,
+    /// The review cannot be acted on at all — a field the apply path needs
+    /// is missing or names something that no longer resolves. Re-proposing
+    /// would produce the same unusable review, so it is consumed.
+    Unusable,
+}
+
 /// Executes `throughline-sync` tasks: derives anchor states, opens one
 /// review per stale anchor (loop-until-dry across suspensions), and applies
 /// accepted proposals as attributed operations with a stale-proposal guard.
@@ -370,7 +449,7 @@ impl ThroughlineSyncExecutor {
             .ok_or_else(|| TaskError::Permanent(format!("throughline item {target} missing")))
     }
 
-    fn document_id(tl_item: &Item) -> Result<Uuid, TaskError> {
+    pub(crate) fn document_id(tl_item: &Item) -> Result<Uuid, TaskError> {
         payload_str(tl_item, "document_ref")
             .and_then(|s| s.parse::<Uuid>().ok())
             .ok_or_else(|| TaskError::Permanent("throughline item has no document_ref".into()))
@@ -491,9 +570,40 @@ impl ThroughlineSyncExecutor {
         if let Some(note) = &draft.note {
             context.insert("note".into(), Value::String(note.clone()));
         }
+        // A repair review has to carry the repair it proposes.
+        // `apply_approved`'s `"broken"` branch requires
+        // `context_repair_action`, and nothing wrote it — so approving a
+        // broken-anchor review applied nothing, left the anchor stale, and the
+        // next section edit asked the identical question again. Forever.
+        //
+        // The default is `drop`, the only repair derivable from the ledger
+        // alone: finding a rename target is a search across sections the ledger
+        // does not name, and this executor reaches the graph through the narrow
+        // kernel facade (keyed gets, no query). A reviewer who knows the
+        // section was renamed sets `context_repair_action = "rebind"` plus
+        // `context_rebind_to` — imprint's `repair_candidates` computes exactly
+        // that pair — and `apply_approved` re-validates the target before
+        // touching the ledger.
+        let mut repair_note = String::new();
         if direction == SyncDirection::Broken {
-            if let Some(first_broken) = assessment.broken.first() {
-                context.insert("broken_key".into(), Value::String(first_broken.clone()));
+            match assessment.broken.first() {
+                Some(first_broken) => {
+                    context.insert("broken_key".into(), Value::String(first_broken.clone()));
+                    context.insert("repair_action".into(), Value::String("drop".into()));
+                    repair_note = format!(
+                        " Approving drops `{first_broken}` from this anchor; \
+                         set context_repair_action=rebind + context_rebind_to \
+                         to relink a renamed section instead."
+                    );
+                }
+                // Broken because the PARAGRAPH is gone, not a section: there is
+                // no key to rebind, and the ledger entry has nothing left to
+                // anchor.
+                None => {
+                    context.insert("repair_action".into(), Value::String("drop-anchor".into()));
+                    repair_note =
+                        " The paragraph no longer exists; approving removes the anchor.".into();
+                }
             }
         }
         context.insert(
@@ -505,7 +615,7 @@ impl ThroughlineSyncExecutor {
             task.id,
             ReviewRequest {
                 question: format!(
-                    "Throughline sync (<{}>, {}): apply the proposed {}?",
+                    "Throughline sync (<{}>, {}): apply the proposed {}?{repair_note}",
                     assessment.label,
                     direction.as_str(),
                     match direction {
@@ -523,18 +633,16 @@ impl ThroughlineSyncExecutor {
     }
 
     /// Apply an approved proposal. Stale-guard first: if the graph moved
-    /// since the proposal was computed, apply nothing — the spawn rule
-    /// fires again on the next mutation and a fresh proposal is computed.
-    /// Returns whether anything was applied.
+    /// since the proposal was computed, apply nothing.
     fn apply_approved(
         &self,
         review: &Item,
         tl_item: &Item,
         store: &dyn TaskStoreApi,
-    ) -> Result<bool, TaskError> {
+    ) -> Result<ApplyOutcome, TaskError> {
         let label = match review.payload.get("context_anchor") {
             Some(Value::String(s)) => s.clone(),
-            _ => return Ok(false),
+            _ => return Ok(ApplyOutcome::Unusable),
         };
         let document_id = Self::document_id(tl_item)?;
         let (mut map, source) = throughline_state(tl_item)?;
@@ -553,7 +661,7 @@ impl ThroughlineSyncExecutor {
                     _ => None,
                 };
                 if current.as_deref() != expected_str {
-                    return Ok(false); // invalidated — never force-apply
+                    return Ok(ApplyOutcome::Stale); // invalidated — never force-apply
                 }
             }
         }
@@ -564,20 +672,20 @@ impl ThroughlineSyncExecutor {
         {
             let current_hash = current_paragraph.map(|p| p.content_hash.as_str());
             if !expected.is_empty() && current_hash != Some(expected.as_str()) {
-                return Ok(false);
+                return Ok(ApplyOutcome::Stale);
             }
         }
         if let Some(Value::Int(expected)) = review.payload.get("context_expected_throughline_order")
         {
             let current_order = current_paragraph.map(|p| p.order_index);
             if current_order != Some(*expected) {
-                return Ok(false);
+                return Ok(ApplyOutcome::Stale);
             }
         }
 
         let direction = match review.payload.get("context_direction") {
             Some(Value::String(s)) => s.clone(),
-            _ => return Ok(false),
+            _ => return Ok(ApplyOutcome::Unusable),
         };
         let mut applied = false;
 
@@ -686,25 +794,43 @@ impl ThroughlineSyncExecutor {
                 // or "drop". Applied as a ledger edit only.
                 let action = match review.payload.get("context_repair_action") {
                     Some(Value::String(s)) => s.clone(),
-                    _ => return Ok(false),
+                    _ => return Ok(ApplyOutcome::Unusable),
                 };
+                // The paragraph itself is gone: nothing to rebind to, and the
+                // ledger entry claims sections for a narrative beat that no
+                // longer exists.
+                if action == "drop-anchor" {
+                    if map.anchors.remove(&label).is_none() {
+                        return Ok(ApplyOutcome::Unusable);
+                    }
+                    let repaired_sections = ledger_sections(store, document_id, &map)?;
+                    self.write_throughline(
+                        tl_item.id,
+                        &source,
+                        &mut map,
+                        &label,
+                        &repaired_sections,
+                        store,
+                    )?;
+                    return Ok(ApplyOutcome::Applied);
+                }
                 let Some(entry) = map.anchors.get_mut(&label) else {
-                    return Ok(false);
+                    return Ok(ApplyOutcome::Unusable);
                 };
                 let broken_key = match review.payload.get("context_broken_key") {
                     Some(Value::String(s)) => s.clone(),
-                    _ => return Ok(false),
+                    _ => return Ok(ApplyOutcome::Unusable),
                 };
                 match action.as_str() {
                     "rebind" => {
                         let Some(Value::String(new_key)) = review.payload.get("context_rebind_to")
                         else {
-                            return Ok(false);
+                            return Ok(ApplyOutcome::Unusable);
                         };
                         // The rebind target must actually resolve.
                         let new_id = imprint_service::SectionStore::item_id(document_id, new_key);
                         if store.get_item(new_id)?.is_none() {
-                            return Ok(false);
+                            return Ok(ApplyOutcome::Unusable);
                         }
                         for key in entry.section_keys.iter_mut() {
                             if key == &broken_key {
@@ -725,7 +851,7 @@ impl ThroughlineSyncExecutor {
                             map.anchors.remove(&label);
                         }
                     }
-                    _ => return Ok(false),
+                    _ => return Ok(ApplyOutcome::Unusable),
                 }
                 // Re-load sections under the repaired ledger so the
                 // rebaseline records the rebind target's current hash.
@@ -742,7 +868,11 @@ impl ThroughlineSyncExecutor {
             }
             _ => {}
         }
-        Ok(applied)
+        Ok(if applied {
+            ApplyOutcome::Applied
+        } else {
+            ApplyOutcome::Unusable
+        })
     }
 
     /// Rebaseline the ledger for `label` and write the throughline item's
@@ -827,6 +957,12 @@ impl TaskExecutor for ThroughlineSyncExecutor {
         if !unresolved.is_empty() {
             return Ok(ExecutionOutcome::Suspended);
         }
+        // Anchors whose approval was invalidated by a concurrent edit. They
+        // must NOT count as reviewed below — the human answered, the answer
+        // could not be honored, and the anchor deserves a fresh proposal now
+        // rather than at whatever future moment another edit happens to spawn
+        // a task.
+        let mut superseded: BTreeSet<String> = BTreeSet::new();
         for review in &resolved {
             let approved = matches!(review.payload.get("resolution"),
                                     Some(Value::String(r)) if r == "approved");
@@ -835,14 +971,40 @@ impl TaskExecutor for ThroughlineSyncExecutor {
                 Some(Value::Bool(true))
             );
             if approved && !handled {
-                let applied = self.apply_approved(review, &tl_item, store)?;
+                let outcome = self.apply_approved(review, &tl_item, store)?;
+                if outcome == ApplyOutcome::Stale {
+                    if let Some(Value::String(label)) = review.payload.get("context_anchor") {
+                        superseded.insert(label.clone());
+                    }
+                    // Say so on the review itself, so the reason a second
+                    // question about the same anchor appeared is on the record
+                    // rather than looking like a duplicate.
+                    store.apply(OperationSpec {
+                        target_id: review.id,
+                        op_type: OperationType::SetPayload(
+                            "context_superseded".into(),
+                            Value::Bool(true),
+                        ),
+                        intent: OperationIntent::Routine,
+                        reason: Some(
+                            "throughline sync: approval invalidated by a concurrent edit"
+                                .to_string(),
+                        ),
+                        batch_id: None,
+                        author: ACTOR.into(),
+                        author_kind: ActorKind::Agent,
+                        retention: RetentionTier::Compactable,
+                    })?;
+                }
                 // Mark the review consumed so a later resume doesn't
-                // re-apply (idempotence across scheduler passes).
+                // re-apply (idempotence across scheduler passes). Even a
+                // stale one: its proposal is computed against a graph that
+                // no longer exists, so it can never become applicable again.
                 store.apply(OperationSpec {
                     target_id: review.id,
                     op_type: OperationType::SetPayload("context_applied".into(), Value::Bool(true)),
                     intent: OperationIntent::Routine,
-                    reason: Some(format!("throughline sync: applied={applied}")),
+                    reason: Some(format!("throughline sync: outcome={outcome:?}")),
                     batch_id: None,
                     author: ACTOR.into(),
                     author_kind: ActorKind::Agent,
@@ -863,11 +1025,15 @@ impl TaskExecutor for ThroughlineSyncExecutor {
         // rejected resolution leaves that anchor stale by design (visible
         // state, not an error), but must not starve later stale anchors —
         // continue to the first stale anchor without a resolution yet.
+        // An anchor whose approval went stale is deliberately NOT skipped: its
+        // resolved review answered a question about a graph that has since
+        // changed, so a fresh proposal is owed immediately.
         let next_unreviewed = assessments.iter().filter(|a| !a.is_synced()).find(|a| {
-            !resolved.iter().any(|r| {
-                matches!(r.payload.get("context_anchor"),
+            superseded.contains(&a.label)
+                || !resolved.iter().any(|r| {
+                    matches!(r.payload.get("context_anchor"),
                          Some(Value::String(l)) if l == &a.label)
-            })
+                })
         });
         match next_unreviewed {
             None => Ok(ExecutionOutcome::Complete),

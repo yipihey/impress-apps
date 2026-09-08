@@ -699,9 +699,13 @@ async fn stale_proposal_is_never_force_applied() {
     resolve_review(&store, review_id, "approved");
 
     let before = throughline_body(&store, doc);
+    // The approval cannot be honored — but it must not be thrown away either.
+    // Consuming it as a decision used to close the anchor's question and leave
+    // the drift in place until some future edit happened to spawn another task.
     assert_eq!(
         exec.execute(&task, &store).await.unwrap(),
-        ExecutionOutcome::Complete
+        ExecutionOutcome::Suspended,
+        "a superseded approval re-proposes rather than completing silently"
     );
     assert_eq!(
         throughline_body(&store, doc),
@@ -709,6 +713,21 @@ async fn stale_proposal_is_never_force_applied() {
         "guard must refuse to apply a proposal computed against old state"
     );
     assert_eq!(anchor_state(&store, doc), "manuscript-ahead");
+
+    let stale = store.get_item(review_id).unwrap().unwrap();
+    assert_eq!(
+        stale.payload.get("context_superseded"),
+        Some(&Value::Bool(true)),
+        "the record says why a second question about this anchor appeared"
+    );
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    assert_eq!(unresolved.len(), 1, "a fresh proposal is open");
+    assert_ne!(unresolved[0].id, review_id);
+    assert_eq!(
+        unresolved[0].payload.get("context_anchor"),
+        Some(&Value::String("tl-overview".into())),
+        "and it is about the same anchor"
+    );
 }
 
 #[tokio::test]
@@ -754,7 +773,8 @@ async fn narrative_reorder_invalidates_an_open_proposal() {
 
     assert_eq!(
         exec.execute(&task, &store).await.unwrap(),
-        ExecutionOutcome::Complete
+        ExecutionOutcome::Suspended,
+        "a superseded approval re-proposes rather than completing silently"
     );
     assert_eq!(
         throughline_body(&store, doc),
@@ -762,4 +782,134 @@ async fn narrative_reorder_invalidates_an_open_proposal() {
         "order guard must refuse a proposal computed before the beat moved"
     );
     assert_eq!(anchor_state(&store, doc), "manuscript-ahead");
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    assert_eq!(unresolved.len(), 1, "a fresh proposal is open");
+    assert_ne!(unresolved[0].id, review_id);
+}
+
+/// A plain "approve" on a broken-anchor review must DO something. The review
+/// carried no `context_repair_action`, and the apply path requires one — so
+/// approving applied nothing, the anchor stayed broken, and the next section
+/// edit spawned a task that asked the identical question. Forever.
+#[tokio::test]
+async fn approving_a_broken_anchor_repairs_it_without_further_instruction() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+    let doc = Uuid::new_v4();
+    seed_throughline(&store, doc, "introduction", "We measure X.");
+    // The section is deleted outright — no rename, so nothing to rebind to.
+    put_section(&store, doc, "conclusion", "Different words entirely.");
+    impress_core::store::ItemStore::delete(&store, SectionStore::item_id(doc, "introduction"))
+        .unwrap();
+    assert_eq!(anchor_state(&store, doc), "broken");
+
+    let trigger = section_trigger(&store, doc, "conclusion");
+    let specs = ThroughlineSpawnRule.spawn(&trigger, &store).await.unwrap();
+    let ids = create_task_dag(&store, &specs, ACTOR).unwrap();
+    let task = store.get_item(ids[0]).unwrap().unwrap();
+
+    let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Suspended
+    );
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    let review = &unresolved[0];
+    assert_eq!(
+        review.payload.get("context_repair_action"),
+        Some(&Value::String("drop".into())),
+        "the review proposes the repair it will perform"
+    );
+    let question = match review.payload.get("question") {
+        Some(Value::String(q)) => q.clone(),
+        other => panic!("no question: {other:?}"),
+    };
+    assert!(
+        question.contains("drops `introduction`") && question.contains("rebind"),
+        "the reviewer is told what approving does, and what the alternative is: {question:?}"
+    );
+
+    resolve_review(&store, review.id, "approved");
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Complete
+    );
+    // The anchor's only section is gone, so the entry goes with it: nothing
+    // is left claiming a link to a section that does not exist.
+    let tl = store
+        .get_item(ThroughlineStore::item_id(doc))
+        .unwrap()
+        .unwrap();
+    let (map, _) = throughline_state(&tl).unwrap();
+    assert!(
+        map.anchors.is_empty(),
+        "approving actually repaired the ledger: {:?}",
+        map.anchors
+    );
+}
+
+/// An edit to the THROUGHLINE ITSELF is what `throughline-ahead` exists for,
+/// and nothing watched for it: the only spawn rule keyed on manuscript
+/// sections, so rewriting the narrative and touching no section produced no
+/// proposal at all.
+#[tokio::test]
+async fn editing_the_throughline_spawns_its_own_sync() {
+    let store = SqliteItemStore::open_in_memory().unwrap();
+    let doc = Uuid::new_v4();
+    seed_throughline(&store, doc, "introduction", "We measure X.");
+    assert_eq!(anchor_state(&store, doc), "synced");
+
+    let tl_id = ThroughlineStore::item_id(doc);
+    let quiet = store.get_item(tl_id).unwrap().unwrap();
+    assert!(
+        ThroughlineSourceSpawnRule
+            .spawn(&quiet, &store)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a synced document spawns nothing — this is also what keeps the \
+         executor's own ledger writes from re-triggering it"
+    );
+
+    // The researcher rewrites the narrative beat and touches no section.
+    TaskStoreApi::apply(
+        &store,
+        OperationSpec {
+            target_id: tl_id,
+            op_type: OperationType::SetPayload(
+                "body_content".into(),
+                Value::String("The story so far, retold. <tl-overview>\n".into()),
+            ),
+            intent: OperationIntent::Editorial,
+            reason: None,
+            batch_id: None,
+            author: HUMAN.into(),
+            author_kind: ActorKind::Human,
+            retention: RetentionTier::Durable,
+        },
+    )
+    .unwrap();
+    assert_eq!(anchor_state(&store, doc), "throughline-ahead");
+
+    let edited = store.get_item(tl_id).unwrap().unwrap();
+    let specs = ThroughlineSourceSpawnRule
+        .spawn(&edited, &store)
+        .await
+        .unwrap();
+    assert_eq!(specs.len(), 1);
+    assert_eq!(specs[0].operates_on, Some(tl_id));
+    assert_eq!(specs[0].kind, KIND_THROUGHLINE_SYNC);
+
+    // And it drives the manuscript-side proposal the direction is named for.
+    let ids = create_task_dag(&store, &specs, ACTOR).unwrap();
+    let task = store.get_item(ids[0]).unwrap().unwrap();
+    let exec = ThroughlineSyncExecutor::new(Box::new(TemplateDrafter));
+    assert_eq!(
+        exec.execute(&task, &store).await.unwrap(),
+        ExecutionOutcome::Suspended
+    );
+    let (unresolved, _) = store.reviews_for(task.id).unwrap();
+    assert_eq!(
+        unresolved[0].payload.get("context_direction"),
+        Some(&Value::String("throughline-ahead".into()))
+    );
 }
