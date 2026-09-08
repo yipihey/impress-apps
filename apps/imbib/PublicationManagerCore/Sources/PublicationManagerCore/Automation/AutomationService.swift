@@ -368,15 +368,13 @@ public actor AutomationService: AutomationOperations {
                     }
                 }
 
-                // Download PDF if requested
+                // Download PDFs if requested — in the background, so the
+                // add returns as soon as the papers exist. (This used to post
+                // a `.downloadPDF` notification nothing observed.)
                 if downloadPDFs && !searchResult.pdfLinks.isEmpty {
                     for pubID in importedIDs {
-                        await MainActor.run {
-                            NotificationCenter.default.post(
-                                name: .downloadPDF,
-                                object: nil,
-                                userInfo: ["publicationID": pubID]
-                            )
+                        Task.detached(priority: .utility) {
+                            _ = try? await PDFAcquisitionService.shared.acquire(publicationID: pubID, policy: .background)
                         }
                     }
                 }
@@ -663,10 +661,39 @@ public actor AutomationService: AutomationOperations {
     }
 
     /// Run one sync pass against the tablet now (`POST /api/eink/sync`).
-    /// Blocking network work runs off the main thread inside the adapter.
+    /// Goes through `EInkSyncCoordinator` so an agent's run is serialised
+    /// with the app's own (falls back to the adapter when the services were
+    /// never started). Blocking network work runs off the main thread.
     public func eInkSync(importAnnotations: Bool) async throws -> EInkSyncReport {
         try await checkAuthorization()
-        return try await RustStoreAdapter.shared.einkSync(import: importAnnotations)
+        return try await runEInk(reason: .manual, importOverride: importAnnotations)
+    }
+
+    /// Import what came back from the tablet now (`POST /api/eink/import`):
+    /// a coordinator run under `.importOnly`, which forces the import half on.
+    public func eInkImport() async throws -> EInkSyncReport {
+        try await checkAuthorization()
+        return try await runEInk(reason: .importOnly, importOverride: true)
+    }
+
+    /// The folders the tablet lacks, parents first (`POST /api/eink/folders/check`).
+    public func eInkFolderChecklist(deviceId: String? = nil) async throws -> (deviceId: String?, folders: [EInkFolderNeed]) {
+        try await checkAuthorization()
+        return await withStore { store in
+            let resolved = deviceId ?? store.einkStatus()?.defaultDeviceId
+            return (resolved, store.einkFolderChecklist(deviceId: deviceId))
+        }
+    }
+
+    private func runEInk(reason: EInkSyncReason, importOverride: Bool?) async throws -> EInkSyncReport {
+        if let coordinator = await MainActor.run(body: { EInkServices.shared.coordinator }) {
+            let reports = try await coordinator.runNow(reason: reason, importOverride: importOverride)
+            guard let report = reports.first else {
+                throw AutomationOperationError.operationFailed("No enabled reMarkable is configured")
+            }
+            return report
+        }
+        return try await RustStoreAdapter.shared.einkSync(import: importOverride ?? true)
     }
 
     // MARK: - Collection Operations
@@ -890,38 +917,69 @@ public actor AutomationService: AutomationOperations {
 
     // MARK: - PDF Operations
 
+    /// Download PDFs for papers — awaited, through `PDFAcquisitionService`
+    /// (policy `.background`: no browser, deduped against the PDF tab). Used
+    /// to post a `.downloadPDF` notification nothing observed and report
+    /// every paper as "downloaded". Up to three papers fetch at once.
     public func downloadPDFs(identifiers: [PaperIdentifier]) async throws -> DownloadResult {
         try await checkAuthorization()
         logger.info("Downloading PDFs for \(identifiers.count) papers")
 
-        var downloaded: [String] = []
         var alreadyHad: [String] = []
         var failed: [String: String] = [:]
+        var targets: [(id: UUID, citeKey: String)] = []
 
         for identifier in identifiers {
             guard let publication = await findPublication(by: identifier) else {
                 failed[identifier.value] = "Paper not found"
                 continue
             }
-
             if publication.hasDownloadedPDF {
                 alreadyHad.append(publication.citeKey)
                 continue
             }
-
-            // Trigger PDF download via notification
-            let pubID = publication.id
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: .downloadPDF,
-                    object: nil,
-                    userInfo: ["publicationID": pubID]
-                )
-            }
-
-            // Note: Actual download is async, we just queue it here
-            downloaded.append(publication.citeKey)
+            targets.append((publication.id, publication.citeKey))
         }
+
+        enum Outcome: Sendable { case downloaded, noSource, failed(String) }
+        var outcomes: [String: Outcome] = [:]
+        await withTaskGroup(of: (String, Outcome).self) { group in
+            var iterator = targets.makeIterator()
+            var running = 0
+            func launch(_ target: (id: UUID, citeKey: String)) {
+                group.addTask {
+                    do {
+                        let url = try await PDFAcquisitionService.shared.acquire(publicationID: target.id, policy: .background)
+                        return (target.citeKey, url == nil ? .noSource : .downloaded)
+                    } catch {
+                        return (target.citeKey, .failed(error.localizedDescription))
+                    }
+                }
+            }
+            while running < 3, let target = iterator.next() {
+                launch(target)
+                running += 1
+            }
+            for await (citeKey, outcome) in group {
+                outcomes[citeKey] = outcome
+                if let next = iterator.next() { launch(next) }
+            }
+        }
+
+        var downloaded: [String] = []
+        for target in targets {
+            switch outcomes[target.citeKey] {
+            case .downloaded?:
+                downloaded.append(target.citeKey)
+            case .noSource?:
+                failed[target.citeKey] = "No PDF source available"
+            case .failed(let message)?:
+                failed[target.citeKey] = message
+            case nil:
+                failed[target.citeKey] = "Not attempted"
+            }
+        }
+        logger.info("PDF download via automation: downloaded=\(downloaded.count) alreadyHad=\(alreadyHad.count) failed=\(failed.count)")
 
         return DownloadResult(
             downloaded: downloaded,
@@ -2344,12 +2402,6 @@ public actor AutomationService: AutomationOperations {
         }
         return nil
     }
-}
-
-// MARK: - Notification Names
-
-public extension Notification.Name {
-    static let downloadPDF = Notification.Name("com.imbib.downloadPDF")
 }
 
 // MARK: - reMarkable mirror result (ADR-025)

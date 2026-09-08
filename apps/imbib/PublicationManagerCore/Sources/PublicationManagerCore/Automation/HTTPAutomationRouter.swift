@@ -67,6 +67,8 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `POST /api/artifacts/{id}/link` - Link artifact to publication
 /// - `POST /api/sync/nudge` - Trigger a sync pass (ADR-0007 Phase 3)
 /// - `POST /api/eink/sync` - Run one reMarkable mirror pass now (body: `{"import": true}`); returns the report + trace (ADR-025)
+/// - `POST /api/eink/import` - Import annotations from the tablet now (an `importOnly` coordinator run); returns the report + trace (ADR-025)
+/// - `POST /api/eink/folders/check` - The folders the tablet lacks, parents first (body: `{"device_id": "…"}` optional) (ADR-025)
 /// - `POST /api/manuscripts` - Create a manuscript (body: title, body?/template?, format?, authors?)
 /// - `POST /api/manuscripts/from-template` - Create a manuscript from a journal
 ///   template (body: template_id, title, authors?, affiliations?, abstract?,
@@ -896,6 +898,12 @@ public actor HTTPAutomationRouter: HTTPRouter {
         // reMarkable USB mirror (ADR-025): one sync pass, now.
         if path == "/api/eink/sync" {
             return await handleEInkSync(request)
+        }
+        if path == "/api/eink/import" {
+            return await handleEInkImport()
+        }
+        if path == "/api/eink/folders/check" {
+            return await handleEInkFolderCheck(request)
         }
 
         // Library backup. POST /api/backups/restore REPLACES the whole shared
@@ -1801,6 +1809,42 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
     }
 
+    /// POST /api/eink/import — import what came back from the tablet now
+    /// (an `importOnly` run through the coordinator). Same body as
+    /// `/api/eink/sync`; nothing is sent that was not already queued.
+    private func handleEInkImport() async -> HTTPResponse {
+        do {
+            let report = try await automationService.eInkImport()
+            var body = report.jsonDictionary()
+            body["status"] = "ok"
+            return .json(body)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// POST /api/eink/folders/check — the folders the tablet lacks, parents
+    /// first, with how many papers wait on each. Body (optional):
+    /// `{"device_id": "…"}`. The USB interface cannot create folders, so
+    /// this is the checklist a person works through on the tablet.
+    private func handleEInkFolderCheck(_ request: HTTPRequest) async -> HTTPResponse {
+        let json = parseJSONBody(request) ?? [:]
+        let deviceId = json["device_id"] as? String
+        do {
+            let result = try await automationService.eInkFolderChecklist(deviceId: deviceId)
+            var body: [String: Any] = [
+                "status": "ok",
+                "count": result.folders.count,
+                "folders": result.folders.map { $0.jsonDictionary() },
+                "publications_waiting": result.folders.reduce(0) { $0 + $1.publications },
+            ]
+            body["device_id"] = result.deviceId ?? NSNull()
+            return .json(body)
+        } catch {
+            return mapError(error)
+        }
+    }
+
     /// PUT /api/papers/eink — mark / unmark papers for the tablet.
     /// Body: `{"identifiers": [...], "mirrored": true|false}`.
     private func handleSetEInkMirrored(_ request: HTTPRequest) async -> HTTPResponse {
@@ -2380,7 +2424,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "POST /api/libraries/add-papers": "Add existing papers to a library (body: libraryID, identifiers)",
                 "POST /api/collections/add-papers": "Add existing papers to a collection (body: collectionID, identifiers)",
                 "POST /api/collections": "Create a collection (body: name, libraryID?, isSmartCollection?, predicate?)",
-                "POST /api/papers/download-pdfs": "Download PDFs (body: identifiers)",
+                "POST /api/papers/download-pdfs": "Download PDFs (body: identifiers); awaited, per-paper outcomes",
+                // reMarkable USB mirror (ADR-025)
+                "GET /api/eink/status": "reMarkable mirror status: devices, marker device, per-state counts",
+                "POST /api/eink/sync": "Run one reMarkable mirror pass now (body: import?)",
+                "POST /api/eink/import": "Import annotations from the tablet now",
+                "POST /api/eink/folders/check": "Folders the tablet lacks, parents first (body: device_id?)",
+                "PUT /api/papers/eink": "Mark / unmark papers for the reMarkable mirror (body: identifiers, mirrored)",
                 "POST /api/papers/{citeKey}/comments": "Add comment to paper (body: text, parentCommentID?)",
                 "POST /api/assignments": "Create assignment (body: citeKey|identifier, assigneeName, libraryID, note?, dueDate?)",
                 "POST /api/libraries/{id}/share": "Share a library",

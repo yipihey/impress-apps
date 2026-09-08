@@ -258,87 +258,28 @@ struct NotesTab: View {
         }
     }
 
+    /// Fetch the paper's PDF through `PDFAcquisitionService` (ADR-025 P7),
+    /// then re-read the linked files from the store — the `publication`
+    /// value this view holds is a snapshot and does not grow a file.
     private func downloadPDF() async {
         Logger.files.infoCapture("[NotesTab] downloadPDF() called - starting download attempt", category: "pdf")
+        let pubID = publication.id
 
         await MainActor.run { isDownloading = true }
-
-        let settings = await PDFSettingsStore.shared.settings
-        let status = await PDFURLResolverV2.shared.resolve(for: publication, settings: settings)
-        guard let resolvedURL = status.pdfURL else {
-            Logger.files.warningCapture("[NotesTab] downloadPDF() FAILED: No URL resolved (\(status.displayDescription))", category: "pdf")
-            Logger.files.infoCapture("[NotesTab]   arxivID: \(publication.arxivID ?? "nil")", category: "pdf")
-            Logger.files.infoCapture("[NotesTab]   eprint: \(publication.fields["eprint"] ?? "nil")", category: "pdf")
-            Logger.files.infoCapture("[NotesTab]   bibcode: \(publication.bibcode ?? "nil")", category: "pdf")
-            Logger.files.infoCapture("[NotesTab]   doi: \(publication.doi ?? "nil")", category: "pdf")
-            await MainActor.run { isDownloading = false }
-            return
-        }
-
-        Logger.files.infoCapture("[NotesTab] Downloading PDF from: \(resolvedURL.absoluteString)", category: "pdf")
-
         do {
-            // Download to temp location
-            Logger.files.infoCapture("[NotesTab] Starting URLSession download...", category: "pdf")
-            let (tempURL, response) = try await URLSession.shared.download(from: resolvedURL)
-
-            // Log HTTP response details
-            if let httpResponse = response as? HTTPURLResponse {
-                let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
-                Logger.files.infoCapture("[NotesTab] Download response: HTTP \(httpResponse.statusCode), Content-Type: \(contentType)", category: "pdf")
-                if httpResponse.statusCode != 200 {
-                    Logger.files.warningCapture("[NotesTab] Non-200 HTTP status!", category: "pdf")
-                }
-            }
-
-            // Validate it's actually a PDF (check for %PDF header)
-            let fileHandle = try FileHandle(forReadingFrom: tempURL)
-            let header = fileHandle.readData(ofLength: 100)
-            try fileHandle.close()
-
-            // Log header bytes for debugging
-            let headerHex = header.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
-            Logger.files.infoCapture("[NotesTab] PDF validation - first 16 bytes: \(headerHex)", category: "pdf")
-
-            guard header.count >= 4,
-                  header[0] == 0x25, // %
-                  header[1] == 0x50, // P
-                  header[2] == 0x44, // D
-                  header[3] == 0x46  // F
-            else {
-                Logger.files.warningCapture("[NotesTab] Downloaded file is NOT a valid PDF", category: "pdf")
-                if let headerString = String(data: header, encoding: .utf8) {
-                    Logger.files.warningCapture("[NotesTab] Received content preview: \(headerString)", category: "pdf")
-                }
-                try? FileManager.default.removeItem(at: tempURL)
-                await MainActor.run { isDownloading = false }
-                return
-            }
-
-            Logger.files.infoCapture("[NotesTab] PDF header validation PASSED", category: "pdf")
-
-            // Import into library using PDFManager
-            guard let library = libraryManager.activeLibrary else {
-                Logger.files.errorCapture("[NotesTab] No active library for PDF import", category: "pdf")
-                await MainActor.run { isDownloading = false }
-                return
-            }
-
-            Logger.files.infoCapture("[NotesTab] Importing PDF via PDFManager...", category: "pdf")
-            try AttachmentManager.shared.importPDF(from: tempURL, for: publication.id, in: library.id)
-            Logger.files.infoCapture("[NotesTab] PDF import SUCCESS", category: "pdf")
-
-            // Refresh linkedFile
+            let local = try await PDFAcquisitionService.shared.acquire(publicationID: pubID, policy: .interactive)
             await MainActor.run {
                 isDownloading = false
-                linkedFile = publication.linkedFiles.first(where: { $0.isPDF }) ?? publication.linkedFiles.first
+                guard local != nil else {
+                    Logger.files.infoCapture("[NotesTab] downloadPDF(): no PDF source available", category: "pdf")
+                    return
+                }
+                let files = RustStoreAdapter.shared.listLinkedFiles(publicationId: pubID)
+                linkedFile = files.first(where: { $0.isPDF }) ?? files.first
                 Logger.files.infoCapture("[NotesTab] downloadPDF() complete - PDF loaded", category: "pdf")
             }
         } catch {
             Logger.files.errorCapture("[NotesTab] Download/import FAILED: \(error.localizedDescription)", category: "pdf")
-            if let urlError = error as? URLError {
-                Logger.files.errorCapture("[NotesTab]   URLError code: \(urlError.code.rawValue)", category: "pdf")
-            }
             await MainActor.run { isDownloading = false }
         }
     }

@@ -56,14 +56,22 @@ public final class RemarkableSettingsStore {
 
     /// The tablet's address on this network. Printed on the tablet under
     /// Settings → Help → Copyrights and licenses, alongside the password.
+    /// Persisted (ADR-025 P7): these three were plain vars and the pairing
+    /// was lost on every relaunch.
+    @ObservationIgnored
+    @AppStorage("remarkable.wifiHost")
     public var wifiHost: String = ""
 
     /// SSH port; the tablet's default is 22.
+    @ObservationIgnored
+    @AppStorage("remarkable.wifiPort")
     public var wifiPort: Int = 22
 
     /// The host key seen when the tablet was first paired. Trust-on-first-use:
     /// once stored, a tablet presenting a different key is refused before the
     /// password is sent.
+    @ObservationIgnored
+    @AppStorage("remarkable.wifiFingerprint")
     public var wifiFingerprint: String?
 
     /// Security-scoped bookmark for the local folder.

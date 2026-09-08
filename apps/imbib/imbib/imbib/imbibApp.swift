@@ -513,6 +513,13 @@ struct imbibApp: App {
 
                 await InboxCoordinator.shared.start()
                 appLogger.info("InboxCoordinator started")
+
+                // reMarkable USB mirror (ADR-025 P7): registrar → connection
+                // monitor → sync coordinator → source fetcher → OCR sweep.
+                // Inert without a device record; automatic work waits for
+                // the shared 90 s startup gate (only "Sync now" bypasses it).
+                await EInkServices.shared.start()
+                appLogger.info("EInkServices started")
             }()
 
             // Server start sits here — after File Provider + the migrator,
