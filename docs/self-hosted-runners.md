@@ -78,6 +78,28 @@ The launcher is a separate file rather than a renamed or signed `runsvc.sh`
 because the runner replaces its own files on upgrade, and a shell script's
 signature lives in extended attributes that any rewrite drops.
 
+### Why reloading a runner agent is delicate
+
+Two traps, both of which took `impress-mac` offline before the script handled
+them. Anything else that reloads these agents needs to know about both.
+
+1. **`launchctl bootout` is asynchronous.** Bootstrapping a label that has not
+   finished unloading fails with `Bootstrap failed: 5: Input/output error`.
+   Poll `launchctl list` until the label is gone first.
+2. **`runsvc.sh` stops its own service on a clean exit.** Its log says
+   `Runner listener exit with 0 return code, stop the service, no retry
+   needed` — it unloads its own launchd job, seconds *after* the bootout
+   returns. A bootstrap issued in that gap is registered and then torn down by
+   the previous incarnation's shutdown. Waiting for the label to disappear
+   does not cover it: the label disappears, reappears on the bootstrap, and is
+   removed again. The runner's plist has `RunAtLoad` but **no `KeepAlive`**, so
+   nothing brings it back.
+
+The script settles for 10s after the unload, and after bootstrapping confirms
+the job is still loaded 10s later rather than merely present. If a reload does
+fail it restores the original agent — a cosmetic change must never leave a
+runner down.
+
 ## Restarting a runner
 
 `.env` changes need a listener restart. Restarting kills any job in flight —

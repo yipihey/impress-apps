@@ -134,11 +134,42 @@ reload_agent() {
         echo "  $name: agent would not unload after 60s"
         return 1
     fi
-    launchctl bootstrap "gui/$UID" "$plist" 2>&1 | sed 's/^/    /'
-    for _ in $(seq 1 15); do
-        launchctl list | grep -qF "$label" && return 0
+    # Capture rather than pipe: the output is wanted in the failure message,
+    # and a caller's grep filter must not be able to swallow the one line that
+    # explains what went wrong.
+    # Let the OLD incarnation finish dying before starting a new one.
+    #
+    # `runsvc.sh` does not merely exit when its listener shuts down cleanly —
+    # it STOPS THE SERVICE ("Runner listener exit with 0 return code, stop the
+    # service, no retry needed"), i.e. it unloads its own launchd job. That
+    # unload lands seconds after the bootout returns, so a bootstrap issued
+    # immediately gets registered and then torn down by the previous
+    # incarnation's shutdown. The job vanishes, and with no KeepAlive in the
+    # runner's plist nothing brings it back — which is how impress-mac ended
+    # up offline twice. Waiting for the label to disappear is not enough: it
+    # disappears, reappears on bootstrap, and is removed again.
+    sleep 10
+    bootstrap_out="$(launchctl bootstrap "gui/$UID" "$plist" 2>&1)"
+    # 45s, not 15: on a Mac running four runners plus their Xcode builds,
+    # launchd has taken longer than 15s to register a job whose program path
+    # changed, and the old window turned that into a spurious rollback of a
+    # bootstrap that had actually succeeded.
+    for _ in $(seq 1 45); do
+        if launchctl list | grep -qF "$label"; then
+            # Appearing is not surviving. Confirm it is STILL there after the
+            # old incarnation's self-stop would have landed; a job that is
+            # about to be torn down looks identical to a healthy one.
+            sleep 10
+            if launchctl list | grep -qF "$label"; then
+                return 0
+            fi
+            echo "  $name: agent loaded then vanished — the previous incarnation stopped the service under it"
+            return 1
+        fi
         sleep 1
     done
+    echo "  $name: agent did not appear in launchctl within 45s of bootstrap"
+    [ -n "$bootstrap_out" ] && echo "  $name: launchctl said: $bootstrap_out"
     return 1
 }
 
