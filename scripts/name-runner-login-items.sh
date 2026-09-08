@@ -65,6 +65,19 @@ process_runner() {
         echo "  $name: no LaunchAgent — run its svc.sh install first"
         return
     fi
+    # Already done? Then do NOTHING — not "do it again harmlessly".
+    #
+    # Re-running is supposed to be free, and rewriting a launcher that is
+    # already correct is not: it bounces a healthy runner, and an agent that
+    # picked up a job since the busy check above can miss the unload window,
+    # which then costs a second bounce to roll back. This happened to
+    # impress-mac-3 on the very first re-run.
+    current="$(plutil -extract ProgramArguments.0 raw "$plist" 2>/dev/null || true)"
+    if [ "$current" = "$launcher" ] && [ -x "$launcher" ] && codesign -v "$launcher" 2>/dev/null; then
+        echo "  $name: already named and signed — nothing to do"
+        return 0
+    fi
+
     if [ "$explicit" != "yes" ] && is_busy "$dir"; then
         echo "  $name: BUSY with a job — skipped (name it explicitly to interrupt it)"
         return
@@ -113,12 +126,12 @@ LAUNCHER
 reload_agent() {
     local name="$1" plist="$2" label="$LABEL_PREFIX.$1"
     launchctl bootout "gui/$UID/$label" 2>/dev/null || true
-    for _ in $(seq 1 30); do
+    for _ in $(seq 1 60); do
         launchctl list | grep -qF "$label" || break
         sleep 1
     done
     if launchctl list | grep -qF "$label"; then
-        echo "  $name: agent would not unload after 30s"
+        echo "  $name: agent would not unload after 60s"
         return 1
     fi
     launchctl bootstrap "gui/$UID" "$plist" 2>&1 | sed 's/^/    /'
