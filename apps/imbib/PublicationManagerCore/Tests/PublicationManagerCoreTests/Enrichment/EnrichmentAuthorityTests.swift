@@ -169,3 +169,50 @@ final class EnrichmentPreferencesMirrorTests: XCTestCase {
         )
     }
 }
+
+// MARK: - The settings the coordinator actually runs on
+
+/// `EnrichmentCoordinator.init` used to build a `DefaultEnrichmentSettingsProvider`
+/// around four literals and hand it to both the enrichment service and the
+/// background scheduler, so nothing in the Settings pane reached either one.
+/// The literals equalled `EnrichmentSettings.default`, which is precisely why
+/// it survived: it was only wrong for the users who had changed something.
+final class EnrichmentCoordinatorSettingsTests: XCTestCase {
+
+    /// A provider that is deliberately NOT the defaults, so "did the
+    /// coordinator read it?" has an unambiguous answer.
+    private struct StubProvider: EnrichmentSettingsProvider {
+        var preferredSource: EnrichmentSource { .openalex }
+        var sourcePriority: [EnrichmentSource] { [.openalex, .ads] }
+        var autoSyncEnabled: Bool { false }
+        var refreshIntervalDays: Int { 42 }
+    }
+
+    func testCoordinatorReadsTheProviderItWasGiven() async {
+        let coordinator = EnrichmentCoordinator(settingsProvider: StubProvider())
+        let service = await coordinator.enrichmentService
+        let provider = await service.settingsProviderForTesting
+        let priority = await provider.sourcePriority
+        let autoSync = await provider.autoSyncEnabled
+        XCTAssertEqual(
+            priority, [.openalex, .ads],
+            "the coordinator must pass the caller's settings through, not four literals"
+        )
+        XCTAssertFalse(
+            autoSync,
+            "auto-sync off has to reach the service; it never did while the provider was hardcoded to true"
+        )
+    }
+
+    /// The default is the REAL store — the one the Settings pane writes and
+    /// iCloud syncs — not a fresh hardcoded copy of the defaults.
+    func testDefaultProviderIsTheSharedSettingsStore() async {
+        let coordinator = EnrichmentCoordinator()
+        let service = await coordinator.enrichmentService
+        let provider = await service.settingsProviderForTesting
+        XCTAssertTrue(
+            provider is EnrichmentSettingsStore,
+            "an enrichment run must read the settings the user can actually edit"
+        )
+    }
+}

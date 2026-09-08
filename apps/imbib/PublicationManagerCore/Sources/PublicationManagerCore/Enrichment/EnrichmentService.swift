@@ -41,6 +41,15 @@ public actor EnrichmentService {
     private let settingsProvider: EnrichmentSettingsProvider
     private let queue: EnrichmentQueue
 
+    /// Test seam: which provider this service actually consults.
+    ///
+    /// Worth having because the answer was wrong for a long time and nothing
+    /// could see it — `EnrichmentCoordinator` passed four literals here while
+    /// the user's settings sat unread in `EnrichmentSettingsStore`, and the
+    /// literals matched the defaults, so every observable value agreed until
+    /// somebody changed a setting.
+    var settingsProviderForTesting: EnrichmentSettingsProvider { settingsProvider }
+
     // MARK: - State
 
     private var isBackgroundSyncRunning = false

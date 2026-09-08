@@ -39,6 +39,67 @@ job.
 The four homes were seeded as APFS clones of the original `~/.rustup`
 (`cp -Rc`), so they cost no disk until they diverge.
 
+## Login Items shows four identical rows
+
+macOS lists every LaunchAgent under **Login Items & Extensions**, labelled with
+its program's *file name*. All four runners ship a launcher called `runsvc.sh`,
+one per runner directory, so the list reads:
+
+```
+runsvc.sh   Item from unidentified developer
+runsvc.sh   Item from unidentified developer
+runsvc.sh   Item from unidentified developer
+runsvc.sh   Item from unidentified developer
+```
+
+Nothing there says which runner a row belongs to, so none of them can be
+switched off on purpose, and each registration fires an "App Background
+Activity" notification for a name that means nothing.
+
+`scripts/name-runner-login-items.sh` fixes it: each runner gets a distinctly
+named launcher (`GitHub Runner impress-mac-3`) beside its `runsvc.sh`, signed
+with the development identity, and its LaunchAgent points at that instead. The
+rows become nameable and attributed.
+
+```bash
+scripts/name-runner-login-items.sh
+```
+
+Two things to know:
+
+- **Re-run it after `svc.sh install`.** Registering a runner service rewrites
+  the LaunchAgent back to `runsvc.sh`, so a runner upgrade undoes this. The
+  script is idempotent.
+- **It skips a runner that is mid-job**, because re-registering the agent kills
+  the job (GitHub re-queues it). Name a runner explicitly to interrupt it, or
+  just re-run the script later.
+
+The launcher is a separate file rather than a renamed or signed `runsvc.sh`
+because the runner replaces its own files on upgrade, and a shell script's
+signature lives in extended attributes that any rewrite drops.
+
+### Why reloading a runner agent is delicate
+
+Two traps, both of which took `impress-mac` offline before the script handled
+them. Anything else that reloads these agents needs to know about both.
+
+1. **`launchctl bootout` is asynchronous.** Bootstrapping a label that has not
+   finished unloading fails with `Bootstrap failed: 5: Input/output error`.
+   Poll `launchctl list` until the label is gone first.
+2. **`runsvc.sh` stops its own service on a clean exit.** Its log says
+   `Runner listener exit with 0 return code, stop the service, no retry
+   needed` — it unloads its own launchd job, seconds *after* the bootout
+   returns. A bootstrap issued in that gap is registered and then torn down by
+   the previous incarnation's shutdown. Waiting for the label to disappear
+   does not cover it: the label disappears, reappears on the bootstrap, and is
+   removed again. The runner's plist has `RunAtLoad` but **no `KeepAlive`**, so
+   nothing brings it back.
+
+The script settles for 10s after the unload, and after bootstrapping confirms
+the job is still loaded 10s later rather than merely present. If a reload does
+fail it restores the original agent — a cosmetic change must never leave a
+runner down.
+
 ## Restarting a runner
 
 `.env` changes need a listener restart. Restarting kills any job in flight —
