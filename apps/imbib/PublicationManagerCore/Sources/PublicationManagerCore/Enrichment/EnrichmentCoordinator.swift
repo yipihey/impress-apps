@@ -55,19 +55,31 @@ public actor EnrichmentCoordinator {
 
     // MARK: - Initialization
 
+    /// - Parameters:
+    ///   - credentialManager: source of the ADS API key.
+    ///   - settingsProvider: where the user's enrichment settings come from.
+    ///     Defaults to the real store — the one the Settings pane writes and
+    ///     iCloud syncs.
+    ///
+    /// That default is the fix for a settings surface that did nothing. This
+    /// initializer used to build a `DefaultEnrichmentSettingsProvider` around
+    /// four literals and hand it to both the service and the scheduler, so
+    /// `sourcePriority`, `preferredSource`, `refreshIntervalDays` and
+    /// `autoSyncEnabled` were read from that hardcoded copy and never from
+    /// `EnrichmentSettingsStore`. Turning auto-sync OFF in Settings left the
+    /// background sweep running; reordering sources changed nothing. The
+    /// literals happened to equal `EnrichmentSettings.default`, which is
+    /// exactly why it went unnoticed: it was only wrong for the users who had
+    /// changed something.
     public init(
-        credentialManager: CredentialManager = .shared
+        credentialManager: CredentialManager = .shared,
+        settingsProvider: EnrichmentSettingsProvider = EnrichmentSettingsStore.shared
     ) {
         // Create enrichment plugins - ADS only
         let ads = ADSSource(credentialManager: credentialManager)
         self.adsSource = ads
 
-        let settings = DefaultEnrichmentSettingsProvider(settings: EnrichmentSettings(
-            preferredSource: .ads,
-            sourcePriority: [.ads],
-            autoSyncEnabled: true,
-            refreshIntervalDays: 7
-        ))
+        let settings = settingsProvider
 
         // Create service with ADS plugin for references/citations
         let svc = EnrichmentService(
