@@ -42,7 +42,7 @@ public enum EInkMirrorState: String, Sendable, Hashable, CaseIterable {
         switch self {
         case .queued: return "Queued for reMarkable"
         case .awaitingSource: return "Awaiting PDF"
-        case .awaitingFolder: return "Awaiting folder on reMarkable"
+        case .awaitingFolder: return "Waiting for a folder on reMarkable"
         case .uploaded: return "On reMarkable"
         case .stale: return "Changed since upload"
         case .removedOnDevice: return "Removed on reMarkable"
@@ -55,7 +55,8 @@ public enum EInkMirrorState: String, Sendable, Hashable, CaseIterable {
         switch self {
         case .queued: return "Will be sent the next time the tablet is connected."
         case .awaitingSource: return "No PDF or ePUB is on this Mac yet; it is sent once one arrives."
-        case .awaitingFolder: return "The tablet is missing a folder this paper belongs in; create it from the checklist in Settings."
+        case .awaitingFolder:
+            return "The tablet has no folder to file this in, and its USB interface gives imbib no way to make one — create it on the tablet."
         case .uploaded: return "A copy is on the tablet."
         case .stale: return "The PDF changed after it was sent; update the copy on the tablet."
         case .removedOnDevice: return "The copy was deleted on the tablet; send it again if you want it back."

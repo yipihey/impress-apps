@@ -199,15 +199,37 @@ fn individual_mode_uploads_marked_papers_into_their_collection_folders() {
 }
 
 #[test]
-fn a_missing_folder_holds_the_paper_and_the_checklist_names_every_level() {
+fn a_missing_folder_files_the_paper_in_the_nearest_one_that_exists() {
     let f = fixture("individual", "checklist");
     let mock = MockTransport::new();
     mock.add_folder("f-imbib", "", "imbib");
     mock.add_folder("f-lib", "f-imbib", "Library");
     f.store.eink_mark(None, vec![f.abel.clone()]).unwrap();
 
+    // The tablet has no folder API, so a paper whose collection folder is
+    // missing goes into the deepest folder on its path that does exist —
+    // and still says where it belongs.
     let report = sync(&f, &mock);
-    assert!(report.uploaded.is_empty());
+    assert_eq!(report.uploaded, vec![f.abel.clone()], "{:?}", report.trace);
+    assert_eq!(report.summary.filed_in_nearest, 1);
+    assert_eq!(state_of(&f, &f.abel).as_deref(), Some("uploaded"));
+    let row = f
+        .store
+        .eink_mirror_for_publication(None, f.abel.clone())
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.remote_path.as_deref(), Some("imbib/Library"));
+    assert_eq!(
+        row.desired_path.as_deref(),
+        Some("imbib/Library/Cosmology/Reionization")
+    );
+    let doc = mock
+        .find_by_name("Abel 2002 – The Formation of the First Star in the Universe")
+        .unwrap();
+    assert_eq!(doc.parent, "f-lib");
+
+    // The checklist still names every level, parents first, so the user can
+    // make the folders whenever they like.
     let needs: Vec<String> = report.folder_needs.iter().map(|n| n.display()).collect();
     assert_eq!(
         needs,
@@ -218,6 +240,58 @@ fn a_missing_folder_holds_the_paper_and_the_checklist_names_every_level() {
         "parents first"
     );
     assert_eq!(report.folder_needs[0].parent_id.as_deref(), Some("f-lib"));
+
+    // Creating the folders does not move the copy (the tablet has no move
+    // endpoint either) — but when the user drags it in, the next sync
+    // notices and stops flagging it.
+    mock.add_folder("f-cosmo", "f-lib", "Cosmology");
+    mock.add_folder("f-reion", "f-cosmo", "Reionization");
+    let report = sync(&f, &mock);
+    assert!(report.uploaded.is_empty(), "no silent second copy");
+    assert!(report.folder_needs.is_empty());
+    let still = f
+        .store
+        .eink_mirror_for_publication(None, f.abel.clone())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        still.desired_path.as_deref(),
+        Some("imbib/Library/Cosmology/Reionization")
+    );
+
+    mock.move_document(&doc.id, "f-reion");
+    sync(&f, &mock);
+    let moved = f
+        .store
+        .eink_mirror_for_publication(None, f.abel.clone())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        moved.remote_path.as_deref(),
+        Some("imbib/Library/Cosmology/Reionization")
+    );
+    assert_eq!(moved.desired_path, None, "filed where it belongs now");
+}
+
+#[test]
+fn holding_is_still_an_option_and_a_missing_root_folder_always_holds() {
+    let f = fixture("individual", "checklist");
+    f.store
+        .eink_configure_device(EinkDeviceConfigInput {
+            id: Some(f.device.clone()),
+            file_in_nearest_folder: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    let mock = MockTransport::new();
+    mock.add_folder("f-imbib", "", "imbib");
+    mock.add_folder("f-lib", "f-imbib", "Library");
+    f.store.eink_mark(None, vec![f.abel.clone()]).unwrap();
+
+    let report = sync(&f, &mock);
+    assert!(report.uploaded.is_empty());
+    assert_eq!(report.summary.awaiting_folder, 1);
+    assert_eq!(report.summary.filed_in_nearest, 0);
     assert_eq!(state_of(&f, &f.abel).as_deref(), Some("awaiting_folder"));
 
     // The user creates the folders on the tablet; the next sync uploads.
@@ -227,6 +301,37 @@ fn a_missing_folder_holds_the_paper_and_the_checklist_names_every_level() {
     assert_eq!(report.uploaded, vec![f.abel.clone()]);
     assert!(report.folder_needs.is_empty());
     assert_eq!(state_of(&f, &f.abel).as_deref(), Some("uploaded"));
+}
+
+#[test]
+fn nothing_is_filed_above_the_root_folder_the_user_must_create() {
+    let f = fixture("individual", "checklist");
+    // An empty tablet: not even `imbib` exists. Filing into the tablet's
+    // own root would scatter papers among the user's own documents, so the
+    // paper waits and the row says which single folder to create.
+    let mock = MockTransport::new();
+    f.store.eink_mark(None, vec![f.abel.clone()]).unwrap();
+
+    let report = sync(&f, &mock);
+    assert!(report.uploaded.is_empty());
+    assert_eq!(report.summary.awaiting_folder, 1);
+    assert_eq!(report.summary.filed_in_nearest, 0);
+    assert_eq!(state_of(&f, &f.abel).as_deref(), Some("awaiting_folder"));
+    let row = f
+        .store
+        .eink_mirror_for_publication(None, f.abel.clone())
+        .unwrap()
+        .unwrap();
+    let error = row.last_error.unwrap_or_default();
+    assert!(
+        error.contains("create a folder called imbib"),
+        "names the one folder to make, got {error:?}"
+    );
+    assert_eq!(
+        report.folder_needs.first().map(|n| n.display()),
+        Some("imbib".to_string()),
+        "the checklist starts at the root"
+    );
 }
 
 #[test]

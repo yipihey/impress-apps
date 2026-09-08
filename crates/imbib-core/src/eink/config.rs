@@ -181,6 +181,11 @@ pub struct EinkDeviceConfig {
     pub include_library_level: bool,
     pub include_inbox: bool,
     pub folder_strategy: FolderStrategy,
+    /// When the exact folder is missing, file the paper in the deepest
+    /// folder on the path that does exist (never above the root folder)
+    /// instead of holding it. The tablet's USB interface cannot create
+    /// folders, so holding means waiting on the user forever.
+    pub file_in_nearest_folder: bool,
     pub upload_format: UploadFormat,
     pub auto_fetch_source: bool,
     pub import_annotated_pdf: bool,
@@ -211,6 +216,7 @@ impl EinkDeviceConfig {
             include_library_level: true,
             include_inbox: false,
             folder_strategy: FolderStrategy::Checklist,
+            file_in_nearest_folder: true,
             upload_format: UploadFormat::Rmdoc,
             auto_fetch_source: true,
             import_annotated_pdf: true,
@@ -258,6 +264,11 @@ impl EinkDeviceConfig {
             folder_strategy: str_of(p, "folder_strategy")
                 .and_then(|value| FolderStrategy::parse(&value))
                 .unwrap_or(defaults.folder_strategy),
+            file_in_nearest_folder: bool_or(
+                p,
+                "file_in_nearest_folder",
+                defaults.file_in_nearest_folder,
+            ),
             upload_format: str_of(p, "upload_format")
                 .and_then(|value| UploadFormat::parse(&value))
                 .unwrap_or(defaults.upload_format),
@@ -306,6 +317,10 @@ impl EinkDeviceConfig {
         p.insert(
             "folder_strategy".into(),
             Value::String(self.folder_strategy.as_str().into()),
+        );
+        p.insert(
+            "file_in_nearest_folder".into(),
+            Value::Bool(self.file_in_nearest_folder),
         );
         p.insert(
             "upload_format".into(),

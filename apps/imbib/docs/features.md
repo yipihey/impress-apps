@@ -645,7 +645,7 @@ Mirror papers to a reMarkable over its USB cable, and bring back what you wrote 
 
 - **Two mirror modes**: every paper with a PDF/ePUB, or only the papers you mark — with a list-row marker showing each paper's state (queued, awaiting PDF, awaiting folder, on tablet, stale, removed on tablet, failed)
 - **Automatic PDF fetch**: marking a paper without a PDF fetches one and sends it when it arrives
-- **Folders follow your sidebar**: library and collection folders on the tablet, with a checklist of the ones to create
+- **Folders follow your sidebar**: library and collection folders on the tablet, with a checklist of the ones to create. The tablet's USB interface cannot create a folder, so a paper whose folder is missing is filed in the nearest one that exists (never above `imbib`) and says where it belongs; drag it into place on the tablet and the next sync follows it
 - **Annotation import**: the annotated pages as a second file, highlights with their text, typed notes, handwriting recognised on your Mac; **Append reMarkable notes** on request
 - **Import from reMarkable**: notebooks and documents added on the tablet become publications (or notes) in your library
 - **Agent-ready**: every action is a CLI verb and an MCP tool that works with the app closed
@@ -654,7 +654,7 @@ Mirror papers to a reMarkable over its USB cable, and bring back what you wrote 
 
 1. Turn on the tablet's USB web interface and plug it in
 2. Go to **Settings > E-Ink** and click **Add reMarkable (USB)**
-3. Create the **imbib** folder (and the folders the checklist names) on the tablet
+3. Create one folder called **imbib** on the tablet (imbib cannot create folders over USB; sub-folders are optional)
 4. Press **`e`** on a paper, or **Paper > Mirror to reMarkable** (Control+Command+E)
 
 ### Keyboard Shortcuts

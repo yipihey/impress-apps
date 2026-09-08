@@ -81,6 +81,7 @@ public final class EInkMirrorModel {
                 "eink.status devices=\(fresh.devices.count) marker=\(fresh.markerDeviceId ?? "none") "
                     + "queued=\(fresh.counts.queued) awaitingSource=\(fresh.counts.awaitingSource) "
                     + "awaitingFolder=\(fresh.counts.awaitingFolder) uploaded=\(fresh.counts.uploaded) "
+                    + "filedInNearest=\(fresh.counts.filedInNearest) "
                     + "stale=\(fresh.counts.stale) failed=\(fresh.counts.failed)",
                 category: "eink")
         }

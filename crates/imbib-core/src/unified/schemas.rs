@@ -284,6 +284,7 @@ pub fn eink_device_schema() -> Schema {
             field("include_library_level", FieldType::Bool, false),
             field("include_inbox", FieldType::Bool, false),
             optional_string("folder_strategy"),
+            field("file_in_nearest_folder", FieldType::Bool, false),
             optional_string("upload_format"),
             field("auto_fetch_source", FieldType::Bool, false),
             field("import_annotated_pdf", FieldType::Bool, false),
@@ -323,6 +324,9 @@ pub fn eink_mirror_schema() -> Schema {
             optional_string("remote_parent_id"),
             optional_string("remote_name"),
             optional_string("remote_path"),
+            // Set only when the paper is filed above where it belongs,
+            // because the tablet lacks that folder.
+            optional_string("desired_path"),
             optional_string("uploaded_sha256"),
             optional_int("uploaded_size"),
             optional_int("uploaded_at_ms"),

@@ -37,6 +37,9 @@ public struct EInkSourceFetchEnvironment: Sendable {
     public var acquire: @Sendable (_ publicationId: UUID) async throws -> URL?
     /// At least one PDF arrived this sweep.
     public var onSourceArrived: @Sendable (_ count: Int) async -> Void
+    /// Record on the mirror row why a paper is still waiting (`nil` clears
+    /// it). The log scrolls away; the row is where a researcher looks.
+    public var noteOutcome: @Sendable (_ publicationId: UUID, _ error: String?) async -> Void
     public var observesStore: Bool
 
     public init(
@@ -44,12 +47,14 @@ public struct EInkSourceFetchEnvironment: Sendable {
         awaiting: @escaping @MainActor @Sendable () -> [EInkAwaitingSourceRecord],
         acquire: @escaping @Sendable (UUID) async throws -> URL?,
         onSourceArrived: @escaping @Sendable (Int) async -> Void,
+        noteOutcome: @escaping @Sendable (UUID, String?) async -> Void = { _, _ in },
         observesStore: Bool = true
     ) {
         self.isConfigured = isConfigured
         self.awaiting = awaiting
         self.acquire = acquire
         self.onSourceArrived = onSourceArrived
+        self.noteOutcome = noteOutcome
         self.observesStore = observesStore
     }
 }
@@ -190,6 +195,7 @@ public actor EInkSourceFetcher {
         }
 
         let acquire = environment.acquire
+        let note = environment.noteOutcome
         let width = maxConcurrent
         let arrived = await withTaskGroup(of: Int.self, returning: Int.self) { group in
             var iterator = due.makeIterator()
@@ -202,13 +208,18 @@ public actor EInkSourceFetcher {
                             // Save: the file is on disk and linked.
                             Logger.library.infoCapture(
                                 "eink.fetch \(row.citeKey): PDF arrived (\(url.lastPathComponent))", category: "eink")
+                            await note(row.publicationId, nil)
                             return 1
                         }
+                        let reason = "No PDF could be found to download; attach one by hand, "
+                            + "or add a DOI, arXiv id or URL."
                         Logger.library.infoCapture(
                             "eink.fetch \(row.citeKey): no direct source; stays awaiting_source", category: "eink")
+                        await note(row.publicationId, reason)
                     } catch {
                         Logger.library.warningCapture(
                             "eink.fetch \(row.citeKey): \(error.localizedDescription)", category: "eink")
+                        await note(row.publicationId, "Could not download a PDF: \(error.localizedDescription)")
                     }
                     return 0
                 }

@@ -33,6 +33,9 @@ pub struct EinkDeviceRecord {
     pub include_library_level: bool,
     pub include_inbox: bool,
     pub folder_strategy: String,
+    /// When the tablet lacks the exact folder, file the paper in the deepest
+    /// one on the path that does exist instead of holding it.
+    pub file_in_nearest_folder: bool,
     pub upload_format: String,
     pub auto_fetch_source: bool,
     pub import_annotated_pdf: bool,
@@ -61,6 +64,7 @@ impl From<&eink::EinkDeviceRow> for EinkDeviceRecord {
             include_library_level: r.include_library_level,
             include_inbox: r.include_inbox,
             folder_strategy: r.folder_strategy.clone(),
+            file_in_nearest_folder: r.file_in_nearest_folder,
             upload_format: r.upload_format.clone(),
             auto_fetch_source: r.auto_fetch_source,
             import_annotated_pdf: r.import_annotated_pdf,
@@ -99,6 +103,10 @@ pub struct EinkDeviceInput {
     pub include_library_level: Option<bool>,
     #[serde(default)]
     pub include_inbox: Option<bool>,
+    /// File a paper in the nearest existing folder when the tablet lacks the
+    /// exact one (it has no folder API, so the alternative is waiting).
+    #[serde(default)]
+    pub file_in_nearest_folder: Option<bool>,
     /// `rmdoc` (exact names) or `pdf` (bare file, shown as `<name>.pdf`).
     #[serde(default)]
     pub upload_format: Option<String>,
@@ -135,6 +143,7 @@ impl From<EinkDeviceInput> for eink::EinkDeviceConfigInput {
             include_library_level: i.include_library_level,
             include_inbox: i.include_inbox,
             folder_strategy: None,
+            file_in_nearest_folder: i.file_in_nearest_folder,
             upload_format: i.upload_format,
             auto_fetch_source: i.auto_fetch_source,
             import_annotated_pdf: i.import_annotated_pdf,
@@ -161,6 +170,9 @@ pub struct EinkMirrorRecord {
     pub remote_id: Option<String>,
     pub remote_name: Option<String>,
     pub remote_path: Option<String>,
+    /// Set when the copy sits above where it belongs, because the tablet has
+    /// no such folder and no way to be told to make one.
+    pub desired_path: Option<String>,
     pub uploaded_at_ms: Option<i64>,
     pub remote_modified_ms: Option<i64>,
     pub imported_modified_ms: Option<i64>,
@@ -181,6 +193,7 @@ impl From<&eink::EinkMirrorRow> for EinkMirrorRecord {
             remote_id: r.remote_id.clone(),
             remote_name: r.remote_name.clone(),
             remote_path: r.remote_path.clone(),
+            desired_path: r.desired_path.clone(),
             uploaded_at_ms: r.uploaded_at_ms,
             remote_modified_ms: r.remote_modified_ms,
             imported_modified_ms: r.imported_modified_ms,
@@ -203,6 +216,8 @@ pub struct EinkCountsRecord {
     pub failed: u32,
     pub unmarked: u32,
     pub new_annotations: u32,
+    /// On the tablet, but above the folder they belong in.
+    pub filed_in_nearest: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
@@ -353,6 +368,9 @@ pub struct EinkSyncRecord {
     pub to_upload: u32,
     pub awaiting_source: u32,
     pub awaiting_folder: u32,
+    /// Uploaded into the nearest existing folder because the tablet lacks
+    /// the exact one.
+    pub filed_in_nearest: u32,
     pub stale: u32,
     pub removed: u32,
     pub to_import: u32,
@@ -381,6 +399,7 @@ impl From<eink::EinkSyncReport> for EinkSyncRecord {
             to_upload: r.summary.to_upload,
             awaiting_source: r.summary.awaiting_source,
             awaiting_folder: r.summary.awaiting_folder,
+            filed_in_nearest: r.summary.filed_in_nearest,
             stale: r.summary.stale,
             removed: r.summary.removed,
             to_import: r.summary.to_import,
@@ -509,6 +528,17 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// their text, typed text, ink groups with OCR text), in page order.
     #[impress_method]
     async fn eink_list_annotations(&self, publication_id: String) -> Vec<AnnotationRecord>;
+    /// Say how an attempt to get a paper's PDF went, so a row waiting for
+    /// its source can name the reason. Only something that can download
+    /// (the app, an agent) knows this; the engine never does. `error`
+    /// absent clears the last one.
+    #[impress_method]
+    async fn eink_note_source_error(
+        &self,
+        publication_id: String,
+        device_id: Option<String>,
+        error: Option<String>,
+    ) -> MutationResult;
     /// Highlight, typed and OCR text from the tablet containing `query`
     /// (case-insensitive), newest first. `limit` 0 = 100.
     #[impress_method]
@@ -586,6 +616,7 @@ impl ImbibEinkService for DefaultImbibEinkService {
                     failed: status.counts.failed,
                     unmarked: status.counts.unmarked,
                     new_annotations: status.counts.new_annotations,
+                    filed_in_nearest: status.counts.filed_in_nearest,
                 },
                 last_sync_at_ms: status.last_sync_at_ms,
                 last_error: status.last_error,
@@ -879,6 +910,30 @@ impl ImbibEinkService for DefaultImbibEinkService {
             })
     }
 
+    async fn eink_note_source_error(
+        &self,
+        publication_id: String,
+        device_id: Option<String>,
+        error: Option<String>,
+    ) -> MutationResult {
+        match self
+            .store
+            .eink_note_source_attempt(device_id, publication_id, error)
+        {
+            Ok(changed) => MutationResult {
+                affected_count: u32::from(changed),
+                ok: true,
+            },
+            Err(e) => {
+                log("eink_note_source_error", e);
+                MutationResult {
+                    affected_count: 0,
+                    ok: false,
+                }
+            }
+        }
+    }
+
     async fn eink_complete_ocr(
         &self,
         annotation_id: String,
@@ -944,6 +999,7 @@ impress_service_impl! {
         eink_list_unmatched(device_id: Option<String>) -> Vec<EinkUnmatchedRecord>,
         eink_import_document(remote_id: String, library_id: Option<String>, collection_id: Option<String>, as_kind: Option<String>, device_id: Option<String>) -> EinkDocumentImportRecord,
         eink_list_annotations(publication_id: String) -> Vec<AnnotationRecord>,
+        eink_note_source_error(publication_id: String, device_id: Option<String>, error: Option<String>) -> MutationResult,
         eink_search_annotations(query: String, limit: u32) -> Vec<AnnotationRecord>,
         eink_pending_ocr(publication_id: Option<String>) -> Vec<EinkOcrJobRecord>,
         eink_complete_ocr(annotation_id: String, text: Option<String>, confidence: f64) -> MutationResult,
@@ -979,6 +1035,7 @@ mod tests {
             "eink-list-unmatched",
             "eink-import-document",
             "eink-list-annotations",
+            "eink-note-source-error",
             "eink-search-annotations",
             "eink-pending-ocr",
             "eink-complete-ocr",

@@ -27,12 +27,13 @@ final class EInkSurfaceModelTests: XCTestCase {
     private func mirrorRow(
         state: String, marked: Bool = true, resend: Bool = false,
         remotePath: String? = "imbib/Library/Cosmology", annotatedFileId: String? = nil,
-        lastError: String? = nil
+        lastError: String? = nil, desiredPath: String? = nil
     ) -> EInkMirrorRecord {
         EInkMirrorRecord(from: EinkMirrorRow(
             id: "m-1", publicationId: UUID().uuidString, deviceId: "dev-1", marked: marked, markedAtMs: 1,
             linkedFileId: nil, sourceKind: "pdf", remoteId: "r-1", remoteParentId: nil, remoteName: nil,
-            remotePath: remotePath, uploadedSha256: nil, uploadedAtMs: 2, state: state, lastError: lastError,
+            remotePath: remotePath, desiredPath: desiredPath, uploadedSha256: nil, uploadedAtMs: 2,
+            state: state, lastError: lastError,
             attempts: 0, lastAttemptMs: nil, remoteModifiedMs: nil, importedModifiedMs: nil,
             annotatedFileId: annotatedFileId, resend: resend, createdMs: 0, modifiedMs: 0))!
     }
@@ -70,6 +71,7 @@ final class EInkSurfaceModelTests: XCTestCase {
                 mirrorMode: device.mirrorMode, rootFolderName: device.rootFolderName,
                 mirrorCollections: device.mirrorCollections, includeLibraryLevel: device.includeLibraryLevel,
                 includeInbox: device.includeInbox, folderStrategy: device.folderStrategy,
+                fileInNearestFolder: device.fileInNearestFolder,
                 uploadFormat: device.uploadFormat, autoFetchSource: device.autoFetchSource,
                 importAnnotatedPdf: device.importAnnotatedPDF, importRmdoc: device.importRmdoc,
                 importHighlights: device.importHighlights, importInk: device.importInk,
@@ -79,7 +81,7 @@ final class EInkSurfaceModelTests: XCTestCase {
         }
         let counts = counts ?? EinkCounts(
             queued: 2, awaitingSource: 1, awaitingFolder: 3, uploaded: 7, stale: 1, removedOnDevice: 0,
-            failed: 1, superseded: 0, unmarked: 0, newAnnotations: 0)
+            failed: 1, superseded: 0, unmarked: 0, newAnnotations: 0, filedInNearest: 0)
         return EInkStatusSnapshot(from: EinkStatus(
             devices: rows, markerDeviceId: markerId, defaultDeviceId: defaultId, counts: counts,
             lastSyncAtMs: nil, lastError: nil, legacyMarkerRows: 0))
@@ -142,8 +144,10 @@ final class EInkSurfaceModelTests: XCTestCase {
     func testPaneCountersFollowTheSnapshotInDisplayOrder() {
         let usb = EInkTestSupport.deviceRecord(id: "usb-1")
         let pane = EInkUSBDevicePaneModel(status: status(devices: [usb], defaultId: "usb-1", markerId: "usb-1"))!
-        XCTAssertEqual(pane.counters.map(\.label), ["Queued", "On tablet", "Awaiting PDF", "Awaiting folder", "Stale", "Failed"])
-        XCTAssertEqual(pane.counters.map(\.value), [2, 7, 1, 3, 1, 1])
+        XCTAssertEqual(
+            pane.counters.map(\.label),
+            ["Queued", "On tablet", "Awaiting PDF", "Awaiting folder", "Filed in a parent folder", "Stale", "Failed"])
+        XCTAssertEqual(pane.counters.map(\.value), [2, 7, 1, 3, 0, 1, 1])
     }
 
     func testModeFooterNamesTheMarkerAndTheKeys() {
@@ -194,6 +198,24 @@ final class EInkSurfaceModelTests: XCTestCase {
         XCTAssertEqual(actions(mirrorRow(state: "unmarked", marked: false), annotated: true), [.mirror, .showAnnotatedPDF],
                        "the rendition outlives the mark")
         XCTAssertEqual(actions(mirrorRow(state: "failed", lastError: "HTTP 500")), [.remove])
+    }
+
+    /// A copy filed above its folder must say so and say what to do — the
+    /// tablet has no folder API, so imbib cannot put it right on its own.
+    func testInfoSectionNamesTheFolderAPaperBelongsInWhenItIsFiledHigher() {
+        let filedHigher = EInkMirrorSectionModel(
+            record: mirrorRow(
+                state: "uploaded", remotePath: "imbib",
+                desiredPath: "imbib/Library/Cosmology"),
+            showsIndividualControls: true, source: localSource(), annotatedFile: nil)
+        let note = filedHigher.filedInNearestNote ?? ""
+        XCTAssertTrue(note.contains("imbib › Library › Cosmology"), "names the folder, got \(note)")
+        XCTAssertTrue(note.contains("drag"), "says what to do about it, got \(note)")
+
+        let filedRight = EInkMirrorSectionModel(
+            record: mirrorRow(state: "uploaded"),
+            showsIndividualControls: true, source: localSource(), annotatedFile: nil)
+        XCTAssertNil(filedRight.filedInNearestNote, "silent when the copy is where it belongs")
     }
 
     func testInfoSectionTitlesAndSourceLine() {

@@ -1061,6 +1061,15 @@ public protocol ImbibStoreProtocol : AnyObject {
     func einkMirrorForPublication(deviceId: String?, publicationId: String) throws  -> EinkMirrorRow?
     
     /**
+     * Record how the app's attempt to fetch a paper's PDF went, so an
+     * `awaiting_source` row can say why it is still waiting. Only the
+     * running app can download; the engine never can, so without this the
+     * row is a dead end with no reason on it. `error: None` clears a
+     * previous one.
+     */
+    func einkNoteSourceAttempt(deviceId: String?, publicationId: String, error: String?) throws  -> Bool
+    
+    /**
      * Ink rows with a rendered image and no OCR result yet — for the
      * Vision pass on the Swift side. `publication_id: None` = everywhere.
      */
@@ -2869,6 +2878,23 @@ open func einkMirrorForPublication(deviceId: String?, publicationId: String)thro
     uniffi_imbib_core_fn_method_imbibstore_eink_mirror_for_publication(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(deviceId),
         FfiConverterString.lower(publicationId),$0
+    )
+})
+}
+    
+    /**
+     * Record how the app's attempt to fetch a paper's PDF went, so an
+     * `awaiting_source` row can say why it is still waiting. Only the
+     * running app can download; the engine never can, so without this the
+     * row is a dead end with no reason on it. `error: None` clears a
+     * previous one.
+     */
+open func einkNoteSourceAttempt(deviceId: String?, publicationId: String, error: String?)throws  -> Bool {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_eink_note_source_attempt(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(deviceId),
+        FfiConverterString.lower(publicationId),
+        FfiConverterOptionString.lower(error),$0
     )
 })
 }
@@ -9538,13 +9564,22 @@ public struct EinkCounts {
      * Uploaded copies the tablet reports as changed since the last import.
      */
     public var newAnnotations: UInt32
+    /**
+     * Copies filed above where they belong, because the tablet lacks the
+     * folder (it has no folder API; only the user can make one).
+     */
+    public var filedInNearest: UInt32
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(queued: UInt32, awaitingSource: UInt32, awaitingFolder: UInt32, uploaded: UInt32, stale: UInt32, removedOnDevice: UInt32, failed: UInt32, superseded: UInt32, unmarked: UInt32, 
         /**
          * Uploaded copies the tablet reports as changed since the last import.
-         */newAnnotations: UInt32) {
+         */newAnnotations: UInt32, 
+        /**
+         * Copies filed above where they belong, because the tablet lacks the
+         * folder (it has no folder API; only the user can make one).
+         */filedInNearest: UInt32) {
         self.queued = queued
         self.awaitingSource = awaitingSource
         self.awaitingFolder = awaitingFolder
@@ -9555,6 +9590,7 @@ public struct EinkCounts {
         self.superseded = superseded
         self.unmarked = unmarked
         self.newAnnotations = newAnnotations
+        self.filedInNearest = filedInNearest
     }
 }
 
@@ -9592,6 +9628,9 @@ extension EinkCounts: Equatable, Hashable {
         if lhs.newAnnotations != rhs.newAnnotations {
             return false
         }
+        if lhs.filedInNearest != rhs.filedInNearest {
+            return false
+        }
         return true
     }
 
@@ -9606,6 +9645,7 @@ extension EinkCounts: Equatable, Hashable {
         hasher.combine(superseded)
         hasher.combine(unmarked)
         hasher.combine(newAnnotations)
+        hasher.combine(filedInNearest)
     }
 }
 
@@ -9626,7 +9666,8 @@ public struct FfiConverterTypeEinkCounts: FfiConverterRustBuffer {
                 failed: FfiConverterUInt32.read(from: &buf), 
                 superseded: FfiConverterUInt32.read(from: &buf), 
                 unmarked: FfiConverterUInt32.read(from: &buf), 
-                newAnnotations: FfiConverterUInt32.read(from: &buf)
+                newAnnotations: FfiConverterUInt32.read(from: &buf), 
+                filedInNearest: FfiConverterUInt32.read(from: &buf)
         )
     }
 
@@ -9641,6 +9682,7 @@ public struct FfiConverterTypeEinkCounts: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.superseded, into: &buf)
         FfiConverterUInt32.write(value.unmarked, into: &buf)
         FfiConverterUInt32.write(value.newAnnotations, into: &buf)
+        FfiConverterUInt32.write(value.filedInNearest, into: &buf)
     }
 }
 
@@ -9675,6 +9717,7 @@ public struct EinkDeviceConfigInput {
     public var includeLibraryLevel: Bool?
     public var includeInbox: Bool?
     public var folderStrategy: String?
+    public var fileInNearestFolder: Bool?
     public var uploadFormat: String?
     public var autoFetchSource: Bool?
     public var importAnnotatedPdf: Bool?
@@ -9688,7 +9731,7 @@ public struct EinkDeviceConfigInput {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String?, name: String?, transport: String?, baseUrl: String?, mirrorMode: String?, rootFolderName: String?, mirrorCollections: Bool?, includeLibraryLevel: Bool?, includeInbox: Bool?, folderStrategy: String?, uploadFormat: String?, autoFetchSource: Bool?, importAnnotatedPdf: Bool?, importRmdoc: Bool?, importHighlights: Bool?, importInk: Bool?, importTypedText: Bool?, runOcr: Bool?, autoImportOnConnect: Bool?, enabled: Bool?) {
+    public init(id: String?, name: String?, transport: String?, baseUrl: String?, mirrorMode: String?, rootFolderName: String?, mirrorCollections: Bool?, includeLibraryLevel: Bool?, includeInbox: Bool?, folderStrategy: String?, fileInNearestFolder: Bool?, uploadFormat: String?, autoFetchSource: Bool?, importAnnotatedPdf: Bool?, importRmdoc: Bool?, importHighlights: Bool?, importInk: Bool?, importTypedText: Bool?, runOcr: Bool?, autoImportOnConnect: Bool?, enabled: Bool?) {
         self.id = id
         self.name = name
         self.transport = transport
@@ -9699,6 +9742,7 @@ public struct EinkDeviceConfigInput {
         self.includeLibraryLevel = includeLibraryLevel
         self.includeInbox = includeInbox
         self.folderStrategy = folderStrategy
+        self.fileInNearestFolder = fileInNearestFolder
         self.uploadFormat = uploadFormat
         self.autoFetchSource = autoFetchSource
         self.importAnnotatedPdf = importAnnotatedPdf
@@ -9746,6 +9790,9 @@ extension EinkDeviceConfigInput: Equatable, Hashable {
         if lhs.folderStrategy != rhs.folderStrategy {
             return false
         }
+        if lhs.fileInNearestFolder != rhs.fileInNearestFolder {
+            return false
+        }
         if lhs.uploadFormat != rhs.uploadFormat {
             return false
         }
@@ -9790,6 +9837,7 @@ extension EinkDeviceConfigInput: Equatable, Hashable {
         hasher.combine(includeLibraryLevel)
         hasher.combine(includeInbox)
         hasher.combine(folderStrategy)
+        hasher.combine(fileInNearestFolder)
         hasher.combine(uploadFormat)
         hasher.combine(autoFetchSource)
         hasher.combine(importAnnotatedPdf)
@@ -9821,6 +9869,7 @@ public struct FfiConverterTypeEinkDeviceConfigInput: FfiConverterRustBuffer {
                 includeLibraryLevel: FfiConverterOptionBool.read(from: &buf), 
                 includeInbox: FfiConverterOptionBool.read(from: &buf), 
                 folderStrategy: FfiConverterOptionString.read(from: &buf), 
+                fileInNearestFolder: FfiConverterOptionBool.read(from: &buf), 
                 uploadFormat: FfiConverterOptionString.read(from: &buf), 
                 autoFetchSource: FfiConverterOptionBool.read(from: &buf), 
                 importAnnotatedPdf: FfiConverterOptionBool.read(from: &buf), 
@@ -9845,6 +9894,7 @@ public struct FfiConverterTypeEinkDeviceConfigInput: FfiConverterRustBuffer {
         FfiConverterOptionBool.write(value.includeLibraryLevel, into: &buf)
         FfiConverterOptionBool.write(value.includeInbox, into: &buf)
         FfiConverterOptionString.write(value.folderStrategy, into: &buf)
+        FfiConverterOptionBool.write(value.fileInNearestFolder, into: &buf)
         FfiConverterOptionString.write(value.uploadFormat, into: &buf)
         FfiConverterOptionBool.write(value.autoFetchSource, into: &buf)
         FfiConverterOptionBool.write(value.importAnnotatedPdf, into: &buf)
@@ -9895,6 +9945,11 @@ public struct EinkDeviceRow {
      */
     public var folderStrategy: String
     /**
+     * File a paper in the deepest folder that exists when the exact one is
+     * missing, rather than holding it in `awaiting_folder`.
+     */
+    public var fileInNearestFolder: Bool
+    /**
      * `rmdoc` (exact names) or `pdf` (bare file, named `<file>.pdf`).
      */
     public var uploadFormat: String
@@ -9923,6 +9978,10 @@ public struct EinkDeviceRow {
          * `rmdoc` or `checklist`.
          */folderStrategy: String, 
         /**
+         * File a paper in the deepest folder that exists when the exact one is
+         * missing, rather than holding it in `awaiting_folder`.
+         */fileInNearestFolder: Bool, 
+        /**
          * `rmdoc` (exact names) or `pdf` (bare file, named `<file>.pdf`).
          */uploadFormat: String, autoFetchSource: Bool, importAnnotatedPdf: Bool, importRmdoc: Bool, importHighlights: Bool, importInk: Bool, importTypedText: Bool, runOcr: Bool, autoImportOnConnect: Bool, enabled: Bool, lastSyncAtMs: Int64?, lastSeenAtMs: Int64?, syncStartedAtMs: Int64?, lastError: String?, createdMs: Int64) {
         self.id = id
@@ -9935,6 +9994,7 @@ public struct EinkDeviceRow {
         self.includeLibraryLevel = includeLibraryLevel
         self.includeInbox = includeInbox
         self.folderStrategy = folderStrategy
+        self.fileInNearestFolder = fileInNearestFolder
         self.uploadFormat = uploadFormat
         self.autoFetchSource = autoFetchSource
         self.importAnnotatedPdf = importAnnotatedPdf
@@ -9985,6 +10045,9 @@ extension EinkDeviceRow: Equatable, Hashable {
             return false
         }
         if lhs.folderStrategy != rhs.folderStrategy {
+            return false
+        }
+        if lhs.fileInNearestFolder != rhs.fileInNearestFolder {
             return false
         }
         if lhs.uploadFormat != rhs.uploadFormat {
@@ -10046,6 +10109,7 @@ extension EinkDeviceRow: Equatable, Hashable {
         hasher.combine(includeLibraryLevel)
         hasher.combine(includeInbox)
         hasher.combine(folderStrategy)
+        hasher.combine(fileInNearestFolder)
         hasher.combine(uploadFormat)
         hasher.combine(autoFetchSource)
         hasher.combine(importAnnotatedPdf)
@@ -10082,6 +10146,7 @@ public struct FfiConverterTypeEinkDeviceRow: FfiConverterRustBuffer {
                 includeLibraryLevel: FfiConverterBool.read(from: &buf), 
                 includeInbox: FfiConverterBool.read(from: &buf), 
                 folderStrategy: FfiConverterString.read(from: &buf), 
+                fileInNearestFolder: FfiConverterBool.read(from: &buf), 
                 uploadFormat: FfiConverterString.read(from: &buf), 
                 autoFetchSource: FfiConverterBool.read(from: &buf), 
                 importAnnotatedPdf: FfiConverterBool.read(from: &buf), 
@@ -10111,6 +10176,7 @@ public struct FfiConverterTypeEinkDeviceRow: FfiConverterRustBuffer {
         FfiConverterBool.write(value.includeLibraryLevel, into: &buf)
         FfiConverterBool.write(value.includeInbox, into: &buf)
         FfiConverterString.write(value.folderStrategy, into: &buf)
+        FfiConverterBool.write(value.fileInNearestFolder, into: &buf)
         FfiConverterString.write(value.uploadFormat, into: &buf)
         FfiConverterBool.write(value.autoFetchSource, into: &buf)
         FfiConverterBool.write(value.importAnnotatedPdf, into: &buf)
@@ -10528,6 +10594,12 @@ public struct EinkMirrorRow {
     public var remoteParentId: String?
     public var remoteName: String?
     public var remotePath: String?
+    /**
+     * Where the paper belongs when it could not be filed there (the tablet
+     * has no such folder and cannot be told to make one); `None` when the
+     * copy sits exactly where imbib wants it.
+     */
+    public var desiredPath: String?
     public var uploadedSha256: String?
     public var uploadedAtMs: Int64?
     /**
@@ -10549,7 +10621,12 @@ public struct EinkMirrorRow {
     public init(id: String, publicationId: String, deviceId: String, marked: Bool, markedAtMs: Int64?, linkedFileId: String?, 
         /**
          * `pdf` or `epub`.
-         */sourceKind: String?, remoteId: String?, remoteParentId: String?, remoteName: String?, remotePath: String?, uploadedSha256: String?, uploadedAtMs: Int64?, 
+         */sourceKind: String?, remoteId: String?, remoteParentId: String?, remoteName: String?, remotePath: String?, 
+        /**
+         * Where the paper belongs when it could not be filed there (the tablet
+         * has no such folder and cannot be told to make one); `None` when the
+         * copy sits exactly where imbib wants it.
+         */desiredPath: String?, uploadedSha256: String?, uploadedAtMs: Int64?, 
         /**
          * See [`MirrorState`].
          */state: String, lastError: String?, attempts: Int64, lastAttemptMs: Int64?, remoteModifiedMs: Int64?, importedModifiedMs: Int64?, annotatedFileId: String?, resend: Bool, createdMs: Int64, modifiedMs: Int64) {
@@ -10564,6 +10641,7 @@ public struct EinkMirrorRow {
         self.remoteParentId = remoteParentId
         self.remoteName = remoteName
         self.remotePath = remotePath
+        self.desiredPath = desiredPath
         self.uploadedSha256 = uploadedSha256
         self.uploadedAtMs = uploadedAtMs
         self.state = state
@@ -10614,6 +10692,9 @@ extension EinkMirrorRow: Equatable, Hashable {
             return false
         }
         if lhs.remotePath != rhs.remotePath {
+            return false
+        }
+        if lhs.desiredPath != rhs.desiredPath {
             return false
         }
         if lhs.uploadedSha256 != rhs.uploadedSha256 {
@@ -10667,6 +10748,7 @@ extension EinkMirrorRow: Equatable, Hashable {
         hasher.combine(remoteParentId)
         hasher.combine(remoteName)
         hasher.combine(remotePath)
+        hasher.combine(desiredPath)
         hasher.combine(uploadedSha256)
         hasher.combine(uploadedAtMs)
         hasher.combine(state)
@@ -10701,6 +10783,7 @@ public struct FfiConverterTypeEinkMirrorRow: FfiConverterRustBuffer {
                 remoteParentId: FfiConverterOptionString.read(from: &buf), 
                 remoteName: FfiConverterOptionString.read(from: &buf), 
                 remotePath: FfiConverterOptionString.read(from: &buf), 
+                desiredPath: FfiConverterOptionString.read(from: &buf), 
                 uploadedSha256: FfiConverterOptionString.read(from: &buf), 
                 uploadedAtMs: FfiConverterOptionInt64.read(from: &buf), 
                 state: FfiConverterString.read(from: &buf), 
@@ -10728,6 +10811,7 @@ public struct FfiConverterTypeEinkMirrorRow: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.remoteParentId, into: &buf)
         FfiConverterOptionString.write(value.remoteName, into: &buf)
         FfiConverterOptionString.write(value.remotePath, into: &buf)
+        FfiConverterOptionString.write(value.desiredPath, into: &buf)
         FfiConverterOptionString.write(value.uploadedSha256, into: &buf)
         FfiConverterOptionInt64.write(value.uploadedAtMs, into: &buf)
         FfiConverterString.write(value.state, into: &buf)
@@ -18218,6 +18302,11 @@ public struct PlanSummary {
     public var toUpload: UInt32
     public var awaitingSource: UInt32
     public var awaitingFolder: UInt32
+    /**
+     * Uploaded into the deepest existing folder because the exact one is
+     * missing from the tablet.
+     */
+    public var filedInNearest: UInt32
     public var stale: UInt32
     public var removed: UInt32
     public var toImport: UInt32
@@ -18228,10 +18317,15 @@ public struct PlanSummary {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(toUpload: UInt32, awaitingSource: UInt32, awaitingFolder: UInt32, stale: UInt32, removed: UInt32, toImport: UInt32, unchanged: UInt32, skippedNoSource: UInt32, skippedScope: UInt32, foldersToCreate: UInt32) {
+    public init(toUpload: UInt32, awaitingSource: UInt32, awaitingFolder: UInt32, 
+        /**
+         * Uploaded into the deepest existing folder because the exact one is
+         * missing from the tablet.
+         */filedInNearest: UInt32, stale: UInt32, removed: UInt32, toImport: UInt32, unchanged: UInt32, skippedNoSource: UInt32, skippedScope: UInt32, foldersToCreate: UInt32) {
         self.toUpload = toUpload
         self.awaitingSource = awaitingSource
         self.awaitingFolder = awaitingFolder
+        self.filedInNearest = filedInNearest
         self.stale = stale
         self.removed = removed
         self.toImport = toImport
@@ -18253,6 +18347,9 @@ extension PlanSummary: Equatable, Hashable {
             return false
         }
         if lhs.awaitingFolder != rhs.awaitingFolder {
+            return false
+        }
+        if lhs.filedInNearest != rhs.filedInNearest {
             return false
         }
         if lhs.stale != rhs.stale {
@@ -18283,6 +18380,7 @@ extension PlanSummary: Equatable, Hashable {
         hasher.combine(toUpload)
         hasher.combine(awaitingSource)
         hasher.combine(awaitingFolder)
+        hasher.combine(filedInNearest)
         hasher.combine(stale)
         hasher.combine(removed)
         hasher.combine(toImport)
@@ -18304,6 +18402,7 @@ public struct FfiConverterTypePlanSummary: FfiConverterRustBuffer {
                 toUpload: FfiConverterUInt32.read(from: &buf), 
                 awaitingSource: FfiConverterUInt32.read(from: &buf), 
                 awaitingFolder: FfiConverterUInt32.read(from: &buf), 
+                filedInNearest: FfiConverterUInt32.read(from: &buf), 
                 stale: FfiConverterUInt32.read(from: &buf), 
                 removed: FfiConverterUInt32.read(from: &buf), 
                 toImport: FfiConverterUInt32.read(from: &buf), 
@@ -18318,6 +18417,7 @@ public struct FfiConverterTypePlanSummary: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.toUpload, into: &buf)
         FfiConverterUInt32.write(value.awaitingSource, into: &buf)
         FfiConverterUInt32.write(value.awaitingFolder, into: &buf)
+        FfiConverterUInt32.write(value.filedInNearest, into: &buf)
         FfiConverterUInt32.write(value.stale, into: &buf)
         FfiConverterUInt32.write(value.removed, into: &buf)
         FfiConverterUInt32.write(value.toImport, into: &buf)
@@ -35701,6 +35801,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_eink_mirror_for_publication() != 60903) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_eink_note_source_attempt() != 1073) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_eink_pending_ocr() != 18259) {

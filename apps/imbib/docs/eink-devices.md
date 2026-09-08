@@ -17,7 +17,7 @@ The reMarkable's USB web interface is the one route that works with current firm
 
 1. On the tablet: **Settings › Storage › USB web interface** → on. Plug it in.
 2. In imbib: **Settings › E-Ink** → **Add reMarkable (USB)**. The connection dot turns green when the tablet answers at `10.11.99.1`.
-3. On the tablet, create a folder named **imbib** at the top level (imbib cannot create it for you). Inside it, create a folder per library, and per collection you want mirrored — the pane's **missing-folders checklist** tells you the exact names, parents first, and **Check again** confirms them.
+3. On the tablet, create a folder named **imbib** at the top level. That is the one folder imbib needs you to make: the USB interface has no way to create folders, and imbib will not scatter papers among your own documents. Sub-folders are optional — see *Where papers land*.
 
 If the dot stays grey while the cable is in, macOS may have reset the app's Local Network permission after an update: **System Settings › Privacy & Security › Local Network** → imbib off and on again.
 
@@ -34,7 +34,9 @@ In the individual mode, mark a paper with **`e`** in the list, **Control+Command
 
 `imbib / <Library> / <Collection> / <Sub-collection>` on the tablet mirrors your sidebar. A paper filed in several collections goes to the first in alphabetical order (the tablet cannot hold aliases). Uncollected papers go to `imbib / <Library>`; the Inbox is left out unless you switch it on. Documents are named `Family Year – Title`.
 
-A folder that does not exist yet parks the paper as *awaiting folder*; nothing is ever uploaded to a fallback place, because nothing can be moved afterwards.
+A folder the tablet does not have is not a dead end. The paper goes into the deepest folder on its path that does exist — usually `imbib` itself — and the Info tab says where it belongs. Make that folder on the tablet whenever you like and drag the document in: the next sync notices the move and stops mentioning it. The pane's **missing-folders checklist** lists every folder still missing, parents first, and **Check again** re-reads the tablet.
+
+The one thing that does stop a paper is a missing **imbib** folder, since the alternative would be dropping papers in among your own documents. The row then says exactly that, and the counters call it *awaiting folder*. If you would rather papers wait for their exact folder every time, turn off **File in the nearest folder that exists** in the E-Ink pane.
 
 ### Nothing is re-sent silently
 
@@ -93,8 +95,9 @@ Everything above is also a verb. From the terminal (`imbib eink-status`, `eink-m
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Grey dot, cable in | USB web interface off, or Local Network permission reset | turn the interface on in the tablet's Storage settings; toggle imbib under Privacy & Security › Local Network |
-| *Awaiting folder* | the collection's folder is missing on the tablet | create the folders from the checklist, parents first, then **Check again** |
-| *Awaiting PDF* | no local PDF and none found online | attach one by hand (drop it on the paper); the next sync sends it |
+| *Awaiting folder* | there is no **imbib** folder on the tablet (nothing else holds a paper back) | create it on the tablet, then **Check again** |
+| *Filed in a parent folder* | the collection's folder is missing, so the paper went to the nearest one | create the folder from the checklist and drag the document in — the next sync follows it |
+| *Awaiting PDF* | no local PDF and none found online — the Info tab gives the reason the last attempt failed | attach one by hand (drop it on the paper); the next sync sends it |
 | A paper shows as `Name.pdf` on the tablet | the device is set to bare uploads | keep **Upload format: archive** (the default) |
 | No handwriting text | recognition has not run yet | it runs after each import and 90 s after launch; **Import annotations now** re-triggers it |
 

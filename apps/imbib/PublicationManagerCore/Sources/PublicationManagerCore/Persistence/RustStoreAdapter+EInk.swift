@@ -215,6 +215,20 @@ extension RustStoreAdapter {
         }
     }
 
+    /// Record how the app's attempt to fetch a paper's PDF went, so a row
+    /// waiting for its source carries the reason instead of nothing. Only
+    /// the app can download; the engine never can, so without this a failed
+    /// fetch is invisible everywhere. `error: nil` clears it.
+    public func einkNoteSourceError(publicationId: UUID, error: String?, deviceId: String? = nil) {
+        do {
+            _ = try imbibStore.einkNoteSourceAttempt(
+                deviceId: deviceId, publicationId: publicationId.uuidString, error: error)
+            didMutate(structural: false, affectedIDs: [publicationId], kind: .einkMirror)
+        } catch {
+            Logger.library.errorCapture("eink.noteSourceError failed: \(error)", category: "eink")
+        }
+    }
+
     /// The local PDF/ePUB the engine would send for a publication.
     public func einkLocalSource(publicationId: UUID) -> EInkLocalSourceRecord? {
         do {

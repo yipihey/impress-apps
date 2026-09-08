@@ -33,7 +33,8 @@ final class EInkSourceFetcherTests: XCTestCase {
         rows: @escaping @Sendable () -> [EInkAwaitingSourceRecord],
         acquisitions: Acquisitions,
         arrived: CountBox,
-        maxConcurrent: Int = 2
+        maxConcurrent: Int = 2,
+        notes: CountBox = CountBox()
     ) -> EInkSourceFetcher {
         EInkSourceFetcher(gate: .open, maxConcurrent: maxConcurrent, coalesce: .milliseconds(20), environment: EInkSourceFetchEnvironment(
             isConfigured: { true },
@@ -45,6 +46,7 @@ final class EInkSourceFetcherTests: XCTestCase {
                 return await acquisitions.succeed.contains(id) ? URL(fileURLWithPath: "/tmp/\(id).pdf") : nil
             },
             onSourceArrived: { count in arrived.record("\(count)") },
+            noteOutcome: { id, error in notes.record("\(id): \(error ?? "cleared")") },
             observesStore: false
         ))
     }
@@ -145,5 +147,30 @@ final class EInkSourceFetcherTests: XCTestCase {
             get { lock.lock(); defer { lock.unlock() }; return storage }
             set { lock.lock(); defer { lock.unlock() }; storage = newValue }
         }
+    }
+
+    /// A row that cannot be fetched must say why on itself: only the app can
+    /// download, and the log line is gone by the time anybody looks.
+    func testEveryAttemptIsRecordedOnTheRowWhetherItWorkedOrNot() async throws {
+        let found = UUID()
+        let missing = UUID()
+        let rows = [found, missing].map { EInkTestSupport.awaiting(publicationId: $0) }
+        let acquisitions = Acquisitions()
+        await acquisitions.setSucceed([found])
+        let notes = CountBox()
+        let fetcher = makeFetcher(
+            rows: { rows }, acquisitions: acquisitions, arrived: CountBox(), notes: notes)
+
+        let count = await fetcher.sweep()
+
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(notes.lines.count, 2, "one note per attempted row")
+        XCTAssertTrue(
+            notes.lines.contains("\(found): cleared"),
+            "a fetch that worked clears the old reason, got \(notes.lines)")
+        let failure = notes.lines.first { $0.hasPrefix("\(missing):") } ?? ""
+        XCTAssertTrue(
+            failure.contains("No PDF could be found"),
+            "the row carries a reason a researcher can act on, got \(failure)")
     }
 }

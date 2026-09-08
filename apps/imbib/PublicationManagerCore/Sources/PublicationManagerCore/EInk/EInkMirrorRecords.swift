@@ -43,6 +43,9 @@ public struct EInkCountsSnapshot: Sendable, Equatable, Hashable {
     public var unmarked: Int = 0
     /// Uploaded copies the tablet reports as changed since the last import.
     public var newAnnotations: Int = 0
+    /// On the tablet, but above the folder they belong in — the tablet has
+    /// no folder API, so imbib filed them in the nearest one that exists.
+    public var filedInNearest: Int = 0
 
     public init() {}
 
@@ -57,6 +60,7 @@ public struct EInkCountsSnapshot: Sendable, Equatable, Hashable {
         superseded = Int(row.superseded)
         unmarked = Int(row.unmarked)
         newAnnotations = Int(row.newAnnotations)
+        filedInNearest = Int(row.filedInNearest)
     }
 
     /// Rows still marked for the tablet, in any state.
@@ -79,6 +83,7 @@ public struct EInkCountsSnapshot: Sendable, Equatable, Hashable {
             "superseded": superseded,
             "unmarked": unmarked,
             "new_annotations": newAnnotations,
+            "filed_in_nearest": filedInNearest,
         ]
     }
 }
@@ -100,6 +105,9 @@ public struct EInkDeviceRecord: Sendable, Equatable, Hashable, Identifiable {
     public var includeInbox: Bool
     /// `rmdoc` or `checklist`.
     public var folderStrategy: String
+    /// File a paper in the deepest folder that exists when the tablet lacks
+    /// the exact one, instead of holding it until the user makes it.
+    public var fileInNearestFolder: Bool
     /// `rmdoc` (exact names) or `pdf` (bare file, named `<file>.pdf`).
     public var uploadFormat: String
     public var autoFetchSource: Bool
@@ -131,6 +139,7 @@ public struct EInkDeviceRecord: Sendable, Equatable, Hashable, Identifiable {
         includeLibraryLevel = row.includeLibraryLevel
         includeInbox = row.includeInbox
         folderStrategy = row.folderStrategy
+        fileInNearestFolder = row.fileInNearestFolder
         uploadFormat = row.uploadFormat
         autoFetchSource = row.autoFetchSource
         importAnnotatedPDF = row.importAnnotatedPdf
@@ -160,6 +169,7 @@ public struct EInkDeviceRecord: Sendable, Equatable, Hashable, Identifiable {
             "include_library_level": includeLibraryLevel,
             "include_inbox": includeInbox,
             "folder_strategy": folderStrategy,
+            "file_in_nearest_folder": fileInNearestFolder,
             "upload_format": uploadFormat,
             "auto_fetch_source": autoFetchSource,
             "import_annotated_pdf": importAnnotatedPDF,
@@ -193,6 +203,7 @@ public struct EInkDeviceConfigInput: Sendable, Equatable {
     public var includeLibraryLevel: Bool?
     public var includeInbox: Bool?
     public var folderStrategy: String?
+    public var fileInNearestFolder: Bool?
     public var uploadFormat: String?
     public var autoFetchSource: Bool?
     public var importAnnotatedPDF: Bool?
@@ -220,6 +231,7 @@ public struct EInkDeviceConfigInput: Sendable, Equatable {
             includeLibraryLevel: includeLibraryLevel,
             includeInbox: includeInbox,
             folderStrategy: folderStrategy,
+            fileInNearestFolder: fileInNearestFolder,
             uploadFormat: uploadFormat,
             autoFetchSource: autoFetchSource,
             importAnnotatedPdf: importAnnotatedPDF,
@@ -311,6 +323,9 @@ public struct EInkMirrorRecord: Sendable, Equatable, Hashable, Identifiable {
     public let remoteParentId: String?
     public let remoteName: String?
     public let remotePath: String?
+    /// Where the copy belongs when it could not be filed there; nil when it
+    /// sits exactly where imbib wants it.
+    public let desiredPath: String?
     public let uploadedSha256: String?
     public let uploadedAt: Date?
     /// The marker state; nil for `superseded` / `unmarked` (see `stateRaw`).
@@ -340,6 +355,7 @@ public struct EInkMirrorRecord: Sendable, Equatable, Hashable, Identifiable {
         remoteParentId = row.remoteParentId
         remoteName = row.remoteName
         remotePath = row.remotePath
+        desiredPath = row.desiredPath
         uploadedSha256 = row.uploadedSha256
         uploadedAt = date(fromMs: row.uploadedAtMs)
         state = EInkMirrorState(rawValue: row.state)
@@ -366,6 +382,7 @@ public struct EInkMirrorRecord: Sendable, Equatable, Hashable, Identifiable {
             "resend": resend,
         ]
         json["remote_path"] = remotePath ?? NSNull()
+        json["desired_path"] = desiredPath ?? NSNull()
         json["remote_id"] = remoteId ?? NSNull()
         json["source_kind"] = sourceKind ?? NSNull()
         json["uploaded_at"] = uploadedAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull()
@@ -496,6 +513,9 @@ public struct EInkPlanSummary: Sendable, Equatable, Hashable {
     public let toUpload: Int
     public let awaitingSource: Int
     public let awaitingFolder: Int
+    /// Uploaded into the nearest existing folder because the tablet lacks
+    /// the exact one.
+    public let filedInNearest: Int
     public let stale: Int
     public let removed: Int
     public let toImport: Int
@@ -508,6 +528,7 @@ public struct EInkPlanSummary: Sendable, Equatable, Hashable {
         toUpload = Int(row.toUpload)
         awaitingSource = Int(row.awaitingSource)
         awaitingFolder = Int(row.awaitingFolder)
+        filedInNearest = Int(row.filedInNearest)
         stale = Int(row.stale)
         removed = Int(row.removed)
         toImport = Int(row.toImport)
@@ -522,6 +543,7 @@ public struct EInkPlanSummary: Sendable, Equatable, Hashable {
             "to_upload": toUpload,
             "awaiting_source": awaitingSource,
             "awaiting_folder": awaitingFolder,
+            "filed_in_nearest": filedInNearest,
             "stale": stale,
             "removed": removed,
             "to_import": toImport,

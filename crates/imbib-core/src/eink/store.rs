@@ -43,6 +43,9 @@ pub struct EinkDeviceRow {
     pub include_inbox: bool,
     /// `rmdoc` or `checklist`.
     pub folder_strategy: String,
+    /// File a paper in the deepest folder that exists when the exact one is
+    /// missing, rather than holding it in `awaiting_folder`.
+    pub file_in_nearest_folder: bool,
     /// `rmdoc` (exact names) or `pdf` (bare file, named `<file>.pdf`).
     pub upload_format: String,
     pub auto_fetch_source: bool,
@@ -74,6 +77,7 @@ impl EinkDeviceRow {
             include_library_level: config.include_library_level,
             include_inbox: config.include_inbox,
             folder_strategy: config.folder_strategy.as_str().into(),
+            file_in_nearest_folder: config.file_in_nearest_folder,
             upload_format: config.upload_format.as_str().into(),
             auto_fetch_source: config.auto_fetch_source,
             import_annotated_pdf: config.import_annotated_pdf,
@@ -108,6 +112,7 @@ pub struct EinkDeviceConfigInput {
     pub include_library_level: Option<bool>,
     pub include_inbox: Option<bool>,
     pub folder_strategy: Option<String>,
+    pub file_in_nearest_folder: Option<bool>,
     pub upload_format: Option<String>,
     pub auto_fetch_source: Option<bool>,
     pub import_annotated_pdf: Option<bool>,
@@ -136,6 +141,10 @@ pub struct EinkMirrorRow {
     pub remote_parent_id: Option<String>,
     pub remote_name: Option<String>,
     pub remote_path: Option<String>,
+    /// Where the paper belongs when it could not be filed there (the tablet
+    /// has no such folder and cannot be told to make one); `None` when the
+    /// copy sits exactly where imbib wants it.
+    pub desired_path: Option<String>,
     pub uploaded_sha256: Option<String>,
     pub uploaded_at_ms: Option<i64>,
     /// See [`MirrorState`].
@@ -166,6 +175,7 @@ impl EinkMirrorRow {
             remote_parent_id: str_of(p, "remote_parent_id"),
             remote_name: str_of(p, "remote_name"),
             remote_path: str_of(p, "remote_path"),
+            desired_path: str_of(p, "desired_path").filter(|path| !path.is_empty()),
             uploaded_sha256: str_of(p, "uploaded_sha256"),
             uploaded_at_ms: int_of(p, "uploaded_at_ms"),
             state: str_of(p, "state").unwrap_or_else(|| MirrorState::Queued.as_str().into()),
@@ -429,6 +439,7 @@ impl ImbibStore {
             mirror_collections,
             include_library_level,
             include_inbox,
+            file_in_nearest_folder,
             auto_fetch_source,
             import_annotated_pdf,
             import_rmdoc,
@@ -658,6 +669,40 @@ impl ImbibStore {
             }
         }
         Ok(count)
+    }
+
+    /// Record how the app's attempt to fetch a paper's PDF went, so an
+    /// `awaiting_source` row can say why it is still waiting. Only the
+    /// running app can download; the engine never can, so without this the
+    /// row is a dead end with no reason on it. `error: None` clears a
+    /// previous one.
+    pub fn eink_note_source_attempt(
+        &self,
+        device_id: Option<String>,
+        publication_id: String,
+        error: Option<String>,
+    ) -> Result<bool, StoreApiError> {
+        let device = self.eink_require_device(device_id.as_deref())?;
+        let pub_uuid = parse_uuid(&publication_id)?;
+        let Some(item) = self
+            .store
+            .query(&mirror_query(Some(&device.id), None, Some(pub_uuid)))?
+            .into_iter()
+            .next()
+        else {
+            return Ok(false);
+        };
+        let attempts = EinkMirrorRow::from_item(&item).attempts;
+        let mut mutations = vec![
+            set("attempts", Value::Int(attempts.saturating_add(1))),
+            set("last_attempt_ms", Value::Int(now_ms())),
+        ];
+        mutations.push(match &error {
+            Some(message) => set("last_error", Value::String(message.clone())),
+            None => FieldMutation::RemovePayload("last_error".into()),
+        });
+        self.store.update(item.id, mutations)?;
+        Ok(true)
     }
 
     /// Mirror rows, newest change first; filtered by device (`None` = the

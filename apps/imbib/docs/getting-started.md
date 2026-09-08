@@ -244,7 +244,7 @@ Mirror papers to a reMarkable over USB and bring your highlights, typed notes an
 
 1. Turn on the tablet's **USB web interface** (Settings › Storage) and plug it in
 2. Go to **Settings > E-Ink** and click **Add reMarkable (USB)**
-3. Create an **imbib** folder on the tablet (the pane lists any further folders to create)
+3. Create an **imbib** folder on the tablet — the one folder imbib cannot make for you. Sub-folders are optional: a paper whose collection folder is missing is filed in the nearest one that exists and says where it belongs (the pane lists them)
 4. Choose **Mirror everything** or **Only papers I choose**; in the latter, press **`e`** on a paper (or **Paper > Mirror to reMarkable**, Control+Command+E)
 
 What you annotate on the tablet comes back on the next sync: the annotated pages as a second file, highlights with their text, typed notes, and handwriting recognised on your Mac.

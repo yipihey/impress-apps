@@ -102,6 +102,16 @@ public struct EInkMirrorSectionModel: Sendable, Equatable {
 
     public var systemImage: String { state?.systemImage ?? "rectangle.portrait" }
 
+    /// Set when the copy is on the tablet but above the folder it belongs
+    /// in: the tablet's USB interface cannot create folders, so imbib filed
+    /// it in the nearest one that exists rather than not sending it at all.
+    public var filedInNearestNote: String? {
+        guard let wanted = record?.desiredPath, !wanted.isEmpty else { return nil }
+        let display = wanted.replacingOccurrences(of: "/", with: " › ")
+        return "Belongs in \(display). Make that folder on the tablet and drag the "
+            + "document into it — the next sync follows the move."
+    }
+
     /// The "PDF · filename" line, or nil without a local source.
     public var sourceLine: String? {
         guard let source else { return nil }
@@ -238,6 +248,17 @@ public struct PublicationEInkMirrorSection: View {
         VStack(alignment: .leading, spacing: 3) {
             if let path = model.record?.remotePath, !path.isEmpty {
                 row("On tablet", path.replacingOccurrences(of: "/", with: " › "), mono: false)
+            }
+            if let note = model.filedInNearestNote {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "folder.badge.questionmark")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
             }
             if let source = model.sourceLine {
                 row("Source", source, mono: false)

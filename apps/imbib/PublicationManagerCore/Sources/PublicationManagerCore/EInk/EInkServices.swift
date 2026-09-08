@@ -91,6 +91,7 @@ public final class EInkServices {
                     Logger.library.infoCapture(
                         "eink.coordinator display: queued=\(status.counts.queued) awaitingSource=\(status.counts.awaitingSource) "
                             + "awaitingFolder=\(status.counts.awaitingFolder) uploaded=\(status.counts.uploaded) "
+                            + "filedInNearest=\(status.counts.filedInNearest) "
                             + "stale=\(status.counts.stale) failed=\(status.counts.failed) "
                             + "lastError=\(status.lastError ?? "none")",
                         category: "eink")
@@ -110,6 +111,11 @@ public final class EInkServices {
             },
             onSourceArrived: { [weak self] _ in
                 await self?.coordinator?.nudge(.sourceArrived)
+            },
+            noteOutcome: { id, error in
+                await MainActor.run {
+                    RustStoreAdapter.shared.einkNoteSourceError(publicationId: id, error: error)
+                }
             }
         ))
         self.fetcher = fetcher

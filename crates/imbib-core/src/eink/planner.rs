@@ -67,7 +67,11 @@ pub enum PlanAction {
         publication_id: String,
         mirror_id: Option<String>,
         source: LocalSource,
+        /// Where the file actually goes.
         target_path: Vec<String>,
+        /// Where it belonged, when `target_path` is only the nearest folder
+        /// that exists (the tablet cannot be told to create the real one).
+        desired_path: Option<Vec<String>>,
         visible_name: String,
         upload_name: String,
         /// The copy this one replaces (a stale or removed one being re-sent).
@@ -85,7 +89,8 @@ pub enum PlanAction {
         mirror_id: String,
         publication_id: String,
         state: Option<MirrorState>,
-        fields: Vec<(String, Value)>,
+        /// `None` clears the field.
+        fields: Vec<(String, Option<Value>)>,
         reason: String,
     },
     /// The tablet copy changed since it was last imported.
@@ -108,6 +113,9 @@ pub struct PlanSummary {
     pub to_upload: u32,
     pub awaiting_source: u32,
     pub awaiting_folder: u32,
+    /// Uploaded into the deepest existing folder because the exact one is
+    /// missing from the tablet.
+    pub filed_in_nearest: u32,
     pub stale: u32,
     pub removed: u32,
     pub to_import: u32,
@@ -122,6 +130,20 @@ pub struct SyncPlan {
     pub actions: Vec<PlanAction>,
     pub folder_needs: Vec<FolderNeed>,
     pub summary: PlanSummary,
+}
+
+/// What to tell the user about a folder the tablet lacks. When even the root
+/// is missing, name only that one: creating it by hand is the single manual
+/// step the USB interface forces on anybody.
+fn missing_folder_reason(target: &[String], missing: &folders::MissingFolder) -> String {
+    if missing.present_depth == 0 {
+        format!(
+            "create a folder called {} on the tablet (the USB interface cannot create folders)",
+            target.first().map(String::as_str).unwrap_or("imbib")
+        )
+    } else {
+        format!("folder {} does not exist on the tablet", target.join("/"))
+    }
 }
 
 fn path_display(folders: &FolderMap, parent: &str) -> String {
@@ -196,25 +218,37 @@ pub fn plan(inputs: PlanInputs<'_>) -> SyncPlan {
                     // fall through: re-send
                 }
                 Some(doc) => {
-                    let mut fields: Vec<(String, Value)> = Vec::new();
+                    let mut fields: Vec<(String, Option<Value>)> = Vec::new();
                     let recorded_parent = row.remote_parent_id.clone().unwrap_or_default();
                     if doc.parent != recorded_parent {
-                        fields.push(("remote_parent_id".into(), Value::String(doc.parent.clone())));
+                        let moved_to = path_display(inputs.folders, &doc.parent);
                         fields.push((
-                            "remote_path".into(),
-                            Value::String(path_display(inputs.folders, &doc.parent)),
+                            "remote_parent_id".into(),
+                            Some(Value::String(doc.parent.clone())),
                         ));
+                        fields.push(("remote_path".into(), Some(Value::String(moved_to.clone()))));
+                        // Filed above where it belonged, and the user has now
+                        // put it right: stop saying so. Folder names match
+                        // the way `FolderMap` matches them — a tablet folder
+                        // called `Imbib` is the `imbib` we asked for.
+                        let arrived = row
+                            .desired_path
+                            .as_deref()
+                            .is_some_and(|wanted| wanted.to_lowercase() == moved_to.to_lowercase());
+                        if arrived {
+                            fields.push(("desired_path".into(), None));
+                        }
                     }
                     if doc.visible_name != row.remote_name.clone().unwrap_or_default() {
                         fields.push((
                             "remote_name".into(),
-                            Value::String(doc.visible_name.clone()),
+                            Some(Value::String(doc.visible_name.clone())),
                         ));
                     }
                     if Some(doc.last_modified_ms) != row.remote_modified_ms {
                         fields.push((
                             "remote_modified_ms".into(),
-                            Value::Int(doc.last_modified_ms),
+                            Some(Value::Int(doc.last_modified_ms)),
                         ));
                     }
                     let mut new_state = None;
@@ -338,6 +372,13 @@ pub fn plan(inputs: PlanInputs<'_>) -> SyncPlan {
             device.include_library_level,
             &chain,
         );
+        // Where the file actually goes, and where it belonged if those
+        // differ. The tablet has no folder API, so a missing folder either
+        // parks the paper or — the default — files it in the deepest folder
+        // on the path that does exist. Never above the root folder: one
+        // hand-made folder is the whole contract with the user.
+        let mut upload_path = target.clone();
+        let mut desired_path: Option<Vec<String>> = None;
         match inputs.folders.resolve(&target) {
             Ok(_) => {}
             Err(missing) => match device.folder_strategy {
@@ -348,19 +389,32 @@ pub fn plan(inputs: PlanInputs<'_>) -> SyncPlan {
                 }
                 FolderStrategy::Checklist => {
                     needs.extend(folders::needs_for(&target, &missing, 1));
-                    if state != Some(MirrorState::AwaitingFolder) {
-                        plan.actions.push(PlanAction::Hold {
-                            publication_id: publication_id.clone(),
-                            mirror_id: mirror.map(|m| m.id.clone()),
-                            state: MirrorState::AwaitingFolder,
-                            reason: format!(
-                                "folder {} does not exist on the tablet",
-                                target.join("/")
-                            ),
-                        });
+                    if device.file_in_nearest_folder && missing.present_depth >= 1 {
+                        upload_path = target[..missing.present_depth].to_vec();
+                        // Say where it belongs in the tablet's own spelling
+                        // of the folders that exist — the sentence asks the
+                        // user to find them on the device.
+                        let mut wanted = target.clone();
+                        if let Some(id) = &missing.present_id {
+                            let actual = inputs.folders.path_of(id);
+                            if actual.len() == missing.present_depth {
+                                wanted.splice(..missing.present_depth, actual);
+                            }
+                        }
+                        desired_path = Some(wanted);
+                        plan.summary.filed_in_nearest += 1;
+                    } else {
+                        if state != Some(MirrorState::AwaitingFolder) {
+                            plan.actions.push(PlanAction::Hold {
+                                publication_id: publication_id.clone(),
+                                mirror_id: mirror.map(|m| m.id.clone()),
+                                state: MirrorState::AwaitingFolder,
+                                reason: missing_folder_reason(&target, &missing),
+                            });
+                        }
+                        plan.summary.awaiting_folder += 1;
+                        continue;
                     }
-                    plan.summary.awaiting_folder += 1;
-                    continue;
                 }
             },
         }
@@ -377,7 +431,8 @@ pub fn plan(inputs: PlanInputs<'_>) -> SyncPlan {
             upload_name: naming::upload_filename(&visible_name, source.kind),
             visible_name,
             source,
-            target_path: target,
+            target_path: upload_path,
+            desired_path,
             previous_remote_id,
         });
     }

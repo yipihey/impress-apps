@@ -18,6 +18,9 @@ pub struct EinkCounts {
     pub unmarked: u32,
     /// Uploaded copies the tablet reports as changed since the last import.
     pub new_annotations: u32,
+    /// Copies filed above where they belong, because the tablet lacks the
+    /// folder (it has no folder API; only the user can make one).
+    pub filed_in_nearest: u32,
 }
 
 impl EinkCounts {
@@ -37,6 +40,9 @@ impl EinkCounts {
             }
             if row.mirror_state().is_on_tablet() && row.marked && row.has_new_annotations() {
                 counts.new_annotations += 1;
+            }
+            if row.mirror_state().is_on_tablet() && row.desired_path.is_some() {
+                counts.filed_in_nearest += 1;
             }
         }
         counts

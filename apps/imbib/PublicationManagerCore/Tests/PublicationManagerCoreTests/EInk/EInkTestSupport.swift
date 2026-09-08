@@ -17,8 +17,9 @@ enum EInkTestSupport {
 
     static func syncReport(device: String = "dev-1", uploaded: [UUID] = [], inkPendingOCR: [(UUID, Int)] = []) -> PublicationManagerCore.EInkSyncReport {
         let summary = PlanSummary(
-            toUpload: 0, awaitingSource: 0, awaitingFolder: 0, stale: 0, removed: 0,
-            toImport: 0, unchanged: 0, skippedNoSource: 0, skippedScope: 0, foldersToCreate: 0)
+            toUpload: 0, awaitingSource: 0, awaitingFolder: 0, filedInNearest: 0, stale: 0,
+            removed: 0, toImport: 0, unchanged: 0, skippedNoSource: 0, skippedScope: 0,
+            foldersToCreate: 0)
         let imports = inkPendingOCR.map { id, pending in
             ImportedDocument(
                 publicationId: id.uuidString, remoteId: "r-\(id.uuidString.prefix(4))",
@@ -36,7 +37,8 @@ enum EInkTestSupport {
         EInkDeviceRecord(from: EinkDeviceRow(
             id: id, name: "reMarkable", transport: EInkUSBTransport.rustName, baseUrl: "http://10.11.99.1",
             mirrorMode: "individual", rootFolderName: "imbib", mirrorCollections: true,
-            includeLibraryLevel: true, includeInbox: true, folderStrategy: "rmdoc", uploadFormat: "rmdoc",
+            includeLibraryLevel: true, includeInbox: true, folderStrategy: "rmdoc",
+            fileInNearestFolder: true, uploadFormat: "rmdoc",
             autoFetchSource: true, importAnnotatedPdf: true, importRmdoc: true, importHighlights: true,
             importInk: true, importTypedText: true, runOcr: true, autoImportOnConnect: autoImportOnConnect,
             enabled: enabled, lastSyncAtMs: nil, lastSeenAtMs: nil, syncStartedAtMs: nil, lastError: nil,

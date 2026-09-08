@@ -415,10 +415,11 @@ pub fn prepare(
         candidates,
     });
     trace.push(format!(
-        "plan: upload {} · awaiting source {} · awaiting folder {} · stale {} · removed {} · import {} · unchanged {} · skipped (no source) {} · skipped (scope) {} · folders to create {}",
+        "plan: upload {} · awaiting source {} · awaiting folder {} · filed in nearest {} · stale {} · removed {} · import {} · unchanged {} · skipped (no source) {} · skipped (scope) {} · folders to create {}",
         plan.summary.to_upload,
         plan.summary.awaiting_source,
         plan.summary.awaiting_folder,
+        plan.summary.filed_in_nearest,
         plan.summary.stale,
         plan.summary.removed,
         plan.summary.to_import,
@@ -753,9 +754,9 @@ fn execute(
                 reason,
             } => {
                 let mut updates: Vec<(&str, Option<Value>)> = Vec::new();
-                let owned: Vec<(String, Value)> = fields;
+                let owned: Vec<(String, Option<Value>)> = fields;
                 for (key, value) in &owned {
-                    updates.push((key.as_str(), Some(value.clone())));
+                    updates.push((key.as_str(), value.clone()));
                 }
                 if let Some(state) = state {
                     updates.push(("state", Some(state_value(state))));
@@ -777,6 +778,7 @@ fn execute(
                 mirror_id,
                 source,
                 target_path,
+                desired_path,
                 visible_name,
                 upload_name,
                 previous_remote_id,
@@ -855,9 +857,16 @@ fn execute(
                     UploadFormat::Pdf => (source.path.clone(), upload_name.clone(), false),
                 };
                 report.trace.push(format!(
-                    "upload {publication_id}: {upload_name:?} → {} ({} bytes)",
+                    "upload {publication_id}: {upload_name:?} → {} ({} bytes){}",
                     target_path.join("/"),
-                    source.size
+                    source.size,
+                    match &desired_path {
+                        Some(wanted) => format!(
+                            "; the tablet has no {} folder, so it is filed here",
+                            wanted.join("/")
+                        ),
+                        None => String::new(),
+                    }
                 ));
                 let sent = transport.upload_into(Some(&folder_id), &upload_path, &upload_name);
                 if wrapped {
@@ -878,7 +887,19 @@ fn execute(
                             ),
                             ("remote_parent_id", Some(Value::String(folder_id.clone()))),
                             ("remote_name", Some(Value::String(visible_name.clone()))),
-                            ("remote_path", Some(Value::String(target_path.join("/")))),
+                            // The tablet's own spelling of the folder, not
+                            // the one imbib asked for: a user who called the
+                            // root folder `Imbib` should see `Imbib`.
+                            (
+                                "remote_path",
+                                Some(Value::String(folders.path_of(&folder_id).join("/"))),
+                            ),
+                            (
+                                "desired_path",
+                                desired_path
+                                    .as_ref()
+                                    .map(|wanted| Value::String(wanted.join("/"))),
+                            ),
                             ("uploaded_sha256", Some(Value::String(sha))),
                             ("uploaded_size", Some(Value::Int(source.size))),
                             ("uploaded_at_ms", Some(Value::Int(now))),

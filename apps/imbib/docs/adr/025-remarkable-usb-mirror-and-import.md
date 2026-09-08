@@ -62,10 +62,9 @@ The P0 spike (uploading hand-built archives) settled the open questions:
    `None` otherwise); `all` mirrors every paper with a local PDF/ePUB and
    shows no marker.
 4. **Folders are the user's.** Papers are filed under
-   `imbib/<Library>/<Collection>/<Sub-collection>`; a missing folder parks
-   the paper in `awaiting_folder` and Settings shows the exact folders to
-   create, parents first. Nothing is ever uploaded to a fallback folder,
-   because nothing can be moved afterwards.
+   `imbib/<Library>/<Collection>/<Sub-collection>`; Settings shows the
+   exact folders the tablet lacks, parents first, because only the user
+   can create one (see decision 10 for what happens meanwhile).
 5. **Uploads are archives.** Every paper goes up wrapped in an `.rmdoc`
    whose `visibleName` is `"{Family} {Year} – {Title}"`, so the tablet
    shows exact names; the id the tablet assigns is learned from the
@@ -98,12 +97,35 @@ The P0 spike (uploading hand-built archives) settled the open questions:
    `note`, writes an `impress/artifact/note` with the typed text and
    leaves the document offered. Nothing is imported without being asked.
 
+10. **A missing folder does not stop the paper (2026-09-08, revises 4).**
+   The original rule — never upload to a fallback folder, because nothing
+   can be moved afterwards — held every paper of a library called
+   `ULDM State & Coherence — references` behind a folder name nobody wants
+   to type on a tablet. The tablet cannot be told to make one: its bundle
+   issues one `GET /documents/…` and one `POST /upload` with a single
+   `file` field, and that is the entire write surface. So by default
+   (`file_in_nearest_folder`, on) a paper goes into the deepest folder on
+   its path that does exist, keeps `desired_path` on its mirror row, and
+   says so in the Info section. The root folder is the floor: with no
+   `imbib` on the tablet the paper still waits, and the row names that one
+   folder to create — papers are never scattered among the user's own
+   documents. Since the sync walks the whole tablet, dragging the document
+   into the right folder is followed and clears `desired_path` by itself;
+   nothing is re-uploaded to correct a placement. Setting
+   `file_in_nearest_folder: false` restores the waiting behaviour.
+11. **A failed fetch says why.** `eink-note-source-error` writes the
+   reason onto an `awaiting_source` row (attempts, last attempt, message).
+   Only something that can download knows — the engine never can — so
+   without it the row's dead end was invisible once the log scrolled away.
+
 ## Consequences
 
 * `_remarkable_*` payload keys, `RemarkableSyncManager`,
   `RemarkableSyncScheduler` and the unmounted reMarkable views are retired.
 * `schema-refs.json` gains `imbib/eink-device` and `imbib/eink-mirror`
-  (72 canonical refs).
+  (72 canonical refs). Both later took additive fields —
+  `file_in_nearest_folder` on the device, `desired_path` on the mirror —
+  which cost the manifest nothing.
 * The engine is Tier-A tested against a scripted tablet (`tests/
   eink_end_to_end.rs`, `tests/eink_import.rs`, `tests/eink_documents.rs`);
   the formats against fixtures captured from the Paper Pro

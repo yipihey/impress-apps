@@ -286,7 +286,8 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
 - **E-ink mirroring lives in Rust and in store records** (imbib ADR-025): the reMarkable
   is reached over its USB web interface, which can only list, upload and download — no
   folder creation, rename, move or delete, and an upload lands in whatever folder was
-  listed last. Everything that decides what happens is `crates/imbib-core/src/eink/`
+  listed last. Because only the user can make a folder, a paper whose folder the tablet
+  lacks is filed in the nearest existing one (never above the root) rather than held. Everything that decides what happens is `crates/imbib-core/src/eink/`
   (planner, executor, import) over `crates/impress-remarkable`; the device and every
   per-paper mirror state are `imbib/eink-device` / `imbib/eink-mirror` records, so the
   CLI and MCP verbs (`imbib-eink-service_eink-*`) sync headless with the app closed and

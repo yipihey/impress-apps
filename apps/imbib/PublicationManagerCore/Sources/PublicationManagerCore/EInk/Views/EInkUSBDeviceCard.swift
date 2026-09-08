@@ -139,13 +139,14 @@ public struct EInkUSBDevicePaneModel: Sendable, Equatable {
     /// us: with the `rmdoc` strategy the sync creates them itself.
     public var showsFolderChecklist: Bool { device.folderStrategy != "rmdoc" }
 
-    /// The six counters, in the order the pane shows them.
+    /// The counters, in the order the pane shows them.
     public var counters: [Counter] {
         [
             Counter(label: "Queued", value: counts.queued, systemImage: EInkMirrorState.queued.systemImage),
             Counter(label: "On tablet", value: counts.uploaded, systemImage: EInkMirrorState.uploaded.systemImage),
             Counter(label: "Awaiting PDF", value: counts.awaitingSource, systemImage: EInkMirrorState.awaitingSource.systemImage),
             Counter(label: "Awaiting folder", value: counts.awaitingFolder, systemImage: EInkMirrorState.awaitingFolder.systemImage),
+            Counter(label: "Filed in a parent folder", value: counts.filedInNearest, systemImage: "folder.badge.questionmark"),
             Counter(label: "Stale", value: counts.stale, systemImage: EInkMirrorState.stale.systemImage),
             Counter(label: "Failed", value: counts.failed, systemImage: EInkMirrorState.failed.systemImage),
         ]
@@ -279,12 +280,22 @@ public struct EInkUSBDeviceCard: View {
                 get: { pane.device.mirrorCollections },
                 set: { value in write(pane.device.id) { $0.mirrorCollections = value } }
             ))
+            Toggle("File in the nearest folder that exists", isOn: Binding(
+                get: { pane.device.fileInNearestFolder },
+                set: { value in write(pane.device.id) { $0.fileInNearestFolder = value } }
+            ))
+            .disabled(!pane.device.mirrorCollections && !pane.device.includeLibraryLevel)
         } header: {
             Text("Folders")
         } footer: {
-            Text(pane.device.mirrorCollections
-                 ? "Papers land in \(pane.device.rootFolderName) › Library › Collection on the tablet, mirroring the sidebar."
-                 : "Every paper lands directly in \(pane.device.rootFolderName) on the tablet.")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pane.device.mirrorCollections
+                     ? "Papers land in \(pane.device.rootFolderName) › Library › Collection on the tablet, mirroring the sidebar."
+                     : "Every paper lands directly in \(pane.device.rootFolderName) on the tablet.")
+                Text(pane.device.fileInNearestFolder
+                     ? "A paper whose folder the tablet lacks goes into the deepest one on its path that exists — never above \(pane.device.rootFolderName) — and says where it belongs. Drag it into place on the tablet and the next sync follows it."
+                     : "A paper whose folder the tablet lacks waits until you create that folder.")
+            }
         }
         .onAppear { rootFolderDraft = pane.device.rootFolderName }
         .onChange(of: pane.device.rootFolderName) { _, newValue in rootFolderDraft = newValue }
@@ -330,7 +341,7 @@ public struct EInkUSBDeviceCard: View {
         } header: {
             Text("Folders to create on the tablet")
         } footer: {
-            Text("The USB interface cannot create folders. Create these on the tablet, parents first, then Check again — the waiting papers are sent on the next sync.")
+            Text("The USB interface cannot create folders — only you can, on the tablet. Make these parents first, then Check again. Papers already filed in a parent folder stay there until you drag them in; papers still waiting are sent on the next sync.")
         }
         .task(id: pane.device.id) { reloadChecklist(pane) }
     }
