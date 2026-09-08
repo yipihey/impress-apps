@@ -72,6 +72,9 @@ public final class EInkConnectionMonitor {
     public private(set) var deviceID: String?
     /// Whether the probe loop is running.
     public private(set) var isMonitoring = false
+    /// Bumped on every start/stop; a probe result from an older generation
+    /// is discarded.
+    private var generation = 0
 
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let environment: EInkConnectionEnvironment
@@ -136,7 +139,16 @@ public final class EInkConnectionMonitor {
         probeInFlight = true
         defer { probeInFlight = false }
 
+        let generationAtStart = generation
         let reachable = await environment.probe(deviceID)
+        // A probe that outlived its device (the device was removed or
+        // swapped while the probe was in flight) must not resurrect the
+        // connection state `stopProbing()` just cleared.
+        guard generation == generationAtStart, self.deviceID == deviceID else {
+            Logger.library.debugCapture(
+                "eink.monitor: probe result for \(deviceID) discarded (monitor restarted)", category: "eink")
+            return isConnected
+        }
         lastProbeAt = Date()
         probeCount += 1
         let was = isConnected
@@ -172,6 +184,7 @@ public final class EInkConnectionMonitor {
 
     private func startProbing() {
         guard let deviceID else { return }
+        generation &+= 1
         isMonitoring = true
         Logger.library.infoCapture(
             "eink.monitor: probing device \(deviceID) every \(interval)", category: "eink")
@@ -200,6 +213,7 @@ public final class EInkConnectionMonitor {
     }
 
     private func stopProbing() {
+        generation &+= 1
         loopTask?.cancel()
         loopTask = nil
         pathMonitor?.cancel()
