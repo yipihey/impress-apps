@@ -11,9 +11,10 @@
 //!
 //! **Two tiers, one always on.** The FTS tier (full-text dedup gate,
 //! full-text retrieval, the deterministic ranker) is always live and needs
-//! nothing configured. The vector tier (ADR-0028 D6) is opt-in — set
-//! `IMPRESS_MEMORY_VECTORS=1` — and COMPOSES with the FTS tier rather than
-//! replacing it, per the kernel's own module docs
+//! nothing configured. The vector tier (ADR-0028 D6) turns itself on when
+//! there is something for it to read — the sidecar already holds
+//! `memory-item` vectors for the model this process would use — and COMPOSES
+//! with the FTS tier rather than replacing it, per the kernel's own module docs
 //! (`memory_ops::MemoryCandidate::vector_similarity`): `remember`'s dedup
 //! gate runs FTS first and only falls to the (higher-threshold) vector check
 //! when FTS found nothing; `recall` re-ranks the SAME page FTS already
@@ -21,8 +22,15 @@
 //! reports which tier is actually running — see its own doc for the exact
 //! states — rather than a static claim either way.
 //!
+//! Presence-gating replaced a bare `IMPRESS_MEMORY_VECTORS=1` opt-in, which
+//! no process in the suite ever set: `impel-taskd`'s embed sweep wrote
+//! vectors nightly and every recall in every app, daemon and MCP session
+//! stayed FTS-only, permanently. `IMPRESS_MEMORY_VECTORS` still overrides in
+//! both directions — `1` forces the tier on before any vector exists, `0`
+//! forces it off on a machine that has them.
+//!
 //! The vector tier is lazy and process-wide: it is built at most once, on
-//! the first `remember` or `recall` call after the env var is read as `"1"`,
+//! the first `remember` or `recall` call that finds the gate open,
 //! and any failure to build it (missing sidecar, model load failure) turns
 //! it off for the rest of the process with one `stderr` line — imitating
 //! `impress-mcp::tools::SEMANTIC_UNAVAILABLE`'s degraded-mode discipline.
@@ -256,15 +264,19 @@ pub struct StatusResult {
     pub schemas: Vec<SchemaCountDto>,
     /// Fraction (0.0–1.0) of memory items with a same-model vector in the
     /// vector-tier sidecar, i.e. `N / M` from the `vector_tier` string
-    /// below. Always `0.0` when the vector tier is off (`IMPRESS_MEMORY_VECTORS`
-    /// unset); real whenever it is at least configured — computed by
-    /// opening the sidecar and counting, which needs no live embedder, so
-    /// this is accurate even in the `"initializing lazily"` state.
+    /// below. `0.0` when there is nothing embedded, or when
+    /// `IMPRESS_MEMORY_VECTORS` disables the tier; real whenever vectors
+    /// exist — computed by opening the sidecar and counting, which needs no
+    /// live embedder, so this is accurate even in the
+    /// `"initializing lazily"` state.
     pub embedding_coverage: f64,
-    /// One of four states, cheapest-to-most-configured:
-    /// `"off (set IMPRESS_MEMORY_VECTORS=1)"` — the env var is unset;
-    /// `"initializing lazily"` — set, but no `remember`/`recall` has run in
-    /// this process yet, so the tier has not tried to build itself;
+    /// One of five states, cheapest-to-most-configured:
+    /// `"off (IMPRESS_MEMORY_VECTORS disables it)"` — explicitly turned off;
+    /// `"idle (no memory vectors embedded yet …)"` — nothing to read yet, so
+    /// the tier has not started; it will on its own once the embed sweep
+    /// writes the first memory vector;
+    /// `"initializing lazily"` — the gate is open, but no `remember`/`recall`
+    /// has run in this process yet, so the tier has not tried to build itself;
     /// `"live (model <id>, N/M items embedded)"` — built successfully;
     /// `"unavailable: <reason>"` — it tried and failed (logged once to
     /// `stderr` when that happened). See the module docs for the full
@@ -503,8 +515,10 @@ const FALLBACK_READ_NOTE: &str =
 // through `DefaultMemoryService::vector_tier`, and `memory_status` goes
 // through `DefaultMemoryService::vector_status`.
 
-/// Env var that opts a process into the vector tier. Any value other than
-/// exactly `"1"` (including unset) means "off" — see the module docs.
+/// Env var that overrides the vector tier's presence gate, in either
+/// direction. `1`/`true`/`on` forces it on, `0`/`false`/`off` forces it off;
+/// unset (or anything else) leaves the decision to [`memory_vectors_present`]
+/// — see the module docs.
 const VECTOR_TIER_ENV: &str = "IMPRESS_MEMORY_VECTORS";
 
 /// Env var overriding the embeddings sidecar path for this process. Mirrors
@@ -592,13 +606,61 @@ enum TierState {
     Failed(String),
 }
 
-/// Whether this process has opted into the vector tier. Cheap and stateless
-/// — reads the env var fresh every call — because the ONLY thing gating on
-/// it must guarantee is "never touch [`VECTOR_TIER`] when this is false",
-/// not "cache the answer".
-fn vector_tier_env_enabled() -> bool {
-    std::env::var(VECTOR_TIER_ENV)
-        .map(|v| v == "1")
+/// What [`VECTOR_TIER_ENV`] says, if anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VectorTierGate {
+    /// Forced on: build the tier even before a single vector exists.
+    On,
+    /// Forced off: never build it, however many vectors exist.
+    Off,
+    /// Unset — decide from whether there are vectors to read.
+    ByPresence,
+}
+
+/// Read the override. Cheap and stateless: the env var is read fresh every
+/// call, because the only guarantee required is "never touch [`VECTOR_TIER`]
+/// when this says off", not "cache the answer".
+fn vector_tier_gate() -> VectorTierGate {
+    match std::env::var(VECTOR_TIER_ENV) {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "on" => VectorTierGate::On,
+            "0" | "false" | "off" => VectorTierGate::Off,
+            // An unrecognised value is not a vote. Guessing which way a typo
+            // meant is worse than falling back to the automatic answer.
+            _ => VectorTierGate::ByPresence,
+        },
+        Err(_) => VectorTierGate::ByPresence,
+    }
+}
+
+/// Whether the sidecar already holds `memory-item` vectors for the model this
+/// process would embed with.
+///
+/// One `EXISTS` against a small SQLite file: no model load, no vector blobs
+/// read — which is what makes it usable as the gate rather than only as a
+/// status reading. A machine that has never run the embed sweep answers
+/// `false` and pays nothing beyond the file open.
+fn memory_vectors_present() -> bool {
+    // A unit test must never consult the developer's real sidecar: the
+    // default path is `dirs::data_dir()/imbib/embeddings.sqlite`, and a
+    // machine that has run the embed sweep would otherwise make this crate's
+    // no-override tests load a 100MB ONNX model. The explicit
+    // `IMPRESS_MEMORY_VECTORS=1` override still reaches the forced-on branch
+    // under test, which is how the forced path is exercised.
+    if cfg!(test) {
+        return false;
+    }
+    let Some(path) = resolve_embeddings_path() else {
+        return false;
+    };
+    let Ok(store) = EmbeddingStore::open(&path) else {
+        return false;
+    };
+    store
+        .has_vectors_for_source_and_model(
+            MEMORY_ITEM_SOURCE_TYPE,
+            impress_embeddings::FASTEMBED_MODEL_ID,
+        )
         .unwrap_or(false)
 }
 
@@ -673,8 +735,22 @@ static VECTOR_TIER: OnceLock<TierState> = OnceLock::new();
 /// nothing pays for a sidecar open or a model load unless the env var is set
 /// AND a memory verb actually runs.
 fn process_vector_tier() -> Option<&'static VectorTierInner> {
-    if !vector_tier_env_enabled() {
-        return None;
+    // Already resolved: the gate question was settled when it mattered, and
+    // re-asking would cost a sidecar open on every memory verb forever.
+    if let Some(state) = VECTOR_TIER.get() {
+        return match state {
+            TierState::Live(inner) => Some(inner),
+            TierState::Failed(_) => None,
+        };
+    }
+    match vector_tier_gate() {
+        VectorTierGate::Off => return None,
+        VectorTierGate::On => {}
+        // Nothing embedded yet — the model load would buy an empty search.
+        // Not cached: the sweep may write the first vectors at any point in
+        // this process's life, and a latch here is how the tier stayed dark.
+        VectorTierGate::ByPresence if !memory_vectors_present() => return None,
+        VectorTierGate::ByPresence => {}
     }
     match VECTOR_TIER.get_or_init(init_vector_tier) {
         TierState::Live(inner) => Some(inner),
@@ -839,8 +915,22 @@ impl DefaultMemoryService {
                 coverage_ratio(embedded, total_items),
             );
         }
-        if !vector_tier_env_enabled() {
-            return (format!("off (set {VECTOR_TIER_ENV}=1)"), 0.0);
+        match vector_tier_gate() {
+            VectorTierGate::Off => {
+                return (format!("off ({VECTOR_TIER_ENV} disables it)"), 0.0);
+            }
+            // The honest reading of a machine mid-backfill: the tier is not
+            // "off", it simply has nothing to read yet, and it starts on its
+            // own once the embed sweep writes the first memory vector.
+            VectorTierGate::ByPresence if !memory_vectors_present() => {
+                return (
+                    "idle (no memory vectors embedded yet — starts automatically \
+                     once the embed sweep writes some)"
+                        .to_string(),
+                    0.0,
+                );
+            }
+            _ => {}
         }
         match VECTOR_TIER.get() {
             None => (
@@ -2420,9 +2510,14 @@ mod tests {
         assert_eq!(status.schemas.len(), 3);
         assert_eq!(status.embedding_coverage, 0.0);
         // `svc()` sets no vector-tier override and this test never touches
-        // IMPRESS_MEMORY_VECTORS, so the tier is off — the cheapest of the
-        // four `vector_tier` states (see `DefaultMemoryService::vector_status`).
-        assert!(status.vector_tier.contains("off"), "{}", status.vector_tier);
+        // IMPRESS_MEMORY_VECTORS, so the presence gate decides — and under
+        // `cfg(test)` it always answers "nothing embedded", which is the
+        // `idle` state (see `DefaultMemoryService::vector_status`).
+        assert!(
+            status.vector_tier.contains("idle"),
+            "{}",
+            status.vector_tier
+        );
 
         let claim_row = status
             .schemas
