@@ -78,6 +78,19 @@ pub struct MaintenanceStatus {
     pub last_demotion_ms: Option<i64>,
     pub last_demotion_count: Option<u64>,
     pub last_vacuum_ms: Option<i64>,
+    /// Terminal task rows older than the retention window, as of the last
+    /// cycle. Reported whether or not sweeping is enabled — a number nobody
+    /// can see is not a retention policy (ADR-0006).
+    pub task_retention_sweepable: Option<u64>,
+    /// Everything a sweep would reclaim, cascading operation rows included.
+    pub task_retention_reclaimable: Option<u64>,
+    /// The window the two counts above were taken against, in days.
+    pub task_retention_window_days: Option<u32>,
+    /// Rows the last sweep actually deleted. `None` while sweeping is off
+    /// (`IMPRESS_TASK_RETENTION_DAYS` unset) — distinct from `Some(0)`, which
+    /// means it ran and found nothing.
+    pub last_task_sweep_removed: Option<u64>,
+    pub last_task_sweep_ms: Option<i64>,
 }
 
 const MAINTENANCE_LOG_CAP: usize = 500;

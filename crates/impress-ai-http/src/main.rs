@@ -69,6 +69,27 @@ async fn main() {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(30);
+    // Task retention (ADR-0006). The kernel's finished tasks, their review
+    // checkpoints and the operations targeting them are never reclaimed by op
+    // compaction: those rows are ITEMS, not operations, and they accumulate
+    // two per ingested paper forever.
+    //
+    // Reporting is unconditional; SWEEPING is not, and 0 (the default) is off.
+    // A sweep deletes history that cannot be reconstructed — an agent-run
+    // survives but can no longer name the task it ran for — so the number is
+    // put in front of the user and the policy is theirs to set.
+    let task_retention_days: u32 = std::env::var("IMPRESS_TASK_RETENTION_DAYS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    // The window the report is taken against when sweeping is off. Named
+    // separately so the count answers "what WOULD 90 days reclaim?" rather
+    // than "what would 0 days reclaim?", which is everything.
+    let retention_report_days = if task_retention_days > 0 {
+        task_retention_days
+    } else {
+        90
+    };
     let loop_maintenance = maintenance.clone();
     let lease_store_path = store_path.clone();
     tokio::spawn(async move {
@@ -78,6 +99,10 @@ async fn main() {
         // Daily compaction, expressed in 5-minute ticks; the first tick also
         // compacts so a fresh deploy converges without waiting a day.
         const COMPACT_EVERY_TICKS: u64 = 288;
+        /// Rows one retention sweep may delete. Bounds the writer-lock hold
+        /// on a first run over a long backlog; the daily cadence drains the
+        /// rest.
+        const TASK_SWEEP_CAP: usize = 2_000;
         // Op-rate budget: the early alarm for the next churn regression.
         // ~750k/day was the incident rate; a healthy suite runs well under
         // 100k. Warnings log on the over/under TRANSITION, not per cycle.
@@ -188,6 +213,71 @@ async fn main() {
                     }
                     Err(join_error) => {
                         maintenance.log(format!("compaction task failed: {join_error}"))
+                    }
+                }
+
+                // Task retention (ADR-0006): count always, delete only when
+                // asked. See `task_retention_days` above.
+                let store = maintenance_store.clone();
+                match tokio::task::spawn_blocking(move || {
+                    store.task_retention_report(retention_report_days)
+                })
+                .await
+                {
+                    Ok(Ok(report)) => {
+                        if report.sweepable_tasks > 0 {
+                            maintenance.log(format!(
+                                "task retention: {} finished task(s) and {} review(s) older than {}d \
+                                 ({} rows reclaimable with cascades); {} live, {} recent",
+                                report.sweepable_tasks,
+                                report.sweepable_reviews,
+                                report.window_days,
+                                report.total_reclaimable(),
+                                report.live_tasks,
+                                report.retained_terminal_tasks,
+                            ));
+                        }
+                        maintenance.update_status(|s| {
+                            s.task_retention_sweepable = Some(report.sweepable_tasks);
+                            s.task_retention_reclaimable = Some(report.total_reclaimable());
+                            s.task_retention_window_days = Some(report.window_days);
+                        });
+                    }
+                    Ok(Err(error)) => {
+                        maintenance.log(format!("task retention report failed: {error}"))
+                    }
+                    Err(join_error) => {
+                        maintenance.log(format!("task retention report task failed: {join_error}"))
+                    }
+                }
+
+                if task_retention_days > 0 {
+                    let store = maintenance_store.clone();
+                    match tokio::task::spawn_blocking(move || {
+                        // Capped per cycle: a first sweep over a long backlog
+                        // must not hold the writer lock for minutes while
+                        // four apps wait on it. The daily cadence drains it.
+                        store.sweep_terminal_tasks(task_retention_days, TASK_SWEEP_CAP)
+                    })
+                    .await
+                    {
+                        Ok(Ok(removed)) => {
+                            if removed > 0 {
+                                maintenance.log(format!(
+                                    "task retention: swept {removed} row(s) older than \
+                                     {task_retention_days}d"
+                                ));
+                            }
+                            maintenance.update_status(|s| {
+                                s.last_task_sweep_ms = Some(chrono::Utc::now().timestamp_millis());
+                                s.last_task_sweep_removed = Some(removed);
+                            });
+                        }
+                        Ok(Err(error)) => {
+                            maintenance.log(format!("task retention sweep failed: {error}"))
+                        }
+                        Err(join_error) => maintenance
+                            .log(format!("task retention sweep task failed: {join_error}")),
                     }
                 }
             }

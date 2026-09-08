@@ -104,6 +104,31 @@ pub struct SchedulerStatusReport {
     pub summary: String,
 }
 
+/// What a retention sweep of finished task rows would reclaim.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetentionReport {
+    /// The age window the counts were taken against, in days.
+    pub window_days: u32,
+    /// Finished tasks older than the window.
+    pub sweepable_tasks: u64,
+    /// Their review checkpoints, which are deleted with them.
+    pub sweepable_reviews: u64,
+    /// Operations targeting those tasks. Deleted by cascade, so they never
+    /// appear in a sweep's own count — and they are usually most of what a
+    /// sweep actually reclaims.
+    pub cascading_operations: u64,
+    /// Everything the three lines above add up to.
+    pub total_reclaimable: u64,
+    /// Finished but still inside the window.
+    pub retained_terminal_tasks: u64,
+    /// Unfinished, so never sweepable at any age.
+    pub live_tasks: u64,
+    /// Whether ai-server is actually configured to sweep, and what it would
+    /// take to change that.
+    pub sweeping: String,
+    pub summary: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KindCount {
     pub task_kind: String,
@@ -198,6 +223,20 @@ pub trait ImpelService: Send + Sync + 'static {
     /// terminal one, since `done`/`failed`/`cancelled` admit no transition.
     #[impress_method]
     async fn cancel_task(&self, task_id: String) -> ActionReport;
+
+    /// How much of the store is finished task bookkeeping, and how much a
+    /// retention sweep would reclaim (ADR-0006).
+    ///
+    /// Read-only — it never deletes anything. The sweep itself belongs to
+    /// ai-server's maintenance cadence and is off unless
+    /// `IMPRESS_TASK_RETENTION_DAYS` is set, because it destroys history
+    /// that cannot be reconstructed: the operations recording a task's
+    /// state transitions cascade with it, and the agent-run it produced
+    /// survives but can no longer name the task it ran for.
+    ///
+    /// `window_days` 0 means the default (90).
+    #[impress_method]
+    async fn retention_status(&self, window_days: i64) -> RetentionReport;
 }
 
 // ── Implementation ──────────────────────────────────────────────────────────
@@ -668,7 +707,101 @@ impl ImpelService for DefaultImpelService {
             },
         }
     }
+
+    async fn retention_status(&self, window_days: i64) -> RetentionReport {
+        let window = if window_days <= 0 {
+            DEFAULT_RETENTION_WINDOW_DAYS
+        } else {
+            window_days.min(u32::MAX as i64) as u32
+        };
+        let store = self.store();
+        // Same honesty rule as `scheduler_status`: an unopenable store
+        // answers every count with 0, which reads exactly like a store with
+        // no backlog.
+        let store_is_fallback =
+            self.store.is_none() && impress_store_service::store::store_is_fallback();
+        if store_is_fallback {
+            return RetentionReport {
+                window_days: window,
+                sweepable_tasks: 0,
+                sweepable_reviews: 0,
+                cascading_operations: 0,
+                total_reclaimable: 0,
+                retained_terminal_tasks: 0,
+                live_tasks: 0,
+                sweeping: "unknown".into(),
+                summary: "STORE UNAVAILABLE — could not open the shared store, so every count \
+                          below is 0 because nothing could be read, NOT because nothing is there."
+                    .into(),
+            };
+        }
+        let report = match store.task_retention_report(window) {
+            Ok(report) => report,
+            Err(error) => {
+                return RetentionReport {
+                    window_days: window,
+                    sweepable_tasks: 0,
+                    sweepable_reviews: 0,
+                    cascading_operations: 0,
+                    total_reclaimable: 0,
+                    retained_terminal_tasks: 0,
+                    live_tasks: 0,
+                    sweeping: "unknown".into(),
+                    summary: format!("retention report failed: {error}"),
+                }
+            }
+        };
+        // The env var is ai-server's, and this process is usually a different
+        // one — so report what is set HERE and say so, rather than claiming
+        // to know the daemon's configuration.
+        let configured = std::env::var(TASK_RETENTION_ENV)
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|days| *days > 0);
+        let sweeping = match configured {
+            Some(days) => format!("on in this process: {TASK_RETENTION_ENV}={days}"),
+            None => format!(
+                "off in this process ({TASK_RETENTION_ENV} unset); ai-server sweeps only if it \
+                 is set in the daemon's own environment"
+            ),
+        };
+        let summary = if report.sweepable_tasks == 0 {
+            format!(
+                "Nothing older than {window}d to reclaim. {} live task(s), {} finished within \
+                 the window.",
+                report.live_tasks, report.retained_terminal_tasks
+            )
+        } else {
+            format!(
+                "{} finished task(s) and {} review(s) older than {window}d — {} rows reclaimable \
+                 once cascading operations are counted. {} live, {} finished within the window.",
+                report.sweepable_tasks,
+                report.sweepable_reviews,
+                report.total_reclaimable(),
+                report.live_tasks,
+                report.retained_terminal_tasks,
+            )
+        };
+        RetentionReport {
+            window_days: report.window_days,
+            sweepable_tasks: report.sweepable_tasks,
+            sweepable_reviews: report.sweepable_reviews,
+            cascading_operations: report.cascading_operations,
+            total_reclaimable: report.total_reclaimable(),
+            retained_terminal_tasks: report.retained_terminal_tasks,
+            live_tasks: report.live_tasks,
+            sweeping,
+            summary,
+        }
+    }
 }
+
+/// Age window `retention_status` reports against when the caller names none.
+/// Matches ai-server's own reporting default.
+const DEFAULT_RETENTION_WINDOW_DAYS: u32 = 90;
+
+/// The variable ai-server reads to decide whether to sweep at all.
+const TASK_RETENTION_ENV: &str = "IMPRESS_TASK_RETENTION_DAYS";
 
 fn whoami_or_unknown() -> String {
     std::env::var("USER").unwrap_or_else(|_| "unknown".into())
@@ -688,6 +821,7 @@ impress_service_impl! {
         list_pending_reviews(limit: i64) -> Vec<PendingReviewReport>,
         resolve_review(review_id: String, resolution: String) -> ActionReport,
         cancel_task(task_id: String) -> ActionReport,
+        retention_status(window_days: i64) -> RetentionReport,
     ],
 }
 
@@ -876,5 +1010,75 @@ mod tests {
         let busy = svc.cancel_task(running[0].to_string()).await;
         assert!(!busy.ok);
         assert!(busy.message.contains("running"));
+    }
+
+    /// A finished task counts as reclaimable only once it is OLDER than the
+    /// window, and a live one never does at any age. Both vocabularies count:
+    /// a sweep that knew only `done` would leave every bridge-mirrored
+    /// `completed` row behind forever, and that is half the backlog.
+    #[tokio::test]
+    async fn retention_report_separates_old_finished_work_from_live_work() {
+        let (svc, store) = service();
+        let ids = create_task_dag(
+            store.as_ref(),
+            &[
+                spec("metadata-resolve", vec![]),
+                spec("keyword-tag", vec![]),
+                spec("impress.memory.embed", vec![]),
+            ],
+            "spawner",
+        )
+        .unwrap();
+        // Two finished, in the two spellings; one left pending.
+        for (id, state) in [(ids[0], "done"), (ids[1], "completed")] {
+            TaskStoreApi::apply(
+                store.as_ref(),
+                OperationSpec {
+                    target_id: id,
+                    op_type: OperationType::SetPayload("state".into(), Value::String(state.into())),
+                    intent: OperationIntent::Routine,
+                    reason: None,
+                    batch_id: None,
+                    author: "test".into(),
+                    author_kind: ActorKind::Agent,
+                    retention: RetentionTier::Compactable,
+                },
+            )
+            .unwrap();
+        }
+
+        // Everything was written moments ago, so a 30-day window reclaims
+        // nothing and reports the finished pair as retained.
+        let fresh = svc.retention_status(30).await;
+        assert_eq!(fresh.sweepable_tasks, 0);
+        assert_eq!(fresh.retained_terminal_tasks, 2);
+        assert_eq!(fresh.live_tasks, 1);
+        assert!(fresh.summary.contains("Nothing older"), "{}", fresh.summary);
+
+        // A zero-day window makes everything already-written old enough.
+        let all = svc.retention_status(-1).await;
+        assert_eq!(
+            all.window_days, DEFAULT_RETENTION_WINDOW_DAYS,
+            "0 is the default, not 0 days"
+        );
+        let report = store.task_retention_report(0).unwrap();
+        assert_eq!(report.sweepable_tasks, 2, "both spellings, not just `done`");
+        assert_eq!(report.live_tasks, 1);
+        assert!(
+            report.cascading_operations > 0,
+            "the state transitions cascade with their task and must be counted"
+        );
+        assert_eq!(report.total_reclaimable(), 2 + report.cascading_operations);
+
+        // And the sweep removes exactly the finished pair, leaving the live
+        // task alone.
+        let removed = store.sweep_terminal_tasks(0, 100).unwrap();
+        assert_eq!(removed, 2);
+        let after = svc.retention_status(30).await;
+        assert_eq!(after.live_tasks, 1);
+        assert_eq!(after.retained_terminal_tasks, 0);
+        assert!(TaskStoreApi::get_item(store.as_ref(), ids[2])
+            .unwrap()
+            .is_some());
     }
 }

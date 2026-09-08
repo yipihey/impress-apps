@@ -30,6 +30,60 @@ const READER_POOL_SIZE: usize = 4;
 /// namespace `notify_post` targets. Payload-free by design: receivers pull.
 pub const STORE_MUTATED_DARWIN_NOTE: &str = "com.impress.suite.store.mutated";
 
+/// `items.schema_ref` of the kernel's task rows, as an SQL literal. Kept in
+/// step with `schemas::task::TASK_SCHEMA` by
+/// `retention_schema_refs_match_the_canonical_constants`.
+const TASK_SCHEMA_REF: &str = "task@1.0.0";
+
+/// `items.schema_ref` of the kernel's review checkpoints, as an SQL literal.
+/// Owned by `impel-core` (which this crate cannot depend on — the dependency
+/// runs the other way), so the same test pins it against a live row instead.
+const REVIEW_SCHEMA_REF: &str = "review-request@1.0.0";
+
+/// The task states a retention sweep considers finished, as an SQL `IN` list.
+///
+/// Both vocabularies, deliberately: the kernel writes
+/// `pending|running|done|failed|cancelled`, while rows mirrored from impel's
+/// GRDB store carry `queued|completed` (see `TaskState::parse_compat`). A
+/// sweep that knew only the kernel's spelling would leave every bridged row
+/// behind forever, which is the half of the backlog that grows per ingested
+/// paper.
+const TERMINAL_TASK_STATES: &str = "'done', 'failed', 'cancelled', 'completed'";
+
+/// `item_references.edge_type` for `OperatesOn`, as stored: the column holds
+/// the JSON encoding of `EdgeType`, quotes included, which is what
+/// `sql_query::compile_query` binds for `Predicate::HasReference`. Pinned by
+/// `operates_on_edge_matches_the_json_encoding`.
+const OPERATES_ON_EDGE: &str = "\"OperatesOn\"";
+
+/// What [`SqliteItemStore::task_retention_report`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TaskRetentionReport {
+    /// The window the counts below were taken against.
+    pub window_days: u32,
+    /// Terminal tasks older than the window — what a sweep would delete.
+    pub sweepable_tasks: u64,
+    /// Their review checkpoints, which go with them.
+    pub sweepable_reviews: u64,
+    /// Operations targeting those tasks. Not deleted directly: they cascade
+    /// (`items.op_target_id ON DELETE CASCADE`), which is usually the bulk of
+    /// what a sweep actually reclaims and never appears in its return value.
+    pub cascading_operations: u64,
+    /// Terminal tasks INSIDE the window — finished, but still recent enough
+    /// to keep.
+    pub retained_terminal_tasks: u64,
+    /// Tasks a sweep will never touch at any age, because they are not
+    /// finished.
+    pub live_tasks: u64,
+}
+
+impl TaskRetentionReport {
+    /// Every row a sweep would remove, cascades included.
+    pub fn total_reclaimable(&self) -> u64 {
+        self.sweepable_tasks + self.sweepable_reviews + self.cascading_operations
+    }
+}
+
 /// Throttled cross-process mutation signal. No-op off macOS and in unit
 /// tests would be noise-free anyway (notifyd names are cheap and carry no
 /// data), so there is deliberately no test gate — determinism is preserved
@@ -4271,6 +4325,205 @@ impl SqliteItemStore {
         )
     }
 
+    /// What a task-retention sweep would remove, and what it would leave.
+    ///
+    /// Always safe to call — pure counts, no writes. This is the half that
+    /// runs unconditionally: the sweep itself is destructive and opt-in (see
+    /// [`SqliteItemStore::sweep_terminal_tasks`]), and a number nobody can see
+    /// is not a retention policy.
+    pub fn task_retention_report(
+        &self,
+        window_days: u32,
+    ) -> Result<TaskRetentionReport, StoreError> {
+        let cutoff_ms =
+            (Utc::now() - chrono::Duration::days(window_days as i64)).timestamp_millis();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+
+        // Schema refs travel as BOUND PARAMETERS, never interpolated: an SQL
+        // string built by `format!` puts the ref somewhere the schema-ref lint
+        // cannot read it, and a ref this file spells differently from its
+        // writer selects zero rows forever without erroring.
+        let count = |sql: &str, args: &[&dyn rusqlite::ToSql]| -> Result<u64, StoreError> {
+            conn.query_row(sql, args, |row| row.get::<_, i64>(0))
+                .map(|n| n as u64)
+                .map_err(|e| StoreError::Storage(format!("retention report: {e}")))
+        };
+
+        let sweepable = count(
+            &format!(
+                "SELECT COUNT(*) FROM items
+                 WHERE schema_ref = ?1
+                   AND json_extract(payload, '$.state') IN ({TERMINAL_TASK_STATES})
+                   AND modified < ?2"
+            ),
+            params![TASK_SCHEMA_REF, cutoff_ms],
+        )?;
+        let live = count(
+            &format!(
+                "SELECT COUNT(*) FROM items
+                 WHERE schema_ref = ?1
+                   AND json_extract(payload, '$.state') NOT IN ({TERMINAL_TASK_STATES})"
+            ),
+            params![TASK_SCHEMA_REF],
+        )?;
+        let recent_terminal = count(
+            &format!(
+                "SELECT COUNT(*) FROM items
+                 WHERE schema_ref = ?1
+                   AND json_extract(payload, '$.state') IN ({TERMINAL_TASK_STATES})
+                   AND modified >= ?2"
+            ),
+            params![TASK_SCHEMA_REF, cutoff_ms],
+        )?;
+        let reviews = count(
+            &format!(
+                "SELECT COUNT(*) FROM items r
+                 WHERE r.schema_ref = ?1
+                   AND EXISTS (
+                     SELECT 1 FROM item_references ref
+                     JOIN items t ON t.id = ref.target_id
+                     WHERE ref.source_id = r.id
+                       AND ref.edge_type = ?2
+                       AND t.schema_ref = ?3
+                       AND json_extract(t.payload, '$.state') IN ({TERMINAL_TASK_STATES})
+                       AND t.modified < ?4
+                   )"
+            ),
+            params![
+                REVIEW_SCHEMA_REF,
+                OPERATES_ON_EDGE,
+                TASK_SCHEMA_REF,
+                cutoff_ms
+            ],
+        )?;
+        let operations = count(
+            &format!(
+                "SELECT COUNT(*) FROM items o
+                 JOIN items t ON t.id = o.op_target_id
+                 WHERE o.schema_ref = 'core/operation'
+                   AND t.schema_ref = ?1
+                   AND json_extract(t.payload, '$.state') IN ({TERMINAL_TASK_STATES})
+                   AND t.modified < ?2"
+            ),
+            params![TASK_SCHEMA_REF, cutoff_ms],
+        )?;
+
+        Ok(TaskRetentionReport {
+            window_days,
+            sweepable_tasks: sweepable,
+            sweepable_reviews: reviews,
+            cascading_operations: operations,
+            retained_terminal_tasks: recent_terminal,
+            live_tasks: live,
+        })
+    }
+
+    /// Delete terminal tasks older than `window_days`, with their reviews.
+    ///
+    /// **This destroys history and cannot be undone.** `items.op_target_id`
+    /// cascades, so deleting a task also deletes every operation targeting it
+    /// — its state transitions and its retry ledger — and `item_references`
+    /// cascades, so the `agent-run —ProducedBy→ task` edge goes with it. The
+    /// run ROW survives (it is the ADR-0005 §5 provenance record, and memory
+    /// episodes cite it), but it can no longer name the task it ran for.
+    ///
+    /// That is why nothing calls this on a schedule unless asked:
+    /// `IMPRESS_TASK_RETENTION_DAYS` is unset by default and
+    /// [`SqliteItemStore::task_retention_report`] runs in its place.
+    ///
+    /// A task with an UNRESOLVED review is skipped whatever its age — an open
+    /// checkpoint is a question still owed an answer, and deleting the task
+    /// under it would strand the review with nothing to resolve.
+    ///
+    /// `cap` bounds one sweep so a first run on a large backlog cannot hold
+    /// the writer lock for minutes; the cadence drains the rest.
+    ///
+    /// `window_days` here is genuinely a window, including `0` ("older than
+    /// now" — everything terminal). Whether to sweep AT ALL is the caller's
+    /// decision, not an in-band value: ai-server treats an unset or zero
+    /// `IMPRESS_TASK_RETENTION_DAYS` as off and never reaches this function,
+    /// which keeps the same number from meaning "disabled" in one place and
+    /// "delete everything finished" in the other.
+    pub fn sweep_terminal_tasks(&self, window_days: u32, cap: usize) -> Result<u64, StoreError> {
+        if cap == 0 {
+            return Ok(0);
+        }
+        let cutoff_ms =
+            (Utc::now() - chrono::Duration::days(window_days as i64)).timestamp_millis();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?;
+
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT id FROM items
+                 WHERE schema_ref = ?1
+                   AND json_extract(payload, '$.state') IN ({TERMINAL_TASK_STATES})
+                   AND modified < ?2
+                 ORDER BY modified ASC
+                 LIMIT ?3"
+            ))
+            .map_err(|e| StoreError::Storage(format!("retention sweep prepare: {e}")))?;
+        let task_ids: Vec<String> = stmt
+            .query_map(params![TASK_SCHEMA_REF, cutoff_ms, cap as i64], |row| {
+                row.get(0)
+            })
+            .map_err(|e| StoreError::Storage(format!("retention sweep query: {e}")))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| StoreError::Storage(format!("retention sweep collect: {e}")))?;
+        drop(stmt);
+        if task_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| StoreError::Storage(format!("retention sweep begin: {e}")))?;
+        let mut removed = 0_u64;
+        for task_id in &task_ids {
+            let reviews: Vec<(String, bool)> = {
+                let mut stmt = tx
+                    .prepare_cached(
+                        "SELECT r.id,
+                                json_extract(r.payload, '$.resolution') IS NOT NULL
+                         FROM items r
+                         JOIN item_references ref ON ref.source_id = r.id
+                         WHERE ref.target_id = ?1
+                           AND ref.edge_type = ?2
+                           AND r.schema_ref = ?3",
+                    )
+                    .map_err(|e| StoreError::Storage(format!("sweep reviews prepare: {e}")))?;
+                let rows: Vec<(String, bool)> = stmt
+                    .query_map(
+                        params![task_id, OPERATES_ON_EDGE, REVIEW_SCHEMA_REF],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .map_err(|e| StoreError::Storage(format!("sweep reviews query: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| StoreError::Storage(format!("sweep reviews collect: {e}")))?;
+                rows
+            };
+            if reviews.iter().any(|(_, resolved)| !resolved) {
+                continue; // an open question outlives its task
+            }
+            for (review_id, _) in &reviews {
+                tx.execute("DELETE FROM items WHERE id = ?1", params![review_id])
+                    .map_err(|e| StoreError::Storage(format!("sweep delete review: {e}")))?;
+                removed += 1;
+            }
+            tx.execute("DELETE FROM items WHERE id = ?1", params![task_id])
+                .map_err(|e| StoreError::Storage(format!("sweep delete task: {e}")))?;
+            removed += 1;
+        }
+        tx.commit()
+            .map_err(|e| StoreError::Storage(format!("retention sweep commit: {e}")))?;
+        Ok(removed)
+    }
+
     /// Remove compactable operations older than `window_days`, preserving
     /// time-travel correctness via durable watermark snapshots.
     ///
@@ -7699,5 +7952,50 @@ mod tests {
         let ready = store.ready_tasks(8).unwrap();
         assert_eq!(ready.len(), 1, "past stamp is eligible again");
         assert_eq!(ready[0].id, id);
+    }
+
+    /// The retention sweep matches `schema_ref` by SQL literal, and the store
+    /// matches schema refs by exact equality: a literal that drifts from the
+    /// canonical constant selects zero rows forever, silently, and looks
+    /// exactly like "there is nothing to reclaim".
+    #[test]
+    fn retention_schema_refs_match_the_canonical_constants() {
+        assert_eq!(TASK_SCHEMA_REF, crate::schemas::task::TASK_SCHEMA);
+        // `review-request@1.0.0` is owned by impel-core, which this crate
+        // cannot import (the dependency runs the other way). Pin it against
+        // the spelling the kernel actually writes instead.
+        assert_eq!(REVIEW_SCHEMA_REF, "review-request@1.0.0");
+    }
+
+    /// Terminal in BOTH vocabularies. The kernel writes
+    /// `done|failed|cancelled`; rows mirrored from impel's GRDB store carry
+    /// `completed`. Dropping either spelling leaves that whole population
+    /// unreclaimable.
+    #[test]
+    fn terminal_state_list_covers_both_vocabularies() {
+        for state in ["done", "failed", "cancelled", "completed"] {
+            assert!(
+                TERMINAL_TASK_STATES.contains(&format!("'{state}'")),
+                "{state} missing from the sweep's terminal set"
+            );
+        }
+        for live in ["pending", "running", "queued"] {
+            assert!(
+                !TERMINAL_TASK_STATES.contains(&format!("'{live}'")),
+                "{live} is live work and must never be swept"
+            );
+        }
+    }
+
+    /// The sweep matches `item_references.edge_type` against a literal, and
+    /// the column holds the JSON encoding of `EdgeType` — quotes included.
+    /// A bare `OperatesOn` here matches no rows, so every review would look
+    /// unlinked and none would ever be swept with its task.
+    #[test]
+    fn operates_on_edge_matches_the_json_encoding() {
+        assert_eq!(
+            OPERATES_ON_EDGE,
+            serde_json::to_string(&EdgeType::OperatesOn).unwrap()
+        );
     }
 }
