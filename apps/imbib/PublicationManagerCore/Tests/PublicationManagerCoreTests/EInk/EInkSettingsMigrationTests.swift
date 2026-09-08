@@ -162,7 +162,8 @@ final class EInkSettingsMigrationTests: XCTestCase {
         let created = writes.inputs.first
         XCTAssertNil(created?.id, "a nil id creates the record")
         XCTAssertEqual(created?.name, "Tom's reMarkable")
-        XCTAssertEqual(created?.transport, "usb")
+        XCTAssertEqual(created?.transport, EInkUSBTransport.rustName)
+        XCTAssertEqual(EInkUSBTransport.rustName, "usb-web", "must match imbib_core::eink::TRANSPORT_USB_WEB — the engine rejects any other spelling")
         XCTAssertEqual(created?.enabled, false, "a cloud-paired tablet is not probed over USB until the person says so")
         XCTAssertEqual(created?.rootFolderName, "Papers")
         XCTAssertNotNil(defaults.string(forKey: "remarkable.deviceName"), "connection keys are not this migration's to remove")

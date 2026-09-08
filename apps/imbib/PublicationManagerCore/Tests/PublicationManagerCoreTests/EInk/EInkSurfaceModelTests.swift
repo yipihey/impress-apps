@@ -158,7 +158,7 @@ final class EInkSurfaceModelTests: XCTestCase {
     func testAddingAReMarkableDefaultsToUSBIndividualModeWithEveryImportOn() {
         let input = EInkUSBDeviceCreation.defaultInput()
         XCTAssertNil(input.id, "nil id creates a record")
-        XCTAssertEqual(input.transport, "usb")
+        XCTAssertEqual(input.transport, EInkUSBTransport.rustName)
         XCTAssertEqual(input.mirrorMode, "individual")
         XCTAssertEqual(input.rootFolderName, "imbib")
         XCTAssertEqual(input.mirrorCollections, true)

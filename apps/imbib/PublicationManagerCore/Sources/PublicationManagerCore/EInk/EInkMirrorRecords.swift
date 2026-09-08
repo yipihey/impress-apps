@@ -807,3 +807,10 @@ public struct EInkDocumentImportOutcome: Sendable, Equatable, Hashable {
         return json
     }
 }
+
+/// The transport string the Rust engine writes and accepts for a reMarkable
+/// over its USB web interface (`imbib_core::eink::TRANSPORT_USB_WEB`). The
+/// engine rejects any other spelling, so every Swift site must use this.
+public enum EInkUSBTransport {
+    public static let rustName = "usb-web"
+}

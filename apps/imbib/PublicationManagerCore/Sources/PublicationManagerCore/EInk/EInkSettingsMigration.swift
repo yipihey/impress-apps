@@ -126,7 +126,7 @@ public struct EInkSettingsMigration: Sendable {
             }
             creating = true
             input.name = defaults.string(forKey: "remarkable.deviceName") ?? "reMarkable"
-            input.transport = "usb"
+            input.transport = EInkUSBTransport.rustName
             input.enabled = defaults.string(forKey: "remarkable.activeBackendID") == "usb-web"
         } else {
             creating = false

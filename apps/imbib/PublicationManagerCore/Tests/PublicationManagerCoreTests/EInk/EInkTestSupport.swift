@@ -34,7 +34,7 @@ enum EInkTestSupport {
 
     static func deviceRecord(id: String = "dev-1", enabled: Bool = true, autoImportOnConnect: Bool = false) -> EInkDeviceRecord {
         EInkDeviceRecord(from: EinkDeviceRow(
-            id: id, name: "reMarkable", transport: "usb", baseUrl: "http://10.11.99.1",
+            id: id, name: "reMarkable", transport: EInkUSBTransport.rustName, baseUrl: "http://10.11.99.1",
             mirrorMode: "individual", rootFolderName: "imbib", mirrorCollections: true,
             includeLibraryLevel: true, includeInbox: true, folderStrategy: "rmdoc", uploadFormat: "rmdoc",
             autoFetchSource: true, importAnnotatedPdf: true, importRmdoc: true, importHighlights: true,

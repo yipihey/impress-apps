@@ -122,9 +122,10 @@ public struct EInkUSBDevicePaneModel: Sendable, Equatable {
     /// else the first enabled USB device, else any USB device.
     public static func usbDevice(in status: EInkStatusSnapshot?) -> EInkDeviceRecord? {
         guard let status else { return nil }
-        if let device = status.defaultDevice, device.transport == "usb" { return device }
-        return status.devices.first { $0.transport == "usb" && $0.enabled }
-            ?? status.devices.first { $0.transport == "usb" }
+        let usb = EInkUSBTransport.rustName
+        if let device = status.defaultDevice, device.transport == usb { return device }
+        return status.devices.first { $0.transport == usb && $0.enabled }
+            ?? status.devices.first { $0.transport == usb }
     }
 
     public init?(status: EInkStatusSnapshot?) {
@@ -561,7 +562,7 @@ public enum EInkUSBDeviceCreation {
     public static func defaultInput(name: String = "reMarkable") -> EInkDeviceConfigInput {
         var input = EInkDeviceConfigInput()
         input.name = name
-        input.transport = "usb"
+        input.transport = EInkUSBTransport.rustName
         input.mirrorMode = "individual"
         input.rootFolderName = "imbib"
         input.mirrorCollections = true

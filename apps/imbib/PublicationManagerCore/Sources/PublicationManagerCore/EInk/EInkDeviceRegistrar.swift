@@ -28,7 +28,7 @@ public enum EInkDeviceRegistrar {
 
         var registered = 0
         for device in devices {
-            guard device.transport == "usb" else {
+            guard device.transport == EInkUSBTransport.rustName else {
                 Logger.library.infoCapture(
                     "eink.registrar: device \(device.id) uses transport '\(device.transport)', which the engine does not speak; skipped",
                     category: "eink")
