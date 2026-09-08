@@ -1334,8 +1334,18 @@ public struct PDFViewerWithControls: View {
         .onReceive(NotificationCenter.default.publisher(for: .pdfFitToWindow)) { _ in
             fitToWindow()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .pdfGoToPage)) { _ in
-            // Future: show go-to-page dialog
+        .onReceive(NotificationCenter.default.publisher(for: .pdfGoToPage)) { notification in
+            // A `page` (1-based) in the userInfo navigates — the Notes tab's
+            // reMarkable rows and `imbib://pdf?action=go-to-page` post one;
+            // scoped to this document when a `linkedFileID` is given.
+            // Without a page the notification is the (still unbuilt)
+            // go-to-page dialog and does nothing.
+            guard let page = notification.userInfo?["page"] as? Int else { return }
+            if let target = notification.userInfo?["linkedFileID"] as? UUID, let own = linkedFileID, target != own {
+                return
+            }
+            guard totalPages > 0 else { return }
+            currentPage = min(max(1, page), totalPages)
         }
         .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { _ in
             // Refresh dark mode setting when it changes

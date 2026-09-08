@@ -270,6 +270,30 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   accepts its original `IMPRINT_SKIP_IOS` spelling, which CI passes as env-extra
   and which is baked into the xcframework cache key — never rename it in CI.
 - **Rust-first logic**: non-UI logic added in Swift needs a justification or a `*-service` Rust trait — `#[impress_service]` derives the MCP tool, CLI subcommand, and Tier-A testability for free. (The Rust-generated MCP server, `crates/impress-mcp`, is the only one; the hand-written TypeScript server was deleted on 2026-07-26 — see `docs/mcp-migration-ledger.md`.)
+- **AI providers live in Rust** (ADR-0029): every model host the suite talks to — oMLX,
+  Ollama, any OpenAI-compatible server, Anthropic, OpenAI, Google, OpenRouter — is a
+  `crates/impress-ai` client behind the `InferenceProvider` port, declared once in
+  `impress_ai::catalogue::CATALOGUE`. `packages/ImpressAI` is a GUI projection over the
+  UniFFI `SharedAiRegistry` and must never gain an HTTP client again; Apple on-device
+  (FoundationModels) is the one Swift-executed provider, listed by Rust as `foreign`. The
+  device-wide selection is the Rust-owned file `<workspace>/ai/preferences.json`
+  (`impress_ai::preferences`), read by every app and daemon; the verbs
+  `impress-ai-service_{list-providers,list-models,ai-preferences,select-model,
+  set-provider-endpoint,provider-health}` are the agent surface. Secrets stay in the
+  keychain (apps push them into Rust memory; daemons read the same items via `security`).
+  `IMPRESS_<PROVIDER>_URL` / `IMPRESS_AI_PROVIDER` / `IMPRESS_AI_MODEL` are explicit
+  overrides, not the source of truth.
+- **E-ink mirroring lives in Rust and in store records** (imbib ADR-025): the reMarkable
+  is reached over its USB web interface, which can only list, upload and download — no
+  folder creation, rename, move or delete, and an upload lands in whatever folder was
+  listed last. Everything that decides what happens is `crates/imbib-core/src/eink/`
+  (planner, executor, import) over `crates/impress-remarkable`; the device and every
+  per-paper mirror state are `imbib/eink-device` / `imbib/eink-mirror` records, so the
+  CLI and MCP verbs (`imbib-eink-service_eink-*`) sync headless with the app closed and
+  the list-row marker is a field Rust computes (`BibliographyRow.eink_state`). Swift owns
+  only what needs platform APIs: the PDF fetch for marked papers, the connection monitor,
+  the one 90-s startup gate, Vision OCR, and the views. Never put sync state in
+  publication payload keys or UserDefaults again.
 
 ## Swift Concurrency & SwiftUI Pitfalls
 

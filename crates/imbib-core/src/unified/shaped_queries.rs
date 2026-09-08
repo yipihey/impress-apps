@@ -99,6 +99,12 @@ pub struct BibliographyRow {
     /// paper or added it by hand. Deliberately distinct from `date_modified`,
     /// which automated ingest also bumps. None = never touched.
     pub last_activity_at: Option<i64>,
+    /// The paper's state on the configured e-ink tablet (`queued`,
+    /// `awaiting_source`, `awaiting_folder`, `uploaded`, `stale`,
+    /// `removed_on_device`, `failed`), or None when no device is configured,
+    /// the device mirrors everything (no marker by design), or the paper is
+    /// not marked. Rust decides; the list row only draws it.
+    pub eink_state: Option<String>,
 }
 
 /// Tag display data for list rows.
@@ -171,6 +177,16 @@ pub struct LinkedFileRow {
     pub is_locally_materialized: bool,
     pub pdf_cloud_available: bool,
     pub date_added: i64,
+    /// `pdf`, `epub`, … as recorded when the file was attached.
+    pub file_type: Option<String>,
+    pub sha256: Option<String>,
+    pub display_name: Option<String>,
+    pub mime_type: Option<String>,
+    /// `primary` (absent in older rows), `eink-annotated` or `eink-rmdoc`.
+    pub role: Option<String>,
+    pub source_device_id: Option<String>,
+    pub source_remote_id: Option<String>,
+    pub source_remote_modified_ms: Option<i64>,
 }
 
 /// Author structured data for detail views.
@@ -265,6 +281,19 @@ pub struct AnnotationRow {
     pub date_created: i64,
     pub date_modified: i64,
     pub linked_file_id: String,
+    /// `remarkable` for rows an e-ink import wrote; None for imbib's own.
+    pub source: Option<String>,
+    pub source_device_id: Option<String>,
+    pub source_remote_id: Option<String>,
+    pub source_page_id: Option<String>,
+    pub source_item_id: Option<String>,
+    /// Container-relative path of a rendered PNG of the strokes (ink rows).
+    pub image_path: Option<String>,
+    pub pen: Option<String>,
+    pub strokes_hash: Option<String>,
+    /// Vision's confidence for `contents` on an ink row; None = not yet run.
+    pub ocr_confidence: Option<f64>,
+    pub imported_at_ms: Option<i64>,
 }
 
 /// Threaded comment on a publication.
@@ -501,6 +530,7 @@ pub fn item_to_bibliography_row(
     tag_defs: &[TagDisplayRow],
     has_downloaded_pdf: bool,
     has_other_attachments: bool,
+    eink_state: Option<String>,
 ) -> BibliographyRow {
     let payload = &item.payload;
 
@@ -561,6 +591,7 @@ pub fn item_to_bibliography_row(
         library_name: None, // Filled in by the store API layer
         enrichment_date: get_str(payload, "enrichment_date"),
         last_activity_at: get_i64(payload, "last_activity_at"),
+        eink_state,
     }
 }
 
@@ -735,6 +766,14 @@ pub fn item_to_linked_file_row(item: &Item) -> LinkedFileRow {
         is_locally_materialized: get_bool(payload, "is_locally_materialized"),
         pdf_cloud_available: get_bool(payload, "pdf_cloud_available"),
         date_added: item.created.timestamp_millis(),
+        file_type: get_str(payload, "file_type"),
+        sha256: get_str(payload, "sha256"),
+        display_name: get_str(payload, "display_name"),
+        mime_type: get_str(payload, "mime_type"),
+        role: get_str(payload, "role"),
+        source_device_id: get_str(payload, "source_device_id"),
+        source_remote_id: get_str(payload, "source_remote_id"),
+        source_remote_modified_ms: get_i64(payload, "source_remote_modified_ms"),
     }
 }
 
@@ -823,6 +862,16 @@ pub fn item_to_annotation_row(item: &Item) -> AnnotationRow {
         date_created: item.created.timestamp_millis(),
         date_modified: item.modified.timestamp_millis(),
         linked_file_id: item.parent.map(|p| p.to_string()).unwrap_or_default(),
+        source: get_str(payload, "source"),
+        source_device_id: get_str(payload, "source_device_id"),
+        source_remote_id: get_str(payload, "source_remote_id"),
+        source_page_id: get_str(payload, "source_page_id"),
+        source_item_id: get_str(payload, "source_item_id"),
+        image_path: get_str(payload, "image_path"),
+        pen: get_str(payload, "pen"),
+        strokes_hash: get_str(payload, "strokes_hash"),
+        ocr_confidence: get_f64(payload, "ocr_confidence"),
+        imported_at_ms: get_i64(payload, "imported_at_ms"),
     }
 }
 
@@ -1169,6 +1218,14 @@ fn get_bool(payload: &BTreeMap<String, Value>, key: &str) -> bool {
     }
 }
 
+fn get_f64(payload: &BTreeMap<String, Value>, key: &str) -> Option<f64> {
+    match payload.get(key) {
+        Some(Value::Float(f)) => Some(*f),
+        Some(Value::Int(i)) => Some(*i as f64),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1250,7 +1307,7 @@ mod tests {
     fn bibliography_row_from_item() {
         let pub_data = make_publication();
         let item = publication_to_item(&pub_data, None);
-        let row = item_to_bibliography_row(&item, &[], false, false);
+        let row = item_to_bibliography_row(&item, &[], false, false, None);
 
         assert_eq!(row.cite_key, "smith2024");
         assert_eq!(row.title, "Dark Matter in Galaxies");
@@ -1278,7 +1335,7 @@ mod tests {
             color_dark: Some("#cc0000".into()),
         }];
 
-        let row = item_to_bibliography_row(&item, &tag_defs, false, false);
+        let row = item_to_bibliography_row(&item, &tag_defs, false, false, None);
         assert_eq!(row.tags[0].color_light, Some("#ff0000".into()));
     }
 

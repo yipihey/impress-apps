@@ -195,6 +195,39 @@ final class URLCommandParserTests: XCTestCase {
         }
     }
 
+    // MARK: reMarkable USB mirror (ADR-025)
+
+    /// `imbib://paper/<citeKey>/eink?mirrored=true|false`; a missing
+    /// `mirrored` means mark, and anything that is not a boolean is rejected
+    /// rather than silently treated as one.
+    func testPaperCommand_eink() throws {
+        func mirrored(_ query: String) throws -> Bool {
+            let url = URL(string: "imbib://paper/TestKey/eink\(query)")!
+            let command = try parser.parse(url)
+            guard case .paper(let citeKey, let action) = command else {
+                XCTFail("Expected paper command"); return false
+            }
+            XCTAssertEqual(citeKey, "TestKey")
+            guard case .setEInkMirrored(let value) = action else {
+                XCTFail("Expected setEInkMirrored action"); return false
+            }
+            return value
+        }
+
+        XCTAssertTrue(try mirrored(""))
+        XCTAssertTrue(try mirrored("?mirrored=true"))
+        XCTAssertTrue(try mirrored("?mirrored=1"))
+        XCTAssertFalse(try mirrored("?mirrored=false"))
+        XCTAssertFalse(try mirrored("?mirrored=NO"))
+
+        XCTAssertThrowsError(try parser.parse(URL(string: "imbib://paper/TestKey/eink?mirrored=maybe")!)) { error in
+            guard case AutomationError.invalidParameter(let name, _) = error else {
+                XCTFail("Expected invalidParameter, got \(error)"); return
+            }
+            XCTAssertEqual(name, "mirrored")
+        }
+    }
+
     func testPaperCommand_addToCollection() throws {
         let collectionID = UUID()
         let url = URL(string: "imbib://paper/TestKey/add-to-collection?collection=\(collectionID.uuidString)")!

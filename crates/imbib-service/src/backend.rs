@@ -19,6 +19,7 @@ use crate::annotations_service::{DefaultImbibAnnotationsService, ImbibAnnotation
 use crate::app_service::{DefaultImbibAppService, ImbibAppService};
 use crate::artifacts_service::{DefaultImbibArtifactsService, ImbibArtifactsService};
 use crate::backup_service::{DefaultImbibBackupService, ImbibBackupService};
+use crate::eink_service::{DefaultImbibEinkService, ImbibEinkService};
 use crate::library_service::{DefaultImbibLibraryService, ImbibLibraryService};
 use crate::manuscripts_service::{DefaultImbibManuscriptsService, ImbibManuscriptsService};
 use crate::scix_service::{DefaultImbibScixService, ImbibScixService};
@@ -57,6 +58,14 @@ pub trait ImbibBackend: Send + Sync + 'static {
     /// Backups. Defaulted so a backend can opt out: the store-backed
     /// implementation is correct for create/list/inspect/delete, and refuses
     /// restore (which needs the running app — see `backup_service`).
+    /// E-ink mirroring. Defaulted to the store-direct implementation: every
+    /// verb works with imbib closed (the tablet is on the USB network, the
+    /// files are in the library folders), so an HTTP backend never needs
+    /// to override it.
+    fn eink(&self) -> Arc<dyn ImbibEinkService> {
+        Arc::new(DefaultImbibEinkService::new(store_instance()))
+    }
+
     fn backup(&self) -> Arc<dyn ImbibBackupService> {
         Arc::new(DefaultImbibBackupService::new(store_instance()))
     }
@@ -124,6 +133,13 @@ pub fn app_service_instance() -> Arc<dyn ImbibAppService> {
     match BACKEND.get() {
         Some(b) => b.app(),
         None => Arc::new(DefaultImbibAppService::new()),
+    }
+}
+
+pub fn eink_service_instance() -> Arc<dyn ImbibEinkService> {
+    match BACKEND.get() {
+        Some(b) => b.eink(),
+        None => Arc::new(DefaultImbibEinkService::new(store_instance())),
     }
 }
 

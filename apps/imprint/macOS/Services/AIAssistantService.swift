@@ -39,23 +39,15 @@ public final class AIAssistantService {
 
     // MARK: - Published State
 
-    /// Current AI provider
-    public var provider: AIProvider {
-        get {
-            switch settings.selectedProviderId {
-            case "anthropic": return .claude
-            case "openai": return .openai
-            default: return .apple
-            }
-        }
-        set {
-            settings.selectedProviderId = newValue.impressProviderId
-        }
-    }
-
-    /// Name of the suite-wide provider used by authoring tasks.
+    /// Name of the suite-wide provider used by authoring tasks — the pinned
+    /// one or, when nothing is pinned, the one the Rust registry resolved.
     public var currentProviderName: String {
         settings.selectedProviderMetadata?.name ?? "the configured Impress AI provider"
+    }
+
+    /// "oMLX — Qwen3.5 4B 4bit": provider and model as every impress app shows them.
+    public var currentSelectionDescription: String {
+        settings.selectionSummary
     }
 
     /// Last error encountered
@@ -83,21 +75,6 @@ public final class AIAssistantService {
     /// key — it's configured whenever Apple Intelligence is available.
     public var isConfiguredSync: Bool {
         settings.isProviderReady
-    }
-
-    /// Set API key for a provider (uses ImpressAI credential manager)
-    public func setAPIKey(_ key: String, for provider: AIProvider) async throws {
-        await settings.storeCredential(key, for: provider.impressProviderId, field: "apiKey")
-    }
-
-    /// Get API key for a provider (masked for display)
-    public func maskedAPIKey(for provider: AIProvider) async -> String {
-        guard let key = await settings.retrieveCredential(
-            for: provider.impressProviderId,
-            field: "apiKey"
-        ), !key.isEmpty else { return "" }
-        if key.count <= 8 { return "••••••••" }
-        return "\(key.prefix(4))••••\(key.suffix(4))"
     }
 
     // MARK: - Writing Actions
@@ -279,49 +256,6 @@ public final class AIAssistantService {
 // MARK: - Supporting Types
 
 /// AI provider options
-public enum AIProvider: String, CaseIterable, Identifiable {
-    case apple
-    case claude
-    case openai
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .apple: return "Apple Intelligence (on-device)"
-        case .claude: return "Claude (Anthropic)"
-        case .openai: return "GPT (OpenAI)"
-        }
-    }
-
-    /// On-device Apple needs no API key.
-    public var requiresAPIKey: Bool { self != .apple }
-
-    init(fromTextProvider provider: AITextProvider) {
-        switch provider {
-        case .appleOnDevice: self = .apple
-        case .anthropic: self = .claude
-        case .openai: self = .openai
-        }
-    }
-
-    var toTextProvider: AITextProvider {
-        switch self {
-        case .apple: return .appleOnDevice
-        case .claude: return .anthropic
-        case .openai: return .openai
-        }
-    }
-
-    var impressProviderId: String {
-        switch self {
-        case .apple: return appleOnDeviceProviderId
-        case .claude: return "anthropic"
-        case .openai: return "openai"
-        }
-    }
-}
-
 /// Chat message for conversation history
 public struct ChatMessage: Identifiable, Equatable {
     public let id = UUID()

@@ -34,6 +34,8 @@ The boundary is capability ownership, not interface retirement: shared
 business rules, execution, provenance, and Impress persistence live in the
 Rust core; web and native clients remain deliberately thin.
 
+> **Reconciled by ADR-0029 (2026-09-03):** `impress-llm` was retired; every provider, including the cloud ones it covered, is a `crates/impress-ai` client behind the `InferenceProvider` port, and impel's classify/memory/throughline tiers resolve through the registry's `agent.*` task categories.
+
 The existing `impress-llm` crate remains temporarily for its current cloud
 provider consumers. New local conversation infrastructure goes into
 `impress-ai`; the two can be reconciled after the new provider port has at

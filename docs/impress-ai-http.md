@@ -19,10 +19,18 @@ cargo run -p impress-ai-http --bin impress-ai-server
 Configuration:
 
 - `IMPRESS_AI_ACCESS_TOKEN` — required, at least 24 characters;
-- `IMPRESS_AI_BIND` — defaults to `127.0.0.1:23125`;
+- `IMPRESS_AI_BIND` — defaults to `127.0.0.1:8787` (`SiblingApp.Services.impressAIPort`);
 - `IMPRESS_STORE_PATH` — defaults to the suite group-container store;
-- `IMPRESS_OMLX_URL` — defaults to `http://127.0.0.1:8000`;
-- `IMPRESS_OMLX_API_KEY` — optional oMLX bearer token;
+- provider selection and endpoints come from the device-local preferences
+  file `<workspace>/ai/preferences.json` (ADR-0029), shared with every app;
+  the environment overrides it:
+  - `IMPRESS_AI_PROVIDER` / `IMPRESS_AI_MODEL` — beat the file's selection;
+  - `IMPRESS_OMLX_URL`, `IMPRESS_OLLAMA_URL`, `IMPRESS_OPENAI_COMPATIBLE_URL`
+    (generally `IMPRESS_<PROVIDER>_URL`) — beat the file's endpoints; the
+    oMLX default is `http://127.0.0.1:8000`;
+  - `IMPRESS_OMLX_API_KEY` (generally `IMPRESS_<PROVIDER>_API_KEY`) — a
+    secret for one provider; daemons otherwise read the same login-keychain
+    items the apps write (`com.impressai.credentials.<provider>.apiKey`);
 - `IMPRESS_LOCALMODELS_IMPORT` — optional explicit path to a legacy
   `chats.sqlite3`. Startup imports it idempotently into the shared graph before
   serving requests; omit it after the migration has succeeded.
@@ -55,7 +63,8 @@ Every request uses `Authorization: Bearer $IMPRESS_AI_ACCESS_TOKEN`.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/status` | Adapter health and storage authority |
-| `GET` | `/api/models` | oMLX model discovery/status |
+| `GET` | `/api/providers` | Every catalogued provider with this device's endpoint, readiness and credential status (never values) |
+| `GET` | `/api/models?provider=` | Model discovery for one provider (default: the resolved selection); response carries `provider` and `selected` |
 | `POST` | `/api/pairing-tickets` | Mint an authenticated, single-use browser pairing ticket |
 | `POST` | `/api/pair` | Redeem one pairing ticket (the only unauthenticated API route) |
 | `GET/POST` | `/api/conversations` | List or create durable conversations |

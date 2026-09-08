@@ -73,7 +73,7 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 
 | Row kind | Select→detail | Multi-select | Context menu | Drag | Keyboard | Delete flow |
 |---|---|---|---|---|---|---|
-| Publication (`MailStylePublicationRow`) | ✅ `.id(source.viewID)` | ✅ Set + combined BibTeX | ✅ full (flag/tag/collections/…) | ✅ multi, cross-app ref | ✅ j/k + guarded | soft-delete → Dismissed, Undo — **on both platforms as of Stage 5d**; iOS's list had its own `handleDelete` calling `deletePublications` unconditionally, from every scope |
+| Publication (`MailStylePublicationRow`) | ✅ `.id(source.viewID)` | ✅ Set + combined BibTeX | ✅ full (flag/tag/collections/…) + **Mirror to reMarkable / Remove from reMarkable** (ADR-025, P6 2026-09-07: shown only while a device in individual mode is configured — `EInkMirrorModel.showsIndividualControls`; label follows the row's `einkState.menuVerb`; replaces the dead "Send to E-Ink Device", which posted a notification nobody observed); iOS swipe-leading gets Mirror/Unmirror beside Star | ✅ multi, cross-app ref | ✅ j/k + guarded; **`e`** = toggle the mirror mark (`TriageKeyGrammar.toggleEinkMirror`, imbib profile `toggleEInkMirrorVim`), any-unmirrored → mirror-all like `s`; ⌃⌘E from the Paper menu is the same action on the selection | soft-delete → Dismissed, Undo — **on both platforms as of Stage 5d**; iOS's list had its own `handleDelete` calling `deletePublications` unconditionally, from every scope |
 | Manuscript (`ManuscriptListWrapper`) | ✅ `.id(scope)` only (no pane `.id` — rebuilding the NSTextView made selection sluggish) | ✅ Set, primary drives detail | ✅ Open/Duplicate/Rename…/Star/Archive/Flag/Tags/Folder/Delete — Rename (2026-08-05) is an alert-with-TextField over `RecordTriageActions.onRename` → payload `title` write (`updateField`, undo via op log; kernel hosts get prior-title capture), so the op history renders it as "Renamed" | ✅ multi → folders (pasteboard + `RecordDragSession.manuscript` fallback) | ✅ j/k/n/s guarded | confirm alert → hard delete + Undo, session discarded; swipe = archive (status) / delete |
 | Manuscript — **impress-iOS** (`IOSImpressListColumn.loadManuscripts`) | ➖ host column, not the wrapper | ➖ | ➖ inherits the shared `TriageMenu` | ➖ | ➖ | **Every host that switches on `ManuscriptListScope` owes ALL FIVE cases.** ADR-0023 W3 added `.tag(String)` and updated PMC's wrapper and imprint's adapter but not this column, and impress-iOS is the only lane that compiles it — so `Switch must be exhaustive` was the FIRST signal, two commits later (fixed 2026-08-01). `.tag` must be a POST-filter on `tagDisplays`, never a `queryManuscripts` argument: tags live on the item envelope, so a query parameter would need an FFI verb whose only caller is this one row kind |
 | Artifact | ✅ | ❌ | partial | ❌ | ✅ | ✅ |
@@ -87,8 +87,8 @@ Sources of truth: `ImbibSidebarViewModel` (`capabilities(of:)`,
 
 | Kind | Tabs |
 |---|---|
-| publication (editable) | Info, PDF, Notes, BibTeX |
-| publication (read-only) | Info, PDF, BibTeX |
+| publication (editable) | Info (+ `PublicationEInkMirrorSection` after Cited-in-manuscripts, ADR-025 P8, macOS chrome only; nothing until a device is configured), PDF (`preferredPDF` keeps the primary selected; the switcher labels the `eink-annotated` role "reMarkable — annotated"; honours `.showPDFTab {linkedFileID}`), Notes (+ the collapsible "reMarkable" `EInkNotesSection` in `NotesPanel`: imported rows by page, click → `.pdfGoToPage`, "Append reMarkable notes"), BibTeX |
+| publication (read-only) | Info (+ `PublicationEInkMirrorSection`), PDF, BibTeX |
 | manuscript typst/latex | Info, Source, Preview (compiled PDF) |
 | manuscript markdown | Info, Source, Preview (MarkdownUI, live) |
 | manuscript plaintext | Info, Source |
@@ -134,15 +134,15 @@ viewer-registry factory → section wiring → preset lines (incl. `impress`) �
 mixed-kind surfaces and the MCP tool surface, which cost ZERO new code
 because every tool in the section below is store-generic.
 
-| Kind | schemaRefs | Tabs (availability) | Star | Flag | Tag | Dismiss semantics | Archive | Delete semantics | Create | Open behavior |
-|---|---|---|---|---|---|---|---|---|---|---|
-| publication | imbib/bibliography-entry | info, pdf, notes (editable only), bibtex | ✅ | ✅ | ✅ | library-move → Dismissed library (never re-enters inbox) | ➖ | soft (move to Dismissed); hard only from Dismissed | import/search | detail pane; handoff n/a |
-| manuscript | manuscript | info, source, pdf-as-Preview (hidden for plaintext) | ✅ | ✅ | ✅ | status=dismissed (restore→draft) | status=archived | confirm alert → hard delete + undo, session discarded first | n (format menu: typst/latex/markdown/plaintext) | imprint: window "manuscript-editor"; imbib: app handoff imprint:// |
-| artifact | artifact schemas | info (+type-specific) | ❌ | partial | ✅ | ➖ | ➖ | ✅ | detail pane |
-| figure | figure | info, pdf-as-View (hidden without data_hash; presence encoded via RecordTabContext.previewKind = compiledPDF/none) | ✅ | ✅ | ✅ | ➖ (no status field today) | ➖ | confirm alert → hard delete + undo | ➖ (canvas/generators create) | window "canvas" (value = figure id string) |
-| message | email-message, chat-message | info, source, pdf-as-View (all always available) | ✅ | ✅ | ✅ | ➖ (no status field; `.statusChange` would be wrong — lifecycle is IMAP-owned; archive-to-folder is a Stage-2-A2 follow-up) | ➖ | ➖ `.none` — deletion goes through impart's IMAP flows, never the store | ➖ compose stays in impart's classic window (v1) | detail pane |
-| task | task@1.0.0 (VERSIONED — impel-core TaskStoreApi) | info, source (description/prompt), pdf-as-View (latest run's result_summary via MarkdownUI; all always available) | ✅ | ✅ | ✅ | ➖ `.none` — task state moves ONLY through `TaskStoreApi.transition` (kernel-owned, ADR-0015 D1; a `.statusChange` dismissal would bypass the kernel; `statuses` declared empty because the lifecycle lives in payload `state`, not the chassis `status` machinery) | ➖ | ➖ `.none` — kernel-owned | ➖ scheduled by impel-taskd/counsel, never `n` | detail pane |
-| agent-run | agent-run@1.0.0 | info, source (raw result_summary), pdf-as-View (MarkdownUI; all always available) | ✅ | ✅ | ✅ | ➖ immutable provenance record (ADR-0005 §5) | ➖ | ➖ `.none` | ➖ recorded by the kernel | detail pane |
+| Kind | schemaRefs | Tabs (availability) | Star | Flag | Tag | Mirror | Dismiss semantics | Archive | Delete semantics | Create | Open behavior |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| publication | imbib/bibliography-entry | info, pdf, notes (editable only), bibtex | ✅ | ✅ | ✅ | ✅ `canMirrorToEink` (ADR-025) — the ONLY kind; the verbs still need a device in individual mode (`TriageRowState.isMirrored` non-nil) | library-move → Dismissed library (never re-enters inbox) | ➖ | soft (move to Dismissed); hard only from Dismissed | import/search | detail pane; handoff n/a |
+| manuscript | manuscript | info, source, pdf-as-Preview (hidden for plaintext) | ✅ | ✅ | ✅ | ❌ | status=dismissed (restore→draft) | status=archived | confirm alert → hard delete + undo, session discarded first | n (format menu: typst/latex/markdown/plaintext) | imprint: window "manuscript-editor"; imbib: app handoff imprint:// |
+| artifact | artifact schemas | info (+type-specific) | ❌ | partial | ✅ | ❌ | ➖ | ➖ | ✅ | detail pane |
+| figure | figure | info, pdf-as-View (hidden without data_hash; presence encoded via RecordTabContext.previewKind = compiledPDF/none) | ✅ | ✅ | ✅ | ❌ | ➖ (no status field today) | ➖ | confirm alert → hard delete + undo | ➖ (canvas/generators create) | window "canvas" (value = figure id string) |
+| message | email-message, chat-message | info, source, pdf-as-View (all always available) | ✅ | ✅ | ✅ | ❌ | ➖ (no status field; `.statusChange` would be wrong — lifecycle is IMAP-owned; archive-to-folder is a Stage-2-A2 follow-up) | ➖ | ➖ `.none` — deletion goes through impart's IMAP flows, never the store | ➖ compose stays in impart's classic window (v1) | detail pane |
+| task | task@1.0.0 (VERSIONED — impel-core TaskStoreApi) | info, source (description/prompt), pdf-as-View (latest run's result_summary via MarkdownUI; all always available) | ✅ | ✅ | ✅ | ❌ | ➖ `.none` — task state moves ONLY through `TaskStoreApi.transition` (kernel-owned, ADR-0015 D1; a `.statusChange` dismissal would bypass the kernel; `statuses` declared empty because the lifecycle lives in payload `state`, not the chassis `status` machinery) | ➖ | ➖ `.none` — kernel-owned | ➖ scheduled by impel-taskd/counsel, never `n` | detail pane |
+| agent-run | agent-run@1.0.0 | info, source (raw result_summary), pdf-as-View (MarkdownUI; all always available) | ✅ | ✅ | ✅ | ❌ | ➖ immutable provenance record (ADR-0005 §5) | ➖ | ➖ `.none` | ➖ recorded by the kernel | detail pane |
 
 Frozen shell-preset truth table (AppShellConfiguration v2 parity target).
 **`impress` SHIPS an app target since 2026-07-30** (ADR-0022 D9). The column was
@@ -637,6 +637,17 @@ through the sidebar renderer, iOS through the grouped list.
 | Content | flagsAndTags, notes, pdf, sources, enrichment, searchAI | notes, pdf, sources, enrichment (+ `pdfStorage`, iOS-only) |
 | Inbox & Feeds | inbox, recommendations | both |
 | Sync & Backup | sync, eink | sync (+ `backup`, iOS-only) |
+
+> **E-Ink pane reworked (ADR-025 P8, 2026-09-07).** The pane's declaration
+> (id `eink`, "E-Ink Devices", `rectangle.portrait`, subtitle, group) is
+> unchanged and still pinned by `SettingsSurfacePhase2ContractTests`; its
+> BODY is now the USB device card over the store record (`EInkUSBDeviceCard`,
+> see § reMarkable mirror engine → Surfaces (P8)) plus the legacy
+> device-manager UI for Supernote / Kindle / the reMarkable's other
+> transports. The legacy `eink.*` / `remarkable.*` keys the pane used to bind
+> were migrated into the record by P7; the card binds none of them, and
+> `SettingsView` now observes `.showEInkSettings` (the palette's "E-Ink
+> Settings…" deep link, unobserved since P6).
 | Import & Export | importExport | ✅ |
 | System | shortcuts, advanced | both (+ `automation`, iOS-only) |
 | Developer / Help & Support / About (iOS only) | — | console, help, about |
@@ -1255,6 +1266,238 @@ badges, the Story/Edit toggle, and the long-press legend); and the extended
 `ImprintIOSApp` seed, which now writes a throughline, a `citation-usage` record
 through imprint's own writer, the folder tree and a dismissed manuscript.
 
+### Settings surface — AI pane suite-wide (ADR-0029, 2026-09-03)
+
+Every app now declares `.ai`, and every `.ai` pane is the same view
+(`ImpressAI.AISettingsView`) over the same state: the Rust-owned device
+selection in `<workspace>/ai/preferences.json`, read through the UniFFI
+`SharedAiRegistry`. Swift writes nothing of its own any more — the old
+`impressai.selected*` SharedDefaults keys are imported once
+(`AIPreferencesMigration`, helper models such as oMLX's `MarkItDown`
+dropped, `openai-compatible`@loopback:8000 remapped to `omlx`) and removed.
+
+| App | Before | After | Pane body |
+|---|---|---|---|
+| imbib | `.searchAI` (macOS) | unchanged id; inherits the new body | shared pane + embeddings section |
+| imprint | `.ai`, `.aiTasks` | unchanged; tasks pane names "Tasks run on oMLX — Qwen3.5 4B 4bit" | shared pane |
+| impel | `.ai` | unchanged; hidden `counselModel` default retired (orchestrator follows the suite selection) | shared pane |
+| impart | `.ai` | unchanged; privacy bar derives "Local" from the catalogue category | shared pane, privacy header rewritten |
+| implore | none (AI sources excluded from the target since 4948f584) | **5 → 6 tabs**: `("ai", "AI", "sparkles")` at order 45, `settings.tabs.ai`; `Sources/AI/AIDataAssistant.swift` back in the build | shared pane + "Used in implore" section |
+| impress | none ("deliberately absent": a second writer) | **2 → 3 tabs** on macOS: `("ai", "AI", "sparkles")` at order 15; iOS unchanged (`appearance` only) | shared pane |
+
+What the shared pane shows (all of it read from Rust, none of it persisted by
+opening the pane): provider picker grouped local / cloud / aggregator with an
+"Automatic (<resolved>)" row; a health line for local hosts
+(`● oMLX 0.6.4 · 2 of 10 loaded · 28.9 GB of 105 GB`) or the credential
+status for cloud ones; the model list (`AIModelPickerList`: friendly name,
+raw id, loaded dot, context window, output limit, vision, server default;
+helpers listed only behind "Show helper models" and never selectable); an
+endpoint override field and "Start oMLX when needed" for the managed local
+host; keychain-backed secret fields; Test Connection (the one action that may
+launch oMLX.app); task categories. `AIStatusMenuButton` is now a `Menu`
+hosting `AIQuickModelSwitcher` for the same selection without opening
+Settings.
+
+Two follow-ups on 2026-09-06, from using the pane: every app's Settings
+window is now resizable (`MacSettingsSceneContent.resizable(configuration:width:height:)`
+replaces the pinned `.fixed` shape implore, impel and impart shipped; imbib's
+sidebar renderer lost its 1200 × 900 ceiling; imprint and impress were already
+free), and `AIModelPickerList` renders its rows inline instead of inside a
+nested `List`: a scroll view inside a grouped macOS `Form` did not scroll and
+hid the rows past its frame, so the form itself now scrolls past every model,
+with a filter field above eight models and the selected model always visible.
+`AIModelPickerListTests` pins the row selection.
+
+A third follow-up on 2026-09-06, after the panes met real data. Model
+pickers are built once, by `AIModelOptions` in `packages/ImpressAI`: it asks
+providers that are *ready* what they actually serve and falls back to the
+catalogue for the rest, then groups by provider with usable providers first
+and the reason attached to the others ("Claude (Anthropic) — needs an API
+key"). Settings › AI, the task-category sheet and the quick switcher all read
+those groups, so a discovery-only host such as oMLX — whose catalogue entry
+declares no static models — is now offered everywhere instead of nowhere, and
+eight unconfigured cloud providers no longer sit unlabelled at the top of the
+list. `AIModelOptionsTests` pins the rules.
+
+The embedding panel gained the same honesty about tiers. `EmbeddingStore::
+index_status` in `crates/impress-embeddings` reports every `source_type` in
+the sidecar (a paper's metadata vector, its full-text chunk vectors, and
+impel's `memory-item` vectors share one file), and imbib's Search & AI pane
+shows the metadata tier and the full-text tier as separate rows. It had shown
+one number, `max(papers with chunks, papers in the in-memory ANN index)`;
+because that index is built lazily per session it read 0 on a fresh launch,
+so a library with a metadata embedding for every paper reported "73 of 2,986
+indexed". `GET /api/embeddings/status` on imbib's automation port answers the
+same question for agents — the sidecar sits in the app's sandbox container,
+where no daemon, CLI or MCP process can reach it.
+
+Frozen oracles moved in the same commit: `SettingsSurfacePhase2ContractTests`
+(`testImplorePresetIsTheFrozenSixTabInventory`,
+`testImploreTabIdentifiersAreTheOnesItShipped`,
+`testImpressPresetIsTheFrozenThreeTabInventory`; the factory-coverage scan
+of both registration files), `ImpressShellTests.testSettingsPresetIsFullyResolvable`,
+and `ImpressKitTests/SiblingServicesTests` pinning
+`SiblingApp.Services.omlxPort == 8000` against the Rust catalogue default.
+Three-point trace under `ai.preferences` (Mutation → Save → Display) in every
+app's Console; `ai.settings` logs what the pane displayed and why
+(`origin selected|first_ready|category`).
+
+### reMarkable pairing (imbib, 2026-09-06)
+
+Connecting a reMarkable to the cloud backend was a dead end. imbib's E-Ink
+tab called `RemarkableCloudBackend.authenticate()`, which exists only to
+throw "Use the reMarkable settings panel to connect your account" — and
+`RemarkableSettingsView`, the panel that message names, was registered
+nowhere: unreachable code whose only other references were planning docs.
+Pairing genuinely needs two steps (`startAuthentication` for a device id,
+then `completeRegistration(userCode:)` with a one-time code the researcher
+fetches from a signed-in browser at `my.remarkable.com/device/browser/
+connect`), and nothing shipped could take that code.
+
+The E-Ink tab's Cloud API path now presents that panel as a sheet, and the
+same flow is drivable headlessly:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/status` | Whether a device token is stored, and whether reMarkable still accepts it (a refresh is the only way to see a revoked token) |
+| `POST` | `/api/remarkable/connect` | `{"code": "…"}` — exchanges the one-time code for a device token, stores it in the login keychain, and registers the device so it appears in the E-Ink tab |
+| `POST` | `/api/remarkable/disconnect` | Forgets the stored token |
+
+The code cannot be obtained by an agent — reMarkable issues it only to a
+signed-in browser session — so the route takes a code the researcher pastes
+rather than performing a login. The code is never stored or logged.
+
+Pairing then turned out to be the smaller half of the problem: the token is
+accepted, but `document-storage/json/2/docs` answers 404, because reMarkable
+retired that API. Probed 2026-09-06: the auth host answers (405 to a GET on
+`token/json/2/user/new`), the document-storage host does not (404), and the
+replacement `internal.cloud.remarkable.com/sync/v3/root` does (401). So the
+cloud path pairs and cannot sync.
+
+### reMarkable over the local network (imbib, 2026-09-06)
+
+The tablet does not need the cloud at all. It runs Linux with an SSH server on
+its Wi-Fi interface, and xochitl stores each document as plain sibling files
+under `/home/root/.local/share/remarkable/xochitl` — `<id>.metadata`,
+`<id>.content`, `<id>.pdf`, and a `<id>/` directory of per-page `.rm` strokes.
+No database, so a file transport is sufficient.
+
+`crates/impress-remarkable` is that transport: SFTP over the tablet's own SSH
+server, pure Rust (`russh`) because a C binding would not cross-compile into
+ImbibCore's iOS slices. Host keys are trust-on-first-use with an explicit pin,
+and a changed key fails before the password is sent. `search/remarkable_ffi.rs`
+mirrors it to Swift, `RemarkableWiFiBackend` projects it onto imbib's backend
+protocol, and Settings › reMarkable leads with it.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/wifi/status` | Whether the tablet is configured and answering, with its document count |
+| `GET` | `/api/remarkable/wifi/documents` | What is on the tablet |
+| `POST` | `/api/remarkable/wifi/connect` | `{"host": …, "password": …}` — stores both (password to the keychain), reaches the tablet once and pins its host key |
+
+Reading works; writing to the tablet does not yet and says so rather than
+failing silently. The tablet must be awake, since it drops Wi-Fi in standby.
+
+### reMarkable over USB — the transport that needs no credential (2026-09-06)
+
+Probing Tom's Paper Pro settled which transports are actually open:
+
+| Transport | State |
+|---|---|
+| Cloud | Pairing works; document endpoints closed (410 "update this application"). Dead for third-party clients. |
+| SSH over Wi-Fi or USB | Port 22 accepts a connection and never sends an identification string — the daemon is behind Developer mode, which erases a Paper Pro when enabled. |
+| **USB web interface** | **Works, and asks for nothing.** |
+
+Settings → Storage → "USB web interface" makes the tablet serve HTTP on
+`http://10.11.99.1` over the USB network. Its own client bundle names the API:
+`GET /documents/` (and `/documents/{folder}`), `GET /download/{id}/placeholder`
+for the document as a PDF **with the handwritten annotations rendered in**, and
+`POST /upload` (multipart, field `file`). No token, no password, no developer
+mode. Unknown paths hang rather than 404, so probe only what the bundle names.
+
+`impress_remarkable::usb_web` is the client, `RemarkableUSBWebBackend` the
+projection, and the E-Ink tab offers "USB Cable" first. Verified against the
+device: 92 documents, 13 folders, a 24 MB annotated PDF.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/remarkable/usb/status` | Whether the interface is up, with document and folder counts |
+| `GET` | `/api/remarkable/usb/documents` | What is on the tablet |
+
+Annotations arrive rendered into the PDF rather than as strokes, so this
+backend claims `.downloadPDF` and `.upload` but not `.downloadAnnotations` —
+`RMFileParser` has nothing to parse here.
+
+### reMarkable mirror engine over USB (imbib, 2026-09-07, ADR-025)
+
+The P0 spike against the Paper Pro (uploading hand-built `.rmdoc` archives)
+settled what the USB interface allows, and the engine is built on exactly
+that:
+
+| Question | Answer from the device |
+|---|---|
+| Listing keys | every entry carries BOTH `VisibleName` and the historical typo `VissibleName` (a serde alias trips on the duplicate; read both) |
+| Where an upload lands | the folder listed last; the tablet assigns the id |
+| Can a folder be created? | **No** — a `CollectionType` archive imports as an empty notebook |
+| Does an archive's `id`/`parent` count? | No; its `visibleName` does — so uploads are wrapped in archives (`upload_format = rmdoc`) and show exact names; a bare PDF is shown as `<name>.pdf` |
+| Rendition download | `GET /download/{id}/pdf` (handwriting drawn in), `GET /download/{id}/rmdoc` (archive with `.rm` stroke files: v5 for old notebooks, v6 for new pages) |
+| Coordinate frame (`bestFit`) | page WIDTH fitted into 1853.5 scene units, x from the page centre, y from ≈ 22 units below the origin, growing down — `crates/imbib-core/src/eink/import/geometry.rs`, pinned by `tests/fixtures/calibration` |
+
+State is store records (`imbib/eink-device`, `imbib/eink-mirror`, parent =
+the publication); `BibliographyRow.eink_state` carries the list-row marker
+and is `None` unless a device in `individual` mode is configured. Engine:
+`crates/imbib-core/src/eink/` (planner is pure and fixture-tested; the
+executor runs against `MockTransport` in `tests/eink_end_to_end.rs`; the
+import half in `tests/eink_import.rs`). Folders the tablet lacks are a
+checklist (parents first) and the affected papers wait in
+`awaiting_folder`; nothing is re-sent silently (`stale`,
+`removed_on_device`, `unmarked` are explicit states with "send again").
+
+**What the tablet authored (P5b, 2026-09-07).** The sync walks the whole
+tablet, not only the `imbib` subtree, so a mirrored paper the user drags
+into another folder is followed (`remote_path` updated) rather than
+tombstoned. Documents no mirror row accounts for are `eink-list-unmatched`
+(in-tree first, each with the library and collection its folder names
+resolve to — `CollectionIndex::find_by_chain`, case-insensitive, never a
+guess). `eink-import-document` brings one in
+(`crates/imbib-core/src/eink/import/documents.rs`, Tier A in
+`tests/eink_documents.rs`): a notebook becomes a `@misc` publication in
+that collection with the rendered PDF as its **primary** file (the linked
+file remembers `source_remote_id`, so a later import refreshes it in place
+instead of adding a variant — `variant::refresh_primary_render`); a PDF or
+ePUB whose bytes hash to a linked file already in the store **adopts** that
+publication (mirror row + rendition variant + rows, and filed into the
+folder's collection); any other PDF becomes a new entry from its first
+page's text (`pdf/metadata_heuristics`, `@misc` with the tablet's name when
+pdfium is absent); `as_kind = note` writes an `impress/artifact/note` with
+the typed text instead and leaves the document offered. A document outside
+the tree needs the library named. A notebook page has no `bestFit` frame;
+`PageFrame::notebook` maps the screen (1620 units on the Paper Pro) onto the
+rendered page — an assumption not yet pinned by a fixture, on which only
+ink-row placement depends. `eink-import` is the import-only pass
+(`SyncOptions.upload = false`: nothing goes up, `pending_uploads` counts
+what stayed queued); with a `publication_id` it imports that paper whether
+or not the tablet reports a change.
+
+**Swift projection, P6 (2026-09-07).** The GUI consumes the engine through
+`RustStoreAdapter+EInk.swift` (every `eink*` UniFFI verb, `throws` absorbed
+into logged nil/empty results; `einkSync` / `einkPlan` / `einkReachable` are
+`nonisolated` and hop to a detached task because they block on the USB
+interface) and the Swift records in `EInk/EInkMirrorRecords.swift` — no view
+imports `ImbibRustCore`. What each surface owes:
+
+| Surface | What P6 wired |
+|---|---|
+| Row marker | `PublicationRowData.einkState: EInkMirrorState?` (mapped in `init?(from: BibliographyRow)`; nil unless a device in individual mode is configured) → `MailStyleItem.leadingMarker` (new, default nil; `packages/ImpressMailStyle`) rendered in `MailStyleRow`'s indicator column under the star. impart/impel rows unaffected |
+| Store events | `MutationKind.einkMirror` (`packages/ImpressStoreKit`); `einkMark`/`einkUnmark` emit `.itemsMutated(kind: .einkMirror, ids: changed)`; device config, resend and a real sync emit `.structural` |
+| Gates | `EInkMirrorModel.shared` (`@Observable`, `SyncStatusModel` shape): `isConfigured` (any enabled device) gates the Paper-menu items, palette entries and the PDF-tab chip; `showsIndividualControls` (marker device set) gates every per-row verb. Refreshes off-main on `.einkMirror` / `.structural` events, coalesced; reads only, never posts |
+| Verbs | context menu (`PublicationListView.contextMenuItems`, `MailStylePublicationRow`, shared `TriageMenu`), iOS leading swipe (`TriageSwipe` + the row), `e` (`TriageKeyGrammar.toggleEinkMirror`; the four other list wrappers return `.ignored`), ⌃⌘E / Paper ▸ Mirror to reMarkable (`.toggleEInkMirror`), Paper ▸ Sync reMarkable Now (`.einkSyncNow`), Paper ▸ Import reMarkable Annotations (`.einkImportAnnotations`), command palette (those three + "E-Ink Settings…" → `.showEInkSettings`). `RecordTriageActions.onToggleEink` with a store-backed default; `TriageCapabilities.canMirrorToEink` (publication only); `TriageRowState.isMirrored` / `mirrorMenuVerb` |
+| PDF tab | the two dead "Send to E-Ink Device" buttons are one state chip (toggle in individual mode, read-only label in `all` mode) |
+| Automation | `PUT /api/papers/eink {identifiers, mirrored}` (before the `/api/papers/{citeKey}` catch-all, shape of `PUT /api/papers/star`; `AutomationService.setEInkMirrored`), `GET /api/eink/status` (`EInkStatusSnapshot.jsonDictionary()`), `POST /api/eink/sync {import}` (off-main `einkSync`; answers the report + trace), `GET /api/papers/{citeKey}` gains `eink {state, marked, remotePath, uploadedAt, lastError}` when a mirror row exists; `imbib://paper/<citeKey>/eink?mirrored=true|false` (`PaperAction.setEInkMirrored`, written straight through the adapter — no notification carries a cite key to the list). `POST /api/papers/{citeKey}/annotations` and `POST /api/files/{id}/annotations` accept `authorName` |
+| Services (P7, 2026-09-07) | `EInkServices.start()` (composition root, called once from `imbibApp` after `AutomationService.configure`; inert with no device): `EInkDeviceRegistrar` (re-registers store devices with `EInkDeviceManager` so `isAnyDeviceAvailable` survives a relaunch), `EInkConnectionMonitor` (25 s `einkReachable` probe off-main + `NWPathMonitor` edge; never writes the store), `EInkSyncCoordinator` (reasons connected / marked / sourceArrived / settingsChanged / manual / importOnly; 2 s coalescing; serial; automatic reasons queue behind the ONE `EInkStartupGate` — a timestamp, one `Task.sleep`, replayed once it opens — manual and importOnly bypass it; observes `.einkSyncNow` / `.einkImportAnnotations`), `EInkSourceFetcher` (`awaiting_source` rows through `PDFAcquisitionService`, 2 wide, then `sourceArrived`), `EInkOCRPass` (`einkPendingOCR` → `RemarkableOCRService` → `einkCompleteOCR`; an empty result still closes the job), `EInkSettingsMigration` (legacy `eink.*` / `remarkable.*` keys → the device record once, after the gate; `eink.migration.v1` marker). `Files/PDFAcquisitionService.swift` is the one PDF download path (per-publication dedupe, cancel, `%PDF` sniff, hash-identical reuse) behind `PDFTab`, `NotesTab`, `DetachedViews`, `PDFBatchDownloadView` and `POST /api/papers/download-pdfs` (awaited, per-paper outcomes; the unobserved `.downloadPDF` notification is gone). Routes added: `POST /api/eink/import`, `POST /api/eink/folders/check`. `RemarkableSettingsStore.wifi*` are `@AppStorage` now |
+| Surfaces (P8, 2026-09-07) | **Settings › E-Ink** (`EInk/Views/EInkSettingsView.swift`, pane id/title/symbol/subtitle unchanged): the reMarkable over USB is one card, `EInkUSBDeviceCard` — connection dot from `EInkServices.shared.monitor.isConnected` + "Check now" (`probeNow()`), Enabled toggle, mode picker ("Mirror everything with a PDF or ePUB" / "Only papers I choose", footer names the marker and `e` / ⌃⌘E), root folder + "Mirror library and collection folders", the **missing-folders checklist** (`EInkFolderChecklist`: parents first, copyable, "Check again"; hidden under the `rmdoc` strategy), six counters (queued / on tablet / awaiting PDF / awaiting folder / stale / failed), last sync + inline error, "Sync now" (`coordinator.nudge(.manual)`), import toggles (annotated PDF, highlights, OCR, typed text, auto-import on connect), "Import annotations now" (`.importOnly`), "Import from reMarkable…", "Remove reMarkable…". Every write is `einkConfigureDevice` → `EInkServices.shared.settingsChanged()` (which now also re-registers a device added after launch and refreshes `EInkMirrorModel`); nothing writes UserDefaults. "Add reMarkable (USB)" (`EInkUSBDeviceCreation.defaultInput`: USB, individual, `imbib`, collections on, every import on, enabled) replaces the transport picker for the reMarkable; `AddDeviceSheet` defaults to `.usb`. Supernote / Kindle / the reMarkable's legacy transports keep their `EInkDeviceManager` UI under "Other Devices", and the generic auto-sync / organisation / annotation sections show ONLY while such a device is registered (the USB device's answers are on its record — never two answers to one question). `SettingsView` observes `.showEInkSettings` → `.eink`. **Info tab**: `PublicationEInkMirrorSection` (state glyph/tint, tablet path, source "PDF · filename", uploaded / annotations-imported dates, inline error; verbs from `EInkMirrorSectionModel.actions` — Mirror / Remove in individual mode via `RecordTriageActions.storeBacked`, "Update on tablet" (`einkResend`, hidden while a resend is queued), "Import annotations now" (`einkImport(publicationId:)`, off-main, kicks the OCR pass), "Show annotated PDF" (`.showPDFTab` with `linkedFileID`, which `PDFTab` now honours)); reloads on the paper's row events; renders nothing until a device is configured. **Files / PDF switcher**: `PublicationPDFSwitcher.label(for:)` names the `eink-annotated` role "reMarkable — annotated"; `[LinkedFileModel].preferredPDF` keeps the PRIMARY selected by default in `PDFTab` and `NotesTab` (the rendition is a variant, never the paper's own copy). **Notes tab**: `EInkNotesSection` — a collapsible "reMarkable" disclosure in `NotesPanel` over `einkAnnotations(publicationId:)`, grouped by page (`EInkNotesSectionModel`: highlight text, typed text, OCR text with confidence, ink thumbnails resolved like Rust's `eink-pending-ocr` — absolute as-is, else under the paper's library container); a row posts `.pdfGoToPage {page (1-based), linkedFileID}`, which `PDFViewerWithControls` now navigates on (the URL scheme's `go-to-page` was a dead stub); "Append reMarkable notes" → `einkAppendNotes(force: false)`, a refusal asks before `force: true`; the panel re-reads the `note` field on this paper's store events unless the user is typing. **Toolbar**: `EInkToolbarStatusGlyph` (syncing / error / connected / disconnected, `EInkToolbarStatus` precedence) INSIDE `SectionContentView`'s existing `.primaryAction` cluster — no new placement; click = Sync now. **"Import from reMarkable" browser**: `EInk/Views/EInkImportBrowserView.swift` (replaces `RemarkableDocumentBrowserView`, deleted) — a resizable sheet (`impressResizableSheet`) listing `einkListUnmatched` in-tree first (name, kind, tablet path, resolved library › collection), multi-select, target library / collection pickers prefilled from the resolved ids, Publication vs Note, Import runs `einkImportDocument` per selection off-main and shows adopted / created / failed per row (`EInkImportBrowserModel`; `EInkImportRequest.make` is the mapping — a chosen library drops a resolved collection, a document outside the tree needs a library before the button enables); reached from Settings › E-Ink, Paper ▸ Import from reMarkable… and the palette via `.showEInkImportBrowser` (presented by `ContentView`, enabled when `EInkMirrorModel.isConfigured`). **Persistence rule**: `AnnotationPersistence.burnable` drops rows with `authorName == "reMarkable"` or the `remarkable` provenance from `applyAnnotations`; `syncWithPDF` early-returns for an `eink-annotated` file and excludes those rows from its orphan sweep (they are never in the primary's bytes, so the sweep would have deleted every import). `AnnotationModel.isFromEInkDevice` now matches Rust's `remarkable` spelling (`eink` still accepted). **Coordinator**: `.importOnly` runs `einkImport` (import-only in Rust, `pendingUploads` reported) through the new `EInkSyncEnvironment.importOnly` closure (nil in tests = the old `sync(_, true)`); `onRunStateChanged` feeds `EInkMirrorModel.isSyncing`. Adapter: `einkImport`, `einkListUnmatched`, `einkImportDocument`, `einkSearchAnnotations`; records `EInkUnmatchedDocument`, `EInkDocumentImportOutcome`, `EInkSyncReport.pendingUploads`. Tests: `EInkSurfaceModelTests` (checklist order + copy text, pane model, USB defaults, Info actions per state, Notes grouping, request mapping + browser model, glyph precedence, switcher label + `preferredPDF`, `burnable`) |
+| Retired (P9, 2026-09-07) | Deleted, 7 files / 2,153 lines: `RemarkableSyncManager`, `RemarkableSyncScheduler` (never started), `RemarkableStatusSection` (the last Swift reader/writer of the `_remarkable_*` payload keys — Rust reports those rows as `legacyMarkerRows`; Swift writes none now), `RemarkableConflictView` (no bidirectional edit exists, so no conflict does), `AnnotationConverter`, `EInkAnnotation` / `EInkAnnotationNormalizer`. Trimmed, 12 files / a further 444 lines: `ConflictResolution` / `EInkConflictResolution` and every `conflictResolution` key; the auto-sync / organisation / annotation keys on `EInkSettingsStore` and `RemarkableSettingsStore` (+ `AnnotationImportMode`) — the key NAMES survive only in `EInkSettingsMigration.legacyKeys`, which still carries them across once; the duplicated sections of `RemarkableSettingsView` (now only the local-network / cloud connect sheet) and the "other devices" generic sections of `EInkSettingsView`; `RemarkableDeviceAdapter.registerWithDeviceManager`; twelve notification names with no poster or no observer (`einkShowAuthCode`, `remarkableShowAuthCode`, `einkSyncStateChanged`, `einkAnnotationsImported`, `einkDeviceConnected`, `einkDeviceDisconnected`, `remarkableSyncStateChanged`, `remarkableAnnotationsImported`, and the scheduler's `remarkableSettingsChanged` / `remarkableSyncStarted` / `remarkableSyncCompleted` / `remarkableSyncFailed`); the `ConflictResolution` test. Net −2,597 / +36 lines in `apps/imbib`; iOS untouched (it references only `EInkMirrorModel` and the mark verbs). Kept on purpose: `RemarkableDeviceAdapter` (the registrar and the pane still adapt the USB-web / SFTP / cloud backends through it), `RemarkableUSBWebBackend` (registrar + `/api/remarkable/usb/*`), `RemarkableOCRService` (`EInkOCRPass`, artifact OCR), `EInkDeviceManager` (the Supernote / Kindle / legacy-transport device list). Dead but unnamed by the plan, left for a later pass: `RemarkableLocalBackend`, `RemarkableDropboxBackend` (nothing instantiates them), `RemarkableAnnotationOverlay`, `AnnotationTimelineView`, `ImprintIntegration`, `RemarkableSyncState` / `EInkSyncState`. Still open: keyboard-grammar rows; the sidebar "On reMarkable" node; iOS Info/Notes tabs do not render the new sections yet (macOS chromes only, per the Stage 5b split) |
+
 ## MCP surface
 
 ADR-0022 D5: every GUI verb gets a Rust service twin, and **only
@@ -1298,6 +1541,26 @@ from a store it never reached is worse than no answer.
 | `store-query-service_list-items` | list-row population for any kind (WP G6): a page of envelopes, `modified` desc with an id tiebreak so paging is a partition, `total` alongside. Empty `schema_ref` walks EVERY kind. Withholds nothing — a browse that hid dismissed rows would make its own `total` a lie |
 | `docs-import-service_import-directory` | bulk "New Manuscript" + "file into folder", from a directory of markdown on disk. Ids are UUIDv5 over `"<collection>/<relative path>"`, so the run is **repeatable**: re-import updates bodies and titles in place, never duplicates, never double-files. Sets `format: "markdown"` explicitly; title from the first `# ` heading, filename stem otherwise. `dry_run` writes nothing and reports the counts the real run will produce |
 | `docs-import-service_prune-empty-manuscripts` | Delete column for placeholder shells — manuscripts with a title and no body. Reports by default; deletes only under `apply`, and never touches a manuscript whose body has content (the emptiness test is the interlock). `collection` scopes the scan; `max_body_chars` widens "empty" to "near-empty" |
+| `impress-ai-service_list-providers` | Settings › AI provider picker, every app (ADR-0029): catalogue rows with this device's endpoint, readiness and configured credential fields — never values |
+| `impress-ai-service_list-models` | the model list of the pane (`provider` optional → the resolved selection); helpers flagged, hidden models dropped |
+| `impress-ai-service_ai-preferences` | the pane's displayed state: `<workspace>/ai/preferences.json` plus its path |
+| `impress-ai-service_select-model` | picking a provider/model in ANY app's pane; rejects helper models and unknown providers exactly as the GUI does |
+| `impress-ai-service_set-provider-endpoint` | the endpoint override field (Tailscale hosts); `null` resets to the catalogue default |
+| `impress-ai-service_provider-health` | the health line (`● oMLX 0.6.4 · 2 of 10 loaded …`), passive — never launches oMLX |
+| `imbib-eink-service_eink-status` | Settings › E-Ink Devices header: devices, counts (queued / on tablet / awaiting PDF / awaiting folder / stale / failed), which device puts markers on rows, last sync |
+| `imbib-eink-service_eink-devices` / `eink-configure-device` / `eink-remove-device` | the device card: mode (`all` \| `individual`), root folder, "mirror library and collection folders", upload format, import toggles |
+| `imbib-eink-service_eink-mark` / `eink-unmark` | the list row's "Mirror to reMarkable" / "Remove from reMarkable" (context menu, `e`, ⌃⌘E); `awaiting_source` names the papers only the running app can fetch a PDF for |
+| `imbib-eink-service_eink-resend` | "Send again" on a stale / removed / un-marked row |
+| `imbib-eink-service_eink-list-mirrored` / `eink-awaiting-source` | the mirror rows behind the markers and the fetch queue |
+| `imbib-eink-service_eink-reachable` | the connection dot (2 s TCP probe, never a listing) |
+| `imbib-eink-service_eink-plan` | "what would a sync do" — dry run, includes the folder checklist; touches the tablet, writes nothing |
+| `imbib-eink-service_eink-sync` | "Sync now": upload into `imbib/<Library>/<Collection>` folders that exist, record what changed, optionally import changed documents (annotated PDF as a second linked file, highlights / typed text / ink groups as `imbib/annotation` rows) |
+| `imbib-eink-service_eink-folder-checklist` | the "create these folders on the tablet, parents first" list |
+| `imbib-eink-service_eink-import` | Paper ▸ Import reMarkable Annotations: the import-only pass (nothing goes up); with `publication_id`, the Info section's "Import annotations now" — that paper, whether or not the tablet reports a change |
+| `imbib-eink-service_eink-list-unmatched` / `eink-import-document` | the "Import from reMarkable" browser: documents no mirror row accounts for (notebooks written on the tablet, files copied in by hand), each with the library/collection its folder resolves to; import one as a publication (notebook → `@misc` with the rendered PDF; a PDF/ePUB whose bytes match a file already here adopts that publication) or as an `impress/artifact/note` |
+| `imbib-eink-service_eink-list-annotations` / `eink-search-annotations` | the Notes tab's "reMarkable" section (highlights with page, typed text, OCR text with confidence, ink thumbnails) and its search |
+| `imbib-eink-service_eink-pending-ocr` / `eink-complete-ocr` | `EInkOCRPass`: ink rows with a rendered PNG and no recognition yet; the Vision result written back (an empty result still closes the job) |
+| `imbib-eink-service_eink-append-notes` | "Append reMarkable notes": one dated block per tablet snapshot into the Notes field, never automatic, refuses a duplicate unless `force` |
 
 `binding` selects the hierarchy: `imbib` \| `manuscript` \| `figure` \|
 `generic` (the mixed-kind `collection@1.0.0` schema). Verb names and argument

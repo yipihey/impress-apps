@@ -184,3 +184,31 @@ The current architecture is sound:
 - **Each binding is self-contained and stable**
 
 The small amount of duplication is an acceptable cost for clean separation, independent builds, and UniFFI's guaranteed correctness.
+
+## Async exports and streaming (ADR-0029, 2026-09-03)
+
+The repo's first async UniFFI export is `AiChatStream.next_event()` in
+`crates/impress-store-ffi/src/ai_registry.rs`. The rules it set:
+
+- **Pull, don't push.** Rust never calls into Swift (no callback interfaces).
+  Swift awaits `nextEvent()` from an actor; the producer task runs on a
+  runtime the FFI crate owns (`impress-ai-ffi`, two workers) and feeds a
+  bounded channel. The exported future only awaits that channel, so no
+  `async_runtime` attribute is needed and no tokio thread ever holds a Swift
+  object.
+- **Explicit cancellation.** UniFFI 0.28's Swift side cannot cancel a Rust
+  future; `cancel()` (also run from `Drop`) aborts the producer and closes the
+  channel, and `AsyncThrowingStream.onTermination` calls it.
+- **Synchronous verbs block on the shared runtime.** `discover_models`,
+  `provider_health`, `chat_complete` use `runtime().block_on` on the same
+  crate-owned runtime — never a per-call `current_thread` runtime, which is
+  what the older `SharedAiStore::inspect_omlx_host` did and what made it block
+  the caller.
+- **Call from a queue, not from main.** The Swift adapter
+  (`packages/ImpressAI/Sources/ImpressAI/Bridge/RustAIBridge.swift`) runs every
+  synchronous call on a private `DispatchQueue` via
+  `withCheckedThrowingContinuation`, converts UniFFI records inside that call,
+  and keeps the rest of the package free of UniFFI types (impart already
+  declares `@retroactive Sendable` on some of them; a second declaration in
+  another module would not compile).
+

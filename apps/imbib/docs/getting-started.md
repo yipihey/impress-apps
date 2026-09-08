@@ -238,16 +238,16 @@ Some PDFs require institutional access:
 
 ## E-Ink Devices (Optional)
 
-Sync papers with reMarkable, Supernote, or Kindle Scribe for distraction-free reading.
+Mirror papers to a reMarkable over USB and bring your highlights, typed notes and handwriting back.
 
 ### Quick Setup
 
-1. Go to **Settings > E-Ink Devices**
-2. Click **Add Device**
-3. Select your device and sync method
-4. Send papers via right-click menu or **Paper > Send to E-Ink Device**
+1. Turn on the tablet's **USB web interface** (Settings › Storage) and plug it in
+2. Go to **Settings > E-Ink** and click **Add reMarkable (USB)**
+3. Create an **imbib** folder on the tablet (the pane lists any further folders to create)
+4. Choose **Mirror everything** or **Only papers I choose**; in the latter, press **`e`** on a paper (or **Paper > Mirror to reMarkable**, Control+Command+E)
 
-Annotations you make on your device can be synced back to imbib, including highlights and handwritten notes with optional OCR.
+What you annotate on the tablet comes back on the next sync: the annotated pages as a second file, highlights with their text, typed notes, and handwriting recognised on your Mac.
 
 [Full E-Ink Guide](eink-devices) - Detailed setup instructions
 

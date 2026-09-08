@@ -177,77 +177,46 @@ struct DetachedPDFView: View {
         }
     }
 
+    /// Fetch the paper's PDF through `PDFAcquisitionService` (ADR-025 P7)
+    /// and re-read the linked file from the store.
     private func downloadPDF() async {
         detachedPDFLogger.info("[DetachedPDF] downloadPDF() called for: \(publication.citeKey)")
-
-        let settings = await PDFSettingsStore.shared.settings
-        let status = await PDFURLResolverV2.shared.resolve(for: publication, settings: settings)
-
-        browserFallbackURL = status.browserURL ?? status.pdfURL
-
-        guard let resolvedURL = status.pdfURL else {
-            detachedPDFLogger.warning("[DetachedPDF] No URL resolved")
-            await MainActor.run {
-                downloadError = PDFDownloadError.noPDFAvailable
-            }
-            return
-        }
-
-        detachedPDFLogger.info("[DetachedPDF] Downloading from: \(resolvedURL.absoluteString)")
+        let pubID = publication.id
 
         isDownloading = true
         downloadError = nil
 
         do {
-            // Download to temp location
-            let (tempURL, response) = try await URLSession.shared.download(from: resolvedURL)
-
-            // Log HTTP response
-            if let httpResponse = response as? HTTPURLResponse {
-                detachedPDFLogger.info("[DetachedPDF] HTTP \(httpResponse.statusCode)")
-                if httpResponse.statusCode != 200 {
-                    throw PDFDownloadError.downloadFailed("HTTP \(httpResponse.statusCode)")
+            let local = try await PDFAcquisitionService.shared.acquire(publicationID: pubID, policy: .interactive)
+            await MainActor.run {
+                if local != nil {
+                    let files = RustStoreAdapter.shared.listLinkedFiles(publicationId: pubID)
+                    if let linked = files.first(where: { $0.isPDF }) {
+                        linkedFile = linked
+                    }
+                    detachedPDFLogger.info("[DetachedPDF] PDF imported successfully")
+                } else {
+                    detachedPDFLogger.warning("[DetachedPDF] No URL resolved")
+                    downloadError = PDFDownloadError.noPDFAvailable
                 }
             }
-
-            // Validate PDF header
-            let fileHandle = try FileHandle(forReadingFrom: tempURL)
-            let header = fileHandle.readData(ofLength: 4)
-            try fileHandle.close()
-
-            guard header.count >= 4,
-                  header[0] == 0x25, // %
-                  header[1] == 0x50, // P
-                  header[2] == 0x44, // D
-                  header[3] == 0x46  // F
-            else {
-                try? FileManager.default.removeItem(at: tempURL)
-                throw PDFDownloadError.downloadFailed("Downloaded file is not a valid PDF")
-            }
-
-            // Import into library
-            guard let lib = library else {
-                throw PDFDownloadError.noActiveLibrary
-            }
-
-            try AttachmentManager.shared.importPDF(from: tempURL, for: publication.id, in: lib.id)
-            detachedPDFLogger.info("[DetachedPDF] PDF imported successfully")
-
-            // Clean up temp file
-            try? FileManager.default.removeItem(at: tempURL)
-
-            // Refresh linked file from store
+        } catch let error as PDFAcquisitionError {
+            detachedPDFLogger.error("[DetachedPDF] Download failed: \(error.localizedDescription)")
             await MainActor.run {
-                let files = RustStoreAdapter.shared.listLinkedFiles(publicationId: publication.id)
-                if let linked = files.first(where: { $0.isPDF }) {
-                    linkedFile = linked
+                if case .requiresUserAction(let browserURL, _) = error {
+                    downloadError = PDFDownloadError.publisherNotAvailable
+                    browserFallbackURL = browserURL
+                } else if case .cancelled = error {
+                    // Nothing to show.
+                } else {
+                    downloadError = error
+                    browserFallbackURL = error.sourceURL ?? browserFallbackURL
                 }
             }
         } catch {
             detachedPDFLogger.error("[DetachedPDF] Download failed: \(error.localizedDescription)")
             await MainActor.run {
                 downloadError = error
-                browserFallbackURL = resolvedURL
             }
         }
 

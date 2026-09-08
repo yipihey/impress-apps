@@ -113,6 +113,13 @@ struct InfoTab: View {
                         CitedInManuscriptsSection(publicationID: pubID)
                     }
 
+                    // MARK: - reMarkable (ADR-025)
+                    // The paper's mirror state, tablet path, dates, error and
+                    // verbs. Renders nothing until a device is configured.
+                    if let pubID = publicationID {
+                        PublicationEInkMirrorSection(publicationID: pubID)
+                    }
+
                     // MARK: - Abstract (Body)
                     if let abstract = paper.abstract, !abstract.isEmpty {
                         infoSection("Abstract") {

@@ -821,6 +821,7 @@ mod tests {
                 loaded: true,
                 max_context_window: Some(32_768),
                 modalities: vec!["text".into(), "image".into()],
+                ..Default::default()
             }],
         );
         assert_eq!(status.state, "ready");

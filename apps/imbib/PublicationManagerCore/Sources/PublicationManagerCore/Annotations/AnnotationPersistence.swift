@@ -97,7 +97,8 @@ public final class AnnotationPersistence {
             boundsJson: boundsJson,
             color: pdfAnnotation.color.hexString,
             contents: pdfAnnotation.contents,
-            selectedText: selectedText
+            selectedText: selectedText,
+            authorName: resolveAuthorName()
         )
 
         if result != nil {
@@ -157,7 +158,14 @@ public final class AnnotationPersistence {
         from linkedFileID: UUID,
         to document: PDFDocument
     ) {
-        let annotations = loadAnnotations(for: linkedFileID)
+        let stored = loadAnnotations(for: linkedFileID)
+        let annotations = Self.burnable(stored)
+        let skipped = stored.count - annotations.count
+        if skipped > 0 {
+            Logger.files.debugCapture(
+                "Skipped \(skipped) reMarkable-imported annotation(s): never drawn into the primary PDF",
+                category: "annotation-persistence")
+        }
 
         for annotation in annotations {
             let pageIndex = annotation.pageNumber
@@ -172,6 +180,16 @@ public final class AnnotationPersistence {
         }
 
         Logger.files.debugCapture("Applied \(annotations.count) annotations from store to PDF", category: "annotation-persistence")
+    }
+
+    /// The rows `applyAnnotations` may draw into the PDF: everything EXCEPT
+    /// what a reMarkable import wrote (`authorName == "reMarkable"`, or the
+    /// `remarkable` provenance). Those rows live in the store and in the
+    /// annotated variant the sync downloaded; drawing them into the primary
+    /// would change its bytes on the next save and make the mirror row
+    /// falsely `stale` (ADR-025). Pure, so it is unit-tested directly.
+    nonisolated public static func burnable(_ annotations: [AnnotationModel]) -> [AnnotationModel] {
+        annotations.filter { !$0.isEInkAuthored }
     }
 
     // MARK: - Delete Annotation
@@ -204,8 +222,22 @@ public final class AnnotationPersistence {
     ///   - document: The PDF document
     ///   - linkedFileID: The UUID of the linked file
     public func syncWithPDF(document: PDFDocument, linkedFileID: UUID) {
-        // Get existing stored annotations
-        let storedAnnotations = loadAnnotations(for: linkedFileID)
+        // The annotated rendition a reMarkable sync downloaded carries the
+        // tablet's marks drawn into its bytes; reconciling them would
+        // duplicate every imported row as an imbib-authored one. The store
+        // rows for that document hang off the PRIMARY file (ADR-025).
+        if let file = store.getLinkedFile(id: linkedFileID), file.isEInkAnnotated {
+            Logger.files.debugCapture(
+                "syncWithPDF skipped for the reMarkable-annotated rendition \(file.filename)",
+                category: "annotation-persistence")
+            return
+        }
+
+        // Get existing stored annotations. Imported reMarkable rows are never
+        // in the primary's bytes (see `burnable`), so they are neither
+        // matched nor swept as orphans.
+        let allStored = loadAnnotations(for: linkedFileID)
+        let storedAnnotations = Self.burnable(allStored)
         var matchedIDs: Set<UUID> = []
 
         // Scan PDF for annotations
@@ -595,7 +627,8 @@ extension AnnotationPersistence {
                     boundsJson: bounds,
                     color: data.color,
                     contents: data.content,
-                    selectedText: nil
+                    selectedText: nil,
+                    authorName: resolveAuthorName()
                 )
             }
 

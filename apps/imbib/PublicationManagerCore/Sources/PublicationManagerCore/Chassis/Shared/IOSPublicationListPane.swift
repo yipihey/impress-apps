@@ -100,6 +100,10 @@ public struct IOSPublicationListPane: View {
     }
 
     public var body: some View {
+        // Read on the main actor here, not inside `rowState` — that closure
+        // is a nonisolated escaping value. The mirror verbs apply only while
+        // a device in individual mode is configured (ADR-025); nil hides them.
+        let individual = EInkMirrorModel.shared.showsIndividualControls
         RecordListHost(
             rows: rows,
             selection: $selectedID,
@@ -118,7 +122,13 @@ public struct IOSPublicationListPane: View {
             triage: PublicationRecordKind.descriptor.triage,
             actions: RecordTriageActions.storeBacked(
                 descriptor: PublicationRecordKind.descriptor),
-            rowState: { TriageRowState(isStarred: $0.isStarred, isDismissed: false) },
+            rowState: { row in
+                TriageRowState(
+                    isStarred: row.isStarred,
+                    isDismissed: false,
+                    isMirrored: individual ? (row.einkState != nil) : nil,
+                    mirrorMenuVerb: row.einkState?.menuVerb)
+            },
             rowTagPaths: { Set($0.tagDisplays.map(\.path)) },
             scopeToken: source,
             dataVersion: dataVersion,

@@ -328,11 +328,23 @@ public actor AIMultiModelExecutor {
     }
 
     private func prepareForExecution() async {
-        await providerManager.registerAllProviders()
+        await providerManager.registerBuiltInProviders()
         await categoryManager.ensureAssignmentsLoaded()
     }
 
+    /// The suite default for a category without an assignment. An explicit
+    /// selection is honoured even when its passive check says "not ready":
+    /// a stopped local host gets the chance to start (activating providers
+    /// do that here) instead of being silently replaced by another provider.
     private func defaultModelReference() async -> AIModelReference? {
+        if let selectedId = await providerManager.defaultProviderId {
+            guard let provider = await providerManager.provider(for: selectedId) else { return nil }
+            if let activating = provider as? any AIServiceActivatingProvider {
+                try? await activating.activateServiceIfNeeded()
+            }
+            guard let model = await providerManager.effectiveDefaultModel(for: selectedId) else { return nil }
+            return AIModelReference.from(provider: provider.metadata, model: model)
+        }
         guard let provider = await providerManager.effectiveDefaultProvider(),
               let model = await providerManager.effectiveDefaultModel(for: provider.metadata.id)
         else { return nil }

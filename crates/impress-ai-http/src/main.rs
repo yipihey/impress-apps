@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use impress_ai::{migrate_localmodels, AiStore, FileBlobStore, OmlxClient};
+use impress_ai::registry::ResolveTarget;
+use impress_ai::{migrate_localmodels, AiRegistry, AiStore, FileBlobStore};
 use impress_ai_http::{router, AiHttpState, MaintenanceState};
 use impress_core::item::ActorKind;
 use impress_core::maintenance::MaintenanceLease;
@@ -47,11 +48,28 @@ async fn main() {
             return;
         }
     }
-    let omlx_url =
-        std::env::var("IMPRESS_OMLX_URL").unwrap_or_else(|_| impress_ai::omlx::DEFAULT_URL.into());
-    let omlx_key = std::env::var("IMPRESS_OMLX_API_KEY").ok();
-    let omlx = OmlxClient::with_endpoint_id(omlx_url, omlx_key, "local-omlx")
-        .expect("configure oMLX client");
+    // Provider selection and endpoints come from the device-local
+    // preferences file beside the store (ADR-0029); IMPRESS_OMLX_URL and
+    // friends remain explicit overrides.
+    let workspace = store_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let registry = AiRegistry::for_daemon(&workspace);
+    match registry.resolve(&ResolveTarget::default()) {
+        Ok(resolved) => eprintln!(
+            "impress-ai-server: provider={} model={} endpoint={} origin={} (preferences: {})",
+            resolved.provider,
+            resolved.model,
+            resolved.endpoint_id,
+            resolved.origin.label(),
+            registry.preferences().path().display()
+        ),
+        Err(error) => eprintln!(
+            "impress-ai-server: no AI provider resolved yet ({error}); preferences: {}",
+            registry.preferences().path().display()
+        ),
+    }
     // WAL maintenance (2026-08-05 incident): this daemon is the suite's
     // always-on process, so it OWNS the checkpoint cadence. Every process's
     // passive auto-checkpoints yield to the fleet's pooled readers, so
@@ -389,7 +407,7 @@ async fn main() {
         }
     });
 
-    let state = AiHttpState::new(ai, omlx, blobs, access_token)
+    let state = AiHttpState::with_registry(ai, registry, blobs, access_token)
         .expect("configure HTTP state")
         .with_maintenance(maintenance);
     let listener = tokio::net::TcpListener::bind(bind)

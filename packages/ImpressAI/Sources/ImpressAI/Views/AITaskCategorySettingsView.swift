@@ -5,6 +5,7 @@
 //  SwiftUI view for configuring task categories with multi-model assignments.
 //
 
+import ImpressFTUI
 import SwiftUI
 
 // MARK: - Main Settings View
@@ -64,7 +65,7 @@ public struct AITaskCategorySettingsView: View {
                         CategoryAssignmentRow(
                             category: category,
                             assignment: settings.assignment(for: category.id),
-                            availableModels: settings.availableModels,
+                            modelGroups: settings.modelGroups,
                             onPrimaryModelChange: { model in
                                 Task { await settings.setPrimaryModel(model, for: category.id) }
                             },
@@ -94,7 +95,10 @@ public struct AITaskCategorySettingsView: View {
 struct CategoryAssignmentRow: View {
     let category: AITaskCategory
     let assignment: AITaskCategoryAssignment
-    let availableModels: [AIModelReference]
+    /// Selectable models grouped by provider (`AIModelOptions`): the host's
+    /// own list where one could be discovered, and the reason a provider is
+    /// not usable where it cannot serve a request.
+    let modelGroups: [AIModelOptionGroup]
     let onPrimaryModelChange: (AIModelReference?) -> Void
     let onAddComparison: (AIModelReference) -> Void
     let onRemoveComparison: (AIModelReference) -> Void
@@ -154,6 +158,9 @@ struct CategoryAssignmentRow: View {
                         ) { model in
                             onPrimaryModelChange(model)
                         }
+                        // Bounded so a long selected title truncates inside
+                        // the row instead of widening it past the sheet.
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     }
 
                     // Comparison models (if supported)
@@ -204,9 +211,13 @@ struct CategoryAssignmentRow: View {
                 }
 
                 Menu {
-                    ForEach(availableModelsForComparison) { model in
-                        Button(model.displayName) {
-                            onAddComparison(model)
+                    ForEach(comparisonGroups) { group in
+                        Section(group.sectionTitle) {
+                            ForEach(group.models) { model in
+                                Button(model.modelName) {
+                                    onAddComparison(model)
+                                }
+                            }
                         }
                     }
                 } label: {
@@ -220,12 +231,36 @@ struct CategoryAssignmentRow: View {
 
     // MARK: - Helpers
 
-    private var availableModelsForComparison: [AIModelReference] {
-        let excluded = Set(assignment.comparisonModels.map { $0.id })
-        let primaryId = assignment.primaryModel?.id
-        return availableModels.filter {
-            !excluded.contains($0.id) && $0.id != primaryId
+    private var availableModels: [AIModelReference] {
+        modelGroups.flatMap(\.models)
+    }
+
+    /// The groups with `excluded` removed, dropping any group left empty so a
+    /// provider never shows an empty heading.
+    private func groups(excluding excluded: Set<String>) -> [AIModelOptionGroup] {
+        // The assigned model stays listed even when its host is off, so the
+        // picker never renders a selection it has no row for.
+        AIModelOptions.groups(modelGroups, including: assignment.primaryModel).compactMap { group in
+            let models = group.models.filter { !excluded.contains($0.id) }
+            guard !models.isEmpty else { return nil }
+            return AIModelOptionGroup(
+                providerId: group.providerId,
+                providerName: group.providerName,
+                readiness: group.readiness,
+                models: models,
+                isDiscovered: group.isDiscovered
+            )
         }
+    }
+
+    private var comparisonGroups: [AIModelOptionGroup] {
+        var excluded = Set(assignment.comparisonModels.map(\.id))
+        if let primaryId = assignment.primaryModel?.id { excluded.insert(primaryId) }
+        return groups(excluding: excluded)
+    }
+
+    private var availableModelsForComparison: [AIModelReference] {
+        comparisonGroups.flatMap(\.models)
     }
 
     @ViewBuilder
@@ -234,8 +269,7 @@ struct CategoryAssignmentRow: View {
         excluding: [AIModelReference],
         onChange: @escaping (AIModelReference?) -> Void
     ) -> some View {
-        let excludedIds = Set(excluding.map { $0.id })
-        let options = availableModels.filter { !excludedIds.contains($0.id) }
+        let options = groups(excluding: Set(excluding.map(\.id)))
 
         Picker("", selection: Binding(
             get: { selection?.id },
@@ -249,9 +283,15 @@ struct CategoryAssignmentRow: View {
             }
         )) {
             Text("Not configured").tag(String?.none)
-            Divider()
-            ForEach(options) { model in
-                Text(model.displayName).tag(Optional(model.id))
+            // One section per provider, usable providers first; a provider
+            // that needs setup says so in its heading rather than quietly
+            // offering models that cannot run.
+            ForEach(options) { group in
+                Section(group.sectionTitle) {
+                    ForEach(group.models) { model in
+                        Text(model.modelName).tag(Optional(model.id))
+                    }
+                }
             }
         }
         .pickerStyle(.menu)
@@ -267,9 +307,16 @@ struct ComparisonModelChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(model.displayName)
+            // The chip lives in a picker context that already groups by
+            // provider, so it shows the model half of the name — the full
+            // "oMLX — local models on this Mac - …" form made one chip wider
+            // than the sheet. Middle truncation keeps both the family and the
+            // quant suffix readable when even the short form is long; the
+            // full name stays one hover away.
+            Text(model.modelName)
                 .font(.caption)
                 .lineLimit(1)
+                .truncationMode(.middle)
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
@@ -278,6 +325,7 @@ struct ComparisonModelChip: View {
             }
             .buttonStyle(.plain)
         }
+        .help(model.displayName)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
@@ -287,52 +335,9 @@ struct ComparisonModelChip: View {
     }
 }
 
-// MARK: - Flow Layout
-
-/// Simple flow layout for wrapping chips.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = flowLayout(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = flowLayout(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
-        }
-    }
-
-    private func flowLayout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var totalHeight: CGFloat = 0
-        var totalWidth: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-
-            if currentX + size.width > maxWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + spacing
-                lineHeight = 0
-            }
-
-            positions.append(CGPoint(x: currentX, y: currentY))
-            lineHeight = max(lineHeight, size.height)
-            currentX += size.width + spacing
-            totalWidth = max(totalWidth, currentX - spacing)
-            totalHeight = currentY + lineHeight
-        }
-
-        return (CGSize(width: totalWidth, height: totalHeight), positions)
-    }
-}
+// The chips flow through ImpressFTUI's shared FlowLayout — a local copy
+// lived here until 2026-09-06, carrying the same single-wide-chip overflow
+// bug as the shared one. One implementation, one fix.
 
 // MARK: - Preview
 

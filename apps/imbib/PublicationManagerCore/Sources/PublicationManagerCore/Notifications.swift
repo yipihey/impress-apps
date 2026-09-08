@@ -595,25 +595,37 @@ public extension Notification.Name {
     /// This notification triggers the UnifiedImportView file picker and preview.
     static let showUnifiedImport = Notification.Name("showUnifiedImport")
 
-    // MARK: - E-Ink Device Integration
+    // MARK: - E-Ink Device Integration (reMarkable USB mirror, ADR-025)
 
-    /// Send selected papers to E-Ink device (reMarkable, Supernote, Kindle Scribe)
+    /// Toggle the reMarkable mirror mark on the current selection
+    /// (Paper ▸ Mirror to reMarkable, ⌃⌘E; the guarded `e` key calls the
+    /// same list action directly). Observed by the publication list wrapper,
+    /// which applies the any-unmirrored → mirror-all rule and ignores the
+    /// request unless a device in individual mode is configured.
     ///
-    /// userInfo (optional):
-    /// - `publicationIDs`: [UUID] to send (if not provided, uses current selection)
-    ///
-    /// This notification triggers the E-Ink sync process for the specified papers.
-    static let sendToEInkDevice = Notification.Name("sendToEInkDevice")
+    /// Replaces the old send-to-device notification, which posted into the
+    /// void: the three send routes it named were retired with the Swift
+    /// sync manager.
+    static let toggleEInkMirror = Notification.Name("toggleEInkMirror")
 
-    /// Sync annotations from E-Ink device
-    ///
-    /// Triggers a sync to pull annotations from the active E-Ink device.
-    static let syncEInkAnnotations = Notification.Name("syncEInkAnnotations")
+    /// Run one sync pass against the tablet now (Paper ▸ Sync reMarkable Now).
+    /// Bypasses the coordinator's startup gate; observed by `EInkSyncCoordinator`.
+    static let einkSyncNow = Notification.Name("einkSyncNow")
+
+    /// Import annotations from the tablet now without sending anything
+    /// (Paper ▸ Import reMarkable Annotations). Observed by `EInkSyncCoordinator`.
+    static let einkImportAnnotations = Notification.Name("einkImportAnnotations")
 
     /// Open E-Ink device settings
     ///
     /// Opens the Settings window and navigates to the E-Ink tab.
     static let showEInkSettings = Notification.Name("showEInkSettings")
+
+    /// Open the "Import from reMarkable" browser (Paper ▸ Import from
+    /// reMarkable…, the palette, Settings › E-Ink): the tablet's documents
+    /// no mirror row accounts for, brought in as publications or notes.
+    /// Observed by `ContentView`, which presents the sheet.
+    static let showEInkImportBrowser = Notification.Name("showEInkImportBrowser")
 
     // MARK: - Settings Navigation
 

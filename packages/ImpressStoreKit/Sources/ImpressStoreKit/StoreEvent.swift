@@ -69,6 +69,12 @@ public enum MutationKind: Sendable, Equatable {
     case starred
     case flag
     case tag
+    /// The e-ink mirror marker (imbib's reMarkable USB mirror, ADR-025):
+    /// a publication was marked / unmarked for the tablet, or a sync moved
+    /// its mirror row between states. Subscribers that render the row
+    /// marker (`BibliographyRow.einkState`) re-read the affected rows;
+    /// everything else may ignore it.
+    case einkMirror
     /// A catch-all for field mutations that don't fit a narrower kind
     /// (title edits, abstract rewrites, cite key changes, etc.).
     /// Subscribers that don't care about any particular field should

@@ -56,6 +56,8 @@ packages:
   # place impress names a store type.
   ImpressRustCore:
     path: ../../packages/ImpressRustCore
+  ImpressAI:
+    path: ../../packages/ImpressAI
   # `MailStyleRow` — the ONE row view all three of impress-iOS's kinds render
   # through, because every chassis row-data type conforms to `MailStyleItem`.
   ImpressMailStyle:
@@ -123,6 +125,7 @@ targets:
       - package: ImpressTheme
       - package: ImpressRustCore
       - package: ImpressMailStyle
+      - package: ImpressAI
     info:
       path: macOS/Info.plist
       properties:
@@ -210,6 +213,7 @@ targets:
       - package: ImpressTheme
       - package: ImpressRustCore
       - package: ImpressMailStyle
+      - package: ImpressAI
     info:
       path: impress-iOS/Resources/Info.plist
       properties:

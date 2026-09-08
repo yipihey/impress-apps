@@ -234,7 +234,9 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
 
     // MARK: - The three small apps, frozen
 
-    func testImplorePresetIsTheFrozenFiveTabInventory() {
+    /// Six since ADR-0029 (2026-09-03): `ai` sits between Keyboard and
+    /// Spotlight (order 45) so the shipped tab order is otherwise untouched.
+    func testImplorePresetIsTheFrozenSixTabInventory() {
         assertInventory(
             of: .implore, on: .macOS,
             equals: [
@@ -242,6 +244,7 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
                 ("rendering", "Rendering", "paintbrush"),
                 ("colormaps", "Colormaps", "paintpalette"),
                 ("keyboard", "Keyboard", "keyboard"),
+                ("ai", "AI", "sparkles"),
                 ("spotlight", "Spotlight", "magnifyingglass"),
             ])
     }
@@ -284,6 +287,7 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
                 "settings.tabs.rendering",
                 "settings.tabs.colormaps",
                 "settings.tabs.keyboard",
+                "settings.tabs.ai",
                 "settings.tabs.spotlight",
             ])
     }
@@ -422,7 +426,8 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
             factorySource: "apps/impart/macOS/Views/Settings/ImpartSettingsScene.swift",
             alsoRegisteredElsewhere: [],
             builtinsRelied: ["spotlight"])
-        // impress registers ONE pane and takes Appearance from the builtin.
+        // impress registers TWO panes (AI since ADR-0029, Automation) and takes
+        // Appearance from the builtin.
         //
         // macOS ONLY here, deliberately. The registration file is compiled into
         // BOTH targets (one file, no `#if`), so on iOS it registers a factory
@@ -444,14 +449,16 @@ final class SettingsSurfacePhase2ContractTests: XCTestCase {
 
     // MARK: - impress (ADR-0022 D9)
 
-    /// The unifying shell's settings surface, frozen. Two rows on the Mac, ONE
-    /// on iOS — the smallest in the suite, which is the D9 thinness claim
-    /// showing up a second time.
-    func testImpressPresetIsTheFrozenTwoTabInventory() {
+    /// The unifying shell's settings surface, frozen. Three rows on the Mac
+    /// (AI joined between Appearance and Automation with ADR-0029, as a view
+    /// of the Rust-owned suite selection), ONE on iOS — still the smallest in
+    /// the suite, which is the D9 thinness claim showing up a second time.
+    func testImpressPresetIsTheFrozenThreeTabInventory() {
         assertInventory(
             of: .impress, on: .macOS,
             equals: [
                 (id: "appearance", title: "Appearance", symbol: "paintbrush"),
+                (id: "ai", title: "AI", symbol: "sparkles"),
                 (id: "automation", title: "Automation", symbol: "terminal"),
             ])
         assertInventory(

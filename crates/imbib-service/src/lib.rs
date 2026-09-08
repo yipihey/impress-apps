@@ -103,6 +103,7 @@ pub mod annotations_service;
 pub mod app_service;
 pub mod artifacts_service;
 pub mod backup_service;
+pub mod eink_service;
 pub mod library_service;
 pub mod manuscripts_service;
 pub mod scix_service;
@@ -120,6 +121,11 @@ pub use annotations_service::{
 };
 pub use artifacts_service::{
     ArtifactRecord, ArtifactRelationRecord, DefaultImbibArtifactsService, ImbibArtifactsService,
+};
+pub use eink_service::{
+    DefaultImbibEinkService, EinkAppendResult, EinkDeviceInput, EinkDeviceRecord,
+    EinkDocumentImportRecord, EinkMarkResult, EinkMirrorRecord, EinkOcrJobRecord, EinkStatusRecord,
+    EinkSyncRecord, EinkUnmatchedRecord, ImbibEinkService,
 };
 pub use library_service::{
     init_imbib_library_service, AuthorRecord, CollectionRecord, DefaultImbibLibraryService,
@@ -194,6 +200,7 @@ mod tests {
             "imbib-annotations-service_",
             "imbib-artifacts-service_",
             "imbib-scix-service_",
+            "imbib-eink-service_",
         ] {
             assert!(
                 names.iter().any(|n| n.starts_with(prefix)),

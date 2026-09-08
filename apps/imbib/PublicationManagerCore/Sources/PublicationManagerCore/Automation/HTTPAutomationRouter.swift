@@ -34,6 +34,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `GET /api/tags/tree` - Get tag tree
 /// - `GET /api/logs` - Query log entries
 /// - `GET /api/sync/status` - CloudKit sync state (ADR-0007 Phase 3)
+/// - `GET /api/eink/status` - reMarkable USB mirror status: devices, marker device, per-state counts (ADR-025)
 /// - `GET /api/backups` - List library backups (newest first)
 /// - `GET /api/backups/inspect?path=` - Validate a backup file
 /// - `POST /api/backups` - Create a consistent whole-store snapshot
@@ -65,6 +66,9 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `POST /api/artifacts` - Create artifact (JSON body)
 /// - `POST /api/artifacts/{id}/link` - Link artifact to publication
 /// - `POST /api/sync/nudge` - Trigger a sync pass (ADR-0007 Phase 3)
+/// - `POST /api/eink/sync` - Run one reMarkable mirror pass now (body: `{"import": true}`); returns the report + trace (ADR-025)
+/// - `POST /api/eink/import` - Import annotations from the tablet now (an `importOnly` coordinator run); returns the report + trace (ADR-025)
+/// - `POST /api/eink/folders/check` - The folders the tablet lacks, parents first (body: `{"device_id": "…"}` optional) (ADR-025)
 /// - `POST /api/manuscripts` - Create a manuscript (body: title, body?/template?, format?, authors?)
 /// - `POST /api/manuscripts/from-template` - Create a manuscript from a journal
 ///   template (body: template_id, title, authors?, affiliations?, abstract?,
@@ -106,6 +110,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// API Endpoints (PUT):
 /// - `PUT /api/papers/read` - Mark papers read/unread
 /// - `PUT /api/papers/star` - Toggle star
+/// - `PUT /api/papers/eink` - Mark / unmark papers for the reMarkable mirror (body: `{"identifiers":[…],"mirrored":true}`) (ADR-025)
 /// - `PUT /api/papers/tags` - Add/remove tags
 /// - `PUT /api/papers/flag` - Set/clear flags
 /// - `PUT /api/papers/{citeKey}/notes` - Update publication notes
@@ -623,6 +628,11 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleSyncStatus()
         }
 
+        // reMarkable USB mirror (ADR-025)
+        if path == "/api/eink/status" {
+            return await handleEInkStatus()
+        }
+
         // Library backup (see BackupAutomationHandler for the contract).
         if path == "/api/backups/inspect" {
             let out = await BackupAutomationHandler.inspectBackup(path: request.queryParams["path"])
@@ -642,6 +652,34 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/appearance" {
             return await handleGetAppearance()
+        }
+
+        if path == "/api/embeddings/status" {
+            return await handleEmbeddingIndexStatus()
+        }
+
+        if path == "/api/remarkable/status" {
+            return await handleRemarkableStatus()
+        }
+
+        if path == "/api/remarkable/cloud/get" {
+            return await handleRemarkableCloudGet(request)
+        }
+
+        if path == "/api/remarkable/usb/status" {
+            return await handleRemarkableUSBStatus()
+        }
+
+        if path == "/api/remarkable/usb/documents" {
+            return await handleRemarkableUSBDocuments()
+        }
+
+        if path == "/api/remarkable/wifi/status" {
+            return await handleRemarkableWiFiStatus()
+        }
+
+        if path == "/api/remarkable/wifi/documents" {
+            return await handleRemarkableWiFiDocuments()
         }
 
         if path == "/api/commands" {
@@ -857,6 +895,17 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleSyncNudge()
         }
 
+        // reMarkable USB mirror (ADR-025): one sync pass, now.
+        if path == "/api/eink/sync" {
+            return await handleEInkSync(request)
+        }
+        if path == "/api/eink/import" {
+            return await handleEInkImport()
+        }
+        if path == "/api/eink/folders/check" {
+            return await handleEInkFolderCheck(request)
+        }
+
         // Library backup. POST /api/backups/restore REPLACES the whole shared
         // store — see BackupAutomationHandler for the sync guard.
         if path == "/api/backups/restore" {
@@ -896,6 +945,18 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/papers/resolve" {
             return await handleResolvePaper(request)
+        }
+
+        if path == "/api/remarkable/connect" {
+            return await handleRemarkableConnect(request)
+        }
+
+        if path == "/api/remarkable/wifi/connect" {
+            return await handleRemarkableWiFiConnect(request)
+        }
+
+        if path == "/api/remarkable/disconnect" {
+            return await handleRemarkableDisconnect()
         }
 
         // ===== Phase D: new POST routes =====
@@ -1088,6 +1149,10 @@ public actor HTTPAutomationRouter: HTTPRouter {
 
         if path == "/api/papers/star" {
             return await handleToggleStar(request)
+        }
+
+        if path == "/api/papers/eink" {
+            return await handleSetEInkMirrored(request)
         }
 
         if path == "/api/papers/tags" {
@@ -1553,9 +1618,22 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .notFound("Paper not found: \(decodedKey)")
             }
 
+            var paperDict = paperToDict(paper)
+            // reMarkable mirror row (ADR-025): present only when one exists.
+            if let mirror = try await automationService.eInkMirror(for: identifier) {
+                var eink: [String: Any] = [
+                    "state": mirror.stateRaw,
+                    "marked": mirror.marked,
+                ]
+                eink["remotePath"] = mirror.remotePath ?? NSNull()
+                eink["uploadedAt"] = mirror.uploadedAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull()
+                eink["lastError"] = mirror.lastError ?? NSNull()
+                paperDict["eink"] = eink
+            }
+
             let response: [String: Any] = [
                 "status": "ok",
-                "paper": paperToDict(paper)
+                "paper": paperDict
             ]
 
             return .json(response)
@@ -1697,6 +1775,107 @@ public actor HTTPAutomationRouter: HTTPRouter {
         ])
     }
 
+    // MARK: - reMarkable USB mirror (ADR-025)
+
+    /// GET /api/eink/status — devices, the marker device, per-state counts,
+    /// last sync and error. The same snapshot the Settings pane renders.
+    private func handleEInkStatus() async -> HTTPResponse {
+        do {
+            guard let snapshot = try await automationService.eInkStatus() else {
+                return .serverError("The e-ink mirror status could not be read")
+            }
+            var json = snapshot.jsonDictionary()
+            json["status"] = "ok"
+            return .json(json)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// POST /api/eink/sync — run one mirror pass now. Body (optional):
+    /// `{"import": true}` — also import annotations that came back (default true).
+    /// Answers the full report plus the engine's trace lines, so an agent can
+    /// read what happened without the app's console.
+    private func handleEInkSync(_ request: HTTPRequest) async -> HTTPResponse {
+        let json = parseJSONBody(request) ?? [:]
+        let importAnnotations = (json["import"] as? Bool) ?? true
+        do {
+            let report = try await automationService.eInkSync(importAnnotations: importAnnotations)
+            var body = report.jsonDictionary()
+            body["status"] = "ok"
+            return .json(body)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// POST /api/eink/import — import what came back from the tablet now
+    /// (an `importOnly` run through the coordinator). Same body as
+    /// `/api/eink/sync`; nothing is sent that was not already queued.
+    private func handleEInkImport() async -> HTTPResponse {
+        do {
+            let report = try await automationService.eInkImport()
+            var body = report.jsonDictionary()
+            body["status"] = "ok"
+            return .json(body)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// POST /api/eink/folders/check — the folders the tablet lacks, parents
+    /// first, with how many papers wait on each. Body (optional):
+    /// `{"device_id": "…"}`. The USB interface cannot create folders, so
+    /// this is the checklist a person works through on the tablet.
+    private func handleEInkFolderCheck(_ request: HTTPRequest) async -> HTTPResponse {
+        let json = parseJSONBody(request) ?? [:]
+        let deviceId = json["device_id"] as? String
+        do {
+            let result = try await automationService.eInkFolderChecklist(deviceId: deviceId)
+            var body: [String: Any] = [
+                "status": "ok",
+                "count": result.folders.count,
+                "folders": result.folders.map { $0.jsonDictionary() },
+                "publications_waiting": result.folders.reduce(0) { $0 + $1.publications },
+            ]
+            body["device_id"] = result.deviceId ?? NSNull()
+            return .json(body)
+        } catch {
+            return mapError(error)
+        }
+    }
+
+    /// PUT /api/papers/eink — mark / unmark papers for the tablet.
+    /// Body: `{"identifiers": [...], "mirrored": true|false}`.
+    private func handleSetEInkMirrored(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Invalid JSON body")
+        }
+        guard let identifiers = parseIdentifiers(json) else {
+            return .badRequest("Missing or invalid 'identifiers' array")
+        }
+        guard let mirrored = json["mirrored"] as? Bool else {
+            return .badRequest("Missing or invalid 'mirrored' boolean")
+        }
+
+        do {
+            let result = try await automationService.setEInkMirrored(identifiers: identifiers, mirrored: mirrored)
+            var body: [String: Any] = [
+                "status": "ok",
+                "mirrored": mirrored,
+                "updated": result.updated,
+                "changed": result.changed.map(\.uuidString),
+                "unchanged": result.unchanged.map(\.uuidString),
+                "awaiting_source": result.awaitingSource.map(\.uuidString),
+                "not_found": result.notFound,
+            ]
+            body["device_id"] = result.deviceId ?? NSNull()
+            return .json(body)
+        } catch {
+            return mapError(error)
+        }
+    }
+
     // MARK: - Layout & Appearance (declarative pane-layout system)
 
     private func layoutStateDict(_ state: PaneLayoutState) -> [String: Any] {
@@ -1782,6 +1961,365 @@ public actor HTTPAutomationRouter: HTTPRouter {
     }
 
     /// GET /api/appearance — per-surface appearance (authoritative stores).
+    // MARK: - reMarkable
+
+    /// GET /api/remarkable/status — whether this Mac is paired with the
+    /// reMarkable cloud, and whether the stored token still refreshes.
+    private func handleRemarkableStatus() async -> HTTPResponse {
+        let hasToken = await MainActor.run {
+            ((try? RemarkableSettingsStore.shared.retrieveToken()) ?? nil)?.isEmpty == false
+        }
+        guard hasToken else {
+            return .json([
+                "status": "ok",
+                "connected": false,
+                "detail": "No device token stored. POST /api/remarkable/connect with a one-time code from https://my.remarkable.com/device/browser/connect",
+            ])
+        }
+        // `isAvailable()` refreshes the user token, which is the only way to
+        // learn that a stored device token was revoked on reMarkable's side.
+        let backend = RemarkableCloudBackend()
+        let usable = await backend.isAvailable()
+        guard usable else {
+            return .json([
+                "status": "ok",
+                "connected": false,
+                "detail": "A device token is stored but reMarkable rejected it; reconnect with a fresh one-time code.",
+            ])
+        }
+
+        // Authentication and sync are different hosts, so a valid token does
+        // not prove the sync API answers. Listing documents is the cheapest
+        // call that exercises it end to end.
+        var payload: [String: Any] = [
+            "status": "ok",
+            "connected": true,
+            "detail": "Device token stored and accepted by reMarkable.",
+        ]
+        do {
+            let documents = try await backend.listDocuments()
+            payload["syncReachable"] = true
+            payload["documentCount"] = documents.count
+        } catch {
+            payload["syncReachable"] = false
+            payload["syncError"] = error.localizedDescription
+        }
+        return .json(payload)
+    }
+
+    /// POST /api/remarkable/connect {"code": "one-time code"}
+    ///
+    /// The whole pairing in one call: the code is exchanged for a device
+    /// token, the device token for a user token, and the token is written to
+    /// the login keychain. The code itself is never stored or logged.
+    ///
+    /// The code has to come from the researcher — reMarkable issues it only to
+    /// a signed-in browser session at
+    /// `https://my.remarkable.com/device/browser/connect` — which is exactly
+    /// why this is a route rather than something an agent can do end to end.
+    private func handleRemarkableConnect(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Expected JSON object body")
+        }
+        guard let rawCode = json["code"] as? String else {
+            return .badRequest("Expected a \"code\" string (the one-time code from my.remarkable.com)")
+        }
+        let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else {
+            return .badRequest("The one-time code is empty")
+        }
+
+        let backend = RemarkableCloudBackend()
+        do {
+            _ = try await backend.startAuthentication()
+            try await backend.completeRegistration(userCode: code)
+        } catch {
+            // Never echo the code back; the reason is enough to act on.
+            routerLogger.errorCapture(
+                "reMarkable pairing failed: \(error.localizedDescription)", category: "remarkable")
+            return .json([
+                "status": "error",
+                "connected": false,
+                "error": error.localizedDescription,
+            ], status: 502)
+        }
+
+        // Same registration the E-Ink settings tab performs, so a paired
+        // device shows up in the UI rather than only in the keychain.
+        await MainActor.run { RemarkableBackendManager.shared.registerBackend(backend) }
+        let adapter = await RemarkableDeviceAdapter(backend: backend, syncMethod: .cloudApi)
+        await EInkDeviceManager.shared.registerDevice(adapter)
+        let deviceID = await adapter.deviceID
+        await MainActor.run {
+            EInkSettingsStore.shared.updateSettings(for: deviceID) { deviceSettings in
+                deviceSettings.deviceType = .remarkable
+                deviceSettings.syncMethod = .cloudApi
+                deviceSettings.displayName = "reMarkable Cloud"
+                deviceSettings.isAuthenticated = true
+            }
+            EInkSettingsStore.shared.activeDeviceID = deviceID
+        }
+        try? await EInkDeviceManager.shared.selectDevice(deviceID)
+
+        routerLogger.infoCapture(
+            "reMarkable paired and registered as \(deviceID)", category: "remarkable")
+        return .json([
+            "status": "ok",
+            "connected": true,
+            "deviceID": deviceID,
+            "detail": "Paired with the reMarkable cloud and selected as the active device.",
+        ])
+    }
+
+    /// GET /api/remarkable/cloud/get?path=/sync/v3/root[&host=…]
+    ///
+    /// An authenticated GET against reMarkable's sync host, so the version 3
+    /// port can be developed against the live service. Read-only, and the
+    /// token never leaves the backend actor.
+    private func handleRemarkableCloudGet(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let path = request.queryParams["path"], path.hasPrefix("/") else {
+            return .badRequest("Expected ?path=/sync/v3/…")
+        }
+        do {
+            // `headers=rm-filename:root,x:y` — the v3 blob endpoint rejects a
+            // request without `rm-filename`, so the probe has to be able to
+            // set it.
+            var headers: [String: String] = [:]
+            for pair in (request.queryParams["headers"] ?? "").split(separator: ",") {
+                let parts = pair.split(separator: ":", maxSplits: 1).map(String.init)
+                if parts.count == 2 { headers[parts[0]] = parts[1] }
+            }
+            let (status, body) = try await RemarkableCloudBackend()
+                .diagnosticGet(
+                    path: path,
+                    host: request.queryParams["host"],
+                    headers: headers,
+                    method: request.queryParams["method"] ?? "GET",
+                    body: request.queryParams["body"])
+            return .json(["status": "ok", "httpStatus": status, "body": body])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription], status: 502)
+        }
+    }
+
+    /// GET /api/remarkable/usb/status — is the tablet's own web interface up?
+    ///
+    /// The transport that needs no credential: connect the cable and turn on
+    /// Settings › Storage › USB web interface.
+    private func handleRemarkableUSBStatus() async -> HTTPResponse {
+        let backend = RemarkableUSBWebBackend()
+        do {
+            let info = try await backend.getDeviceInfo()
+            let documents = try await backend.listDocuments()
+            let folders = try await backend.listFolders()
+            return .json([
+                "status": "ok",
+                "reachable": true,
+                "device": info.deviceName,
+                "documentCount": documents.count,
+                "folderCount": folders.count,
+            ])
+        } catch {
+            return .json([
+                "status": "ok",
+                "reachable": false,
+                "error": error.localizedDescription,
+            ])
+        }
+    }
+
+    /// GET /api/remarkable/usb/documents — what is on the tablet.
+    private func handleRemarkableUSBDocuments() async -> HTTPResponse {
+        do {
+            let documents = try await RemarkableUSBWebBackend().listDocuments()
+            return .json([
+                "status": "ok",
+                "count": documents.count,
+                "documents": documents.prefix(200).map { document in
+                    [
+                        "id": document.id,
+                        "name": document.name,
+                        "pageCount": document.pageCount,
+                        "lastModified": ISO8601DateFormatter().string(from: document.lastModified),
+                    ]
+                },
+            ])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription], status: 502)
+        }
+    }
+
+    /// GET /api/remarkable/wifi/status — can we reach the tablet on this
+    /// network, and what did it say?
+    private func handleRemarkableWiFiStatus() async -> HTTPResponse {
+        let (host, port, pinned) = await MainActor.run {
+            (RemarkableSettingsStore.shared.wifiHost,
+             RemarkableSettingsStore.shared.wifiPort,
+             RemarkableSettingsStore.shared.wifiFingerprint)
+        }
+        guard !host.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return .json([
+                "status": "ok",
+                "configured": false,
+                "detail": "No tablet address. POST /api/remarkable/wifi/connect with {host, password}; both are printed on the tablet under Settings › Help › Copyrights and licenses.",
+            ])
+        }
+        let backend = RemarkableWiFiBackend()
+        do {
+            let info = try await backend.getDeviceInfo()
+            let documents = try await backend.listDocuments()
+            return .json([
+                "status": "ok",
+                "configured": true,
+                "reachable": true,
+                "host": host,
+                "port": port,
+                "device": info.deviceName,
+                "hostKeyPinned": pinned != nil,
+                "documentCount": documents.count,
+            ])
+        } catch {
+            return .json([
+                "status": "ok",
+                "configured": true,
+                "reachable": false,
+                "host": host,
+                "port": port,
+                "hostKeyPinned": pinned != nil,
+                "error": error.localizedDescription,
+            ])
+        }
+    }
+
+    /// GET /api/remarkable/wifi/documents — what is on the tablet.
+    private func handleRemarkableWiFiDocuments() async -> HTTPResponse {
+        do {
+            let documents = try await RemarkableWiFiBackend().listDocuments()
+            return .json([
+                "status": "ok",
+                "count": documents.count,
+                "documents": documents.prefix(200).map { document in
+                    [
+                        "id": document.id,
+                        "name": document.name,
+                        "pageCount": document.pageCount,
+                        "hasAnnotations": document.hasAnnotations,
+                        "lastModified": ISO8601DateFormatter().string(from: document.lastModified),
+                    ]
+                },
+            ])
+        } catch {
+            return .json(["status": "error", "error": error.localizedDescription], status: 502)
+        }
+    }
+
+    /// POST /api/remarkable/wifi/connect {"host": "10.0.0.x", "password": "…", "port"?: 22}
+    ///
+    /// Stores the address and password (keychain), then reaches the tablet
+    /// once and pins its host key. The password is never logged.
+    private func handleRemarkableWiFiConnect(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let json = parseJSONBody(request) else {
+            return .badRequest("Expected JSON object body")
+        }
+        guard let host = (json["host"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else {
+            return .badRequest("Expected a \"host\" string (the tablet's address on this network)")
+        }
+        guard let password = json["password"] as? String, !password.isEmpty else {
+            return .badRequest("Expected a \"password\" string (the tablet's root password)")
+        }
+        let port = (json["port"] as? Int) ?? 22
+
+        do {
+            try await MainActor.run {
+                let settings = RemarkableSettingsStore.shared
+                // A new address means the pinned key no longer applies.
+                if settings.wifiHost != host { settings.wifiFingerprint = nil }
+                settings.wifiHost = host
+                settings.wifiPort = port
+                try settings.storeWiFiPassword(password)
+            }
+            try await RemarkableWiFiBackend().authenticate()
+        } catch {
+            routerLogger.errorCapture(
+                "reMarkable Wi-Fi connect failed: \(error.localizedDescription)", category: "remarkable")
+            return .json([
+                "status": "error",
+                "connected": false,
+                "error": error.localizedDescription,
+            ], status: 502)
+        }
+
+        let backend = RemarkableWiFiBackend()
+        let info = try? await backend.getDeviceInfo()
+        let documents = (try? await backend.listDocuments()) ?? []
+        routerLogger.infoCapture(
+            "reMarkable reachable at \(host) with \(documents.count) documents", category: "remarkable")
+        return .json([
+            "status": "ok",
+            "connected": true,
+            "host": host,
+            "device": info?.deviceName ?? "reMarkable",
+            "documentCount": documents.count,
+        ])
+    }
+
+    /// POST /api/remarkable/disconnect — forget the stored device token.
+    private func handleRemarkableDisconnect() async -> HTTPResponse {
+        await RemarkableCloudBackend().disconnect()
+        routerLogger.infoCapture("reMarkable credentials cleared", category: "remarkable")
+        return .json(["status": "ok", "connected": false])
+    }
+
+    /// GET /api/embeddings/status — every tier of the embedding sidecar.
+    ///
+    /// The sidecar lives in this app's sandbox container, so no daemon, CLI or
+    /// MCP process can read it; the app's own automation API is the only
+    /// surface that can answer, which is why this route exists rather than an
+    /// `#[impress_service]` verb.
+    private func handleEmbeddingIndexStatus() async -> HTTPResponse {
+        let store = RustEmbeddingStoreSession()
+        guard await store.openDefault() else {
+            return .json(["status": "error", "error": "embedding store unavailable"])
+        }
+        let status = await store.indexStatus()
+        await store.close()
+        guard let status else {
+            return .json(["status": "error", "error": "index status unavailable"])
+        }
+
+        // Same denominator the Settings pane uses: the non-special libraries.
+        let totalPapers = await MainActor.run {
+            let store = RustStoreAdapter.shared
+            return store.listLibraries()
+                .filter { library in
+                    let name = library.name.lowercased()
+                    return name != "dismissed" && name != "exploration"
+                }
+                .reduce(0) { $0 + store.queryPublications(parentId: $1.id).count }
+        }
+
+        // The ceiling for full-text indexing: chunking reads a stored PDF.
+        let papersWithPDF = await MainActor.run {
+            RustStoreAdapter.shared.countPublicationsWithLocalPDF()
+        }
+
+        return .json([
+            "status": "ok",
+            "totalPapers": totalPapers,
+            "papersWithStoredPDF": papersWithPDF,
+            "metadataIndexedPapers": Int(status.indexedPublications),
+            "fullTextIndexedPapers": Int(status.chunkedPublications),
+            "publicationVectors": Int(status.publicationVectors),
+            "chunkVectors": Int(status.chunkVectors),
+            "chunks": Int(status.chunkCount),
+            "vectors": Int(status.vectorCount),
+            "bySourceType": status.bySourceType.map { tier in
+                ["sourceType": tier.sourceType, "vectors": Int(tier.vectors), "sources": Int(tier.sources)]
+            },
+        ])
+    }
+
     private func handleGetAppearance() async -> HTTPResponse {
         let app = await ThemeSettingsStore.shared.settings.appearanceMode.rawValue
         let pdfDark = await PDFSettingsStore.shared.settings.darkModeEnabled
@@ -1886,7 +2424,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "POST /api/libraries/add-papers": "Add existing papers to a library (body: libraryID, identifiers)",
                 "POST /api/collections/add-papers": "Add existing papers to a collection (body: collectionID, identifiers)",
                 "POST /api/collections": "Create a collection (body: name, libraryID?, isSmartCollection?, predicate?)",
-                "POST /api/papers/download-pdfs": "Download PDFs (body: identifiers)",
+                "POST /api/papers/download-pdfs": "Download PDFs (body: identifiers); awaited, per-paper outcomes",
+                // reMarkable USB mirror (ADR-025)
+                "GET /api/eink/status": "reMarkable mirror status: devices, marker device, per-state counts",
+                "POST /api/eink/sync": "Run one reMarkable mirror pass now (body: import?)",
+                "POST /api/eink/import": "Import annotations from the tablet now",
+                "POST /api/eink/folders/check": "Folders the tablet lacks, parents first (body: device_id?)",
+                "PUT /api/papers/eink": "Mark / unmark papers for the reMarkable mirror (body: identifiers, mirrored)",
                 "POST /api/papers/{citeKey}/comments": "Add comment to paper (body: text, parentCommentID?)",
                 "POST /api/assignments": "Create assignment (body: citeKey|identifier, assigneeName, libraryID, note?, dueDate?)",
                 "POST /api/libraries/{id}/share": "Share a library",
@@ -3124,6 +3668,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let contents = json["contents"] as? String
         let selectedText = json["selectedText"] as? String
         let color = json["color"] as? String
+        let authorName = json["authorName"] as? String ?? json["author_name"] as? String
 
         do {
             let annotation = try await automationService.addAnnotation(
@@ -3132,7 +3677,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 pageNumber: pageNumber,
                 contents: contents,
                 selectedText: selectedText,
-                color: color
+                color: color,
+                authorName: authorName
             )
             return .json([
                 "status": "ok",
@@ -4181,6 +4727,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let color = json["color"] as? String
         let contents = json["contents"] as? String
         let selected = json["selected_text"] as? String ?? json["selectedText"] as? String
+        let authorName = json["author_name"] as? String ?? json["authorName"] as? String
         do {
             let ann = try RustStoreAdapter.shared.imbibStore.createAnnotation(
                 linkedFileId: linkedFileID.uuidString,
@@ -4189,7 +4736,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 boundsJson: bounds,
                 color: color,
                 contents: contents,
-                selectedText: selected
+                selectedText: selected,
+                authorName: authorName
             )
             var d: [String: Any] = [
                 "id": ann.id,

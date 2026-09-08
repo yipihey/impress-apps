@@ -271,8 +271,17 @@ public final class RAGChatViewModel {
         question: String,
         context: String
     ) async throws -> (String, [String]?) {
-        // Try structured output via Apple Intelligence first
-        if #available(macOS 26, iOS 26, *) {
+        // Try structured output via Apple Intelligence first — unless the user
+        // pinned another provider suite-wide or for `research.rag` (ADR-0029):
+        // the selection wins over the on-device default.
+        let pinnedProvider = await AIProviderManager.shared.defaultProviderId
+        let categoryProvider = await AITaskCategoryManager.shared.assignment(for: "research.rag").primaryModel?.providerId
+        let preferredProvider = categoryProvider ?? pinnedProvider
+        let appleWins = preferredProvider == nil || preferredProvider == "apple-on-device"
+        if !appleWins {
+            logger.info("RAG: selected provider \(preferredProvider ?? "?") wins over the on-device structured path")
+        }
+        if appleWins, #available(macOS 26, iOS 26, *) {
             let fmService = FoundationModelsService.shared
             if await fmService.isAvailable, !context.isEmpty {
                 if let structured = await fmService.extractRAGAnswer(

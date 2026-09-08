@@ -69,7 +69,8 @@ final class ManuscriptCitationResolverTests: XCTestCase {
             tags: [],
             libraryName: nil,
             enrichmentDate: nil,
-            lastActivityAt: nil
+            lastActivityAt: nil,
+            einkState: nil
         )
     }
 

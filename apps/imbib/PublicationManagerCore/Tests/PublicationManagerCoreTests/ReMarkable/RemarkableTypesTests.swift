@@ -229,14 +229,4 @@ final class RemarkableTypesTests: XCTestCase {
             XCTAssertNotNil(error.errorDescription, "Missing description for \(error)")
         }
     }
-
-    // MARK: - ConflictResolution Tests
-
-    func testConflictResolution_allCases() {
-        let cases = ConflictResolution.allCases
-
-        XCTAssertTrue(cases.contains(.preferLocal))
-        XCTAssertTrue(cases.contains(.preferRemarkable))
-        XCTAssertTrue(cases.contains(.keepBoth))
-    }
 }

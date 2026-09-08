@@ -15,7 +15,7 @@ im-identifiers = { workspace = true }
 # and spacing it chose, and the store treats spellings as distinct tags.
 impress-tags = { workspace = true }
 
-impress-llm = { path = "../impress-llm" }
+impress-ai = { workspace = true }
 
 async-trait = { workspace = true }
 thiserror = { workspace = true }

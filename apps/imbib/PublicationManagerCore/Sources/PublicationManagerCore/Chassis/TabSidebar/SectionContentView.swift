@@ -514,6 +514,12 @@ struct SectionContentView: View {
                         }
                         .help("Ask about papers (⌥⌘A)")
 
+                        // reMarkable status (ADR-025): connected / syncing /
+                        // error. Inside THIS cluster — the fragile-toolbar
+                        // rule forbids a new placement. Empty until a device
+                        // is configured.
+                        EInkToolbarStatusGlyph()
+
                         if selectedPublicationIDs.count >= 2 {
                             Button { showComparisonSheet = true } label: {
                                 Image(systemName: "arrow.left.arrow.right")

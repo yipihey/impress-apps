@@ -125,6 +125,15 @@ public actor RustEmbeddingStoreSession {
         return Int(embeddingStoreChunkedPublicationCount(handle: id))
     }
 
+    /// Every tier of the index in one call: the metadata tier (a vector per
+    /// paper) and the full-text tier (chunks from a downloaded PDF) are
+    /// populated by different pipelines, so a caller that needs "how much of
+    /// the library is embedded?" must read both rather than pick one.
+    public func indexStatus() async -> EmbeddingIndexStatus? {
+        guard let id = handleId else { return nil }
+        return embeddingStoreIndexStatus(handle: id)
+    }
+
     /// Get per-model statistics
     public func modelStats() async -> [ModelStats] {
         guard let id = handleId else { return [] }

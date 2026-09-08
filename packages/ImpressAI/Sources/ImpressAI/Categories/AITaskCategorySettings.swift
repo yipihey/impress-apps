@@ -29,8 +29,17 @@ public final class AITaskCategorySettings {
     /// Current assignments indexed by category ID.
     public private(set) var assignments: [String: AITaskCategoryAssignment] = [:]
 
-    /// Available models for selection.
-    public private(set) var availableModels: [AIModelReference] = []
+    /// Selectable models grouped by provider, usable providers first
+    /// (`AIModelOptions`). Discovery-only hosts such as oMLX appear here
+    /// exactly as they do in Settings › AI.
+    public private(set) var modelGroups: [AIModelOptionGroup] = []
+
+    /// Every selectable model, flattened. Kept for callers that only need a
+    /// list; pickers should use `modelGroups` so a provider that needs setup
+    /// is labelled rather than silently mixed in.
+    public var availableModels: [AIModelReference] {
+        modelGroups.flatMap(\.models)
+    }
 
     /// Whether settings are currently loading.
     public private(set) var isLoading = false
@@ -58,15 +67,8 @@ public final class AITaskCategorySettings {
 
         await categoryManager.loadAssignments()
 
-        // Build available models list from registered providers
-        var models: [AIModelReference] = []
-        for provider in await providerManager.allProviders {
-            let metadata = provider.metadata
-            for model in metadata.models {
-                models.append(AIModelReference.from(provider: metadata, model: model))
-            }
-        }
-        availableModels = models
+        // Only the models Settings › AI made available to the suite.
+        modelGroups = await AIModelOptions.loadEnabled(from: providerManager)
 
         // Load current assignments
         for category in leafCategories {

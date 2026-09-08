@@ -2,8 +2,12 @@
 //  RemarkableSettingsView.swift
 //  PublicationManagerCore
 //
-//  SwiftUI settings view for reMarkable integration.
-//  ADR-019: reMarkable Tablet Integration
+//  The connect sheet for the reMarkable's credentialed transports: the
+//  local network (SFTP, rM1/rM2) and the cloud pairing. ADR-019.
+//
+//  Organisation / annotation / auto-sync are not asked here: they live on
+//  the USB device record (ADR-025) and are edited by `EInkUSBDeviceCard`.
+//  The duplicated sections this view once carried went in P9.
 //
 
 import SwiftUI
@@ -22,23 +26,33 @@ public struct RemarkableSettingsView: View {
     @State private var isConnecting = false
     @State private var showDisconnectConfirmation = false
     @State private var errorMessage: String?
+    @State private var wifiPassword: String = ""
+    @State private var isConnectingWiFi = false
+    @State private var wifiStatus: String?
 
     public init() {}
 
     public var body: some View {
         Form {
+            // The local-network path first: it works today, keeps papers on
+            // this network, and cannot be retired by a vendor API change —
+            // which is exactly what happened to the cloud path below.
+            wifiSection
+
             // Connection Section
             connectionSection
-
-            // Sync Options Section
-            if settings.isAvailable {
-                syncOptionsSection
-                organizationSection
-                annotationOptionsSection
-            }
         }
         .formStyle(.grouped)
         .navigationTitle("reMarkable")
+        .task {
+            // Show the one-time code field immediately rather than behind a
+            // "Connect" button: preparing a registration is local (it only
+            // mints a device id), and hiding the field made the panel look
+            // like it offered no way to paste the code reMarkable gives you.
+            if !settings.isAuthenticated, !isAuthenticating, pendingBackend == nil {
+                startAuthentication()
+            }
+        }
         #if os(macOS)
         .frame(minWidth: 450)
         #endif
@@ -54,6 +68,101 @@ public struct RemarkableSettingsView: View {
             Button("OK") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    // MARK: - Local Network Section
+
+    @ViewBuilder
+    private var wifiSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Reach the tablet directly over Wi-Fi. Nothing goes through reMarkable's servers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Wake the tablet, then find its address and password on the device under Settings › Help › Copyrights and licenses.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                // `prompt:` plus `labelsHidden()`, not a bare title: inside a
+                // LabeledContent the field's own title renders as a SECOND
+                // label beside the box, so `TextField("10.0.0.42", …)` printed
+                // the example address next to an empty field instead of in it.
+                LabeledContent("Address") {
+                    TextField("Address", text: $settings.wifiHost, prompt: Text("10.0.0.42"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        #if os(macOS)
+                        .frame(maxWidth: 200)
+                        #endif
+                }
+
+                LabeledContent("Password") {
+                    SecureField("Password", text: $wifiPassword, prompt: Text("Tablet password"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        #if os(macOS)
+                        .frame(maxWidth: 200)
+                        #endif
+                }
+
+                HStack {
+                    Button {
+                        connectOverWiFi()
+                    } label: {
+                        if isConnectingWiFi {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                Text("Connecting…")
+                            }
+                        } else {
+                            Label("Connect over Wi-Fi", systemImage: "wifi")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isConnectingWiFi
+                        || settings.wifiHost.trimmingCharacters(in: .whitespaces).isEmpty
+                        || wifiPassword.isEmpty)
+
+                    if settings.wifiFingerprint != nil {
+                        Button("Forget") {
+                            settings.clearWiFiCredentials()
+                            wifiPassword = ""
+                            wifiStatus = nil
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                if let wifiStatus {
+                    Label(wifiStatus, systemImage: settings.wifiFingerprint != nil ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(settings.wifiFingerprint != nil ? .green : .orange)
+                }
+            }
+        } header: {
+            Text("Local Network")
+        } footer: {
+            Text("The tablet's key is remembered the first time it answers, so a different device on that address is refused rather than sent your password. Reading documents and annotations works; sending them to the tablet does not yet.")
+        }
+    }
+
+    private func connectOverWiFi() {
+        isConnectingWiFi = true
+        wifiStatus = nil
+        let password = wifiPassword
+        Task {
+            do {
+                try settings.storeWiFiPassword(password)
+                let backend = RemarkableWiFiBackend()
+                try await backend.authenticate()
+                let documents = try await backend.listDocuments()
+                wifiStatus = "Connected — \(documents.count) documents on the tablet."
+            } catch {
+                wifiStatus = error.localizedDescription
+            }
+            isConnectingWiFi = false
         }
     }
 
@@ -85,8 +194,18 @@ public struct RemarkableSettingsView: View {
             } else if isAuthenticating {
                 // Authenticating state — user must enter code from reMarkable website
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Connect reMarkable")
-                        .font(.headline)
+                    HStack {
+                        Image(systemName: "tablet")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading) {
+                            Text("Connect your reMarkable")
+                                .font(.headline)
+                            Text("Pairing works, but reMarkable retired the sync API this uses, so documents will not transfer. Prefer the local network above.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
@@ -112,7 +231,7 @@ public struct RemarkableSettingsView: View {
                     }
 
                     HStack {
-                        Button("Cancel") {
+                        Button("Not Now") {
                             isAuthenticating = false
                             userCode = ""
                             pendingBackend = nil
@@ -154,7 +273,7 @@ public struct RemarkableSettingsView: View {
                     Button {
                         startAuthentication()
                     } label: {
-                        Label("Connect to reMarkable Cloud", systemImage: "link")
+                        Label("Enter a One-Time Code", systemImage: "link")
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -164,70 +283,6 @@ public struct RemarkableSettingsView: View {
         } footer: {
             if !settings.isAuthenticated && !isAuthenticating {
                 Text("Connect to sync your PDFs to reMarkable and import your handwritten annotations back to imbib.")
-            }
-        }
-    }
-
-    // MARK: - Sync Options Section
-
-    @ViewBuilder
-    private var syncOptionsSection: some View {
-        Section {
-            Toggle("Automatic Sync", isOn: $settings.autoSyncEnabled)
-
-            if settings.autoSyncEnabled {
-                Picker("Sync Interval", selection: $settings.syncInterval) {
-                    Text("Every 15 minutes").tag(TimeInterval(900))
-                    Text("Every hour").tag(TimeInterval(3600))
-                    Text("Every 6 hours").tag(TimeInterval(21600))
-                    Text("Daily").tag(TimeInterval(86400))
-                }
-            }
-
-            Picker("Conflict Resolution", selection: $settings.conflictResolution) {
-                ForEach(ConflictResolution.allCases, id: \.self) { resolution in
-                    Text(resolution.displayName).tag(resolution)
-                }
-            }
-        } header: {
-            Text("Sync Options")
-        }
-    }
-
-    // MARK: - Organization Section
-
-    @ViewBuilder
-    private var organizationSection: some View {
-        Section {
-            TextField("Root Folder Name", text: $settings.rootFolderName)
-                .textFieldStyle(.roundedBorder)
-
-            Toggle("Create Folders by Collection", isOn: $settings.createFoldersByCollection)
-
-            Toggle("Use Reading Queue Folder", isOn: $settings.useReadingQueueFolder)
-        } header: {
-            Text("Organization")
-        } footer: {
-            Text("Documents will be organized in a '\(settings.rootFolderName)' folder on your reMarkable.")
-        }
-    }
-
-    // MARK: - Annotation Options Section
-
-    @ViewBuilder
-    private var annotationOptionsSection: some View {
-        Section {
-            Toggle("Import Highlights", isOn: $settings.importHighlights)
-            Toggle("Import Handwritten Notes", isOn: $settings.importInkNotes)
-
-            if settings.importInkNotes {
-                Toggle("Enable OCR for Handwriting", isOn: $settings.enableOCR)
-            }
-        } header: {
-            Text("Annotation Import")
-        } footer: {
-            if settings.enableOCR {
-                Text("OCR will attempt to convert your handwritten notes to searchable text.")
             }
         }
     }

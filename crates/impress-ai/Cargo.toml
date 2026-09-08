@@ -10,6 +10,7 @@ repository.workspace = true
 async-trait.workspace = true
 base64 = "0.22"
 chrono.workspace = true
+dirs.workspace = true
 futures-util = "0.3"
 html-escape = "0.2"
 impel-core = { workspace = true }

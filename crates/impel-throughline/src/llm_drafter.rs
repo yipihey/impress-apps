@@ -1,9 +1,8 @@
-//! LLM-backed [`ProposalDrafter`] via `impress-llm` (feature `llm`).
+//! LLM-backed [`ProposalDrafter`] over the Rust AI registry (ADR-0029).
 //!
-//! Configuration mirrors `impel-enrichment::LlmClassifier` — the daemon's
-//! env convention, no keychain in headless contexts:
-//!
-//! - `IMPEL_LLM_PROVIDER` / `IMPEL_LLM_MODEL` / `IMPEL_LLM_API_KEY`
+//! The target comes from `AiRegistry::daemon_target("agent.throughline")`:
+//! `IMPEL_LLM_PROVIDER` + `IMPEL_LLM_MODEL` (kept for one release) beat the
+//! task-category assignment; with neither, callers keep [`TemplateDrafter`].
 //!
 //! Temperature is pinned to 0.0 so the ADR-0005 §5 `prompt_hash`
 //! reproducibility is as meaningful as the provider allows. A provider
@@ -14,39 +13,41 @@
 //! ADR-0016 D6 authority split verbatim; the review gate remains the
 //! actual enforcement point.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use impress_llm::{complete_sync, LLMMessage, LLMRequest, LLMRole};
+use impress_ai::blocking::complete_text_sync;
+use impress_ai::{AiRegistry, ResolveTarget};
 use imprint_service::throughline::ThroughlineParagraph;
 use imprint_service::SectionRecord;
 
 use crate::draft_prompt::{build_prompt, parse_reply, system_contract};
 use crate::{DraftResult, ProposalDrafter, SyncDirection, TemplateDrafter};
 
+/// The task category whose primary model runs this tier.
+pub const CATEGORY: &str = "agent.throughline";
+
 pub struct LlmDrafter {
-    provider: String,
-    model: String,
-    api_key: String,
+    registry: Arc<AiRegistry>,
+    target: ResolveTarget,
     model_id: String,
 }
 
 impl LlmDrafter {
-    pub fn new(provider: String, model: String, api_key: String) -> Self {
-        let model_id = format!("{provider}/{model}");
+    pub fn new(registry: Arc<AiRegistry>, target: ResolveTarget) -> Self {
+        let model_id = registry.describe_target(&target);
         Self {
-            provider,
-            model,
-            api_key,
+            registry,
+            target,
             model_id,
         }
     }
 
-    /// Build from `IMPEL_LLM_*` env vars; `None` when unconfigured
-    /// (callers fall back to [`TemplateDrafter`]).
-    pub fn from_env() -> Option<Self> {
-        let provider = std::env::var("IMPEL_LLM_PROVIDER").ok()?;
-        let model = std::env::var("IMPEL_LLM_MODEL").ok()?;
-        let api_key = std::env::var("IMPEL_LLM_API_KEY").ok()?;
-        Some(Self::new(provider, model, api_key))
+    /// Build from the registry's daemon target for [`CATEGORY`]; `None`
+    /// when unconfigured (callers fall back to [`TemplateDrafter`]).
+    pub fn from_registry(registry: Arc<AiRegistry>) -> Option<Self> {
+        let target = registry.daemon_target(CATEGORY)?;
+        Some(Self::new(registry, target))
     }
 }
 
@@ -66,30 +67,18 @@ impl ProposalDrafter for LlmDrafter {
         paragraph: &ThroughlineParagraph,
         sections: &[SectionRecord],
     ) -> DraftResult {
-        let request = LLMRequest {
-            provider: self.provider.clone(),
-            model: self.model.clone(),
-            messages: vec![
-                LLMMessage {
-                    role: LLMRole::System,
-                    content: system_contract().to_string(),
-                },
-                LLMMessage {
-                    role: LLMRole::User,
-                    content: build_prompt(direction, paragraph, sections),
-                },
-            ],
-            max_tokens: Some(2048),
-            temperature: Some(0.0),
-            top_p: None,
-            api_key: self.api_key.clone(),
-        };
-        // impress-llm is blocking by design; hop off the async worker.
-        let reply = tokio::task::spawn_blocking(move || complete_sync(&request))
-            .await
-            .ok()
-            .and_then(|r| r.ok());
-        match reply.and_then(|r| parse_reply(&r.content)) {
+        let registry = Arc::clone(&self.registry);
+        let target = self.target.clone();
+        let prompt = build_prompt(direction, paragraph, sections);
+        let system = system_contract().to_string();
+        // The registry call blocks on its own runtime; hop off the async worker.
+        let reply = tokio::task::spawn_blocking(move || {
+            complete_text_sync(&registry, &target, Some(&system), &prompt, 2048, Some(0.0))
+        })
+        .await
+        .ok()
+        .and_then(|r| r.ok());
+        match reply.and_then(|(_, text)| parse_reply(&text)) {
             Some(draft) => draft,
             None => TemplateDrafter.draft(direction, paragraph, sections).await,
         }

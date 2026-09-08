@@ -448,6 +448,28 @@ public actor URLSchemeHandler {
             await postNotification(.showAnnotations, userInfo: userInfo)
         case .openInImprint:
             await postNotification(.openInImprint, userInfo: userInfo)
+
+        // reMarkable USB mirror (ADR-025). No notification carries a cite
+        // key to the list (the list's `.toggleEInkMirror` acts on the
+        // selection), so this writes the mark through the store directly —
+        // the same adapter verb the context menu and `e` use.
+        case .setEInkMirrored(let mirrored):
+            let found = await MainActor.run { () -> Bool in
+                guard let pub = RustStoreAdapter.shared.findByCiteKey(citeKey: citeKey) else { return false }
+                if mirrored {
+                    RustStoreAdapter.shared.einkMark(ids: [pub.id])
+                } else {
+                    RustStoreAdapter.shared.einkUnmark(ids: [pub.id])
+                }
+                return true
+            }
+            guard found else {
+                return .failure(command: "paper", error: "Paper not found: \(citeKey)")
+            }
+            return .success(command: "paper", result: [
+                "citeKey": AnyCodable(citeKey),
+                "mirrored": AnyCodable(mirrored),
+            ])
         }
 
         return .success(command: "paper", result: ["citeKey": AnyCodable(citeKey)])

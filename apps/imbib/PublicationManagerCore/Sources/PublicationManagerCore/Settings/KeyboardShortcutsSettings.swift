@@ -257,6 +257,18 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             modifiers: [.shift, .command],
             notificationName: "sharePapers"
         )),
+        // ADR-025: the reMarkable mirror toggle. The chord predates the
+        // mirror (it was "Send to E-Ink Device"); the single key `e` is the
+        // guarded twin (`TriageKeyGrammar.toggleEinkMirror`), listed with the
+        // other single-key paper actions below.
+        .own(KeyboardShortcutBinding(
+            id: "toggleEInkMirror",
+            displayName: "Mirror to reMarkable",
+            category: .paperActions,
+            key: .character("e"),
+            modifiers: [.control, .command],
+            notificationName: "toggleEInkMirror"
+        )),
         .own(KeyboardShortcutBinding(
             id: "deleteSelectedPapers",
             displayName: "Delete",
@@ -304,6 +316,18 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
         .shared("tagMode"),
         .shared("tagDeleteMode"),
         .shared("filterMode"),
+        // `e` (guarded) = toggle the reMarkable mirror mark on the selection —
+        // the single-key twin of ⌃⌘E above. imbib-only (publications are the
+        // one kind that mirrors), so `.own` rather than a shared entry; the
+        // suite-wide key itself lives in `TriageKeyGrammar`.
+        .own(KeyboardShortcutBinding(
+            id: "toggleEInkMirrorVim",
+            displayName: "Mirror to reMarkable (Vim)",
+            category: .paperActions,
+            key: .character("e"),
+            modifiers: .none,
+            notificationName: "toggleEInkMirror"
+        )),
         // MARK: PDF Viewer
         .own(KeyboardShortcutBinding(
             id: "pdfPageDown",

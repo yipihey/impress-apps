@@ -468,6 +468,7 @@ struct UnifiedPublicationListWrapper: View {
             }
             .modifier(NotificationModifiers(
                 onToggleReadStatus: toggleReadStatusForSelected,
+                onToggleEInkMirror: toggleEinkForSelected,
                 onCopyPublications: { Task { await copySelectedPublications() } },
                 onCutPublications: { Task { await cutSelectedPublications() } },
                 onPastePublications: {
@@ -927,6 +928,14 @@ struct UnifiedPublicationListWrapper: View {
         a.onToggleStar = { ids in
             await self.toggleStarForIDs(ids)
         }
+        // ADR-025: the mirror verb exists only while a device in individual
+        // mode is configured. Read here (inside body) so the observable
+        // model re-evaluates the actions bag when the mode flips.
+        if EInkMirrorModel.shared.showsIndividualControls {
+            a.onToggleEink = { ids in
+                self.toggleEinkForIDs(ids)
+            }
+        }
         a.onSetFlag = { ids, color in
             await self.setFlagForIDs(ids, color: color)
         }
@@ -1371,6 +1380,16 @@ struct UnifiedPublicationListWrapper: View {
             }
         }
 
+        // Toggle reMarkable mirror (e — `TriageKeyGrammar.toggleEinkMirror`,
+        // ADR-025): applies only while a device in individual mode is
+        // configured; otherwise the key bubbles like any unbound key.
+        if store.matches(press, action: "toggleEInkMirrorVim"),
+           EInkMirrorModel.shared.showsIndividualControls,
+           !selectedPublicationIDs.isEmpty {
+            toggleEinkForSelected()
+            return .handled
+        }
+
         // Shift+letter: Open tab in fullscreen/separate window
         // Check for shift modifier with uppercase letters
         if press.modifiers.contains(.shift) {
@@ -1539,6 +1558,27 @@ struct UnifiedPublicationListWrapper: View {
         // Determine the action: if ANY are unstarred, star ALL; otherwise unstar ALL
         let anyUnstarred = publications.filter { ids.contains($0.id) }.contains { !$0.isStarred }
         RustStoreAdapter.shared.setStarred(ids: Array(ids), starred: anyUnstarred)
+    }
+
+    /// Toggle the reMarkable mirror mark for the selection (`e`, ⌃⌘E, menu).
+    private func toggleEinkForSelected() {
+        toggleEinkForIDs(selectedPublicationIDs)
+    }
+
+    /// Toggle the reMarkable mirror mark by IDs (context menu / swipe / row
+    /// callback). Same rule as star: if ANY is unmirrored, mirror ALL;
+    /// otherwise unmirror ALL. The adapter logs the outcome and fans out
+    /// `.itemsMutated(kind: .einkMirror)` for the rows that changed, which is
+    /// what refreshes the row marker.
+    private func toggleEinkForIDs(_ ids: Set<UUID>) {
+        guard !ids.isEmpty, EInkMirrorModel.shared.showsIndividualControls else { return }
+
+        let anyUnmirrored = publications.filter { ids.contains($0.id) }.contains { $0.einkState == nil }
+        if anyUnmirrored {
+            RustStoreAdapter.shared.einkMark(ids: Array(ids))
+        } else {
+            RustStoreAdapter.shared.einkUnmark(ids: Array(ids))
+        }
     }
 
     /// Set flag for publications by IDs
@@ -1972,6 +2012,7 @@ struct UnifiedPublicationListWrapper: View {
 /// Handles notification subscriptions for clipboard and selection operations
 private struct NotificationModifiers: ViewModifier {
     let onToggleReadStatus: () -> Void
+    let onToggleEInkMirror: () -> Void
     let onCopyPublications: () -> Void
     let onCutPublications: () -> Void
     let onPastePublications: () -> Void
@@ -1981,6 +2022,10 @@ private struct NotificationModifiers: ViewModifier {
         content
             .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
                 onToggleReadStatus()
+            }
+            // Paper ▸ Mirror to reMarkable (⌃⌘E) and the command palette.
+            .onReceive(NotificationCenter.default.publisher(for: .toggleEInkMirror)) { _ in
+                onToggleEInkMirror()
             }
             .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
                 onCopyPublications()

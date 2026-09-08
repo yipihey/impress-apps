@@ -377,14 +377,14 @@ The `try?` pattern in a loop swallows `CancellationError`, making the Task uncan
 - **Build time.** Rust compilation is slower than Swift for initial builds. Incremental builds are fast once the `.xcframework` is cached, but a full rebuild of `imbib-core` from source takes ~2 minutes.
 - **Generated code is not editable.** The Swift bindings file is generated output. Any fix to the FFI layer must be made in Rust and the bindings regenerated. Developers must not hand-edit the generated Swift.
 - **Binary size.** Each XCFramework includes the Rust standard library and all crate dependencies statically linked. The size is acceptable for desktop (a few MB per crate) but should be monitored for iOS.
-- **UniFFI async.** UniFFI's async support requires the `uniffi-tokio` or `uniffi-async` features and a Tokio runtime. Current crates avoid async across the FFI boundary by performing Rust work synchronously and using Swift concurrency for the calling side. This is the correct tradeoff for the current usage patterns but limits exposing long-running Rust futures directly to Swift.
+- **UniFFI async.** UniFFI's async support requires the `uniffi-tokio` or `uniffi-async` features and a Tokio runtime. Most crates avoid async across the FFI boundary by performing Rust work synchronously and using Swift concurrency for the calling side. ADR-0029 (2026-09-03) added the first async export, `AiChatStream.next_event()` in `crates/impress-store-ffi/src/ai_registry.rs`: it only awaits an mpsc channel (no `async_runtime` attribute), the producer runs on a runtime the crate owns, and cancellation is an explicit `cancel()` because UniFFI 0.28's Swift bindings cannot cancel Rust futures. That is the pattern for any future long-running Rust work: pull handle, crate-owned runtime, explicit cancel.
 - **Startup sensitivity.** The `@Observable` invalidation chain means background services cannot safely write to the store during app startup. This is an operational constraint, not a design flaw, but it adds discipline requirements for every new background service.
 
 ---
 
 ## Open Questions
 
-1. **UniFFI async across the boundary.** If Rust-side operations (e.g., network-fetching and parsing in a Rust background task) need to complete before returning to Swift, the current synchronous FFI model requires them to block the calling thread. Evaluate `uniffi-async` with a Tokio runtime for `impress-llm` where async Rust is already in use.
+1. **UniFFI async across the boundary.** *Answered by ADR-0029:* the AI registry exposes streaming as an async pull handle (`AiChatStream.next_event()`) over a crate-owned Tokio runtime, and the synchronous verbs (`discover_models`, `chat_complete`) block only on that runtime, never on a per-call one. `impress-llm`, the crate this question named, was superseded by `crates/impress-ai` and retired.
 
 2. **Shared adapter for impress-core.** When impart and imbib both access the same SQLite database (the unified item store scenario from ADR-0001), there will be two `RustStoreAdapter` singletons writing to the same file. Evaluate whether a single shared adapter should be extracted into `ImpressKit`, or whether cross-app coordination via Darwin notifications (the current model for separate stores) is sufficient.
 

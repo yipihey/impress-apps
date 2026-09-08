@@ -430,6 +430,8 @@ pub fn linked_file_to_item(
     payload.insert("is_pdf".into(), Value::Bool(is_pdf));
     payload.insert("is_locally_materialized".into(), Value::Bool(true));
     payload.insert("pdf_cloud_available".into(), Value::Bool(false));
+    insert_string(&mut payload, "display_name", file_stem(filename));
+    insert_string(&mut payload, "mime_type", mime_type_for(filename));
 
     Item {
         id: Uuid::new_v4(),
@@ -640,8 +642,95 @@ pub fn scix_library_to_item(
     }
 }
 
+/// The filename without its extension: what a reader sees as the name.
+pub fn file_stem(filename: &str) -> &str {
+    filename
+        .rsplit_once('.')
+        .map(|(stem, _)| stem)
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or(filename)
+}
+
+/// A MIME type from the extension, for the handful imbib handles.
+pub fn mime_type_for(filename: &str) -> &'static str {
+    let lower = filename.to_ascii_lowercase();
+    if lower.ends_with(".pdf") {
+        "application/pdf"
+    } else if lower.ends_with(".epub") {
+        "application/epub+zip"
+    } else if lower.ends_with(".rmdoc") || lower.ends_with(".zip") {
+        "application/zip"
+    } else if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".txt") || lower.ends_with(".md") {
+        "text/plain"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+/// A second copy of a publication's file that came from somewhere else —
+/// today the e-ink tablet's rendition with the handwriting rendered in
+/// (`role = eink-annotated`) or its raw archive (`role = eink-rmdoc`).
+/// Parent: the bibliography-entry item.
+#[allow(clippy::too_many_arguments)]
+pub fn linked_file_variant_to_item(
+    publication_id: ItemId,
+    filename: &str,
+    relative_path: &str,
+    file_size: i64,
+    sha256: Option<&str>,
+    role: &str,
+    display_name: &str,
+    source_device_id: &str,
+    source_remote_id: &str,
+    source_remote_modified_ms: Option<i64>,
+) -> Item {
+    let is_pdf = filename.to_ascii_lowercase().ends_with(".pdf");
+    let mut item = linked_file_to_item(
+        publication_id,
+        filename,
+        Some(relative_path),
+        Some(file_stem_extension(filename)),
+        file_size,
+        sha256,
+        is_pdf,
+    );
+    insert_string(&mut item.payload, "role", role);
+    insert_string(&mut item.payload, "display_name", display_name);
+    insert_string(&mut item.payload, "source_device_id", source_device_id);
+    insert_string(&mut item.payload, "source_remote_id", source_remote_id);
+    if let Some(ms) = source_remote_modified_ms {
+        item.payload
+            .insert("source_remote_modified_ms".into(), Value::Int(ms));
+    }
+    item
+}
+
+fn file_stem_extension(filename: &str) -> &str {
+    filename.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("")
+}
+
+/// Where an imported annotation came from, so a re-import can find its own
+/// rows (`source_remote_id` + `source_page_id` + `source_item_id`) and a
+/// reader can tell a tablet highlight from one drawn in imbib.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AnnotationProvenance {
+    pub source: Option<String>,
+    pub source_device_id: Option<String>,
+    pub source_remote_id: Option<String>,
+    pub source_page_id: Option<String>,
+    pub source_item_id: Option<String>,
+    pub image_path: Option<String>,
+    pub pen: Option<String>,
+    pub strokes_hash: Option<String>,
+    pub ocr_confidence: Option<f64>,
+    pub imported_at_ms: Option<i64>,
+}
+
 /// Convert annotation fields to an Item.
 /// Parent: the linked-file item this annotation is on.
+#[allow(clippy::too_many_arguments)]
 pub fn annotation_to_item(
     linked_file_id: ItemId,
     annotation_type: &str,
@@ -650,6 +739,36 @@ pub fn annotation_to_item(
     color: Option<&str>,
     contents: Option<&str>,
     selected_text: Option<&str>,
+    author_name: Option<&str>,
+) -> Item {
+    annotation_to_item_with_provenance(
+        Uuid::new_v4(),
+        linked_file_id,
+        annotation_type,
+        page_number,
+        bounds_json,
+        color,
+        contents,
+        selected_text,
+        author_name,
+        &AnnotationProvenance::default(),
+    )
+}
+
+/// [`annotation_to_item`] with a caller-chosen id and provenance — what an
+/// idempotent import needs (its ids are derived from the tablet's own).
+#[allow(clippy::too_many_arguments)]
+pub fn annotation_to_item_with_provenance(
+    id: Uuid,
+    linked_file_id: ItemId,
+    annotation_type: &str,
+    page_number: i64,
+    bounds_json: Option<&str>,
+    color: Option<&str>,
+    contents: Option<&str>,
+    selected_text: Option<&str>,
+    author_name: Option<&str>,
+    provenance: &AnnotationProvenance,
 ) -> Item {
     let mut payload = BTreeMap::new();
     insert_string(&mut payload, "annotation_type", annotation_type);
@@ -662,9 +781,32 @@ pub fn annotation_to_item(
         "selected_text",
         &selected_text.map(String::from),
     );
+    insert_opt_string(&mut payload, "author_name", &author_name.map(String::from));
+    insert_opt_string(&mut payload, "source", &provenance.source);
+    insert_opt_string(
+        &mut payload,
+        "source_device_id",
+        &provenance.source_device_id,
+    );
+    insert_opt_string(
+        &mut payload,
+        "source_remote_id",
+        &provenance.source_remote_id,
+    );
+    insert_opt_string(&mut payload, "source_page_id", &provenance.source_page_id);
+    insert_opt_string(&mut payload, "source_item_id", &provenance.source_item_id);
+    insert_opt_string(&mut payload, "image_path", &provenance.image_path);
+    insert_opt_string(&mut payload, "pen", &provenance.pen);
+    insert_opt_string(&mut payload, "strokes_hash", &provenance.strokes_hash);
+    if let Some(confidence) = provenance.ocr_confidence {
+        payload.insert("ocr_confidence".into(), Value::Float(confidence));
+    }
+    if let Some(ms) = provenance.imported_at_ms {
+        payload.insert("imported_at_ms".into(), Value::Int(ms));
+    }
 
     Item {
-        id: Uuid::new_v4(),
+        id,
         schema: "imbib/annotation".into(),
         payload,
         created: Utc::now(),
@@ -1355,6 +1497,7 @@ mod tests {
             Some("#ffff00"),
             None,
             Some("dark matter"),
+            Some("Tom"),
         );
         assert_eq!(item.schema, "imbib/annotation");
         assert_eq!(item.parent, Some(file_id));
@@ -1481,7 +1624,8 @@ mod tests {
                 None,
                 None,
                 None,
-                None
+                None,
+                Some("me")
             ))
             .is_ok());
         assert!(reg

@@ -72,6 +72,10 @@ pub mod recommendation;
 // Unified item architecture (Phase 5)
 pub mod unified;
 
+// Mirroring papers to an e-ink tablet over its USB interface, and importing
+// the annotated copies and notes that come back.
+pub mod eink;
+
 // Re-export main types for convenience
 // Re-export types (not functions that are wrapped for FFI)
 pub use bibtex::{

@@ -22,6 +22,37 @@ public struct AnnotationModel: Identifiable, Hashable, Sendable {
     public let dateModified: Date
     public let linkedFileID: UUID
 
+    // MARK: Provenance (ADR-025: annotations a device sync imported)
+
+    /// `nil` for annotations made in imbib; `eink` for ones imported from a tablet.
+    public let source: String?
+    public let sourceDeviceId: String?
+    public let sourceRemoteId: String?
+    public let sourcePageId: String?
+    public let sourceItemId: String?
+    /// Absolute path of the rendered ink strokes (PNG), for ink annotations.
+    public let imagePath: String?
+    /// The tablet's pen tool for ink annotations (`ballpoint`, `highlighter`, …).
+    public let pen: String?
+    /// Hash of the strokes; OCR text survives re-imports whose strokes did not change.
+    public let strokesHash: String?
+    /// Confidence of the OCR text in `contents`, 0…1, for ink annotations that were read.
+    public let ocrConfidence: Double?
+    public let importedAt: Date?
+
+    /// Rows an e-ink import wrote. Rust spells the source `remarkable`
+    /// (`imbib-core::eink::import::reconcile::SOURCE_REMARKABLE`); `eink` is
+    /// accepted for the generic spelling an earlier draft used.
+    public var isFromEInkDevice: Bool { source == "remarkable" || source == "eink" }
+
+    /// The author name every imported row carries — the one string the PDF
+    /// persistence layer keys its "never burn into the primary PDF" rule on.
+    public static let einkAuthorName = "reMarkable"
+
+    /// True when this row came from the tablet (by provenance or by author).
+    public var isEInkAuthored: Bool { isFromEInkDevice || authorName == Self.einkAuthorName }
+    public var isInk: Bool { imagePath != nil }
+
     public init(from row: ImbibRustCore.AnnotationRow) {
         self.id = UUID(uuidString: row.id) ?? UUID()
         self.annotationType = row.annotationType
@@ -34,5 +65,15 @@ public struct AnnotationModel: Identifiable, Hashable, Sendable {
         self.dateCreated = Date(timeIntervalSince1970: TimeInterval(row.dateCreated) / 1000.0)
         self.dateModified = Date(timeIntervalSince1970: TimeInterval(row.dateModified) / 1000.0)
         self.linkedFileID = UUID(uuidString: row.linkedFileId) ?? UUID()
+        self.source = row.source
+        self.sourceDeviceId = row.sourceDeviceId
+        self.sourceRemoteId = row.sourceRemoteId
+        self.sourcePageId = row.sourcePageId
+        self.sourceItemId = row.sourceItemId
+        self.imagePath = row.imagePath
+        self.pen = row.pen
+        self.strokesHash = row.strokesHash
+        self.ocrConfidence = row.ocrConfidence
+        self.importedAt = row.importedAtMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
     }
 }

@@ -901,6 +901,7 @@ impl ImbibAnnotationsService for HttpImbibAnnotationsService {
         color: Option<String>,
         contents: Option<String>,
         selected_text: Option<String>,
+        author_name: Option<String>,
     ) -> Option<AnnotationRecord> {
         self.client
             .create_annotation(
@@ -911,6 +912,7 @@ impl ImbibAnnotationsService for HttpImbibAnnotationsService {
                 color,
                 contents,
                 selected_text,
+                author_name,
             )
             .await
             .unwrap_or_else(|e| {

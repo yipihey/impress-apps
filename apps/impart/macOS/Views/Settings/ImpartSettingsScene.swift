@@ -10,7 +10,7 @@
 //  lived in the file being deleted.
 //
 //  Nothing below changed. The wave-3 declarative wiring
-//  (`MacSettingsSceneContent.fixed(configuration: .impart, …)` +
+//  (`MacSettingsSceneContent.resizable(configuration: .impart, …)` +
 //  `\.settingsSectionRegistry`) is preserved exactly, including both documented
 //  hand-rolled clones and the reasons they stay.
 //
@@ -29,9 +29,9 @@ import SwiftUI
 /// themselves are untouched.
 struct SettingsView: View {
     var body: some View {
-        // `.fixed`: impart shipped `.frame(width: 550, height: 500)`, a pinned
-        // size rather than a floor.
-        MacSettingsSceneContent.fixed(
+        // Opens at impart's shipped 550 × 500 and resizes from there (the
+        // AI pane's model list and task categories need the room).
+        MacSettingsSceneContent.resizable(
             configuration: .impart, width: 550, height: 500)
             .environment(\.settingsSectionRegistry, ImpartSettingsSections.registry)
     }

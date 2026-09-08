@@ -169,6 +169,14 @@ public struct TriageCapabilities: Sendable, Equatable {
     /// Status values this kind's lifecycle uses, with their presentation
     /// (parity-checked vs schema).
     public var statuses: [StatusSpec]
+    /// Whether records of this kind can be marked for an e-ink tablet
+    /// (imbib's reMarkable USB mirror, ADR-025). Only the publication kind
+    /// declares it: the mirror rows hang off `imbib/bibliography-entry` and
+    /// the engine sends that kind's PDF/ePUB. The verbs (context menu, swipe,
+    /// `e`, ⌃⌘E) additionally require a device in individual mode
+    /// (`TriageRowState.isMirrored` non-nil) — capability says "can ever",
+    /// row state says "applies now".
+    public var canMirrorToEink: Bool
 
     public init(
         canStar: Bool = true,
@@ -177,7 +185,8 @@ public struct TriageCapabilities: Sendable, Equatable {
         dismissal: DismissalSemantics = .none,
         archiveStatus: String? = nil,
         deletion: DeletionSemantics = .none,
-        statuses: [StatusSpec] = []
+        statuses: [StatusSpec] = [],
+        canMirrorToEink: Bool = false
     ) {
         self.canStar = canStar
         self.canFlag = canFlag
@@ -186,6 +195,7 @@ public struct TriageCapabilities: Sendable, Equatable {
         self.archiveStatus = archiveStatus
         self.deletion = deletion
         self.statuses = statuses
+        self.canMirrorToEink = canMirrorToEink
     }
 
     /// The raw `status` values, for store predicates and validation gates.

@@ -513,6 +513,13 @@ struct imbibApp: App {
 
                 await InboxCoordinator.shared.start()
                 appLogger.info("InboxCoordinator started")
+
+                // reMarkable USB mirror (ADR-025 P7): registrar → connection
+                // monitor → sync coordinator → source fetcher → OCR sweep.
+                // Inert without a device record; automatic work waits for
+                // the shared 90 s startup gate (only "Sync now" bypasses it).
+                await EInkServices.shared.start()
+                appLogger.info("EInkServices started")
             }()
 
             // Server start sits here — after File Provider + the migrator,
@@ -1246,14 +1253,30 @@ struct AppCommands: Commands {
 
             Divider()
 
-            Button("Send to E-Ink Device") {
-                NotificationCenter.default.post(name: .sendToEInkDevice, object: nil)
+            // reMarkable USB mirror (ADR-025). All three are disabled until a
+            // device is configured (Settings › E-Ink); the toggle additionally
+            // applies per-row only in individual mode — the list wrapper that
+            // observes `.toggleEInkMirror` checks that itself.
+            Button("Mirror to reMarkable") {
+                NotificationCenter.default.post(name: .toggleEInkMirror, object: nil)
             }
             .keyboardShortcut("e", modifiers: [.control, .command])
+            .disabled(!EInkMirrorModel.shared.isConfigured)
 
-            Button("Sync E-Ink Annotations") {
-                NotificationCenter.default.post(name: .syncEInkAnnotations, object: nil)
+            Button("Sync reMarkable Now") {
+                NotificationCenter.default.post(name: .einkSyncNow, object: nil)
             }
+            .disabled(!EInkMirrorModel.shared.isConfigured)
+
+            Button("Import reMarkable Annotations") {
+                NotificationCenter.default.post(name: .einkImportAnnotations, object: nil)
+            }
+            .disabled(!EInkMirrorModel.shared.isConfigured)
+
+            Button("Import from reMarkable…") {
+                NotificationCenter.default.post(name: .showEInkImportBrowser, object: nil)
+            }
+            .disabled(!EInkMirrorModel.shared.isConfigured)
 
             Divider()
 

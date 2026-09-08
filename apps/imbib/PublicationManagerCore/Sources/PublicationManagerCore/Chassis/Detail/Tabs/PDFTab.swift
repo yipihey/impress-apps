@@ -59,13 +59,21 @@ struct PDFTab: View {
     // PDF dark mode setting
     @State private var pdfDarkModeEnabled: Bool = PDFSettingsStore.loadSettingsSync().darkModeEnabled
 
-    // E-Ink device state
-    @State private var einkDeviceManager = EInkDeviceManager.shared
-    @State private var isSendingToEInk = false
+    // reMarkable USB mirror (ADR-025): the chip reads the model's gates and
+    // the paper's mirror row; toggling goes through the one store-backed
+    // triage action, the same path as the context menu and `e`.
+    @State private var einkModel = EInkMirrorModel.shared
 
     // Computed publication from Rust store
     private var publication: PublicationModel? {
         publicationID.flatMap { RustStoreAdapter.shared.getPublicationDetail(id: $0) }
+    }
+
+    /// The paper's mirror state, read only while a device is configured
+    /// (one row lookup, same cost class as `publication` above).
+    private func einkMirrorState(for publicationID: UUID) -> EInkMirrorState? {
+        guard einkModel.isConfigured else { return nil }
+        return RustStoreAdapter.shared.einkMirrorRecord(publicationId: publicationID)?.state
     }
 
     var body: some View {
@@ -124,6 +132,15 @@ struct PDFTab: View {
                 resetAndCheckPDF()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showPDFTab)) { notification in
+            // "Show annotated PDF" (Info tab, ADR-025) names the file to open;
+            // the tab switch itself is DetailView's.
+            guard let fileID = notification.userInfo?["linkedFileID"] as? UUID,
+                  let pub = publication,
+                  let file = pub.linkedFiles.first(where: { $0.id == fileID })
+            else { return }
+            linkedFile = file
+        }
         .onReceive(NotificationCenter.default.publisher(for: .syncedSettingsDidChange)) { notification in
             // Refresh dark mode setting when it changes
             Task {
@@ -159,23 +176,10 @@ struct PDFTab: View {
         }
         .background(pdfDarkModeEnabled ? Color.black : Color.clear)
         .overlay(alignment: .topTrailing) {
-            // E-Ink send button overlay (shown when device is configured)
-            if einkDeviceManager.isAnyDeviceAvailable {
-                Button {
-                    Task { await sendToEInkDevice() }
-                } label: {
-                    if isSendingToEInk {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(isSendingToEInk)
-                .help("Send to E-Ink Device")
-                .padding(8)
+            // reMarkable mirror state chip (shown when a device is configured)
+            if einkModel.isConfigured {
+                einkMirrorChip(for: pub.id, compact: true)
+                    .padding(8)
             }
         }
         .onAppear {
@@ -329,26 +333,66 @@ struct PDFTab: View {
             .buttonStyle(.bordered)
             .help("Attach a local PDF file")
 
-            // E-Ink device button (shown when device is configured)
-            if einkDeviceManager.isAnyDeviceAvailable {
+            // reMarkable mirror state chip (shown when a device is configured).
+            // Marking a paper that has no PDF yet parks it in `awaiting_source`;
+            // the source fetcher sends it once a PDF arrives.
+            if einkModel.isConfigured, let pub = publication {
                 Divider()
                     .frame(height: 20)
 
-                Button {
-                    Task { await sendToEInkDevice() }
-                } label: {
-                    if isSendingToEInk {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Label("Send to E-Ink Device", systemImage: "rectangle.portrait.on.rectangle.portrait.angled")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isSendingToEInk)
-                .help("Download and send PDF to reMarkable, Supernote, or Kindle Scribe")
+                einkMirrorChip(for: pub.id, compact: false)
             }
         }
+    }
+
+    // MARK: - reMarkable mirror chip (ADR-025)
+
+    /// The paper's mirror state as a chip. In individual mode it toggles the
+    /// mark through the store-backed triage action (same path as the context
+    /// menu, swipe and `e`); in `all` mode it is a read-only label, because
+    /// everything with a PDF is mirrored automatically.
+    @ViewBuilder
+    private func einkMirrorChip(for publicationID: UUID, compact: Bool) -> some View {
+        let state = einkMirrorState(for: publicationID)
+        if einkModel.showsIndividualControls {
+            Button {
+                toggleEInkMirror(publicationID: publicationID, currentState: state)
+            } label: {
+                if compact {
+                    Image(systemName: state?.systemImage ?? "rectangle.portrait")
+                        .foregroundStyle(state?.color ?? .secondary)
+                } else {
+                    Label(state?.label ?? EInkMirrorState.mirrorVerb,
+                          systemImage: state?.systemImage ?? "rectangle.portrait")
+                        .foregroundStyle(state?.color ?? .primary)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(compact ? .small : .regular)
+            .help(state.map { "\($0.label). \($0.explanation) Click to \($0.menuVerb.lowercased())." }
+                  ?? "Mirror this paper to the reMarkable over USB (also `e` or ⌃⌘E in the list).")
+        } else if let state {
+            // `all` mode: everything with a PDF is mirrored automatically, so
+            // the chip only reports.
+            Group {
+                if compact {
+                    Image(systemName: state.systemImage)
+                } else {
+                    Label(state.label, systemImage: state.systemImage)
+                        .font(.callout)
+                }
+            }
+            .foregroundStyle(state.color)
+            .help("\(state.label). \(state.explanation)")
+        }
+    }
+
+    private func toggleEInkMirror(publicationID: UUID, currentState: EInkMirrorState?) {
+        let mirrored = currentState == nil
+        logger.info("[PDFTab] eink.toggle \(publicationID) → mirrored=\(mirrored)")
+        RecordTriageActions
+            .storeBacked(descriptor: PublicationRecordKind.descriptor)
+            .onToggleEink([publicationID], mirrored)
     }
 
     private var noPDFView: some View {
@@ -392,7 +436,7 @@ struct PDFTab: View {
                 Logger.files.infoCapture("[PDFTab] linkedFile[\(i)]: \(file.filename), isPDF=\(file.isPDF), path=\(file.relativePath ?? "nil")", category: "pdf")
             }
 
-            if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+            if let firstPDF = linkedFiles.preferredPDF {
                 Logger.files.infoCapture("[PDFTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF
@@ -448,6 +492,11 @@ struct PDFTab: View {
         }
     }
 
+    /// Fetch the paper's PDF through `PDFAcquisitionService` (ADR-025 P7).
+    /// Resolution, download, the `%PDF` sniff, duplicate handling and the
+    /// import all live there; this keeps only the pane's state and the
+    /// interactive fallback — opening the built-in browser on the publisher
+    /// page when a person is the only way through.
     private func downloadPDF() async {
         logger.info("[PDFTab] downloadPDF() called - starting download attempt")
 
@@ -455,158 +504,61 @@ struct PDFTab: View {
             logger.warning("[PDFTab] downloadPDF() FAILED: publication is nil")
             return
         }
+        // Capture before the async work: @State may change underneath a Task.
+        let pubID = pub.id
         logger.info("[PDFTab] downloadPDF() - publication: \(pub.citeKey)")
 
-        // Use PDFURLResolverV2 for URL resolution
-        let settings = await PDFSettingsStore.shared.settings
-        let status = await PDFURLResolverV2.shared.resolve(for: pub, settings: settings)
-
-        // Store browser fallback URL from status if applicable
         await MainActor.run {
-            browserFallbackURL = status.browserURL
+            isDownloading = true
+            downloadError = nil
+            browserFallbackURL = nil
         }
 
-        guard let resolvedURL = status.pdfURL else {
-            // Log detailed info about what identifiers were available
-            logger.warning("[PDFTab] downloadPDF() FAILED: No URL resolved")
-            logger.info("[PDFTab]   arxivID: \(pub.arxivID ?? "nil")")
-            logger.info("[PDFTab]   eprint: \(pub.fields["eprint"] ?? "nil")")
-            logger.info("[PDFTab]   bibcode: \(pub.bibcode ?? "nil")")
-            logger.info("[PDFTab]   doi: \(pub.doi ?? "nil")")
-
-            // Always show an error when resolution fails
+        do {
+            let local = try await PDFAcquisitionService.shared.acquire(publicationID: pubID, policy: .interactive)
             await MainActor.run {
-                if let fallbackURL = status.browserURL {
-                    logger.info("[PDFTab]   Browser fallback URL available: \(fallbackURL.absoluteString)")
-                    downloadError = PDFDownloadError.publisherNotAvailable
-
-                    // Auto-open the built-in browser when resolution fails but we have a fallback URL
-                    #if os(macOS)
-                    Task {
-                        await openPDFBrowserWithURL(fallbackURL)
-                    }
-                    #endif
+                isDownloading = false
+                if local != nil {
+                    logger.info("[PDFTab] PDF acquired - refreshing view")
+                    resetAndCheckPDF()
                 } else {
-                    logger.info("[PDFTab]   No browser fallback URL available")
+                    logger.info("[PDFTab] downloadPDF(): no PDF source available")
                     downloadError = PDFDownloadError.noPDFAvailable
                 }
             }
-            return
-        }
-
-        logger.info("[PDFTab] Downloading PDF from: \(resolvedURL.absoluteString) (status: \(status.displayDescription))")
-
-        isDownloading = true
-        downloadError = nil
-        browserFallbackURL = nil  // Clear since we found a URL to try
-
-        do {
-            // Download to temp location
-            logger.info("[PDFTab] Starting URLSession download...")
-            let (tempURL, response) = try await URLSession.shared.download(from: resolvedURL)
-
-            // Log HTTP response details
-            if let httpResponse = response as? HTTPURLResponse {
-                let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
-                let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") ?? "unknown"
-                logger.info("[PDFTab] Download response: HTTP \(httpResponse.statusCode), Content-Type: \(contentType), Content-Length: \(contentLength)")
-                if httpResponse.statusCode != 200 {
-                    logger.warning("[PDFTab] Non-200 HTTP status! Headers: \(httpResponse.allHeaderFields)")
-                }
-            } else {
-                logger.info("[PDFTab] Download complete (non-HTTP response)")
-            }
-
-            // Validate it's actually a PDF (check for %PDF header)
-            let fileHandle = try FileHandle(forReadingFrom: tempURL)
-            let header = fileHandle.readData(ofLength: 100) // Read more for debugging
-            try fileHandle.close()
-
-            // Log header bytes for debugging
-            let headerHex = header.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
-            logger.info("[PDFTab] PDF validation - first 16 bytes: \(headerHex)")
-
-            guard header.count >= 4,
-                  header[0] == 0x25, // %
-                  header[1] == 0x50, // P
-                  header[2] == 0x44, // D
-                  header[3] == 0x46  // F
-            else {
-                // Not a valid PDF - likely HTML error page
-                logger.warning("[PDFTab] Downloaded file is NOT a valid PDF (expected %PDF header)")
-
-                // Log what we actually received (helpful for diagnosing HTML error pages)
-                if let headerString = String(data: header, encoding: .utf8) {
-                    logger.warning("[PDFTab] Received content preview: \(headerString)")
-                }
-
-                try? FileManager.default.removeItem(at: tempURL)
-                throw PDFDownloadError.downloadFailed("Downloaded file is not a valid PDF")
-            }
-
-            logger.info("[PDFTab] PDF header validation PASSED")
-
-            // Import into the publication's own library (consistent with viewer path resolution)
-            let storageLibraryID = pub.libraryIDs.first ?? libraryManager.activeLibrary?.id
-            guard let libraryID = storageLibraryID else {
-                logger.error("[PDFTab] No library for PDF import")
-                throw PDFDownloadError.noActiveLibrary
-            }
-
-            // Check for duplicate before importing
-            if let result = AttachmentManager.shared.checkForDuplicate(sourceURL: tempURL, in: pub.id) {
-                switch result {
-                case .duplicate(let existingFile, _):
-                    logger.info("[PDFTab] Duplicate PDF detected, using existing: \(existingFile.filename)")
-                    try? FileManager.default.removeItem(at: tempURL)
-                    // Refresh linkedFile from current publication
-                    await MainActor.run {
-                        if let pub = publication {
-                            linkedFile = pub.linkedFiles.first(where: { $0.isPDF }) ?? pub.linkedFiles.first
-                        }
-                    }
-                    return
-                case .noDuplicate(let hash):
-                    logger.info("[PDFTab] No duplicate found, importing with precomputed hash")
-                    try AttachmentManager.shared.importPDF(from: tempURL, for: pub.id, in: libraryID, precomputedHash: hash)
-                }
-            } else {
-                logger.info("[PDFTab] Importing PDF via PDFManager...")
-                try AttachmentManager.shared.importPDF(from: tempURL, for: pub.id, in: libraryID)
-            }
-            logger.info("[PDFTab] PDF import SUCCESS")
-
-            // Clean up temp file
-            try? FileManager.default.removeItem(at: tempURL)
-
+        } catch let error as PDFAcquisitionError {
+            logger.warning("[PDFTab] downloadPDF() FAILED: \(error.localizedDescription)")
             await MainActor.run {
-                logger.info("[PDFTab] PDF downloaded and imported successfully - refreshing view")
-                resetAndCheckPDF()
+                isDownloading = false
+                switch error {
+                case .requiresUserAction(let browserURL, _):
+                    // No direct download; the publisher page is the way in.
+                    downloadError = PDFDownloadError.publisherNotAvailable
+                    browserFallbackURL = browserURL
+                    #if os(macOS)
+                    Task { await openPDFBrowserWithURL(browserURL) }
+                    #endif
+                case .cancelled:
+                    break
+                default:
+                    downloadError = error
+                    // Keep the failed URL so the person can try it in a browser.
+                    browserFallbackURL = error.sourceURL
+                    #if os(macOS)
+                    if let url = error.sourceURL {
+                        Task { await openPDFBrowserWithURL(url) }
+                    }
+                    #endif
+                }
             }
         } catch {
             logger.error("[PDFTab] Download/import FAILED: \(error.localizedDescription)")
-            logger.error("[PDFTab]   Error type: \(type(of: error))")
-            if let urlError = error as? URLError {
-                logger.error("[PDFTab]   URLError code: \(urlError.code.rawValue)")
-            }
             await MainActor.run {
+                isDownloading = false
                 downloadError = error
-                // Store the failed URL as browser fallback so user can try in browser
-                browserFallbackURL = resolvedURL
-
-                // Auto-open the built-in browser when download fails
-                #if os(macOS)
-                Task {
-                    await openPDFBrowserWithURL(resolvedURL)
-                }
-                #endif
             }
         }
-
-        await MainActor.run {
-            isDownloading = false
-            logger.info("[PDFTab] downloadPDF() complete - isDownloading=false, error=\(downloadError?.localizedDescription ?? "nil")")
-        }
+        logger.info("[PDFTab] downloadPDF() complete - error=\(downloadError?.localizedDescription ?? "nil")")
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
@@ -723,48 +675,6 @@ struct PDFTab: View {
                 downloadError = error
             }
         }
-    }
-
-    // MARK: - E-Ink Device Actions
-
-    private func sendToEInkDevice() async {
-        guard let pub = publication else {
-            logger.warning("[PDFTab] Cannot send to E-Ink: no publication")
-            return
-        }
-
-        logger.info("[PDFTab] Sending to E-Ink device: \(pub.citeKey)")
-        isSendingToEInk = true
-
-        defer {
-            Task { @MainActor in
-                isSendingToEInk = false
-            }
-        }
-
-        // If we don't have a local PDF yet, download it first
-        if linkedFile == nil {
-            logger.info("[PDFTab] No local PDF, downloading first...")
-            await downloadPDF()
-
-            // Check if download succeeded
-            guard linkedFile != nil else {
-                logger.warning("[PDFTab] PDF download failed, cannot send to E-Ink")
-                return
-            }
-        }
-
-        // Post notification to trigger E-Ink sync
-        // The EInkDeviceManager will handle the actual sync
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: .sendToEInkDevice,
-                object: nil,
-                userInfo: ["publicationIDs": [pub.id]]
-            )
-        }
-
-        logger.info("[PDFTab] E-Ink sync notification posted for: \(pub.citeKey)")
     }
 
     // MARK: - Keyboard Navigation

@@ -86,6 +86,7 @@ impl ImbibClient {
         color: Option<String>,
         contents: Option<String>,
         selected_text: Option<String>,
+        author_name: Option<String>,
     ) -> Result<Option<AnnotationRecord>> {
         let url = self
             .base_url
@@ -97,6 +98,7 @@ impl ImbibClient {
             "color": color,
             "contents": contents,
             "selected_text": selected_text,
+            "author_name": author_name,
         });
         let resp = self.http.post(url).json(&body).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {

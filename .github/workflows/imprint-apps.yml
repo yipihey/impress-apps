@@ -18,6 +18,7 @@ on:
       # Sibling cores whose xcframeworks this workflow builds and links.
       - 'crates/impress-helix/**'
       - 'crates/impress-store-ffi/**'
+      - 'crates/impress-ai/**'
       - 'crates/imbib-core/**'
       - 'packages/**'
       - '.github/workflows/imprint-apps.yml'

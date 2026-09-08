@@ -48,7 +48,7 @@ use impel_throughline::{
     ThroughlineSyncExecutor, MANUSCRIPT_SECTION_SCHEMA,
 };
 use impress_ai::{
-    write_worker_status, AiStore, AiTitleTaskExecutor, FileBlobStore, OmlxClient, OmlxTaskExecutor,
+    write_worker_status, AiStore, AiTitleTaskExecutor, FileBlobStore, OmlxTaskExecutor,
     WebResearchProvider, WorkerLease, WorkerLifecycleState, WorkerStatusSnapshot,
     WORKER_HEARTBEAT_INTERVAL_SECS,
 };
@@ -627,6 +627,16 @@ async fn main() {
             retry_base_ms: SchedulerConfig::default().retry_base_ms,
         },
     );
+    // Provider selection and endpoints come from the device-local preferences
+    // file beside the store (ADR-0029). One registry serves the conversation
+    // executors AND the background tiers below; the tiers resolve through
+    // their `agent.*` task categories, never through the interactive
+    // selection, so a cloud model picked for chat creates no daemon spend.
+    let workspace = store_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let ai_registry = impress_ai::AiRegistry::for_daemon(&workspace);
     if !args.dry_run {
         // Offline-first counsel: iOS can sync a queued `impress.ai.respond`
         // task; this Mac/server consumes it whenever oMLX becomes reachable.
@@ -639,13 +649,36 @@ async fn main() {
             FileBlobStore::open(&blob_root)
                 .unwrap_or_else(|e| panic!("open blob store {}: {e}", blob_root.display())),
         );
-        let omlx_url = std::env::var("IMPRESS_OMLX_URL")
-            .unwrap_or_else(|_| impress_ai::omlx::DEFAULT_URL.into());
-        let omlx_key = std::env::var("IMPRESS_OMLX_API_KEY").ok();
-        let omlx = OmlxClient::with_endpoint_id(omlx_url, omlx_key, "local-omlx")
-            .expect("configure oMLX client");
-        let title_executor = AiTitleTaskExecutor::new(ai_store.clone(), omlx.clone());
-        let mut executor = OmlxTaskExecutor::new(ai_store, omlx, blob_store);
+        // Each queued turn resolves its conversation's provider through the
+        // registry, so a model picked in any app's Settings › AI is the one
+        // this daemon runs. IMPRESS_OMLX_URL / IMPRESS_AI_PROVIDER stay
+        // explicit overrides.
+        let registry = ai_registry.clone();
+        match registry.resolve(&impress_ai::ResolveTarget::default()) {
+            Ok(resolved) => eprintln!(
+                "impel-taskd: AI provider={} model={} endpoint={} origin={} (preferences: {})",
+                resolved.provider,
+                resolved.model,
+                resolved.endpoint_id,
+                resolved.origin.label(),
+                registry.preferences().path().display()
+            ),
+            Err(error) => eprintln!(
+                "impel-taskd: no AI provider resolved yet ({error}); preferences: {}",
+                registry.preferences().path().display()
+            ),
+        }
+        // Local hosts feed readiness from a fresh probe; keep it warm so the
+        // first-ready fallback and the resolved-origin log stay truthful.
+        let probing = registry.clone();
+        tokio::spawn(async move {
+            loop {
+                probing.refresh_health(&["omlx", "ollama"]).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+        let title_executor = AiTitleTaskExecutor::with_registry(ai_store.clone(), registry.clone());
+        let mut executor = OmlxTaskExecutor::with_registry(ai_store, registry, blob_store);
         match ImpressToolAdapter::probe().await {
             Ok(adapter) => {
                 let adapter = Arc::new(adapter);
@@ -700,19 +733,21 @@ async fn main() {
         sources,
         source_priority,
     )));
-    // LLM classifier when IMPEL_LLM_{PROVIDER,MODEL,API_KEY} are set;
-    // deterministic heuristic otherwise.
+    // LLM classifier when the `agent.classify` task category has a primary
+    // model (or IMPEL_LLM_PROVIDER/MODEL override it); deterministic
+    // heuristic otherwise.
     // The keyword table also stands BEHIND the LLM: when the provider cannot
     // be reached at all, a deterministic verdict recorded under `heuristic-v1`
     // beats both an outage-shaped retry loop and the empty tag set that used to
     // be written under the LLM's own name. `None` when the heuristic already IS
     // the classifier — there is nothing to fall back to.
     let (classifier, fallback): (Arc<dyn Classifier>, Option<Arc<dyn Classifier>>) =
-        match impel_enrichment::LlmClassifier::from_env() {
+        match impel_enrichment::LlmClassifier::from_registry(ai_registry.clone()) {
             Some(llm) => {
                 eprintln!(
-                    "impel-taskd: classifier = {} (fallback heuristic-v1)",
-                    llm.model_id()
+                    "impel-taskd: classifier = {} ({}; fallback heuristic-v1)",
+                    llm.model_id(),
+                    impel_enrichment::classify_llm::CATEGORY
                 );
                 (
                     Arc::new(llm),
@@ -720,26 +755,29 @@ async fn main() {
                 )
             }
             None => {
-                eprintln!("impel-taskd: classifier = heuristic-v1 (set IMPEL_LLM_* for LLM)");
+                eprintln!(
+                    "impel-taskd: classifier = heuristic-v1 (assign the {} category for LLM)",
+                    impel_enrichment::classify_llm::CATEGORY
+                );
                 (Arc::new(HeuristicClassifier::default_vocabulary()), None)
             }
         };
     scheduler.register(Arc::new(
         KeywordTagExecutor::new(classifier, args.confidence_threshold).with_fallback(fallback),
     ));
-    // Throughline sync (ADR-0016). LLM drafter when IMPEL_LLM_* are set
-    // (carries the D6 authority-split contract in its system prompt);
-    // deterministic TemplateDrafter otherwise — the review checkpoint
-    // carries the drift context either way.
+    // Throughline sync (ADR-0016). LLM drafter when the `agent.throughline`
+    // category has a primary model (carries the D6 authority-split contract
+    // in its system prompt); deterministic TemplateDrafter otherwise — the
+    // review checkpoint carries the drift context either way.
     let drafter: Box<dyn impel_throughline::ProposalDrafter> =
-        match impel_throughline::LlmDrafter::from_env() {
+        match impel_throughline::LlmDrafter::from_registry(ai_registry.clone()) {
             Some(llm) => {
                 eprintln!("impel-taskd: throughline drafter = {}", llm.model_id());
                 Box::new(llm)
             }
             None => {
                 eprintln!(
-                    "impel-taskd: throughline drafter = template/v1 (set IMPEL_LLM_* for LLM)"
+                    "impel-taskd: throughline drafter = template/v1 (assign the agent.throughline category for LLM)"
                 );
                 Box::new(TemplateDrafter)
             }
@@ -772,7 +810,7 @@ async fn main() {
     if memory_plan.consolidate_enabled {
         use impel_memory::ClaimDistiller as _;
         let distiller: Option<Arc<dyn impel_memory::ClaimDistiller>> =
-            match impel_memory::LlmDistiller::from_env() {
+            match impel_memory::LlmDistiller::from_registry(ai_registry.clone()) {
                 Some(distiller) => {
                     eprintln!(
                         "impel-taskd: memory consolidation ON (deterministic + LLM claim tier: {})",
@@ -782,7 +820,7 @@ async fn main() {
                 }
                 None => {
                     eprintln!(
-                        "impel-taskd: memory consolidation ON (deterministic tier; set IMPEL_LLM_PROVIDER/MODEL/API_KEY for the claim tier)"
+                        "impel-taskd: memory consolidation ON (deterministic tier; assign the agent.memory category for the claim tier)"
                     );
                     None
                 }

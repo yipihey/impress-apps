@@ -631,36 +631,39 @@ Any detail tab can be "popped out" to a separate window:
 
 ## E-Ink Device Integration
 
-Sync papers with E-Ink reading devices for distraction-free reading and annotation.
+Mirror papers to a reMarkable over its USB cable, and bring back what you wrote on them.
 
 ### Supported Devices
 
 | Device | Sync Methods | Features |
 |--------|-------------|----------|
-| **reMarkable** | Cloud API, Folder Sync | Full bidirectional sync, annotation import |
+| **reMarkable** | USB web interface (no cloud account, no developer mode) | mirror by mark or mirror everything; `imbib/<Library>/<Collection>` folders; annotated pages, highlights with text, typed notes and recognised handwriting come back; notebooks written on the tablet become publications |
 | **Supernote** | Folder Sync | PDF upload, `.note`/`.mark` annotation import |
 | **Kindle Scribe** | USB, Email | PDF upload, embedded annotation extraction |
 
 ### Key Features
 
-- **Send to Device**: Upload PDFs directly from the context menu or Paper menu
-- **Annotation Import**: Pull highlights, handwritten notes, and text annotations back to imbib
-- **OCR Support**: Convert handwritten annotations to searchable text
-- **Auto-Sync**: Configurable background sync intervals
-- **Folder Organization**: Mirror imbib collections on your device
+- **Two mirror modes**: every paper with a PDF/ePUB, or only the papers you mark — with a list-row marker showing each paper's state (queued, awaiting PDF, awaiting folder, on tablet, stale, removed on tablet, failed)
+- **Automatic PDF fetch**: marking a paper without a PDF fetches one and sends it when it arrives
+- **Folders follow your sidebar**: library and collection folders on the tablet, with a checklist of the ones to create
+- **Annotation import**: the annotated pages as a second file, highlights with their text, typed notes, handwriting recognised on your Mac; **Append reMarkable notes** on request
+- **Import from reMarkable**: notebooks and documents added on the tablet become publications (or notes) in your library
+- **Agent-ready**: every action is a CLI verb and an MCP tool that works with the app closed
 
 ### Quick Start
 
-1. Go to **Settings > E-Ink Devices**
-2. Click **Add Device** and select your device type
-3. Configure the sync method (Cloud, Folder, USB, or Email)
-4. Send papers via context menu or **Paper > Send to E-Ink Device** (Control+Command+E)
+1. Turn on the tablet's USB web interface and plug it in
+2. Go to **Settings > E-Ink** and click **Add reMarkable (USB)**
+3. Create the **imbib** folder (and the folders the checklist names) on the tablet
+4. Press **`e`** on a paper, or **Paper > Mirror to reMarkable** (Control+Command+E)
 
 ### Keyboard Shortcuts
 
 | Action | Shortcut |
 |--------|----------|
-| Send to E-Ink Device | **Control+Command+E** |
+| Mirror to reMarkable / Remove from reMarkable | **`e`** (list), **Control+Command+E** |
+| Sync reMarkable Now | (Paper menu) |
+| Import reMarkable Annotations | (Paper menu) |
 
 [Full E-Ink Guide](eink-devices) - Complete setup and usage instructions
 

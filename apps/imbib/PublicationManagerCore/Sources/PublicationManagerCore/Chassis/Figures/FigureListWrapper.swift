@@ -296,6 +296,10 @@ public struct FigureListWrapper: View {
             // Pane focus is window-scoped, not list-scoped: bubble h/l up to the
             // shell that owns the split (ContentView / ImpressSplitView).
             return .ignored
+        case .toggleEinkMirror:
+            // Only publications can be mirrored to an e-ink tablet (ADR-025;
+            // `TriageCapabilities.canMirrorToEink`). Not this kind: bubble.
+            return .ignored
         }
     }
 

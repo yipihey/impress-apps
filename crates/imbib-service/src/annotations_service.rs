@@ -36,6 +36,21 @@ pub struct AnnotationRecord {
     pub date_modified: i64,
     #[serde(alias = "linkedFileId", alias = "linkedFileID", default)]
     pub linked_file_id: String,
+    /// `remarkable` for rows an e-ink import wrote; absent for imbib's own.
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(alias = "sourceRemoteId", default)]
+    pub source_remote_id: Option<String>,
+    #[serde(alias = "sourcePageId", default)]
+    pub source_page_id: Option<String>,
+    #[serde(alias = "imagePath", default)]
+    pub image_path: Option<String>,
+    #[serde(default)]
+    pub pen: Option<String>,
+    #[serde(alias = "ocrConfidence", default)]
+    pub ocr_confidence: Option<f64>,
+    #[serde(alias = "importedAtMs", default)]
+    pub imported_at_ms: Option<i64>,
 }
 
 impl From<&imbib_core::unified::shaped_queries::AnnotationRow> for AnnotationRecord {
@@ -52,6 +67,13 @@ impl From<&imbib_core::unified::shaped_queries::AnnotationRow> for AnnotationRec
             date_created: r.date_created,
             date_modified: r.date_modified,
             linked_file_id: r.linked_file_id.clone(),
+            source: r.source.clone(),
+            source_remote_id: r.source_remote_id.clone(),
+            source_page_id: r.source_page_id.clone(),
+            image_path: r.image_path.clone(),
+            pen: r.pen.clone(),
+            ocr_confidence: r.ocr_confidence,
+            imported_at_ms: r.imported_at_ms,
         }
     }
 }
@@ -115,6 +137,7 @@ pub trait ImbibAnnotationsService: Send + Sync + 'static {
         color: Option<String>,
         contents: Option<String>,
         selected_text: Option<String>,
+        author_name: Option<String>,
     ) -> Option<AnnotationRecord>;
 
     // ---- Comments (threaded, on any item) ----
@@ -208,6 +231,7 @@ impl ImbibAnnotationsService for DefaultImbibAnnotationsService {
         color: Option<String>,
         contents: Option<String>,
         selected_text: Option<String>,
+        author_name: Option<String>,
     ) -> Option<AnnotationRecord> {
         self.store
             .create_annotation(
@@ -218,6 +242,7 @@ impl ImbibAnnotationsService for DefaultImbibAnnotationsService {
                 color,
                 contents,
                 selected_text,
+                author_name,
             )
             .map(|r| AnnotationRecord::from(&r))
             .map_err(|e| log("create_annotation", e))
@@ -308,7 +333,7 @@ impress_service_impl! {
     methods = [
         list_annotations(linked_file_id: String, page_number: Option<i32>) -> Vec<AnnotationRecord>,
         count_annotations(linked_file_id: String) -> u32,
-        create_annotation(linked_file_id: String, annotation_type: String, page_number: i64, bounds_json: Option<String>, color: Option<String>, contents: Option<String>, selected_text: Option<String>) -> Option<AnnotationRecord>,
+        create_annotation(linked_file_id: String, annotation_type: String, page_number: i64, bounds_json: Option<String>, color: Option<String>, contents: Option<String>, selected_text: Option<String>, author_name: Option<String>) -> Option<AnnotationRecord>,
         list_comments_for_item(item_id: String) -> Vec<CommentRecord>,
         list_comments(publication_id: String) -> Vec<CommentRecord>,
         list_comments_since(item_id: String, since_clock: u64) -> Vec<CommentRecord>,

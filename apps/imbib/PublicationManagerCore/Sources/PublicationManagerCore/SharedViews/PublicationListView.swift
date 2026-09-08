@@ -51,7 +51,11 @@ public final class PublicationListActions {
     public var onFileDrop: ((UUID, [NSItemProvider]) -> Void)?
     public var onListDrop: (([NSItemProvider], DropTarget) -> Void)?
     public var onDownloadPDFs: ((Set<UUID>) -> Void)?
-    public var onSendToEInkDevice: ((Set<UUID>) -> Void)?
+    /// Mark / unmark for the reMarkable (ADR-025). The host sets it only
+    /// while a device in individual mode is configured; the menu derives the
+    /// label from the first row's `einkState` and the host applies the
+    /// any-unmirrored → mirror-all rule (the star rule) to the selection.
+    public var onToggleEink: ((Set<UUID>) -> Void)?
     public var onSaveToLibrary: ((Set<UUID>, UUID) async -> Void)?
     public var onDismiss: ((Set<UUID>) async -> Void)?
     public var onToggleStar: ((Set<UUID>) async -> Void)?
@@ -1410,12 +1414,19 @@ public struct PublicationListView: View {
             }
         }
 
-        // Send to E-Ink Device
-        if let onSendToEInkDevice = actions.onSendToEInkDevice {
+        // Mirror to reMarkable (ADR-025). Present only while a device in
+        // individual mode is configured (the host leaves the action nil
+        // otherwise); the label follows the first selected row's state.
+        if let onToggleEink = actions.onToggleEink,
+           let first = ids.first, let rowData = listSnapshot.row(withID: first) {
+            let state = rowData.einkState
             Button {
-                onSendToEInkDevice(ids)
+                onToggleEink(ids)
             } label: {
-                Label("Send to E-Ink Device", systemImage: "rectangle.portrait.on.rectangle.portrait.angled")
+                Label(
+                    state?.menuVerb ?? EInkMirrorState.mirrorVerb,
+                    systemImage: state == nil ? "rectangle.portrait" : "rectangle.portrait.slash"
+                )
             }
         }
 
@@ -1841,6 +1852,11 @@ public struct PublicationListView: View {
             actions.onShareByEmail?(rowData.id)
         } : nil
 
+        // Row-level mirror toggle (swipe + row context menu); nil hides it.
+        let toggleEinkHandler: (() -> Void)? = actions.onToggleEink != nil ? {
+            actions.onToggleEink?([rowData.id])
+        } : nil
+
         let exploreReferencesHandler: (() -> Void)? = actions.onExploreReferences != nil ? {
             actions.onExploreReferences?(rowData.id)
         } : nil
@@ -1882,6 +1898,7 @@ public struct PublicationListView: View {
             onDelete: deleteHandler,
             onSave: saveHandler,
             onDismiss: dismissHandler,
+            onToggleEink: toggleEinkHandler,
             onSetFlag: setFlagHandler,
             onClearFlag: clearFlagHandler,
             onAddTag: addTagHandler,

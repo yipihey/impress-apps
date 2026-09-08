@@ -13,8 +13,7 @@ import Foundation
 /// Protocol for E-Ink device sync backends.
 ///
 /// Implementations include:
-/// - `RemarkableCloudDevice`: reMarkable Cloud API
-/// - `RemarkableLocalDevice`: reMarkable local folder sync
+/// - `RemarkableDeviceAdapter`: a `RemarkableSyncBackend` (USB web, local network, cloud)
 /// - `SupernoteDevice`: Supernote folder/cloud sync
 /// - `KindleScribeDevice`: Kindle Scribe USB/email sync
 public protocol EInkDevice: Actor {
@@ -178,6 +177,18 @@ public final class EInkDeviceManager {
 
         activeDevice = device
         EInkSettingsStore.shared.activeDeviceID = deviceID
+    }
+
+    /// Adopt a device restored from a store record as the active one WITHOUT
+    /// probing it (ADR-025 P7, `EInkDeviceRegistrar`). `selectDevice` asks
+    /// `isAvailable()`, a USB round trip that fails whenever the cable is
+    /// out — which is why nothing survived a relaunch. Reachability is
+    /// `EInkConnectionMonitor`'s job; this only makes the device known.
+    public func restoreActiveDevice(_ device: any EInkDevice) async {
+        await registerDevice(device)
+        if activeDevice == nil {
+            activeDevice = device
+        }
     }
 
     /// Get the active device, throwing if none is configured.

@@ -140,6 +140,12 @@ public enum SiblingApp: String, CaseIterable, Sendable, Codable {
         /// `/api/health` and `/api/pair` are unauthenticated; everything else
         /// requires the keychain bearer (`com.impress.ai-http`).
         public static let impressAIPort: UInt16 = 8787
+
+        /// oMLX (`app.omlx`), the local model host. The Rust registry owns
+        /// this default (`impress_ai::catalogue::OMLX_PORT`); Swift only
+        /// launches the app when Rust reports the managed loopback endpoint
+        /// unreachable, so the two constants must agree.
+        public static let omlxPort: UInt16 = 8000
     }
 
     private static let byID: [SiblingApp: SiblingAppDescriptor] =

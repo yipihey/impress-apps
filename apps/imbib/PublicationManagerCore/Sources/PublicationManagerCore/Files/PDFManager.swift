@@ -438,7 +438,47 @@ public final class AttachmentManager {
 
     // MARK: - Download PDF
 
+    /// Fetch the bytes at a URL, insisting on HTTP 200 and a non-empty body.
+    /// Shared by `downloadAndImport` and `PDFAcquisitionService.live`, so the
+    /// two paths cannot disagree about what a failed download looks like.
+    /// Throws `PDFAcquisitionError` (`httpStatus`, `emptyDownload`,
+    /// `downloadFailed`); a cancelled task rethrows `CancellationError`.
+    nonisolated public static func fetchPDFBytes(from url: URL, session: URLSession = .shared) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(from: url)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            throw PDFAcquisitionError.downloadFailed(url: url, message: error.localizedDescription)
+        }
+
+        if let httpResponse = response as? HTTPURLResponse {
+            guard httpResponse.statusCode == 200 else {
+                Logger.files.errorCapture("HTTP \(httpResponse.statusCode) from \(url.absoluteString)", category: "files")
+                throw PDFAcquisitionError.httpStatus(url: url, code: httpResponse.statusCode)
+            }
+            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
+            if !contentType.contains("pdf") && !contentType.contains("octet-stream") {
+                Logger.files.warningCapture("Unexpected content type: \(contentType)", category: "files")
+            }
+        }
+
+        guard !data.isEmpty else {
+            throw PDFAcquisitionError.emptyDownload(url: url)
+        }
+        return data
+    }
+
     /// Download a PDF from a URL and import it.
+    ///
+    /// Hardened with `PDFAcquisitionService` (ADR-025 P7): the bytes must
+    /// start with `%PDF` (an HTML error page served as 200 used to be filed
+    /// as the paper's PDF), and bytes identical to an already-linked file
+    /// reuse that record instead of writing a second copy.
     @discardableResult
     public func downloadAndImport(
         from url: URL,
@@ -447,29 +487,35 @@ public final class AttachmentManager {
     ) async throws -> LinkedFileModel {
         Logger.files.infoCapture("Downloading PDF from: \(url.absoluteString)", category: "files")
 
-        // Download the PDF
-        let (data, response) = try await URLSession.shared.data(from: url)
-
-        // Verify it's a PDF
-        if let httpResponse = response as? HTTPURLResponse {
-            guard httpResponse.statusCode == 200 else {
-                Logger.files.errorCapture("HTTP error: \(httpResponse.statusCode)", category: "files")
-                throw AttachmentError.downloadFailed(url, nil)
+        let data: Data
+        do {
+            data = try await Self.fetchPDFBytes(from: url)
+        } catch let error as PDFAcquisitionError {
+            switch error {
+            case .emptyDownload:
+                throw AttachmentError.emptyDownload(url)
+            default:
+                throw AttachmentError.downloadFailed(url, error)
             }
-
-            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
-            if !contentType.contains("pdf") && !contentType.contains("octet-stream") {
-                Logger.files.warningCapture("Unexpected content type: \(contentType)", category: "files")
-            }
-        }
-
-        guard !data.isEmpty else {
-            throw AttachmentError.emptyDownload(url)
         }
 
         Logger.files.infoCapture("Downloaded \(data.count) bytes", category: "files")
 
-        let linkedFile = try importPDF(data: data, for: publicationId, in: libraryId)
+        guard PDFAcquisitionService.hasPDFMagic(data) else {
+            Logger.files.warningCapture(
+                "Downloaded bytes from \(url.host ?? url.absoluteString) are not a PDF (no %PDF header); refusing to import",
+                category: "files")
+            throw AttachmentError.notAPDF(url)
+        }
+
+        let linkedFile: LinkedFileModel
+        switch checkForDuplicate(data: data, in: publicationId) {
+        case .duplicate(let existing, let hash) where existing.sha256 == hash:
+            Logger.files.infoCapture("Downloaded bytes match existing \(existing.filename); reusing", category: "files")
+            linkedFile = existing
+        case .duplicate(_, let hash), .noDuplicate(let hash):
+            linkedFile = try importPDF(data: data, for: publicationId, in: libraryId, precomputedHash: hash)
+        }
         markPDFDownloaded(publicationId)
 
         // ADR-020: Record PDF download signal for recommendation engine
@@ -1138,6 +1184,8 @@ public enum AttachmentError: LocalizedError {
     case writeFailed(URL, Error)
     case downloadFailed(URL, Error?)
     case emptyDownload(URL)
+    /// The download completed but the bytes do not start with `%PDF`.
+    case notAPDF(URL)
     case noPapersDirectory
     case fileNotFound(String)
     case unsupportedFileType(String)
@@ -1155,6 +1203,8 @@ public enum AttachmentError: LocalizedError {
             return "Failed to download file from \(url.host ?? url.absoluteString)"
         case .emptyDownload(let url):
             return "Downloaded empty file from \(url.host ?? url.absoluteString)"
+        case .notAPDF(let url):
+            return "Downloaded file from \(url.host ?? url.absoluteString) is not a valid PDF"
         case .noPapersDirectory:
             return "No Papers directory configured"
         case .fileNotFound(let path):

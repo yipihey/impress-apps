@@ -4,13 +4,13 @@
 //! an item in the synced graph. A phone and a laptop can legitimately observe
 //! different worker reachability while still agreeing on every queued task.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, ErrorKind, Write};
-#[cfg(unix)]
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+use crate::fs_lock::{self, FileLock};
 
 pub const WORKER_PROTOCOL_VERSION: u32 = 1;
 pub const WORKER_HEARTBEAT_INTERVAL_SECS: u64 = 5;
@@ -182,81 +182,17 @@ fn write_worker_status_inner(
 /// automatically on crash, avoiding stale-file deletion races.
 #[derive(Debug)]
 pub struct WorkerLease {
-    file: File,
+    #[allow(dead_code)]
+    lock: FileLock,
 }
 
 impl WorkerLease {
     pub fn acquire(workspace: impl AsRef<Path>) -> io::Result<Self> {
-        let runtime = worker_runtime_directory(workspace);
-        fs::create_dir_all(&runtime)?;
-        let path = runtime.join(LEASE_FILE);
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&path)?;
-        try_lock_exclusive(&file).map_err(|error| {
-            if error.kind() == ErrorKind::WouldBlock {
-                io::Error::new(
-                    ErrorKind::AlreadyExists,
-                    format!("another impel-taskd worker holds {}", path.display()),
-                )
-            } else {
-                error
-            }
-        })?;
-        Ok(Self { file })
+        let path = worker_runtime_directory(workspace).join(LEASE_FILE);
+        let lock = FileLock::try_exclusive(&path)
+            .map_err(fs_lock::already_locked(&path, "impel-taskd worker"))?;
+        Ok(Self { lock })
     }
-}
-
-impl Drop for WorkerLease {
-    fn drop(&mut self) {
-        let _ = unlock(&self.file);
-    }
-}
-
-#[cfg(unix)]
-fn try_lock_exclusive(file: &File) -> io::Result<()> {
-    const LOCK_EX: i32 = 2;
-    const LOCK_NB: i32 = 4;
-    // SAFETY: `file` owns a valid descriptor for the duration of the call.
-    let result = unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(unix)]
-fn unlock(file: &File) -> io::Result<()> {
-    const LOCK_UN: i32 = 8;
-    // SAFETY: `file` owns a valid descriptor for the duration of the call.
-    let result = unsafe { flock(file.as_raw_fd(), LOCK_UN) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(unix)]
-unsafe extern "C" {
-    fn flock(fd: i32, operation: i32) -> i32;
-}
-
-#[cfg(not(unix))]
-fn try_lock_exclusive(_file: &File) -> io::Result<()> {
-    Err(io::Error::new(
-        ErrorKind::Unsupported,
-        "impel-taskd worker leases require a Unix host",
-    ))
-}
-
-#[cfg(not(unix))]
-fn unlock(_file: &File) -> io::Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]

@@ -9,8 +9,9 @@ use impress_core::item::{Item, Value as CoreValue};
 use serde_json::{json, Value};
 
 use crate::blob::BlobStore;
+use crate::registry::{AiRegistry, ResolveTarget};
 use crate::research::ResearchContextProvider;
-use crate::store::{AiStore, INFERENCE_TASK_KIND, TITLE_SUGGESTION_TASK_KIND};
+use crate::store::{AiStore, PreparedTurn, INFERENCE_TASK_KIND, TITLE_SUGGESTION_TASK_KIND};
 use crate::tools::{ToolAdapter, ToolCallAccumulator};
 use crate::types::{
     CompletionRecord, ModelContentPart, ModelMessage, ModelToolCall, Role, StreamEvent,
@@ -20,15 +21,80 @@ use crate::{Error, InferenceProvider, OmlxClient};
 
 const DEFAULT_MAX_TOOL_ROUNDS: u32 = 6;
 
-/// Scheduler adapter that turns durable `impress.ai.respond` tasks into oMLX
+/// Where an executor gets its client: one fixed provider (tests, single-host
+/// deployments) or the device registry, which honours the conversation's
+/// stored provider and the device selection per task.
+enum Inference {
+    Fixed(Arc<dyn InferenceProvider>),
+    Registry(Arc<AiRegistry>),
+}
+
+impl Inference {
+    /// The client plus the provider/endpoint identities recorded on the run.
+    /// With a registry the prepared request's model may be filled in from
+    /// the resolution when the conversation did not pin one.
+    fn resolve(
+        &self,
+        prepared: &mut PreparedTurn,
+    ) -> crate::Result<(Arc<dyn InferenceProvider>, String, String)> {
+        match self {
+            Self::Fixed(provider) => Ok((
+                provider.clone(),
+                provider.provider_id().to_string(),
+                provider.endpoint_id().to_string(),
+            )),
+            Self::Registry(registry) => {
+                let target = ResolveTarget {
+                    provider: prepared.provider.clone(),
+                    model: Some(prepared.request.model.clone())
+                        .filter(|model| !model.trim().is_empty()),
+                    category: None,
+                };
+                let resolved = registry.resolve(&target)?;
+                prepared.request.model = resolved.model.clone();
+                let client = registry.provider(&resolved.provider)?;
+                Ok((client, resolved.provider, resolved.endpoint_id))
+            }
+        }
+    }
+
+    /// Reachability preflight for the scheduler's per-kind readiness gate:
+    /// probe the client this executor would use for a DEFAULT task —
+    /// the fixed provider, or the registry's device-default resolution.
+    /// `models()` is the cheapest authenticated round-trip the provider
+    /// trait offers. Per-conversation pins to OTHER providers share the
+    /// verdict (a coarse gate beats acquiring provably-doomed work; the
+    /// old behavior burned the whole retry budget per task in ~15s).
+    async fn readiness_probe(&self) -> std::result::Result<(), String> {
+        let (client, label) = match self {
+            Self::Fixed(provider) => (provider.clone(), provider.endpoint_id().to_string()),
+            Self::Registry(registry) => {
+                let resolved = registry
+                    .resolve(&ResolveTarget::default())
+                    .map_err(|error| format!("registry resolution failed: {error}"))?;
+                let client = registry
+                    .provider(&resolved.provider)
+                    .map_err(|error| format!("{}: {error}", resolved.provider))?;
+                (client, resolved.endpoint_id)
+            }
+        };
+        match tokio::time::timeout(Duration::from_secs(3), client.models()).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(format!("provider {label} unreachable: {error}")),
+            Err(_) => Err(format!("provider {label} probe timed out")),
+        }
+    }
+}
+
+/// Scheduler adapter that turns durable `impress.ai.respond` tasks into model
 /// runs and appends the attributed assistant message back to the shared graph.
 ///
 /// Tool schemas come from an installed [`ToolAdapter`]. Each model call is
 /// executed, recorded, appended to the endpoint transcript, and followed by a
-/// new oMLX round. Only the final answer becomes a durable chat message.
+/// new model round. Only the final answer becomes a durable chat message.
 pub struct AiTaskExecutor {
     ai: Arc<AiStore>,
-    provider: Arc<dyn InferenceProvider>,
+    inference: Inference,
     blobs: Arc<dyn BlobStore>,
     tool_catalog: BTreeMap<String, Vec<ToolDefinition>>,
     tool_adapter: Option<Arc<dyn ToolAdapter>>,
@@ -46,9 +112,22 @@ impl AiTaskExecutor {
         provider: Arc<dyn InferenceProvider>,
         blobs: Arc<dyn BlobStore>,
     ) -> Self {
+        Self::with_inference(ai, Inference::Fixed(provider), blobs)
+    }
+
+    /// Resolve the client per task from the device registry (ADR-0029).
+    pub fn with_registry(
+        ai: Arc<AiStore>,
+        registry: Arc<AiRegistry>,
+        blobs: Arc<dyn BlobStore>,
+    ) -> Self {
+        Self::with_inference(ai, Inference::Registry(registry), blobs)
+    }
+
+    fn with_inference(ai: Arc<AiStore>, inference: Inference, blobs: Arc<dyn BlobStore>) -> Self {
         Self {
             ai,
-            provider,
+            inference,
             blobs,
             tool_catalog: BTreeMap::new(),
             tool_adapter: None,
@@ -93,7 +172,7 @@ pub type OmlxTaskExecutor = AiTaskExecutor;
 /// masquerading as an assistant response.
 pub struct AiTitleTaskExecutor {
     ai: Arc<AiStore>,
-    provider: Arc<dyn InferenceProvider>,
+    inference: Inference,
 }
 
 impl AiTitleTaskExecutor {
@@ -102,7 +181,17 @@ impl AiTitleTaskExecutor {
     }
 
     pub fn with_provider(ai: Arc<AiStore>, provider: Arc<dyn InferenceProvider>) -> Self {
-        Self { ai, provider }
+        Self {
+            ai,
+            inference: Inference::Fixed(provider),
+        }
+    }
+
+    pub fn with_registry(ai: Arc<AiStore>, registry: Arc<AiRegistry>) -> Self {
+        Self {
+            ai,
+            inference: Inference::Registry(registry),
+        }
     }
 }
 
@@ -130,6 +219,10 @@ impl TaskExecutor for AiTaskExecutor {
             .ai
             .prepare_request(task.id, self.blobs.as_ref(), catalog)
             .map_err(permanent)?;
+        let (client, provider_id, endpoint_id) = self
+            .inference
+            .resolve(&mut prepared)
+            .map_err(classify_transport)?;
 
         let research_context = if prepared.request.tool_policy.allows("web") {
             if let Some(provider) = &self.research {
@@ -152,12 +245,7 @@ impl TaskExecutor for AiTaskExecutor {
 
         let run_id = self
             .ai
-            .record_run_start(
-                task.id,
-                &prepared,
-                self.provider.provider_id(),
-                self.provider.endpoint_id(),
-            )
+            .record_run_start(task.id, &prepared, &provider_id, &endpoint_id)
             .map_err(permanent)?;
         if let Some((query, context)) = research_context {
             let mut result = BTreeMap::new();
@@ -208,7 +296,7 @@ impl TaskExecutor for AiTaskExecutor {
         // tools-disabled request so the model must synthesize a user-facing
         // answer from the evidence it has already collected.
         for round in 0..=self.max_tool_rounds {
-            let mut stream = match self.provider.stream(request.clone()).await {
+            let mut stream = match client.stream(request.clone()).await {
                 Ok(stream) => stream,
                 Err(error) => {
                     let _ = self.ai.record_run_failure(run_id, &error.to_string());
@@ -391,17 +479,7 @@ impl TaskExecutor for AiTaskExecutor {
     /// their retry budget against a connection refusal. `models()` is the
     /// cheapest authenticated round-trip the provider trait offers.
     async fn readiness(&self) -> std::result::Result<(), String> {
-        match tokio::time::timeout(Duration::from_secs(3), self.provider.models()).await {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(error)) => Err(format!(
-                "provider {} unreachable: {error}",
-                self.provider.endpoint_id()
-            )),
-            Err(_) => Err(format!(
-                "provider {} probe timed out",
-                self.provider.endpoint_id()
-            )),
-        }
+        self.inference.readiness_probe().await
     }
 
     // With backoff (45s·3^n) this covers ~30 minutes of provider outage
@@ -425,18 +503,17 @@ impl TaskExecutor for AiTitleTaskExecutor {
         if self.ai.has_completed_run(task.id).map_err(permanent)? {
             return Ok(ExecutionOutcome::Complete);
         }
-        let prepared = self.ai.prepare_title_request(task.id).map_err(permanent)?;
+        let mut prepared = self.ai.prepare_title_request(task.id).map_err(permanent)?;
+        let (client, provider_id, endpoint_id) = self
+            .inference
+            .resolve(&mut prepared)
+            .map_err(classify_transport)?;
         let run_id = self
             .ai
-            .record_run_start(
-                task.id,
-                &prepared,
-                self.provider.provider_id(),
-                self.provider.endpoint_id(),
-            )
+            .record_run_start(task.id, &prepared, &provider_id, &endpoint_id)
             .map_err(permanent)?;
         let started = Instant::now();
-        let mut stream = match self.provider.stream(prepared.request.clone()).await {
+        let mut stream = match client.stream(prepared.request.clone()).await {
             Ok(stream) => stream,
             Err(error) => {
                 let _ = self.ai.record_run_failure(run_id, &error.to_string());
@@ -480,17 +557,7 @@ impl TaskExecutor for AiTitleTaskExecutor {
     }
 
     async fn readiness(&self) -> std::result::Result<(), String> {
-        match tokio::time::timeout(Duration::from_secs(3), self.provider.models()).await {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(error)) => Err(format!(
-                "provider {} unreachable: {error}",
-                self.provider.endpoint_id()
-            )),
-            Err(_) => Err(format!(
-                "provider {} probe timed out",
-                self.provider.endpoint_id()
-            )),
-        }
+        self.inference.readiness_probe().await
     }
 
     fn max_retries(&self) -> u32 {
@@ -669,23 +736,10 @@ fn permanent(error: Error) -> TaskError {
 }
 
 fn classify_transport(error: Error) -> TaskError {
-    match error {
-        // Deterministic request failures: a 4xx (bad request, unknown
-        // model, oversized payload) will fail identically on every retry —
-        // fail fast instead of re-running the whole request ladder. 408
-        // (timeout) and 429 (rate limit) are environmental and stay
-        // retryable.
-        Error::OmlxStatus { status, .. }
-            if (400..500).contains(&status) && status != 408 && status != 429 =>
-        {
-            TaskError::Permanent(error.to_string())
-        }
-        Error::Omlx(_)
-        | Error::OmlxStatus { .. }
-        | Error::Http(_)
-        | Error::Io(_)
-        | Error::Web(_) => TaskError::Retryable(error.to_string()),
-        other => TaskError::Permanent(other.to_string()),
+    if error.is_retryable() {
+        TaskError::Retryable(error.to_string())
+    } else {
+        TaskError::Permanent(error.to_string())
     }
 }
 
@@ -995,6 +1049,108 @@ mod tests {
                     matches!(part, ModelContentPart::Text { text } if text.contains("Answer the user now"))
                 })
         }));
+    }
+
+    #[tokio::test]
+    async fn registry_executor_resolves_the_conversation_provider_per_task() {
+        use crate::credentials::InMemoryCredentials;
+        use mockito::Matcher;
+
+        let directory = tempfile::tempdir().unwrap();
+        let ai = Arc::new(
+            AiStore::open(
+                &directory.path().join("impress.sqlite"),
+                "test:registry-executor",
+                ActorKind::Agent,
+            )
+            .unwrap(),
+        );
+        let blobs = Arc::new(FileBlobStore::open(directory.path().join("blobs")).unwrap());
+        let mut server = mockito::Server::new_async().await;
+        let chat = server
+            .mock("POST", "/v1/chat/completions")
+            .match_body(Matcher::PartialJson(json!({ "model": "mlx-community--Qwen3.5-4B-4bit", "stream": true })))
+            .with_status(200)
+            .with_header("content-type", "text/event-stream")
+            .with_body(concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Three papers.\"},\"finish_reason\":\"stop\"}]}\n\n",
+                "data: [DONE]\n\n"
+            ))
+            .create_async()
+            .await;
+        let registry = AiRegistry::for_app(directory.path(), InMemoryCredentials::new());
+        registry
+            .set_provider_endpoint("omlx", Some(server.url()))
+            .unwrap();
+
+        let conversation = ai
+            .create_conversation(ConversationDraft {
+                provider: "omlx".into(),
+                model: "mlx-community--Qwen3.5-4B-4bit".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let queued = ai
+            .queue_user_turn(conversation, MessageDraft::user("Find papers"))
+            .unwrap();
+        let executor = AiTaskExecutor::with_registry(ai.clone(), registry, blobs);
+        let task = ai.shared_store().get(queued.task_id).unwrap().unwrap();
+        assert_eq!(
+            executor
+                .execute(&task, ai.shared_store().as_ref())
+                .await
+                .unwrap(),
+            ExecutionOutcome::Complete
+        );
+        chat.assert_async().await;
+        let provenance = ai.task_provenance(queued.task_id).unwrap().unwrap();
+        assert_eq!(
+            provenance.run.payload["provider"],
+            CoreValue::String("omlx".into())
+        );
+        assert_ne!(
+            provenance.run.payload["endpoint"],
+            CoreValue::String("local-omlx".into()),
+            "a custom endpoint is recorded under its own identity"
+        );
+        assert_eq!(provenance.outputs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn registry_executor_fails_permanently_when_nothing_is_configured() {
+        use crate::credentials::InMemoryCredentials;
+
+        let directory = tempfile::tempdir().unwrap();
+        let ai = Arc::new(
+            AiStore::open(
+                &directory.path().join("impress.sqlite"),
+                "test:registry-unconfigured",
+                ActorKind::Agent,
+            )
+            .unwrap(),
+        );
+        let blobs = Arc::new(FileBlobStore::open(directory.path().join("blobs")).unwrap());
+        let registry = AiRegistry::for_app(directory.path(), InMemoryCredentials::new());
+        let conversation = ai
+            .create_conversation(ConversationDraft {
+                provider: "anthropic".into(),
+                model: "claude-opus-5".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let queued = ai
+            .queue_user_turn(conversation, MessageDraft::user("hi"))
+            .unwrap();
+        let executor = AiTaskExecutor::with_registry(ai.clone(), registry, blobs);
+        let task = ai.shared_store().get(queued.task_id).unwrap().unwrap();
+        let error = executor
+            .execute(&task, ai.shared_store().as_ref())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, TaskError::Permanent(ref message) if message.contains("not configured")),
+            "{error:?}"
+        );
     }
 
     #[tokio::test]

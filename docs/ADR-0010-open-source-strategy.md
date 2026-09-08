@@ -30,7 +30,7 @@ crates/
   impress-flags         — Flag/priority/workflow-state model
   impress-collab        — Shared CRDT collaboration primitives
   impress-helix         — Helix-style modal editing for terminal interfaces
-  impress-llm           — Multi-provider LLM support (wraps graniet/llm)
+  impress-ai            — Every AI provider the suite talks to (oMLX, Ollama, OpenAI-compatible, Anthropic, OpenAI, Google, OpenRouter), the device selection and the resolution rule (ADR-0029; replaced impress-llm in 2026-09)
   imbib-core            — Cross-platform core for imbib (bibliography engine)
   imprint-core          — Core for imprint (Typst manuscript authoring)
   impart-core           — Core for impart (communication: IMAP/SMTP/MIME)
@@ -111,7 +111,7 @@ The following remain proprietary (closed source, not published to crates.io):
 |-------|--------|
 | `impress-collab` | CRDT collaboration primitives for internal use — not stable enough to publish |
 | `impress-helix` | Helix-style modal editing core — internal to impel-tui |
-| `impress-llm` | LLM provider wrapper — depends on git-pinned upstream, not suitable for publication |
+| `impress-ai` | Provider clients over reqwest (no upstream wrapper); replaced `impress-llm`, which depended on a git-pinned upstream, in 2026-09 (ADR-0029) |
 
 **Not-yet-built proprietary components** (referenced here for completeness):
 

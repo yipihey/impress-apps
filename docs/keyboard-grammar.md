@@ -19,6 +19,7 @@ them.
 | ⌃⌘D | All dark / all light | App + PDF together | App+editor+PDF together |
 | ⌃⌘1…9 | Apply saved layout N | Layouts menu | Layouts menu |
 | ⌘/ | Keyboard shortcuts reference | ✓ | ✓ |
+| ⌃⌘E | Toggle the reMarkable mirror mark on the selection (ADR-025) | Paper ▸ Mirror to reMarkable (also `e`, guarded); disabled until a device is configured, hidden per-row unless it is in individual mode | — |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
 
 **⌥⌘0 was missing from this table until 2026-07-31**, through four apps' worth
@@ -83,6 +84,7 @@ list wrappers (`MessageListWrapper`, `AgentRecordListWrapper`) and in impel's
 | h / l | Cycle pane focus left / right (`PaneFocusCycler`) | `TriageKeyGrammar` (`.focusPaneLeft` / `.focusPaneRight`) |
 | n | Create record of the surface's kind | `TriageKeyGrammar` |
 | s | Toggle star on selection (imbib parity 2026-07: was save; save moved to `*`) | `TriageKeyGrammar` |
+| e | Toggle the reMarkable mirror mark on selection (ADR-025). Publications only — `TriageCapabilities.canMirrorToEink`; every other list wrapper returns `.ignored`. imbib's own `toggleEInkMirrorVim` binding, applied only while a device in individual mode is configured; pairs with ⌃⌘E | `TriageKeyGrammar` (`.toggleEinkMirror`) |
 | d | Dismiss selection (restore when in Dismissed) | `TriageKeyGrammar` |
 | o | Open selected item's working surface | `TriageKeyGrammar` |
 | / | Focus filter | `TriageKeyGrammar` |

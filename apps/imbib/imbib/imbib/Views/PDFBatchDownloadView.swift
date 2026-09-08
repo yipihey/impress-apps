@@ -21,6 +21,8 @@ struct PDFBatchDownloadView: View {
     @State private var downloadTask: Task<Void, Never>?
     @State private var currentIndex: Int = 0
     @State private var currentTitle: String = ""
+    /// The paper whose download is in flight, so Cancel can abort it in the service.
+    @State private var currentPublicationID: UUID?
     @State private var isComplete = false
     @State private var successCount = 0
     @State private var skipCount = 0
@@ -97,7 +99,6 @@ struct PDFBatchDownloadView: View {
 
     private func startDownload() {
         let ids = publicationIDs
-        let libID = libraryID
         logger.info("[BatchDownload] Starting download for \(ids.count) papers")
 
         downloadTask = Task {
@@ -116,6 +117,7 @@ struct PDFBatchDownloadView: View {
                 await MainActor.run {
                     currentIndex = index
                     currentTitle = pub.title
+                    currentPublicationID = pubID
                 }
 
                 // Skip if already has local PDF
@@ -126,7 +128,7 @@ struct PDFBatchDownloadView: View {
                 }
 
                 // Download PDF
-                let success = await downloadPDF(for: pub, libraryID: libID)
+                let success = await downloadPDF(for: pub)
                 await MainActor.run {
                     if success {
                         successCount += 1
@@ -146,50 +148,26 @@ struct PDFBatchDownloadView: View {
 
     private func cancelDownload() {
         downloadTask?.cancel()
+        // The service's download is its own task; cancel it explicitly.
+        if let inFlight = currentPublicationID {
+            Task { await PDFAcquisitionService.shared.cancel(publicationID: inFlight) }
+        }
         dismiss()
     }
 
-    private func downloadPDF(for publication: PublicationModel, libraryID: UUID) async -> Bool {
-        // Resolve PDF URL using PDFURLResolverV2
-        let settings = await PDFSettingsStore.shared.settings
-        let accessStatus = await PDFURLResolverV2.shared.resolve(for: publication, settings: settings)
-
-        guard let resolvedURL = accessStatus.pdfURL else {
-            logger.warning("[BatchDownload] No PDF URL for '\(publication.citeKey)'")
-            return false
-        }
-
-        logger.info("[BatchDownload] Downloading '\(publication.citeKey)' from: \(resolvedURL.absoluteString)")
-
+    /// One paper through `PDFAcquisitionService` (ADR-025 P7): resolution,
+    /// the `%PDF` sniff, duplicate handling and the import live there, deduped
+    /// against anything the PDF tab is fetching. `.background`: a batch never
+    /// opens a browser, so a paywalled paper counts as failed here.
+    private func downloadPDF(for publication: PublicationModel) async -> Bool {
         do {
-            // Download to temp location
-            let (tempURL, _) = try await URLSession.shared.download(from: resolvedURL)
-
-            // Validate it's actually a PDF (check for %PDF header)
-            let fileHandle = try FileHandle(forReadingFrom: tempURL)
-            let header = fileHandle.readData(ofLength: 4)
-            try fileHandle.close()
-
-            guard header.count >= 4,
-                  header[0] == 0x25, // %
-                  header[1] == 0x50, // P
-                  header[2] == 0x44, // D
-                  header[3] == 0x46  // F
-            else {
-                logger.warning("[BatchDownload] Not a valid PDF for '\(publication.citeKey)'")
-                try? FileManager.default.removeItem(at: tempURL)
+            let local = try await PDFAcquisitionService.shared.acquire(publicationID: publication.id, policy: .background)
+            if local == nil {
+                logger.warning("[BatchDownload] No PDF source for '\(publication.citeKey)'")
                 return false
             }
-
-            // Import into library using AttachmentManager
-            try AttachmentManager.shared.importPDF(from: tempURL, for: publication.id, in: libraryID)
-
-            // Clean up temp file
-            try? FileManager.default.removeItem(at: tempURL)
-
             logger.info("[BatchDownload] Downloaded '\(publication.citeKey)' successfully")
             return true
-
         } catch {
             logger.error("[BatchDownload] Failed '\(publication.citeKey)': \(error.localizedDescription)")
             return false
