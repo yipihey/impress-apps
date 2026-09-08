@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressKit
 import OSLog
 
 // MARK: - Enrichment Settings Store
@@ -190,6 +191,46 @@ public actor EnrichmentSettingsStore: EnrichmentSettingsProvider {
         store.set(cachedSettings.autoSyncEnabled, forKey: .enrichmentAutoSyncEnabled)
         store.set(cachedSettings.refreshIntervalDays, forKey: .enrichmentRefreshIntervalDays)
         Logger.enrichment.debug("EnrichmentSettingsStore: saved settings to sync")
+        Self.persistSourcePriorityForDaemon(cachedSettings.sourcePriority)
+    }
+
+    /// Mirror the source order to the shared workspace, where impel-taskd can
+    /// read it.
+    ///
+    /// The settings above live in imbib's OWN defaults domain, and the daemon
+    /// is a different sandboxed executable that cannot read them — so once D1
+    /// made impel the enrichment authority, this order was configured in a
+    /// place the enricher could not see, and the daemon ran on its built-in
+    /// default instead. The file is `imbib_core::enrichment::priority`'s
+    /// format (ADR-0029's `ai/preferences.json` convention), written by hand
+    /// rather than through FFI so that changing a setting needs no xcframework
+    /// rebuild. `the_swift_written_file_shape_parses` on the Rust side pins
+    /// this exact JSON — change the two together.
+    static func persistSourcePriorityForDaemon(_ priority: [EnrichmentSource]) {
+        let payload: [String: Any] = [
+            "version": 1,
+            "source_priority": priority.map { $0.rawValue },
+        ]
+        let directory = SharedWorkspace.workspaceDirectory
+            .appendingPathComponent("enrichment", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true
+            )
+            let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+            try data.write(to: directory.appendingPathComponent("preferences.json"), options: .atomic)
+            Logger.enrichment.debugCapture(
+                "Mirrored source priority for the daemon: \(priority.map { $0.rawValue }.joined(separator: " > "))",
+                category: "enrichment"
+            )
+        } catch {
+            // Not fatal: the daemon falls back to its built-in order, which is
+            // the same answer it gave before this file existed.
+            Logger.enrichment.warningCapture(
+                "Could not mirror source priority for the daemon: \(error.localizedDescription)",
+                category: "enrichment"
+            )
+        }
     }
 
     /// Load settings from synced storage, migrating from local if needed.

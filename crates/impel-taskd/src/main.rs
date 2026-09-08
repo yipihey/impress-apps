@@ -672,9 +672,33 @@ async fn main() {
         scheduler.register(Arc::new(executor));
         scheduler.register(Arc::new(title_executor));
     }
+    // The user's configured source order, not this build's opinion of one.
+    // D1 made impel the enrichment authority whenever it is installed, so the
+    // daemon running on `SourcePriority::default()` meant the order configured
+    // in imbib's settings was simply never honoured by the thing doing the
+    // enriching. imbib mirrors it to `<workspace>/enrichment/preferences.json`
+    // precisely because these two processes cannot share a defaults domain.
+    let source_priority = match SourcePriority::load_from_workspace(&workspace) {
+        Some(configured) => {
+            eprintln!(
+                "impel-taskd: source priority = {} (configured)",
+                configured
+                    .ordered()
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" > ")
+            );
+            configured
+        }
+        None => {
+            eprintln!("impel-taskd: source priority = built-in default (none configured)");
+            SourcePriority::default()
+        }
+    };
     scheduler.register(Arc::new(MetadataResolveExecutor::new(
         sources,
-        SourcePriority::default(),
+        source_priority,
     )));
     // LLM classifier when IMPEL_LLM_{PROVIDER,MODEL,API_KEY} are set;
     // deterministic heuristic otherwise.

@@ -43,6 +43,11 @@ public actor EnrichmentCoordinator {
     private let scheduler: BackgroundScheduler
     private var isStarted = false
 
+    /// The authority resolved at the last `start()`. `nil` before the first
+    /// one — distinct from "resolved to imbib", which is what makes a status
+    /// surface able to say "not decided yet" rather than guessing.
+    private var resolvedAuthority: EnrichmentAuthority?
+
     /// Public access to the enrichment service for citation explorer and other features
     public var enrichmentService: EnrichmentService {
         service
@@ -96,7 +101,28 @@ public actor EnrichmentCoordinator {
             return
         }
 
-        Logger.enrichment.infoCapture("Starting EnrichmentCoordinator", category: "enrichment")
+        // Who owns enrichment on this Mac (D1). When impel is installed it
+        // does, and starting here would mean every newly ingested paper is
+        // fetched twice from the same APIs and classified twice against two
+        // vocabularies, with the winner decided by write order.
+        //
+        // This is NOT a silent no-op: the state is recorded and logged, and
+        // `authority` answers "so who IS enriching my library?" for the UI and
+        // for anyone reading the console.
+        let decision = EnrichmentAuthorityPolicy.current()
+        resolvedAuthority = decision
+        guard decision == .imbib else {
+            Logger.enrichment.infoCapture(
+                "EnrichmentCoordinator standing down — \(decision.explanation)",
+                category: "enrichment"
+            )
+            return
+        }
+
+        Logger.enrichment.infoCapture(
+            "Starting EnrichmentCoordinator — \(decision.explanation)",
+            category: "enrichment"
+        )
 
         // Wire up the persistence callbacks.
         // The batch callback wraps all saves in one outer beginBatchMutation/endBatchMutation,
@@ -182,7 +208,14 @@ public actor EnrichmentCoordinator {
     }
 
     /// Queue all unenriched publications in a library.
+    ///
+    /// Autonomous — it fires when the user merely switches source, not when
+    /// they ask for anything — so it defers to impel like the scheduler does.
     public func queueUnenrichedPublications(inLibrary libraryID: UUID) async {
+        guard EnrichmentAuthorityPolicy.imbibMayEnrichAutonomously() else {
+            Logger.enrichment.debug("Skipping library sweep — impel owns enrichment")
+            return
+        }
         let store = await withStore({ $0 })
         let publications = await MainActor.run {
             store.queryPublications(parentId: libraryID)
@@ -204,6 +237,13 @@ public actor EnrichmentCoordinator {
     }
 
     // MARK: - Status
+
+    /// Which enricher is in charge on this device, and whether this
+    /// coordinator acted on that. Read it before wondering why the queue is
+    /// empty.
+    public var authority: EnrichmentAuthority {
+        resolvedAuthority ?? EnrichmentAuthorityPolicy.current()
+    }
 
     /// Get current queue depth.
     public func queueDepth() async -> Int {
@@ -277,6 +317,15 @@ public actor EnrichmentCoordinator {
     @discardableResult
     public func enrichBatchByIDs(_ publicationIDs: [UUID]) async -> Int {
         guard !publicationIDs.isEmpty else { return 0 }
+        // The feed refresher calls this the moment it imports new papers —
+        // the same papers impel's spawn rule is picking up from the same
+        // inserts. Exactly the double API traffic D1 named.
+        guard EnrichmentAuthorityPolicy.imbibMayEnrichAutonomously() else {
+            Logger.enrichment.debug(
+                "Skipping immediate enrichment of \(publicationIDs.count) paper(s) — impel owns enrichment"
+            )
+            return 0
+        }
 
         // Fetch publication details and extract Sendable data
         let arxivPapers: [(id: UUID, identifiers: [IdentifierType: String])] = await withStore { store in
