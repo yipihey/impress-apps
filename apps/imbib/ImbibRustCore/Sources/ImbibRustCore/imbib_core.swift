@@ -1006,6 +1006,23 @@ public protocol ImbibStoreProtocol : AnyObject {
     func einkGetDevice(id: String) throws  -> EinkDeviceRow?
     
     /**
+     * An import-only pass: pull every document with new annotations back,
+     * send nothing up. `publication_id` narrows it to one paper and
+     * imports it whether or not the tablet reports a change (the way to
+     * re-run an import after changing the device's import switches).
+     */
+    func einkImport(publicationId: String?, deviceId: String?) throws  -> EinkSyncReport
+    
+    /**
+     * Bring one tablet document into the store: as a publication (a
+     * notebook becomes `@misc` with the rendered PDF; a PDF/ePUB whose
+     * bytes match a file already here adopts that publication) or as a
+     * note artifact. `library_id` may be omitted for a document under
+     * `imbib/<Library>` on the tablet.
+     */
+    func einkImportDocument(remoteId: String, libraryId: String?, collectionId: String?, asKind: String?, deviceId: String?) throws  -> EinkDocumentImportOutcome
+    
+    /**
      * How many publications still carry the retired `_remarkable_*` payload
      * keys the old Swift sync manager wrote (expected 0: that writer never
      * worked end to end).
@@ -1017,6 +1034,13 @@ public protocol ImbibStoreProtocol : AnyObject {
      * default device) and optionally by state.
      */
     func einkListMirrored(deviceId: String?, state: String?) throws  -> [EinkMirrorRow]
+    
+    /**
+     * Documents on the tablet that no mirror row accounts for — notebooks
+     * written there, files copied in by hand — in-tree ones first, with
+     * the library and collection their folder names resolve to.
+     */
+    func einkListUnmatched(deviceId: String?) throws  -> [EinkUnmatchedDocument]
     
     /**
      * The PDF (preferred) or ePUB the engine would send for a publication.
@@ -1069,6 +1093,13 @@ public protocol ImbibStoreProtocol : AnyObject {
      * path; list rows get theirs stitched in by `query_publications`.
      */
     func einkRowStates(deviceId: String?) throws  -> [EinkRowState]
+    
+    /**
+     * Highlights, typed text and OCR text an e-ink import wrote, whose
+     * text contains `query` (case-insensitive substring), newest first.
+     * `limit` 0 = 100.
+     */
+    func einkSearchAnnotations(query: String, limit: UInt32) throws  -> [AnnotationRow]
     
     /**
      * Devices, counts for the default device, and the marker context.
@@ -2733,6 +2764,40 @@ open func einkGetDevice(id: String)throws  -> EinkDeviceRow? {
 }
     
     /**
+     * An import-only pass: pull every document with new annotations back,
+     * send nothing up. `publication_id` narrows it to one paper and
+     * imports it whether or not the tablet reports a change (the way to
+     * re-run an import after changing the device's import switches).
+     */
+open func einkImport(publicationId: String?, deviceId: String?)throws  -> EinkSyncReport {
+    return try  FfiConverterTypeEinkSyncReport.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_eink_import(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(publicationId),
+        FfiConverterOptionString.lower(deviceId),$0
+    )
+})
+}
+    
+    /**
+     * Bring one tablet document into the store: as a publication (a
+     * notebook becomes `@misc` with the rendered PDF; a PDF/ePUB whose
+     * bytes match a file already here adopts that publication) or as a
+     * note artifact. `library_id` may be omitted for a document under
+     * `imbib/<Library>` on the tablet.
+     */
+open func einkImportDocument(remoteId: String, libraryId: String?, collectionId: String?, asKind: String?, deviceId: String?)throws  -> EinkDocumentImportOutcome {
+    return try  FfiConverterTypeEinkDocumentImportOutcome.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_eink_import_document(self.uniffiClonePointer(),
+        FfiConverterString.lower(remoteId),
+        FfiConverterOptionString.lower(libraryId),
+        FfiConverterOptionString.lower(collectionId),
+        FfiConverterOptionString.lower(asKind),
+        FfiConverterOptionString.lower(deviceId),$0
+    )
+})
+}
+    
+    /**
      * How many publications still carry the retired `_remarkable_*` payload
      * keys the old Swift sync manager wrote (expected 0: that writer never
      * worked end to end).
@@ -2753,6 +2818,19 @@ open func einkListMirrored(deviceId: String?, state: String?)throws  -> [EinkMir
     uniffi_imbib_core_fn_method_imbibstore_eink_list_mirrored(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(deviceId),
         FfiConverterOptionString.lower(state),$0
+    )
+})
+}
+    
+    /**
+     * Documents on the tablet that no mirror row accounts for — notebooks
+     * written there, files copied in by hand — in-tree ones first, with
+     * the library and collection their folder names resolve to.
+     */
+open func einkListUnmatched(deviceId: String?)throws  -> [EinkUnmatchedDocument] {
+    return try  FfiConverterSequenceTypeEinkUnmatchedDocument.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_eink_list_unmatched(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(deviceId),$0
     )
 })
 }
@@ -2861,6 +2939,20 @@ open func einkRowStates(deviceId: String?)throws  -> [EinkRowState] {
     return try  FfiConverterSequenceTypeEinkRowState.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
     uniffi_imbib_core_fn_method_imbibstore_eink_row_states(self.uniffiClonePointer(),
         FfiConverterOptionString.lower(deviceId),$0
+    )
+})
+}
+    
+    /**
+     * Highlights, typed text and OCR text an e-ink import wrote, whose
+     * text contains `query` (case-insensitive substring), newest first.
+     * `limit` 0 = 100.
+     */
+open func einkSearchAnnotations(query: String, limit: UInt32)throws  -> [AnnotationRow] {
+    return try  FfiConverterSequenceTypeAnnotationRow.lift(try rustCallWithError(FfiConverterTypeStoreApiError.lift) {
+    uniffi_imbib_core_fn_method_imbibstore_eink_search_annotations(self.uniffiClonePointer(),
+        FfiConverterString.lower(query),
+        FfiConverterUInt32.lower(limit),$0
     )
 })
 }
@@ -10054,6 +10146,167 @@ public func FfiConverterTypeEinkDeviceRow_lower(_ value: EinkDeviceRow) -> RustB
 
 
 /**
+ * What importing one document did.
+ */
+public struct EinkDocumentImportOutcome {
+    public var remoteId: String
+    /**
+     * `publication` or `note`.
+     */
+    public var asKind: String
+    public var publicationId: String?
+    public var artifactId: String?
+    /**
+     * The bytes matched a file already in the store.
+     */
+    public var adoptedExisting: Bool
+    public var linkedFileId: String?
+    public var mirrorId: String?
+    public var annotationsCreated: UInt32
+    public var annotationsUpdated: UInt32
+    public var inkPendingOcr: UInt32
+    public var warnings: [String]
+    public var trace: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(remoteId: String, 
+        /**
+         * `publication` or `note`.
+         */asKind: String, publicationId: String?, artifactId: String?, 
+        /**
+         * The bytes matched a file already in the store.
+         */adoptedExisting: Bool, linkedFileId: String?, mirrorId: String?, annotationsCreated: UInt32, annotationsUpdated: UInt32, inkPendingOcr: UInt32, warnings: [String], trace: [String]) {
+        self.remoteId = remoteId
+        self.asKind = asKind
+        self.publicationId = publicationId
+        self.artifactId = artifactId
+        self.adoptedExisting = adoptedExisting
+        self.linkedFileId = linkedFileId
+        self.mirrorId = mirrorId
+        self.annotationsCreated = annotationsCreated
+        self.annotationsUpdated = annotationsUpdated
+        self.inkPendingOcr = inkPendingOcr
+        self.warnings = warnings
+        self.trace = trace
+    }
+}
+
+
+
+extension EinkDocumentImportOutcome: Equatable, Hashable {
+    public static func ==(lhs: EinkDocumentImportOutcome, rhs: EinkDocumentImportOutcome) -> Bool {
+        if lhs.remoteId != rhs.remoteId {
+            return false
+        }
+        if lhs.asKind != rhs.asKind {
+            return false
+        }
+        if lhs.publicationId != rhs.publicationId {
+            return false
+        }
+        if lhs.artifactId != rhs.artifactId {
+            return false
+        }
+        if lhs.adoptedExisting != rhs.adoptedExisting {
+            return false
+        }
+        if lhs.linkedFileId != rhs.linkedFileId {
+            return false
+        }
+        if lhs.mirrorId != rhs.mirrorId {
+            return false
+        }
+        if lhs.annotationsCreated != rhs.annotationsCreated {
+            return false
+        }
+        if lhs.annotationsUpdated != rhs.annotationsUpdated {
+            return false
+        }
+        if lhs.inkPendingOcr != rhs.inkPendingOcr {
+            return false
+        }
+        if lhs.warnings != rhs.warnings {
+            return false
+        }
+        if lhs.trace != rhs.trace {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(remoteId)
+        hasher.combine(asKind)
+        hasher.combine(publicationId)
+        hasher.combine(artifactId)
+        hasher.combine(adoptedExisting)
+        hasher.combine(linkedFileId)
+        hasher.combine(mirrorId)
+        hasher.combine(annotationsCreated)
+        hasher.combine(annotationsUpdated)
+        hasher.combine(inkPendingOcr)
+        hasher.combine(warnings)
+        hasher.combine(trace)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEinkDocumentImportOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EinkDocumentImportOutcome {
+        return
+            try EinkDocumentImportOutcome(
+                remoteId: FfiConverterString.read(from: &buf), 
+                asKind: FfiConverterString.read(from: &buf), 
+                publicationId: FfiConverterOptionString.read(from: &buf), 
+                artifactId: FfiConverterOptionString.read(from: &buf), 
+                adoptedExisting: FfiConverterBool.read(from: &buf), 
+                linkedFileId: FfiConverterOptionString.read(from: &buf), 
+                mirrorId: FfiConverterOptionString.read(from: &buf), 
+                annotationsCreated: FfiConverterUInt32.read(from: &buf), 
+                annotationsUpdated: FfiConverterUInt32.read(from: &buf), 
+                inkPendingOcr: FfiConverterUInt32.read(from: &buf), 
+                warnings: FfiConverterSequenceString.read(from: &buf), 
+                trace: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EinkDocumentImportOutcome, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.remoteId, into: &buf)
+        FfiConverterString.write(value.asKind, into: &buf)
+        FfiConverterOptionString.write(value.publicationId, into: &buf)
+        FfiConverterOptionString.write(value.artifactId, into: &buf)
+        FfiConverterBool.write(value.adoptedExisting, into: &buf)
+        FfiConverterOptionString.write(value.linkedFileId, into: &buf)
+        FfiConverterOptionString.write(value.mirrorId, into: &buf)
+        FfiConverterUInt32.write(value.annotationsCreated, into: &buf)
+        FfiConverterUInt32.write(value.annotationsUpdated, into: &buf)
+        FfiConverterUInt32.write(value.inkPendingOcr, into: &buf)
+        FfiConverterSequenceString.write(value.warnings, into: &buf)
+        FfiConverterSequenceString.write(value.trace, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEinkDocumentImportOutcome_lift(_ buf: RustBuffer) throws -> EinkDocumentImportOutcome {
+    return try FfiConverterTypeEinkDocumentImportOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEinkDocumentImportOutcome_lower(_ value: EinkDocumentImportOutcome) -> RustBuffer {
+    return FfiConverterTypeEinkDocumentImportOutcome.lower(value)
+}
+
+
+/**
  * The local file the engine would send for a publication.
  */
 public struct EinkLocalSource {
@@ -10815,6 +11068,10 @@ public struct EinkSyncReport {
      * Documents with new annotations that were not imported this run.
      */
     public var pendingImports: UInt32
+    /**
+     * Papers due for upload that an import-only pass left queued.
+     */
+    public var pendingUploads: UInt32
     public var trace: [String]
     public var durationMs: Int64
 
@@ -10829,7 +11086,10 @@ public struct EinkSyncReport {
          */failed: [String], folderNeeds: [FolderNeed], foldersCreated: [String], imports: [ImportedDocument], 
         /**
          * Documents with new annotations that were not imported this run.
-         */pendingImports: UInt32, trace: [String], durationMs: Int64) {
+         */pendingImports: UInt32, 
+        /**
+         * Papers due for upload that an import-only pass left queued.
+         */pendingUploads: UInt32, trace: [String], durationMs: Int64) {
         self.deviceId = deviceId
         self.reachable = reachable
         self.dryRun = dryRun
@@ -10840,6 +11100,7 @@ public struct EinkSyncReport {
         self.foldersCreated = foldersCreated
         self.imports = imports
         self.pendingImports = pendingImports
+        self.pendingUploads = pendingUploads
         self.trace = trace
         self.durationMs = durationMs
     }
@@ -10879,6 +11140,9 @@ extension EinkSyncReport: Equatable, Hashable {
         if lhs.pendingImports != rhs.pendingImports {
             return false
         }
+        if lhs.pendingUploads != rhs.pendingUploads {
+            return false
+        }
         if lhs.trace != rhs.trace {
             return false
         }
@@ -10899,6 +11163,7 @@ extension EinkSyncReport: Equatable, Hashable {
         hasher.combine(foldersCreated)
         hasher.combine(imports)
         hasher.combine(pendingImports)
+        hasher.combine(pendingUploads)
         hasher.combine(trace)
         hasher.combine(durationMs)
     }
@@ -10922,6 +11187,7 @@ public struct FfiConverterTypeEinkSyncReport: FfiConverterRustBuffer {
                 foldersCreated: FfiConverterSequenceString.read(from: &buf), 
                 imports: FfiConverterSequenceTypeImportedDocument.read(from: &buf), 
                 pendingImports: FfiConverterUInt32.read(from: &buf), 
+                pendingUploads: FfiConverterUInt32.read(from: &buf), 
                 trace: FfiConverterSequenceString.read(from: &buf), 
                 durationMs: FfiConverterInt64.read(from: &buf)
         )
@@ -10938,6 +11204,7 @@ public struct FfiConverterTypeEinkSyncReport: FfiConverterRustBuffer {
         FfiConverterSequenceString.write(value.foldersCreated, into: &buf)
         FfiConverterSequenceTypeImportedDocument.write(value.imports, into: &buf)
         FfiConverterUInt32.write(value.pendingImports, into: &buf)
+        FfiConverterUInt32.write(value.pendingUploads, into: &buf)
         FfiConverterSequenceString.write(value.trace, into: &buf)
         FfiConverterInt64.write(value.durationMs, into: &buf)
     }
@@ -10956,6 +11223,165 @@ public func FfiConverterTypeEinkSyncReport_lift(_ buf: RustBuffer) throws -> Ein
 #endif
 public func FfiConverterTypeEinkSyncReport_lower(_ value: EinkSyncReport) -> RustBuffer {
     return FfiConverterTypeEinkSyncReport.lower(value)
+}
+
+
+/**
+ * A document on the tablet with no mirror row behind it.
+ */
+public struct EinkUnmatchedDocument {
+    public var remoteId: String
+    public var name: String
+    /**
+     * `notebook`, `pdf` or `epub`.
+     */
+    public var kind: String
+    /**
+     * Folder names from the top, joined with `/` (empty at the top level).
+     */
+    public var remotePath: String
+    public var remoteParentId: String
+    /**
+     * Under the device's root folder.
+     */
+    public var inImbibTree: Bool
+    /**
+     * Resolved from the folder names when they match a library and a
+     * collection chain; the import needs nothing more then.
+     */
+    public var libraryId: String?
+    public var collectionId: String?
+    public var modifiedMs: Int64
+    public var pageCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(remoteId: String, name: String, 
+        /**
+         * `notebook`, `pdf` or `epub`.
+         */kind: String, 
+        /**
+         * Folder names from the top, joined with `/` (empty at the top level).
+         */remotePath: String, remoteParentId: String, 
+        /**
+         * Under the device's root folder.
+         */inImbibTree: Bool, 
+        /**
+         * Resolved from the folder names when they match a library and a
+         * collection chain; the import needs nothing more then.
+         */libraryId: String?, collectionId: String?, modifiedMs: Int64, pageCount: UInt32) {
+        self.remoteId = remoteId
+        self.name = name
+        self.kind = kind
+        self.remotePath = remotePath
+        self.remoteParentId = remoteParentId
+        self.inImbibTree = inImbibTree
+        self.libraryId = libraryId
+        self.collectionId = collectionId
+        self.modifiedMs = modifiedMs
+        self.pageCount = pageCount
+    }
+}
+
+
+
+extension EinkUnmatchedDocument: Equatable, Hashable {
+    public static func ==(lhs: EinkUnmatchedDocument, rhs: EinkUnmatchedDocument) -> Bool {
+        if lhs.remoteId != rhs.remoteId {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.remotePath != rhs.remotePath {
+            return false
+        }
+        if lhs.remoteParentId != rhs.remoteParentId {
+            return false
+        }
+        if lhs.inImbibTree != rhs.inImbibTree {
+            return false
+        }
+        if lhs.libraryId != rhs.libraryId {
+            return false
+        }
+        if lhs.collectionId != rhs.collectionId {
+            return false
+        }
+        if lhs.modifiedMs != rhs.modifiedMs {
+            return false
+        }
+        if lhs.pageCount != rhs.pageCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(remoteId)
+        hasher.combine(name)
+        hasher.combine(kind)
+        hasher.combine(remotePath)
+        hasher.combine(remoteParentId)
+        hasher.combine(inImbibTree)
+        hasher.combine(libraryId)
+        hasher.combine(collectionId)
+        hasher.combine(modifiedMs)
+        hasher.combine(pageCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEinkUnmatchedDocument: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EinkUnmatchedDocument {
+        return
+            try EinkUnmatchedDocument(
+                remoteId: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                remotePath: FfiConverterString.read(from: &buf), 
+                remoteParentId: FfiConverterString.read(from: &buf), 
+                inImbibTree: FfiConverterBool.read(from: &buf), 
+                libraryId: FfiConverterOptionString.read(from: &buf), 
+                collectionId: FfiConverterOptionString.read(from: &buf), 
+                modifiedMs: FfiConverterInt64.read(from: &buf), 
+                pageCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EinkUnmatchedDocument, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.remoteId, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.remotePath, into: &buf)
+        FfiConverterString.write(value.remoteParentId, into: &buf)
+        FfiConverterBool.write(value.inImbibTree, into: &buf)
+        FfiConverterOptionString.write(value.libraryId, into: &buf)
+        FfiConverterOptionString.write(value.collectionId, into: &buf)
+        FfiConverterInt64.write(value.modifiedMs, into: &buf)
+        FfiConverterUInt32.write(value.pageCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEinkUnmatchedDocument_lift(_ buf: RustBuffer) throws -> EinkUnmatchedDocument {
+    return try FfiConverterTypeEinkUnmatchedDocument.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEinkUnmatchedDocument_lower(_ value: EinkUnmatchedDocument) -> RustBuffer {
+    return FfiConverterTypeEinkUnmatchedDocument.lower(value)
 }
 
 
@@ -13247,6 +13673,11 @@ public func FfiConverterTypeImportCommand_lower(_ value: ImportCommand) -> RustB
  */
 public struct ImportOutcome {
     public var annotatedFileId: String?
+    /**
+     * Set when the import refreshed the primary file itself (a notebook
+     * the tablet authored); the mirror row's `uploaded_sha256` follows it.
+     */
+    public var primarySha256: String?
     public var created: UInt32
     public var updated: UInt32
     public var deleted: UInt32
@@ -13255,8 +13686,13 @@ public struct ImportOutcome {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(annotatedFileId: String?, created: UInt32, updated: UInt32, deleted: UInt32, inkPendingOcr: UInt32, warnings: [String]) {
+    public init(annotatedFileId: String?, 
+        /**
+         * Set when the import refreshed the primary file itself (a notebook
+         * the tablet authored); the mirror row's `uploaded_sha256` follows it.
+         */primarySha256: String?, created: UInt32, updated: UInt32, deleted: UInt32, inkPendingOcr: UInt32, warnings: [String]) {
         self.annotatedFileId = annotatedFileId
+        self.primarySha256 = primarySha256
         self.created = created
         self.updated = updated
         self.deleted = deleted
@@ -13270,6 +13706,9 @@ public struct ImportOutcome {
 extension ImportOutcome: Equatable, Hashable {
     public static func ==(lhs: ImportOutcome, rhs: ImportOutcome) -> Bool {
         if lhs.annotatedFileId != rhs.annotatedFileId {
+            return false
+        }
+        if lhs.primarySha256 != rhs.primarySha256 {
             return false
         }
         if lhs.created != rhs.created {
@@ -13292,6 +13731,7 @@ extension ImportOutcome: Equatable, Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(annotatedFileId)
+        hasher.combine(primarySha256)
         hasher.combine(created)
         hasher.combine(updated)
         hasher.combine(deleted)
@@ -13309,6 +13749,7 @@ public struct FfiConverterTypeImportOutcome: FfiConverterRustBuffer {
         return
             try ImportOutcome(
                 annotatedFileId: FfiConverterOptionString.read(from: &buf), 
+                primarySha256: FfiConverterOptionString.read(from: &buf), 
                 created: FfiConverterUInt32.read(from: &buf), 
                 updated: FfiConverterUInt32.read(from: &buf), 
                 deleted: FfiConverterUInt32.read(from: &buf), 
@@ -13319,6 +13760,7 @@ public struct FfiConverterTypeImportOutcome: FfiConverterRustBuffer {
 
     public static func write(_ value: ImportOutcome, into buf: inout [UInt8]) {
         FfiConverterOptionString.write(value.annotatedFileId, into: &buf)
+        FfiConverterOptionString.write(value.primarySha256, into: &buf)
         FfiConverterUInt32.write(value.created, into: &buf)
         FfiConverterUInt32.write(value.updated, into: &buf)
         FfiConverterUInt32.write(value.deleted, into: &buf)
@@ -30038,6 +30480,31 @@ fileprivate struct FfiConverterSequenceTypeEinkRowState: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeEinkUnmatchedDocument: FfiConverterRustBuffer {
+    typealias SwiftType = [EinkUnmatchedDocument]
+
+    public static func write(_ value: [EinkUnmatchedDocument], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeEinkUnmatchedDocument.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [EinkUnmatchedDocument] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [EinkUnmatchedDocument]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeEinkUnmatchedDocument.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeExtractedIdentifier: FfiConverterRustBuffer {
     typealias SwiftType = [ExtractedIdentifier]
 
@@ -35212,10 +35679,19 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imbib_core_checksum_method_imbibstore_eink_get_device() != 33213) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imbib_core_checksum_method_imbibstore_eink_import() != 42905) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_eink_import_document() != 34903) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imbib_core_checksum_method_imbibstore_eink_legacy_marker_rows() != 20749) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_eink_list_mirrored() != 44001) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_eink_list_unmatched() != 33216) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_eink_local_source() != 3558) {
@@ -35243,6 +35719,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_eink_row_states() != 45460) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imbib_core_checksum_method_imbibstore_eink_search_annotations() != 34786) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imbib_core_checksum_method_imbibstore_eink_status() != 43689) {
