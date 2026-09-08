@@ -230,7 +230,14 @@ impl ImbibStore {
             })
             .collect();
         if entries.is_empty() {
-            return Ok(false);
+            let pending = rows
+                .iter()
+                .filter(|r| r.annotation_type == "ink" && r.ocr_confidence.is_none())
+                .count();
+            return Err(StoreApiError::InvalidInput(format!(
+                "nothing to append yet: the {} imported row(s) carry no text ({pending} ink row(s) still await handwriting recognition)",
+                rows.len()
+            )));
         }
         let date = Utc::now().format("%Y-%m-%d").to_string();
         let block = notes_merge::build_block(&date, &remote_id, imported_ms, &entries);

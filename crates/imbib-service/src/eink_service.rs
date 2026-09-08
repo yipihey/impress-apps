@@ -528,7 +528,8 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     ) -> MutationResult;
     /// Append the imported highlights and notes to the paper's Notes field
     /// as one dated block. A snapshot already appended is skipped unless
-    /// `force`. Never runs on its own.
+    /// `force`; rows that carry no text yet (handwriting awaiting
+    /// recognition) are an error, not a silent no-op. Never runs on its own.
     #[impress_method]
     async fn eink_append_notes(&self, publication_id: String, force: bool) -> EinkAppendResult;
 }
