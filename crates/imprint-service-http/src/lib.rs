@@ -560,6 +560,7 @@ pub fn maybe_install_http_backend() -> bool {
     let mode = std::env::var("IMPRINT_BACKEND").unwrap_or_else(|_| "auto".into());
     if mode == "sqlite" {
         eprintln!("[imprint-service-http] IMPRINT_BACKEND=sqlite — skipping HTTP probe");
+        imprint_service::clear_backend();
         return false;
     }
 
@@ -592,6 +593,9 @@ pub fn maybe_install_http_backend() -> bool {
                     "[imprint-service-http] IMPRINT_BACKEND=http but imprint HTTP unreachable; service calls will fail."
                 );
             } else {
+                // Release a backend an earlier probe installed: imprint has
+                // quit, and the in-process backend reads the same store.
+                imprint_service::clear_backend();
                 eprintln!(
                     "[imprint-service-http] imprint HTTP unreachable; falling back to in-process imprint-service backend."
                 );

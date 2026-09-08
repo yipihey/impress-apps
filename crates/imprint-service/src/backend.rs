@@ -10,6 +10,8 @@
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
+use impress_service_core::BackendSlot;
+
 use crate::handlers::DefaultImprintHttpHandlers;
 use crate::manuscript_service::{DefaultImprintManuscriptService, ImprintManuscriptService};
 use crate::text_service::{DefaultImprintTextService, ImprintTextService};
@@ -37,16 +39,23 @@ pub trait ImprintBackend: Send + Sync + 'static {
     }
 }
 
-static BACKEND: OnceLock<Box<dyn ImprintBackend>> = OnceLock::new();
+static BACKEND: BackendSlot<dyn ImprintBackend> = BackendSlot::new();
 static DEFAULT_HANDLERS: OnceLock<Arc<DefaultImprintHttpHandlers>> = OnceLock::new();
 
-/// Install a non-default backend (typically HTTP). First call wins.
+/// Install (or replace) a non-default backend, typically HTTP. Called on
+/// every reachability probe, not only at startup — see
+/// [`impress_service_core::BackendSlot`].
 pub fn register_backend(backend: Box<dyn ImprintBackend>) {
-    let _ = BACKEND.set(backend);
+    BACKEND.install(Arc::from(backend));
+}
+
+/// Uninstall the current backend: dispatch returns to the defaults.
+pub fn clear_backend() {
+    BACKEND.clear();
 }
 
 pub fn has_custom_backend() -> bool {
-    BACKEND.get().is_some()
+    BACKEND.is_installed()
 }
 
 /// Path used when the default backend auto-opens the workspace. Override

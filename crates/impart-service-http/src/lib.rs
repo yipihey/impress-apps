@@ -349,6 +349,7 @@ impl ImpartBackend for HttpBackend {
 pub fn maybe_install_http_backend() -> bool {
     if std::env::var("IMPART_BACKEND").as_deref() == Ok("off") {
         eprintln!("[impart-service-http] IMPART_BACKEND=off — skipping probe");
+        impart_service::clear_backend();
         return false;
     }
 
@@ -365,6 +366,9 @@ pub fn maybe_install_http_backend() -> bool {
         register_backend(Box::new(HttpBackend::new(client)));
         true
     } else {
+        // Release a backend an earlier probe installed: impart has quit, and
+        // a refusal names that, where a dead HTTP client just times out.
+        impart_service::clear_backend();
         eprintln!("[impart-service-http] impart unreachable; tools will refuse");
         false
     }

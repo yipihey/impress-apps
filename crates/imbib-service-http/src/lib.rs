@@ -1604,6 +1604,7 @@ pub fn maybe_install_http_backend() -> bool {
     let mode = std::env::var("IMBIB_BACKEND").unwrap_or_else(|_| "auto".into());
     if mode == "sqlite" {
         eprintln!("[imbib-service-http] IMBIB_BACKEND=sqlite — skipping HTTP probe");
+        imbib_service::clear_backend();
         return false;
     }
 
@@ -1642,12 +1643,21 @@ pub fn maybe_install_http_backend() -> bool {
         }
         None => {
             if mode == "http" {
+                // Forced HTTP: keep any installed backend so calls fail
+                // loudly against the port the user pinned, rather than
+                // quietly answering from the store they opted out of.
                 eprintln!(
                     "[imbib-service-http] IMBIB_BACKEND=http but imbib HTTP unreachable; service calls will fail."
                 );
             } else {
+                // Release a backend installed by an earlier probe: imbib has
+                // quit, and an HTTP client aimed at a dead port is strictly
+                // worse than reading the shared store.
+                let had = imbib_service::has_custom_backend();
+                imbib_service::clear_backend();
                 eprintln!(
-                    "[imbib-service-http] imbib HTTP unreachable; falling back to SQLite backend (may fail due to TCC)."
+                    "[imbib-service-http] imbib HTTP unreachable; {} SQLite backend (may fail due to TCC).",
+                    if had { "released HTTP backend, falling back to" } else { "falling back to" }
                 );
             }
             false

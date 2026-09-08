@@ -11,7 +11,9 @@
 //! the first method call after `register_backend` (or lazily falls back
 //! to SQLite if nothing was registered).
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+
+use impress_service_core::BackendSlot;
 
 use crate::annotations_service::{DefaultImbibAnnotationsService, ImbibAnnotationsService};
 use crate::app_service::{DefaultImbibAppService, ImbibAppService};
@@ -60,18 +62,25 @@ pub trait ImbibBackend: Send + Sync + 'static {
     }
 }
 
-static BACKEND: OnceLock<Box<dyn ImbibBackend>> = OnceLock::new();
+static BACKEND: BackendSlot<dyn ImbibBackend> = BackendSlot::new();
 
-/// Install a non-default backend (typically HTTP). First call wins —
-/// later calls are silently ignored. Call this at process startup,
-/// BEFORE the first MCP/CLI/Python dispatch.
+/// Install (or replace) a non-default backend, typically HTTP. Called by
+/// `imbib_service_http::maybe_install_http_backend` on every reachability
+/// probe, not only at startup.
 pub fn register_backend(backend: Box<dyn ImbibBackend>) {
-    let _ = BACKEND.set(backend);
+    BACKEND.install(Arc::from(backend));
 }
 
-/// True iff a non-default backend has been installed.
+/// Uninstall the current backend: dispatch returns to the SQLite defaults.
+/// What a probe calls when imbib is no longer answering — a backend pointed
+/// at a port nothing is listening on is worse than reading the shared store.
+pub fn clear_backend() {
+    BACKEND.clear();
+}
+
+/// True iff a non-default backend is currently installed.
 pub fn has_custom_backend() -> bool {
-    BACKEND.get().is_some()
+    BACKEND.is_installed()
 }
 
 // ---------------------------------------------------------------------------

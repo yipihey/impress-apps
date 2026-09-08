@@ -332,3 +332,130 @@ mod tests {
         assert!(structured.get(MCP_CONTENT_FIELD).is_none());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Backend slot
+// ---------------------------------------------------------------------------
+
+/// The process-wide, swappable backend a `*-service` crate dispatches through.
+///
+/// Every service crate has the same shape: a default implementation reading the
+/// shared store, and an optional HTTP backend that routes calls to the running
+/// app instead. Which one is in force is decided by a reachability probe — and
+/// for as long as that slot was a `OnceLock`, the FIRST probe decided it
+/// forever. A daemon that started while imbib was open kept talking to a port
+/// nothing was listening on after imbib quit; one that started while imbib was
+/// closed never noticed it come back. Both look like an app with no data.
+///
+/// So the slot is a lock, not a latch: [`install`](Self::install) replaces, and
+/// [`clear`](Self::clear) hands dispatch back to the default. Re-probing is the
+/// caller's job (see each `*-service-http` crate's `maybe_install_http_backend`).
+///
+/// Reads take an uncontended read lock and clone an `Arc` — the same cost the
+/// `OnceLock` version paid to hand out its `Arc`.
+pub struct BackendSlot<T: ?Sized> {
+    inner: std::sync::RwLock<Option<std::sync::Arc<T>>>,
+}
+
+impl<T: ?Sized> BackendSlot<T> {
+    /// An empty slot: dispatch goes to the crate's default implementation.
+    pub const fn new() -> Self {
+        Self {
+            inner: std::sync::RwLock::new(None),
+        }
+    }
+
+    /// Install (or replace) the backend.
+    pub fn install(&self, backend: std::sync::Arc<T>) {
+        if let Ok(mut slot) = self.inner.write() {
+            *slot = Some(backend);
+        }
+    }
+
+    /// Empty the slot, returning dispatch to the default implementation.
+    /// Idempotent — clearing an empty slot is how "still unreachable" is
+    /// reported.
+    pub fn clear(&self) {
+        if let Ok(mut slot) = self.inner.write() {
+            *slot = None;
+        }
+    }
+
+    /// The installed backend, if any.
+    ///
+    /// A poisoned lock reads as "no backend" rather than panicking: a service
+    /// call answering from the shared store is a better outcome than taking the
+    /// MCP server down, and the only writers are the probes above.
+    pub fn get(&self) -> Option<std::sync::Arc<T>> {
+        self.inner.read().ok().and_then(|slot| slot.clone())
+    }
+
+    pub fn is_installed(&self) -> bool {
+        self.get().is_some()
+    }
+}
+
+impl<T: ?Sized> Default for BackendSlot<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod backend_slot_tests {
+    use super::BackendSlot;
+    use std::sync::Arc;
+
+    trait Fake: Send + Sync {
+        fn id(&self) -> &'static str;
+    }
+    struct A;
+    struct B;
+    impl Fake for A {
+        fn id(&self) -> &'static str {
+            "a"
+        }
+    }
+    impl Fake for B {
+        fn id(&self) -> &'static str {
+            "b"
+        }
+    }
+
+    /// The whole point of the type: a second install REPLACES, and a clear
+    /// returns dispatch to the default. As a `OnceLock` the first probe won
+    /// for the life of the process, which is how a daemon kept an HTTP client
+    /// pointed at an app that had quit hours earlier.
+    #[test]
+    fn a_slot_can_be_replaced_and_emptied() {
+        let slot: BackendSlot<dyn Fake> = BackendSlot::new();
+        assert!(!slot.is_installed());
+        assert!(slot.get().is_none());
+
+        slot.install(Arc::new(A));
+        assert_eq!(slot.get().map(|b| b.id()), Some("a"));
+
+        slot.install(Arc::new(B));
+        assert_eq!(
+            slot.get().map(|b| b.id()),
+            Some("b"),
+            "a later probe wins, it is not ignored"
+        );
+
+        slot.clear();
+        assert!(!slot.is_installed());
+        slot.clear();
+        assert!(!slot.is_installed(), "clearing an empty slot is a no-op");
+    }
+
+    /// A backend handed out before a clear stays usable — callers hold an
+    /// `Arc`, so an in-flight request is never yanked mid-call.
+    #[test]
+    fn a_handed_out_backend_outlives_the_clear() {
+        let slot: BackendSlot<dyn Fake> = BackendSlot::new();
+        slot.install(Arc::new(A));
+        let held = slot.get().expect("installed");
+        slot.clear();
+        assert_eq!(held.id(), "a");
+    }
+}

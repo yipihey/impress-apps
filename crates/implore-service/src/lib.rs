@@ -16,7 +16,7 @@
 //! them here would create exactly the parallel definition this codegen exists
 //! to avoid. The descriptions carry the meaning; the JSON carries the data.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
@@ -304,15 +304,23 @@ pub trait ImploreBackend: Send + Sync + 'static {
     fn service(&self) -> Arc<dyn ImploreService>;
 }
 
-static BACKEND: OnceLock<Box<dyn ImploreBackend>> = OnceLock::new();
+static BACKEND: impress_service_core::BackendSlot<dyn ImploreBackend> =
+    impress_service_core::BackendSlot::new();
 
 /// Install a backend at process startup. First call wins.
 pub fn register_backend(backend: Box<dyn ImploreBackend>) {
-    let _ = BACKEND.set(backend);
+    BACKEND.install(std::sync::Arc::from(backend));
+}
+
+/// Uninstall the current backend: dispatch returns to the default
+/// implementation. Called by the reachability probe when the app stops
+/// answering — see [`impress_service_core::BackendSlot`].
+pub fn clear_backend() {
+    BACKEND.clear();
 }
 
 pub fn has_custom_backend() -> bool {
-    BACKEND.get().is_some()
+    BACKEND.is_installed()
 }
 
 pub fn service_instance() -> Arc<dyn ImploreService> {

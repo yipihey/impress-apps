@@ -11,7 +11,7 @@
 //! `add_message`. A decision buried in a message is lost; a decision recorded
 //! is one the bridges can pull into an outline.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
@@ -257,14 +257,22 @@ pub trait ImpartBackend: Send + Sync + 'static {
     fn service(&self) -> Arc<dyn ImpartService>;
 }
 
-static BACKEND: OnceLock<Box<dyn ImpartBackend>> = OnceLock::new();
+static BACKEND: impress_service_core::BackendSlot<dyn ImpartBackend> =
+    impress_service_core::BackendSlot::new();
 
 pub fn register_backend(backend: Box<dyn ImpartBackend>) {
-    let _ = BACKEND.set(backend);
+    BACKEND.install(std::sync::Arc::from(backend));
+}
+
+/// Uninstall the current backend: dispatch returns to the default
+/// implementation. Called by the reachability probe when the app stops
+/// answering — see [`impress_service_core::BackendSlot`].
+pub fn clear_backend() {
+    BACKEND.clear();
 }
 
 pub fn has_custom_backend() -> bool {
-    BACKEND.get().is_some()
+    BACKEND.is_installed()
 }
 
 pub fn service_instance() -> Arc<dyn ImpartService> {

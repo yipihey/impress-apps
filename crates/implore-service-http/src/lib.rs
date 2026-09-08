@@ -372,6 +372,7 @@ impl ImploreBackend for HttpBackend {
 pub fn maybe_install_http_backend() -> bool {
     if std::env::var("IMPLORE_BACKEND").as_deref() == Ok("off") {
         eprintln!("[implore-service-http] IMPLORE_BACKEND=off — skipping probe");
+        implore_service::clear_backend();
         return false;
     }
 
@@ -389,6 +390,9 @@ pub fn maybe_install_http_backend() -> bool {
         register_backend(Box::new(HttpBackend::new(client)));
         true
     } else {
+        // Release a backend an earlier probe installed: implore has quit, and
+        // a refusal names that, where a dead HTTP client just times out.
+        implore_service::clear_backend();
         eprintln!("[implore-service-http] implore unreachable; tools will refuse");
         false
     }

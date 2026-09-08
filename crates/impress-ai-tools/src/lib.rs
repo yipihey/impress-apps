@@ -94,15 +94,16 @@ impl ImpressToolAdapter {
     }
 
     /// Re-probe and update the shared reachability. Long-running hosts
-    /// (impel-taskd) call this on a cadence so app launches after daemon
-    /// start bring their tools online (the probe also installs the HTTP
-    /// backend if none was installed yet).
+    /// (impel-taskd) call this on a cadence so an app launched after the
+    /// daemon started brings its tools online — and so an app that has since
+    /// quit gives its backend back.
     ///
-    /// KNOWN LIMIT: a backend already installed for an app that has since
-    /// QUIT stays installed (the service backend registries are set-once),
-    /// so those calls degrade to their documented empty/refusing behavior
-    /// until the app relaunches. Reachability gating still withholds the
-    /// `*-app-service` tools meanwhile.
+    /// Both directions work because the four service backend registries are
+    /// swappable slots ([`impress_service_core::BackendSlot`]) rather than
+    /// set-once latches: this probe installs an HTTP backend when an app
+    /// answers and clears it when one stops, so a client aimed at a dead port
+    /// never outlives the app it was built for. Reachability gating
+    /// separately withholds the `*-app-service` tools while an app is down.
     pub async fn refresh(&self) -> Result<Reachability> {
         let fresh = Self::probe_reachability().await?;
         if let Ok(mut guard) = self.reachable.write() {

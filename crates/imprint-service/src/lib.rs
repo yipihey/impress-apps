@@ -33,7 +33,7 @@ pub mod text_service;
 pub mod throughline;
 pub mod throughline_service;
 
-pub use backend::{has_custom_backend, register_backend, ImprintBackend};
+pub use backend::{clear_backend, has_custom_backend, register_backend, ImprintBackend};
 pub use manuscript_service::{
     DefaultImprintManuscriptService, ImprintManuscriptService, PresentationMutationDto,
     PresentationOutlineDto, PresentationSlideDto, SearchHitDto,
