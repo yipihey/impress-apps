@@ -55,6 +55,11 @@ public actor EnrichmentSettingsStore: EnrichmentSettingsProvider {
     public init(userDefaults: UserDefaults = .forCurrentEnvironment) {
         self.userDefaults = userDefaults
         self.cachedSettings = Self.loadSettingsFromSync(userDefaults: userDefaults)
+        // Mirror on LOAD, not only on save. A user who set their source order
+        // once and never touched it again would otherwise never write the file
+        // the daemon reads, and impel — the authority since D1 — would run on
+        // its built-in order forever while the settings pane showed theirs.
+        Self.persistSourcePriorityForDaemon(cachedSettings.sourcePriority)
     }
 
     /// Set up observer for sync changes from other devices
@@ -81,6 +86,9 @@ public actor EnrichmentSettingsStore: EnrichmentSettingsProvider {
 
     private func reloadFromSync() {
         cachedSettings = Self.loadSettingsFromSync(userDefaults: userDefaults)
+        // A reorder made on another device arrives here, not through
+        // `saveSettings`, so the daemon's copy has to be refreshed here too.
+        Self.persistSourcePriorityForDaemon(cachedSettings.sourcePriority)
         Logger.enrichment.info("Enrichment settings reloaded from sync")
     }
 
