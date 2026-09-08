@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ImpressAI
 import ImpressKit
@@ -130,6 +131,19 @@ public struct TaskEventRecord: Codable, Sendable {
 /// `TaskRequest` and gets a task ID back. Results are available via polling,
 /// callbacks, or SSE streaming.
 public actor TaskOrchestrator {
+
+    /// Stable, cross-launch hash of a run's system prompt.
+    ///
+    /// Swift's `hashValue` is seeded per process, so the same prompt hashed
+    /// in two launches produced two different values — the provenance field
+    /// whose entire job is "was this the same prompt?" could never answer
+    /// yes. The kernel executors use SHA-256 here; so does this now.
+    static func stablePromptHash(_ prompt: String) -> String {
+        SHA256.hash(data: Data(prompt.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     private let logger = Logger(subsystem: "com.impress.impel", category: "task-orchestrator")
     private let database: CounselDatabase
     private let conversationManager: CounselConversationManager
@@ -294,21 +308,44 @@ public actor TaskOrchestrator {
     /// Wait for a task to complete and return its result.
     public func awaitResult(taskID: String, timeoutSeconds: Int = 300) async throws -> TaskResult {
         let stream = events(for: taskID)
-        let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
 
-        for await event in stream {
-            switch event {
-            case .completed, .failed, .cancelled:
-                if let result = try getResult(taskID) {
-                    return result
+        // The deadline has to RACE the stream, not be checked inside it.
+        // `if Date() > deadline` only ran when an event arrived, so a run
+        // that emits nothing between .started and .completed — a wedged
+        // provider, or an executeTask early-return that emits and closes
+        // nothing — suspended here forever and `timeoutSeconds` was
+        // decorative. Three callers hang on that: the URL-scheme ask, the
+        // AskCounsel App Intent, and the email gateway's reply path.
+        let raced: TaskResult? = await withTaskGroup(of: TaskResult?.self) { group in
+            group.addTask { [weak self] in
+                for await event in stream {
+                    switch event {
+                    case .completed, .failed, .cancelled:
+                        guard let self else { return nil }
+                        if let result = ((try? await self.getResult(taskID)) ?? nil) {
+                            return result
+                        }
+                    default:
+                        break
+                    }
                 }
-            default:
-                break
+                return nil
             }
-            if Date() > deadline { break }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds) * 1_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        if let raced {
+            return raced
         }
 
-        // Fallback: check the database directly
+        // Fallback: the terminal event may have fired before this caller
+        // subscribed (submit() runs the work detached), so the database —
+        // not the stream — is authoritative.
         if let result = try getResult(taskID) {
             return result
         }
@@ -471,6 +508,17 @@ public actor TaskOrchestrator {
             messages: history
         )
 
+        // A cancellation that landed while the loop was running used to be
+        // noticed only further down, AFTER the run mirror and the assistant
+        // message had already been written — so "Task cancelled" still put
+        // a reply in the conversation. The kernel cannot interrupt the loop
+        // mid-flight, but it can decline to publish its output.
+        guard runningTasks.contains(taskID) else {
+            logger.info("Task \(taskID) was cancelled during the agent loop; discarding its output")
+            closeEventStreams(for: taskID)
+            return
+        }
+
         // Clear progress callback
         await nativeLoop.setProgressCallback(nil)
 
@@ -486,7 +534,7 @@ public actor TaskOrchestrator {
                 taskID: agentRunTaskID,
                 agentID: "counsel",
                 model: agentRunModel,
-                promptHash: String(systemPrompt.hashValue),
+                promptHash: Self.stablePromptHash(systemPrompt),
                 tokenCount: agentRunTokenCount,
                 durationMs: nil,
                 roundNumber: agentRunRounds,

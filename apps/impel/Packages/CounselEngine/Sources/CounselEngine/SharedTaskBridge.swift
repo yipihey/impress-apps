@@ -283,6 +283,12 @@ public actor SharedTaskBridge {
         if let dm = durationMs  { payload["duration_ms"] = dm }
         if let fr = finishReason { payload["finish_reason"] = fr }
         if !toolCalls.isEmpty   { payload["tool_calls"] = toolCalls }
+        // The key every run surface renders. The kernel's executors write
+        // it; the bridge did not, so a counsel run showed up blank in the
+        // Task detail's View tab next to kernel runs that read fine.
+        payload["result_summary"] = toolCalls.isEmpty
+            ? "round \(roundNumber) — \(finishReason ?? "completed")"
+            : "round \(roundNumber) — \(finishReason ?? "completed"); tools: \(toolCalls.joined(separator: ", "))"
 
         let toolList = toolCalls.joined(separator: ", ")
 
@@ -296,6 +302,15 @@ public actor SharedTaskBridge {
         do {
             try store?.upsertItem(
                 id: runID, schemaRef: SharedTaskSchema.agentRun, payloadJson: payloadString)
+            // The edge this method's own doc comment has always promised.
+            // Without it a bridge-written run is an ORPHAN: every reader
+            // (imbib's Agents section, impel's run list) finds runs by
+            // following the TASK's ProducedBy references, which only the
+            // Rust kernel wrote — so counsel runs were unreachable from the
+            // task that produced them, and the run id is a one-way UUIDv5,
+            // so the task could not be recovered from it either.
+            try store?.addReference(
+                sourceId: taskID, targetId: runID, edgeType: "ProducedBy")
             logger.info(
                 "SharedTaskBridge: agent-run \(runID) for task \(taskID) round=\(roundNumber) model=\(model) tools=[\(toolList)]"
             )

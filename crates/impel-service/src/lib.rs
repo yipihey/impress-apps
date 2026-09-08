@@ -252,8 +252,17 @@ impl DefaultImpelService {
     /// test). The MCP server is signed with the group entitlement so
     /// production reads it fine; an injected store means a test or an
     /// embedded host, which has no business touching that path at all.
-    fn worker_report(&self) -> Option<WorkerReport> {
+    fn worker_report(&self, store_is_fallback: bool) -> Option<WorkerReport> {
         if self.store.is_some() {
+            return None;
+        }
+        // If the process-wide store could not be opened, this process
+        // cannot reach the app-group container at all — and attempting the
+        // status file anyway is not a slow failure but an unbounded one:
+        // an unentitled process blocks in open() forever, with no error to
+        // time out. The store's own bounded open is the probe; its verdict
+        // decides this read.
+        if store_is_fallback {
             return None;
         }
         let status = impress_ai::read_worker_status(Self::workspace())
@@ -380,7 +389,27 @@ impl ImpelService for DefaultImpelService {
             .first()
             .map(|r| Self::days_since(r.created.timestamp_millis()));
 
-        let worker = self.worker_report();
+        // Ask the store first, then ask whether that store is the empty
+        // fallback — the order the store service documents.
+        let store_is_fallback =
+            self.store.is_none() && impress_store_service::store::store_is_fallback();
+        let worker = self.worker_report(store_is_fallback);
+
+        // An unopenable store answers every query with zero rows, which
+        // reads exactly like a healthy, idle system. Say which it is.
+        if store_is_fallback {
+            return SchedulerStatusReport {
+                tasks,
+                by_kind,
+                pending_reviews: reviews.len() as u64,
+                oldest_review_age_days,
+                worker,
+                summary: "STORE UNAVAILABLE — could not open the shared store (busy, or this \
+                          process lacks the app-group entitlement), so every count below is 0 \
+                          because nothing could be read, NOT because nothing is there."
+                    .into(),
+            };
+        }
 
         let summary = match &worker {
             Some(w) if !w.is_fresh => format!(
