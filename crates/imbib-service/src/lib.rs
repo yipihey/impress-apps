@@ -123,8 +123,9 @@ pub use artifacts_service::{
     ArtifactRecord, ArtifactRelationRecord, DefaultImbibArtifactsService, ImbibArtifactsService,
 };
 pub use eink_service::{
-    DefaultImbibEinkService, EinkDeviceInput, EinkDeviceRecord, EinkMarkResult, EinkMirrorRecord,
-    EinkStatusRecord, EinkSyncRecord, ImbibEinkService,
+    DefaultImbibEinkService, EinkAppendResult, EinkDeviceInput, EinkDeviceRecord,
+    EinkDocumentImportRecord, EinkMarkResult, EinkMirrorRecord, EinkOcrJobRecord, EinkStatusRecord,
+    EinkSyncRecord, EinkUnmatchedRecord, ImbibEinkService,
 };
 pub use library_service::{
     init_imbib_library_service, AuthorRecord, CollectionRecord, DefaultImbibLibraryService,

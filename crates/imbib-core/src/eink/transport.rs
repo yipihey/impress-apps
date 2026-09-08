@@ -183,6 +183,15 @@ impl MockTransport {
         self.entries.lock().unwrap().retain(|entry| entry.id != id);
     }
 
+    /// Pretend the user dragged a document into another folder.
+    pub fn move_document(&self, id: &str, new_parent: &str) {
+        for entry in self.entries.lock().unwrap().iter_mut() {
+            if entry.id == id {
+                entry.parent = new_parent.into();
+            }
+        }
+    }
+
     /// Pretend the user wrote on a document at `modified_ms`.
     pub fn touch(&self, id: &str, modified_ms: i64) {
         for entry in self.entries.lock().unwrap().iter_mut() {

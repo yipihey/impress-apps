@@ -326,6 +326,9 @@ pub enum RmdocKind {
     Folder,
     /// A document wrapping an imported file.
     Document { kind: SourceKind, source: Vec<u8> },
+    /// A notebook the tablet authored: pages of strokes, no source file
+    /// (`fileType: "notebook"`). Built for tests and re-exports.
+    Notebook,
 }
 
 /// The identity a built archive carries. Choosing `id` and `parent` here is
@@ -365,6 +368,36 @@ pub fn build_rmdoc(spec: &RmdocSpec) -> Result<Vec<u8>> {
     });
     let content = match &spec.kind {
         RmdocKind::Folder => serde_json::json!({ "tags": [] }),
+        RmdocKind::Notebook => {
+            let pages: Vec<String> = if spec.page_files.is_empty() {
+                (0..spec.page_count.unwrap_or(1))
+                    .map(|_| uuid::Uuid::new_v4().to_string())
+                    .collect()
+            } else {
+                spec.page_files.iter().map(|(id, _)| id.clone()).collect()
+            };
+            let page_count = pages.len() as u32;
+            serde_json::json!({
+                "coverPageNumber": -1,
+                "documentMetadata": {},
+                "dummyDocument": false,
+                "extraMetadata": {},
+                "fileType": "notebook",
+                "fontName": "",
+                "formatVersion": 1,
+                "lineHeight": -1,
+                "margins": 125,
+                "orientation": "portrait",
+                "pageCount": page_count,
+                "pageTags": [],
+                "pages": pages,
+                "sizeInBytes": "0",
+                "tags": [],
+                "textAlignment": "justify",
+                "textScale": 1,
+                "zoomMode": "bestFit",
+            })
+        }
         RmdocKind::Document { kind, source } => {
             let page_count = if spec.page_files.is_empty() {
                 spec.page_count.unwrap_or(0)

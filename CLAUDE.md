@@ -283,6 +283,17 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   keychain (apps push them into Rust memory; daemons read the same items via `security`).
   `IMPRESS_<PROVIDER>_URL` / `IMPRESS_AI_PROVIDER` / `IMPRESS_AI_MODEL` are explicit
   overrides, not the source of truth.
+- **E-ink mirroring lives in Rust and in store records** (imbib ADR-025): the reMarkable
+  is reached over its USB web interface, which can only list, upload and download — no
+  folder creation, rename, move or delete, and an upload lands in whatever folder was
+  listed last. Everything that decides what happens is `crates/imbib-core/src/eink/`
+  (planner, executor, import) over `crates/impress-remarkable`; the device and every
+  per-paper mirror state are `imbib/eink-device` / `imbib/eink-mirror` records, so the
+  CLI and MCP verbs (`imbib-eink-service_eink-*`) sync headless with the app closed and
+  the list-row marker is a field Rust computes (`BibliographyRow.eink_state`). Swift owns
+  only what needs platform APIs: the PDF fetch for marked papers, the connection monitor,
+  the one 90-s startup gate, Vision OCR, and the views. Never put sync state in
+  publication payload keys or UserDefaults again.
 
 ## Swift Concurrency & SwiftUI Pitfalls
 

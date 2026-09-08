@@ -129,6 +129,67 @@ pub fn extract_page_range(
     Ok(text)
 }
 
+/// One character of a page with its box, in PDF points (origin bottom-left).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CharBox {
+    pub ch: char,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Every character of one page (0-based) with its loose bounds, in the
+/// order pdfium reads them. Used to recover the text under a free-hand
+/// highlighter stroke coming back from an e-ink tablet, which carries a
+/// rectangle but no text. `PdfiumNotAvailable` when the library is absent.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn page_char_boxes(pdf_bytes: &[u8], page_index: u32) -> Result<Vec<CharBox>, PdfError> {
+    let pdfium = try_init_pdfium()?;
+    let document = pdfium.load_pdf_from_byte_slice(pdf_bytes, None)?;
+    let page = document
+        .pages()
+        .get(page_index as u16)
+        .map_err(|e| PdfError::ExtractionError(e.to_string()))?;
+    let text = page
+        .text()
+        .map_err(|e| PdfError::ExtractionError(e.to_string()))?;
+    let mut boxes = Vec::new();
+    for c in text.chars().iter() {
+        let Some(ch) = c.unicode_char() else {
+            continue;
+        };
+        let Ok(bounds) = c.loose_bounds() else {
+            continue;
+        };
+        boxes.push(CharBox {
+            ch,
+            x: bounds.left().value as f64,
+            y: bounds.bottom().value as f64,
+            width: bounds.width().value as f64,
+            height: bounds.height().value as f64,
+        });
+    }
+    Ok(boxes)
+}
+
+/// The characters whose centre lies inside the rectangle (PDF points,
+/// origin bottom-left), in reading order, with runs of whitespace
+/// collapsed. Empty when nothing is inside.
+pub fn text_in_rect(boxes: &[CharBox], x: f64, y: f64, width: f64, height: f64) -> String {
+    let (x1, y1) = (x + width, y + height);
+    let inside: String = boxes
+        .iter()
+        .filter(|b| {
+            let cx = b.x + b.width / 2.0;
+            let cy = b.y + b.height / 2.0;
+            cx >= x && cx <= x1 && cy >= y && cy <= y1
+        })
+        .map(|b| b.ch)
+        .collect();
+    inside.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Search for text within a PDF and return positions
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct TextMatch {
@@ -189,6 +250,42 @@ pub fn search_in_pdf(
     }
 
     Ok(matches)
+}
+
+#[cfg(test)]
+mod char_box_tests {
+    use super::*;
+
+    #[test]
+    fn text_in_rect_takes_characters_whose_centre_is_inside() {
+        let word = |s: &str, x0: f64| -> Vec<CharBox> {
+            s.chars()
+                .enumerate()
+                .map(|(i, ch)| CharBox {
+                    ch,
+                    x: x0 + i as f64 * 6.0,
+                    y: 100.0,
+                    width: 6.0,
+                    height: 10.0,
+                })
+                .collect()
+        };
+        let mut boxes = word("CALIBRATION", 50.0);
+        boxes.push(CharBox {
+            ch: ' ',
+            x: 116.0,
+            y: 100.0,
+            width: 6.0,
+            height: 10.0,
+        });
+        boxes.extend(word("SCALE", 122.0));
+        assert_eq!(text_in_rect(&boxes, 48.0, 98.0, 68.0, 14.0), "CALIBRATION");
+        assert_eq!(
+            text_in_rect(&boxes, 48.0, 98.0, 110.0, 14.0),
+            "CALIBRATION SCALE"
+        );
+        assert_eq!(text_in_rect(&boxes, 0.0, 0.0, 10.0, 10.0), "");
+    }
 }
 
 #[cfg(test)]

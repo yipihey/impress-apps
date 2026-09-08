@@ -112,6 +112,51 @@ impl ImbibStore {
         Ok(jobs)
     }
 
+    /// Highlights, typed text and OCR text an e-ink import wrote, whose
+    /// text contains `query` (case-insensitive substring), newest first.
+    /// `limit` 0 = 100.
+    pub fn eink_search_annotations(
+        &self,
+        query: String,
+        limit: u32,
+    ) -> Result<Vec<AnnotationRow>, StoreApiError> {
+        let needle = query.trim().to_lowercase();
+        if needle.is_empty() {
+            return Ok(Vec::new());
+        }
+        let q = ItemQuery {
+            schema: Some("imbib/annotation".into()),
+            predicates: vec![Predicate::Eq(
+                "source".into(),
+                Value::String(SOURCE_REMARKABLE.into()),
+            )],
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        };
+        let mut rows: Vec<AnnotationRow> = self
+            .store
+            .query(&q)?
+            .iter()
+            .map(item_to_annotation_row)
+            .filter(|row| {
+                row.selected_text
+                    .as_deref()
+                    .map(|t| t.to_lowercase().contains(&needle))
+                    .unwrap_or(false)
+                    || row
+                        .contents
+                        .as_deref()
+                        .map(|t| t.to_lowercase().contains(&needle))
+                        .unwrap_or(false)
+            })
+            .collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(row.date_modified));
+        let limit = if limit == 0 { 100 } else { limit as usize };
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
     /// Record an OCR result. `text: None` with a confidence still closes
     /// the job (nothing legible), so it is not retried forever.
     pub fn eink_complete_ocr(

@@ -1442,6 +1442,32 @@ checklist (parents first) and the affected papers wait in
 `awaiting_folder`; nothing is re-sent silently (`stale`,
 `removed_on_device`, `unmarked` are explicit states with "send again").
 
+**What the tablet authored (P5b, 2026-09-07).** The sync walks the whole
+tablet, not only the `imbib` subtree, so a mirrored paper the user drags
+into another folder is followed (`remote_path` updated) rather than
+tombstoned. Documents no mirror row accounts for are `eink-list-unmatched`
+(in-tree first, each with the library and collection its folder names
+resolve to — `CollectionIndex::find_by_chain`, case-insensitive, never a
+guess). `eink-import-document` brings one in
+(`crates/imbib-core/src/eink/import/documents.rs`, Tier A in
+`tests/eink_documents.rs`): a notebook becomes a `@misc` publication in
+that collection with the rendered PDF as its **primary** file (the linked
+file remembers `source_remote_id`, so a later import refreshes it in place
+instead of adding a variant — `variant::refresh_primary_render`); a PDF or
+ePUB whose bytes hash to a linked file already in the store **adopts** that
+publication (mirror row + rendition variant + rows, and filed into the
+folder's collection); any other PDF becomes a new entry from its first
+page's text (`pdf/metadata_heuristics`, `@misc` with the tablet's name when
+pdfium is absent); `as_kind = note` writes an `impress/artifact/note` with
+the typed text instead and leaves the document offered. A document outside
+the tree needs the library named. A notebook page has no `bestFit` frame;
+`PageFrame::notebook` maps the screen (1620 units on the Paper Pro) onto the
+rendered page — an assumption not yet pinned by a fixture, on which only
+ink-row placement depends. `eink-import` is the import-only pass
+(`SyncOptions.upload = false`: nothing goes up, `pending_uploads` counts
+what stayed queued); with a `publication_id` it imports that paper whether
+or not the tablet reports a change.
+
 **Swift projection, P6 (2026-09-07).** The GUI consumes the engine through
 `RustStoreAdapter+EInk.swift` (every `eink*` UniFFI verb, `throws` absorbed
 into logged nil/empty results; `einkSync` / `einkPlan` / `einkReachable` are
@@ -1457,7 +1483,8 @@ imports `ImbibRustCore`. What each surface owes:
 | Verbs | context menu (`PublicationListView.contextMenuItems`, `MailStylePublicationRow`, shared `TriageMenu`), iOS leading swipe (`TriageSwipe` + the row), `e` (`TriageKeyGrammar.toggleEinkMirror`; the four other list wrappers return `.ignored`), ⌃⌘E / Paper ▸ Mirror to reMarkable (`.toggleEInkMirror`), Paper ▸ Sync reMarkable Now (`.einkSyncNow`), Paper ▸ Import reMarkable Annotations (`.einkImportAnnotations`), command palette (those three + "E-Ink Settings…" → `.showEInkSettings`). `RecordTriageActions.onToggleEink` with a store-backed default; `TriageCapabilities.canMirrorToEink` (publication only); `TriageRowState.isMirrored` / `mirrorMenuVerb` |
 | PDF tab | the two dead "Send to E-Ink Device" buttons are one state chip (toggle in individual mode, read-only label in `all` mode) |
 | Automation | `PUT /api/papers/eink {identifiers, mirrored}` (before the `/api/papers/{citeKey}` catch-all, shape of `PUT /api/papers/star`; `AutomationService.setEInkMirrored`), `GET /api/eink/status` (`EInkStatusSnapshot.jsonDictionary()`), `POST /api/eink/sync {import}` (off-main `einkSync`; answers the report + trace), `GET /api/papers/{citeKey}` gains `eink {state, marked, remotePath, uploadedAt, lastError}` when a mirror row exists; `imbib://paper/<citeKey>/eink?mirrored=true|false` (`PaperAction.setEInkMirrored`, written straight through the adapter — no notification carries a cite key to the list). `POST /api/papers/{citeKey}/annotations` and `POST /api/files/{id}/annotations` accept `authorName` |
-| Deferred to P7/P8 | `.einkSyncNow` / `.einkImportAnnotations` have NO observer yet (`EInkSyncCoordinator`); `POST /api/eink/{folders/check,import}`; the Settings › E-Ink pane over `einkConfigureDevice`; the Info-tab section, Notes-tab section and PDF-switcher label; `EInkSourceFetcher` for `awaiting_source` rows; `.showEInkSettings` is still unobserved by `SettingsView` |
+| Services (P7, 2026-09-07) | `EInkServices.start()` (composition root, called once from `imbibApp` after `AutomationService.configure`; inert with no device): `EInkDeviceRegistrar` (re-registers store devices with `EInkDeviceManager` so `isAnyDeviceAvailable` survives a relaunch), `EInkConnectionMonitor` (25 s `einkReachable` probe off-main + `NWPathMonitor` edge; never writes the store), `EInkSyncCoordinator` (reasons connected / marked / sourceArrived / settingsChanged / manual / importOnly; 2 s coalescing; serial; automatic reasons queue behind the ONE `EInkStartupGate` — a timestamp, one `Task.sleep`, replayed once it opens — manual and importOnly bypass it; observes `.einkSyncNow` / `.einkImportAnnotations`), `EInkSourceFetcher` (`awaiting_source` rows through `PDFAcquisitionService`, 2 wide, then `sourceArrived`), `EInkOCRPass` (`einkPendingOCR` → `RemarkableOCRService` → `einkCompleteOCR`; an empty result still closes the job), `EInkSettingsMigration` (legacy `eink.*` / `remarkable.*` keys → the device record once, after the gate; `eink.migration.v1` marker). `Files/PDFAcquisitionService.swift` is the one PDF download path (per-publication dedupe, cancel, `%PDF` sniff, hash-identical reuse) behind `PDFTab`, `NotesTab`, `DetachedViews`, `PDFBatchDownloadView` and `POST /api/papers/download-pdfs` (awaited, per-paper outcomes; the unobserved `.downloadPDF` notification is gone). Routes added: `POST /api/eink/import`, `POST /api/eink/folders/check`. `RemarkableSettingsStore.wifi*` are `@AppStorage` now |
+| Deferred to P8 | the Settings › E-Ink pane over `einkConfigureDevice` (should read `EInkServices.shared.monitor` and call `settingsChanged()`); the Info-tab section, Notes-tab section and PDF-switcher label; the "Import from reMarkable" browser over `einkListUnmatched` / `einkImportDocument`; `.showEInkSettings` is still unobserved by `SettingsView`; the coordinator's importOnly run should switch to `einkImport` (import-only in Rust) instead of `einkSync(import: true)`
 
 ## MCP surface
 
@@ -1517,6 +1544,11 @@ from a store it never reached is worse than no answer.
 | `imbib-eink-service_eink-plan` | "what would a sync do" — dry run, includes the folder checklist; touches the tablet, writes nothing |
 | `imbib-eink-service_eink-sync` | "Sync now": upload into `imbib/<Library>/<Collection>` folders that exist, record what changed, optionally import changed documents (annotated PDF as a second linked file, highlights / typed text / ink groups as `imbib/annotation` rows) |
 | `imbib-eink-service_eink-folder-checklist` | the "create these folders on the tablet, parents first" list |
+| `imbib-eink-service_eink-import` | Paper ▸ Import reMarkable Annotations: the import-only pass (nothing goes up); with `publication_id`, the Info section's "Import annotations now" — that paper, whether or not the tablet reports a change |
+| `imbib-eink-service_eink-list-unmatched` / `eink-import-document` | the "Import from reMarkable" browser: documents no mirror row accounts for (notebooks written on the tablet, files copied in by hand), each with the library/collection its folder resolves to; import one as a publication (notebook → `@misc` with the rendered PDF; a PDF/ePUB whose bytes match a file already here adopts that publication) or as an `impress/artifact/note` |
+| `imbib-eink-service_eink-list-annotations` / `eink-search-annotations` | the Notes tab's "reMarkable" section (highlights with page, typed text, OCR text with confidence, ink thumbnails) and its search |
+| `imbib-eink-service_eink-pending-ocr` / `eink-complete-ocr` | `EInkOCRPass`: ink rows with a rendered PNG and no recognition yet; the Vision result written back (an empty result still closes the job) |
+| `imbib-eink-service_eink-append-notes` | "Append reMarkable notes": one dated block per tablet snapshot into the Notes field, never automatic, refuses a duplicate unless `force` |
 
 `binding` selects the hierarchy: `imbib` \| `manuscript` \| `figure` \|
 `generic` (the mixed-kind `collection@1.0.0` schema). Verb names and argument

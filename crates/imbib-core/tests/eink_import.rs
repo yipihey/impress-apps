@@ -257,3 +257,71 @@ fn ink_from_a_real_page_becomes_rows_that_reimport_updates_not_duplicates() {
         .is_empty());
     assert!(f.store.eink_pending_ocr(None).unwrap().is_empty());
 }
+
+#[test]
+fn a_highlighter_stroke_gets_its_text_from_the_page_when_pdfium_is_at_hand() {
+    use imbib_core::eink::import::convert::AnnotationDraft;
+    use imbib_core::eink::import::fill_highlight_text;
+    use imbib_core::eink::import::geometry::PdfRect;
+    use imbib_core::pdf::extract::{page_char_boxes, PdfError};
+
+    match page_char_boxes(CALIBRATION_PDF, 0) {
+        Ok(boxes) => assert!(boxes.iter().any(|b| b.ch == 'C'), "the page has text"),
+        Err(PdfError::PdfiumNotAvailable) => {
+            eprintln!("pdfium not available in this process; skipping");
+            return;
+        }
+        Err(error) => panic!("{error}"),
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = archive(dir.path(), vec![]);
+    let archive = impress_remarkable::rmdoc::read_rmdoc(&path).unwrap();
+    let mut drafts = vec![
+        AnnotationDraft {
+            id: uuid::Uuid::new_v4(),
+            annotation_type: "highlight",
+            page_number: 0,
+            // CALIBRATION sits at (100, 700), 24 pt Helvetica.
+            bounds: Some(PdfRect {
+                x: 95.0,
+                y: 692.0,
+                width: 175.0,
+                height: 30.0,
+            }),
+            color: None,
+            contents: None,
+            selected_text: None,
+            source_page_id: "page-1".into(),
+            source_item_id: "hl-1".into(),
+            pen: Some("highlighter".into()),
+            strokes_hash: None,
+            png: None,
+        },
+        AnnotationDraft {
+            id: uuid::Uuid::new_v4(),
+            annotation_type: "highlight",
+            page_number: 0,
+            bounds: Some(PdfRect {
+                x: 10.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+            }),
+            color: None,
+            contents: None,
+            selected_text: None,
+            source_page_id: "page-1".into(),
+            source_item_id: "hl-2".into(),
+            pen: Some("highlighter".into()),
+            strokes_hash: None,
+            png: None,
+        },
+    ];
+    let mut warnings = Vec::new();
+    fill_highlight_text(&archive, &mut drafts, &mut warnings);
+    assert_eq!(drafts[0].selected_text.as_deref(), Some("CALIBRATION"));
+    assert_eq!(
+        drafts[1].selected_text, None,
+        "nothing under an empty corner"
+    );
+}

@@ -119,6 +119,49 @@ pub fn upsert_annotated_variant(
     }
 }
 
+/// Replace the bytes of a linked file that *is* the tablet's rendition
+/// (a notebook imported as a publication has no other source) and record
+/// the new checksum, so the row keeps one file rather than growing a
+/// variant per import. Returns the new sha256 and size.
+pub fn refresh_primary_render(
+    store: &ImbibStore,
+    linked_file_id: &str,
+    rendered_pdf: &Path,
+    remote_modified_ms: i64,
+) -> Result<(String, i64), StoreApiError> {
+    let uuid = parse_uuid(linked_file_id)?;
+    let Some(path) = store.resolve_linked_file(linked_file_id.to_string())? else {
+        return Err(StoreApiError::NotFound(format!(
+            "linked file {linked_file_id} has no path on this Mac"
+        )));
+    };
+    let destination = PathBuf::from(path);
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| StoreApiError::Storage(e.to_string()))?;
+    }
+    let temp = destination.with_extension("pdf.tmp");
+    std::fs::copy(rendered_pdf, &temp).map_err(|e| StoreApiError::Storage(e.to_string()))?;
+    std::fs::rename(&temp, &destination).map_err(|e| StoreApiError::Storage(e.to_string()))?;
+    let sha256 =
+        paths::sha256_file(&destination).map_err(|e| StoreApiError::Storage(e.to_string()))?;
+    let size = std::fs::metadata(&destination)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
+    store.store.update(
+        uuid,
+        vec![
+            FieldMutation::SetPayload("sha256".into(), Value::String(sha256.clone())),
+            FieldMutation::SetPayload("file_size".into(), Value::Int(size)),
+            FieldMutation::SetPayload("is_locally_materialized".into(), Value::Bool(true)),
+            FieldMutation::SetPayload(
+                "source_remote_modified_ms".into(),
+                Value::Int(remote_modified_ms),
+            ),
+        ],
+    )?;
+    Ok((sha256, size))
+}
+
 #[allow(dead_code)]
 pub fn variant_path(library_dir: &Path, primary_filename: &str) -> PathBuf {
     library_dir

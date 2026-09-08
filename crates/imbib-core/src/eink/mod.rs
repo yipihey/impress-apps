@@ -25,6 +25,7 @@ pub mod status;
 pub mod store;
 pub mod transport;
 
+pub use apply::import_publication;
 pub use apply::{
     run_sync, EinkImportSink, EinkSyncReport, ImportHandoff, ImportOutcome, ImportedDocument,
     NoopSink, SyncOptions,
@@ -34,7 +35,10 @@ pub use config::{
     SCHEMA_DEVICE, SCHEMA_MIRROR, TRANSPORT_USB_WEB,
 };
 pub use folders::{FolderMap, FolderNeed};
-pub use import::{EinkOcrJob, StoreImportSink};
+pub use import::{
+    EinkDocumentImportOutcome, EinkOcrJob, EinkUnmatchedDocument, ImportDocumentRequest,
+    StoreImportSink,
+};
 pub use planner::{PlanSummary, SyncPlan};
 pub use status::{EinkCounts, EinkStatus};
 pub use store::{

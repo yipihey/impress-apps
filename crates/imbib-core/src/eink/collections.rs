@@ -89,6 +89,50 @@ impl CollectionIndex {
             .unwrap_or(false)
     }
 
+    /// The library whose name matches (case-insensitively), if any.
+    pub fn library_by_name(&self, name: &str) -> Option<String> {
+        let wanted = name.trim();
+        self.libraries
+            .iter()
+            .find(|(_, (library_name, _))| library_name.trim().eq_ignore_ascii_case(wanted))
+            .map(|(id, _)| id.clone())
+    }
+
+    /// The collection in `library_id` whose chain of names is `chain`
+    /// (case-insensitive), if any — the reverse of [`Self::chain`], used to
+    /// file a tablet-authored document by the folder it sits in.
+    pub fn find_by_chain(&self, library_id: &str, chain: &[String]) -> Option<String> {
+        if chain.is_empty() {
+            return None;
+        }
+        let library = library_id.to_lowercase();
+        let mut matches: Vec<&String> = self
+            .nodes
+            .iter()
+            .filter(|(id, node)| {
+                node.container_id
+                    .as_deref()
+                    .map(|c| c.to_lowercase() == library)
+                    .unwrap_or(false)
+                    && node
+                        .name
+                        .trim()
+                        .eq_ignore_ascii_case(chain[chain.len() - 1].trim())
+                    && {
+                        let found = self.chain(id);
+                        found.len() == chain.len()
+                            && found
+                                .iter()
+                                .zip(chain)
+                                .all(|(a, b)| a.trim().eq_ignore_ascii_case(b.trim()))
+                    }
+            })
+            .map(|(id, _)| id)
+            .collect();
+        matches.sort();
+        matches.first().map(|id| (*id).clone())
+    }
+
     /// Every collection path a publication is filed under, sorted so the
     /// first is the deterministic mirror target.
     pub fn paths_for(&self, collection_ids: &[String]) -> Vec<Vec<String>> {

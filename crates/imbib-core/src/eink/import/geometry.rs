@@ -65,6 +65,30 @@ impl PageFrame {
     /// The Paper Pro's page-top offset, measured (≈ 6.9 pt × 3.115).
     pub const PAPER_PRO_TOP_OFFSET: f64 = 21.7;
 
+    /// The Paper Pro screen, in scene units, for a page with no PDF
+    /// behind it (a notebook the tablet created): 1620 × 2160 px drawn
+    /// 1:1. ASSUMPTION — not yet pinned by a fixture; typed text and ink
+    /// OCR do not depend on it, only where ink rows land on the rendered
+    /// page.
+    pub const PAPER_PRO_SCREEN_WIDTH: f64 = 1620.0;
+
+    /// A notebook page: the tablet renders the screen as the PDF page, so
+    /// the screen width maps onto the page width with no offset and, on
+    /// firmware 3, x centred like everything else in the scene.
+    pub fn notebook(pdf_w: f64, pdf_h: f64, centered_x: bool) -> Self {
+        Self {
+            frame_width: if centered_x {
+                Self::PAPER_PRO_SCREEN_WIDTH
+            } else {
+                Self::RM2_WIDTH
+            },
+            top_offset: 0.0,
+            pdf_w,
+            pdf_h,
+            centered_x,
+        }
+    }
+
     /// `bestFit` as the tablet applies it to a PDF page: fit to width.
     pub fn best_fit(pdf_w: f64, pdf_h: f64, centered_x: bool) -> Self {
         Self {

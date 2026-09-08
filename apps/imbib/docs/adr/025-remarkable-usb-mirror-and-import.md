@@ -85,6 +85,18 @@ The P0 spike (uploading hand-built archives) settled the open questions:
    on an explicit action, once per tablet snapshot.
 8. **A marked paper without a file waits.** Rows sit in `awaiting_source`
    until the running app fetches the PDF; the CLI and MCP report them.
+9. **What the tablet authored comes in on request.** The sync walks the
+   whole tablet, so a mirrored paper moved to another folder is followed,
+   not tombstoned, and every document no mirror row accounts for is
+   offered (`eink-list-unmatched`, in-tree first, with the library and
+   collection its folder names resolve to). `eink-import-document` files
+   a notebook as a `@misc` publication in that collection with the
+   rendered PDF as its primary file (refreshed in place on later imports,
+   since the linked file remembers which tablet document it is); adopts
+   an existing publication when a copied PDF/ePUB hashes to one of its
+   files; makes a new entry from the first page's text otherwise; or, as
+   `note`, writes an `impress/artifact/note` with the typed text and
+   leaves the document offered. Nothing is imported without being asked.
 
 ## Consequences
 
@@ -92,8 +104,12 @@ The P0 spike (uploading hand-built archives) settled the open questions:
   `RemarkableSyncScheduler` and the unmounted reMarkable views are retired.
 * `schema-refs.json` gains `imbib/eink-device` and `imbib/eink-mirror`
   (72 canonical refs).
-* The engine is Tier-A tested against a scripted tablet; the formats
-  against fixtures captured from the Paper Pro
-  (`crates/impress-remarkable/tests/fixtures`).
+* The engine is Tier-A tested against a scripted tablet (`tests/
+  eink_end_to_end.rs`, `tests/eink_import.rs`, `tests/eink_documents.rs`);
+  the formats against fixtures captured from the Paper Pro
+  (`crates/impress-remarkable/tests/fixtures`). The notebook page frame
+  (`PageFrame::notebook`, 1620 units for the Paper Pro screen) is the one
+  geometric assumption without a fixture; only ink-row placement on a
+  tablet-authored page depends on it.
 * Cloud and SFTP transports remain in the crate for other devices; the
   USB path is the one imbib configures by default.

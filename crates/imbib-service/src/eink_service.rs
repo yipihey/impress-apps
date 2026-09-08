@@ -14,6 +14,7 @@ use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
 use serde::{Deserialize, Serialize};
 
+use crate::annotations_service::AnnotationRecord;
 use crate::library_service::MutationResult;
 
 #[allow(unused_imports)]
@@ -249,6 +250,100 @@ pub struct EinkFolderNeedRecord {
     pub publications: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct EinkUnmatchedRecord {
+    pub remote_id: String,
+    pub name: String,
+    /// `notebook`, `pdf` or `epub`.
+    pub kind: String,
+    /// Folder names from the top, e.g. `imbib/Library/Cosmology`.
+    pub remote_path: String,
+    /// Under the device's root folder.
+    pub in_imbib_tree: bool,
+    /// Resolved from the folder names; `eink-import-document` needs no
+    /// library when this is set.
+    pub library_id: Option<String>,
+    pub collection_id: Option<String>,
+    pub modified_ms: i64,
+    pub page_count: u32,
+}
+
+impl From<eink::EinkUnmatchedDocument> for EinkUnmatchedRecord {
+    fn from(d: eink::EinkUnmatchedDocument) -> Self {
+        Self {
+            remote_id: d.remote_id,
+            name: d.name,
+            kind: d.kind,
+            remote_path: d.remote_path,
+            in_imbib_tree: d.in_imbib_tree,
+            library_id: d.library_id,
+            collection_id: d.collection_id,
+            modified_ms: d.modified_ms,
+            page_count: d.page_count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct EinkDocumentImportRecord {
+    pub ok: bool,
+    pub remote_id: String,
+    /// `publication` or `note`.
+    pub as_kind: String,
+    pub publication_id: Option<String>,
+    pub artifact_id: Option<String>,
+    /// The bytes matched a file already in the store; that publication
+    /// was adopted instead of a new one being created.
+    pub adopted_existing: bool,
+    pub linked_file_id: Option<String>,
+    pub mirror_id: Option<String>,
+    pub annotations_created: u32,
+    pub annotations_updated: u32,
+    pub ink_pending_ocr: u32,
+    pub warnings: Vec<String>,
+    pub trace: Vec<String>,
+    pub error: Option<String>,
+}
+
+impl From<eink::EinkDocumentImportOutcome> for EinkDocumentImportRecord {
+    fn from(o: eink::EinkDocumentImportOutcome) -> Self {
+        Self {
+            ok: true,
+            remote_id: o.remote_id,
+            as_kind: o.as_kind,
+            publication_id: o.publication_id,
+            artifact_id: o.artifact_id,
+            adopted_existing: o.adopted_existing,
+            linked_file_id: o.linked_file_id,
+            mirror_id: o.mirror_id,
+            annotations_created: o.annotations_created,
+            annotations_updated: o.annotations_updated,
+            ink_pending_ocr: o.ink_pending_ocr,
+            warnings: o.warnings,
+            trace: o.trace,
+            error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct EinkOcrJobRecord {
+    pub annotation_id: String,
+    pub publication_id: String,
+    pub linked_file_id: String,
+    pub page_number: i32,
+    /// Absolute path of the rendered strokes (PNG).
+    pub image_path: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct EinkAppendResult {
+    pub ok: bool,
+    /// `false` when that tablet snapshot was already in the Notes field.
+    pub appended: bool,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EinkSyncRecord {
     pub ok: bool,
@@ -269,6 +364,8 @@ pub struct EinkSyncRecord {
     pub folder_checklist: Vec<EinkFolderNeedRecord>,
     pub imported: Vec<String>,
     pub pending_imports: u32,
+    /// Papers due for upload that an import-only pass left queued.
+    pub pending_uploads: u32,
     pub trace: Vec<String>,
     pub duration_ms: i64,
     pub error: Option<String>,
@@ -302,6 +399,7 @@ impl From<eink::EinkSyncReport> for EinkSyncRecord {
                 .collect(),
             imported: r.imports.iter().map(|i| i.publication_id.clone()).collect(),
             pending_imports: r.pending_imports,
+            pending_uploads: r.pending_uploads,
             trace: r.trace,
             duration_ms: r.duration_ms,
             error: None,
@@ -379,6 +477,60 @@ pub trait ImbibEinkService: Send + Sync + 'static {
     /// interface cannot create folders).
     #[impress_method]
     async fn eink_folder_checklist(&self, device_id: Option<String>) -> Vec<EinkFolderNeedRecord>;
+    /// Pull annotated copies back without sending anything up. With
+    /// `publication_id`, import that one paper now whether or not the
+    /// tablet reports a change (after changing the import switches, say).
+    #[impress_method]
+    async fn eink_import(
+        &self,
+        publication_id: Option<String>,
+        device_id: Option<String>,
+    ) -> EinkSyncRecord;
+    /// Documents on the tablet that imbib did not put there — notebooks
+    /// written on it, files copied in by hand — with the library and
+    /// collection their folder names resolve to. Needs the tablet plugged in.
+    #[impress_method]
+    async fn eink_list_unmatched(&self, device_id: Option<String>) -> Vec<EinkUnmatchedRecord>;
+    /// Bring one such document into the store. `as_kind` `publication`
+    /// (default: a notebook becomes a `@misc` entry with the rendered PDF as
+    /// its file; a PDF/ePUB whose bytes match a file already here adopts
+    /// that publication) or `note` (an `impress/artifact/note`). The
+    /// library may be omitted for a document under `imbib/<Library>`.
+    #[impress_method]
+    async fn eink_import_document(
+        &self,
+        remote_id: String,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        as_kind: Option<String>,
+        device_id: Option<String>,
+    ) -> EinkDocumentImportRecord;
+    /// Every row an e-ink import wrote for a publication (highlights with
+    /// their text, typed text, ink groups with OCR text), in page order.
+    #[impress_method]
+    async fn eink_list_annotations(&self, publication_id: String) -> Vec<AnnotationRecord>;
+    /// Highlight, typed and OCR text from the tablet containing `query`
+    /// (case-insensitive), newest first. `limit` 0 = 100.
+    #[impress_method]
+    async fn eink_search_annotations(&self, query: String, limit: u32) -> Vec<AnnotationRecord>;
+    /// Ink rows whose handwriting has not been recognised yet, with the
+    /// PNG to run OCR on. `publication_id` absent = everywhere.
+    #[impress_method]
+    async fn eink_pending_ocr(&self, publication_id: Option<String>) -> Vec<EinkOcrJobRecord>;
+    /// Record an OCR result. `text` absent with a confidence still closes
+    /// the job (nothing legible), so it is not retried forever.
+    #[impress_method]
+    async fn eink_complete_ocr(
+        &self,
+        annotation_id: String,
+        text: Option<String>,
+        confidence: f64,
+    ) -> MutationResult;
+    /// Append the imported highlights and notes to the paper's Notes field
+    /// as one dated block. A snapshot already appended is skipped unless
+    /// `force`. Never runs on its own.
+    #[impress_method]
+    async fn eink_append_notes(&self, publication_id: String, force: bool) -> EinkAppendResult;
 }
 
 pub struct DefaultImbibEinkService {
@@ -632,6 +784,141 @@ impl ImbibEinkService for DefaultImbibEinkService {
         })
         .unwrap_or_default()
     }
+
+    async fn eink_import(
+        &self,
+        publication_id: Option<String>,
+        device_id: Option<String>,
+    ) -> EinkSyncRecord {
+        let store = Arc::clone(&self.store);
+        match blocking("eink_import", move || {
+            store.eink_import(publication_id, device_id)
+        })
+        .await
+        {
+            Ok(report) => report.into(),
+            Err(error) => EinkSyncRecord {
+                error: Some(error),
+                ..Default::default()
+            },
+        }
+    }
+
+    async fn eink_list_unmatched(&self, device_id: Option<String>) -> Vec<EinkUnmatchedRecord> {
+        let store = Arc::clone(&self.store);
+        blocking("eink_list_unmatched", move || {
+            store.eink_list_unmatched(device_id)
+        })
+        .await
+        .map(|docs| docs.into_iter().map(EinkUnmatchedRecord::from).collect())
+        .unwrap_or_default()
+    }
+
+    async fn eink_import_document(
+        &self,
+        remote_id: String,
+        library_id: Option<String>,
+        collection_id: Option<String>,
+        as_kind: Option<String>,
+        device_id: Option<String>,
+    ) -> EinkDocumentImportRecord {
+        let store = Arc::clone(&self.store);
+        let id = remote_id.clone();
+        match blocking("eink_import_document", move || {
+            store.eink_import_document(remote_id, library_id, collection_id, as_kind, device_id)
+        })
+        .await
+        {
+            Ok(outcome) => outcome.into(),
+            Err(error) => EinkDocumentImportRecord {
+                remote_id: id,
+                error: Some(error),
+                ..Default::default()
+            },
+        }
+    }
+
+    async fn eink_list_annotations(&self, publication_id: String) -> Vec<AnnotationRecord> {
+        self.store
+            .eink_annotations_for_publication(publication_id)
+            .map(|rows| rows.iter().map(AnnotationRecord::from).collect())
+            .unwrap_or_else(|e| {
+                log("eink_list_annotations", e);
+                vec![]
+            })
+    }
+
+    async fn eink_search_annotations(&self, query: String, limit: u32) -> Vec<AnnotationRecord> {
+        self.store
+            .eink_search_annotations(query, limit)
+            .map(|rows| rows.iter().map(AnnotationRecord::from).collect())
+            .unwrap_or_else(|e| {
+                log("eink_search_annotations", e);
+                vec![]
+            })
+    }
+
+    async fn eink_pending_ocr(&self, publication_id: Option<String>) -> Vec<EinkOcrJobRecord> {
+        self.store
+            .eink_pending_ocr(publication_id)
+            .map(|jobs| {
+                jobs.into_iter()
+                    .map(|j| EinkOcrJobRecord {
+                        annotation_id: j.annotation_id,
+                        publication_id: j.publication_id,
+                        linked_file_id: j.linked_file_id,
+                        page_number: j.page_number,
+                        image_path: j.image_path,
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(|e| {
+                log("eink_pending_ocr", e);
+                vec![]
+            })
+    }
+
+    async fn eink_complete_ocr(
+        &self,
+        annotation_id: String,
+        text: Option<String>,
+        confidence: f64,
+    ) -> MutationResult {
+        match self
+            .store
+            .eink_complete_ocr(annotation_id, text, confidence)
+        {
+            Ok(()) => MutationResult {
+                affected_count: 1,
+                ok: true,
+            },
+            Err(e) => {
+                log("eink_complete_ocr", e);
+                MutationResult {
+                    affected_count: 0,
+                    ok: false,
+                }
+            }
+        }
+    }
+
+    async fn eink_append_notes(&self, publication_id: String, force: bool) -> EinkAppendResult {
+        match self.store.eink_append_notes(publication_id, force) {
+            Ok(appended) => EinkAppendResult {
+                ok: true,
+                appended,
+                error: None,
+            },
+            Err(e) => {
+                log("eink_append_notes", &e);
+                EinkAppendResult {
+                    ok: false,
+                    appended: false,
+                    error: Some(e.to_string()),
+                }
+            }
+        }
+    }
 }
 
 impress_service_impl! {
@@ -652,6 +939,14 @@ impress_service_impl! {
         eink_plan(device_id: Option<String>) -> EinkSyncRecord,
         eink_sync(device_id: Option<String>, import: bool) -> EinkSyncRecord,
         eink_folder_checklist(device_id: Option<String>) -> Vec<EinkFolderNeedRecord>,
+        eink_import(publication_id: Option<String>, device_id: Option<String>) -> EinkSyncRecord,
+        eink_list_unmatched(device_id: Option<String>) -> Vec<EinkUnmatchedRecord>,
+        eink_import_document(remote_id: String, library_id: Option<String>, collection_id: Option<String>, as_kind: Option<String>, device_id: Option<String>) -> EinkDocumentImportRecord,
+        eink_list_annotations(publication_id: String) -> Vec<AnnotationRecord>,
+        eink_search_annotations(query: String, limit: u32) -> Vec<AnnotationRecord>,
+        eink_pending_ocr(publication_id: Option<String>) -> Vec<EinkOcrJobRecord>,
+        eink_complete_ocr(annotation_id: String, text: Option<String>, confidence: f64) -> MutationResult,
+        eink_append_notes(publication_id: String, force: bool) -> EinkAppendResult,
     ],
 }
 
@@ -679,6 +974,14 @@ mod tests {
             "eink-plan",
             "eink-sync",
             "eink-folder-checklist",
+            "eink-import",
+            "eink-list-unmatched",
+            "eink-import-document",
+            "eink-list-annotations",
+            "eink-search-annotations",
+            "eink-pending-ocr",
+            "eink-complete-ocr",
+            "eink-append-notes",
         ] {
             let mcp_name = format!("imbib-eink-service_{verb}");
             assert!(mcp.contains(&mcp_name.as_str()), "missing {mcp_name}");

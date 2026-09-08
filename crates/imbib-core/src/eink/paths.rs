@@ -134,6 +134,12 @@ pub fn relative_or_absolute(library_dir: &Path, file: &Path) -> String {
     }
 }
 
+/// Lowercase hex SHA-256 of bytes already in memory.
+pub fn sha256_bytes(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 /// Lowercase hex SHA-256 of a file's bytes, streamed.
 pub fn sha256_file(path: &Path) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};

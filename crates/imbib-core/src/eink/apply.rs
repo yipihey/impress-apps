@@ -31,10 +31,13 @@ use crate::unified::store_api::{ImbibStore, StoreApiError};
 /// A sync that holds the device row for longer than this is presumed dead.
 const LOCK_STALE_MS: i64 = 10 * 60 * 1000;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SyncOptions {
     /// Plan and report, touch nothing (the tablet is still listed).
     pub dry_run: bool,
+    /// Send queued papers and create folders (`false` = an import-only
+    /// pass: bookkeeping and downloads, nothing goes up).
+    pub upload: bool,
     /// Pull changed documents back through the import sink.
     pub import: bool,
     /// Where downloads land instead of `<library dir>/EInk/<remote id>/`
@@ -42,11 +45,25 @@ pub struct SyncOptions {
     pub download_root: Option<PathBuf>,
 }
 
+impl Default for SyncOptions {
+    fn default() -> Self {
+        Self {
+            dry_run: false,
+            upload: true,
+            import: false,
+            download_root: None,
+        }
+    }
+}
+
 /// What an import wrote for one document.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "native", derive(uniffi::Record))]
 pub struct ImportOutcome {
     pub annotated_file_id: Option<String>,
+    /// Set when the import refreshed the primary file itself (a notebook
+    /// the tablet authored); the mirror row's `uploaded_sha256` follows it.
+    pub primary_sha256: Option<String>,
     pub created: u32,
     pub updated: u32,
     pub deleted: u32,
@@ -123,6 +140,8 @@ pub struct EinkSyncReport {
     pub imports: Vec<ImportedDocument>,
     /// Documents with new annotations that were not imported this run.
     pub pending_imports: u32,
+    /// Papers due for upload that an import-only pass left queued.
+    pub pending_uploads: u32,
     pub trace: Vec<String>,
     pub duration_ms: i64,
 }
@@ -155,7 +174,7 @@ fn device_lock(device_id: &str) -> Arc<Mutex<()>> {
         .clone()
 }
 
-fn resolve_device(
+pub(crate) fn resolve_device(
     store: &ImbibStore,
     device_id: Option<&str>,
 ) -> Result<EinkDeviceConfig, EinkError> {
@@ -169,9 +188,13 @@ fn resolve_device(
     }
 }
 
-/// Walk the tablet: every folder (for path resolution) and every document
-/// under the root folder.
-fn walk_tablet(
+/// Walk the whole tablet: every folder (for path resolution) and every
+/// document, wherever it sits. The planner needs all of them — a mirrored
+/// paper the user moved out of the `imbib` tree is still on the tablet,
+/// and a document imbib never sent may need to be offered for import — and
+/// the tablet has tens of folders, not thousands, so one listing per folder
+/// is cheap over USB. Also returns the id of the root folder, if present.
+pub(crate) fn walk_tablet(
     transport: &dyn EinkTransport,
     root_name: &str,
     trace: &mut Vec<String>,
@@ -188,36 +211,55 @@ fn walk_tablet(
             })
         })
         .map(|e| e.id.clone());
-    let mut documents = Vec::new();
-    if let Some(root_id) = &root {
-        let mut queue = vec![root_id.clone()];
-        let mut seen: HashSet<String> = HashSet::new();
-        while let Some(folder) = queue.pop() {
-            if !seen.insert(folder.clone()) {
-                continue;
-            }
-            let entries = transport.list_folder(Some(&folder))?;
-            for entry in entries {
-                match entry.kind {
-                    DocumentKind::Folder => {
-                        folders.insert(&entry.id, &entry.parent, &entry.visible_name);
-                        queue.push(entry.id.clone());
-                    }
-                    DocumentKind::Document => documents.push(entry),
-                    DocumentKind::Unknown => {}
+    let mut documents: Vec<RemarkableDocument> = Vec::new();
+    let mut queue: Vec<String> = Vec::new();
+    for entry in top {
+        match entry.kind {
+            DocumentKind::Folder => queue.push(entry.id),
+            DocumentKind::Document => documents.push(entry),
+            DocumentKind::Unknown => {}
+        }
+    }
+    let mut seen: HashSet<String> = HashSet::new();
+    while let Some(folder) = queue.pop() {
+        if !seen.insert(folder.clone()) {
+            continue;
+        }
+        let entries = transport.list_folder(Some(&folder))?;
+        for entry in entries {
+            match entry.kind {
+                DocumentKind::Folder => {
+                    folders.insert(&entry.id, &entry.parent, &entry.visible_name);
+                    queue.push(entry.id.clone());
                 }
+                DocumentKind::Document => documents.push(entry),
+                DocumentKind::Unknown => {}
             }
         }
-        trace.push(format!(
-            "tablet: root folder {root_name:?} = {root_id}; {} folders, {} documents under it",
+    }
+    match &root {
+        Some(root_id) => {
+            let under_root = documents
+                .iter()
+                .filter(|d| {
+                    folders
+                        .path_of(&d.parent)
+                        .first()
+                        .map(|top| top.eq_ignore_ascii_case(root_name.trim()))
+                        .unwrap_or(false)
+                })
+                .count();
+            trace.push(format!(
+                "tablet: root folder {root_name:?} = {root_id}; {} folders and {} documents in all, {under_root} under the root",
+                folders.len(),
+                documents.len()
+            ));
+        }
+        None => trace.push(format!(
+            "tablet: no top-level folder named {root_name:?} ({} folders, {} documents elsewhere)",
             folders.len(),
             documents.len()
-        ));
-    } else {
-        trace.push(format!(
-            "tablet: no top-level folder named {root_name:?} ({} top-level entries)",
-            top.len()
-        ));
+        )),
     }
     Ok((folders, documents, root))
 }
@@ -642,6 +684,18 @@ fn execute(
     for action in prepared.plan.actions {
         match action {
             PlanAction::Skip { .. } => {}
+            PlanAction::EnsureFolder { path } if !options.upload => {
+                report.trace.push(format!(
+                    "import-only pass: folder {} not created",
+                    path.join("/")
+                ));
+            }
+            PlanAction::Upload { publication_id, .. } if !options.upload => {
+                report.pending_uploads += 1;
+                report.trace.push(format!(
+                    "import-only pass: upload of {publication_id} left queued"
+                ));
+            }
             PlanAction::EnsureFolder { path } => {
                 match ensure_folder(transport, &mut folders, &path) {
                     Ok(id) => {
@@ -1001,6 +1055,9 @@ fn import_one(
     if let Some(id) = &outcome.annotated_file_id {
         fields.push(("annotated_file_id", Some(Value::String(id.clone()))));
     }
+    if let Some(sha) = &outcome.primary_sha256 {
+        fields.push(("uploaded_sha256", Some(Value::String(sha.clone()))));
+    }
     store.eink_update_mirror(mirror_id, fields)?;
     Ok(ImportedDocument {
         publication_id: publication_id.to_string(),
@@ -1013,6 +1070,127 @@ fn import_one(
         deleted: outcome.deleted,
         ink_pending_ocr: outcome.ink_pending_ocr,
     })
+}
+
+/// Import one mirrored paper now, regardless of whether the tablet reports
+/// a change since the last import. The row must be on the tablet
+/// (`uploaded` or `stale` with a remote id); the listing of its folder
+/// supplies the current name and modification time.
+pub fn import_publication(
+    store: &ImbibStore,
+    device: &EinkDeviceConfig,
+    transport: &dyn EinkTransport,
+    sink: &dyn EinkImportSink,
+    publication_id: &str,
+    download_root: Option<&Path>,
+) -> Result<EinkSyncReport, EinkError> {
+    let started = Instant::now();
+    let mut report = EinkSyncReport {
+        device_id: device.id.clone(),
+        ..Default::default()
+    };
+    let row = store
+        .eink_mirror_for_publication(Some(device.id.clone()), publication_id.to_string())?
+        .ok_or_else(|| {
+            EinkError::Invalid(format!(
+                "publication {publication_id} is not mirrored to device {}",
+                device.id
+            ))
+        })?;
+    let remote_id = row.remote_id.clone().ok_or_else(|| {
+        EinkError::Invalid(format!(
+            "publication {publication_id} has no copy on the tablet yet (state {})",
+            row.state
+        ))
+    })?;
+    if !transport.reachable() {
+        report.trace.push(format!(
+            "tablet at {} is not reachable; nothing to do",
+            device.base_url
+        ));
+        report.duration_ms = started.elapsed().as_millis() as i64;
+        return Ok(report);
+    }
+    report.reachable = true;
+    let lock = device_lock(&device.id);
+    let _guard = lock.lock().map_err(|_| {
+        EinkError::Locked("a previous sync panicked while holding the device".into())
+    })?;
+    let parent = row.remote_parent_id.clone().unwrap_or_default();
+    let listed = transport.list_folder((!parent.is_empty()).then_some(parent.as_str()))?;
+    let entry = listed.into_iter().find(|e| e.id == remote_id);
+    let (remote_name, remote_modified_ms) = match entry {
+        Some(entry) => (entry.visible_name, entry.last_modified_ms),
+        None => {
+            // Not in the folder imbib last saw it in: look everywhere before
+            // declaring it gone.
+            let (_, documents, _) =
+                walk_tablet(transport, &device.root_folder_name, &mut report.trace)?;
+            match documents.into_iter().find(|d| d.id == remote_id) {
+                Some(entry) => (entry.visible_name, entry.last_modified_ms),
+                None => {
+                    store.eink_update_mirror(
+                        &row.id,
+                        vec![
+                            ("state", Some(state_value(MirrorState::RemovedOnDevice))),
+                            (
+                                "last_error",
+                                Some(Value::String(format!(
+                                    "document {remote_id} is no longer on the tablet"
+                                ))),
+                            ),
+                        ],
+                    )?;
+                    report.summary.removed += 1;
+                    report.trace.push(format!(
+                        "import {publication_id}: document {remote_id} is no longer on the tablet"
+                    ));
+                    report.duration_ms = started.elapsed().as_millis() as i64;
+                    return Ok(report);
+                }
+            }
+        }
+    };
+    report.summary.to_import = 1;
+    match import_one(
+        store,
+        device,
+        transport,
+        sink,
+        download_root,
+        &row.id,
+        publication_id,
+        &remote_id,
+        &remote_name,
+        remote_modified_ms,
+    ) {
+        Ok(imported) => {
+            report.trace.push(format!(
+                "imported {publication_id}: {} (+{} ~{} -{} rows, {} ink pending OCR)",
+                imported.annotated_pdf,
+                imported.created,
+                imported.updated,
+                imported.deleted,
+                imported.ink_pending_ocr
+            ));
+            report.imports.push(imported);
+        }
+        Err(error) => {
+            report
+                .trace
+                .push(format!("import {publication_id} failed: {error}"));
+            store.eink_update_mirror(
+                &row.id,
+                vec![(
+                    "last_error",
+                    Some(Value::String(format!("import failed: {error}"))),
+                )],
+            )?;
+            report.failed.push(publication_id.to_string());
+        }
+    }
+    report.duration_ms = started.elapsed().as_millis() as i64;
+    Ok(report)
 }
 
 /// Where `import_one` puts downloads, for callers that clean up.
@@ -1045,6 +1223,45 @@ impl ImbibStore {
             options,
         )
         .map_err(eink_to_store_error)
+    }
+
+    /// An import-only pass: pull every document with new annotations back,
+    /// send nothing up. `publication_id` narrows it to one paper and
+    /// imports it whether or not the tablet reports a change (the way to
+    /// re-run an import after changing the device's import switches).
+    pub fn eink_import(
+        &self,
+        publication_id: Option<String>,
+        device_id: Option<String>,
+    ) -> Result<EinkSyncReport, StoreApiError> {
+        let device = resolve_device(self, device_id.as_deref()).map_err(eink_to_store_error)?;
+        let transport = super::transport::UsbWebTransport::new(device.base_url.clone());
+        match publication_id {
+            Some(publication_id) => import_publication(
+                self,
+                &device,
+                &transport,
+                &super::import::StoreImportSink,
+                &publication_id,
+                None,
+            )
+            .map_err(eink_to_store_error),
+            None => {
+                let options = SyncOptions {
+                    upload: false,
+                    import: true,
+                    ..Default::default()
+                };
+                run_sync(
+                    self,
+                    Some(&device.id),
+                    &transport,
+                    &super::import::StoreImportSink,
+                    options,
+                )
+                .map_err(eink_to_store_error)
+            }
+        }
     }
 
     /// Plan only: list the tablet, decide, write nothing.
