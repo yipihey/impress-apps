@@ -141,9 +141,19 @@ jobs:
           LAUNCHED=0
           for i in 1 2 3 4 5 6; do
             sleep 5
-            if xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.imprint"; then
-              LAUNCHED=1; break
-            fi
+            # NO PIPE into the match, deliberately. `grep -q` exits the instant
+            # it matches, which closes the pipe and kills `launchctl` with
+            # SIGPIPE (141); `set -o pipefail` above then reports the whole
+            # pipeline as failed. A SUCCESSFUL match therefore read as "did not
+            # launch", and this lane went red on 2026-09-08 with imprint alive
+            # and well in the simulator. It is a race on how much `launchctl
+            # list` has left to write when grep quits — latent since this file
+            # was written, and lost consistently once the CI simulator had been
+            # booted for days and its service list had grown.
+            services=$(xcrun simctl spawn "$UDID" launchctl list 2>/dev/null || true)
+            case "$services" in
+              *com.imbib.imprint*) LAUNCHED=1; break ;;
+            esac
           done
           if [ "$LAUNCHED" = "1" ]; then
             echo "imprint-iOS launched OK"
@@ -152,8 +162,13 @@ jobs:
             echo "=== process log (last 3m) ==="
             xcrun simctl spawn "$UDID" log show --last 3m \
               --predicate 'process == "imprint"' 2>/dev/null | tail -80 || true
-            echo "=== host crash reports ==="
-            ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -5 || true
+            # imprint's OWN crash reports only. The unfiltered listing that
+            # used to print here showed whatever had crashed on the host most
+            # recently — on a shared CI Mac that is usually some unrelated
+            # daemon — directly under a heading that made it look like the
+            # cause. It cost two separate investigations before anyone noticed
+            # imprint had never crashed at all.
+            echo "=== imprint crash reports (none below means imprint did not crash) ==="
             for f in $(ls -t ~/Library/Logs/DiagnosticReports/imprint* 2>/dev/null | head -2); do
               echo "--- $f"; head -60 "$f"
             done
