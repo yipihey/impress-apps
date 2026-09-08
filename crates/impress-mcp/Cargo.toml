@@ -60,6 +60,7 @@ vw-impress-adapter = { path = "../vw-impress-adapter" }
 imprint-selftest = { workspace = true }
 # Pulls the SmartSearchService inventory (pure, app-independent — no
 # reachability gate entry needed).
+impel-service = { workspace = true }
 impress-parsers-service = { workspace = true }
 impress-smart-search-service = { workspace = true }
 # Pulls the MemoryService inventory (ADR-0028 memory kernel P2 — remember/

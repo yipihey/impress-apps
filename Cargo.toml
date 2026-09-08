@@ -78,6 +78,7 @@ members = [
     # page identifier extraction). Ported from the ImpressSmartSearch Swift
     # package; the LLM call and the page fetch stay Swift.
     "crates/impress-smart-search",
+    "crates/impel-service",
     "crates/impress-parsers-service",
     "crates/impress-smart-search-service",
     # impress-memory-service - ADR-0028 memory kernel P2: remember/recall/brief
@@ -170,6 +171,7 @@ impress-core = { path = "crates/impress-core" }
 impress-embeddings = { path = "crates/impress-embeddings", default-features = false }
 impress-sources = { path = "crates/impress-sources" }
 impress-smart-search = { path = "crates/impress-smart-search" }
+impel-service = { path = "crates/impel-service" }
 impress-parsers-service = { path = "crates/impress-parsers-service" }
 impress-smart-search-service = { path = "crates/impress-smart-search-service" }
 impress-memory-service = { path = "crates/impress-memory-service" }

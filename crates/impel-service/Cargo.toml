@@ -1,0 +1,33 @@
+[package]
+name = "impel-service"
+description = "#[impress_service] trait exposing the impel task kernel's own state — scheduler status, failed/escalated tasks, the human review queue and its resolution — as MCP tools, CLI subcommands and impel agent tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The kernel this service reports on: task states, the review contract and
+# the validated transition path (nothing here mutates state directly).
+impel-core = { workspace = true }
+impress-core = { workspace = true, features = ["sqlite"] }
+# The process-wide store handle every other store-backed service uses.
+impress-store-service = { workspace = true }
+# Worker liveness: the daemon's own status file (heartbeat, last pass).
+impress-ai = { workspace = true }
+
+chrono = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+
+# Codegen pipeline — one #[impress_method] becomes an MCP tool, a CLI
+# subcommand and an impel agent tool.
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+async-trait = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

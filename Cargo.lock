@@ -3915,6 +3915,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "impel-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs 5.0.1",
+ "impel-core",
+ "impress-ai",
+ "impress-core",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "impel-taskd"
 version = "0.1.0"
 dependencies = [
@@ -4348,6 +4368,7 @@ dependencies = [
  "imbib-service-http",
  "impart-service",
  "impart-service-http",
+ "impel-service",
  "implore-service",
  "implore-service-http",
  "impress-ai-service",

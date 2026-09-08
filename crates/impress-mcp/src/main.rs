@@ -20,6 +20,8 @@ use imbib_service as _force_link_imbib_service;
 #[allow(unused_imports)]
 use impart_service as _force_link_impart_service;
 #[allow(unused_imports)]
+use impel_service as _force_link_impel_service;
+#[allow(unused_imports)]
 use implore_service as _force_link_implore_service;
 #[allow(unused_imports)]
 use impress_ai_service as _force_link_ai_service;
