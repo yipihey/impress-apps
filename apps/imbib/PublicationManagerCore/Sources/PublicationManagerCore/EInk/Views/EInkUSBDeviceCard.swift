@@ -254,7 +254,7 @@ public struct EInkUSBDeviceCard: View {
                     Text(mode.title).tag(mode)
                 }
             }
-            .pickerStyle(.radioGroup)
+            .modifier(MirrorModePickerStyle())
             .labelsHidden()
         } header: {
             Text("What is mirrored")
@@ -582,5 +582,17 @@ public enum EInkUSBDeviceCreation {
         guard let record = RustStoreAdapter.shared.einkConfigureDevice(defaultInput()) else { return nil }
         await EInkServices.shared.settingsChanged()
         return record
+    }
+}
+
+/// Radio buttons on macOS (the two modes read as a choice, not a menu);
+/// the platform default on iOS, which has no radio group.
+private struct MirrorModePickerStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.pickerStyle(.radioGroup)
+        #else
+        content.pickerStyle(.inline)
+        #endif
     }
 }
