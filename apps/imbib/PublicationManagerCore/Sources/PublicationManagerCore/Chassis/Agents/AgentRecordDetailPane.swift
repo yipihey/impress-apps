@@ -64,6 +64,9 @@ public struct AgentRecordDetailPane: View {
     @State private var latestRun: AgentRunRowData?
     /// The item the task operates on (its subject/input), if any.
     @State private var subject: (id: UUID, title: String)?
+    /// The unresolved checkpoint holding this task, if any. A suspended
+    /// task reads `running` and is in fact waiting on a person.
+    @State private var blockingReview: PendingReview?
 
     public init(
         kind: AgentDetailKind,
@@ -119,6 +122,8 @@ public struct AgentRecordDetailPane: View {
             subject = reader.fetchSubject(forTask: id.uuidString).flatMap { row in
                 UUID(uuidString: row.id).map { ($0, AgentStoreReader.displayTitle(for: row)) }
             }
+            blockingReview = reader.fetchBlockingReview(forTask: id.uuidString)
+                .flatMap { PendingReview(row: $0) }
             runRow = nil
         case .run:
             runRow = reader.fetchRun(id: id.uuidString)
@@ -183,7 +188,14 @@ public struct AgentRecordDetailPane: View {
                     // What CREATED the task, then what RAN it. Only the
                     // second used to be shown, so every task looked as
                     // though impel-taskd had decided to run it by itself.
-                    infoRow("Launched By", row.spawnedBy ?? "—")
+                    // "—" was indistinguishable from a bug. A task created
+                    // before provenance shipped has nothing to show, and
+                    // saying so is more useful than a dash.
+                    infoRow(
+                        "Launched By",
+                        row.spawnedBy.map(AgentStoreReader.spawnRuleDescription)
+                            ?? "not recorded (task predates provenance)"
+                    )
                     infoRow("Assigned To", row.assignedTo ?? "—")
                     if let subject {
                         infoRow("Subject", subject.title)
@@ -198,6 +210,31 @@ public struct AgentRecordDetailPane: View {
                         .font(.headline)
                     Text(row.taskDescription)
                         .textSelection(.enabled)
+                }
+
+                // The honest answer to "it says Running — running what?"
+                // A suspended task is not working: it opened a checkpoint and
+                // is waiting on a person, sometimes for days. The task row
+                // says `running`, the run summary describes work that already
+                // finished, and the question being asked lives on a separate
+                // item the task does not reference — so the pane could show
+                // every field it had and still not say what was happening.
+                if let blockingReview {
+                    Divider()
+                    Text("Waiting On You")
+                        .font(.headline)
+                    Text(blockingReview.question)
+                        .textSelection(.enabled)
+                        .font(.callout)
+                    if !blockingReview.proposedTags.isEmpty {
+                        Text(blockingReview.proposedTags.joined(separator: "   "))
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    Text("Asked \(blockingReview.created.formatted(.relative(presentation: .named))) — nothing moves until it is answered.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if let latestRun {

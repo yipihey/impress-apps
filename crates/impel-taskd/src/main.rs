@@ -475,6 +475,126 @@ fn expire_stale_reviews(store: &SqliteItemStore, expiry_days: i64, cap: usize) -
     expired
 }
 
+/// Withdraw review checkpoints whose subject no longer exists, and cancel the
+/// tasks behind them.
+///
+/// A `running` task suspended on a review is never re-selected by
+/// `ready_tasks`, so the pre-acquisition orphan gate never sees it. Deleting a
+/// paper takes the `OperatesOn` edge with it (FK cascade) and leaves the
+/// checkpoint standing: the queue keeps asking a human to approve tags for a
+/// paper that is gone, and answering does not help — the executor's resume
+/// path needs the target it no longer has, so an approval buys a permanent
+/// failure. Every one of the 264 reviews outstanding on 2026-09-08 was this.
+///
+/// Withdrawn, not expired: `expired` means "nobody answered in time", and
+/// these were never answerable. The distinction is what someone reading the
+/// resolution later needs.
+fn withdraw_orphaned_reviews(store: &SqliteItemStore, cap: usize) -> usize {
+    use impress_core::item::{ActorKind, Value};
+    use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+    use impress_core::reference::EdgeType;
+    use impress_core::task::TaskState;
+
+    let mut withdrawn = 0;
+    let mut offset = 0;
+    while withdrawn < cap {
+        let q = ItemQuery {
+            schema: Some(impel_core::REVIEW_REQUEST_SCHEMA.into()),
+            sort: vec![impress_core::query::SortDescriptor {
+                field: "created".into(),
+                ascending: true,
+            }],
+            limit: Some(200),
+            offset: Some(offset),
+            include_tags: false,
+            include_references: true,
+            ..Default::default()
+        };
+        let page = match ItemStore::query(store, &q) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("impel-taskd: orphaned-review query failed: {e}");
+                break;
+            }
+        };
+        let page_len = page.len();
+        for review in page {
+            if matches!(review.payload.get("resolution"),
+                        Some(Value::String(s)) if !s.is_empty())
+            {
+                continue;
+            }
+            // review —OperatesOn→ task
+            let Some(task_id) = review
+                .references
+                .iter()
+                .find(|r| r.edge_type == EdgeType::OperatesOn)
+                .map(|r| r.target)
+            else {
+                continue;
+            };
+            let Ok(Some(task)) = TaskStoreApi::get_item(store, task_id) else {
+                continue;
+            };
+            // Still has its subject? Then the question is answerable and this
+            // sweep must leave it alone.
+            if task
+                .references
+                .iter()
+                .any(|r| r.edge_type == EdgeType::OperatesOn)
+            {
+                continue;
+            }
+            let write = |field: &str, value: &str| OperationSpec {
+                target_id: review.id,
+                op_type: OperationType::SetPayload(field.into(), Value::String(value.into())),
+                intent: OperationIntent::Routine,
+                reason: Some("subject deleted — checkpoint cannot be acted on".into()),
+                batch_id: None,
+                author: "impel-taskd/orphan-sweep".into(),
+                author_kind: ActorKind::Agent,
+                retention: RetentionTier::Durable,
+            };
+            if let Err(e) = store.apply_operation_batch(vec![
+                write("resolution", "withdrawn"),
+                write("resolved_by", "impel-taskd/orphan-sweep"),
+            ]) {
+                eprintln!("impel-taskd: orphaned-review write failed: {e}");
+                continue;
+            }
+            // The task goes with it. Cancelled, not failed: nothing went
+            // wrong, the work simply stopped being possible.
+            let state = match task.payload.get("state") {
+                Some(Value::String(s)) => TaskState::parse_compat(s),
+                _ => None,
+            };
+            if !matches!(
+                state,
+                Some(TaskState::Done) | Some(TaskState::Failed) | Some(TaskState::Cancelled)
+            ) {
+                if let Err(e) = TaskStoreApi::transition(
+                    store,
+                    task_id,
+                    TaskState::Cancelled,
+                    ACTOR,
+                    Some(OperationIntent::Routine),
+                ) {
+                    eprintln!("impel-taskd: orphaned-task cancel failed for {task_id}: {e}");
+                }
+            }
+            withdrawn += 1;
+            if withdrawn >= cap {
+                break;
+            }
+        }
+        if page_len < 200 {
+            break;
+        }
+        offset += 200;
+    }
+    withdrawn
+}
+
 /// One-shot startup heal for the pre-propagation era: pending tasks whose
 /// `DependsOn` target terminally failed can never become ready (the
 /// readiness SQL blocks on any dep not done) — they sat as invisible
@@ -1167,6 +1287,17 @@ async fn main() {
         // suspended task completes without the proposed action.
         if !args.dry_run && last_expiry_sweep.elapsed() >= Duration::from_secs(3600) {
             last_expiry_sweep = std::time::Instant::now();
+            // Unanswerable ones FIRST. A checkpoint whose paper was deleted is
+            // not waiting for an answer, it is waiting for nothing, and
+            // letting it age into "expired" says the human ignored a question
+            // that was never theirs to answer.
+            let withdrawn = withdraw_orphaned_reviews(&store, 500);
+            if withdrawn > 0 {
+                eprintln!(
+                    "impel-taskd: withdrew {withdrawn} review(s) whose subject was deleted, \
+                     and cancelled their tasks"
+                );
+            }
             let expired = expire_stale_reviews(&store, expiry_days, 500);
             if expired > 0 {
                 eprintln!("impel-taskd: expired {expired} unanswered review(s) (> {expiry_days}d)");
@@ -1229,5 +1360,165 @@ async fn main() {
             return;
         }
         tokio::time::sleep(Duration::from_secs(args.poll_secs)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use impress_core::item::{Item, ItemId, Priority, Value, Visibility};
+    use impress_core::task::TaskState;
+    use uuid::Uuid;
+
+    fn store() -> SqliteItemStore {
+        SqliteItemStore::open_in_memory().expect("in-memory store")
+    }
+
+    fn bare(schema: &str, title: &str) -> Item {
+        let now = chrono::Utc::now();
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("title".to_string(), Value::String(title.into()));
+        Item {
+            id: Uuid::new_v4(),
+            schema: schema.into(),
+            payload,
+            created: now,
+            modified: now,
+            author: "test".into(),
+            author_kind: ActorKind::Agent,
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: Priority::Normal,
+            visibility: Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: None,
+        }
+    }
+
+    /// A paper, a task operating on it, and an open checkpoint on that task —
+    /// the exact shape the live store is full of.
+    fn suspended_task_on_a_paper(store: &SqliteItemStore) -> (ItemId, ItemId, ItemId) {
+        let paper = TaskStoreApi::create_item(store, bare(BIBLIOGRAPHY_ENTRY_SCHEMA, "A paper"))
+            .expect("paper");
+        let specs = vec![impel_core::TaskSpec {
+            kind: "keyword-tag".into(),
+            description: Some("Propose classification tags".into()),
+            depends_on: vec![],
+            operates_on: Some(paper),
+            output_schema: None,
+        }];
+        let task = create_task_dag_from(store, &specs, ACTOR, None).expect("dag")[0];
+        TaskStoreApi::transition(store, task, TaskState::Running, ACTOR, None).expect("running");
+        let review = TaskStoreApi::open_review(
+            store,
+            task,
+            impel_core::ReviewRequest {
+                question: "Apply 2 proposed tag(s)?".into(),
+                context: None,
+            },
+            ACTOR,
+        )
+        .expect("review");
+        (paper, task, review)
+    }
+
+    fn state_of(store: &SqliteItemStore, id: ItemId) -> Option<TaskState> {
+        let item = TaskStoreApi::get_item(store, id).ok().flatten()?;
+        match item.payload.get("state") {
+            Some(Value::String(s)) => TaskState::parse_compat(s),
+            _ => None,
+        }
+    }
+
+    fn resolution_of(store: &SqliteItemStore, id: ItemId) -> Option<String> {
+        let item = TaskStoreApi::get_item(store, id).ok().flatten()?;
+        match item.payload.get("resolution") {
+            Some(Value::String(s)) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
+    /// Deleting a paper cascades its `OperatesOn` edge away and leaves the
+    /// checkpoint standing. The queue then asks a human to approve tags for a
+    /// paper that is gone — and approving buys a permanent failure, because
+    /// the executor's resume path needs the target that went with it. Every
+    /// one of the 264 reviews outstanding on 2026-09-08 was this.
+    #[test]
+    fn a_checkpoint_whose_paper_was_deleted_is_withdrawn_and_its_task_cancelled() {
+        let store = store();
+        let (paper, task, review) = suspended_task_on_a_paper(&store);
+
+        ItemStore::delete(&store, paper).expect("delete the paper");
+        let orphan = TaskStoreApi::get_item(&store, task).unwrap().unwrap();
+        assert!(
+            orphan.references.is_empty(),
+            "the FK cascade taking the edge is the premise of this sweep"
+        );
+
+        assert_eq!(withdraw_orphaned_reviews(&store, 100), 1);
+        assert_eq!(
+            resolution_of(&store, review).as_deref(),
+            Some("withdrawn"),
+            "NOT 'expired' — nobody ignored this, it was never answerable"
+        );
+        assert_eq!(
+            state_of(&store, task),
+            Some(TaskState::Cancelled),
+            "cancelled, not failed: nothing went wrong, the work stopped being possible"
+        );
+    }
+
+    /// The sweep must not touch a checkpoint someone can actually answer.
+    #[test]
+    fn a_checkpoint_whose_paper_still_exists_is_left_alone() {
+        let store = store();
+        let (_paper, task, review) = suspended_task_on_a_paper(&store);
+
+        assert_eq!(withdraw_orphaned_reviews(&store, 100), 0);
+        assert_eq!(
+            resolution_of(&store, review),
+            None,
+            "still open for a human"
+        );
+        assert_eq!(state_of(&store, task), Some(TaskState::Running));
+    }
+
+    /// Running it twice must not re-resolve what it already resolved, or the
+    /// hourly cadence would rewrite the same rows forever.
+    #[test]
+    fn the_sweep_is_idempotent() {
+        let store = store();
+        let (paper, _task, _review) = suspended_task_on_a_paper(&store);
+        ItemStore::delete(&store, paper).expect("delete");
+
+        assert_eq!(withdraw_orphaned_reviews(&store, 100), 1);
+        assert_eq!(
+            withdraw_orphaned_reviews(&store, 100),
+            0,
+            "a withdrawn checkpoint is resolved, and resolved ones are skipped"
+        );
+    }
+
+    /// The cap bounds one pass so a first sweep over a large backlog cannot
+    /// hold the writer lock while four apps wait on it.
+    #[test]
+    fn the_cap_bounds_one_pass() {
+        let store = store();
+        for _ in 0..4 {
+            let (paper, _, _) = suspended_task_on_a_paper(&store);
+            ItemStore::delete(&store, paper).expect("delete");
+        }
+        assert_eq!(withdraw_orphaned_reviews(&store, 2), 2);
+        assert_eq!(withdraw_orphaned_reviews(&store, 2), 2);
+        assert_eq!(withdraw_orphaned_reviews(&store, 2), 0);
     }
 }
