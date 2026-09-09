@@ -84,8 +84,34 @@ plist read per directory, and adds no background item to a Login Items list
 that took real work to make legible (see [self-hosted-runners.md](self-hosted-runners.md)).
 
 The six directories the build script owns (`imbib`, `imprint`, `implore`,
-`impel`, `impart`, `impress`) are never pruned at any age: they are what
-`~/Applications` is installed from.
+`impel`, `impart`, `impress`) are never pruned at any age, and never emptied by
+`--products` either. Two separate things depend on them:
+
+- `~/Applications/<app>.app` is a real copy, `ditto`'d out of them by the
+  target's "Install to ~/Applications (Debug)" post-build phase;
+- **`~/MyApplications/<app>.app` is a symlink pointing straight INTO
+  `DerivedData/<app>/Build/Products/Debug/`.** Emptying one of those six
+  dangles the alias the user launches from.
+
+## Duplicate built products, and the two routes that diverge
+
+`--products` empties `Build/Products` everywhere except those six. What it
+removes are duplicate `.app` bundles — Spotlight indexes them, and it can rank
+one above `~/Applications`.
+
+This is not hypothetical. On 2026-09-08 the Xcode-GUI cache
+`imbib-ecjsivaqpogiikarpfcihhtqkqxy` held an `imbib.app` built at 18:45, four
+hours **newer** than the 14:51 install. The mechanism: the post-build phase
+copies from `$BUILT_PRODUCTS_DIR`, so a GUI build installs from its own hashed
+path, while `scripts/build-impress-app.sh` builds to `DerivedData/<app>/` and
+refreshes the symlink. Build in the GUI and `~/Applications` moves while the
+alias does not; build with the script and both move together. Compare them with
+`scripts/check-app-installs.sh` before believing a build took effect.
+
+`Build/Intermediates.noindex` is kept, so the next GUI build relinks rather than
+recompiling. But this is remediation, not prevention: Xcode recreates the
+products on the very next build. Only the Spotlight Privacy exclusion above
+stops them from mattering.
 
 ### In-tree DerivedData
 

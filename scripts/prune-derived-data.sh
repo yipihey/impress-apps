@@ -24,10 +24,20 @@
 # but which nothing has touched in N days. That one is a judgement call (the
 # next build of that project becomes a full rebuild), so it is opt-in.
 #
+# `--products` empties `Build/Products` in every directory EXCEPT the six the
+# build script owns. Those products are duplicate .app bundles that Spotlight
+# indexes and can rank above ~/Applications: on 2026-09-08 an Xcode GUI build
+# left an imbib.app four hours newer than the install. Intermediates are kept,
+# so the next GUI build relinks rather than recompiling. This is remediation,
+# not prevention — Xcode recreates them on the next build, and only the
+# Spotlight Privacy exclusion stops them mattering. See
+# docs/build-machine-hygiene.md.
+#
 # Usage:
 #   scripts/prune-derived-data.sh                  # dry run, dead caches only
 #   scripts/prune-derived-data.sh --apply          # delete them
 #   scripts/prune-derived-data.sh --apply --stale-days 30
+#   scripts/prune-derived-data.sh --apply --products
 #   scripts/prune-derived-data.sh --apply --quiet  # for build scripts
 
 set -uo pipefail
@@ -36,12 +46,14 @@ ROOT="${DERIVED_DATA_ROOT:-$HOME/Library/Developer/Xcode/DerivedData}"
 APPLY=no
 QUIET=no
 STALE_DAYS=0
+PRODUCTS=no
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --apply) APPLY=yes ;;
         --quiet) QUIET=yes ;;
         --stale-days) STALE_DAYS="${2:?--stale-days needs a number}"; shift ;;
+        --products) PRODUCTS=yes ;;
         -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
@@ -103,6 +115,29 @@ for path in "$ROOT"/*/; do
         say "  would remove  ${mb}MB  $dir — $reason"
     fi
 done
+
+if [ "$PRODUCTS" = yes ]; then
+    for path in "$ROOT"/*/; do
+        dir="$(basename "$path")"
+        [ "$dir" = "*" ] && break
+        # The six the build script owns are exempt at ALL times: the
+        # ~/MyApplications/<app>.app aliases are symlinks straight into their
+        # Build/Products, so emptying one dangles the alias the user launches.
+        is_protected "$dir" && continue
+        [ -d "$path/Build/Products" ] || continue
+
+        mb=$(du -sm "$path/Build/Products" 2>/dev/null | cut -f1)
+        mb=${mb:-0}
+        freed=$(( freed + mb ))
+        count=$(( count + 1 ))
+        if [ "$APPLY" = yes ]; then
+            say "  emptied  ${mb}MB  $dir/Build/Products — duplicate app bundles"
+            rm -rf "$path/Build/Products"
+        else
+            say "  would empty  ${mb}MB  $dir/Build/Products — duplicate app bundles"
+        fi
+    done
+fi
 
 # A second, quieter leak: DerivedData directories INSIDE a checkout. .gitignore
 # calls these "non-standard in-tree DerivedData (use Xcode's global DerivedData
