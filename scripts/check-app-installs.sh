@@ -83,18 +83,36 @@ done
 cat <<'NOTE'
 
 Xcode keeps creating these: it builds to a per-project hashed DerivedData path,
-and every copy there is another app Spotlight can rank first. Two ways to stop
-it for good, either is enough:
+and every copy there is another app Spotlight can rank first. To stop it:
 
-  * Exclude DerivedData from Spotlight — System Settings ▸ Siri & Spotlight ▸
-    Spotlight Privacy… ▸ + ▸ ~/Library/Developer/Xcode/DerivedData
-    This also PURGES what is already indexed, which a .metadata_never_index
-    marker cannot do (it only stops future indexing).
+  * Exclude them from Spotlight — System Settings ▸ Siri & Spotlight ▸
+    Spotlight Privacy… ▸ + ▸ add BOTH of:
+        ~/Library/Developer/Xcode/DerivedData
+        ~/Library/Developer/Xcode/Archives
+    (⇧⌘G in the picker to type a path; ~/Library is hidden.)
+    Purges the copies already indexed AND blocks future ones, in one step,
+    without touching the build cache. The list is root-owned and
+    SIP-protected, so it cannot be scripted — this click is the whole fix.
 
-  * Point Xcode at the same path the build script uses — Xcode ▸ Settings ▸
-    Locations ▸ Derived Data ▸ Custom ▸ ~/Library/Developer/Xcode/DerivedData
-    with "Build/Products" relative paths, so there is one copy rather than one
-    per project.
+    Archives matter as much as DerivedData: every .xcarchive holds a full
+    .app, and five of imbib's Spotlight-visible copies were January archives.
+    Any listed above that sits OUTSIDE those two folders — a ~/Desktop
+    archive, a DerivedData inside a checkout — needs deleting or excluding on
+    its own; nothing here can reach it.
+
+Two things that look like fixes and are not:
+
+  * `.metadata_never_index` at the DerivedData root. Tested here: with the
+    marker in place, an indexed bundle deleted and restored was re-indexed
+    immediately. It changes nothing.
+  * A single shared DerivedData path instead of per-project hashed ones. That
+    leaves ONE stale copy rather than sixty, and one is all it takes to
+    out-rank ~/Applications. Fewer wrong answers is not a right answer.
+
+The mechanism that does work without the GUI is a DerivedData root ending in
+`.noindex` (Xcode's own convention for Build/Intermediates.noindex): verified
+0 mdfind hits inside one vs 1 for an identical copy beside it. It orphans the
+whole build cache, which is why the Privacy list is the better trade here.
 NOTE
 
 exit $status

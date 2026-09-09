@@ -17,18 +17,24 @@ if [ -z "${DEVELOPMENT_TEAM:-}" ] && [ -f "$HOME/.zprofile" ]; then
     eval "$(grep '^export DEVELOPMENT_TEAM=' "$HOME/.zprofile" || true)"
 fi
 
-# Keep Xcode's build artifacts out of Spotlight. Every copy of an app under
-# DerivedData is another bundle Spotlight can rank ABOVE the one in
-# ~/Applications, and on 2026-09-08 that meant launching a day-old,
-# ad-hoc-signed build that prompted for app-group access on every launch.
+# NOTE ON SPOTLIGHT, because this script cannot fix it and should not pretend
+# to. Every copy of an app under DerivedData is another bundle Spotlight can
+# rank ABOVE the one in ~/Applications; on 2026-09-08 that meant launching a
+# day-old, ad-hoc-signed build that prompted for app-group access every time.
 #
-# This marker only stops FUTURE indexing — it cannot purge what is already
-# indexed. To do that (and to make this stick regardless of how a build is
-# invoked) add DerivedData to System Settings > Siri & Spotlight > Spotlight
-# Privacy. `scripts/check-app-installs.sh` reports what Spotlight can see.
-DERIVED_ROOT="$HOME/Library/Developer/Xcode/DerivedData"
-[ -d "$DERIVED_ROOT" ] && [ ! -e "$DERIVED_ROOT/.metadata_never_index" ] \
-    && touch "$DERIVED_ROOT/.metadata_never_index" 2>/dev/null || true
+# A `.metadata_never_index` marker at the DerivedData root was tried here and
+# DOES NOT WORK: with the marker in place, deleting an indexed bundle and
+# restoring it put it straight back into `mdfind`. Only two things do work,
+# and both live outside the build:
+#
+#   * System Settings > Siri & Spotlight > Spotlight Privacy, add DerivedData.
+#     Purges what is indexed AND blocks future indexing. No rebuild.
+#   * A DerivedData root whose name ends in `.noindex` — the convention Xcode
+#     itself uses for Build/Intermediates.noindex. Verified: a bundle inside
+#     one returns 0 mdfind hits, an identical copy beside it returns 1. Costs
+#     the entire build cache, so it is the expensive answer.
+#
+# `scripts/check-app-installs.sh` reports what Spotlight can currently see.
 
 APP="${1:?Usage: $0 <app> [Debug|Release]}"
 CONFIG="${2:-Debug}"
@@ -42,6 +48,18 @@ case "$APP" in
     impress) PROJECT_REL="apps/impress/impress.xcodeproj";   SPEC_DIR="apps/impress" ;;
     *) echo "Unknown app: $APP (expected imbib|imprint|implore|impel|impart|impress)" >&2; exit 1 ;;
 esac
+
+# Take out the dead build caches before adding another one. Xcode names each
+# build directory after a hash of the .xcodeproj's absolute path and never
+# removes one, so every agent worktree under `.claude/worktrees/` leaves its
+# multi-gigabyte cache behind when the worktree is deleted. That reached 137 GB
+# by 2026-09-09, 36 GB of it belonging to projects that no longer existed.
+#
+# Pruning here rather than from a LaunchAgent is deliberate: it runs exactly
+# when new DerivedData is being created, costs one plist read per directory,
+# and adds no background item to a Login Items list we just finished making
+# legible. It only ever deletes caches whose project is gone.
+"$(dirname "$0")/prune-derived-data.sh" --apply --quiet || true
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DERIVED="$HOME/Library/Developer/Xcode/DerivedData/$APP"
