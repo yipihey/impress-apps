@@ -17,6 +17,19 @@ if [ -z "${DEVELOPMENT_TEAM:-}" ] && [ -f "$HOME/.zprofile" ]; then
     eval "$(grep '^export DEVELOPMENT_TEAM=' "$HOME/.zprofile" || true)"
 fi
 
+# Keep Xcode's build artifacts out of Spotlight. Every copy of an app under
+# DerivedData is another bundle Spotlight can rank ABOVE the one in
+# ~/Applications, and on 2026-09-08 that meant launching a day-old,
+# ad-hoc-signed build that prompted for app-group access on every launch.
+#
+# This marker only stops FUTURE indexing — it cannot purge what is already
+# indexed. To do that (and to make this stick regardless of how a build is
+# invoked) add DerivedData to System Settings > Siri & Spotlight > Spotlight
+# Privacy. `scripts/check-app-installs.sh` reports what Spotlight can see.
+DERIVED_ROOT="$HOME/Library/Developer/Xcode/DerivedData"
+[ -d "$DERIVED_ROOT" ] && [ ! -e "$DERIVED_ROOT/.metadata_never_index" ] \
+    && touch "$DERIVED_ROOT/.metadata_never_index" 2>/dev/null || true
+
 APP="${1:?Usage: $0 <app> [Debug|Release]}"
 CONFIG="${2:-Debug}"
 
