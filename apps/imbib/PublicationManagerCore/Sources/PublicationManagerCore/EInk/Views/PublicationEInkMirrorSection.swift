@@ -153,6 +153,10 @@ public struct PublicationEInkMirrorSection: View {
     @State private var annotatedFile: LinkedFileModel?
     @State private var isImporting = false
     @State private var lastMessage: String?
+    /// The last line this section logged; a reload that renders the same
+    /// thing is not worth a line. `reload()` runs on every store event the
+    /// paper touches, and a CloudKit burst is hundreds.
+    @State private var lastTrace = ""
 
     public init(publicationID: UUID) {
         self.publicationID = publicationID
@@ -306,11 +310,14 @@ public struct PublicationEInkMirrorSection: View {
         record = adapter.einkMirrorRecord(publicationId: publicationID)
         source = adapter.einkLocalSource(publicationId: publicationID)
         annotatedFile = adapter.listLinkedFiles(publicationId: publicationID).first(where: \.isEInkAnnotated)
-        // Display: what the section renders after a read.
-        Logger.library.debugCapture(
-            "eink.infoSection \(publicationID) state=\(record?.stateRaw ?? "none") source=\(source?.filename ?? "none") "
-                + "annotated=\(annotatedFile?.filename ?? "none")",
-            category: "eink")
+        // Display: what the section renders after a read — logged when it
+        // changes, not on every reload.
+        let trace = "state=\(record?.stateRaw ?? "none") source=\(source?.filename ?? "none") "
+            + "annotated=\(annotatedFile?.filename ?? "none")"
+        if trace != lastTrace {
+            lastTrace = trace
+            Logger.library.debugCapture("eink.infoSection \(publicationID) \(trace)", category: "eink")
+        }
     }
 
     // MARK: Actions

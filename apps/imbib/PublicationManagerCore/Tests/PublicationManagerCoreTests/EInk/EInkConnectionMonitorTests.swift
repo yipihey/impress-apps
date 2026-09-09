@@ -107,6 +107,37 @@ final class EInkConnectionMonitorTests: XCTestCase {
         monitor.stop()
     }
 
+    func testTheGapWidensWhileTheTabletIsAwayAndSnapsBackWhenItAnswers() {
+        let base: Duration = .seconds(25)
+        // Nothing about asking a sleeping tablet sooner makes it answer.
+        XCTAssertEqual(EInkConnectionMonitor.interval(base: base, failures: 0), .seconds(25))
+        XCTAssertEqual(EInkConnectionMonitor.interval(base: base, failures: 1), .seconds(25))
+        XCTAssertEqual(EInkConnectionMonitor.interval(base: base, failures: 2), .seconds(50))
+        XCTAssertEqual(EInkConnectionMonitor.interval(base: base, failures: 3), .seconds(100))
+        XCTAssertEqual(EInkConnectionMonitor.interval(base: base, failures: 4), .seconds(200))
+        // Capped, and stays capped however long it has been away.
+        XCTAssertEqual(EInkConnectionMonitor.interval(base: base, failures: 5), EInkConnectionMonitor.maxInterval)
+        XCTAssertEqual(EInkConnectionMonitor.interval(base: base, failures: 500), EInkConnectionMonitor.maxInterval)
+    }
+
+    func testAnAnsweringTabletResetsTheGapAndAStopResetsTheCount() async throws {
+        let script = Script([false, false, false, true])
+        let monitor = makeMonitor(devices: DeviceList(["dev-1"]), script: script, connected: CountBox())
+
+        monitor.start()
+        _ = try await EInkTestSupport.waitUntil { await MainActor.run { monitor.probeCount >= 3 } }
+        let widened = await MainActor.run { monitor.currentInterval }
+        XCTAssertGreaterThan(widened, monitor.probeInterval, "three failures widen the gap")
+
+        _ = try await EInkTestSupport.waitUntil { await MainActor.run { monitor.isConnected } }
+        let afterAnswer = await MainActor.run { (monitor.consecutiveFailures, monitor.currentInterval) }
+        XCTAssertEqual(afterAnswer.0, 0)
+        XCTAssertEqual(afterAnswer.1, monitor.probeInterval, "an answer snaps the gap back")
+
+        monitor.stop()
+        XCTAssertEqual(monitor.consecutiveFailures, 0, "a fresh start begins at the base interval")
+    }
+
     func testReconcileStopsProbingWhenTheDeviceGoesAway() async throws {
         let script = Script([true])
         let devices = DeviceList(["dev-1"])

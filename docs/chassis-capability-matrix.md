@@ -1468,6 +1468,23 @@ user drags, so moving it into place clears `desired_path` by itself. The
 checklist (parents first) is unchanged and still lists every missing
 level; `file_in_nearest_folder: false` restores the waiting behaviour.
 
+**When the tablet goes to sleep (2026-09-08).** It stops answering without
+closing anything: packets are black-holed, so a connect neither succeeds
+nor is refused. The request timeouts (`LIST_TIMEOUT` 30 s, `TRANSFER_TIMEOUT`
+600 s) bound a transfer that IS running, so without a separate
+`CONNECT_TIMEOUT` (3 s, `usb_web.rs`) a caller waited those for a transfer
+that would never start — ten minutes, holding the sync's cross-process
+lease. The walk aborts on the first failed listing, so one bounded failure
+ends the pass. The connection monitor stops asking every 25 s forever:
+`EInkConnectionMonitor.interval(base:failures:)` widens the gap 25 s → 50 s
+→ 100 s → 200 s → 300 s (`maxInterval`) while probes fail and snaps back to
+the base the moment one succeeds — responsiveness does not depend on the
+gap, because plugging the cable in adds a network interface and
+`NWPathMonitor` probes on that immediately. Logging follows: the
+disconnect transition is one `info` line naming the new gap, and after that
+only a widening gap is worth a line (a line per probe was thousands a day
+with the tablet unplugged).
+
 **What the tablet authored (P5b, 2026-09-07).** The sync walks the whole
 tablet, not only the `imbib` subtree, so a mirrored paper the user drags
 into another folder is followed (`remote_path` updated) rather than
