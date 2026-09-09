@@ -118,6 +118,22 @@ LAUNCHER
     echo "  $name: runs as \"GitHub Runner $name\" — signed by ${authority:-the team identity}"
 }
 
+# Is this launchd label currently loaded?
+#
+# Capture rather than pipe into `grep -q`. grep exits at the first match, which
+# SIGPIPEs `launchctl list` mid-write, and `set -o pipefail` turns that 141
+# into a failed pipeline — so a label that IS loaded reports as absent. Every
+# caller below decides whether a runner is up, and the wrong answer at the
+# first one bootstraps over a still-registered label: "Bootstrap failed: 5:
+# Input/output error", which is precisely how this script took runners offline
+# before it learned to wait.
+agent_loaded() {
+    case "$(launchctl list 2>/dev/null)" in
+        *"$1"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Unload and reload one agent, waiting for the unload to actually finish.
 #
 # `launchctl bootout` returns before the job is gone, and bootstrapping a label
@@ -127,10 +143,10 @@ reload_agent() {
     local name="$1" plist="$2" label="$LABEL_PREFIX.$1"
     launchctl bootout "gui/$UID/$label" 2>/dev/null || true
     for _ in $(seq 1 60); do
-        launchctl list | grep -qF "$label" || break
+        agent_loaded "$label" || break
         sleep 1
     done
-    if launchctl list | grep -qF "$label"; then
+    if agent_loaded "$label"; then
         echo "  $name: agent would not unload after 60s"
         return 1
     fi
@@ -155,12 +171,12 @@ reload_agent() {
     # changed, and the old window turned that into a spurious rollback of a
     # bootstrap that had actually succeeded.
     for _ in $(seq 1 45); do
-        if launchctl list | grep -qF "$label"; then
+        if agent_loaded "$label"; then
             # Appearing is not surviving. Confirm it is STILL there after the
             # old incarnation's self-stop would have landed; a job that is
             # about to be torn down looks identical to a healthy one.
             sleep 10
-            if launchctl list | grep -qF "$label"; then
+            if agent_loaded "$label"; then
                 return 0
             fi
             echo "  $name: agent loaded then vanished — the previous incarnation stopped the service under it"

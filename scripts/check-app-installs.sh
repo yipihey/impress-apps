@@ -51,8 +51,12 @@ for app in "${APPS[@]}"; do
         [ -f "$bin" ] || bin="$c/Contents/MacOS/$app"
         [ -f "$bin" ] || continue
         t=$(stat -f '%m' "$bin" 2>/dev/null || echo 0)
+        # Capture, never pipe. `grep -q` exits at the first match, the
+        # producer takes SIGPIPE, and `set -o pipefail` reports that 141 as a
+        # FAILED pipeline — so a successful match reads as no match. It made
+        # this very check call an ad-hoc imprint.app "dev" on 2026-09-09.
         sig="dev"
-        codesign -dv "$c" 2>&1 | grep -q 'Signature=adhoc' && sig="AD-HOC"
+        case "$(codesign -dv "$c" 2>&1)" in *Signature=adhoc*) sig="AD-HOC" ;; esac
         where="$(printf '%s' "$c" | sed "s|^$HOME|~|")"
         [ "$c" = "$installed" ] && where="~/Applications  (the install target)"
         printf "   %s  %-6s %s\n" "$(date -r "$t" '+%Y-%m-%d %H:%M')" "$sig" "$where"
@@ -64,6 +68,35 @@ for app in "${APPS[@]}"; do
             status=1
         fi
     done
+
+    # The OTHER launch route. ~/MyApplications/<app>.app is a symlink straight
+    # into DerivedData/<app>/Build/Products/Debug, refreshed by
+    # build-impress-app.sh — whereas ~/Applications is a copy made by the
+    # target's post-build phase from whatever $BUILT_PRODUCTS_DIR happened to
+    # be. A GUI build moves the copy and not the symlink, so the two can point
+    # at different builds while both look fine on their own.
+    alias_link="$HOME/MyApplications/$app.app"
+    if [ -L "$alias_link" ]; then
+        if [ ! -e "$alias_link" ]; then
+            echo "   ~/MyApplications alias is DANGLING → $(readlink "$alias_link" | sed "s|^$HOME|~|")"
+            echo "     rebuild with scripts/build-impress-app.sh $app to restore it"
+            status=1
+        else
+            ab="$(readlink "$alias_link")/Contents/MacOS/$app.debug.dylib"
+            [ -f "$ab" ] || ab="$(readlink "$alias_link")/Contents/MacOS/$app"
+            at=$(stat -f '%m' "$ab" 2>/dev/null || echo 0)
+            if [ "$at" != 0 ] && [ "$installed_time" != 0 ]; then
+                skew=$(( at > installed_time ? at - installed_time : installed_time - at ))
+                if [ "$skew" -gt 120 ]; then
+                    echo "   ~/MyApplications alias and ~/Applications are DIFFERENT builds"
+                    echo "     alias:  $(date -r "$at" '+%Y-%m-%d %H:%M')  (DerivedData, via build-impress-app.sh)"
+                    echo "     copy:   $(date -r "$installed_time" '+%Y-%m-%d %H:%M')  (installed by the post-build phase)"
+                    echo "     whichever Spotlight offers you is a coin toss — rebuild with the script"
+                    status=1
+                fi
+            fi
+        fi
+    fi
 
     if [ ! -d "$installed" ]; then
         echo "   NOT installed to ~/Applications — build it with scripts/build-impress-app.sh"
