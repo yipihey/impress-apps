@@ -247,6 +247,103 @@ public final class AgentStoreReader {
             .flatMap { $0 }
     }
 
+    /// What a `spawned_by` rule id means, in words.
+    ///
+    /// The raw ids are accurate and nearly opaque: "impel/enrichment-spawn"
+    /// tells you a rule fired, not what happened in the library that made it
+    /// fire. The answer people actually want from "Launched By" is the event,
+    /// so the id is translated where it is known and passed through where it
+    /// is not — an unrecognised rule still names itself rather than becoming
+    /// a dash.
+    /// `nonisolated`, like the schema constants above: a pure mapping over a
+    /// string has nothing to serialise, and binding it to the main actor would
+    /// force every caller — including a test — through an await for nothing.
+    nonisolated public static func spawnRuleDescription(_ ruleID: String) -> String {
+        switch ruleID {
+        case "impel/enrichment-spawn":
+            return "Enrichment pipeline — a paper entered the library"
+        case "impel/throughline-spawn":
+            return "Throughline sync — a manuscript section changed"
+        case "impel/throughline-source-spawn":
+            return "Throughline sync — the narrative itself was edited"
+        default:
+            return ruleID
+        }
+    }
+
+    // MARK: - The human checkpoint blocking a task
+
+    /// Schema of the kernel's `AwaitHumanResponse` checkpoints (ADR-0005 §8).
+    /// Owned by impel-core, registered nowhere, so it is a literal here — the
+    /// same one `RustStoreAdapter.reviewRequestSchema` uses.
+    static let reviewRequestSchema = "review-request@1.0.0"
+
+    /// task id → its unresolved review, built from the review side.
+    ///
+    /// It has to be built backwards. The edge runs `review —OperatesOn→ task`,
+    /// and the FFI can only read an item's OUTGOING references, so there is no
+    /// way to ask a task what points at it. Walking every review once and
+    /// indexing by target is the cheap direction; asking per task would be one
+    /// full walk per selection.
+    private var blockingReviewIndex: [String: SharedItemRow]?
+    private var blockingReviewIndexBuiltAt: Date?
+
+    /// How long the index is trusted. A review is resolved by a human action
+    /// that also mutates the store, and the pane reloads on that event, so a
+    /// short window is enough to keep a burst of selections cheap without
+    /// showing a checkpoint that has already been answered.
+    private static let blockingReviewIndexTTL: TimeInterval = 20
+
+    /// Drop the cached index — call after resolving a review.
+    public func invalidateBlockingReviews() {
+        blockingReviewIndex = nil
+        blockingReviewIndexBuiltAt = nil
+    }
+
+    /// The UNRESOLVED review checkpoint holding this task, if any.
+    ///
+    /// This is the answer to "it says Running, running what?" A suspended
+    /// task is not working — it is waiting for a person, sometimes for days —
+    /// and nothing in the task row says so: `state` reads `running`, the run
+    /// summary describes work already finished, and the question being asked
+    /// lives on a separate item the task does not reference.
+    public func fetchBlockingReview(forTask taskID: String) -> SharedItemRow? {
+        rebuildBlockingReviewIndexIfStale()
+        return blockingReviewIndex?[taskID.lowercased()]
+    }
+
+    private func rebuildBlockingReviewIndexIfStale() {
+        if let builtAt = blockingReviewIndexBuiltAt,
+           Date().timeIntervalSince(builtAt) < Self.blockingReviewIndexTTL,
+           blockingReviewIndex != nil
+        {
+            return
+        }
+        guard let store else { return }
+        var index: [String: SharedItemRow] = [:]
+        var offset: UInt32 = 0
+        let pageSize: UInt32 = 500
+        // Paged over the WHOLE population, like the review queue's own walk:
+        // a newest-N page hides exactly the oldest checkpoints, which are the
+        // ones that have been blocking longest.
+        while offset < 20_000 {
+            guard let page = try? store.queryBySchema(
+                schemaRef: Self.reviewRequestSchema, limit: pageSize, offset: offset)
+            else { break }
+            for row in page {
+                guard let review = PendingReview(row: row), !review.isResolved else { continue }
+                guard let refs = try? store.getItemReferences(id: row.id) else { continue }
+                if let taskID = refs.first(where: { $0.edgeType == "OperatesOn" })?.targetId {
+                    index[taskID.lowercased()] = row
+                }
+            }
+            if page.count < Int(pageSize) { break }
+            offset += pageSize
+        }
+        blockingReviewIndex = index
+        blockingReviewIndexBuiltAt = Date()
+    }
+
     // MARK: - Counts (sidebar badges)
 
     /// Count of tasks, optionally per payload `state` (pushed to the

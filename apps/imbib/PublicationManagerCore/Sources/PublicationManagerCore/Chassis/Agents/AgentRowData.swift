@@ -152,14 +152,29 @@ public struct AgentRunRowData: Identifiable, Hashable, Sendable {
         self.dateModified = Date(timeIntervalSince1970: TimeInterval(row.modifiedMs) / 1000.0)
     }
 
-    /// `model`, qualified so a lookup table cannot pass for an LLM:
-    /// "heuristic-v1 (deterministic)". Rows written before
-    /// `executor_kind` existed show the bare id, unchanged.
+    /// The row LABEL for `modelDisplay`, because "Model" is the wrong word
+    /// for most of these runs.
+    ///
+    /// "Which model did the tagging?" has no answer when a keyword table did
+    /// it, and a row labelled "Model" showing `heuristic-v1 (deterministic)`
+    /// invites the reader to assume `heuristic-v1` IS one. Naming the row
+    /// "Method" when nothing inferred, and "Model" only when something did,
+    /// makes the answer readable without parsing a parenthetical.
+    public var modelRowLabel: String {
+        executorKind == "deterministic" ? "Method" : "Model"
+    }
+
+    /// `model`, qualified so a lookup table cannot pass for an LLM. A
+    /// deterministic run says outright that no model was involved — the
+    /// parenthetical "(deterministic)" was accurate and still left people
+    /// asking which model had been used. Rows written before `executor_kind`
+    /// existed show the bare id, unchanged, since for those we genuinely do
+    /// not know.
     public var modelDisplay: String {
         let name = model.isEmpty ? "—" : model
         switch executorKind {
-        case "deterministic": return "\(name) (deterministic)"
-        case "model": return "\(name) (model)"
+        case "deterministic": return "\(name) — no model, this is deterministic code"
+        case "model": return name
         default: return name
         }
     }
