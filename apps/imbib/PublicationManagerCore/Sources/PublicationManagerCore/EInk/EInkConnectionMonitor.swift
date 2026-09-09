@@ -75,6 +75,12 @@ public final class EInkConnectionMonitor {
     /// Bumped on every start/stop; a probe result from an older generation
     /// is discarded.
     private var generation = 0
+    /// Consecutive failed probes; drives the back-off below.
+    public private(set) var consecutiveFailures = 0
+    /// How long the loop waits before the next probe, given those failures.
+    public var currentInterval: Duration { Self.interval(base: interval, failures: consecutiveFailures) }
+    /// The gap used while the tablet is answering.
+    public var probeInterval: Duration { interval }
 
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private let environment: EInkConnectionEnvironment
@@ -84,6 +90,22 @@ public final class EInkConnectionMonitor {
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var probeInFlight = false
     @ObservationIgnored private var started = false
+
+    /// A tablet that is asleep, unplugged or switched off answers nothing,
+    /// and nothing about asking again sooner makes it answer. So the loop
+    /// widens its gap — 25 s, 50 s, 100 s, 200 s, capped at `maxInterval` —
+    /// and snaps back to `base` the moment a probe succeeds. Responsiveness
+    /// does not depend on the gap: plugging the cable in adds a network
+    /// interface, and `NWPathMonitor` probes immediately on that.
+    static func interval(base: Duration, failures: Int) -> Duration {
+        guard failures > 0 else { return base }
+        let factor = 1 << min(failures - 1, 8)
+        let widened = base * factor
+        return widened > maxInterval ? maxInterval : widened
+    }
+
+    /// The longest the loop will ever wait between probes.
+    public static let maxInterval: Duration = .seconds(300)
 
     public init(interval: Duration = EInkConnectionMonitor.defaultInterval, environment: EInkConnectionEnvironment) {
         self.interval = interval
@@ -153,14 +175,23 @@ public final class EInkConnectionMonitor {
         probeCount += 1
         let was = isConnected
         isConnected = reachable
+        let previousInterval = currentInterval
+        consecutiveFailures = reachable ? 0 : consecutiveFailures + 1
         if !was && reachable {
             Logger.library.infoCapture("eink.monitor: tablet connected (device \(deviceID))", category: "eink")
             await environment.onConnected(deviceID)
         } else if was && !reachable {
-            Logger.library.infoCapture("eink.monitor: tablet disconnected (device \(deviceID))", category: "eink")
-        } else {
+            Logger.library.infoCapture(
+                "eink.monitor: tablet disconnected (device \(deviceID)); checking every \(currentInterval) "
+                    + "until it answers", category: "eink")
+        } else if reachable {
+            Logger.library.debugCapture("eink.monitor: probe #\(probeCount) reachable", category: "eink")
+        } else if currentInterval != previousInterval {
+            // Only when the gap widens — an absent tablet is not news every
+            // time, and a line per probe is thousands a day.
             Logger.library.debugCapture(
-                "eink.monitor: probe #\(probeCount) \(reachable ? "reachable" : "unreachable")", category: "eink")
+                "eink.monitor: still no tablet after \(consecutiveFailures) checks; next in \(currentInterval)",
+                category: "eink")
         }
         return reachable
     }
@@ -189,12 +220,13 @@ public final class EInkConnectionMonitor {
         Logger.library.infoCapture(
             "eink.monitor: probing device \(deviceID) every \(interval)", category: "eink")
 
-        loopTask = Task { [weak self, interval] in
+        loopTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, self.isMonitoring else { return }
                 await self.probeNow()
+                let wait = self.currentInterval
                 do {
-                    try await Task.sleep(for: interval)
+                    try await Task.sleep(for: wait)
                 } catch {
                     return
                 }
@@ -214,6 +246,7 @@ public final class EInkConnectionMonitor {
 
     private func stopProbing() {
         generation &+= 1
+        consecutiveFailures = 0
         loopTask?.cancel()
         loopTask = nil
         pathMonitor?.cancel()

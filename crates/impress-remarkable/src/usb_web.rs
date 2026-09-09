@@ -43,6 +43,13 @@ pub const DEFAULT_BASE_URL: &str = "http://10.11.99.1";
 /// tablet's own client allows 30 s for a listing.
 const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(600);
+/// A tablet that goes to sleep mid-operation stops answering without closing
+/// anything: packets are black-holed, so a connect neither succeeds nor is
+/// refused. Without a connect timeout the request timeouts above are what a
+/// caller waits — 30 s for a listing, and **ten minutes** for a transfer that
+/// will never start. The timeouts above stay generous, because they bound a
+/// transfer that IS running; this one bounds getting off the ground.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// A reachability probe must answer fast enough to poll from a UI.
 pub const REACHABLE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -160,6 +167,7 @@ pub struct UploadReceipt {
 fn client(timeout: Duration) -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(timeout)
+        .connect_timeout(CONNECT_TIMEOUT)
         .build()
         .map_err(|error| Error::transport("usb", "building an HTTP client", error))
 }

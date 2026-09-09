@@ -100,6 +100,8 @@ Everything above is also a verb. From the terminal (`imbib eink-status`, `eink-m
 | *Awaiting PDF* | no local PDF and none found online — the Info tab gives the reason the last attempt failed | attach one by hand (drop it on the paper); the next sync sends it |
 | A paper shows as `Name.pdf` on the tablet | the device is set to bare uploads | keep **Upload format: archive** (the default) |
 | No handwriting text | recognition has not run yet | it runs after each import and 90 s after launch; **Import annotations now** re-triggers it |
+| Dot went grey on its own | the tablet went to sleep or the cable came out | nothing to do — imbib checks less and less often (up to every five minutes) and comes back the instant the cable is plugged in, which it notices immediately |
+| A sync stopped partway | the tablet slept mid-pass | the pass ends within a few seconds rather than hanging; press **Sync now** once it is awake, and anything not sent is still marked |
 
 ---
 
