@@ -24,6 +24,17 @@ public struct CompileInputs: Sendable {
     /// `image("figures/plot.png")` in the source resolves under it. nil → no
     /// filesystem figure resolution (Typst path only; LaTeX has its own mirror).
     public let figuresRoot: String?
+    /// A manuscript that is a project (ADR-0030): every file the compiler
+    /// should see, entry included (with the live buffer already substituted),
+    /// and the entry's project path. Empty → the single-source path.
+    public let projectFiles: [TreeRenderFile]
+    public let projectEntryPath: String?
+    /// Projected `.bib` rows resolved to text by the app.
+    public let projectBibliographies: [TreeRenderBibliography]
+    /// The manuscript's target declaration and the directory a LaTeX
+    /// preview builds in (`nil` → a per-manuscript cache directory).
+    public let projectTargetsJSON: String?
+    public let projectWorkDir: URL?
 
     public init(
         source: String,
@@ -34,7 +45,12 @@ public struct CompileInputs: Sendable {
         latexEngine: String,
         latexShellEscape: Bool,
         latexShowBoxWarnings: Bool,
-        figuresRoot: String? = nil
+        figuresRoot: String? = nil,
+        projectFiles: [TreeRenderFile] = [],
+        projectEntryPath: String? = nil,
+        projectBibliographies: [TreeRenderBibliography] = [],
+        projectTargetsJSON: String? = nil,
+        projectWorkDir: URL? = nil
     ) {
         self.source = source
         self.format = format
@@ -45,6 +61,11 @@ public struct CompileInputs: Sendable {
         self.latexShellEscape = latexShellEscape
         self.latexShowBoxWarnings = latexShowBoxWarnings
         self.figuresRoot = figuresRoot
+        self.projectFiles = projectFiles
+        self.projectEntryPath = projectEntryPath
+        self.projectBibliographies = projectBibliographies
+        self.projectTargetsJSON = projectTargetsJSON
+        self.projectWorkDir = projectWorkDir
     }
 }
 
@@ -205,7 +226,72 @@ public final class ManuscriptCompileController {
 
     // MARK: - Typst Compilation
 
+    /// A manuscript that is a project (ADR-0030 D5): compile the whole tree
+    /// from memory — includes, images, data and bibliographies resolve
+    /// against the store's rows, the live buffer replaces the entry — and
+    /// publish the same outputs the single-source path does. Diagnostics
+    /// name the file they belong to; those in the entry keep their lines
+    /// for the editor's click-to-jump.
+    private func compileTypstTree(_ inputs: CompileInputs, entryPath: String) async {
+        let format = inputs.previewFormat
+        debugStatus = "2:tree files=\(inputs.projectFiles.count)"
+        debugHistory += "2t:\(inputs.projectFiles.count) "
+        log("Tree compile: \(inputs.projectFiles.count) file(s), entry \(entryPath), format \(format)")
+
+        let output = await renderer.renderTree(
+            files: inputs.projectFiles,
+            entryPath: entryPath,
+            entryOverride: inputs.source,
+            output: format == "svg" ? "svg" : "pdf",
+            bibliographies: inputs.projectBibliographies)
+        debugStatus = "5:tree,ok=\(output.isSuccess),pages=\(output.pageCount)"
+        debugHistory += "5t:\(output.pageCount)p "
+
+        let diagnostics = output.diagnostics.map { d -> CompileDiagnostic in
+            let inEntry = d.file == nil || d.file == entryPath
+            let prefix = inEntry ? "" : "\(d.file ?? ""):\(d.line.map(String.init) ?? "") — "
+            return CompileDiagnostic(
+                severity: d.severity == .error ? .error : (d.severity == .warning ? .warning : .info),
+                message: prefix + d.message,
+                line: inEntry ? d.line : nil)
+        }
+        compilationDiagnostics = diagnostics
+        compilationWarnings = output.diagnostics.filter { $0.severity == .warning }.map(\.summaryLine)
+        // The tree engine has no layout source map yet; clicks fall back to
+        // the outline's line-based navigation.
+        sourceMapEntries = []
+
+        if output.isSuccess {
+            if format == "svg" {
+                svgPages = output.svgPages
+                // The PDF for the cache: a second pass in PDF mode.
+                let pdf = await renderer.renderTree(
+                    files: inputs.projectFiles,
+                    entryPath: entryPath,
+                    entryOverride: inputs.source,
+                    output: "pdf",
+                    bibliographies: inputs.projectBibliographies)
+                if pdf.isSuccess, let data = pdf.pdfData {
+                    pdfData = data
+                    artifactStore.cachePDF(data, for: inputs.documentID)
+                }
+            } else if let data = output.pdfData {
+                pdfData = data
+                artifactStore.cachePDF(data, for: inputs.documentID)
+            }
+            compilationError = nil
+            debugHistory += "6t:ok "
+        } else {
+            compilationError = output.errors.joined(separator: "\n")
+            debugHistory += "Et "
+        }
+    }
+
     private func compileTypst(_ inputs: CompileInputs) async {
+        if let entryPath = inputs.projectEntryPath, !inputs.projectFiles.isEmpty {
+            await compileTypstTree(inputs, entryPath: entryPath)
+            return
+        }
         var sourceText = inputs.source
         let format = inputs.previewFormat
         debugStatus = "2:src=\(sourceText.count)ch"
@@ -323,7 +409,68 @@ public final class ManuscriptCompileController {
     /// capability's result onto the published state — the same three publish
     /// paths (success / engine-failure / preflight-failure) that used to be
     /// inline here, now selected by `outcome` instead of by `#if os(macOS)`.
+    /// A LaTeX PROJECT previews through the Rust build engine (ADR-0030
+    /// P4): the tree is materialised into the work directory and the
+    /// system's TeX (or Tectonic) runs there — `\\input{chapters/…}`,
+    /// figures and a second `.bib` all resolve. Shell figure steps never
+    /// run from a preview; an explicit Build does that.
+    private func compileLaTeXTree(_ inputs: CompileInputs, entryPath: String) async {
+        debugStatus = "2:latex-tree files=\(inputs.projectFiles.count)"
+        debugHistory += "2lt:\(inputs.projectFiles.count) "
+        let workDir = inputs.projectWorkDir
+            ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("impress/imprint/project-build/\(inputs.documentID.uuidString.lowercased())/preview", isDirectory: true)
+        log("Tree LaTeX build: \(inputs.projectFiles.count) file(s), entry \(entryPath), in \(workDir.path)")
+        let report = await renderer.buildTree(
+            files: inputs.projectFiles,
+            entryPath: entryPath,
+            format: "latex",
+            targetsJSON: inputs.projectTargetsJSON,
+            targetID: nil,
+            workDir: workDir,
+            allowShell: false,
+            entryOverride: inputs.source,
+            bibliographies: inputs.projectBibliographies)
+        debugStatus = "5:latex-tree,ok=\(report.isSuccess),\(report.durationMs)ms"
+        debugHistory += "5lt:\(report.isSuccess) "
+        latexCompilationTimeMs = Int(report.durationMs)
+        latexDiagnostics = report.diagnostics.map { d in
+            LaTeXDiagnostic(
+                file: d.file ?? entryPath,
+                line: d.line ?? 0,
+                message: d.message,
+                severity: d.severity == .error ? .error : (d.severity == .warning ? .warning : .info))
+        }
+        compilationDiagnostics = report.diagnostics.map { d -> CompileDiagnostic in
+            let inEntry = d.file == nil || d.file == entryPath
+            let prefix = inEntry ? "" : "\(d.file ?? ""):\(d.line.map(String.init) ?? "") — "
+            return CompileDiagnostic(
+                severity: d.severity == .error ? .error : (d.severity == .warning ? .warning : .info),
+                message: prefix + d.message,
+                line: inEntry ? d.line : nil)
+        }
+        artifactStore.cacheDiagnostics(latexDiagnostics, for: inputs.documentID)
+        compilationWarnings = report.diagnostics.filter { $0.severity == .warning }.map(\.summaryLine)
+        sourceMapEntries = []
+        if report.isSuccess, let data = report.pdfData {
+            pdfData = data
+            artifactStore.cachePDF(data, for: inputs.documentID)
+            compilationError = nil
+            debugHistory += "6lt:ok "
+        } else {
+            compilationError = report.errors.first ?? report.message
+            debugHistory += "Elt "
+        }
+        for line in report.log.split(separator: "\n").suffix(6) {
+            log("build: \(line)")
+        }
+    }
+
     private func compileLaTeX(_ inputs: CompileInputs) async {
+        if let entryPath = inputs.projectEntryPath, !inputs.projectFiles.isEmpty {
+            await compileLaTeXTree(inputs, entryPath: entryPath)
+            return
+        }
         debugStatus = "2:latex,src=\(inputs.source.count)ch"
         debugHistory += "2:\(inputs.source.count) "
 

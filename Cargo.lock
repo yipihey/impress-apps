@@ -4937,13 +4937,16 @@ dependencies = [
  "flate2",
  "implore-io",
  "impress-bibtex",
+ "impress-core",
  "impress-domain",
  "impress-identifiers",
  "impress-plot",
+ "pulldown-cmark",
  "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tar",
  "tectonic",
  "tectonic_bundles",
  "tectonic_errors",
@@ -4959,6 +4962,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
@@ -4966,11 +4970,13 @@ name = "imprint-selftest"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "impress-app-client",
  "impress-core",
  "impress-service-core",
  "impress-service-macros",
  "impress-store-ffi",
+ "imprint-core",
  "imprint-service",
  "reqwest",
  "schemars 0.8.22",
@@ -4994,6 +5000,7 @@ dependencies = [
  "impress-service-core",
  "impress-service-macros",
  "impress-store-ffi",
+ "impress-store-service",
  "imprint-core",
  "proptest",
  "schemars 0.8.22",
@@ -7334,6 +7341,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+dependencies = [
+ "bitflags 2.13.1",
+ "memchr",
+ "unicase",
 ]
 
 [[package]]

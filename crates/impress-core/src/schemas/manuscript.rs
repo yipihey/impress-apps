@@ -264,6 +264,52 @@ pub fn manuscript_schema() -> Schema {
                         .into(),
                 ),
             },
+            // -----------------------------------------------------------------
+            // A manuscript is a project (ADR-0030). All optional: a row with
+            // none of them is a one-file project whose entry is
+            // `main.<ext>` for its `format`.
+            // -----------------------------------------------------------------
+            FieldDef {
+                name: "entry_path".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "POSIX-relative path of the entry file whose text is `body_content` \
+                     (default `main.typ` / `main.tex` / `main.md` from `format`)."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "targets_json".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "`[{id, name, entry, engine, output_kind, args[]}]` — the paper, its \
+                     supplement, the talk: one tree, many outputs (D9). Absent = one \
+                     implicit target from `entry_path` and `format`."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "working_copy_path".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "A directory the tree is checked out to (D11); a watched folder scoped \
+                     to this manuscript reads edits made there back into file rows."
+                        .into(),
+                ),
+            },
+            FieldDef {
+                name: "project_version".into(),
+                field_type: FieldType::Int,
+                required: false,
+                description: Some(
+                    "1 once any file row or target exists; readers that only know the \
+                     one-file shape can tell there is more to see."
+                        .into(),
+                ),
+            },
         ],
         expected_edges: vec![
             EdgeType::HasVersion,

@@ -18,6 +18,9 @@ pub mod bibliography_format;
 
 #[cfg(feature = "sqlite")]
 pub mod backup;
+/// The workspace's one content-addressed blob store (ADR-0030 D3). Plain
+/// files, so it needs no store feature.
+pub mod blobs;
 #[cfg(feature = "collab")]
 pub mod collab;
 #[cfg(feature = "sqlite")]
@@ -29,6 +32,10 @@ pub mod collection_ops;
 pub mod manuscript_format;
 #[cfg(feature = "sqlite")]
 pub mod manuscript_ops;
+/// A manuscript is a project (ADR-0030): the file rows and build rows under
+/// a manuscript, and the one-read `ProjectSnapshot` the engine consumes.
+#[cfg(feature = "sqlite")]
+pub mod manuscript_project;
 /// Suite-scoped memory (ADR-0012 D39 knowledge objects): write, dedup-gate,
 /// rank, recall and brief over `memory/claim`, `memory/episode` and
 /// `memory/instruction` rows. Sits next to `search_ops`, which it composes for

@@ -1,22 +1,21 @@
-//! Content-addressed blob storage for large manuscript bodies.
+//! Content-addressed blob storage for large manuscript bodies — a thin,
+//! string-typed face over the workspace's ONE CAS, `impress_core::blobs`
+//! (ADR-0030 D3).
 //!
-//! Ports the inline-vs-CAS decision made by the Swift `ImprintStoreAdapter`
-//! (file `apps/imprint/Packages/ImprintCore/Sources/ImprintCore/ImprintStoreAdapter.swift`):
+//! The layout (`<root>/<sha256 hex>`, atomic tmp+rename, immutable once
+//! written) is exactly what this file implemented on its own before the
+//! project work; section bodies, manuscript snapshots, project binaries and
+//! build outputs now share the directory instead of each crate keeping a
+//! sibling. This wrapper keeps the `&str`/`String` API the section and
+//! throughline stores were written against and maps I/O failures to
+//! `ServiceError::BlobIo`.
 //!
-//! - Bodies whose UTF-8 byte length is `> LARGE_BODY_THRESHOLD` are written to a
-//!   file named after their SHA-256 hex digest under `<root>/`. The body field
-//!   in SQLite is left empty and `content_hash` records the digest.
+//! - Bodies whose UTF-8 byte length is `> LARGE_BODY_THRESHOLD` are written
+//!   content-addressed; the body field in SQLite is left empty and
+//!   `content_hash` records the digest.
 //! - Smaller bodies stay inline in SQLite.
-//!
-//! Writes are atomic: we write to `<hash>.tmp.<pid>.<nonce>` and `rename` into
-//! place. Existing blobs with the same digest are not overwritten — they are by
-//! definition immutable.
 
-use std::fs::{self, File};
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
-
-use sha2::{Digest, Sha256};
 
 use crate::error::ServiceError;
 
@@ -26,13 +25,10 @@ use crate::error::ServiceError;
 /// Mirrors the Swift constant `largeBodyThreshold` in `ImprintStoreAdapter`.
 pub const LARGE_BODY_THRESHOLD: usize = 65_536; // 64 KiB
 
-/// On-disk content-addressed blob store.
-///
-/// `root` is a directory; blob files live directly inside it, named by their
-/// hex-encoded SHA-256 digest. The directory is created lazily on first write.
+/// On-disk content-addressed blob store (text face over the shared CAS).
 #[derive(Debug, Clone)]
 pub struct BlobStore {
-    root: PathBuf,
+    inner: impress_core::blobs::BlobStore,
 }
 
 impl BlobStore {
@@ -41,27 +37,31 @@ impl BlobStore {
     /// The directory is **not** created here; `put` and `ensure_dir` do that
     /// lazily so that read-only access doesn't have to perform mkdir.
     pub fn new<P: Into<PathBuf>>(root: P) -> Self {
-        Self { root: root.into() }
+        Self {
+            inner: impress_core::blobs::BlobStore::new(root),
+        }
+    }
+
+    /// The shared store itself, for callers that hold bytes rather than text.
+    pub fn inner(&self) -> &impress_core::blobs::BlobStore {
+        &self.inner
     }
 
     /// Path to the blob with the given hex SHA-256 digest.
     pub fn path_for(&self, hex_digest: &str) -> PathBuf {
-        self.root.join(hex_digest)
+        self.inner.path_for(hex_digest)
     }
 
     /// Path to the blob root directory.
     pub fn root(&self) -> &Path {
-        &self.root
+        self.inner.root()
     }
 
     /// Hex SHA-256 of a UTF-8 string. Matches the digest used by the Swift
     /// `sha256Hex` helper so the two implementations interoperate on the same
     /// blob directory.
     pub fn sha256_hex(body: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(body.as_bytes());
-        let digest = hasher.finalize();
-        hex::encode(digest)
+        impress_core::blobs::sha256_hex_bytes(body.as_bytes())
     }
 
     /// Decide whether a body should be stored content-addressed.
@@ -71,52 +71,23 @@ impl BlobStore {
 
     /// Ensure the root directory exists. Idempotent.
     pub fn ensure_dir(&self) -> Result<(), ServiceError> {
-        fs::create_dir_all(&self.root).map_err(|source| ServiceError::BlobIo {
-            path: self.root.clone(),
-            source,
-        })
+        self.inner
+            .ensure_dir()
+            .map_err(|source| ServiceError::BlobIo {
+                path: self.inner.root().to_path_buf(),
+                source,
+            })
     }
 
-    /// Store `body` content-addressed; return its hex digest.
-    ///
-    /// If a blob with the same digest already exists on disk it is left in
-    /// place (content-addressed storage is immutable). Otherwise the body is
-    /// written atomically via a temp file + rename.
+    /// Store `body` content-addressed; return its hex digest. A blob with the
+    /// same digest is left in place — content-addressed storage is immutable.
     pub fn put(&self, body: &str) -> Result<String, ServiceError> {
-        self.ensure_dir()?;
-        let hex_digest = Self::sha256_hex(body);
-        let final_path = self.path_for(&hex_digest);
-
-        if final_path.exists() {
-            return Ok(hex_digest);
-        }
-
-        // Use a temp file in the same directory so the rename is atomic
-        // (POSIX `rename(2)` requires both paths to be on the same filesystem).
-        let tmp_path = self
-            .root
-            .join(format!("{}.tmp.{}", hex_digest, std::process::id()));
-        {
-            let mut f = File::create(&tmp_path).map_err(|source| ServiceError::BlobIo {
-                path: tmp_path.clone(),
+        self.inner
+            .put(body.as_bytes())
+            .map_err(|source| ServiceError::BlobIo {
+                path: self.inner.path_for(&Self::sha256_hex(body)),
                 source,
-            })?;
-            f.write_all(body.as_bytes())
-                .map_err(|source| ServiceError::BlobIo {
-                    path: tmp_path.clone(),
-                    source,
-                })?;
-            f.sync_all().map_err(|source| ServiceError::BlobIo {
-                path: tmp_path.clone(),
-                source,
-            })?;
-        }
-
-        fs::rename(&tmp_path, &final_path).map_err(|source| ServiceError::BlobIo {
-            path: final_path,
-            source,
-        })?;
-        Ok(hex_digest)
+            })
     }
 
     /// Read the blob with the given hex digest, if it exists.
@@ -126,9 +97,16 @@ impl BlobStore {
     /// because content has been pruned).
     pub fn get(&self, hex_digest: &str) -> Result<Option<String>, ServiceError> {
         let path = self.path_for(hex_digest);
-        match fs::read_to_string(&path) {
-            Ok(s) => Ok(Some(s)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        match self.inner.get(hex_digest) {
+            Ok(Some(bytes)) => {
+                String::from_utf8(bytes)
+                    .map(Some)
+                    .map_err(|e| ServiceError::BlobIo {
+                        path,
+                        source: std::io::Error::new(std::io::ErrorKind::InvalidData, e),
+                    })
+            }
+            Ok(None) => Ok(None),
             Err(source) => Err(ServiceError::BlobIo { path, source }),
         }
     }
@@ -137,6 +115,7 @@ impl BlobStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::TempDir;
 
     #[test]
@@ -198,5 +177,16 @@ mod tests {
         let store = BlobStore::new(dir.path());
         let got = store.get("0".repeat(64).as_str()).unwrap();
         assert!(got.is_none());
+    }
+
+    #[test]
+    fn the_shared_cas_sees_what_the_text_face_wrote() {
+        let dir = TempDir::new().unwrap();
+        let store = BlobStore::new(dir.path());
+        let digest = store.put("shared").unwrap();
+        assert_eq!(
+            store.inner().get(&digest).unwrap().as_deref(),
+            Some(&b"shared"[..])
+        );
     }
 }

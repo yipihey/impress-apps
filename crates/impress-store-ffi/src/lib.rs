@@ -22,6 +22,8 @@ use std::sync::Arc;
 
 mod ai;
 mod ai_registry;
+/// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
+pub mod project;
 
 pub use ai::{
     AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,
@@ -681,6 +683,9 @@ pub struct SharedManuscriptCommitOutcome {
 #[cfg_attr(feature = "native", derive(uniffi::Object))]
 pub struct SharedStore {
     inner: SqliteItemStore,
+    /// The workspace's content-addressed blob directory (`<workspace>/content`,
+    /// next to the database) — `None` for an in-memory store (ADR-0030 D3).
+    blob_root: Option<std::path::PathBuf>,
 }
 
 #[cfg_attr(feature = "native", uniffi::export)]
@@ -696,7 +701,15 @@ impl SharedStore {
             SqliteItemStore::open(Path::new(&path)).map_err(|e| SharedStoreError::Storage {
                 message: e.to_string(),
             })?;
-        Ok(Arc::new(SharedStore { inner: store }))
+        let blob_root = Path::new(&path).parent().map(|dir| {
+            impress_core::blobs::BlobStore::for_workspace(dir)
+                .root()
+                .to_path_buf()
+        });
+        Ok(Arc::new(SharedStore {
+            inner: store,
+            blob_root,
+        }))
     }
 
     /// Open an ephemeral in-memory store. Intended for unit tests only.
@@ -705,7 +718,10 @@ impl SharedStore {
         let store = SqliteItemStore::open_in_memory().map_err(|e| SharedStoreError::Storage {
             message: e.to_string(),
         })?;
-        Ok(Arc::new(SharedStore { inner: store }))
+        Ok(Arc::new(SharedStore {
+            inner: store,
+            blob_root: None,
+        }))
     }
 
     /// Commit text to a manuscript's Automerge document (ADR-0027 D6) — the

@@ -18,6 +18,7 @@
 import SwiftUI
 import Combine
 import ImbibRustCore
+import ImprintCore  // TreeRenderFile — a project's files for the compiler (ADR-0030)
 import ImpressKit
 import OSLog
 
@@ -83,6 +84,20 @@ public final class ManuscriptEditorSession {
     public let format: DocumentFormat
     public let vm: ManuscriptCompileController
 
+    /// When this session edits ONE FILE of a project rather than the entry
+    /// (ADR-0030): the manuscript the file belongs to and the file's path.
+    /// Compiles then build the parent's whole tree with this buffer
+    /// substituted at `path`; saves go to the file row's own document.
+    public struct ProjectContext: Sendable, Hashable {
+        public let manuscriptID: UUID
+        public let path: String
+        public init(manuscriptID: UUID, path: String) {
+            self.manuscriptID = manuscriptID
+            self.path = path
+        }
+    }
+    public let projectContext: ProjectContext?
+
     /// True while a save is in flight (suppresses the store-event echo).
     private var isSaving = false
     private var saveTask: Task<Void, Never>?
@@ -108,8 +123,10 @@ public final class ManuscriptEditorSession {
         savedHash: String?,
         savedHeads: [String] = [],
         compiler: LaTeXCompiling,
-        saveDebounceMs: Int = 200
+        saveDebounceMs: Int = 200,
+        projectContext: ProjectContext? = nil
     ) {
+        self.projectContext = projectContext
         self.manuscriptID = manuscriptID
         self.source = source
         self.lastPersistedSource = source
@@ -173,16 +190,42 @@ public final class ManuscriptEditorSession {
     }
 
     public func makeCompileInputs() -> CompileInputs {
-        CompileInputs(
-            source: source,
-            format: format,
-            previewFormat: format == .typst ? "svg" : "pdf",
-            documentID: manuscriptID,
+        // A project (ADR-0030): hand the compiler the whole tree. A file
+        // session compiles its PARENT with this buffer substituted; the
+        // entry session substitutes itself. A one-file manuscript keeps the
+        // single-source path (empty project files).
+        let parentID = projectContext?.manuscriptID ?? manuscriptID
+        let project = ManuscriptProjectModel.shared(for: parentID)
+        var projectFiles: [TreeRenderFile] = []
+        var entryPath: String?
+        var entrySource = source
+        if project.isProject {
+            let overridePath = projectContext?.path ?? project.entryPath
+            let entryText: String
+            if projectContext != nil {
+                entryText = RustStoreAdapter.shared.getManuscriptDetail(id: parentID)?.bodyContent ?? ""
+            } else {
+                entryText = source
+            }
+            projectFiles = project.compileFiles(entryText: entryText, overrides: [overridePath: source])
+            entryPath = project.entryPath
+            entrySource = entryText
+        }
+        return CompileInputs(
+            source: entrySource,
+            format: projectContext != nil ? DocumentFormat(rawValue: project.format) ?? format : format,
+            previewFormat: (projectContext != nil ? DocumentFormat(rawValue: project.format) ?? format : format) == .typst ? "svg" : "pdf",
+            documentID: parentID,
             documentTitle: title,
             latexEngine: "pdflatex",
             latexShellEscape: false,
             latexShowBoxWarnings: false,
-            figuresRoot: ManuscriptFiguresDirectory.manuscriptRoot(for: manuscriptID).path
+            figuresRoot: ManuscriptFiguresDirectory.manuscriptRoot(for: parentID).path,
+            projectFiles: projectFiles,
+            projectEntryPath: entryPath,
+            projectBibliographies: projectFiles.isEmpty ? [] : project.resolvedBibliographies(),
+            projectTargetsJSON: project.targetsJSON,
+            projectWorkDir: projectFiles.isEmpty ? nil : project.workDirectory(targetID: nil, preview: true)
         )
     }
 
@@ -259,19 +302,18 @@ public final class ManuscriptEditorSession {
     public func absorbExternalChange() {
         // Ignore our own echo.
         guard !isSaving else { return }
-        guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)
-        else { return }
+        guard let stored = storedText() else { return }
         // Already in sync with the store — re-pin and return.
-        if detail.bodyContentHash == savedHash || source == detail.bodyContent {
-            savedHash = detail.bodyContentHash
+        if stored.hash == savedHash || source == stored.text {
+            savedHash = stored.hash
             savedHeads = RustStoreAdapter.shared.manuscriptCollabHeads(id: manuscriptID)
             lastPersistedSource = source
             return
         }
         if source == lastPersistedSource {
             // No local unsaved edits — safe to fast-forward to the store body.
-            adoptExternal(detail.bodyContent)
-            savedHash = detail.bodyContentHash
+            adoptExternal(stored.text)
+            savedHash = stored.hash
             savedHeads = RustStoreAdapter.shared.manuscriptCollabHeads(id: manuscriptID)
         } else {
             // Local unsaved edits AND the store moved: commit from our base;
@@ -279,6 +321,29 @@ public final class ManuscriptEditorSession {
             saveTask?.cancel()
             Task { @MainActor [weak self] in await self?.saveCAS() }
         }
+    }
+
+    /// The text the store holds for this session's document: the manuscript
+    /// body, or — for a session over ONE FILE of a project (ADR-0030) — that
+    /// file row's text, re-read through the project model.
+    private func storedText() -> (text: String, hash: String?)? {
+        if let context = projectContext {
+            let project = ManuscriptProjectModel.shared(for: context.manuscriptID)
+            project.reload()
+            guard let file = project.files.first(where: { $0.path == context.path }) else {
+                return nil
+            }
+            if let inline = file.content {
+                return (inline, file.contentHash)
+            }
+            guard let data = project.bytes(of: context.path),
+                  let text = String(data: data, encoding: .utf8)
+            else { return nil }
+            return (text, file.contentHash)
+        }
+        guard let detail = RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)
+        else { return nil }
+        return (detail.bodyContent, detail.bodyContentHash)
     }
 
     /// Replace the whole buffer with `body` (a version restore). Applied as an
@@ -361,6 +426,62 @@ public final class ManuscriptSessionRegistry {
     /// Re-check every live session against the store (cross-process refresh).
     public func refreshAllLiveSessions() {
         for session in sessions.values { session.absorbExternalChange() }
+    }
+
+    /// A session over ONE FILE of a project (ADR-0030): the file row's text
+    /// is the buffer, its own Automerge document takes the saves (the collab
+    /// verbs accept a file item id), and compiles build the parent's tree
+    /// with this buffer substituted. Cached by the file row's id like any
+    /// other session.
+    public func fileSession(manuscriptID: UUID, path: String) -> ManuscriptEditorSession? {
+        installCrossProcessObserversIfNeeded()
+        let project = ManuscriptProjectModel.shared(for: manuscriptID)
+        guard let file = project.files.first(where: { $0.path == path }) else {
+            Logger.library.warningCapture(
+                "file session: \(path) is not a file of \(manuscriptID)", category: "manuscripts")
+            return nil
+        }
+        if let existing = sessions[file.id] {
+            touch(file.id)
+            return existing
+        }
+        guard file.isText else {
+            Logger.library.warningCapture(
+                "file session: \(path) is binary; nothing to edit", category: "manuscripts")
+            return nil
+        }
+        let text: String
+        if let inline = file.content {
+            text = inline
+        } else if let data = project.bytes(of: path), let decoded = String(data: data, encoding: .utf8) {
+            text = decoded
+        } else {
+            Logger.library.warningCapture(
+                "file session: \(path) has no readable text", category: "manuscripts")
+            return nil
+        }
+        let format = DocumentFormat(rawValue: file.format ?? "") ?? .plaintext
+        // Pin the file document's heads (genesis on first touch), exactly as
+        // the entry does.
+        let heads = RustStoreAdapter.shared.manuscriptCollabHeads(id: file.id)
+        let session = ManuscriptEditorSession(
+            manuscriptID: file.id,
+            source: text,
+            format: format,
+            title: path,
+            savedHash: file.contentHash,
+            savedHeads: heads,
+            compiler: latexCompilerFactory(),
+            projectContext: .init(manuscriptID: manuscriptID, path: path)
+        )
+        sessions[file.id] = session
+        lru.append(file.id)
+        evictIfNeeded()
+        Logger.library.infoCapture(
+            "file session \(path) of \(manuscriptID): \(text.count) chars, format \(format.rawValue)",
+            category: "manuscripts")
+        session.startInitialCompileIfNeeded()
+        return session
     }
 
     /// Return the cached session for `id`, or load one from the store.

@@ -24,6 +24,8 @@ typst-render = ["imprint-service/typst-render"]
 [dependencies]
 # Tier A: exercise the service traits directly.
 imprint-service = { workspace = true }
+# The project engine's archive reader, for the P3 capability (unpack a snapshot).
+imprint-core = { workspace = true }
 # Tier A store capabilities: manuscript format set + round-trip against the
 # shared item store (same crates imprint-service itself persists through).
 impress-core = { workspace = true, features = ["sqlite"] }
@@ -37,6 +39,7 @@ reqwest = { workspace = true }
 tokio = { workspace = true }
 tempfile = "3"
 uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true }
 url = { workspace = true }
 
 # Codegen pipeline — exposes `run_selftest` as an MCP tool + CLI subcommand.

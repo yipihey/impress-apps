@@ -34,6 +34,9 @@ pub mod note_import;
 #[cfg(feature = "typst-render")]
 pub mod plot_ffi;
 pub mod presentation;
+/// A manuscript is a project (ADR-0030): the tree model, the reference
+/// scanners and the derived build graph. Pure — no store, no compiler.
+pub mod project;
 pub mod render;
 pub mod render_project;
 pub mod sections;
@@ -955,6 +958,478 @@ pub fn compile_typst_project_to_pdf(
 // route dispatches `.tex` bundles to that service directly. Keeping a
 // single source of truth for compilation prevents drift between the
 // Swift and Rust paths.
+
+// ============================================================================
+// UniFFI Exports for project-tree compilation (ADR-0030 D5)
+// ============================================================================
+
+/// One file of a project tree, as Swift hands it over: text OR bytes.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiProjectFile {
+    /// Project-relative POSIX path.
+    pub path: String,
+    /// chapter | bibliography | figure | figure-source | data | style | aux | supplement | output
+    pub role: String,
+    pub text: Option<String>,
+    pub bytes: Option<Vec<u8>>,
+    /// `{runner, outputs, inputs, args}` for a figure source, when declared.
+    pub build_json: Option<String>,
+    /// Provenance of an output row: the source it was made from and the
+    /// step input hash it was made at (staleness is derived from these).
+    pub derived_from: Option<String>,
+    pub derived_from_hash: Option<String>,
+}
+
+/// A bibliography row's effective text (a projection the app resolved, or
+/// the row's own BibTeX); replaces that path's content for the compile.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiProjectBibliography {
+    pub path: String,
+    pub text: String,
+}
+
+/// A diagnostic in tree paths.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiProjectDiagnostic {
+    /// error | warning | info
+    pub severity: String,
+    pub code: String,
+    pub message: String,
+    pub file: Option<String>,
+    pub line: Option<u32>,
+}
+
+/// What a tree compile produced.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiTreeCompileResult {
+    pub ok: bool,
+    pub pdf_data: Option<Vec<u8>>,
+    pub svg_pages: Vec<String>,
+    pub page_count: u32,
+    pub compile_ms: u64,
+    pub diagnostics: Vec<FfiProjectDiagnostic>,
+}
+
+/// Compile a Typst project from memory — no directory (ADR-0030 D5): every
+/// file the app holds for the manuscript (the store's rows plus the entry's
+/// live buffer as `entry_override`), the entry path, and `output` = `pdf` |
+/// `svg`. `bibliographies` carry the projected `.bib` texts the app
+/// assembled. Diagnostics name the file a span points into. The engine is
+/// per thread and persistent, like the single-source renderer.
+#[cfg(all(feature = "uniffi", feature = "typst-render"))]
+#[uniffi::export]
+pub fn compile_typst_tree_to_output(
+    files: Vec<FfiProjectFile>,
+    entry_path: String,
+    entry_override: Option<String>,
+    output: String,
+    bibliographies: Vec<FfiProjectBibliography>,
+) -> FfiTreeCompileResult {
+    use crate::project::{
+        FileRole, OutputKind, ProjectFile, ProjectTree, ProjectedBibliography, Target,
+    };
+
+    let mut entry: Option<ProjectFile> = None;
+    let mut others: Vec<ProjectFile> = Vec::new();
+    for f in files {
+        let role = FileRole::parse(&f.role).unwrap_or(FileRole::Aux);
+        let file = match (f.text, f.bytes) {
+            (Some(text), _) => ProjectFile::text(f.path.clone(), role, text),
+            (None, Some(bytes)) => ProjectFile::binary(f.path.clone(), role, bytes),
+            (None, None) => ProjectFile::text(f.path.clone(), role, String::new()),
+        };
+        if f.path == entry_path {
+            entry = Some(file);
+        } else {
+            others.push(file);
+        }
+    }
+    let entry = entry.unwrap_or_else(|| {
+        ProjectFile::text(
+            entry_path.clone(),
+            FileRole::Main,
+            entry_override.clone().unwrap_or_default(),
+        )
+    });
+    let tree = ProjectTree::new("ffi", "", "typst", entry, others, vec![]);
+    let mut target = Target::implicit("typst", &entry_path);
+    target.output_kind = if output.eq_ignore_ascii_case("svg") {
+        OutputKind::Svg
+    } else {
+        OutputKind::Pdf
+    };
+    let bibs: Vec<ProjectedBibliography> = bibliographies
+        .into_iter()
+        .map(|b| ProjectedBibliography {
+            path: b.path,
+            text: b.text,
+            requested: vec![],
+            missing: vec![],
+            synthesized: vec![],
+        })
+        .collect();
+    let out = crate::project::compile_typst_tree(&tree, &target, &bibs, entry_override.as_deref());
+    FfiTreeCompileResult {
+        ok: out.ok,
+        pdf_data: out.pdf,
+        svg_pages: out.svg_pages,
+        page_count: out.page_count,
+        compile_ms: out.compile_ms,
+        diagnostics: out
+            .diagnostics
+            .iter()
+            .map(|d| FfiProjectDiagnostic {
+                severity: match d.severity {
+                    crate::project::Severity::Error => "error".into(),
+                    crate::project::Severity::Warning => "warning".into(),
+                    crate::project::Severity::Info => "info".into(),
+                },
+                code: d.code.clone(),
+                message: d.message.clone(),
+                file: d.file.clone(),
+                line: d.line,
+            })
+            .collect(),
+    }
+}
+
+/// A tree from the app's rows: roles parsed, build specs and provenance
+/// carried, the entry pulled out (an absent entry becomes an empty text).
+#[cfg(feature = "uniffi")]
+fn tree_from_ffi(
+    files: Vec<FfiProjectFile>,
+    entry_path: &str,
+    format: &str,
+) -> crate::project::ProjectTree {
+    use crate::project::{BuildSpec, FileRole, ProjectFile, ProjectTree};
+    let mut entry: Option<ProjectFile> = None;
+    let mut others: Vec<ProjectFile> = Vec::new();
+    for f in files {
+        let role = FileRole::parse(&f.role).unwrap_or(FileRole::Aux);
+        let mut file = match (f.text, f.bytes) {
+            (Some(text), _) => ProjectFile::text(f.path.clone(), role, text),
+            (None, Some(bytes)) => ProjectFile::binary(f.path.clone(), role, bytes),
+            (None, None) => ProjectFile::text(f.path.clone(), role, String::new()),
+        };
+        if let Some(spec) = f
+            .build_json
+            .as_deref()
+            .and_then(|j| BuildSpec::parse(j).ok())
+        {
+            file = file.with_build(spec);
+        }
+        if let (Some(from), Some(hash)) = (f.derived_from, f.derived_from_hash) {
+            file = file.with_derived(from, hash);
+        }
+        if f.path == entry_path {
+            entry = Some(file);
+        } else {
+            others.push(file);
+        }
+    }
+    let entry = entry.unwrap_or_else(|| {
+        ProjectFile::text(entry_path.to_string(), FileRole::Main, String::new())
+    });
+    ProjectTree::new("ffi", "", format.to_string(), entry, others, vec![])
+}
+
+/// The derived build graph of a tree the app holds, as JSON (the same shape
+/// `imprint-project-service_project-graph` returns) — so the Files panel can
+/// show unresolved references and stale figures without a store round-trip.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn project_graph_json(
+    files: Vec<FfiProjectFile>,
+    entry_path: String,
+    format: String,
+) -> String {
+    use crate::project::{BuildGraph, Target};
+    let tree = tree_from_ffi(files, &entry_path, &format);
+    let target = Target::implicit(&format, &entry_path);
+    let graph = BuildGraph::derive(&tree, &target);
+    serde_json::to_string(&graph).unwrap_or_else(|e| format!("{{\"error\":\"{e}\"}}"))
+}
+
+/// One output a build wrote into its work directory.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiBuildOutput {
+    /// pdf | svg | synctex | log
+    pub kind: String,
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+}
+
+/// What happened to one figure step.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiStepReport {
+    pub source: String,
+    pub runner: String,
+    /// ran | fresh | skipped | failed
+    pub status: String,
+    pub message: String,
+    pub duration_ms: u64,
+    pub outputs: Vec<String>,
+    pub command: Option<String>,
+}
+
+/// A file a figure step wrote, with the provenance its row should carry.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiProducedFile {
+    pub path: String,
+    pub bytes: Vec<u8>,
+    pub derived_from: String,
+    pub derived_from_hash: String,
+}
+
+/// The report of one build.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiBuildReport {
+    pub ok: bool,
+    pub engine: String,
+    pub message: String,
+    pub outputs: Vec<FfiBuildOutput>,
+    pub pdf_data: Option<Vec<u8>>,
+    pub svg_pages: Vec<String>,
+    pub diagnostics: Vec<FfiProjectDiagnostic>,
+    pub steps: Vec<FfiStepReport>,
+    pub produced: Vec<FfiProducedFile>,
+    pub log: String,
+    pub duration_ms: u64,
+}
+
+/// Build one target of a tree the app holds (ADR-0030 P4): stale figure
+/// steps first (`shell` only with `allow_shell`), then the document engine
+/// — Typst from memory, Markdown through Typst, LaTeX through
+/// `work_dir` and the system's TeX (or the embedded Tectonic). The app
+/// records the row and the produced files through the store; this only
+/// builds. `targets_json` is the manuscript's declaration; `target_id`
+/// picks one (the first, or the implicit target, when absent).
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn project_build_tree(
+    files: Vec<FfiProjectFile>,
+    entry_path: String,
+    format: String,
+    targets_json: Option<String>,
+    target_id: Option<String>,
+    work_dir: String,
+    allow_shell: bool,
+    entry_override: Option<String>,
+    bibliographies: Vec<FfiProjectBibliography>,
+) -> FfiBuildReport {
+    use crate::project::{build, BuildRequest, ProcessRunnerHost, ProjectedBibliography, Target};
+    let mut tree = tree_from_ffi(files, &entry_path, &format);
+    if let Some(json) = targets_json.as_deref().filter(|j| !j.trim().is_empty()) {
+        if let Ok(targets) = Target::parse_list(json, &format, &entry_path) {
+            if !targets.is_empty() {
+                tree.targets = targets;
+            }
+        }
+    }
+    let target = match target_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        Some(t) => tree.target(t).cloned(),
+        None => Some(tree.default_target().clone()),
+    };
+    let Some(target) = target else {
+        return FfiBuildReport {
+            ok: false,
+            engine: String::new(),
+            message: format!("no target {:?}", target_id.unwrap_or_default()),
+            outputs: vec![],
+            pdf_data: None,
+            svg_pages: vec![],
+            diagnostics: vec![],
+            steps: vec![],
+            produced: vec![],
+            log: String::new(),
+            duration_ms: 0,
+        };
+    };
+    let bibs: Vec<ProjectedBibliography> = bibliographies
+        .into_iter()
+        .map(|b| ProjectedBibliography {
+            path: b.path,
+            text: b.text,
+            requested: vec![],
+            missing: vec![],
+            synthesized: vec![],
+        })
+        .collect();
+    let host = ProcessRunnerHost::new();
+    let out = build(
+        &BuildRequest {
+            tree: &tree,
+            target: &target,
+            bibliographies: &bibs,
+            work_dir: std::path::PathBuf::from(work_dir),
+            allow_shell,
+            entry_override: entry_override.as_deref(),
+        },
+        &host,
+    );
+    FfiBuildReport {
+        ok: out.ok,
+        engine: out.engine.as_str().to_string(),
+        message: out.message,
+        outputs: out
+            .outputs
+            .iter()
+            .map(|o| FfiBuildOutput {
+                kind: o.kind.clone(),
+                name: o.name.clone(),
+                path: o.path.clone(),
+                size: o.size,
+            })
+            .collect(),
+        pdf_data: out.pdf,
+        svg_pages: out.svg_pages,
+        diagnostics: out
+            .diagnostics
+            .iter()
+            .map(|d| FfiProjectDiagnostic {
+                severity: match d.severity {
+                    crate::project::Severity::Error => "error".into(),
+                    crate::project::Severity::Warning => "warning".into(),
+                    crate::project::Severity::Info => "info".into(),
+                },
+                code: d.code.clone(),
+                message: d.message.clone(),
+                file: d.file.clone(),
+                line: d.line,
+            })
+            .collect(),
+        steps: out
+            .steps
+            .iter()
+            .map(|s| FfiStepReport {
+                source: s.source.clone(),
+                runner: s.runner.clone(),
+                status: match s.status {
+                    crate::project::StepStatus::Ran => "ran",
+                    crate::project::StepStatus::Fresh => "fresh",
+                    crate::project::StepStatus::Skipped => "skipped",
+                    crate::project::StepStatus::Failed => "failed",
+                }
+                .into(),
+                message: s.message.clone(),
+                duration_ms: s.duration_ms,
+                outputs: s.outputs.clone(),
+                command: s.command.clone(),
+            })
+            .collect(),
+        produced: out
+            .produced
+            .into_iter()
+            .map(|p| FfiProducedFile {
+                path: p.path,
+                bytes: p.bytes,
+                derived_from: p.derived_from,
+                derived_from_hash: p.derived_from_hash,
+            })
+            .collect(),
+        log: out.log,
+        duration_ms: out.duration_ms,
+    }
+}
+
+/// Markdown → Typst markup (ADR-0030 D10), for a preview of what the
+/// engine compiles and for the editor's "convert to Typst".
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn markdown_to_typst(markdown: String) -> String {
+    crate::project::to_typst(&markdown).typst
+}
+
+/// A directory read as a tree, for the app's "Import folder…" (ADR-0030
+/// P3): build residue skipped, roles from the extension and then from use,
+/// the entry guessed (`entry_override` wins). Pure — nothing is written; the
+/// app writes the rows through the one store writer, or hands the directory
+/// to `imprint-project-service_project-import-directory`.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiImportedTree {
+    pub ok: bool,
+    pub entry_path: String,
+    pub entry_reason: String,
+    /// typst | latex | markdown | plaintext
+    pub format: String,
+    /// Every file, the entry included (its role is `main`).
+    pub files: Vec<FfiProjectFile>,
+    /// `path: why` for what the walk left out.
+    pub skipped: Vec<String>,
+    pub message: String,
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn project_import_directory_plan(
+    directory: String,
+    entry_override: Option<String>,
+) -> FfiImportedTree {
+    use crate::project::{import_directory, FileBytes, ImportOptions};
+    let options = ImportOptions {
+        entry: entry_override
+            .map(|e| e.trim().to_string())
+            .filter(|e| !e.is_empty()),
+        ..Default::default()
+    };
+    match import_directory(std::path::Path::new(&directory), &options) {
+        Ok(imported) => FfiImportedTree {
+            ok: true,
+            entry_path: imported.tree.entry.path.clone(),
+            entry_reason: imported.entry_reason.clone(),
+            format: imported.format.clone(),
+            files: imported
+                .tree
+                .all_files()
+                .map(|f| FfiProjectFile {
+                    path: f.path.clone(),
+                    role: f.role.as_str().to_string(),
+                    text: match &f.bytes {
+                        FileBytes::Text(t) => Some(t.clone()),
+                        _ => None,
+                    },
+                    bytes: match &f.bytes {
+                        FileBytes::Bytes(b) => Some(b.clone()),
+                        _ => None,
+                    },
+                    build_json: None,
+                    derived_from: None,
+                    derived_from_hash: None,
+                })
+                .collect(),
+            skipped: imported
+                .skipped
+                .iter()
+                .map(|(p, why)| format!("{p}: {why}"))
+                .collect(),
+            message: String::new(),
+        },
+        Err(e) => FfiImportedTree {
+            ok: false,
+            entry_path: String::new(),
+            entry_reason: String::new(),
+            format: String::new(),
+            files: vec![],
+            skipped: vec![],
+            message: e.to_string(),
+        },
+    }
+}
 
 /// Result of compiling a Typst document to SVG (one SVG string per page)
 #[cfg(feature = "uniffi")]

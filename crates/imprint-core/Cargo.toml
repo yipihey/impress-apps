@@ -44,6 +44,9 @@ tectonic-render = ["dep:tectonic", "dep:tectonic_status_base", "dep:tectonic_err
 impress-domain = { workspace = true }
 impress-bibtex = { workspace = true }
 impress-identifiers = { workspace = true }
+# The project model shares the bundle manifest's role vocabulary and the
+# manuscript-format grammar table (ADR-0030 D2). No features: pure data.
+impress-core = { workspace = true }
 
 # CRDT support
 
@@ -70,6 +73,16 @@ flate2 = "1"
 # Deterministic section ids (Stage 7 item 6) — SHA-256 truncated to a UUID.
 # The digest input is persisted-id-bearing, so this must stay bit-exact.
 sha2 = "0.10"
+
+# Revision archives (ADR-0030 D2): a project tree packed deterministically as
+# `.tar.zst` with the bundle manifest first. Both crates are already in the
+# lock file through other dependencies.
+tar = "0.4"
+zstd = "0.13"
+
+# Markdown via Typst (ADR-0030 D10): the Markdown entry is parsed by
+# pulldown-cmark and emitted as Typst markup for the one document engine.
+pulldown-cmark = { version = "0.13", default-features = false }
 
 # Section offsets are Swift `Character` offsets — extended grapheme clusters,
 # not scalars — because that is what every consumer of `ExtractedSection`

@@ -27,6 +27,9 @@ typst-render = ["imprint-core/typst-render"]
 impress-store-ffi = { workspace = true }
 imprint-core = { workspace = true }
 impress-core = { workspace = true, features = ["sqlite"] }
+# The one shared store handle (ADR-0030 D12): project verbs and the collab
+# verbs must see the same in-process document cache.
+impress-store-service = { workspace = true }
 
 # Phase 3A — codegen pipeline (ImprintTextService).
 impress-service-core = { workspace = true }

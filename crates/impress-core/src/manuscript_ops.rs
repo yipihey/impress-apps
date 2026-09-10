@@ -26,7 +26,7 @@ use crate::sqlite_store::SqliteItemStore;
 use crate::store::{ItemStore, StoreError};
 
 /// Prefix marking a payload string as a content-addressed blob reference.
-pub const BLOB_REF_PREFIX: &str = "blob:sha256:";
+pub use crate::blobs::BLOB_REF_PREFIX;
 
 /// The single source of truth for allowed `manuscript.format` payload values.
 /// Every create/validate path (imbib-core `create_manuscript`, adapters, GUI
@@ -233,7 +233,7 @@ pub fn list_revisions(
 /// that points at an actual revision item; otherwise fall back to the newest
 /// revision by creation time. Returns None for a manuscript with no revisions
 /// (the freshly-created self-ref case).
-fn current_head(
+pub(crate) fn current_head(
     store: &SqliteItemStore,
     manuscript_id: ItemId,
     manuscript: &Item,

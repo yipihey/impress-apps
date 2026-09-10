@@ -26,7 +26,7 @@ use crate::item::{Item, ItemId, Priority, Value, Visibility};
 use crate::query::ItemQuery;
 #[cfg(test)]
 use crate::query::Predicate;
-use crate::schemas::MANUSCRIPT_CHANGE_SCHEMA_REF;
+use crate::schemas::{MANUSCRIPT_CHANGE_SCHEMA_REF, MANUSCRIPT_FILE_SCHEMA_REF};
 use crate::sqlite_store::SqliteItemStore;
 use crate::store::FieldMutation;
 use crate::store::{ItemStore, StoreError};
@@ -138,6 +138,45 @@ fn derived_actor(tag: &str, parts: &[&str]) -> AmActorId {
     AmActorId::from(&digest[..16])
 }
 
+/// Where a collab-backed item keeps its text (ADR-0030 D3): the manuscript
+/// row in `body_content`, a file row in `content`.
+#[derive(Clone, Copy)]
+struct TextFields {
+    text: &'static str,
+    hash: &'static str,
+    modified: Modified,
+}
+
+#[derive(Clone, Copy)]
+enum Modified {
+    Iso(&'static str),
+    Millis(&'static str),
+}
+
+impl TextFields {
+    fn for_schema(schema: &str) -> Option<Self> {
+        match schema {
+            "manuscript" => Some(Self {
+                text: "body_content",
+                hash: "body_content_hash",
+                modified: Modified::Iso("body_modified_at"),
+            }),
+            MANUSCRIPT_FILE_SCHEMA_REF => Some(Self {
+                text: "content",
+                hash: "content_hash",
+                modified: Modified::Millis("modified_ms"),
+            }),
+            _ => None,
+        }
+    }
+
+    /// For an item `manuscript_item` already admitted.
+    fn for_item(item: &Item) -> Self {
+        Self::for_schema(&item.schema)
+            .unwrap_or_else(|| Self::for_schema("manuscript").expect("manuscript fields"))
+    }
+}
+
 fn payload_string(item: &Item, key: &str) -> Option<String> {
     match item.payload.get(key) {
         Some(Value::String(s)) => Some(s.clone()),
@@ -179,15 +218,29 @@ impl SqliteItemStore {
         Ok(rows.iter().filter_map(|id| id.parse().ok()).collect())
     }
 
+    /// The item a collab document belongs to: a `manuscript` (text in
+    /// `body_content`) or an inline text `manuscript-file@1.0.0` (text in
+    /// `content`) — ADR-0030 D3. A blob-backed file (over the inline limit)
+    /// has no document; its bytes are content-addressed, not merged.
     fn manuscript_item(&self, manuscript: ItemId) -> Result<Item, StoreError> {
         let item = self
             .get(manuscript)?
             .ok_or(StoreError::NotFound(manuscript))?;
-        if item.schema != "manuscript" {
+        let Some(_) = TextFields::for_schema(&item.schema) else {
             return Err(StoreError::Validation(format!(
-                "collab verbs require schema 'manuscript', got '{}'",
+                "collab verbs require a manuscript or a manuscript file, got '{}'",
                 item.schema
             )));
+        };
+        if item.schema == MANUSCRIPT_FILE_SCHEMA_REF {
+            let kind = payload_string(&item, "kind").unwrap_or_default();
+            let blob = payload_string(&item, "blob_ref").unwrap_or_default();
+            if kind != "text" || !blob.is_empty() {
+                return Err(StoreError::Validation(format!(
+                    "file {:?} is not inline text; it has no collaborative document",
+                    payload_string(&item, "path").unwrap_or_default()
+                )));
+            }
         }
         Ok(item)
     }
@@ -405,8 +458,9 @@ impl SqliteItemStore {
         f: impl FnOnce(&Self, &mut CollabDoc, &Item, String) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         let item = self.manuscript_item(manuscript)?;
-        let body_text = payload_string(&item, "body_content").unwrap_or_default();
-        let body_hash = payload_string(&item, "body_content_hash")
+        let fields = TextFields::for_item(&item);
+        let body_text = payload_string(&item, fields.text).unwrap_or_default();
+        let body_hash = payload_string(&item, fields.hash)
             .unwrap_or_else(|| crate::manuscript_ops::sha256_hex(&body_text));
         let materialized_hash = payload_string(&item, "collab_materialized_hash");
         let chunk_ids = self.manuscript_chunk_ids(manuscript)?;
@@ -538,32 +592,40 @@ impl SqliteItemStore {
         body: &str,
         body_hash: &str,
     ) -> Result<(), StoreError> {
-        if payload_string(item, "body_content_hash").as_deref() == Some(body_hash)
+        let fields = TextFields::for_item(item);
+        if payload_string(item, fields.hash).as_deref() == Some(body_hash)
             && payload_string(item, "collab_materialized_hash").as_deref() == Some(body_hash)
-            && payload_string(item, "body_content").as_deref() == Some(body)
+            && payload_string(item, fields.text).as_deref() == Some(body)
         {
             return Ok(());
         }
-        self.update(
-            manuscript,
-            vec![
-                FieldMutation::SetPayload("body_content".into(), Value::String(body.into())),
-                FieldMutation::SetPayload(
-                    "body_content_hash".into(),
-                    Value::String(body_hash.into()),
-                ),
-                // The D2/D4 ownership marker: while this equals
-                // `body_content_hash`, the row was last written by this layer.
-                FieldMutation::SetPayload(
-                    "collab_materialized_hash".into(),
-                    Value::String(body_hash.into()),
-                ),
-                FieldMutation::SetPayload(
-                    "body_modified_at".into(),
-                    Value::String(crate::manuscript_ops::iso8601_now()),
-                ),
-            ],
-        )
+        let mut mutations = vec![
+            FieldMutation::SetPayload(fields.text.into(), Value::String(body.into())),
+            FieldMutation::SetPayload(fields.hash.into(), Value::String(body_hash.into())),
+            // The D2/D4 ownership marker: while this equals the hash field,
+            // the row was last written by this layer.
+            FieldMutation::SetPayload(
+                "collab_materialized_hash".into(),
+                Value::String(body_hash.into()),
+            ),
+        ];
+        mutations.push(match fields.modified {
+            Modified::Iso(key) => FieldMutation::SetPayload(
+                key.into(),
+                Value::String(crate::manuscript_ops::iso8601_now()),
+            ),
+            Modified::Millis(key) => {
+                FieldMutation::SetPayload(key.into(), Value::Int(Utc::now().timestamp_millis()))
+            }
+        });
+        if item.schema == MANUSCRIPT_FILE_SCHEMA_REF {
+            // A file row also keeps `size` honest for the tree stamp.
+            mutations.push(FieldMutation::SetPayload(
+                "size".into(),
+                Value::Int(body.len() as i64),
+            ));
+        }
+        self.update(manuscript, mutations)
     }
 
     /// The document's current heads (loading/genesis-ing it if needed) — what

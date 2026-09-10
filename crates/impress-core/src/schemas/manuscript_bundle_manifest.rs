@@ -32,8 +32,17 @@ pub enum BundleEntryRole {
     Supplement,
     /// Sub-document (chapter included via `\input` / `#include`).
     Chapter,
-    /// Auxiliary file (`.cls`, `.sty`, fonts, build configuration).
+    /// Auxiliary file (fonts, build configuration, anything else).
     Aux,
+    /// The document, script or plot spec that MAKES a figure (ADR-0030 D6).
+    #[serde(rename = "figure-source")]
+    FigureSource,
+    /// A data file the source reads (`csv(…)`, `\pgfplotstableread`).
+    Data,
+    /// A class or style file the source loads (`.cls`, `.sty`, a Typst theme).
+    Style,
+    /// A build product kept in the tree (a rendered figure, a compiled PDF).
+    Output,
 }
 
 impl BundleEntryRole {
@@ -45,7 +54,28 @@ impl BundleEntryRole {
             BundleEntryRole::Supplement => "supplement",
             BundleEntryRole::Chapter => "chapter",
             BundleEntryRole::Aux => "aux",
+            BundleEntryRole::FigureSource => "figure-source",
+            BundleEntryRole::Data => "data",
+            BundleEntryRole::Style => "style",
+            BundleEntryRole::Output => "output",
         }
+    }
+
+    /// Parse a role string (the `manuscript-file.role` spelling).
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "main" => BundleEntryRole::Main,
+            "bibliography" => BundleEntryRole::Bibliography,
+            "figure" => BundleEntryRole::Figure,
+            "supplement" => BundleEntryRole::Supplement,
+            "chapter" => BundleEntryRole::Chapter,
+            "aux" => BundleEntryRole::Aux,
+            "figure-source" => BundleEntryRole::FigureSource,
+            "data" => BundleEntryRole::Data,
+            "style" => BundleEntryRole::Style,
+            "output" => BundleEntryRole::Output,
+            _ => return None,
+        })
     }
 }
 

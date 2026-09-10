@@ -142,6 +142,7 @@
 		925405CAFD4044F57E895F46 /* URLSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239150EC33A76C09B10A04D3 /* URLSchemeHandler.swift */; };
 		92AAAD940B3027A8D4824711 /* ManuscriptStoreAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8267517568B0D1D010E4DB51 /* ManuscriptStoreAdapter.swift */; };
 		947A5A3522576AC14468992E /* ImprintApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FC5B4BACDCD64EFC7ED7AA /* ImprintApp.swift */; };
+		94F63025C113F830FFB4D010 /* ProjectFilesPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08057BDDC568D1AB63F4EDB1 /* ProjectFilesPanel.swift */; };
 		964B025F21BB514ABDE802F0 /* LibraryShellUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21C648B3F85436B3F006FC1 /* LibraryShellUITests.swift */; };
 		96D579CE65D0BA2F8DD3392B /* ImprintSettingsPanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC7A428DCA3F56B38D13677 /* ImprintSettingsPanes.swift */; };
 		976BF77D5B871B61C5DA7622 /* AIContextMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6CAB3AACFDE45512C3F473C /* AIContextMenuView.swift */; };
@@ -171,6 +172,7 @@
 		B0D41679CCA971388F37EB37 /* CommentBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D2CB1A0DD560ED01A37CAD /* CommentBubbleView.swift */; };
 		B1AD663D15F009B9CDEDC0B0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2CDE35399E25774A690015FB /* Assets.xcassets */; };
 		B2E394D07A33129492EB963E /* IOSExternalManuscriptPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19616BA5DFD920AE0E557FF3 /* IOSExternalManuscriptPane.swift */; };
+		B30B587869676EC4EFA72498 /* ProjectBuildPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67E2F144279D276F76FF0FCC /* ProjectBuildPanel.swift */; };
 		B3185F5BD8B3E0F22CE54580 /* CRDTHealthValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9109B68CF7A42AC37C2C433E /* CRDTHealthValidator.swift */; };
 		B3D8255DFA517D90AEC30CB0 /* ImprintChassisRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E53BC491BC555759CC5B9A3 /* ImprintChassisRoot.swift */; };
 		B412D816F86CCC7115E9A74E /* CitationSuggestionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EADC8E6310AEC913C7C88A0 /* CitationSuggestionPanel.swift */; };
@@ -330,6 +332,7 @@
 		05AEB9E49C7BE43B6773EEAB /* VeuszPlotStoreRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VeuszPlotStoreRegistry.swift; sourceTree = "<group>"; };
 		0774AA7EB13091DCF17D5BF5 /* SourceEditorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEditorPage.swift; sourceTree = "<group>"; };
 		07CEE4F4CD2716BEE538C8C6 /* ImprintCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ImprintCore; path = Packages/ImprintCore; sourceTree = SOURCE_ROOT; };
+		08057BDDC568D1AB63F4EDB1 /* ProjectFilesPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectFilesPanel.swift; sourceTree = "<group>"; };
 		081A80A304C7BAB778E12B73 /* ImprintAccessibilityID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintAccessibilityID.swift; sourceTree = "<group>"; };
 		0882B15999B64A087ADA0DCF /* WatchedManuscriptFolderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchedManuscriptFolderTests.swift; sourceTree = "<group>"; };
 		094CAB5368BE43666D38D4A6 /* ImpressTestKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ImpressTestKit; path = ../../packages/ImpressTestKit; sourceTree = SOURCE_ROOT; };
@@ -402,6 +405,7 @@
 		6578690E2FC436D7CC20B050 /* LaTeXCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaTeXCompletionProvider.swift; sourceTree = "<group>"; };
 		663C5398062C77F53190AE5D /* ManuscriptExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManuscriptExporter.swift; sourceTree = "<group>"; };
 		66E1156026066D61C03E9F54 /* VeuszPlotRefTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VeuszPlotRefTests.swift; sourceTree = "<group>"; };
+		67E2F144279D276F76FF0FCC /* ProjectBuildPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBuildPanel.swift; sourceTree = "<group>"; };
 		690855ADDB9AFD083FBEBBCA /* ShortcutsHelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsHelpView.swift; sourceTree = "<group>"; };
 		6926539EF4B0885FE073191C /* SettingsScreenUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreenUITests.swift; sourceTree = "<group>"; };
 		699E608B5AFC37023DE484F2 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
@@ -991,6 +995,8 @@
 				D6C95D8216DE4BF72FCB97C7 /* NewManuscriptFromTemplateView.swift */,
 				3B031DA11AFC25AE5C8F8513 /* PDFPreviewView.swift */,
 				DBA0188A43B19C3BD8429D82 /* PresenceCursorView.swift */,
+				67E2F144279D276F76FF0FCC /* ProjectBuildPanel.swift */,
+				08057BDDC568D1AB63F4EDB1 /* ProjectFilesPanel.swift */,
 				E5F2E62B0712CC210A21B369 /* RewriteSuggestionView.swift */,
 				9044E468BE465B7BA8A29D76 /* SettingsView.swift */,
 				690855ADDB9AFD083FBEBBCA /* ShortcutsHelpView.swift */,
@@ -1611,6 +1617,8 @@
 				FB5776AB5B4847648FE2E2C4 /* PaneLayout.swift in Sources */,
 				B4643C490EFF420467C53076 /* PanelManuscriptBridge.swift in Sources */,
 				A23C90234D65FF3C4DD50B34 /* PresenceCursorView.swift in Sources */,
+				B30B587869676EC4EFA72498 /* ProjectBuildPanel.swift in Sources */,
+				94F63025C113F830FFB4D010 /* ProjectFilesPanel.swift in Sources */,
 				2E31A4B5E744E7D81203633D /* PromptContextBuilder.swift in Sources */,
 				DAC94545823CE40116C23BC4 /* ROCrateBuilder.swift in Sources */,
 				99B593AE130DA6971CA0BED7 /* RewriteSuggestion.swift in Sources */,

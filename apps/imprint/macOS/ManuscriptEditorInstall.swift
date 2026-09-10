@@ -86,6 +86,8 @@ enum ManuscriptEditorInstaller {
             VeuszSidePanel(),
             PlotInspectorPanel(),
             PaperPreviewSidePanel(),
+            ProjectFilesSidePanel(),
+            ProjectBuildSidePanel(),
         ]
 
         // Inverse-sync: a LaTeX preview click → source char offset, via the

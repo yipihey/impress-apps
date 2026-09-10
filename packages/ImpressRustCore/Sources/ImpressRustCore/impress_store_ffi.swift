@@ -1772,6 +1772,101 @@ public protocol SharedStoreProtocol : AnyObject {
     func manuscriptCollabHeads(id: String) throws  -> [String]
     
     /**
+     * Where this store keeps content-addressed bytes (`None` in memory).
+     */
+    func manuscriptProjectBlobRoot()  -> String?
+    
+    /**
+     * Builds of a manuscript, newest first.
+     */
+    func manuscriptProjectBuilds(manuscriptId: String, limit: UInt32?) throws  -> [SharedManuscriptBuild]
+    
+    /**
+     * Delete a file row. `false` when there was none.
+     */
+    func manuscriptProjectDeleteFile(manuscriptId: String, path: String) throws  -> Bool
+    
+    /**
+     * One file row, if any.
+     */
+    func manuscriptProjectFile(manuscriptId: String, path: String) throws  -> SharedProjectFile?
+    
+    /**
+     * A file's bytes — inline text or the blob. An absent blob is an error
+     * naming the path rather than an empty file.
+     */
+    func manuscriptProjectFileBytes(manuscriptId: String, path: String) throws  -> Data
+    
+    /**
+     * Every file row, sorted by path (the entry is not a row).
+     */
+    func manuscriptProjectFiles(manuscriptId: String) throws  -> [SharedProjectFile]
+    
+    /**
+     * Finish a recorded build with its outcome (`record_json` as above,
+     * with status, finished_ms, duration_ms, outputs/diagnostics/steps
+     * JSON and message filled in). Keeps the last `BUILD_RETENTION`.
+     */
+    func manuscriptProjectFinishBuild(manuscriptId: String, buildId: String, recordJson: String) throws  -> SharedManuscriptBuild
+    
+    /**
+     * The newest `ok` build of a target (any target when `None`).
+     */
+    func manuscriptProjectLatestBuild(manuscriptId: String, targetId: String?) throws  -> SharedManuscriptBuild?
+    
+    /**
+     * Move / rename a file; outputs that named the old path follow it.
+     */
+    func manuscriptProjectMoveFile(manuscriptId: String, from: String, to: String, author: String) throws  -> SharedProjectFile
+    
+    /**
+     * Create or replace a file from bytes (binaries; text is inferred when
+     * the bytes are UTF-8 without NUL).
+     */
+    func manuscriptProjectPutBytes(manuscriptId: String, path: String, role: String?, bytes: Data, mimeType: String?, author: String) throws  -> SharedProjectFile
+    
+    /**
+     * Create or replace a text file. `role` absent = from the extension.
+     */
+    func manuscriptProjectPutText(manuscriptId: String, path: String, role: String?, text: String, author: String) throws  -> SharedProjectFile
+    
+    /**
+     * Record a build that is starting (`record_json` is a
+     * `BuildRecord`: target_id, engine, status, input_stamp, started_ms…).
+     * The app builds through `imprint-core`'s engine and records here, so
+     * the CLI, MCP and the app read one history.
+     */
+    func manuscriptProjectRecordBuild(manuscriptId: String, recordJson: String, author: String?) throws  -> SharedManuscriptBuild
+    
+    /**
+     * Mark `output` as made from `source` at `input_hash` (a figure step's
+     * provenance; staleness derives from it).
+     */
+    func manuscriptProjectRecordDerived(manuscriptId: String, output: String, source: String, inputHash: String) throws  -> SharedProjectFile
+    
+    /**
+     * Declare the entry path (the manuscript body's file name).
+     */
+    func manuscriptProjectSetEntry(manuscriptId: String, path: String, author: String) throws  -> String
+    
+    /**
+     * Set one settable field on a file row (`role`, `build_json`,
+     * `bib_source_json`, `derived_from`, `derived_from_hash`,
+     * `external_path`, `mime_type`); `None` clears it.
+     */
+    func manuscriptProjectSetFileField(manuscriptId: String, path: String, field: String, value: String?) throws  -> SharedProjectFile
+    
+    /**
+     * Declare the targets (`None` restores the implicit single target).
+     */
+    func manuscriptProjectSetTargets(manuscriptId: String, targetsJson: String?, author: String) throws 
+    
+    /**
+     * The project in one read (ADR-0030 D1).
+     */
+    func manuscriptProjectSnapshot(manuscriptId: String) throws  -> SharedProjectSnapshot
+    
+    /**
      * All operations targeting an item, oldest first, shaped for the Info-tab
      * History section. `limit = 0` returns everything.
      */
@@ -2622,6 +2717,232 @@ open func manuscriptCollabHeads(id: String)throws  -> [String] {
     return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_collab_heads(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Where this store keeps content-addressed bytes (`None` in memory).
+     */
+open func manuscriptProjectBlobRoot() -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_blob_root(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Builds of a manuscript, newest first.
+     */
+open func manuscriptProjectBuilds(manuscriptId: String, limit: UInt32?)throws  -> [SharedManuscriptBuild] {
+    return try  FfiConverterSequenceTypeSharedManuscriptBuild.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_builds(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterOptionUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
+     * Delete a file row. `false` when there was none.
+     */
+open func manuscriptProjectDeleteFile(manuscriptId: String, path: String)throws  -> Bool {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_delete_file(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * One file row, if any.
+     */
+open func manuscriptProjectFile(manuscriptId: String, path: String)throws  -> SharedProjectFile? {
+    return try  FfiConverterOptionTypeSharedProjectFile.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_file(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * A file's bytes — inline text or the blob. An absent blob is an error
+     * naming the path rather than an empty file.
+     */
+open func manuscriptProjectFileBytes(manuscriptId: String, path: String)throws  -> Data {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_file_bytes(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * Every file row, sorted by path (the entry is not a row).
+     */
+open func manuscriptProjectFiles(manuscriptId: String)throws  -> [SharedProjectFile] {
+    return try  FfiConverterSequenceTypeSharedProjectFile.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_files(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),$0
+    )
+})
+}
+    
+    /**
+     * Finish a recorded build with its outcome (`record_json` as above,
+     * with status, finished_ms, duration_ms, outputs/diagnostics/steps
+     * JSON and message filled in). Keeps the last `BUILD_RETENTION`.
+     */
+open func manuscriptProjectFinishBuild(manuscriptId: String, buildId: String, recordJson: String)throws  -> SharedManuscriptBuild {
+    return try  FfiConverterTypeSharedManuscriptBuild.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_finish_build(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(buildId),
+        FfiConverterString.lower(recordJson),$0
+    )
+})
+}
+    
+    /**
+     * The newest `ok` build of a target (any target when `None`).
+     */
+open func manuscriptProjectLatestBuild(manuscriptId: String, targetId: String?)throws  -> SharedManuscriptBuild? {
+    return try  FfiConverterOptionTypeSharedManuscriptBuild.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_latest_build(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterOptionString.lower(targetId),$0
+    )
+})
+}
+    
+    /**
+     * Move / rename a file; outputs that named the old path follow it.
+     */
+open func manuscriptProjectMoveFile(manuscriptId: String, from: String, to: String, author: String)throws  -> SharedProjectFile {
+    return try  FfiConverterTypeSharedProjectFile.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_move_file(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(from),
+        FfiConverterString.lower(to),
+        FfiConverterString.lower(author),$0
+    )
+})
+}
+    
+    /**
+     * Create or replace a file from bytes (binaries; text is inferred when
+     * the bytes are UTF-8 without NUL).
+     */
+open func manuscriptProjectPutBytes(manuscriptId: String, path: String, role: String?, bytes: Data, mimeType: String?, author: String)throws  -> SharedProjectFile {
+    return try  FfiConverterTypeSharedProjectFile.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_put_bytes(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(path),
+        FfiConverterOptionString.lower(role),
+        FfiConverterData.lower(bytes),
+        FfiConverterOptionString.lower(mimeType),
+        FfiConverterString.lower(author),$0
+    )
+})
+}
+    
+    /**
+     * Create or replace a text file. `role` absent = from the extension.
+     */
+open func manuscriptProjectPutText(manuscriptId: String, path: String, role: String?, text: String, author: String)throws  -> SharedProjectFile {
+    return try  FfiConverterTypeSharedProjectFile.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_put_text(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(path),
+        FfiConverterOptionString.lower(role),
+        FfiConverterString.lower(text),
+        FfiConverterString.lower(author),$0
+    )
+})
+}
+    
+    /**
+     * Record a build that is starting (`record_json` is a
+     * `BuildRecord`: target_id, engine, status, input_stamp, started_ms…).
+     * The app builds through `imprint-core`'s engine and records here, so
+     * the CLI, MCP and the app read one history.
+     */
+open func manuscriptProjectRecordBuild(manuscriptId: String, recordJson: String, author: String?)throws  -> SharedManuscriptBuild {
+    return try  FfiConverterTypeSharedManuscriptBuild.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_record_build(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(recordJson),
+        FfiConverterOptionString.lower(author),$0
+    )
+})
+}
+    
+    /**
+     * Mark `output` as made from `source` at `input_hash` (a figure step's
+     * provenance; staleness derives from it).
+     */
+open func manuscriptProjectRecordDerived(manuscriptId: String, output: String, source: String, inputHash: String)throws  -> SharedProjectFile {
+    return try  FfiConverterTypeSharedProjectFile.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_record_derived(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(output),
+        FfiConverterString.lower(source),
+        FfiConverterString.lower(inputHash),$0
+    )
+})
+}
+    
+    /**
+     * Declare the entry path (the manuscript body's file name).
+     */
+open func manuscriptProjectSetEntry(manuscriptId: String, path: String, author: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_set_entry(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(author),$0
+    )
+})
+}
+    
+    /**
+     * Set one settable field on a file row (`role`, `build_json`,
+     * `bib_source_json`, `derived_from`, `derived_from_hash`,
+     * `external_path`, `mime_type`); `None` clears it.
+     */
+open func manuscriptProjectSetFileField(manuscriptId: String, path: String, field: String, value: String?)throws  -> SharedProjectFile {
+    return try  FfiConverterTypeSharedProjectFile.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_set_file_field(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(field),
+        FfiConverterOptionString.lower(value),$0
+    )
+})
+}
+    
+    /**
+     * Declare the targets (`None` restores the implicit single target).
+     */
+open func manuscriptProjectSetTargets(manuscriptId: String, targetsJson: String?, author: String)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_set_targets(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterOptionString.lower(targetsJson),
+        FfiConverterString.lower(author),$0
+    )
+}
+}
+    
+    /**
+     * The project in one read (ADR-0030 D1).
+     */
+open func manuscriptProjectSnapshot(manuscriptId: String)throws  -> SharedProjectSnapshot {
+    return try  FfiConverterTypeSharedProjectSnapshot.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_snapshot(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),$0
     )
 })
 }
@@ -8388,6 +8709,179 @@ public func FfiConverterTypeSharedItemUpsert_lower(_ value: SharedItemUpsert) ->
 
 
 /**
+ * One explicit build (ADR-0030 D8).
+ */
+public struct SharedManuscriptBuild {
+    public var id: String
+    public var manuscriptId: String
+    public var targetId: String
+    public var engine: String
+    public var status: String
+    public var inputStamp: String
+    public var startedMs: Int64
+    public var finishedMs: Int64?
+    public var durationMs: Int64?
+    public var outputsJson: String?
+    public var diagnosticsJson: String?
+    public var stepsJson: String?
+    public var allowShell: Bool
+    public var message: String?
+    public var createdMs: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, manuscriptId: String, targetId: String, engine: String, status: String, inputStamp: String, startedMs: Int64, finishedMs: Int64?, durationMs: Int64?, outputsJson: String?, diagnosticsJson: String?, stepsJson: String?, allowShell: Bool, message: String?, createdMs: Int64) {
+        self.id = id
+        self.manuscriptId = manuscriptId
+        self.targetId = targetId
+        self.engine = engine
+        self.status = status
+        self.inputStamp = inputStamp
+        self.startedMs = startedMs
+        self.finishedMs = finishedMs
+        self.durationMs = durationMs
+        self.outputsJson = outputsJson
+        self.diagnosticsJson = diagnosticsJson
+        self.stepsJson = stepsJson
+        self.allowShell = allowShell
+        self.message = message
+        self.createdMs = createdMs
+    }
+}
+
+
+
+extension SharedManuscriptBuild: Equatable, Hashable {
+    public static func ==(lhs: SharedManuscriptBuild, rhs: SharedManuscriptBuild) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.manuscriptId != rhs.manuscriptId {
+            return false
+        }
+        if lhs.targetId != rhs.targetId {
+            return false
+        }
+        if lhs.engine != rhs.engine {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.inputStamp != rhs.inputStamp {
+            return false
+        }
+        if lhs.startedMs != rhs.startedMs {
+            return false
+        }
+        if lhs.finishedMs != rhs.finishedMs {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        if lhs.outputsJson != rhs.outputsJson {
+            return false
+        }
+        if lhs.diagnosticsJson != rhs.diagnosticsJson {
+            return false
+        }
+        if lhs.stepsJson != rhs.stepsJson {
+            return false
+        }
+        if lhs.allowShell != rhs.allowShell {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.createdMs != rhs.createdMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(manuscriptId)
+        hasher.combine(targetId)
+        hasher.combine(engine)
+        hasher.combine(status)
+        hasher.combine(inputStamp)
+        hasher.combine(startedMs)
+        hasher.combine(finishedMs)
+        hasher.combine(durationMs)
+        hasher.combine(outputsJson)
+        hasher.combine(diagnosticsJson)
+        hasher.combine(stepsJson)
+        hasher.combine(allowShell)
+        hasher.combine(message)
+        hasher.combine(createdMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedManuscriptBuild: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedManuscriptBuild {
+        return
+            try SharedManuscriptBuild(
+                id: FfiConverterString.read(from: &buf), 
+                manuscriptId: FfiConverterString.read(from: &buf), 
+                targetId: FfiConverterString.read(from: &buf), 
+                engine: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                inputStamp: FfiConverterString.read(from: &buf), 
+                startedMs: FfiConverterInt64.read(from: &buf), 
+                finishedMs: FfiConverterOptionInt64.read(from: &buf), 
+                durationMs: FfiConverterOptionInt64.read(from: &buf), 
+                outputsJson: FfiConverterOptionString.read(from: &buf), 
+                diagnosticsJson: FfiConverterOptionString.read(from: &buf), 
+                stepsJson: FfiConverterOptionString.read(from: &buf), 
+                allowShell: FfiConverterBool.read(from: &buf), 
+                message: FfiConverterOptionString.read(from: &buf), 
+                createdMs: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedManuscriptBuild, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.manuscriptId, into: &buf)
+        FfiConverterString.write(value.targetId, into: &buf)
+        FfiConverterString.write(value.engine, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterString.write(value.inputStamp, into: &buf)
+        FfiConverterInt64.write(value.startedMs, into: &buf)
+        FfiConverterOptionInt64.write(value.finishedMs, into: &buf)
+        FfiConverterOptionInt64.write(value.durationMs, into: &buf)
+        FfiConverterOptionString.write(value.outputsJson, into: &buf)
+        FfiConverterOptionString.write(value.diagnosticsJson, into: &buf)
+        FfiConverterOptionString.write(value.stepsJson, into: &buf)
+        FfiConverterBool.write(value.allowShell, into: &buf)
+        FfiConverterOptionString.write(value.message, into: &buf)
+        FfiConverterInt64.write(value.createdMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedManuscriptBuild_lift(_ buf: RustBuffer) throws -> SharedManuscriptBuild {
+    return try FfiConverterTypeSharedManuscriptBuild.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedManuscriptBuild_lower(_ value: SharedManuscriptBuild) -> RustBuffer {
+    return FfiConverterTypeSharedManuscriptBuild.lower(value)
+}
+
+
+/**
  * Outcome of `commit_manuscript_body` (ADR-0027 D6): the heads to pin as
  * the next base and the MERGED body (`merged_external` = it differs from
  * what was sent, another writer's edits were folded in). Field-identical to
@@ -8721,6 +9215,353 @@ public func FfiConverterTypeSharedProducedRowsReport_lift(_ buf: RustBuffer) thr
 #endif
 public func FfiConverterTypeSharedProducedRowsReport_lower(_ value: SharedProducedRowsReport) -> RustBuffer {
     return FfiConverterTypeSharedProducedRowsReport.lower(value)
+}
+
+
+/**
+ * One file row.
+ */
+public struct SharedProjectFile {
+    public var id: String
+    public var path: String
+    /**
+     * chapter | bibliography | figure | figure-source | data | style | aux | supplement | output
+     */
+    public var role: String
+    /**
+     * text | binary
+     */
+    public var kind: String
+    public var format: String?
+    /**
+     * Inline text; `None` when the bytes are in the blob store.
+     */
+    public var content: String?
+    public var inBlobStore: Bool
+    public var contentHash: String
+    public var size: Int64
+    public var mimeType: String?
+    public var derivedFrom: String?
+    public var derivedFromHash: String?
+    public var buildJson: String?
+    public var bibSourceJson: String?
+    public var externalPath: String?
+    public var modifiedMs: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, path: String, 
+        /**
+         * chapter | bibliography | figure | figure-source | data | style | aux | supplement | output
+         */role: String, 
+        /**
+         * text | binary
+         */kind: String, format: String?, 
+        /**
+         * Inline text; `None` when the bytes are in the blob store.
+         */content: String?, inBlobStore: Bool, contentHash: String, size: Int64, mimeType: String?, derivedFrom: String?, derivedFromHash: String?, buildJson: String?, bibSourceJson: String?, externalPath: String?, modifiedMs: Int64?) {
+        self.id = id
+        self.path = path
+        self.role = role
+        self.kind = kind
+        self.format = format
+        self.content = content
+        self.inBlobStore = inBlobStore
+        self.contentHash = contentHash
+        self.size = size
+        self.mimeType = mimeType
+        self.derivedFrom = derivedFrom
+        self.derivedFromHash = derivedFromHash
+        self.buildJson = buildJson
+        self.bibSourceJson = bibSourceJson
+        self.externalPath = externalPath
+        self.modifiedMs = modifiedMs
+    }
+}
+
+
+
+extension SharedProjectFile: Equatable, Hashable {
+    public static func ==(lhs: SharedProjectFile, rhs: SharedProjectFile) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.role != rhs.role {
+            return false
+        }
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.content != rhs.content {
+            return false
+        }
+        if lhs.inBlobStore != rhs.inBlobStore {
+            return false
+        }
+        if lhs.contentHash != rhs.contentHash {
+            return false
+        }
+        if lhs.size != rhs.size {
+            return false
+        }
+        if lhs.mimeType != rhs.mimeType {
+            return false
+        }
+        if lhs.derivedFrom != rhs.derivedFrom {
+            return false
+        }
+        if lhs.derivedFromHash != rhs.derivedFromHash {
+            return false
+        }
+        if lhs.buildJson != rhs.buildJson {
+            return false
+        }
+        if lhs.bibSourceJson != rhs.bibSourceJson {
+            return false
+        }
+        if lhs.externalPath != rhs.externalPath {
+            return false
+        }
+        if lhs.modifiedMs != rhs.modifiedMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(path)
+        hasher.combine(role)
+        hasher.combine(kind)
+        hasher.combine(format)
+        hasher.combine(content)
+        hasher.combine(inBlobStore)
+        hasher.combine(contentHash)
+        hasher.combine(size)
+        hasher.combine(mimeType)
+        hasher.combine(derivedFrom)
+        hasher.combine(derivedFromHash)
+        hasher.combine(buildJson)
+        hasher.combine(bibSourceJson)
+        hasher.combine(externalPath)
+        hasher.combine(modifiedMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedProjectFile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedProjectFile {
+        return
+            try SharedProjectFile(
+                id: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                role: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                format: FfiConverterOptionString.read(from: &buf), 
+                content: FfiConverterOptionString.read(from: &buf), 
+                inBlobStore: FfiConverterBool.read(from: &buf), 
+                contentHash: FfiConverterString.read(from: &buf), 
+                size: FfiConverterInt64.read(from: &buf), 
+                mimeType: FfiConverterOptionString.read(from: &buf), 
+                derivedFrom: FfiConverterOptionString.read(from: &buf), 
+                derivedFromHash: FfiConverterOptionString.read(from: &buf), 
+                buildJson: FfiConverterOptionString.read(from: &buf), 
+                bibSourceJson: FfiConverterOptionString.read(from: &buf), 
+                externalPath: FfiConverterOptionString.read(from: &buf), 
+                modifiedMs: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedProjectFile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.role, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterOptionString.write(value.format, into: &buf)
+        FfiConverterOptionString.write(value.content, into: &buf)
+        FfiConverterBool.write(value.inBlobStore, into: &buf)
+        FfiConverterString.write(value.contentHash, into: &buf)
+        FfiConverterInt64.write(value.size, into: &buf)
+        FfiConverterOptionString.write(value.mimeType, into: &buf)
+        FfiConverterOptionString.write(value.derivedFrom, into: &buf)
+        FfiConverterOptionString.write(value.derivedFromHash, into: &buf)
+        FfiConverterOptionString.write(value.buildJson, into: &buf)
+        FfiConverterOptionString.write(value.bibSourceJson, into: &buf)
+        FfiConverterOptionString.write(value.externalPath, into: &buf)
+        FfiConverterOptionInt64.write(value.modifiedMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedProjectFile_lift(_ buf: RustBuffer) throws -> SharedProjectFile {
+    return try FfiConverterTypeSharedProjectFile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedProjectFile_lower(_ value: SharedProjectFile) -> RustBuffer {
+    return FfiConverterTypeSharedProjectFile.lower(value)
+}
+
+
+/**
+ * The project in one read: the entry (from the manuscript row) and every
+ * file row. A manuscript with no file rows is a one-file project.
+ */
+public struct SharedProjectSnapshot {
+    public var manuscriptId: String
+    public var title: String
+    public var format: String
+    public var entryPath: String
+    public var entryText: String
+    public var entryHash: String
+    public var projectVersion: Int64
+    public var targetsJson: String?
+    public var workingCopyPath: String?
+    public var files: [SharedProjectFile]
+    /**
+     * The stamp `project_version`-aware readers compare builds against.
+     */
+    public var inputStamp: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(manuscriptId: String, title: String, format: String, entryPath: String, entryText: String, entryHash: String, projectVersion: Int64, targetsJson: String?, workingCopyPath: String?, files: [SharedProjectFile], 
+        /**
+         * The stamp `project_version`-aware readers compare builds against.
+         */inputStamp: String) {
+        self.manuscriptId = manuscriptId
+        self.title = title
+        self.format = format
+        self.entryPath = entryPath
+        self.entryText = entryText
+        self.entryHash = entryHash
+        self.projectVersion = projectVersion
+        self.targetsJson = targetsJson
+        self.workingCopyPath = workingCopyPath
+        self.files = files
+        self.inputStamp = inputStamp
+    }
+}
+
+
+
+extension SharedProjectSnapshot: Equatable, Hashable {
+    public static func ==(lhs: SharedProjectSnapshot, rhs: SharedProjectSnapshot) -> Bool {
+        if lhs.manuscriptId != rhs.manuscriptId {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.entryPath != rhs.entryPath {
+            return false
+        }
+        if lhs.entryText != rhs.entryText {
+            return false
+        }
+        if lhs.entryHash != rhs.entryHash {
+            return false
+        }
+        if lhs.projectVersion != rhs.projectVersion {
+            return false
+        }
+        if lhs.targetsJson != rhs.targetsJson {
+            return false
+        }
+        if lhs.workingCopyPath != rhs.workingCopyPath {
+            return false
+        }
+        if lhs.files != rhs.files {
+            return false
+        }
+        if lhs.inputStamp != rhs.inputStamp {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(manuscriptId)
+        hasher.combine(title)
+        hasher.combine(format)
+        hasher.combine(entryPath)
+        hasher.combine(entryText)
+        hasher.combine(entryHash)
+        hasher.combine(projectVersion)
+        hasher.combine(targetsJson)
+        hasher.combine(workingCopyPath)
+        hasher.combine(files)
+        hasher.combine(inputStamp)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedProjectSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedProjectSnapshot {
+        return
+            try SharedProjectSnapshot(
+                manuscriptId: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                entryPath: FfiConverterString.read(from: &buf), 
+                entryText: FfiConverterString.read(from: &buf), 
+                entryHash: FfiConverterString.read(from: &buf), 
+                projectVersion: FfiConverterInt64.read(from: &buf), 
+                targetsJson: FfiConverterOptionString.read(from: &buf), 
+                workingCopyPath: FfiConverterOptionString.read(from: &buf), 
+                files: FfiConverterSequenceTypeSharedProjectFile.read(from: &buf), 
+                inputStamp: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedProjectSnapshot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.manuscriptId, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterString.write(value.entryPath, into: &buf)
+        FfiConverterString.write(value.entryText, into: &buf)
+        FfiConverterString.write(value.entryHash, into: &buf)
+        FfiConverterInt64.write(value.projectVersion, into: &buf)
+        FfiConverterOptionString.write(value.targetsJson, into: &buf)
+        FfiConverterOptionString.write(value.workingCopyPath, into: &buf)
+        FfiConverterSequenceTypeSharedProjectFile.write(value.files, into: &buf)
+        FfiConverterString.write(value.inputStamp, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedProjectSnapshot_lift(_ buf: RustBuffer) throws -> SharedProjectSnapshot {
+    return try FfiConverterTypeSharedProjectSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedProjectSnapshot_lower(_ value: SharedProjectSnapshot) -> RustBuffer {
+    return FfiConverterTypeSharedProjectSnapshot.lower(value)
 }
 
 
@@ -11804,6 +12645,54 @@ fileprivate struct FfiConverterOptionTypeSharedItemRow: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeSharedManuscriptBuild: FfiConverterRustBuffer {
+    typealias SwiftType = SharedManuscriptBuild?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSharedManuscriptBuild.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSharedManuscriptBuild.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeSharedProjectFile: FfiConverterRustBuffer {
+    typealias SwiftType = SharedProjectFile?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSharedProjectFile.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSharedProjectFile.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeSharedWatchedFolder: FfiConverterRustBuffer {
     typealias SwiftType = SharedWatchedFolder?
 
@@ -12550,6 +13439,31 @@ fileprivate struct FfiConverterSequenceTypeSharedItemUpsert: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedManuscriptBuild: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedManuscriptBuild]
+
+    public static func write(_ value: [SharedManuscriptBuild], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedManuscriptBuild.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedManuscriptBuild] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedManuscriptBuild]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedManuscriptBuild.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSharedOperationRow: FfiConverterRustBuffer {
     typealias SwiftType = [SharedOperationRow]
 
@@ -12567,6 +13481,31 @@ fileprivate struct FfiConverterSequenceTypeSharedOperationRow: FfiConverterRustB
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSharedOperationRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedProjectFile: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedProjectFile]
+
+    public static func write(_ value: [SharedProjectFile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedProjectFile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedProjectFile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedProjectFile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedProjectFile.read(from: &buf))
         }
         return seq
     }
@@ -13209,6 +14148,57 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_collab_heads() != 26846) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_blob_root() != 42854) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_builds() != 12827) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_delete_file() != 19987) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_file() != 8758) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_file_bytes() != 14361) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_files() != 56790) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_finish_build() != 28242) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_latest_build() != 42506) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_move_file() != 65497) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_put_bytes() != 3415) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_put_text() != 4086) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_record_build() != 50908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_record_derived() != 2145) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_set_entry() != 2418) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_set_file_field() != 60440) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_set_targets() != 54957) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_snapshot() != 30670) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_operations_for() != 9390) {

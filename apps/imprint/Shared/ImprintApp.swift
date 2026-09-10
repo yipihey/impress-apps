@@ -1,4 +1,5 @@
 #if os(macOS)
+import OSLog
 import AppKit
 import CoreData
 import CoreSpotlight
@@ -463,6 +464,56 @@ struct ImprintApp: App {
         #endif
     }
 
+    /// ADR-0030 P3: a directory becomes ONE manuscript — chapters, figures,
+    /// data and bibliographies as `manuscript-file` rows, the entry as the
+    /// body. The plan is Rust's (`project_import_directory_plan`); the rows
+    /// go through the one store writer (`ManuscriptProjectModel`).
+    private func handleImportFolderAsManuscript() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.title = "Import Folder as Manuscript"
+        panel.message = "Choose a folder holding a LaTeX, Typst or Markdown manuscript"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let plan = ManuscriptProjectModel.plan(forDirectory: url)
+        guard plan.ok, let format = ManuscriptFormat(rawValue: plan.format) else {
+            let alert = NSAlert()
+            alert.messageText = "Import failed"
+            alert.informativeText = plan.ok ? "Unknown format '\(plan.format)'" : plan.message
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+        do {
+            let id = try ManuscriptStoreAdapter.shared.createManuscript(
+                title: url.lastPathComponent, format: format, body: "")
+            Logger.documents.infoCapture(
+                "Import folder \(url.path): entry \(plan.entryPath) (\(plan.entryReason)), "
+                    + "\(plan.files.count) file(s), \(plan.skipped.count) skipped → manuscript \(id)",
+                category: "manuscripts")
+            let model = ManuscriptProjectModel.shared(for: id)
+            if model.importDirectory(plan: plan) {
+                openWindow(id: "manuscript-editor", value: id)
+            } else {
+                let alert = NSAlert()
+                alert.messageText = "Import failed"
+                alert.informativeText = model.lastError ?? "The folder could not be imported."
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Import failed"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
+        }
+        #endif
+    }
+
     private func configureForUITesting() {
         // Reset user defaults if requested
         if Self.shouldResetState {
@@ -809,6 +860,10 @@ struct ImprintApp: App {
                 handleImportToLibrary()
             }
             .keyboardShortcut("I", modifiers: [.command, .shift])
+
+            Button("Import Folder as Manuscript…") {
+                handleImportFolderAsManuscript()
+            }
         }
 
         // Edit menu additions
@@ -836,6 +891,12 @@ struct ImprintApp: App {
             .keyboardShortcut("A", modifiers: [.command, .shift])
 
             Divider()
+
+            Button("Build Manuscript") {
+                NotificationCenter.default.post(name: .buildManuscript, object: nil)
+            }
+            .keyboardShortcut("b", modifiers: [.command, .option])
+            .help("Build the manuscript's target from the store — every file of the project — and record it")
 
             Button("Compile to PDF") {
                 NotificationCenter.default.post(name: .compileDocument, object: nil)

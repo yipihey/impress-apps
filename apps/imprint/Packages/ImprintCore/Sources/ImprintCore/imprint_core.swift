@@ -3245,6 +3245,238 @@ public func FfiConverterTypeFfiAxis_lower(_ value: FfiAxis) -> RustBuffer {
 }
 
 
+/**
+ * One output a build wrote into its work directory.
+ */
+public struct FfiBuildOutput {
+    /**
+     * pdf | svg | synctex | log
+     */
+    public var kind: String
+    public var name: String
+    public var path: String
+    public var size: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * pdf | svg | synctex | log
+         */kind: String, name: String, path: String, size: UInt64) {
+        self.kind = kind
+        self.name = name
+        self.path = path
+        self.size = size
+    }
+}
+
+
+
+extension FfiBuildOutput: Equatable, Hashable {
+    public static func ==(lhs: FfiBuildOutput, rhs: FfiBuildOutput) -> Bool {
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.size != rhs.size {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+        hasher.combine(name)
+        hasher.combine(path)
+        hasher.combine(size)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiBuildOutput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiBuildOutput {
+        return
+            try FfiBuildOutput(
+                kind: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiBuildOutput, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBuildOutput_lift(_ buf: RustBuffer) throws -> FfiBuildOutput {
+    return try FfiConverterTypeFfiBuildOutput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBuildOutput_lower(_ value: FfiBuildOutput) -> RustBuffer {
+    return FfiConverterTypeFfiBuildOutput.lower(value)
+}
+
+
+/**
+ * The report of one build.
+ */
+public struct FfiBuildReport {
+    public var ok: Bool
+    public var engine: String
+    public var message: String
+    public var outputs: [FfiBuildOutput]
+    public var pdfData: Data?
+    public var svgPages: [String]
+    public var diagnostics: [FfiProjectDiagnostic]
+    public var steps: [FfiStepReport]
+    public var produced: [FfiProducedFile]
+    public var log: String
+    public var durationMs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, engine: String, message: String, outputs: [FfiBuildOutput], pdfData: Data?, svgPages: [String], diagnostics: [FfiProjectDiagnostic], steps: [FfiStepReport], produced: [FfiProducedFile], log: String, durationMs: UInt64) {
+        self.ok = ok
+        self.engine = engine
+        self.message = message
+        self.outputs = outputs
+        self.pdfData = pdfData
+        self.svgPages = svgPages
+        self.diagnostics = diagnostics
+        self.steps = steps
+        self.produced = produced
+        self.log = log
+        self.durationMs = durationMs
+    }
+}
+
+
+
+extension FfiBuildReport: Equatable, Hashable {
+    public static func ==(lhs: FfiBuildReport, rhs: FfiBuildReport) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.engine != rhs.engine {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.outputs != rhs.outputs {
+            return false
+        }
+        if lhs.pdfData != rhs.pdfData {
+            return false
+        }
+        if lhs.svgPages != rhs.svgPages {
+            return false
+        }
+        if lhs.diagnostics != rhs.diagnostics {
+            return false
+        }
+        if lhs.steps != rhs.steps {
+            return false
+        }
+        if lhs.produced != rhs.produced {
+            return false
+        }
+        if lhs.log != rhs.log {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(engine)
+        hasher.combine(message)
+        hasher.combine(outputs)
+        hasher.combine(pdfData)
+        hasher.combine(svgPages)
+        hasher.combine(diagnostics)
+        hasher.combine(steps)
+        hasher.combine(produced)
+        hasher.combine(log)
+        hasher.combine(durationMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiBuildReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiBuildReport {
+        return
+            try FfiBuildReport(
+                ok: FfiConverterBool.read(from: &buf), 
+                engine: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf), 
+                outputs: FfiConverterSequenceTypeFfiBuildOutput.read(from: &buf), 
+                pdfData: FfiConverterOptionData.read(from: &buf), 
+                svgPages: FfiConverterSequenceString.read(from: &buf), 
+                diagnostics: FfiConverterSequenceTypeFfiProjectDiagnostic.read(from: &buf), 
+                steps: FfiConverterSequenceTypeFfiStepReport.read(from: &buf), 
+                produced: FfiConverterSequenceTypeFfiProducedFile.read(from: &buf), 
+                log: FfiConverterString.read(from: &buf), 
+                durationMs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiBuildReport, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterString.write(value.engine, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterSequenceTypeFfiBuildOutput.write(value.outputs, into: &buf)
+        FfiConverterOptionData.write(value.pdfData, into: &buf)
+        FfiConverterSequenceString.write(value.svgPages, into: &buf)
+        FfiConverterSequenceTypeFfiProjectDiagnostic.write(value.diagnostics, into: &buf)
+        FfiConverterSequenceTypeFfiStepReport.write(value.steps, into: &buf)
+        FfiConverterSequenceTypeFfiProducedFile.write(value.produced, into: &buf)
+        FfiConverterString.write(value.log, into: &buf)
+        FfiConverterUInt64.write(value.durationMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBuildReport_lift(_ buf: RustBuffer) throws -> FfiBuildReport {
+    return try FfiConverterTypeFfiBuildReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBuildReport_lower(_ value: FfiBuildReport) -> RustBuffer {
+    return FfiConverterTypeFfiBuildReport.lower(value)
+}
+
+
 public struct FfiColor {
     public var r: UInt8
     public var g: UInt8
@@ -3694,6 +3926,137 @@ public func FfiConverterTypeFfiGridSpec_lower(_ value: FfiGridSpec) -> RustBuffe
 
 
 /**
+ * A directory read as a tree, for the app's "Import folder…" (ADR-0030
+ * P3): build residue skipped, roles from the extension and then from use,
+ * the entry guessed (`entry_override` wins). Pure — nothing is written; the
+ * app writes the rows through the one store writer, or hands the directory
+ * to `imprint-project-service_project-import-directory`.
+ */
+public struct FfiImportedTree {
+    public var ok: Bool
+    public var entryPath: String
+    public var entryReason: String
+    /**
+     * typst | latex | markdown | plaintext
+     */
+    public var format: String
+    /**
+     * Every file, the entry included (its role is `main`).
+     */
+    public var files: [FfiProjectFile]
+    /**
+     * `path: why` for what the walk left out.
+     */
+    public var skipped: [String]
+    public var message: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, entryPath: String, entryReason: String, 
+        /**
+         * typst | latex | markdown | plaintext
+         */format: String, 
+        /**
+         * Every file, the entry included (its role is `main`).
+         */files: [FfiProjectFile], 
+        /**
+         * `path: why` for what the walk left out.
+         */skipped: [String], message: String) {
+        self.ok = ok
+        self.entryPath = entryPath
+        self.entryReason = entryReason
+        self.format = format
+        self.files = files
+        self.skipped = skipped
+        self.message = message
+    }
+}
+
+
+
+extension FfiImportedTree: Equatable, Hashable {
+    public static func ==(lhs: FfiImportedTree, rhs: FfiImportedTree) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.entryPath != rhs.entryPath {
+            return false
+        }
+        if lhs.entryReason != rhs.entryReason {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.files != rhs.files {
+            return false
+        }
+        if lhs.skipped != rhs.skipped {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(entryPath)
+        hasher.combine(entryReason)
+        hasher.combine(format)
+        hasher.combine(files)
+        hasher.combine(skipped)
+        hasher.combine(message)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiImportedTree: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiImportedTree {
+        return
+            try FfiImportedTree(
+                ok: FfiConverterBool.read(from: &buf), 
+                entryPath: FfiConverterString.read(from: &buf), 
+                entryReason: FfiConverterString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                files: FfiConverterSequenceTypeFfiProjectFile.read(from: &buf), 
+                skipped: FfiConverterSequenceString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiImportedTree, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterString.write(value.entryPath, into: &buf)
+        FfiConverterString.write(value.entryReason, into: &buf)
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterSequenceTypeFfiProjectFile.write(value.files, into: &buf)
+        FfiConverterSequenceString.write(value.skipped, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiImportedTree_lift(_ buf: RustBuffer) throws -> FfiImportedTree {
+    return try FfiConverterTypeFfiImportedTree.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiImportedTree_lower(_ value: FfiImportedTree) -> RustBuffer {
+    return FfiConverterTypeFfiImportedTree.lower(value)
+}
+
+
+/**
  * The Typst source for a plot, for inserting into a manuscript.
  */
 public struct FfiPlotSource {
@@ -3974,6 +4337,395 @@ public func FfiConverterTypeFfiPlotSpec_lower(_ value: FfiPlotSpec) -> RustBuffe
 }
 
 
+/**
+ * A file a figure step wrote, with the provenance its row should carry.
+ */
+public struct FfiProducedFile {
+    public var path: String
+    public var bytes: Data
+    public var derivedFrom: String
+    public var derivedFromHash: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, bytes: Data, derivedFrom: String, derivedFromHash: String) {
+        self.path = path
+        self.bytes = bytes
+        self.derivedFrom = derivedFrom
+        self.derivedFromHash = derivedFromHash
+    }
+}
+
+
+
+extension FfiProducedFile: Equatable, Hashable {
+    public static func ==(lhs: FfiProducedFile, rhs: FfiProducedFile) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.bytes != rhs.bytes {
+            return false
+        }
+        if lhs.derivedFrom != rhs.derivedFrom {
+            return false
+        }
+        if lhs.derivedFromHash != rhs.derivedFromHash {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(bytes)
+        hasher.combine(derivedFrom)
+        hasher.combine(derivedFromHash)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProducedFile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProducedFile {
+        return
+            try FfiProducedFile(
+                path: FfiConverterString.read(from: &buf), 
+                bytes: FfiConverterData.read(from: &buf), 
+                derivedFrom: FfiConverterString.read(from: &buf), 
+                derivedFromHash: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiProducedFile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterData.write(value.bytes, into: &buf)
+        FfiConverterString.write(value.derivedFrom, into: &buf)
+        FfiConverterString.write(value.derivedFromHash, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProducedFile_lift(_ buf: RustBuffer) throws -> FfiProducedFile {
+    return try FfiConverterTypeFfiProducedFile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProducedFile_lower(_ value: FfiProducedFile) -> RustBuffer {
+    return FfiConverterTypeFfiProducedFile.lower(value)
+}
+
+
+/**
+ * A bibliography row's effective text (a projection the app resolved, or
+ * the row's own BibTeX); replaces that path's content for the compile.
+ */
+public struct FfiProjectBibliography {
+    public var path: String
+    public var text: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, text: String) {
+        self.path = path
+        self.text = text
+    }
+}
+
+
+
+extension FfiProjectBibliography: Equatable, Hashable {
+    public static func ==(lhs: FfiProjectBibliography, rhs: FfiProjectBibliography) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.text != rhs.text {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(text)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProjectBibliography: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProjectBibliography {
+        return
+            try FfiProjectBibliography(
+                path: FfiConverterString.read(from: &buf), 
+                text: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiProjectBibliography, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.text, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProjectBibliography_lift(_ buf: RustBuffer) throws -> FfiProjectBibliography {
+    return try FfiConverterTypeFfiProjectBibliography.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProjectBibliography_lower(_ value: FfiProjectBibliography) -> RustBuffer {
+    return FfiConverterTypeFfiProjectBibliography.lower(value)
+}
+
+
+/**
+ * A diagnostic in tree paths.
+ */
+public struct FfiProjectDiagnostic {
+    /**
+     * error | warning | info
+     */
+    public var severity: String
+    public var code: String
+    public var message: String
+    public var file: String?
+    public var line: UInt32?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * error | warning | info
+         */severity: String, code: String, message: String, file: String?, line: UInt32?) {
+        self.severity = severity
+        self.code = code
+        self.message = message
+        self.file = file
+        self.line = line
+    }
+}
+
+
+
+extension FfiProjectDiagnostic: Equatable, Hashable {
+    public static func ==(lhs: FfiProjectDiagnostic, rhs: FfiProjectDiagnostic) -> Bool {
+        if lhs.severity != rhs.severity {
+            return false
+        }
+        if lhs.code != rhs.code {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.file != rhs.file {
+            return false
+        }
+        if lhs.line != rhs.line {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(severity)
+        hasher.combine(code)
+        hasher.combine(message)
+        hasher.combine(file)
+        hasher.combine(line)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProjectDiagnostic: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProjectDiagnostic {
+        return
+            try FfiProjectDiagnostic(
+                severity: FfiConverterString.read(from: &buf), 
+                code: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf), 
+                file: FfiConverterOptionString.read(from: &buf), 
+                line: FfiConverterOptionUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiProjectDiagnostic, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.severity, into: &buf)
+        FfiConverterString.write(value.code, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterOptionString.write(value.file, into: &buf)
+        FfiConverterOptionUInt32.write(value.line, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProjectDiagnostic_lift(_ buf: RustBuffer) throws -> FfiProjectDiagnostic {
+    return try FfiConverterTypeFfiProjectDiagnostic.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProjectDiagnostic_lower(_ value: FfiProjectDiagnostic) -> RustBuffer {
+    return FfiConverterTypeFfiProjectDiagnostic.lower(value)
+}
+
+
+/**
+ * One file of a project tree, as Swift hands it over: text OR bytes.
+ */
+public struct FfiProjectFile {
+    /**
+     * Project-relative POSIX path.
+     */
+    public var path: String
+    /**
+     * chapter | bibliography | figure | figure-source | data | style | aux | supplement | output
+     */
+    public var role: String
+    public var text: String?
+    public var bytes: Data?
+    /**
+     * `{runner, outputs, inputs, args}` for a figure source, when declared.
+     */
+    public var buildJson: String?
+    /**
+     * Provenance of an output row: the source it was made from and the
+     * step input hash it was made at (staleness is derived from these).
+     */
+    public var derivedFrom: String?
+    public var derivedFromHash: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Project-relative POSIX path.
+         */path: String, 
+        /**
+         * chapter | bibliography | figure | figure-source | data | style | aux | supplement | output
+         */role: String, text: String?, bytes: Data?, 
+        /**
+         * `{runner, outputs, inputs, args}` for a figure source, when declared.
+         */buildJson: String?, 
+        /**
+         * Provenance of an output row: the source it was made from and the
+         * step input hash it was made at (staleness is derived from these).
+         */derivedFrom: String?, derivedFromHash: String?) {
+        self.path = path
+        self.role = role
+        self.text = text
+        self.bytes = bytes
+        self.buildJson = buildJson
+        self.derivedFrom = derivedFrom
+        self.derivedFromHash = derivedFromHash
+    }
+}
+
+
+
+extension FfiProjectFile: Equatable, Hashable {
+    public static func ==(lhs: FfiProjectFile, rhs: FfiProjectFile) -> Bool {
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.role != rhs.role {
+            return false
+        }
+        if lhs.text != rhs.text {
+            return false
+        }
+        if lhs.bytes != rhs.bytes {
+            return false
+        }
+        if lhs.buildJson != rhs.buildJson {
+            return false
+        }
+        if lhs.derivedFrom != rhs.derivedFrom {
+            return false
+        }
+        if lhs.derivedFromHash != rhs.derivedFromHash {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(role)
+        hasher.combine(text)
+        hasher.combine(bytes)
+        hasher.combine(buildJson)
+        hasher.combine(derivedFrom)
+        hasher.combine(derivedFromHash)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProjectFile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProjectFile {
+        return
+            try FfiProjectFile(
+                path: FfiConverterString.read(from: &buf), 
+                role: FfiConverterString.read(from: &buf), 
+                text: FfiConverterOptionString.read(from: &buf), 
+                bytes: FfiConverterOptionData.read(from: &buf), 
+                buildJson: FfiConverterOptionString.read(from: &buf), 
+                derivedFrom: FfiConverterOptionString.read(from: &buf), 
+                derivedFromHash: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiProjectFile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.role, into: &buf)
+        FfiConverterOptionString.write(value.text, into: &buf)
+        FfiConverterOptionData.write(value.bytes, into: &buf)
+        FfiConverterOptionString.write(value.buildJson, into: &buf)
+        FfiConverterOptionString.write(value.derivedFrom, into: &buf)
+        FfiConverterOptionString.write(value.derivedFromHash, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProjectFile_lift(_ buf: RustBuffer) throws -> FfiProjectFile {
+    return try FfiConverterTypeFfiProjectFile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProjectFile_lower(_ value: FfiProjectFile) -> RustBuffer {
+    return FfiConverterTypeFfiProjectFile.lower(value)
+}
+
+
 public struct FfiRenderedPlot {
     /**
      * First-page SVG of the figure (empty on error).
@@ -4234,6 +4986,222 @@ public func FfiConverterTypeFfiSeries_lift(_ buf: RustBuffer) throws -> FfiSerie
 #endif
 public func FfiConverterTypeFfiSeries_lower(_ value: FfiSeries) -> RustBuffer {
     return FfiConverterTypeFfiSeries.lower(value)
+}
+
+
+/**
+ * What happened to one figure step.
+ */
+public struct FfiStepReport {
+    public var source: String
+    public var runner: String
+    /**
+     * ran | fresh | skipped | failed
+     */
+    public var status: String
+    public var message: String
+    public var durationMs: UInt64
+    public var outputs: [String]
+    public var command: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(source: String, runner: String, 
+        /**
+         * ran | fresh | skipped | failed
+         */status: String, message: String, durationMs: UInt64, outputs: [String], command: String?) {
+        self.source = source
+        self.runner = runner
+        self.status = status
+        self.message = message
+        self.durationMs = durationMs
+        self.outputs = outputs
+        self.command = command
+    }
+}
+
+
+
+extension FfiStepReport: Equatable, Hashable {
+    public static func ==(lhs: FfiStepReport, rhs: FfiStepReport) -> Bool {
+        if lhs.source != rhs.source {
+            return false
+        }
+        if lhs.runner != rhs.runner {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        if lhs.outputs != rhs.outputs {
+            return false
+        }
+        if lhs.command != rhs.command {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(source)
+        hasher.combine(runner)
+        hasher.combine(status)
+        hasher.combine(message)
+        hasher.combine(durationMs)
+        hasher.combine(outputs)
+        hasher.combine(command)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiStepReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiStepReport {
+        return
+            try FfiStepReport(
+                source: FfiConverterString.read(from: &buf), 
+                runner: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf), 
+                durationMs: FfiConverterUInt64.read(from: &buf), 
+                outputs: FfiConverterSequenceString.read(from: &buf), 
+                command: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiStepReport, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.source, into: &buf)
+        FfiConverterString.write(value.runner, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterUInt64.write(value.durationMs, into: &buf)
+        FfiConverterSequenceString.write(value.outputs, into: &buf)
+        FfiConverterOptionString.write(value.command, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiStepReport_lift(_ buf: RustBuffer) throws -> FfiStepReport {
+    return try FfiConverterTypeFfiStepReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiStepReport_lower(_ value: FfiStepReport) -> RustBuffer {
+    return FfiConverterTypeFfiStepReport.lower(value)
+}
+
+
+/**
+ * What a tree compile produced.
+ */
+public struct FfiTreeCompileResult {
+    public var ok: Bool
+    public var pdfData: Data?
+    public var svgPages: [String]
+    public var pageCount: UInt32
+    public var compileMs: UInt64
+    public var diagnostics: [FfiProjectDiagnostic]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, pdfData: Data?, svgPages: [String], pageCount: UInt32, compileMs: UInt64, diagnostics: [FfiProjectDiagnostic]) {
+        self.ok = ok
+        self.pdfData = pdfData
+        self.svgPages = svgPages
+        self.pageCount = pageCount
+        self.compileMs = compileMs
+        self.diagnostics = diagnostics
+    }
+}
+
+
+
+extension FfiTreeCompileResult: Equatable, Hashable {
+    public static func ==(lhs: FfiTreeCompileResult, rhs: FfiTreeCompileResult) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.pdfData != rhs.pdfData {
+            return false
+        }
+        if lhs.svgPages != rhs.svgPages {
+            return false
+        }
+        if lhs.pageCount != rhs.pageCount {
+            return false
+        }
+        if lhs.compileMs != rhs.compileMs {
+            return false
+        }
+        if lhs.diagnostics != rhs.diagnostics {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(pdfData)
+        hasher.combine(svgPages)
+        hasher.combine(pageCount)
+        hasher.combine(compileMs)
+        hasher.combine(diagnostics)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiTreeCompileResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTreeCompileResult {
+        return
+            try FfiTreeCompileResult(
+                ok: FfiConverterBool.read(from: &buf), 
+                pdfData: FfiConverterOptionData.read(from: &buf), 
+                svgPages: FfiConverterSequenceString.read(from: &buf), 
+                pageCount: FfiConverterUInt32.read(from: &buf), 
+                compileMs: FfiConverterUInt64.read(from: &buf), 
+                diagnostics: FfiConverterSequenceTypeFfiProjectDiagnostic.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTreeCompileResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterOptionData.write(value.pdfData, into: &buf)
+        FfiConverterSequenceString.write(value.svgPages, into: &buf)
+        FfiConverterUInt32.write(value.pageCount, into: &buf)
+        FfiConverterUInt64.write(value.compileMs, into: &buf)
+        FfiConverterSequenceTypeFfiProjectDiagnostic.write(value.diagnostics, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTreeCompileResult_lift(_ buf: RustBuffer) throws -> FfiTreeCompileResult {
+    return try FfiConverterTypeFfiTreeCompileResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTreeCompileResult_lower(_ value: FfiTreeCompileResult) -> RustBuffer {
+    return FfiConverterTypeFfiTreeCompileResult.lower(value)
 }
 
 
@@ -7435,6 +8403,31 @@ fileprivate struct FfiConverterSequenceTypeFFITemplateMetadata: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiBuildOutput: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiBuildOutput]
+
+    public static func write(_ value: [FfiBuildOutput], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiBuildOutput.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiBuildOutput] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiBuildOutput]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiBuildOutput.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiDataColumn: FfiConverterRustBuffer {
     typealias SwiftType = [FfiDataColumn]
 
@@ -7460,6 +8453,106 @@ fileprivate struct FfiConverterSequenceTypeFfiDataColumn: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiProducedFile: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiProducedFile]
+
+    public static func write(_ value: [FfiProducedFile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiProducedFile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiProducedFile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiProducedFile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiProducedFile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiProjectBibliography: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiProjectBibliography]
+
+    public static func write(_ value: [FfiProjectBibliography], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiProjectBibliography.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiProjectBibliography] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiProjectBibliography]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiProjectBibliography.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiProjectDiagnostic: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiProjectDiagnostic]
+
+    public static func write(_ value: [FfiProjectDiagnostic], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiProjectDiagnostic.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiProjectDiagnostic] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiProjectDiagnostic]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiProjectDiagnostic.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiProjectFile: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiProjectFile]
+
+    public static func write(_ value: [FfiProjectFile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiProjectFile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiProjectFile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiProjectFile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiProjectFile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiSeries: FfiConverterRustBuffer {
     typealias SwiftType = [FfiSeries]
 
@@ -7477,6 +8570,31 @@ fileprivate struct FfiConverterSequenceTypeFfiSeries: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiSeries.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiStepReport: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiStepReport]
+
+    public static func write(_ value: [FfiStepReport], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiStepReport.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiStepReport] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiStepReport]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiStepReport.read(from: &buf))
         }
         return seq
     }
@@ -7705,6 +8823,25 @@ public func compileTypstToSvg(source: String, options: CompileOptions) -> SvgCom
 })
 }
 /**
+ * Compile a Typst project from memory — no directory (ADR-0030 D5): every
+ * file the app holds for the manuscript (the store's rows plus the entry's
+ * live buffer as `entry_override`), the entry path, and `output` = `pdf` |
+ * `svg`. `bibliographies` carry the projected `.bib` texts the app
+ * assembled. Diagnostics name the file a span points into. The engine is
+ * per thread and persistent, like the single-source renderer.
+ */
+public func compileTypstTreeToOutput(files: [FfiProjectFile], entryPath: String, entryOverride: String?, output: String, bibliographies: [FfiProjectBibliography]) -> FfiTreeCompileResult {
+    return try!  FfiConverterTypeFfiTreeCompileResult.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_compile_typst_tree_to_output(
+        FfiConverterSequenceTypeFfiProjectFile.lower(files),
+        FfiConverterString.lower(entryPath),
+        FfiConverterOptionString.lower(entryOverride),
+        FfiConverterString.lower(output),
+        FfiConverterSequenceTypeFfiProjectBibliography.lower(bibliographies),$0
+    )
+})
+}
+/**
  * Compose an inline citation token for a manuscript.
  *
  * `format` accepts `"typst"` or `"latex"` (case-insensitive; unknown → typst).
@@ -7904,6 +9041,17 @@ public func loadDataTable(path: String) -> FfiDataTable {
 })
 }
 /**
+ * Markdown → Typst markup (ADR-0030 D10), for a preview of what the
+ * engine compiles and for the editor's "convert to Typst".
+ */
+public func markdownToTypst(markdown: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_markdown_to_typst(
+        FfiConverterString.lower(markdown),$0
+    )
+})
+}
+/**
  * Build a complete, compilable Typst document from a template.
  *
  * A template's raw `typst_source` is only a style definition — compiling it
@@ -7925,6 +9073,52 @@ public func parseImprintUrl(urlString: String) -> ParseResult {
     return try!  FfiConverterTypeParseResult.lift(try! rustCall() {
     uniffi_imprint_core_fn_func_parse_imprint_url(
         FfiConverterString.lower(urlString),$0
+    )
+})
+}
+/**
+ * Build one target of a tree the app holds (ADR-0030 P4): stale figure
+ * steps first (`shell` only with `allow_shell`), then the document engine
+ * — Typst from memory, Markdown through Typst, LaTeX through
+ * `work_dir` and the system's TeX (or the embedded Tectonic). The app
+ * records the row and the produced files through the store; this only
+ * builds. `targets_json` is the manuscript's declaration; `target_id`
+ * picks one (the first, or the implicit target, when absent).
+ */
+public func projectBuildTree(files: [FfiProjectFile], entryPath: String, format: String, targetsJson: String?, targetId: String?, workDir: String, allowShell: Bool, entryOverride: String?, bibliographies: [FfiProjectBibliography]) -> FfiBuildReport {
+    return try!  FfiConverterTypeFfiBuildReport.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_project_build_tree(
+        FfiConverterSequenceTypeFfiProjectFile.lower(files),
+        FfiConverterString.lower(entryPath),
+        FfiConverterString.lower(format),
+        FfiConverterOptionString.lower(targetsJson),
+        FfiConverterOptionString.lower(targetId),
+        FfiConverterString.lower(workDir),
+        FfiConverterBool.lower(allowShell),
+        FfiConverterOptionString.lower(entryOverride),
+        FfiConverterSequenceTypeFfiProjectBibliography.lower(bibliographies),$0
+    )
+})
+}
+/**
+ * The derived build graph of a tree the app holds, as JSON (the same shape
+ * `imprint-project-service_project-graph` returns) — so the Files panel can
+ * show unresolved references and stale figures without a store round-trip.
+ */
+public func projectGraphJson(files: [FfiProjectFile], entryPath: String, format: String) -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_project_graph_json(
+        FfiConverterSequenceTypeFfiProjectFile.lower(files),
+        FfiConverterString.lower(entryPath),
+        FfiConverterString.lower(format),$0
+    )
+})
+}
+public func projectImportDirectoryPlan(directory: String, entryOverride: String?) -> FfiImportedTree {
+    return try!  FfiConverterTypeFfiImportedTree.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_project_import_directory_plan(
+        FfiConverterString.lower(directory),
+        FfiConverterOptionString.lower(entryOverride),$0
     )
 })
 }
@@ -8151,6 +9345,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_compile_typst_to_svg() != 17224) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_compile_typst_tree_to_output() != 29816) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_compose_citation() != 37086) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8202,10 +9399,22 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_load_data_table() != 22909) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_markdown_to_typst() != 25597) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_new_document_from_template() != 16638) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_parse_imprint_url() != 592) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_project_build_tree() != 19550) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_project_graph_json() != 62882) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_project_import_directory_plan() != 7717) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_render_grid_svg() != 36381) {
