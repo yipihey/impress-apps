@@ -1154,3 +1154,55 @@ async fn a_markdown_manuscript_builds_through_typst() {
     assert!(b.outputs.iter().any(|o| o.kind == "pdf"));
     assert!(built.log.contains("markdown → typst"));
 }
+
+// ---------------------------------------------------------------------------
+// The one-file citation convention survives in the tree
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_one_file_typst_manuscript_that_cites_gets_the_implicit_bibliography() {
+    let w = world();
+    let id = manuscript(&w.store, "typst", "= Paper\nAs @knuth84 showed.", false);
+    let tree = w.svc.project_tree(id.clone()).await;
+    assert!(tree.ok, "{}", tree.message);
+    assert!(
+        tree.files.is_empty(),
+        "no rows are written for the implicit file"
+    );
+    let graph = w.svc.project_graph(id.clone(), None).await;
+    assert!(graph.ok, "{}", graph.message);
+    assert!(!graph.has_errors, "{:?}", graph.diagnostics);
+    assert_eq!(graph.cite_keys, vec!["knuth84"]);
+    assert!(
+        graph.bibliographies.iter().any(|b| b == "bibliography.bib"),
+        "{:?}",
+        graph.bibliographies
+    );
+}
+
+#[cfg(feature = "typst-render")]
+#[tokio::test]
+async fn a_one_file_typst_manuscript_compiles_with_its_citations_projected() {
+    let w = world();
+    let id = manuscript(
+        &w.store,
+        "typst",
+        "#set page(width: 10cm, height: 8cm)\n= Paper\nAs @knuth84 showed.",
+        false,
+    );
+    let out = w.svc.project_compile(id.clone(), None, None).await;
+    assert!(out.ok, "{}: {:?}", out.message, out.diagnostics);
+    assert!(out.page_count >= 1);
+    // The key is not in this empty library: a missing-reference warning, a
+    // placeholder in the rendered bibliography, and still a document.
+    assert!(out
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "missing-reference" && d.message.contains("knuth84")));
+    let bib = out
+        .bibliographies
+        .iter()
+        .find(|b| b.path == "bibliography.bib")
+        .expect("the implicit bibliography was projected");
+    assert_eq!(bib.requested, vec!["knuth84"]);
+}

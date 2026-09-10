@@ -445,6 +445,17 @@ impl ProjectTree {
         self.files.iter().find(|f| f.path == path)
     }
 
+    /// Add or replace a non-entry file, keeping the path order `new` set.
+    pub fn upsert_file(&mut self, file: ProjectFile) {
+        if file.path == self.entry.path {
+            self.entry = file;
+            return;
+        }
+        self.files.retain(|f| f.path != file.path);
+        self.files.push(file);
+        self.files.sort_by(|a, b| a.path.cmp(&b.path));
+    }
+
     pub fn contains(&self, path: &str) -> bool {
         self.file(path).is_some()
     }

@@ -7,8 +7,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-use super::model::{FileKind, FileRole, ProjectTree, Runner, Target};
-use super::scan::{scan, DepKind, DependencyGraph};
+use super::bib::IMPLICIT_BIBLIOGRAPHY;
+use super::model::{BibSource, FileKind, FileRole, ProjectTree, Runner, Target};
+use super::scan::{scan, DepEdge, DepKind, DependencyGraph};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -98,8 +99,28 @@ impl BuildGraph {
 
     /// Derive from a scan the caller already has (the verbs scan once and
     /// derive per target).
-    pub fn from_scan(tree: &ProjectTree, target: &Target, deps: DependencyGraph) -> Self {
+    pub fn from_scan(tree: &ProjectTree, target: &Target, mut deps: DependencyGraph) -> Self {
         let mut diagnostics: Vec<Diagnostic> = Vec::new();
+
+        // The implicit bibliography (`bib::implicit_bibliography`) is what the
+        // compiler appends a `#bibliography(...)` for when the entry never
+        // names one: the graph shows that edge, so the projection is reached,
+        // listed, and never "unreferenced".
+        let implicit_present = tree
+            .file(IMPLICIT_BIBLIOGRAPHY)
+            .is_some_and(|f| f.bib_source == Some(BibSource::Cited));
+        let entry_names_a_bibliography = deps
+            .edges
+            .iter()
+            .any(|e| e.kind == DepKind::Bibliography && e.from == target.entry);
+        if implicit_present && !entry_names_a_bibliography {
+            deps.edges.push(DepEdge {
+                from: target.entry.clone(),
+                to: IMPLICIT_BIBLIOGRAPHY.to_string(),
+                kind: DepKind::Bibliography,
+                line: 0,
+            });
+        }
 
         // --- the entry ---------------------------------------------------
         let entry_ok = tree.contains(&target.entry);

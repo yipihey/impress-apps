@@ -223,7 +223,7 @@ public final class ManuscriptEditorSession {
             figuresRoot: ManuscriptFiguresDirectory.manuscriptRoot(for: parentID).path,
             projectFiles: projectFiles,
             projectEntryPath: entryPath,
-            projectBibliographies: projectFiles.isEmpty ? [] : project.resolvedBibliographies(),
+            projectBibliographies: projectFiles.isEmpty ? [] : project.resolvedBibliographies(entryText: entrySource),
             projectTargetsJSON: project.targetsJSON,
             projectWorkDir: projectFiles.isEmpty ? nil : project.workDirectory(targetID: nil, preview: true)
         )

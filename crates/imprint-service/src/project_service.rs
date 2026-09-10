@@ -737,6 +737,15 @@ impl DefaultImprintProjectService {
 
 /// Turn a store snapshot into the engine's tree, resolving blob bytes.
 pub fn tree_from_snapshot(snapshot: &ProjectSnapshot, blobs: &BlobStore) -> ProjectTree {
+    let mut tree = tree_from_rows(snapshot, blobs);
+    // The one-file citation convention, carried into the tree (P2).
+    if let Some(implicit) = imprint_core::project::implicit_bibliography(&tree) {
+        tree.upsert_file(implicit);
+    }
+    tree
+}
+
+fn tree_from_rows(snapshot: &ProjectSnapshot, blobs: &BlobStore) -> ProjectTree {
     let entry = ProjectFile {
         format: imprint_core::project::model::extension_of(&snapshot.entry_path)
             .and_then(|e| imprint_core::project::model::format_for_extension(&e).map(String::from))

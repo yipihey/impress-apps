@@ -182,13 +182,27 @@ impl TreeCompiler {
                     files.sources.insert(id, Source::new(id, text));
                 }
                 (FileBytes::Text(text), None) => {
-                    let text = if file.path == tree.entry.path {
+                    let mut text = if file.path == tree.entry.path {
                         entry_override
                             .map(String::from)
                             .unwrap_or_else(|| text.clone())
                     } else {
                         text.clone()
                     };
+                    // The one-file convention (see `bib::implicit_bibliography`):
+                    // an entry that cites but never calls `#bibliography(...)`
+                    // gets the call appended, so citations Just Work.
+                    if file.path == tree.entry.path
+                        && !text.contains("#bibliography(")
+                        && tree
+                            .file(super::bib::IMPLICIT_BIBLIOGRAPHY)
+                            .is_some_and(|b| b.bib_source == Some(super::model::BibSource::Cited))
+                    {
+                        text.push_str(&format!(
+                            "\n#bibliography(\"{}\")\n",
+                            super::bib::IMPLICIT_BIBLIOGRAPHY
+                        ));
+                    }
                     files.sources.insert(id, Source::new(id, text));
                 }
                 (FileBytes::Bytes(bytes), None) => {

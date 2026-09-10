@@ -1134,7 +1134,11 @@ fn tree_from_ffi(
     let entry = entry.unwrap_or_else(|| {
         ProjectFile::text(entry_path.to_string(), FileRole::Main, String::new())
     });
-    ProjectTree::new("ffi", "", format.to_string(), entry, others, vec![])
+    let mut tree = ProjectTree::new("ffi", "", format.to_string(), entry, others, vec![]);
+    if let Some(implicit) = crate::project::implicit_bibliography(&tree) {
+        tree.upsert_file(implicit);
+    }
+    tree
 }
 
 /// The derived build graph of a tree the app holds, as JSON (the same shape

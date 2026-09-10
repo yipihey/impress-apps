@@ -230,16 +230,55 @@ public final class ManuscriptProjectModel {
         return out
     }
 
-    /// Projected `.bib` rows as the text the compiler should see. Until the
-    /// projection resolves in-process, a projected row compiles as its own
-    /// stored text (the verbs resolve `cited`/`collection`/`library` rows
-    /// through imbib's store).
-    public func resolvedBibliographies() -> [TreeRenderBibliography] {
-        projectedBibliographies.compactMap { file in
-            guard let text = file.content ?? bytes(of: file.path).flatMap({ String(data: $0, encoding: .utf8) })
-            else { return nil }
-            return TreeRenderBibliography(path: file.path, text: text)
+    /// The path of the implicit bibliography a citing Typst manuscript gets
+    /// without a `.bib` row of its own — the one-file convention the
+    /// citation seam has served since it shipped (ADR-0030 P2 keeps it).
+    public static let implicitBibliographyPath = "bibliography.bib"
+
+    /// Projected `.bib` files as the text the compiler should see. `cited`
+    /// projections — the implicit `bibliography.bib`, and any row declaring
+    /// `{"kind":"cited"}` — are resolved here through the citation seam
+    /// (every `@key` in the tree's text, exported from the library); other
+    /// projections compile as their stored text (the headless verbs resolve
+    /// `collection`/`library`/`keys` through imbib's store).
+    public func resolvedBibliographies(entryText: String? = nil) -> [TreeRenderBibliography] {
+        var out: [TreeRenderBibliography] = []
+        let cited = citedBibliography(entryText: entryText)
+        var hasOwnImplicit = false
+        for file in files where file.role == "bibliography" {
+            if file.path == Self.implicitBibliographyPath { hasOwnImplicit = true }
+            let isCited = file.bibSourceJSON?.contains("\"cited\"") ?? false
+            if isCited, let cited {
+                out.append(TreeRenderBibliography(path: file.path, text: cited))
+            } else if file.bibSourceJSON != nil,
+                      let text = file.content ?? bytes(of: file.path).flatMap({ String(data: $0, encoding: .utf8) }) {
+                out.append(TreeRenderBibliography(path: file.path, text: text))
+            }
         }
+        if !hasOwnImplicit, let cited {
+            out.append(TreeRenderBibliography(path: Self.implicitBibliographyPath, text: cited))
+        }
+        return out
+    }
+
+    /// Every `@key` across the tree's text (the live entry when given),
+    /// exported from the library through the host's citation seam; nil
+    /// when nothing cites, no seam is installed, or nothing resolves.
+    private func citedBibliography(entryText: String?) -> String? {
+        var text = entryText ?? RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)?.bodyContent ?? ""
+        for file in files where file.isText && file.role != "bibliography" {
+            if let content = file.content {
+                text += "\n" + content
+            }
+        }
+        guard text.contains("@") else { return nil }
+        let keys = ImprintCore.extractCiteKeys(source: text)
+        guard !keys.isEmpty, let seam = ManuscriptEditorEnvironment.shared.citationSearch else { return nil }
+        let bib = seam.bibliography(forKeys: keys)
+        Logger.library.debugCapture(
+            "project \(manuscriptID): \(keys.count) cite key(s) → \(bib?.count ?? 0)ch BibTeX for the cited projection",
+            category: "manuscripts")
+        return bib
     }
 
     /// Bibliography rows that project (carry a `bib_source_json`), which the
@@ -480,7 +519,8 @@ public final class ManuscriptProjectModel {
         let report = await TypstRenderer().buildTree(
             files: files, entryPath: entryPath, format: format,
             targetsJSON: targetsJSON, targetID: target.id, workDir: workDir,
-            allowShell: allowShell, entryOverride: nil, bibliographies: resolvedBibliographies())
+            allowShell: allowShell, entryOverride: nil,
+            bibliographies: resolvedBibliographies(entryText: entryOverride ?? entryText))
         lastReport = report
 
         // What the steps produced becomes rows derived from their source.

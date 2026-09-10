@@ -56,7 +56,14 @@ for a format is `typst` / `tectonic` / `markdown`.
 A `.bib` row is either its own text or a **projection** (`bib_source_json`) resolved from imbib
 at compile/build time: `{"kind":"cited"}` (every key the tree cites), `{"kind":"collection",…}`,
 `{"kind":"library",…}`, `{"kind":"keys","keys":[…]}`. Raw BibTeX is used when the library row has
-it, synthesized from fields otherwise; a key not in the library is a `missing-reference` warning.
+it, synthesized from fields otherwise; a key not in the library is a `missing-reference` warning
+and a placeholder entry in the rendered bibliography, so the document still compiles.
+
+The one-file convention survives in the tree: a Typst or Markdown manuscript that cites `@keys`
+without a `.bib` of its own gets the implicit `bibliography.bib` (a `cited` projection, never a
+row), and when the entry never calls `#bibliography(...)` the call is appended at compile time —
+exactly what the app has done since the citation seam shipped. LaTeX trees need a real `.bib`
+file (BibTeX reads it by name).
 
 ## Figure steps
 

@@ -42,8 +42,8 @@ pub mod scan;
 pub mod typst;
 
 pub use bib::{
-    resolve_bibliographies, synthesize_entry, BibliographyResolver, MapResolver, NoResolver,
-    ProjectedBibliography, ResolvedEntry,
+    implicit_bibliography, resolve_bibliographies, synthesize_entry, BibliographyResolver,
+    MapResolver, NoResolver, ProjectedBibliography, ResolvedEntry, IMPLICIT_BIBLIOGRAPHY,
 };
 pub use build::{
     build, BuildOutcome, BuildRequest, BuiltOutput, ProducedFile, StepReport, StepStatus,

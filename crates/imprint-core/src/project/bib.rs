@@ -17,7 +17,43 @@ use std::collections::{BTreeMap, BTreeSet};
 use impress_bibtex::{format_entries, BibTeXEntry, BibTeXEntryType};
 
 use super::graph::BuildGraph;
-use super::model::{BibSource, FileRole, ProjectTree};
+use super::model::{BibSource, FileRole, ProjectFile, ProjectTree};
+use super::scan::{scan, DepKind};
+
+/// The one-file convention, carried into the tree: a Typst (or Markdown)
+/// manuscript that cites `@keys` without a `.bib` of its own gets a virtual
+/// `bibliography.bib` projected from the library — the app has served that
+/// file since the citation seam shipped, so a tree must see it too.
+pub const IMPLICIT_BIBLIOGRAPHY: &str = "bibliography.bib";
+
+/// The implicit `bibliography.bib` row (a `cited` projection) when the tree
+/// needs one: no file at that path, and either something references it or
+/// the tree cites keys without naming any bibliography at all. `None` for
+/// LaTeX trees (BibTeX needs a real file the engine can read by name) and
+/// for trees that already carry their bibliography.
+pub fn implicit_bibliography(tree: &ProjectTree) -> Option<ProjectFile> {
+    if tree.format == "latex" || tree.contains(IMPLICIT_BIBLIOGRAPHY) {
+        return None;
+    }
+    let deps = scan(tree);
+    let references_implicit = deps
+        .unresolved
+        .iter()
+        .any(|u| u.kind == DepKind::Bibliography && u.reference == IMPLICIT_BIBLIOGRAPHY);
+    let names_any_bibliography = deps.edges.iter().any(|e| e.kind == DepKind::Bibliography)
+        || deps
+            .unresolved
+            .iter()
+            .any(|u| u.kind == DepKind::Bibliography);
+    if references_implicit || (!deps.cite_keys.is_empty() && !names_any_bibliography) {
+        Some(
+            ProjectFile::text(IMPLICIT_BIBLIOGRAPHY, FileRole::Bibliography, "")
+                .with_bib_source(BibSource::Cited),
+        )
+    } else {
+        None
+    }
+}
 
 /// What the resolver knows about one key.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,6 +277,79 @@ pub fn resolve_bibliographies(
 mod tests {
     use super::*;
     use crate::project::model::{ProjectFile, ProjectTree};
+
+    #[test]
+    fn the_implicit_bibliography_follows_the_one_file_convention() {
+        let cites_without_bib = ProjectTree::new(
+            "m",
+            "T",
+            "typst",
+            ProjectFile::text("main.typ", FileRole::Main, "= P\nSee @knuth84."),
+            vec![],
+            vec![],
+        );
+        let implicit = implicit_bibliography(&cites_without_bib).expect("cites → implicit");
+        assert_eq!(implicit.path, IMPLICIT_BIBLIOGRAPHY);
+        assert_eq!(implicit.bib_source, Some(BibSource::Cited));
+
+        let names_it = ProjectTree::new(
+            "m",
+            "T",
+            "typst",
+            ProjectFile::text(
+                "main.typ",
+                FileRole::Main,
+                "See @knuth84.\n#bibliography(\"bibliography.bib\")",
+            ),
+            vec![],
+            vec![],
+        );
+        assert!(implicit_bibliography(&names_it).is_some());
+
+        let has_own = ProjectTree::new(
+            "m",
+            "T",
+            "typst",
+            ProjectFile::text(
+                "main.typ",
+                FileRole::Main,
+                "See @knuth84.\n#bibliography(\"refs.bib\")",
+            ),
+            vec![ProjectFile::text(
+                "refs.bib",
+                FileRole::Bibliography,
+                "@misc{knuth84,}",
+            )],
+            vec![],
+        );
+        assert!(
+            implicit_bibliography(&has_own).is_none(),
+            "its own bib, nothing implicit"
+        );
+
+        let latex = ProjectTree::new(
+            "m",
+            "T",
+            "latex",
+            ProjectFile::text("main.tex", FileRole::Main, "\\cite{knuth84}"),
+            vec![],
+            vec![],
+        );
+        assert!(
+            implicit_bibliography(&latex).is_none(),
+            "LaTeX needs a real file"
+        );
+
+        let no_cites = ProjectTree::new(
+            "m",
+            "T",
+            "typst",
+            ProjectFile::text("main.typ", FileRole::Main, "= P\nNo citations."),
+            vec![],
+            vec![],
+        );
+        assert!(implicit_bibliography(&no_cites).is_none());
+    }
 
     #[test]
     fn synthesized_entries_are_well_formed_bibtex() {
