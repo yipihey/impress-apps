@@ -1206,3 +1206,238 @@ async fn a_one_file_typst_manuscript_compiles_with_its_citations_projected() {
         .expect("the implicit bibliography was projected");
     assert_eq!(bib.requested, vec!["knuth84"]);
 }
+
+// ---------------------------------------------------------------------------
+// P5/P6: figures of every kind, and working copies
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn new_figures_of_every_kind_get_a_starter_and_a_build_spec() {
+    let w = world();
+    let id = manuscript(&w.store, "typst", "= Paper", false);
+    for (kind, ext, runner) in [
+        ("veusz", "vsz", "veusz"),
+        ("lilaq", "typ", "typst"),
+        ("typst", "typ", "typst"),
+        ("implore", "plot.json", "implore"),
+        ("impress-plot", "plot.json", "impress-plot"),
+        ("script", "py", "shell"),
+    ] {
+        let path = format!("figures/{kind}-fig");
+        let r = w
+            .svc
+            .project_new_figure(id.clone(), path.clone(), kind.into(), None)
+            .await;
+        assert!(r.ok, "{kind}: {}", r.message);
+        assert_eq!(r.kind, kind);
+        let file = r.file.unwrap();
+        assert_eq!(file.path, format!("figures/{kind}-fig.{ext}"));
+        assert_eq!(file.role, "figure-source");
+        let build: serde_json::Value =
+            serde_json::from_str(r.build_json.as_deref().unwrap()).unwrap();
+        assert_eq!(build["runner"], runner);
+        if kind != "script" {
+            assert_eq!(build["outputs"][0], format!("figures/{kind}-fig.svg"));
+        }
+    }
+    // The graph now has six steps, all stale (no outputs yet).
+    let graph = w.svc.project_graph(id.clone(), None).await;
+    assert_eq!(graph.steps.len(), 6, "{:?}", graph.steps);
+    assert!(graph.steps.iter().all(|s| s.stale));
+    // An existing path is refused.
+    let again = w
+        .svc
+        .project_new_figure(
+            id.clone(),
+            "figures/veusz-fig.vsz".into(),
+            "veusz".into(),
+            None,
+        )
+        .await;
+    assert!(!again.ok);
+    assert!(again.message.contains("exists"));
+    let bad = w
+        .svc
+        .project_new_figure(id, "figures/x".into(), "gnuplot".into(), None)
+        .await;
+    assert!(!bad.ok);
+}
+
+#[cfg(feature = "typst-render")]
+#[tokio::test]
+async fn a_native_figure_renders_into_output_rows_and_previews_without_writing() {
+    let w = world();
+    let id = manuscript(
+        &w.store,
+        "typst",
+        "= Paper\n#figure(image(\"figures/native.svg\"))",
+        false,
+    );
+    let made = w
+        .svc
+        .project_new_figure(
+            id.clone(),
+            "figures/native".into(),
+            "impress-plot".into(),
+            None,
+        )
+        .await;
+    assert!(made.ok, "{}", made.message);
+
+    // A preview writes nothing.
+    let look = w
+        .svc
+        .project_figure_preview(id.clone(), "figures/native.plot.json".into(), None)
+        .await;
+    assert!(look.ok, "{}: {}", look.message, look.log);
+    assert!(look.svg.as_deref().is_some_and(|s| s.contains("<svg")));
+    assert!(look.outputs.is_empty());
+    let tree = w.svc.project_tree(id.clone()).await;
+    assert!(tree.files.iter().all(|f| f.path != "figures/native.svg"));
+
+    // Rendering records the output as a row derived from the source.
+    let render = w
+        .svc
+        .project_render_figure(
+            id.clone(),
+            "figures/native.plot.json".into(),
+            None,
+            None,
+            None,
+        )
+        .await;
+    assert!(render.ok, "{}: {}", render.message, render.log);
+    assert_eq!(render.status, "ran");
+    assert_eq!(render.outputs.len(), 1);
+    assert_eq!(render.outputs[0].path, "figures/native.svg");
+    assert_eq!(render.outputs[0].role, "output");
+    assert_eq!(
+        render.outputs[0].derived_from.as_deref(),
+        Some("figures/native.plot.json")
+    );
+    let graph = w.svc.project_graph(id.clone(), None).await;
+    assert!(!graph.has_errors, "{:?}", graph.diagnostics);
+    assert!(graph.steps.iter().all(|s| !s.stale));
+
+    // Fresh now; forced re-renders.
+    let fresh = w
+        .svc
+        .project_render_figure(
+            id.clone(),
+            "figures/native.plot.json".into(),
+            None,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(fresh.status, "fresh");
+    let forced = w
+        .svc
+        .project_render_figure(
+            id.clone(),
+            "figures/native.plot.json".into(),
+            Some(true),
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(forced.status, "ran");
+
+    // The whole document builds with the figure in place.
+    let built = w.svc.project_build(id, None, None, None, None).await;
+    assert!(built.ok, "{}: {}", built.message, built.log);
+}
+
+#[tokio::test]
+async fn a_working_copy_round_trips_through_checkout_status_and_checkin() {
+    let w = world();
+    let id = manuscript(
+        &w.store,
+        "typst",
+        "= Paper\n#include \"chapters/a.typ\"",
+        false,
+    );
+    let put = w
+        .svc
+        .project_put_file(
+            id.clone(),
+            "chapters/a.typ".into(),
+            Some("== A".into()),
+            None,
+            None,
+            None,
+        )
+        .await;
+    assert!(put.ok);
+    let base = w
+        .store
+        .manuscript_collab_heads(id.parse().unwrap())
+        .unwrap();
+
+    let dir = w.dir.path().join("checkout");
+    let out = w
+        .svc
+        .project_checkout(id.clone(), dir.display().to_string(), None)
+        .await;
+    assert!(out.ok, "{}", out.message);
+    assert!(dir.join("main.typ").is_file() && dir.join("chapters/a.typ").is_file());
+    let tree = w.svc.project_tree(id.clone()).await;
+    assert!(tree
+        .working_copy_path
+        .as_deref()
+        .is_some_and(|p| p.ends_with("checkout")));
+
+    let clean = w.svc.project_status(id.clone(), None).await;
+    assert!(clean.ok && clean.is_clean, "{clean:?}");
+
+    // Edit, add, delete in the directory.
+    std::fs::write(
+        dir.join("main.typ"),
+        "= Paper, revised\n#include \"chapters/a.typ\"",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("figures")).unwrap();
+    std::fs::write(dir.join("figures/new.svg"), "<svg/>").unwrap();
+    std::fs::remove_file(dir.join("chapters/a.typ")).unwrap();
+    let status = w.svc.project_status(id.clone(), None).await;
+    assert_eq!(status.changed, vec!["main.typ"]);
+    assert_eq!(status.added, vec!["figures/new.svg"]);
+    assert_eq!(status.missing, vec!["chapters/a.typ"]);
+
+    // Check in: the entry through the document, the new file as a row, the
+    // missing one kept (no prune).
+    let checkin = w
+        .svc
+        .project_checkin(id.clone(), None, None, None, Some("user:tom".into()))
+        .await;
+    assert!(checkin.ok, "{}", checkin.message);
+    assert!(checkin.entry_updated);
+    assert_eq!(checkin.checked_in, vec!["figures/new.svg", "main.typ"]);
+    assert!(checkin.pruned.is_empty());
+    let entry = w.svc.project_file(id.clone(), "main.typ".into()).await;
+    assert!(entry.text.unwrap().contains("revised"));
+    let old = w
+        .store
+        .manuscript_text_at(id.parse().unwrap(), &base)
+        .unwrap();
+    assert!(old.contains("= Paper\n"), "history keeps the earlier text");
+    let tree = w.svc.project_tree(id.clone()).await;
+    assert!(tree
+        .files
+        .iter()
+        .any(|f| f.path == "figures/new.svg" && f.role == "figure"));
+    assert!(
+        tree.files.iter().any(|f| f.path == "chapters/a.typ"),
+        "kept without prune"
+    );
+
+    // Prune drops what the directory dropped.
+    let pruned = w
+        .svc
+        .project_checkin(id.clone(), None, None, Some(true), None)
+        .await;
+    assert!(pruned.ok, "{}", pruned.message);
+    assert_eq!(pruned.pruned, vec!["chapters/a.typ"]);
+    let after = w.svc.project_status(id.clone(), None).await;
+    assert!(after.is_clean, "{after:?}");
+}

@@ -74,11 +74,30 @@ A `figure-source` declares how it makes its outputs (`build_json`):
  "args":{"command":"python figures/plot.py"}}
 ```
 
-Runners: `shell` (runs only when the build allows shell steps), `veusz` (`veusz --export`),
-`impress-plot` and `implore` (native; P5). A step is **stale** when an output's
+Runners: `typst` (a `.typ` figure — a lilaq figure, a lilook document, what the inspector wrote —
+compiled by the tree's engine with the project as its world), `implore` (a `PlotSpec` in
+`.plot.json`, turned into lilaq Typst), `impress-plot` (the native inspector's spec, also
+`.plot.json`; the shape decides), `veusz` (`veusz --export`), `shell` (runs only when the build
+allows shell steps). The kind a name implies gives the default spec (`.vsz`, `.typ`,
+`.plot.json`, `.py/.jl/.R/.sh`). A step is **stale** when an output's
 `derived_from_hash` differs from the step's input hash (source bytes + inputs + spec) or an
 output has no row; a build runs stale steps first, reads the declared outputs back and records
 them as `output` rows derived from the source. Fresh steps are skipped.
+
+## Figures
+
+`project-new-figure <kind>` writes a starter and its build spec: `veusz` (edit in Veusz),
+`lilaq` (edit in lilook — its model IS the `.typ`), `typst`, `implore`, `impress-plot`, `script`.
+`project-render-figure` runs one step and records the outputs; `project-figure-preview` only
+looks. A manuscript mixes kinds freely: the graph, the build and the Plots panel treat them all
+the same way.
+
+## Working copies
+
+`project-checkout <dir>` materialises the project (projected bibliographies as text) and
+remembers the directory; `project-status` says what changed, was added or went missing;
+`project-checkin` brings it back — the entry through the document (merged), the rest as rows
+keeping their roles, `prune` for deletions. Git, a shell, Veusz and lilook all edit there.
 
 ## Verbs (CLI, MCP, impel — the app closed is fine)
 
@@ -87,6 +106,8 @@ them as `output` rows derived from the source. Fresh steps are skipped.
 - read: `tree`, `file`, `graph`, `outline`, `citations`, `builds`, `build-output`
 - write: `put-file`, `delete-file`, `move-file`, `set-entry`, `set-targets`, `set-bibliography`,
   `set-figure-build`
+- figures: `new-figure`, `render-figure`, `figure-preview`
+- working copies: `checkout`, `status`, `checkin`
 - whole project: `import-directory` (a folder becomes a manuscript, or lands in one),
   `export` (`bundle` with `manifest.json`, or `standalone`), `materialize` (a directory for a
   toolchain, hash-compared, prunes only what it wrote), `snapshot` (a deterministic `.tar.zst`
@@ -103,6 +124,10 @@ Writes refuse watched-folder manuscripts (ADR-0023 D4): the file on disk is the 
   whole tree with that buffer substituted).
 - **Build** inspector and File ▸ Build Manuscript (⌥⌘B): pick a target, allow shell steps or
   not, read the steps, the diagnostics by file, the outputs, the log, the recorded builds.
+- **Plots** inspector (⌥⌘P; in imbib too): every figure kind in one list with staleness, a
+  preview from the engine, New (six kinds), Render, Edit — a text session, the native-spec
+  inspector, or Veusz.app / lilook over a working copy that is checked back in on every save —
+  and Insert at the caret.
 - File ▸ Import Folder as Manuscript…: one manuscript from a directory (build residue skipped,
   the entry guessed with a reason shown in the log).
 - Previews: a Typst project renders from memory; a LaTeX project builds in a per-manuscript
@@ -110,5 +135,7 @@ Writes refuse watched-folder manuscripts (ADR-0023 D4): the file on disk is the 
 
 ## Not yet
 
-Native `impress-plot` / `implore` runners (P5), working copies (`project-checkout` /
-`project-checkin`, P6), retirement of the older Swift project scanner and exporter (P7).
+PNG outputs for Typst figures (a raster export; declare `.svg` or `.pdf`), a working-copy
+watcher that checks whole directories in by itself (today: `project-checkin`, the Files
+panel, or the per-figure watcher of an external editor), embedding lilook's own editor view
+(it lives in a separate repository on a newer Typst).

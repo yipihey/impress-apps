@@ -64,6 +64,16 @@ public final class ManuscriptEditorEnvironment {
     /// Default: no-op. imprint installs a `.runInlineAITask` notification post.
     public var onAITaskRequested: @MainActor (_ actionId: String, _ range: NSRange) -> Void = { _, _ in }
 
+    // MARK: - External figure editors (ADR-0030 D13)
+    /// Whether the host can open figures of `kind` (`veusz`, `lilaq`) in an
+    /// external application. Default: never. imprint installs Veusz.app and
+    /// lilook detection.
+    public var figureEditorAvailable: @MainActor (_ kind: String) -> Bool = { _ in false }
+    /// Open a figure's working copy in the external application for `kind`;
+    /// returns whether it launched. The Plots panel checks the file back into
+    /// its row on every save. Default: no-op (false).
+    public var openFigureExternally: @MainActor (_ url: URL, _ kind: String) -> Bool = { _, _ in false }
+
     // MARK: - LaTeX word completion
 
     /// Async LaTeX completion for the given prefix/source/offset, returning the

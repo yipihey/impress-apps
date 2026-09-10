@@ -19,14 +19,17 @@ use impress_plot::{
 };
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum FfiAxisScale {
+    #[default]
     Linear,
     Log,
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct FfiAxis {
     pub scale: FfiAxisScale,
     /// Manual lower limit; `min` and `max` must both be set to take effect.
@@ -36,7 +39,8 @@ pub struct FfiAxis {
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum FfiSeriesKind {
     Line,
     Scatter,
@@ -45,7 +49,7 @@ pub enum FfiSeriesKind {
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FfiColor {
     pub r: u8,
     pub g: u8,
@@ -53,7 +57,7 @@ pub struct FfiColor {
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FfiSeries {
     pub kind: FfiSeriesKind,
     pub xs: Vec<f64>,
@@ -62,7 +66,8 @@ pub struct FfiSeries {
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum FfiColormap {
     Viridis,
     Magma,
@@ -74,7 +79,8 @@ pub enum FfiColormap {
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum FfiLineStyle {
     Solid,
     Dashed,
@@ -83,7 +89,8 @@ pub enum FfiLineStyle {
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum FfiStrategy {
     Auto,
     Vector,
@@ -91,7 +98,8 @@ pub enum FfiStrategy {
 }
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct FfiPlotSpec {
     pub title: String,
     pub x: FfiAxis,
@@ -236,6 +244,97 @@ pub struct FfiPlotSource {
     /// inserted inline and will compile in the manuscript as-is. Vector plots
     /// are inline-safe; raster plots need their PNG materialized as a figure.
     pub inline_safe: bool,
+}
+
+impl Default for FfiAxis {
+    fn default() -> Self {
+        FfiAxis {
+            scale: FfiAxisScale::Linear,
+            min: None,
+            max: None,
+            label: None,
+        }
+    }
+}
+
+impl Default for FfiPlotSpec {
+    fn default() -> Self {
+        FfiPlotSpec {
+            title: String::new(),
+            x: FfiAxis::default(),
+            y: FfiAxis::default(),
+            series: Vec::new(),
+            strategy: FfiStrategy::Auto,
+            colormap: FfiColormap::Viridis,
+            width: 480.0,
+            height: 320.0,
+            raster_threshold: 0,
+            contour_levels: 0,
+            contour_labels: false,
+            contour_line_styles: Vec::new(),
+            contour_level_values: Vec::new(),
+        }
+    }
+}
+
+impl FfiPlotSpec {
+    /// The `.plot.json` form (ADR-0030 D13): the inspector's spec as a file
+    /// row, rendered by the `impress-plot` runner.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        serde_json::from_str(json).map_err(|e| format!("impress-plot spec: {e}"))
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into())
+    }
+}
+
+/// The figure as SVG (vector, or raster for big N), for the runner and the
+/// panel preview.
+pub fn render_spec_svg(spec: &FfiPlotSpec) -> Result<String, String> {
+    let out = render_plot_svg(spec.clone());
+    match out.error {
+        Some(e) => Err(e),
+        None => Ok(out.svg),
+    }
+}
+
+/// The figure as a PNG: the raster path, whatever the strategy asked for.
+pub fn render_spec_png(spec: &FfiPlotSpec) -> Result<Vec<u8>, String> {
+    let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
+    let mut plot = build_plot(spec.clone());
+    plot.strategy = Strategy::Raster;
+    let out = plot.render(PlotSize::new(w, h));
+    out.assets
+        .into_iter()
+        .next()
+        .map(|(_, png)| png)
+        .ok_or_else(|| "the raster render produced no image".into())
+}
+
+/// The figure as a one-page PDF, compiled through the persistent engine.
+pub fn render_spec_pdf(spec: &FfiPlotSpec) -> Result<Vec<u8>, String> {
+    let (w, h) = (spec.width.max(32.0), spec.height.max(32.0));
+    let plot = build_plot(spec.clone());
+    let out = plot.render(PlotSize::new(w, h));
+    let figure_source = format!(
+        "#set page(width: auto, height: auto, margin: 3pt)\n{}",
+        out.typst
+    );
+    PLOT_RENDERER.with(|cell| {
+        let mut r = cell.borrow_mut();
+        r.clear_assets();
+        for (path, bytes) in &out.assets {
+            r.set_asset(path, bytes.clone());
+        }
+        match r.render_pdf(&figure_source, &RenderOptions::a4()) {
+            Ok(success) => match success.output {
+                crate::render::RenderOutput::Pdf(bytes) => Ok(bytes),
+                _ => Err("the engine returned no PDF".into()),
+            },
+            Err(e) => Err(e.summary),
+        }
+    })
 }
 
 thread_local! {

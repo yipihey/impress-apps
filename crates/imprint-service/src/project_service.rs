@@ -27,8 +27,8 @@ use impress_core::store::{ItemStore, StoreError};
 use impress_service_core::async_trait;
 use impress_service_macros::{impress_service, impress_service_impl};
 use imprint_core::project::{
-    BibSource, BuildGraph, BuildSpec, ExportLayout, FileBytes, FileKind, FileRole, Materialization,
-    ProjectFile, ProjectTree, ProjectedBibliography, Target,
+    BibSource, BuildGraph, BuildSpec, ExportLayout, FigureKind, FileBytes, FileKind, FileRole,
+    Materialization, ProjectFile, ProjectTree, ProjectedBibliography, Target,
 };
 use serde::{Deserialize, Serialize};
 
@@ -412,6 +412,70 @@ pub struct ProjectBuildOutputResult {
     pub message: String,
 }
 
+/// A new figure (`project-new-figure`).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectFigureResult {
+    pub ok: bool,
+    /// veusz | lilaq | typst | implore | impress-plot | script
+    pub kind: String,
+    pub file: Option<ProjectFileRecord>,
+    pub build_json: Option<String>,
+    pub message: String,
+}
+
+/// One figure rendered (`project-render-figure`, `project-figure-preview`).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectFigureRenderRecord {
+    pub ok: bool,
+    pub path: String,
+    pub runner: String,
+    /// ran | fresh | skipped | failed | none
+    pub status: String,
+    pub message: String,
+    /// The first SVG output, for a look.
+    pub svg: Option<String>,
+    /// The output rows written (empty for a preview).
+    pub outputs: Vec<ProjectFileRecord>,
+    pub log: String,
+    pub duration_ms: u64,
+}
+
+/// A working copy checked out (`project-checkout`).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectCheckoutRecord {
+    pub ok: bool,
+    pub directory: String,
+    /// The entry file, absolute.
+    pub entry: String,
+    pub written: Vec<String>,
+    pub unchanged: Vec<String>,
+    pub message: String,
+}
+
+/// What differs between the rows and a working copy (`project-status`).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectStatusRecord {
+    pub ok: bool,
+    pub directory: String,
+    pub changed: Vec<String>,
+    pub added: Vec<String>,
+    pub missing: Vec<String>,
+    pub unchanged_count: u32,
+    pub is_clean: bool,
+    pub message: String,
+}
+
+/// What a check-in wrote (`project-checkin`).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectCheckinRecord {
+    pub ok: bool,
+    pub directory: String,
+    pub checked_in: Vec<String>,
+    pub entry_updated: bool,
+    pub pruned: Vec<String>,
+    pub message: String,
+}
+
 /// A revision of the whole tree.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProjectSnapshotRecord {
@@ -650,6 +714,79 @@ pub trait ImprintProjectService: Send + Sync + 'static {
         target_id: Option<String>,
         kind: Option<String>,
     ) -> ProjectBuildOutputResult;
+
+    /// A new figure at `path`: a starter of `kind` — `veusz` (a document
+    /// Veusz edits), `lilaq` (a Typst figure lilook edits), `typst`,
+    /// `implore` (a plot spec turned into lilaq), `impress-plot` (the native
+    /// inspector's spec), `script` — and the build spec that renders it to
+    /// `<stem>.svg`. The extension is added when `path` has none. Refuses an
+    /// existing path.
+    #[impress_method]
+    async fn project_new_figure(
+        &self,
+        manuscript_id: String,
+        path: String,
+        kind: String,
+        author: Option<String>,
+    ) -> ProjectFigureResult;
+
+    /// Render one figure's step — a stale one by default, any one with
+    /// `force` — and record its outputs as `output` rows derived from the
+    /// source. `shell` steps run only with `allow_shell`. `svg` is the first
+    /// SVG output, for a look.
+    #[impress_method]
+    async fn project_render_figure(
+        &self,
+        manuscript_id: String,
+        path: String,
+        force: Option<bool>,
+        allow_shell: Option<bool>,
+        author: Option<String>,
+    ) -> ProjectFigureRenderRecord;
+
+    /// A look at one figure without writing anything: rendered into a
+    /// scratch directory, the first SVG returned.
+    #[impress_method]
+    async fn project_figure_preview(
+        &self,
+        manuscript_id: String,
+        path: String,
+        allow_shell: Option<bool>,
+    ) -> ProjectFigureRenderRecord;
+
+    /// Check the project out into a directory — every file materialised,
+    /// projected bibliographies written as the text they resolve to — and
+    /// remember it as the manuscript's working copy (D11). Git, Veusz,
+    /// lilook and a shell edit there; `project-checkin` brings it back.
+    #[impress_method]
+    async fn project_checkout(
+        &self,
+        manuscript_id: String,
+        directory: String,
+        author: Option<String>,
+    ) -> ProjectCheckoutRecord;
+
+    /// What differs between the rows and the working copy (`directory`
+    /// defaults to the recorded one): changed, added, missing.
+    #[impress_method]
+    async fn project_status(
+        &self,
+        manuscript_id: String,
+        directory: Option<String>,
+    ) -> ProjectStatusRecord;
+
+    /// Bring the working copy's changes in: the entry through the document
+    /// (merged, never overwritten), the rest as rows keeping their roles.
+    /// `paths` limits it; `prune` deletes the rows the directory dropped.
+    #[impress_method]
+    async fn project_checkin(
+        &self,
+        manuscript_id: String,
+        directory: Option<String>,
+        paths: Option<Vec<String>>,
+        prune: Option<bool>,
+        author: Option<String>,
+    ) -> ProjectCheckinRecord;
 }
 
 // ---------------------------------------------------------------------------
@@ -1343,6 +1480,68 @@ impl ImprintProjectService for DefaultImprintProjectService {
         kind: Option<String>,
     ) -> ProjectBuildOutputResult {
         self.build_output_impl(manuscript_id, build_id, target_id, kind)
+            .await
+    }
+
+    async fn project_new_figure(
+        &self,
+        manuscript_id: String,
+        path: String,
+        kind: String,
+        author: Option<String>,
+    ) -> ProjectFigureResult {
+        self.new_figure_impl(manuscript_id, path, kind, author)
+            .await
+    }
+
+    async fn project_render_figure(
+        &self,
+        manuscript_id: String,
+        path: String,
+        force: Option<bool>,
+        allow_shell: Option<bool>,
+        author: Option<String>,
+    ) -> ProjectFigureRenderRecord {
+        self.render_figure_impl(manuscript_id, path, force, allow_shell, author, true)
+            .await
+    }
+
+    async fn project_figure_preview(
+        &self,
+        manuscript_id: String,
+        path: String,
+        allow_shell: Option<bool>,
+    ) -> ProjectFigureRenderRecord {
+        self.render_figure_impl(manuscript_id, path, Some(true), allow_shell, None, false)
+            .await
+    }
+
+    async fn project_checkout(
+        &self,
+        manuscript_id: String,
+        directory: String,
+        author: Option<String>,
+    ) -> ProjectCheckoutRecord {
+        self.checkout_impl(manuscript_id, directory, author).await
+    }
+
+    async fn project_status(
+        &self,
+        manuscript_id: String,
+        directory: Option<String>,
+    ) -> ProjectStatusRecord {
+        self.status_impl(manuscript_id, directory).await
+    }
+
+    async fn project_checkin(
+        &self,
+        manuscript_id: String,
+        directory: Option<String>,
+        paths: Option<Vec<String>>,
+        prune: Option<bool>,
+        author: Option<String>,
+    ) -> ProjectCheckinRecord {
+        self.checkin_impl(manuscript_id, directory, paths, prune, author)
             .await
     }
 }
@@ -2413,6 +2612,432 @@ impl DefaultImprintProjectService {
     }
 }
 
+/// Where a preview renders: `<cache>/impress/imprint/project-preview/<manuscript>/`.
+fn preview_dir(manuscript_id: &str) -> PathBuf {
+    let base = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
+    base.join("impress")
+        .join("imprint")
+        .join("project-preview")
+        .join(manuscript_id)
+}
+
+fn figure_render_failed(path: &str, message: String) -> ProjectFigureRenderRecord {
+    ProjectFigureRenderRecord {
+        ok: false,
+        path: path.to_string(),
+        runner: String::new(),
+        status: "none".into(),
+        message,
+        svg: None,
+        outputs: vec![],
+        log: String::new(),
+        duration_ms: 0,
+    }
+}
+
+/// The directory of a working copy: the one asked for, else the recorded one.
+fn working_copy_dir(
+    snapshot: &ProjectSnapshot,
+    directory: Option<&str>,
+) -> Result<PathBuf, StoreError> {
+    let dir = directory
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(String::from)
+        .or_else(|| snapshot.working_copy_path.clone())
+        .ok_or_else(|| {
+            StoreError::Validation(
+                "no working copy: check the project out first (project-checkout), or name a directory"
+                    .into(),
+            )
+        })?;
+    let path = PathBuf::from(dir);
+    if !path.is_dir() {
+        return Err(StoreError::Validation(format!(
+            "{} is not a directory",
+            path.display()
+        )));
+    }
+    Ok(path)
+}
+
+/// Read a working copy as a tree, the entry where the store says it is.
+fn read_working_copy(dir: &Path, entry_path: &str) -> Result<ProjectTree, StoreError> {
+    use imprint_core::project::{import_directory, ImportError, ImportOptions};
+    let with_entry = ImportOptions {
+        entry: Some(entry_path.to_string()),
+        ..Default::default()
+    };
+    match import_directory(dir, &with_entry) {
+        Ok(imported) => Ok(imported.tree),
+        Err(ImportError::EntryNotFound(_)) => {
+            // The entry left the directory: read what is there; the diff
+            // reports the entry as missing.
+            let any = import_directory(dir, &ImportOptions::default())
+                .map_err(|e| StoreError::Validation(e.to_string()))?;
+            Ok(any.tree)
+        }
+        Err(e) => Err(StoreError::Validation(e.to_string())),
+    }
+}
+
+impl DefaultImprintProjectService {
+    async fn new_figure_impl(
+        &self,
+        manuscript_id: String,
+        path: String,
+        kind: String,
+        author: Option<String>,
+    ) -> ProjectFigureResult {
+        let store = self.store();
+        let blobs = self.blobs();
+        let result = (|| -> Result<ProjectFigureResult, StoreError> {
+            let id = Self::parse(&manuscript_id)?;
+            Self::refuse_external(&store, id)?;
+            let kind = FigureKind::parse(&kind).ok_or_else(|| {
+                StoreError::Validation(format!(
+                    "kind {kind:?}: veusz | lilaq | typst | implore | impress-plot | script"
+                ))
+            })?;
+            let template = imprint_core::project::template(kind, &path);
+            if mp::get_file(&store, id, &template.path)?.is_some() {
+                return Err(StoreError::Validation(format!(
+                    "{} exists; delete it first or choose another path",
+                    template.path
+                )));
+            }
+            let author = Self::author(author);
+            let put = PutFile::text(&template.path, &template.text).with_role("figure-source");
+            mp::put_file(&store, &blobs, id, put, &author)?;
+            let build_json = template.build.to_json();
+            let row =
+                mp::set_file_field(&store, id, &template.path, "build_json", Some(&build_json))?;
+            Ok(ProjectFigureResult {
+                ok: true,
+                kind: kind.as_str().into(),
+                file: Some(ProjectFileRecord::from(&row)),
+                build_json: Some(build_json),
+                message: format!(
+                    "{} ({}) renders to {}",
+                    template.path,
+                    kind.label(),
+                    template.build.outputs.join(", ")
+                ),
+            })
+        })();
+        result.unwrap_or_else(|e| {
+            log_err("project_new_figure", &e);
+            ProjectFigureResult {
+                ok: false,
+                kind: String::new(),
+                file: None,
+                build_json: None,
+                message: e.to_string(),
+            }
+        })
+    }
+
+    async fn render_figure_impl(
+        &self,
+        manuscript_id: String,
+        path: String,
+        force: Option<bool>,
+        allow_shell: Option<bool>,
+        author: Option<String>,
+        record: bool,
+    ) -> ProjectFigureRenderRecord {
+        let store = self.store();
+        let blobs = self.blobs();
+        let (snapshot, tree) = match self.load_tree(&manuscript_id) {
+            Ok(t) => t,
+            Err(e) => {
+                log_err("project_render_figure", &e);
+                return figure_render_failed(&path, e.to_string());
+            }
+        };
+        if record {
+            if let Err(e) = Self::refuse_external(&store, snapshot.manuscript_id) {
+                return figure_render_failed(&path, e.to_string());
+            }
+        }
+        let path = imprint_core::project::model::normalize_display(&path);
+        let work_dir = if record {
+            build_output_dir(&manuscript_id, "figures")
+        } else {
+            preview_dir(&manuscript_id)
+        };
+        let render = {
+            let tree = tree.clone();
+            let path = path.clone();
+            let allow_shell = allow_shell.unwrap_or(false);
+            let force = force.unwrap_or(false);
+            tokio::task::spawn_blocking(move || {
+                let host = imprint_core::project::ProcessRunnerHost::new();
+                imprint_core::project::render_figure(
+                    &tree,
+                    &path,
+                    &work_dir,
+                    allow_shell,
+                    force,
+                    &host,
+                )
+            })
+            .await
+        };
+        let render = match render {
+            Ok(r) => r,
+            Err(e) => return figure_render_failed(&path, format!("render task: {e}")),
+        };
+        let mut outputs = Vec::new();
+        if record && !render.produced.is_empty() {
+            let author = Self::author(author);
+            for p in &render.produced {
+                let role = mp::get_file(&store, snapshot.manuscript_id, &p.path)
+                    .ok()
+                    .flatten()
+                    .map(|r| r.role)
+                    .unwrap_or_else(|| "output".into());
+                let put = PutFile::bytes(&p.path, &p.bytes).with_role(&role);
+                let written = mp::put_file(&store, &blobs, snapshot.manuscript_id, put, &author)
+                    .and_then(|_| {
+                        mp::record_derived(
+                            &store,
+                            snapshot.manuscript_id,
+                            &p.path,
+                            &p.derived_from,
+                            &p.derived_from_hash,
+                        )
+                    });
+                match written {
+                    Ok(row) => outputs.push(ProjectFileRecord::from(&row)),
+                    Err(e) => log_err("project_render_figure", &e),
+                }
+            }
+        }
+        let (runner, status) = match &render.step {
+            Some(s) => (
+                s.runner.clone(),
+                match s.status {
+                    imprint_core::project::StepStatus::Ran => "ran",
+                    imprint_core::project::StepStatus::Fresh => "fresh",
+                    imprint_core::project::StepStatus::Skipped => "skipped",
+                    imprint_core::project::StepStatus::Failed => "failed",
+                }
+                .to_string(),
+            ),
+            None => (String::new(), "none".into()),
+        };
+        ProjectFigureRenderRecord {
+            ok: render.ok,
+            path,
+            runner,
+            status,
+            message: render.message,
+            svg: render.svg,
+            outputs,
+            log: render.log,
+            duration_ms: render.duration_ms,
+        }
+    }
+
+    async fn checkout_impl(
+        &self,
+        manuscript_id: String,
+        directory: String,
+        author: Option<String>,
+    ) -> ProjectCheckoutRecord {
+        let store = self.store();
+        let dir = PathBuf::from(directory.trim());
+        let result = (|| -> Result<ProjectCheckoutRecord, StoreError> {
+            let (snapshot, tree) = self.load_tree(&manuscript_id)?;
+            Self::refuse_external(&store, snapshot.manuscript_id)?;
+            let target = tree.default_target().clone();
+            let (_, bibs) = self.resolve_for(&tree, &target);
+            let out = imprint_core::project::materialize(&tree, &bibs, &dir)
+                .map_err(|e| StoreError::Storage(e.to_string()))?;
+            let author = Self::author(author);
+            let absolute = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+            mp::set_working_copy_path(
+                &store,
+                snapshot.manuscript_id,
+                Some(&absolute.display().to_string()),
+                &author,
+            )?;
+            Ok(ProjectCheckoutRecord {
+                ok: true,
+                directory: absolute.display().to_string(),
+                entry: out.entry.display().to_string(),
+                message: format!(
+                    "{} file(s) written, {} unchanged; working copy recorded",
+                    out.written.len(),
+                    out.unchanged.len()
+                ),
+                written: out.written,
+                unchanged: out.unchanged,
+            })
+        })();
+        result.unwrap_or_else(|e| {
+            log_err("project_checkout", &e);
+            ProjectCheckoutRecord {
+                ok: false,
+                directory,
+                entry: String::new(),
+                written: vec![],
+                unchanged: vec![],
+                message: e.to_string(),
+            }
+        })
+    }
+
+    async fn status_impl(
+        &self,
+        manuscript_id: String,
+        directory: Option<String>,
+    ) -> ProjectStatusRecord {
+        let result = (|| -> Result<ProjectStatusRecord, StoreError> {
+            let (snapshot, tree) = self.load_tree(&manuscript_id)?;
+            let dir = working_copy_dir(&snapshot, directory.as_deref())?;
+            let on_disk = read_working_copy(&dir, &snapshot.entry_path)?;
+            let status = imprint_core::project::diff_working_copy(&tree, &on_disk);
+            let message = if status.is_clean() {
+                "clean".to_string()
+            } else {
+                format!(
+                    "{} changed, {} added, {} missing",
+                    status.changed.len(),
+                    status.added.len(),
+                    status.missing.len()
+                )
+            };
+            Ok(ProjectStatusRecord {
+                ok: true,
+                directory: dir.display().to_string(),
+                unchanged_count: status.unchanged.len() as u32,
+                is_clean: status.is_clean(),
+                changed: status.changed,
+                added: status.added,
+                missing: status.missing,
+                message,
+            })
+        })();
+        result.unwrap_or_else(|e| {
+            log_err("project_status", &e);
+            ProjectStatusRecord {
+                ok: false,
+                directory: directory.unwrap_or_default(),
+                changed: vec![],
+                added: vec![],
+                missing: vec![],
+                unchanged_count: 0,
+                is_clean: false,
+                message: e.to_string(),
+            }
+        })
+    }
+
+    async fn checkin_impl(
+        &self,
+        manuscript_id: String,
+        directory: Option<String>,
+        paths: Option<Vec<String>>,
+        prune: Option<bool>,
+        author: Option<String>,
+    ) -> ProjectCheckinRecord {
+        let store = self.store();
+        let blobs = self.blobs();
+        let result = (|| -> Result<ProjectCheckinRecord, StoreError> {
+            let (snapshot, tree) = self.load_tree(&manuscript_id)?;
+            Self::refuse_external(&store, snapshot.manuscript_id)?;
+            let dir = working_copy_dir(&snapshot, directory.as_deref())?;
+            let on_disk = read_working_copy(&dir, &snapshot.entry_path)?;
+            let status = imprint_core::project::diff_working_copy(&tree, &on_disk);
+            let wanted: Option<Vec<String>> = paths.map(|ps| {
+                ps.iter()
+                    .map(|p| imprint_core::project::model::normalize_display(p))
+                    .collect()
+            });
+            let author = Self::author(author);
+            let mut checked_in = Vec::new();
+            let mut entry_updated = false;
+            for path in status.to_check_in() {
+                if wanted.as_ref().is_some_and(|w| !w.contains(&path)) {
+                    continue;
+                }
+                let Some(file) = on_disk.file(&path) else {
+                    continue;
+                };
+                if path == snapshot.entry_path {
+                    let text = file.bytes.as_text().unwrap_or("");
+                    store.commit_manuscript_body(
+                        snapshot.manuscript_id,
+                        &[],
+                        text,
+                        &author.name,
+                    )?;
+                    entry_updated = true;
+                } else {
+                    let role = tree
+                        .file(&path)
+                        .map(|f| f.role.as_str().to_string())
+                        .unwrap_or_else(|| file.role.as_str().to_string());
+                    let put = match &file.bytes {
+                        FileBytes::Text(t) => PutFile::text(&path, t).with_role(&role),
+                        FileBytes::Bytes(b) => PutFile::bytes(&path, b).with_role(&role),
+                        FileBytes::Missing => continue,
+                    };
+                    mp::put_file(&store, &blobs, snapshot.manuscript_id, put, &author)?;
+                }
+                checked_in.push(path);
+            }
+            let mut pruned = Vec::new();
+            if prune.unwrap_or(false) {
+                for path in &status.missing {
+                    if path == &snapshot.entry_path {
+                        continue;
+                    }
+                    if wanted.as_ref().is_some_and(|w| !w.contains(path)) {
+                        continue;
+                    }
+                    mp::delete_file(&store, snapshot.manuscript_id, path)?;
+                    pruned.push(path.clone());
+                }
+            }
+            Ok(ProjectCheckinRecord {
+                ok: true,
+                directory: dir.display().to_string(),
+                message: format!(
+                    "{} file(s) checked in{}{}",
+                    checked_in.len(),
+                    if entry_updated {
+                        " (entry through the document)"
+                    } else {
+                        ""
+                    },
+                    if pruned.is_empty() {
+                        String::new()
+                    } else {
+                        format!(", {} row(s) pruned", pruned.len())
+                    }
+                ),
+                checked_in,
+                entry_updated,
+                pruned,
+            })
+        })();
+        result.unwrap_or_else(|e| {
+            log_err("project_checkin", &e);
+            ProjectCheckinRecord {
+                ok: false,
+                directory: directory.unwrap_or_default(),
+                checked_in: vec![],
+                entry_updated: false,
+                pruned: vec![],
+                message: e.to_string(),
+            }
+        })
+    }
+}
+
 /// The graph as a record; shared with the build verbs of later phases.
 pub fn graph_record(
     manuscript_id: &str,
@@ -2510,5 +3135,11 @@ impress_service_impl! {
         project_build(manuscript_id: String, target_id: Option<String>, allow_shell: Option<bool>, entry_override: Option<String>, author: Option<String>) -> ProjectBuildResult,
         project_builds(manuscript_id: String, target_id: Option<String>, limit: Option<u32>) -> ProjectBuildsRecord,
         project_build_output(manuscript_id: String, build_id: Option<String>, target_id: Option<String>, kind: Option<String>) -> ProjectBuildOutputResult,
+        project_new_figure(manuscript_id: String, path: String, kind: String, author: Option<String>) -> ProjectFigureResult,
+        project_render_figure(manuscript_id: String, path: String, force: Option<bool>, allow_shell: Option<bool>, author: Option<String>) -> ProjectFigureRenderRecord,
+        project_figure_preview(manuscript_id: String, path: String, allow_shell: Option<bool>) -> ProjectFigureRenderRecord,
+        project_checkout(manuscript_id: String, directory: String, author: Option<String>) -> ProjectCheckoutRecord,
+        project_status(manuscript_id: String, directory: Option<String>) -> ProjectStatusRecord,
+        project_checkin(manuscript_id: String, directory: Option<String>, paths: Option<Vec<String>>, prune: Option<bool>, author: Option<String>) -> ProjectCheckinRecord,
     ],
 }

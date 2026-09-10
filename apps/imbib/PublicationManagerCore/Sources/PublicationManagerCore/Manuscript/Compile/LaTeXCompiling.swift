@@ -11,7 +11,7 @@ import Foundation
 ///   system/embedded TeX + runtime distribution detection, SyncTeX load,
 ///   project dependency scan). That implementation stays in the imprint app
 ///   target because it pulls a large macOS-only service closure
-///   (`LaTeXCompilationService`, `SyncTeXService`, `LaTeXProjectService`,
+///   (`LaTeXCompilationService`, `SyncTeXService`,
 ///   `TeXDistributionManager`, Veusz figure mirroring); it conforms to this
 ///   protocol and is injected in.
 /// - **iOS**, and any desktop host without a TeX toolchain (e.g.

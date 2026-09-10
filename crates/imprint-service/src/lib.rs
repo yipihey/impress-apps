@@ -54,12 +54,13 @@ pub use project_bib::StoreBibliographyResolver;
 pub use project_service::{
     graph_record, tree_from_snapshot, DefaultImprintProjectService, ImprintProjectService,
     ProjectBibliographyRecord, ProjectBuildOutputRecord, ProjectBuildOutputResult,
-    ProjectBuildRecord, ProjectBuildResult, ProjectBuildsRecord, ProjectCitationRecord,
-    ProjectCitationsRecord, ProjectCompileRecord, ProjectDiagnosticRecord, ProjectEdgeRecord,
-    ProjectExportRecord, ProjectFileContentRecord, ProjectFileRecord, ProjectFileResult,
+    ProjectBuildRecord, ProjectBuildResult, ProjectBuildsRecord, ProjectCheckinRecord,
+    ProjectCheckoutRecord, ProjectCitationRecord, ProjectCitationsRecord, ProjectCompileRecord,
+    ProjectDiagnosticRecord, ProjectEdgeRecord, ProjectExportRecord, ProjectFigureRenderRecord,
+    ProjectFigureResult, ProjectFileContentRecord, ProjectFileRecord, ProjectFileResult,
     ProjectGraphRecord, ProjectImportRecord, ProjectMutationResult, ProjectOutlineRecord,
-    ProjectSectionRecord, ProjectSnapshotRecord, ProjectStepRecord, ProjectStepReportRecord,
-    ProjectTargetRecord, ProjectTreeRecord, ProjectUnresolvedRecord,
+    ProjectSectionRecord, ProjectSnapshotRecord, ProjectStatusRecord, ProjectStepRecord,
+    ProjectStepReportRecord, ProjectTargetRecord, ProjectTreeRecord, ProjectUnresolvedRecord,
 };
 pub use search::{ManuscriptSearchIndex, SearchHit};
 pub use sections::{SectionMetadata, SectionRecord, SectionStore, SECTION_SCHEMA_REF};
@@ -132,6 +133,12 @@ mod inventory_tests {
             "imprint-project-service_project-build",
             "imprint-project-service_project-builds",
             "imprint-project-service_project-build-output",
+            "imprint-project-service_project-new-figure",
+            "imprint-project-service_project-render-figure",
+            "imprint-project-service_project-figure-preview",
+            "imprint-project-service_project-checkout",
+            "imprint-project-service_project-status",
+            "imprint-project-service_project-checkin",
         ] {
             assert!(
                 names.contains(&expected),
@@ -164,6 +171,12 @@ mod inventory_tests {
             "project-build",
             "project-builds",
             "project-build-output",
+            "project-new-figure",
+            "project-render-figure",
+            "project-figure-preview",
+            "project-checkout",
+            "project-status",
+            "project-checkin",
         ] {
             assert!(names.contains(&expected), "missing {expected}");
         }

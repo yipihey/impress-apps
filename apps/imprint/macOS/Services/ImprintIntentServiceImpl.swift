@@ -1,3 +1,4 @@
+import PublicationManagerCore
 import AppKit
 import Foundation
 import ImpressLogging
@@ -127,91 +128,98 @@ final class ImprintIntentServiceImpl: ImprintIntentService {
         return doc.bibliography.values.joined(separator: "\n\n")
     }
 
-    // MARK: - Veusz plots
+    // MARK: - Figures (the "Veusz plot" intents, backed by project figures — ADR-0030 D13)
+    //
+    // The intents keep their names (Shortcuts and the HTTP routes are wired
+    // to them) but act on the manuscript's `figure-source` rows of every
+    // kind: Veusz documents, lilaq figures, plot specs, scripts. A plot id is
+    // a file row id; only manuscripts this process has loaded are searched,
+    // as before ("no open document tracks plot").
+
+    private static func entity(for figure: ManuscriptProjectFile, in model: ManuscriptProjectModel) -> VeuszPlotEntity {
+        let output = model.outputs(of: figure).first
+        let format = output.map { URL(fileURLWithPath: $0.path).pathExtension } ?? "svg"
+        return VeuszPlotEntity(
+            id: figure.id,
+            title: figure.path,
+            documentID: model.manuscriptID,
+            renderedFormat: format.isEmpty ? "svg" : format,
+            renderedRelativePath: output?.path ?? "",
+            lastRenderedAt: output?.modifiedMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) })
+    }
 
     func listVeuszPlots(documentID: UUID?) async throws -> [VeuszPlotEntity] {
-        let stores: [VeuszPlotStore]
-        if let documentID {
-            guard let store = VeuszPlotStoreRegistry.shared.store(forDocumentID: documentID) else {
-                return []
-            }
-            stores = [store]
-        } else {
-            stores = VeuszPlotStoreRegistry.shared.allStores
-        }
-        return stores.flatMap { store in
-            store.plots.map { Self.entity(for: $0, in: store) }
-        }
+        let models = documentID.map { [ManuscriptProjectModel.shared(for: $0)] } ?? ManuscriptProjectModel.loaded
+        return models.flatMap { model in model.figures.map { Self.entity(for: $0, in: model) } }
     }
 
     func veuszPlotsForIds(_ ids: [UUID]) async throws -> [VeuszPlotEntity] {
         ids.compactMap { id in
-            guard let store = VeuszPlotStoreRegistry.shared.store(owningPlotID: id) else {
-                return nil
-            }
-            guard let plot = store.plots.first(where: { $0.id == id }) else { return nil }
-            return Self.entity(for: plot, in: store)
+            ManuscriptProjectModel.locate(fileID: id).map { Self.entity(for: $0.file, in: $0.model) }
         }
     }
 
     func searchVeuszPlotsByTitle(_ query: String) async throws -> [VeuszPlotEntity] {
         let needle = query.lowercased()
-        return VeuszPlotStoreRegistry.shared.allStores.flatMap { store -> [VeuszPlotEntity] in
-            store.plots
-                .filter { $0.displayName.lowercased().contains(needle) }
-                .map { Self.entity(for: $0, in: store) }
+        return ManuscriptProjectModel.loaded.flatMap { model -> [VeuszPlotEntity] in
+            model.figures
+                .filter { $0.path.lowercased().contains(needle) }
+                .map { Self.entity(for: $0, in: model) }
         }
     }
 
     func openVeuszPlot(plotID: UUID) async throws {
-        guard let store = VeuszPlotStoreRegistry.shared.store(owningPlotID: plotID) else {
-            throw ImprintIntentError.executionFailed("No open document tracks plot \(plotID).")
+        guard let (model, figure) = ManuscriptProjectModel.locate(fileID: plotID) else {
+            throw ImprintIntentError.executionFailed("No open manuscript holds figure \(plotID).")
         }
-        guard store.openInVeusz(plotID: plotID) else {
-            throw ImprintIntentError.executionFailed("Launch Services declined to open Veusz.")
+        let kind = model.figureKind(of: figure) ?? ""
+        guard ManuscriptEditorEnvironment.shared.figureEditorAvailable(kind) else {
+            throw ImprintIntentError.executionFailed("No external editor for a \(kind) figure; edit it in imprint.")
+        }
+        guard let url = model.beginExternalEdit(path: figure.path),
+              ManuscriptEditorEnvironment.shared.openFigureExternally(url, kind) else {
+            throw ImprintIntentError.executionFailed(model.lastError ?? "The editor did not open.")
         }
     }
 
     func renderVeuszPlot(plotID: UUID, format: String?) async throws {
-        guard let store = VeuszPlotStoreRegistry.shared.store(owningPlotID: plotID) else {
-            throw ImprintIntentError.executionFailed("No open document tracks plot \(plotID).")
+        guard let (model, figure) = ManuscriptProjectModel.locate(fileID: plotID) else {
+            throw ImprintIntentError.executionFailed("No open manuscript holds figure \(plotID).")
         }
-        if let format,
-           let typed = VeuszPlotRef.ExportFormat(rawValue: format.lowercased()) {
-            await store.setFormat(plotID: plotID, to: typed)
-        } else {
-            await store.rerender(plotID: plotID)
+        if let format, let json = figure.buildJSON,
+           var raw = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
+           let outputs = raw["outputs"] as? [String], let first = outputs.first {
+            // A requested format renames the first declared output.
+            let stem = (first as NSString).deletingPathExtension
+            raw["outputs"] = ["\(stem).\(format.lowercased())"] + outputs.dropFirst()
+            if let data = try? JSONSerialization.data(withJSONObject: raw), let text = String(data: data, encoding: .utf8) {
+                model.setBuildJSON(path: figure.path, json: text)
+            }
+        }
+        let result = await model.renderFigure(path: figure.path, force: true, allowShell: false, record: true)
+        if let result, !result.isSuccess {
+            throw ImprintIntentError.executionFailed(result.message)
         }
     }
 
     func insertVeuszPlot(plotID: UUID, documentID: UUID) async throws {
-        guard let store = VeuszPlotStoreRegistry.shared.store(forDocumentID: documentID) else {
-            throw ImprintIntentError.documentNotFound(documentID.uuidString)
+        let model = ManuscriptProjectModel.shared(for: documentID)
+        guard let figure = model.files.first(where: { $0.id == plotID }) else {
+            throw ImprintIntentError.executionFailed("Figure \(plotID) is not in manuscript \(documentID).")
         }
-        guard let plot = store.plots.first(where: { $0.id == plotID }) else {
-            throw ImprintIntentError.executionFailed("Plot \(plotID) not found in document \(documentID).")
+        guard let snippet = model.placementSnippet(for: figure) else {
+            throw ImprintIntentError.executionFailed("\(figure.path) has no output to place; render it first.")
         }
-        guard let document = DocumentRegistry.shared.document(withId: documentID) else {
-            throw ImprintIntentError.documentNotFound(documentID.uuidString)
-        }
-        let snippet = VeuszPlotInsertion.block(for: plot, format: document.format)
-        NotificationCenter.default.post(
-            name: VeuszPlotInsertion.notificationName,
-            object: nil,
-            userInfo: [
-                "plotID": plot.id,
-                "snippet": snippet,
-                "documentID": documentID,
-            ]
-        )
+        ManuscriptSnippetInsertion.post(documentID: documentID, snippet: snippet)
     }
 
     func createVeuszPlot(documentID: UUID, name: String) async throws -> VeuszPlotEntity {
-        guard let store = VeuszPlotStoreRegistry.shared.store(forDocumentID: documentID) else {
-            throw ImprintIntentError.documentNotFound(documentID.uuidString)
+        let model = ManuscriptProjectModel.shared(for: documentID)
+        let path = name.contains("/") ? name : "figures/\(name)"
+        guard let row = model.newFigure(kind: "veusz", path: path) else {
+            throw ImprintIntentError.executionFailed(model.lastError ?? "The figure could not be created.")
         }
-        let plot = try await store.createPlot(name: name)
-        return Self.entity(for: plot, in: store)
+        return Self.entity(for: row, in: model)
     }
 
     // MARK: - Mapping helpers
@@ -239,14 +247,4 @@ final class ImprintIntentServiceImpl: ImprintIntentService {
         )
     }
 
-    private static func entity(for plot: VeuszPlotRef, in store: VeuszPlotStore) -> VeuszPlotEntity {
-        VeuszPlotEntity(
-            id: plot.id,
-            title: plot.displayName,
-            documentID: store.documentID,
-            renderedFormat: plot.exportFormat.rawValue,
-            renderedRelativePath: plot.renderedRelativePath,
-            lastRenderedAt: plot.lastRenderedAt
-        )
-    }
 }

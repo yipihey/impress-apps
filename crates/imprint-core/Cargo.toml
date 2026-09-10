@@ -31,7 +31,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 default = []
 uniffi = ["dep:uniffi"]
 # Enable Typst rendering support (requires typst dependencies)
-typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo", "dep:impress-plot", "dep:implore-io"]
+typst-render = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo", "dep:impress-plot", "dep:implore-io", "dep:implore-core"]
 # Full native build with both UniFFI and Typst
 native = ["uniffi", "typst-render"]
 # Enable the self-contained Tectonic LaTeX engine (heavy C dependency tree:
@@ -108,6 +108,8 @@ impress-plot = { path = "../impress-plot", optional = true }
 # HDF5/FITS (C deps) remain deferred pending vcpkg static vendoring. Enabled
 # with the plot FFI.
 implore-io = { path = "../implore-io", optional = true, features = ["csv", "npz", "parquet"] }
+# implore's `PlotSpec` → lilaq Typst generator, for the `implore` figure runner (ADR-0030 D13).
+implore-core = { workspace = true, optional = true }
 
 # Tectonic self-contained LaTeX engine (optional, behind `tectonic-render`).
 # Default features keep bundled HarfBuzz + reqwest-based bundle fetching.

@@ -45,6 +45,20 @@ public struct ManuscriptSourceTab: View {
             editorSplit
             compileStrip
         }
+        // Insertions asked for from outside the view tree (App Intents, the
+        // HTTP API, the Plots panel placing a figure).
+        .onReceive(NotificationCenter.default.publisher(for: .manuscriptInsertSnippet)) { note in
+            guard let info = note.userInfo, let snippet = info["snippet"] as? String else { return }
+            if let target = info["documentID"] as? UUID, target != session.manuscriptID { return }
+            insertAtCursor(snippet)
+        }
+        // A menu item or shortcut asking for one inspector panel (⌥⌘P → Plots).
+        .onReceive(NotificationCenter.default.publisher(for: .manuscriptShowSidePanel)) { note in
+            guard let id = note.userInfo?["panel"] as? String,
+                  sidePanels.contains(where: { $0.id == id }) else { return }
+            inspectorPanelID = id
+            showInspector = true
+        }
     }
 
     @ViewBuilder

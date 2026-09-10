@@ -1,7 +1,8 @@
 //! lilaq backend — translates `PlotSpec` → Typst source with lilaq → SVG/PDF.
 //!
 //! Requires the `lilaq` feature flag.  Generates Typst markup using the
-//! `@preview/lilaq:0.2.0` package for publication-quality figures.
+//! `@preview/lilaq:0.6.0` package (the version vendored for imprint's engine)
+//! for publication-quality figures.
 
 use super::types::*;
 
@@ -9,122 +10,164 @@ use super::types::*;
 ///
 /// The output can be compiled with a Typst engine to produce SVG or PDF.
 /// This always works (no feature gate) since it's pure string generation.
+/// The lilaq package the generated source imports — the version vendored in
+/// `vendor/typst-packages` (imprint's engine resolves it offline).
+pub const LILAQ_PACKAGE: &str = "@preview/lilaq:0.6.0";
+
+/// A number list as Typst reads it: `(1, 2.5, 3)`.
+fn typst_array(values: &[f64]) -> String {
+    let items: Vec<String> = values.iter().map(|v| format_f64(*v)).collect();
+    if items.len() == 1 {
+        format!("({},)", items[0])
+    } else {
+        format!("({})", items.join(", "))
+    }
+}
+
 pub fn plot_spec_to_typst(spec: &PlotSpec) -> String {
     let mut lines = Vec::new();
-
-    lines.push(r#"#import "@preview/lilaq:0.2.0": *"#.to_string());
+    lines.push(format!("#import \"{LILAQ_PACKAGE}\" as lq"));
+    // A figure is its own page, hugging the diagram.
+    lines.push("#set page(width: auto, height: auto, margin: 2pt)".to_string());
     lines.push(String::new());
 
-    // Build diagram arguments
+    // Diagram arguments (lilaq 0.6: `lq.diagram(width:, height:, title:,
+    // xlabel:, ylabel:, xlim:, ylim:, xscale:, yscale:, legend:, ...plots)`).
     let mut diagram_args = Vec::new();
-
+    diagram_args.push(format!(
+        "  width: {}pt, height: {}pt",
+        format_f64(spec.width.max(32.0)),
+        format_f64(spec.height.max(32.0))
+    ));
+    if let Some(title) = &spec.title {
+        if !title.is_empty() {
+            diagram_args.push(format!("  title: [{}]", escape_typst(title)));
+        }
+    }
     if let Some(label) = &spec.x_axis.label {
         diagram_args.push(format!("  xlabel: [{}]", escape_typst(label)));
     }
     if let Some(label) = &spec.y_axis.label {
         diagram_args.push(format!("  ylabel: [{}]", escape_typst(label)));
     }
-
-    // Axis bounds
-    if let Some(min) = spec.x_axis.min {
-        if let Some(max) = spec.x_axis.max {
-            diagram_args.push(format!(
-                "  xlim: ({}, {})",
-                format_f64(min),
-                format_f64(max)
-            ));
-        }
+    if let (Some(min), Some(max)) = (spec.x_axis.min, spec.x_axis.max) {
+        diagram_args.push(format!(
+            "  xlim: ({}, {})",
+            format_f64(min),
+            format_f64(max)
+        ));
     }
-    if let Some(min) = spec.y_axis.min {
-        if let Some(max) = spec.y_axis.max {
-            diagram_args.push(format!(
-                "  ylim: ({}, {})",
-                format_f64(min),
-                format_f64(max)
-            ));
-        }
+    if let (Some(min), Some(max)) = (spec.y_axis.min, spec.y_axis.max) {
+        diagram_args.push(format!(
+            "  ylim: ({}, {})",
+            format_f64(min),
+            format_f64(max)
+        ));
+    }
+    if spec.x_axis.log_scale {
+        diagram_args.push("  xscale: \"log\"".to_string());
+    }
+    if spec.y_axis.log_scale {
+        diagram_args.push("  yscale: \"log\"".to_string());
+    }
+    if !spec.legend.visible {
+        diagram_args.push("  legend: none".to_string());
     }
 
-    // Data series as plot commands
+    // Data series as lilaq plot objects.
     let mut plot_calls = Vec::new();
-
     for series in &spec.series {
         let n = series.x.len().min(series.y.len());
         if n == 0 {
             continue;
         }
-
-        // Build data array: ((x0, y0), (x1, y1), ...)
-        let mut data_items = Vec::new();
+        let mut xs = Vec::with_capacity(n);
+        let mut ys = Vec::with_capacity(n);
+        let mut lows = Vec::with_capacity(n);
+        let mut highs = Vec::with_capacity(n);
         for i in 0..n {
             if series.x[i].is_finite() && series.y[i].is_finite() {
-                data_items.push(format!(
-                    "({}, {})",
-                    format_f64(series.x[i]),
-                    format_f64(series.y[i])
-                ));
+                xs.push(series.x[i]);
+                ys.push(series.y[i]);
+                lows.push(
+                    series
+                        .error_low
+                        .as_ref()
+                        .and_then(|e| e.get(i).copied())
+                        .unwrap_or(0.0),
+                );
+                highs.push(
+                    series
+                        .error_high
+                        .as_ref()
+                        .and_then(|e| e.get(i).copied())
+                        .unwrap_or(0.0),
+                );
             }
         }
-        let data_str = format!("({})", data_items.join(", "));
-
+        if xs.is_empty() {
+            continue;
+        }
         let color = typst_color(&series.color);
-
+        let label =
+            (!series.label.is_empty()).then(|| format!("label: [{}]", escape_typst(&series.label)));
+        let yerr = (series.error_low.is_some() || series.error_high.is_some()).then(|| {
+            format!(
+                "yerr: (p: {}, m: {})",
+                typst_array(&highs),
+                typst_array(&lows)
+            )
+        });
+        let data = format!("{}, {}", typst_array(&xs), typst_array(&ys));
+        let mut args: Vec<String> = vec![data];
         match series.style {
             SeriesStyle::Line | SeriesStyle::Step => {
-                let mut args = vec![data_str];
-                args.push(format!("stroke: {}", color));
-                if !series.label.is_empty() {
-                    args.push(format!("label: [{}]", escape_typst(&series.label)));
-                }
-                plot_calls.push(format!("  plot.line({})", args.join(", ")));
+                args.push(format!("color: {color}"));
+                args.push("mark: none".into());
+                args.push(format!(
+                    "stroke: {}pt",
+                    format_f64(series.line_width.max(0.1))
+                ));
+                args.extend(yerr);
+                args.extend(label);
+                plot_calls.push(format!("  lq.plot({})", args.join(", ")));
             }
             SeriesStyle::Scatter => {
-                let mut args = vec![data_str];
-                args.push(format!("fill: {}", color));
-                if !series.label.is_empty() {
-                    args.push(format!("label: [{}]", escape_typst(&series.label)));
-                }
-                plot_calls.push(format!("  plot.scatter({})", args.join(", ")));
+                args.push(format!("color: {color}"));
+                args.push(format!(
+                    "size: {}pt",
+                    format_f64((series.point_radius * 2.0).max(1.0))
+                ));
+                args.extend(label);
+                plot_calls.push(format!("  lq.scatter({})", args.join(", ")));
             }
             SeriesStyle::LineScatter => {
-                let mut line_args = vec![data_str.clone()];
-                line_args.push(format!("stroke: {}", color));
-                if !series.label.is_empty() {
-                    line_args.push(format!("label: [{}]", escape_typst(&series.label)));
-                }
-                plot_calls.push(format!("  plot.line({})", line_args.join(", ")));
-
-                let mut scatter_args = vec![data_str];
-                scatter_args.push(format!("fill: {}", color));
-                plot_calls.push(format!("  plot.scatter({})", scatter_args.join(", ")));
+                args.push(format!("color: {color}"));
+                args.push("mark: \"o\"".into());
+                args.push(format!(
+                    "stroke: {}pt",
+                    format_f64(series.line_width.max(0.1))
+                ));
+                args.extend(yerr);
+                args.extend(label);
+                plot_calls.push(format!("  lq.plot({})", args.join(", ")));
             }
             SeriesStyle::Bar => {
-                let mut args = vec![data_str];
-                args.push(format!("fill: {}", color));
-                if !series.label.is_empty() {
-                    args.push(format!("label: [{}]", escape_typst(&series.label)));
-                }
-                plot_calls.push(format!("  plot.bar({})", args.join(", ")));
+                args.push(format!("fill: {color}"));
+                args.extend(label);
+                plot_calls.push(format!("  lq.bar({})", args.join(", ")));
             }
         }
     }
 
-    // Title
-    if let Some(title) = &spec.title {
-        lines.push(format!("= {}", escape_typst(title)));
-        lines.push(String::new());
-    }
-
-    // Assemble diagram call
-    lines.push("#diagram(".to_string());
+    lines.push("#lq.diagram(".to_string());
     for arg in &diagram_args {
-        lines.push(format!("{},", arg));
+        lines.push(format!("{arg},"));
     }
     for call in &plot_calls {
-        lines.push(format!("{},", call));
+        lines.push(format!("{call},"));
     }
     lines.push(")".to_string());
-
     lines.join("\n")
 }
 
@@ -229,7 +272,8 @@ mod tests {
         assert!(typst.contains("lilaq"));
         assert!(typst.contains("xlabel: [x]"));
         assert!(typst.contains("ylabel: [y]"));
-        assert!(typst.contains("plot.line"));
+        assert!(typst.contains("lq.plot("));
+        assert!(typst.contains("mark: none"));
         assert!(typst.contains("label: [data]"));
     }
 
@@ -237,7 +281,7 @@ mod tests {
     fn test_typst_scatter() {
         let spec = PlotSpec::new().scatter(vec![1.0, 2.0], vec![3.0, 4.0], "pts");
         let typst = plot_spec_to_typst(&spec);
-        assert!(typst.contains("plot.scatter"));
+        assert!(typst.contains("lq.scatter((1, 2), (3, 4)"), "{typst}");
     }
 
     #[test]
@@ -247,8 +291,8 @@ mod tests {
                 .line(vec![0.0], vec![0.0], "a")
                 .scatter(vec![1.0], vec![1.0], "b");
         let typst = plot_spec_to_typst(&spec);
-        assert!(typst.contains("plot.line"));
-        assert!(typst.contains("plot.scatter"));
+        assert!(typst.contains("lq.plot((0,), (0,)"), "{typst}");
+        assert!(typst.contains("lq.scatter((1,), (1,)"), "{typst}");
     }
 
     #[test]

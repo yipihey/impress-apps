@@ -997,7 +997,8 @@ struct ImprintApp: App {
             .keyboardShortcut("C", modifiers: [.command, .shift])
 
             Button("Show Plots Panel") {
-                NotificationCenter.default.post(name: .toggleVeuszPlotsPanel, object: nil)
+                NotificationCenter.default.post(
+                    name: .manuscriptShowSidePanel, object: nil, userInfo: ["panel": "plots"])
             }
             .keyboardShortcut("P", modifiers: [.command, .option])
 
@@ -1007,13 +1008,6 @@ struct ImprintApp: App {
             .keyboardShortcut("/", modifiers: [.command])
         }
 
-        CommandGroup(after: .pasteboard) {
-            Button("Insert Veusz Plot…") {
-                NotificationCenter.default.post(name: .presentVeuszPlotPicker, object: nil)
-            }
-            // ⌃⌘V — was ⌘⇧I, which collided with "Import to Manuscript Library…"
-            .keyboardShortcut("V", modifiers: [.command, .control])
-        }
 
         // Format menu
         CommandMenu("Format") {
@@ -1161,9 +1155,6 @@ class AppState {
     /// Whether the throughline pane is visible (ADR-0016). Off by default;
     /// the pane itself is inert for documents without a throughline.
     var showingThroughline = false
-
-    /// Whether the Veusz plots inspector panel is visible
-    var showingVeuszPlots = false
 
     /// Whether the outline/project sidebar is visible (⌃⌘S, matches imbib)
     var showingOutline = true

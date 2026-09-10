@@ -178,6 +178,23 @@ fn validate_role(role: &str) -> Result<(), StoreError> {
 
 /// A sensible role for a path nobody classified: by extension.
 pub fn default_role_for(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    // A spec file is a figure source whatever its extension says.
+    if lower.ends_with(".plot.json") {
+        return "figure-source";
+    }
+    // Text under a figures directory is what MAKES figures (a lilaq or
+    // lilook `.typ`, a TikZ `.tex`), not a chapter.
+    let in_figures_dir = lower
+        .rsplit_once('/')
+        .map(|(dir, _)| {
+            dir.split('/')
+                .any(|c| matches!(c, "figures" | "figs" | "plots" | "fig"))
+        })
+        .unwrap_or(false);
+    if in_figures_dir && matches!(extension_of(path).as_deref(), Some("typ") | Some("tex")) {
+        return "figure-source";
+    }
     match extension_of(path).as_deref() {
         Some("tex") | Some("typ") | Some("md") | Some("markdown") | Some("txt") => "chapter",
         Some("bib") | Some("bibtex") | Some("bst") => "bibliography",
@@ -795,6 +812,33 @@ pub fn set_entry_path(
         mark_project(store, &item, author)?;
     }
     Ok(path)
+}
+
+/// Record where the project is checked out (`working_copy_path`), or clear
+/// it with `None`. Editorial, Durable, like the entry path.
+pub fn set_working_copy_path(
+    store: &SqliteItemStore,
+    manuscript: ItemId,
+    path: Option<&str>,
+    author: &Author,
+) -> Result<(), StoreError> {
+    let item = manuscript_row(store, manuscript)?;
+    let value = path
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(String::from);
+    if str_of(&item.payload, "working_copy_path").filter(|p| !p.trim().is_empty()) == value {
+        return Ok(());
+    }
+    editorial(
+        store,
+        manuscript,
+        "working_copy_path",
+        Value::String(value.unwrap_or_default()),
+        "working copy",
+        author,
+    )?;
+    mark_project(store, &item, author)
 }
 
 /// Declare the targets (`[{id, name, entry, engine, output_kind, args[]}]`).

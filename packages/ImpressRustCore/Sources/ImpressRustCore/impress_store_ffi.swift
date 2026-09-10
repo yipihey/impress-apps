@@ -1862,6 +1862,12 @@ public protocol SharedStoreProtocol : AnyObject {
     func manuscriptProjectSetTargets(manuscriptId: String, targetsJson: String?, author: String) throws 
     
     /**
+     * Record where the project is checked out (`working_copy_path`), or
+     * clear it with `None` (ADR-0030 D11).
+     */
+    func manuscriptProjectSetWorkingCopy(manuscriptId: String, path: String?, author: String?) throws 
+    
+    /**
      * The project in one read (ADR-0030 D1).
      */
     func manuscriptProjectSnapshot(manuscriptId: String) throws  -> SharedProjectSnapshot
@@ -2932,6 +2938,19 @@ open func manuscriptProjectSetTargets(manuscriptId: String, targetsJson: String?
         FfiConverterString.lower(manuscriptId),
         FfiConverterOptionString.lower(targetsJson),
         FfiConverterString.lower(author),$0
+    )
+}
+}
+    
+    /**
+     * Record where the project is checked out (`working_copy_path`), or
+     * clear it with `None` (ADR-0030 D11).
+     */
+open func manuscriptProjectSetWorkingCopy(manuscriptId: String, path: String?, author: String?)throws  {try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_set_working_copy(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterOptionString.lower(path),
+        FfiConverterOptionString.lower(author),$0
     )
 }
 }
@@ -14196,6 +14215,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_set_targets() != 54957) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_set_working_copy() != 12049) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_snapshot() != 30670) {

@@ -409,6 +409,22 @@ impl SharedStore {
         Ok(mp::record_derived(&self.inner, id, &output, &source, &input_hash)?.into())
     }
 
+    /// Record where the project is checked out (`working_copy_path`), or
+    /// clear it with `None` (ADR-0030 D11).
+    pub fn manuscript_project_set_working_copy(
+        &self,
+        manuscript_id: String,
+        path: Option<String>,
+        author: Option<String>,
+    ) -> Result<(), SharedStoreError> {
+        let id = parse_id(&manuscript_id)?;
+        let author = author
+            .map(mp::Author::human)
+            .unwrap_or_else(|| mp::Author::human("user:local"));
+        mp::set_working_copy_path(&self.inner, id, path.as_deref(), &author)?;
+        Ok(())
+    }
+
     /// The newest `ok` build of a target (any target when `None`).
     pub fn manuscript_project_latest_build(
         &self,

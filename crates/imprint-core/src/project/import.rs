@@ -16,6 +16,7 @@ use super::scan::{scan, DepKind};
 
 /// Names and suffixes a build leaves behind — never imported.
 pub const DEFAULT_EXCLUDES: &[&str] = &[
+    ".impress-materialized",
     ".git",
     ".hg",
     ".svn",
@@ -258,6 +259,20 @@ pub fn import_directory(root: &Path, options: &ImportOptions) -> Result<Imported
 
 /// Extension-based role for an imported path (mirrors the store's default).
 fn default_role(path: &str) -> FileRole {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".plot.json") {
+        return FileRole::FigureSource;
+    }
+    let in_figures_dir = lower
+        .rsplit_once('/')
+        .map(|(dir, _)| {
+            dir.split('/')
+                .any(|c| matches!(c, "figures" | "figs" | "plots" | "fig"))
+        })
+        .unwrap_or(false);
+    if in_figures_dir && matches!(extension_of(path).as_deref(), Some("typ") | Some("tex")) {
+        return FileRole::FigureSource;
+    }
     match extension_of(path).as_deref() {
         Some("tex") | Some("typ") | Some("md") | Some("markdown") | Some("txt") | Some("qmd") => {
             FileRole::Chapter

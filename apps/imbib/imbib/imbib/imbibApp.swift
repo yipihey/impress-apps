@@ -74,7 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Install the shared native-plotting inspector into the manuscript
         // editor. imprint contributes a richer panel set from its own target;
         // imbib installs just this one (both drive impress-plot via ImprintCore).
-        ManuscriptEditorEnvironment.shared.sidePanels = [PlotInspectorPanel()]
+        ManuscriptEditorEnvironment.shared.sidePanels = [ManuscriptPlotsPanel()]
 
         // Citation seam: back the editor's @-trigger citation palette, the
         // cite-key hover preview, and the compile-time virtual bibliography

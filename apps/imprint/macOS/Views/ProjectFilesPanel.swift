@@ -79,7 +79,7 @@ struct ProjectFilesPanel: View {
             get: { editingPath.map(EditingFile.init) },
             set: { editingPath = $0?.path }
         )) { file in
-            ProjectFileEditorSheet(manuscriptID: manuscriptID, path: file.path)
+            ManuscriptFileEditorSheet(manuscriptID: manuscriptID, path: file.path)
         }
         .alert("Rename file", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Path", text: $renameTo)
@@ -341,33 +341,4 @@ private struct EditingFile: Identifiable {
     var id: String { path }
 }
 
-/// One project file in its own editor: the shared Source tab over a session
-/// bound to the file's document (compiles build the whole tree).
-private struct ProjectFileEditorSheet: View {
-    let manuscriptID: UUID
-    let path: String
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(path).font(.headline)
-                Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
-            .padding(10)
-            Divider()
-            if let session = ManuscriptSessionRegistry.shared.fileSession(manuscriptID: manuscriptID, path: path) {
-                ManuscriptSourceTab(session: session)
-            } else {
-                ContentUnavailableView(
-                    "Cannot edit \(path)",
-                    systemImage: "doc.questionmark",
-                    description: Text("The file is binary, or its text is not in this workspace."))
-            }
-        }
-        .impressResizableSheet(minWidth: 900, minHeight: 600)
-    }
-}
 #endif

@@ -309,3 +309,91 @@ extension TypstRenderer {
 public func markdownToTypst(_ markdown: String) -> String {
     ImprintRustCore.markdownToTypst(markdown: markdown)
 }
+
+// MARK: - Figures (ADR-0030 D13)
+
+/// A starter figure of a kind, with the build spec that renders it.
+public struct FigureTemplate: Sendable {
+    public let kind: String
+    public let path: String
+    public let text: String
+    public let buildJSON: String
+}
+
+/// `veusz | lilaq | typst | implore | impress-plot | script`, or nil when the
+/// kind is unknown.
+public func figureTemplate(kind: String, path: String) -> FigureTemplate? {
+    let t = ImprintRustCore.figureTemplate(kind: kind, path: path)
+    guard t.ok else { return nil }
+    return FigureTemplate(kind: t.kind, path: t.path, text: t.text, buildJSON: t.buildJson)
+}
+
+/// The figure kind a path (and its text) implies; nil for a file that is
+/// not a figure source.
+public func figureKind(of path: String, text: String?) -> String? {
+    ImprintRustCore.figureKindOf(path: path, text: text)
+}
+
+/// The build spec a figure source gets by its name when none is declared.
+public func defaultFigureBuildJSON(path: String, text: String?) -> String? {
+    ImprintRustCore.defaultFigureBuildJson(path: path, text: text)
+}
+
+/// One figure rendered: native kinds in memory, Veusz and scripts in the
+/// work directory.
+public struct TreeFigureRender: Sendable {
+    public let isSuccess: Bool
+    public let path: String
+    public let runner: String
+    /// ran | fresh | skipped | failed | none
+    public let status: String
+    public let message: String
+    public let svg: String?
+    public let produced: [TreeProducedFile]
+    public let log: String
+    public let durationMs: UInt64
+
+    public init(
+        isSuccess: Bool, path: String, runner: String, status: String, message: String,
+        svg: String?, produced: [TreeProducedFile], log: String, durationMs: UInt64
+    ) {
+        self.isSuccess = isSuccess
+        self.path = path
+        self.runner = runner
+        self.status = status
+        self.message = message
+        self.svg = svg
+        self.produced = produced
+        self.log = log
+        self.durationMs = durationMs
+    }
+}
+
+extension TypstRenderer {
+    /// Render one figure of a tree the app holds. `force` re-renders a
+    /// fresh step. The caller records `produced` as rows.
+    public func renderFigure(
+        files: [TreeRenderFile],
+        entryPath: String,
+        format: String,
+        path: String,
+        workDir: URL,
+        allowShell: Bool,
+        force: Bool
+    ) async -> TreeFigureRender {
+        let ffiFiles = files.map(\.ffi)
+        let dir = workDir.path
+        let r = await Task.detached(priority: .userInitiated) {
+            ImprintRustCore.projectRenderFigureTree(
+                files: ffiFiles, entryPath: entryPath, format: format, path: path,
+                workDir: dir, allowShell: allowShell, force: force)
+        }.value
+        return TreeFigureRender(
+            isSuccess: r.ok, path: r.path, runner: r.runner, status: r.status, message: r.message,
+            svg: r.svg,
+            produced: r.produced.map {
+                TreeProducedFile(path: $0.path, bytes: $0.bytes, derivedFrom: $0.derivedFrom, derivedFromHash: $0.derivedFromHash)
+            },
+            log: r.log, durationMs: r.durationMs)
+    }
+}

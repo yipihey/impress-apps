@@ -20,7 +20,8 @@ use super::graph::{BuildGraph, Diagnostic, FigureStep, Severity};
 use super::markdown;
 use super::materialize::materialize;
 use super::model::{
-    dir_of, file_name_of, Engine, FileBytes, FileRole, ProjectFile, ProjectTree, Runner, Target,
+    dir_of, extension_of, file_name_of, Engine, FileBytes, FileRole, ProjectFile, ProjectTree,
+    Runner, Target,
 };
 use super::runner::{RunError, RunOutput, RunRequest, RunnerHost};
 
@@ -179,7 +180,7 @@ pub fn build(req: &BuildRequest<'_>, host: &dyn RunnerHost) -> BuildOutcome {
 
     // Figure steps, in dependency order.
     for step in &graph.steps {
-        let report = run_step(step, req, host, &mut log, &mut produced);
+        let report = run_step(step, &tree, req, host, &mut log, &mut produced, false);
         if report.status == StepStatus::Failed {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
@@ -196,12 +197,25 @@ pub fn build(req: &BuildRequest<'_>, host: &dyn RunnerHost) -> BuildOutcome {
         .filter(|s| s.status == StepStatus::Failed)
         .count();
 
-    // What the steps produced is part of the tree the engine sees.
+    // What the steps produced is part of the tree the engine sees — and of
+    // the graph the diagnostics come from: an image a step just made is no
+    // longer "not in the project", a step that ran is no longer stale.
     let tree: Cow<'_, ProjectTree> = if produced.is_empty() {
         tree
     } else {
         Cow::Owned(augmented(&tree, &produced))
     };
+    if !produced.is_empty() {
+        let after = BuildGraph::derive(&tree, req.target);
+        diagnostics.retain(|d| d.code == "step-failed");
+        diagnostics.extend(
+            after
+                .diagnostics
+                .iter()
+                .filter(|d| d.code != "unreferenced")
+                .cloned(),
+        );
+    }
 
     let result = match engine {
         Engine::Typst => typst_build(&tree, req, None, &mut log),
@@ -355,20 +369,17 @@ fn entry_text(tree: &ProjectTree, target: &Target) -> Option<String> {
 // Figure steps
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn run_step(
     step: &FigureStep,
+    tree: &ProjectTree,
     req: &BuildRequest<'_>,
     host: &dyn RunnerHost,
     log: &mut String,
     produced: &mut Vec<ProducedFile>,
+    force: bool,
 ) -> StepReport {
-    let runner_name = match &step.runner {
-        Runner::ImpressPlot => "impress-plot".to_string(),
-        Runner::Implore => "implore".to_string(),
-        Runner::Veusz => "veusz".to_string(),
-        Runner::Shell => "shell".to_string(),
-        Runner::Unknown(s) => s.clone(),
-    };
+    let runner_name = step.runner.as_str().to_string();
     let report = |status: StepStatus,
                   message: String,
                   duration_ms: u64,
@@ -382,7 +393,7 @@ fn run_step(
         input_hash: step.input_hash.clone(),
         command,
     };
-    if !step.is_stale() {
+    if !force && !step.is_stale() {
         return report(StepStatus::Fresh, "outputs are current".into(), 0, None);
     }
     if !step.missing_inputs.is_empty() {
@@ -437,13 +448,29 @@ fn run_step(
                 None => Ok(runs),
             }
         }
-        Runner::ImpressPlot | Runner::Implore => {
-            return report(
-                StepStatus::Skipped,
-                format!("the {runner_name} runner lands with P5; outputs stay as they are"),
-                0,
-                None,
-            );
+        Runner::ImpressPlot | Runner::Implore | Runner::Typst => {
+            // Native: rendered in memory, no directory, no process.
+            return match native_outputs(step, tree, log) {
+                Ok(files) => {
+                    let n = files.len();
+                    produced.extend(files);
+                    report(
+                        StepStatus::Ran,
+                        format!("{n} output(s) rendered"),
+                        start.elapsed().as_millis() as u64,
+                        None,
+                    )
+                }
+                Err(e) => {
+                    log.push_str(&format!("step {}: {e}\n", step.source));
+                    report(
+                        StepStatus::Failed,
+                        e,
+                        start.elapsed().as_millis() as u64,
+                        None,
+                    )
+                }
+            };
         }
         Runner::Unknown(name) => {
             return report(
@@ -519,6 +546,255 @@ fn run_one(host: &dyn RunnerHost, request: RunRequest) -> Result<(RunRequest, Ru
         Ok(out) => Ok((request, out)),
         Err(RunError::NotFound { program, .. }) => Err(format!("{program} is not installed here")),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+fn produced_file(step: &FigureStep, path: &str, bytes: Vec<u8>) -> ProducedFile {
+    ProducedFile {
+        path: path.to_string(),
+        bytes,
+        derived_from: step.source.clone(),
+        derived_from_hash: step.input_hash.clone(),
+    }
+}
+
+/// The outputs of a native step (D13): an impress-plot spec rendered by
+/// `impress-plot`; an implore spec turned into lilaq Typst; a Typst figure
+/// source — the last two compiled by the tree's engine with the tree as
+/// their world, so the figure's `csv("/data/…")` resolves (project paths are absolute from the root).
+#[cfg(feature = "typst-render")]
+fn native_outputs(
+    step: &FigureStep,
+    tree: &ProjectTree,
+    log: &mut String,
+) -> Result<Vec<ProducedFile>, String> {
+    use super::model::OutputKind;
+    let source_text = tree
+        .file(&step.source)
+        .and_then(|f| f.bytes.as_text())
+        .ok_or_else(|| format!("{} has no text to render", step.source))?
+        .to_string();
+    if step.outputs.is_empty() {
+        return Err(format!("{} declares no outputs", step.source));
+    }
+    let mut out = Vec::new();
+    match &step.runner {
+        Runner::ImpressPlot => {
+            let spec = crate::plot_ffi::FfiPlotSpec::from_json(&source_text)
+                .map_err(|e| format!("{}: {e}", step.source))?;
+            for output in &step.outputs {
+                let bytes = match extension_of(output).as_deref() {
+                    Some("svg") => crate::plot_ffi::render_spec_svg(&spec)?.into_bytes(),
+                    Some("png") => crate::plot_ffi::render_spec_png(&spec)?,
+                    Some("pdf") => crate::plot_ffi::render_spec_pdf(&spec)?,
+                    other => {
+                        return Err(format!(
+                            "{output}: impress-plot renders svg, png or pdf, not {other:?}"
+                        ))
+                    }
+                };
+                out.push(produced_file(step, output, bytes));
+            }
+            log.push_str(&format!(
+                "impress-plot: {} → {} output(s)\n",
+                step.source,
+                step.outputs.len()
+            ));
+        }
+        Runner::Implore | Runner::Typst => {
+            let typst_source = if step.runner == Runner::Implore {
+                let spec: implore_core::plot::types::PlotSpec = serde_json::from_str(&source_text)
+                    .map_err(|e| format!("{}: implore plot spec: {e}", step.source))?;
+                Some(implore_core::plot::lilaq_render::plot_spec_to_typst(&spec))
+            } else {
+                None
+            };
+            let mut svg: Option<String> = None;
+            let mut pdf: Option<Vec<u8>> = None;
+            for output in &step.outputs {
+                let kind = match extension_of(output).as_deref() {
+                    Some("svg") => OutputKind::Svg,
+                    Some("pdf") => OutputKind::Pdf,
+                    other => {
+                        return Err(format!(
+                            "{output}: a Typst figure renders svg or pdf (a raster export is not \
+                             in this engine), not {other:?}"
+                        ))
+                    }
+                };
+                let cached = match kind {
+                    OutputKind::Svg => svg.clone().map(String::into_bytes),
+                    _ => pdf.clone(),
+                };
+                let bytes = match cached {
+                    Some(b) => b,
+                    None => {
+                        let target = Target {
+                            id: format!("figure:{}", step.source),
+                            name: step.source.clone(),
+                            entry: step.source.clone(),
+                            engine: Engine::Typst,
+                            output_kind: kind,
+                            args: vec![],
+                        };
+                        let outcome = super::typst::compile_typst_tree(
+                            tree,
+                            &target,
+                            &[],
+                            typst_source.as_deref(),
+                        );
+                        log.push_str(&format!(
+                            "{}: {} compiled in {} ms, {} diagnostic(s)\n",
+                            step.runner.as_str(),
+                            step.source,
+                            outcome.compile_ms,
+                            outcome.diagnostics.len()
+                        ));
+                        if !outcome.ok {
+                            let first = outcome
+                                .errors()
+                                .next()
+                                .map(|d| match (&d.file, d.line) {
+                                    (Some(f), Some(l)) => format!("{f}:{l}: {}", d.message),
+                                    (Some(f), None) => format!("{f}: {}", d.message),
+                                    _ => d.message.clone(),
+                                })
+                                .unwrap_or_else(|| "the figure did not compile".into());
+                            return Err(first);
+                        }
+                        match kind {
+                            OutputKind::Svg => {
+                                let page = outcome
+                                    .svg_pages
+                                    .into_iter()
+                                    .next()
+                                    .ok_or_else(|| "no page was rendered".to_string())?;
+                                svg = Some(page.clone());
+                                page.into_bytes()
+                            }
+                            _ => {
+                                let bytes = outcome
+                                    .pdf
+                                    .ok_or_else(|| "no PDF was rendered".to_string())?;
+                                pdf = Some(bytes.clone());
+                                bytes
+                            }
+                        }
+                    }
+                };
+                out.push(produced_file(step, output, bytes));
+            }
+        }
+        other => return Err(format!("{} is not a native runner", other.as_str())),
+    }
+    Ok(out)
+}
+
+#[cfg(not(feature = "typst-render"))]
+fn native_outputs(
+    step: &FigureStep,
+    _tree: &ProjectTree,
+    _log: &mut String,
+) -> Result<Vec<ProducedFile>, String> {
+    Err(format!(
+        "the {} runner needs imprint-core's `typst-render` feature (impress-mcp and the apps have it)",
+        step.runner.as_str()
+    ))
+}
+
+/// One figure step on its own — the Plots panel's Render, and
+/// `project-render-figure`.
+#[derive(Debug, Clone)]
+pub struct FigureRender {
+    pub ok: bool,
+    pub step: Option<StepReport>,
+    pub produced: Vec<ProducedFile>,
+    /// The first SVG output, for a preview.
+    pub svg: Option<String>,
+    pub log: String,
+    pub message: String,
+    pub duration_ms: u64,
+}
+
+/// Run the figure step of `path`: its outputs come back as produced files
+/// (the caller records them), `force` re-renders a fresh step. Steps that
+/// need a directory (`veusz`, `shell`) get the tree materialised in
+/// `work_dir`.
+pub fn render_figure(
+    tree: &ProjectTree,
+    path: &str,
+    work_dir: &Path,
+    allow_shell: bool,
+    force: bool,
+    host: &dyn RunnerHost,
+) -> FigureRender {
+    let start = Instant::now();
+    let target = tree.default_target().clone();
+    let graph = BuildGraph::derive(tree, &target);
+    let Some(step) = graph.steps.iter().find(|s| s.source == path) else {
+        let reason = if tree.file(path).is_none() {
+            format!("{path} is not in the project")
+        } else {
+            format!(
+                "{path} has no figure build spec — declare one with project-set-figure-build, \
+                 or give the file a name that implies its kind (.vsz, .typ, .plot.json, .py)"
+            )
+        };
+        return FigureRender {
+            ok: false,
+            step: None,
+            produced: vec![],
+            svg: None,
+            log: String::new(),
+            message: reason,
+            duration_ms: start.elapsed().as_millis() as u64,
+        };
+    };
+    let mut log = String::new();
+    let mut produced: Vec<ProducedFile> = Vec::new();
+    if matches!(step.runner, Runner::Shell | Runner::Veusz) {
+        match materialize(tree, &[], work_dir) {
+            Ok(m) => log.push_str(&format!(
+                "materialised {} ({} written, {} unchanged)\n",
+                work_dir.display(),
+                m.written.len(),
+                m.unchanged.len()
+            )),
+            Err(e) => {
+                return FigureRender {
+                    ok: false,
+                    step: None,
+                    produced: vec![],
+                    svg: None,
+                    log,
+                    message: format!("materialise: {e}"),
+                    duration_ms: start.elapsed().as_millis() as u64,
+                }
+            }
+        }
+    }
+    let req = BuildRequest {
+        tree,
+        target: &target,
+        bibliographies: &[],
+        work_dir: work_dir.to_path_buf(),
+        allow_shell,
+        entry_override: None,
+    };
+    let report = run_step(step, tree, &req, host, &mut log, &mut produced, force);
+    let svg = produced
+        .iter()
+        .find(|p| p.path.to_ascii_lowercase().ends_with(".svg"))
+        .and_then(|p| String::from_utf8(p.bytes.clone()).ok());
+    let ok = matches!(report.status, StepStatus::Ran | StepStatus::Fresh);
+    FigureRender {
+        ok,
+        message: report.message.clone(),
+        step: Some(report),
+        produced,
+        svg,
+        log,
+        duration_ms: start.elapsed().as_millis() as u64,
     }
 }
 
@@ -1206,5 +1482,143 @@ mod tests {
         let out = build(&req, &host);
         assert!(out.ok, "{}", out.message);
         assert_eq!(host.calls().len(), 1, "latexmk settles its own passes");
+    }
+}
+
+#[cfg(all(test, feature = "typst-render"))]
+mod native_tests {
+    use super::*;
+    use crate::project::figures::{template, FigureKind};
+    use crate::project::model::BuildSpec;
+    use crate::project::runner::ScriptedRunnerHost;
+
+    fn lilaq_available() -> bool {
+        crate::typst_packages::CachedPackageResolver::discover()
+            .has_package("preview", "lilaq", "0.6.0")
+    }
+
+    fn tree_with(kind: FigureKind) -> (ProjectTree, String) {
+        let t = template(kind, "figures/growth");
+        let entry = ProjectFile::text(
+            "main.typ",
+            FileRole::Main,
+            "= Paper\n#figure(image(\"figures/growth.svg\"))",
+        );
+        let source = ProjectFile::text(t.path.clone(), FileRole::FigureSource, t.text.clone())
+            .with_build(t.build.clone());
+        (
+            ProjectTree::new("m", "Paper", "typst", entry, vec![source], vec![]),
+            t.path,
+        )
+    }
+
+    #[test]
+    fn a_typst_figure_source_renders_with_the_tree_as_its_world() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = ProjectFile::text("main.typ", FileRole::Main, "#image(\"figures/f.svg\")");
+        let source = ProjectFile::text(
+            "figures/f.typ",
+            FileRole::FigureSource,
+            "#set page(width: auto, height: auto, margin: 2pt)\n#let rows = csv(\"/data/x.csv\")\n#box(width: 4cm, height: 2cm, stroke: 1pt)[#rows.len() rows]",
+        )
+        .with_build(BuildSpec::default_for("figures/f.typ", None).unwrap());
+        let data = ProjectFile::text("data/x.csv", FileRole::Data, "a,b\n1,2\n3,4\n");
+        let tree = ProjectTree::new("m", "P", "typst", entry, vec![source, data], vec![]);
+        let host = ScriptedRunnerHost::empty();
+        let r = render_figure(&tree, "figures/f.typ", dir.path(), false, false, &host);
+        assert!(r.ok, "{}: {}", r.message, r.log);
+        assert_eq!(r.produced.len(), 1);
+        assert_eq!(r.produced[0].path, "figures/f.svg");
+        assert!(r.svg.as_deref().is_some_and(|s| s.contains("<svg")));
+        assert_eq!(r.step.as_ref().unwrap().status, StepStatus::Ran);
+
+        // Rendering again with the output in the tree is fresh; forcing re-renders.
+        let mut with_output = tree.clone();
+        with_output.upsert_file(
+            ProjectFile::binary(
+                "figures/f.svg",
+                FileRole::Output,
+                r.produced[0].bytes.clone(),
+            )
+            .with_derived("figures/f.typ", r.produced[0].derived_from_hash.clone()),
+        );
+        let fresh = render_figure(
+            &with_output,
+            "figures/f.typ",
+            dir.path(),
+            false,
+            false,
+            &host,
+        );
+        assert_eq!(fresh.step.unwrap().status, StepStatus::Fresh);
+        let forced = render_figure(
+            &with_output,
+            "figures/f.typ",
+            dir.path(),
+            false,
+            true,
+            &host,
+        );
+        assert_eq!(forced.step.unwrap().status, StepStatus::Ran);
+    }
+
+    #[test]
+    fn plot_specs_render_natively_and_through_lilaq() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = ScriptedRunnerHost::empty();
+
+        let (tree, path) = tree_with(FigureKind::ImpressPlot);
+        let r = render_figure(&tree, &path, dir.path(), false, false, &host);
+        assert!(r.ok, "{}: {}", r.message, r.log);
+        assert!(r.svg.as_deref().is_some_and(|s| s.contains("<svg")));
+
+        if !lilaq_available() {
+            eprintln!("skipping the lilaq halves: lilaq 0.6.0 not in a local typst package root");
+            return;
+        }
+        let (tree, path) = tree_with(FigureKind::ImplorePlot);
+        let r = render_figure(&tree, &path, dir.path(), false, false, &host);
+        assert!(r.ok, "{}: {}", r.message, r.log);
+        assert!(r.svg.as_deref().is_some_and(|s| s.contains("<svg")));
+
+        let (tree, path) = tree_with(FigureKind::Lilaq);
+        let r = render_figure(&tree, &path, dir.path(), false, false, &host);
+        assert!(r.ok, "{}: {}", r.message, r.log);
+        assert!(r.svg.as_deref().is_some_and(|s| s.contains("<svg")));
+
+        // A whole build runs the native step and places the figure.
+        let t = tree.default_target().clone();
+        let out = build(
+            &BuildRequest {
+                tree: &tree,
+                target: &t,
+                bibliographies: &[],
+                work_dir: dir.path().join("build"),
+                allow_shell: false,
+                entry_override: None,
+            },
+            &host,
+        );
+        assert!(out.ok, "{}: {}", out.message, out.log);
+        assert_eq!(out.steps[0].status, StepStatus::Ran);
+        assert_eq!(out.produced.len(), 1);
+        assert!(out.pdf.is_some());
+    }
+
+    #[test]
+    fn a_figure_without_a_spec_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = ProjectFile::text("main.typ", FileRole::Main, "= P");
+        let tree = ProjectTree::new("m", "P", "typst", entry, vec![], vec![]);
+        let r = render_figure(
+            &tree,
+            "figures/none.typ",
+            dir.path(),
+            false,
+            false,
+            &ScriptedRunnerHost::empty(),
+        );
+        assert!(!r.ok);
+        assert!(r.message.contains("not in the project"));
     }
 }

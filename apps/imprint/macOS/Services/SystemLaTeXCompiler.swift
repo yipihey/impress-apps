@@ -12,7 +12,7 @@ import OSLog
 /// post-compile SyncTeX load + project dependency scan. Keeping it behind the
 /// `LaTeXCompiling` protocol lets the cross-platform compile controller stay
 /// free of `#if os(macOS)` and of the macOS-only services this uses
-/// (`LaTeXCompilationService`, `SyncTeXService`, `LaTeXProjectService`).
+/// (`LaTeXCompilationService`, `SyncTeXService`).
 struct SystemLaTeXCompiler: LaTeXCompiling {
     var isSupported: Bool { true }
 
@@ -32,15 +32,12 @@ struct SystemLaTeXCompiler: LaTeXCompiling {
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             try sourceText.data(using: .utf8)?.write(to: sourceURL)
 
-            // Mirror the per-document Veusz figures dir into the compile
-            // tempdir so `\includegraphics{figures/foo.pdf}` resolves.
-            // The plot store renders into
-            //   <container>/Application Support/imprint/manuscripts/<docID>/figures/
-            // but pdfLaTeX runs with `tempDir/` as cwd and only sees what's
-            // under it. We re-build figures/ on every compile so deletes
-            // + renames in the plot panel land here too. Best-effort: a
-            // copy failure shouldn't block the compile, only log it.
-            let figuresSrc = try? VeuszWorkingDirectory().figuresDirectory(forDocumentID: request.documentID)
+            // Mirror the manuscript's figures directory (the app-group
+            // `figures/` a raster plot insert writes into) into the compile
+            // tempdir so `\includegraphics{figures/foo.pdf}` resolves for a
+            // ONE-FILE manuscript; a project builds through the Rust engine
+            // with its rows materialised (ADR-0030) and never comes here.
+            let figuresSrc = try? ManuscriptWorkingDirectory().figuresDirectory(forManuscriptID: request.documentID)
             let figuresDst = tempDir.appendingPathComponent("figures")
             try? FileManager.default.removeItem(at: figuresDst)
             if let figuresSrc, FileManager.default.fileExists(atPath: figuresSrc.path) {
@@ -147,13 +144,9 @@ struct SystemLaTeXCompiler: LaTeXCompiling {
             }
         }
 
-        guard let sourceURL else { return .empty }
-
-        // Scan project dependencies for the sidebar.
-        await LaTeXProjectService.shared.scanDependencies(from: sourceURL)
-        let files = await LaTeXProjectService.shared.allProjectFiles
-        let mainFile = await LaTeXProjectService.shared.mainFile
-        return LaTeXPostCompileResult(projectFiles: files, mainFileURL: mainFile)
+        // A one-file compile has no project to scan: the tree of a project
+        // is the store's (`project-graph`), not a directory's.
+        return LaTeXPostCompileResult(projectFiles: [], mainFileURL: sourceURL)
     }
 }
 #endif // os(macOS)

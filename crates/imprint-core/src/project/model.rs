@@ -55,15 +55,21 @@ impl FileBytes {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Runner {
-    /// A plot-spec file rendered natively through `impress-plot`.
+    /// An `impress-plot` spec (`.plot.json`) rendered natively — vector, or
+    /// raster for big N — to SVG/PNG/PDF.
     ImpressPlot,
-    /// An implore figure item exported natively.
+    /// An implore `PlotSpec` (`.plot.json`) turned into lilaq Typst and
+    /// compiled by the tree's engine.
     Implore,
     /// `veusz.exe --export`, executed by the host.
     Veusz,
     /// An explicit command line, executed by the host only when the build
     /// allows shell steps.
     Shell,
+    /// A Typst figure source (`.typ` — a lilaq figure, a lilook document,
+    /// what the plot inspector wrote) compiled by the tree's engine with the
+    /// tree as its world, so `csv("/data/…")` resolves (project paths are absolute from the root) (D13).
+    Typst,
     #[serde(untagged)]
     Unknown(String),
 }
@@ -75,13 +81,122 @@ impl Runner {
             Runner::Implore => "implore",
             Runner::Veusz => "veusz",
             Runner::Shell => "shell",
+            Runner::Typst => "typst",
             Runner::Unknown(s) => s,
         }
     }
 
+    pub fn parse(s: &str) -> Option<Runner> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "impress-plot" => Runner::ImpressPlot,
+            "implore" => Runner::Implore,
+            "veusz" => Runner::Veusz,
+            "shell" => Runner::Shell,
+            "typst" => Runner::Typst,
+            _ => return None,
+        })
+    }
+
     /// Whether the engine runs this itself (no host involvement).
     pub fn is_native(&self) -> bool {
-        matches!(self, Runner::ImpressPlot | Runner::Implore)
+        matches!(self, Runner::ImpressPlot | Runner::Implore | Runner::Typst)
+    }
+
+    /// The runner a figure source implies by its name — and, for a
+    /// `.plot.json` spec, by its shape (`spec_kind_of`).
+    pub fn default_for(path: &str, text: Option<&str>) -> Option<Runner> {
+        let lower = path.to_ascii_lowercase();
+        if lower.ends_with(".vsz") {
+            return Some(Runner::Veusz);
+        }
+        if lower.ends_with(".typ") {
+            return Some(Runner::Typst);
+        }
+        if lower.ends_with(".plot.json") || lower.ends_with(".plot") {
+            return Some(match text.map(spec_kind_of) {
+                Some(SpecKind::ImpressPlot) => Runner::ImpressPlot,
+                _ => Runner::Implore,
+            });
+        }
+        match extension_of(path).as_deref() {
+            Some("py") | Some("jl") | Some("r") | Some("sh") | Some("ipynb") => Some(Runner::Shell),
+            _ => None,
+        }
+    }
+}
+
+/// Which spec dialect a `.plot.json` holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpecKind {
+    /// implore's `PlotSpec`: `x_axis`/`y_axis`, `series[].x`/`.y`.
+    Implore,
+    /// impress-plot's inspector spec: `x`/`y` axes with `scale`,
+    /// `series[].xs`/`.ys`.
+    ImpressPlot,
+}
+
+/// Sniff a spec's dialect from its JSON. Unparseable or ambiguous text is
+/// read as implore's (the more general one).
+pub fn spec_kind_of(text: &str) -> SpecKind {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return SpecKind::Implore;
+    };
+    let Some(obj) = value.as_object() else {
+        return SpecKind::Implore;
+    };
+    if obj.contains_key("x_axis") || obj.contains_key("y_axis") {
+        return SpecKind::Implore;
+    }
+    let first_series = obj
+        .get("series")
+        .and_then(|s| s.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_object());
+    if first_series.is_some_and(|s| s.contains_key("xs") || s.contains_key("ys"))
+        || obj
+            .get("x")
+            .and_then(|x| x.as_object())
+            .is_some_and(|x| x.contains_key("scale"))
+        || obj.contains_key("colormap")
+        || obj.contains_key("strategy")
+    {
+        return SpecKind::ImpressPlot;
+    }
+    SpecKind::Implore
+}
+
+/// A verb argument as a project path: trimmed, forward slashes, no leading
+/// `./` or `/`. (The store validates fully on write.)
+pub fn normalize_display(path: &str) -> String {
+    let mut p = path.trim().replace('\\', "/");
+    while let Some(rest) = p.strip_prefix("./") {
+        p = rest.to_string();
+    }
+    p.trim_start_matches('/').to_string()
+}
+
+/// The name a figure's outputs take: the source's name without its
+/// extension chain (`figures/plot.plot.json` → `figures/plot`).
+pub fn figure_stem(path: &str) -> String {
+    let lower = path.to_ascii_lowercase();
+    for suffix in [
+        ".plot.json",
+        ".plot",
+        ".vsz",
+        ".typ",
+        ".py",
+        ".jl",
+        ".r",
+        ".sh",
+        ".ipynb",
+    ] {
+        if lower.ends_with(suffix) {
+            return path[..path.len() - suffix.len()].to_string();
+        }
+    }
+    match path.rfind('.') {
+        Some(i) if i > dir_of(path).len() => path[..i].to_string(),
+        _ => path.to_string(),
     }
 }
 
@@ -103,6 +218,40 @@ pub struct BuildSpec {
 impl BuildSpec {
     pub fn parse(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| format!("build_json: {e}"))
+    }
+
+    /// The spec a figure source gets when nobody declared one: the runner
+    /// its name implies, one SVG output beside it (scripts: their
+    /// interpreter as the command and no outputs, which the author names).
+    pub fn default_for(path: &str, text: Option<&str>) -> Option<BuildSpec> {
+        let runner = Runner::default_for(path, text)?;
+        let mut spec = BuildSpec {
+            runner: runner.clone(),
+            outputs: Vec::new(),
+            inputs: Vec::new(),
+            args: BTreeMap::new(),
+        };
+        match runner {
+            Runner::Shell => {
+                let interpreter = match extension_of(path).as_deref() {
+                    Some("py") => "python3",
+                    Some("jl") => "julia",
+                    Some("r") => "Rscript",
+                    Some("ipynb") => "jupyter nbconvert --to notebook --execute",
+                    _ => "sh",
+                };
+                spec.args.insert(
+                    "command".into(),
+                    serde_json::Value::String(format!("{interpreter} {path}")),
+                );
+            }
+            _ => spec.outputs.push(format!("{}.svg", figure_stem(path))),
+        }
+        Some(spec)
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".into())
     }
 }
 

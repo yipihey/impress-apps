@@ -13,6 +13,7 @@
 //  caller keeps the single-source path it has today.
 //
 
+import CryptoKit
 import Foundation
 import ImprintCore
 import ImpressKit
@@ -106,11 +107,29 @@ public final class ManuscriptProjectModel {
     /// Whether the manuscript has grown beyond one file.
     public var isProject: Bool { projectVersion >= 1 || !files.isEmpty }
 
+    /// A panel's own message in the model's error line.
+    public func lastErrorHint(_ message: String) { lastError = message }
+
     @ObservationIgnored private var store: SharedStore?
     @ObservationIgnored private var openAttempted = false
     @ObservationIgnored private var eventTask: Task<Void, Never>?
 
     private static var models: [UUID: ManuscriptProjectModel] = [:]
+
+    /// Every model this process has loaded (the manuscripts with an open
+    /// editor or panel) — what an intent that names only a file row can
+    /// search.
+    public static var loaded: [ManuscriptProjectModel] { Array(models.values) }
+
+    /// The loaded model holding a file row with `fileID`, and the row.
+    public static func locate(fileID: UUID) -> (model: ManuscriptProjectModel, file: ManuscriptProjectFile)? {
+        for model in models.values {
+            if let file = model.files.first(where: { $0.id == fileID }) {
+                return (model, file)
+            }
+        }
+        return nil
+    }
 
     /// One model per manuscript for the process; refreshes on its store events.
     public static func shared(for manuscriptID: UUID) -> ManuscriptProjectModel {
@@ -180,6 +199,7 @@ public final class ManuscriptProjectModel {
             format = snapshot.format
             projectVersion = Int(snapshot.projectVersion)
             targetsJSON = snapshot.targetsJson
+            snapshotWorkingCopyPath = snapshot.workingCopyPath.flatMap { $0.isEmpty ? nil : $0 }
             files = snapshot.files.map(ManuscriptProjectFile.init)
             lastError = nil
             graph = deriveGraph(entryText: snapshot.entryText)
@@ -579,6 +599,380 @@ public final class ManuscriptProjectModel {
         ImbibImpressStore.shared.postMutation(structural: false, affectedIDs: [manuscriptID], kind: .otherField)
         Logger.library.debugCapture("project builds listed: \(builds.count)", category: "manuscripts")
         return report
+    }
+
+    // MARK: - Figures (ADR-0030 D13)
+
+    /// Every figure source, in path order.
+    public var figures: [ManuscriptProjectFile] {
+        files.filter { $0.role == "figure-source" }
+    }
+
+    /// The rows a figure source made (`derived_from == path`).
+    public func outputs(of figure: ManuscriptProjectFile) -> [ManuscriptProjectFile] {
+        files.filter { $0.derivedFrom == figure.path }
+    }
+
+    /// `veusz | lilaq | typst | implore | impress-plot | script`, from the
+    /// row's name and text (Rust decides).
+    public func figureKind(of file: ManuscriptProjectFile) -> String? {
+        ImprintCore.figureKind(of: file.path, text: file.content)
+    }
+
+    /// A new figure of `kind` at `path` (the kind's extension added when
+    /// missing): the starter text as a `figure-source` row and its build
+    /// spec. Refuses an existing path.
+    @discardableResult
+    public func newFigure(kind: String, path: String) -> ManuscriptProjectFile? {
+        guard let template = figureTemplate(kind: kind, path: path) else {
+            lastError = "unknown figure kind \(kind)"
+            return nil
+        }
+        if files.contains(where: { $0.path == template.path }) {
+            lastError = "\(template.path) exists; choose another name"
+            return nil
+        }
+        guard let store = handle() else { return nil }
+        let id = manuscriptID.uuidString.lowercased()
+        do {
+            _ = try store.manuscriptProjectPutText(
+                manuscriptId: id, path: template.path, role: "figure-source", text: template.text, author: "user:local")
+            let row = try store.manuscriptProjectSetFileField(
+                manuscriptId: id, path: template.path, field: "build_json", value: template.buildJSON)
+            Logger.library.infoCapture(
+                "project figure \(template.path) (\(kind)) created with \(template.buildJSON)", category: "manuscripts")
+            lastError = nil
+            reload()
+            ImbibImpressStore.shared.postMutation(structural: false, affectedIDs: [manuscriptID], kind: .otherField)
+            return ManuscriptProjectFile(row)
+        } catch {
+            lastError = error.localizedDescription
+            Logger.library.warningCapture("project figure \(template.path) failed: \(error.localizedDescription)", category: "manuscripts")
+            return nil
+        }
+    }
+
+    /// Declare how a figure source is built (`build_json`).
+    @discardableResult
+    public func setBuildJSON(path: String, json: String?) -> ManuscriptProjectFile? {
+        guard let store = handle() else { return nil }
+        do {
+            let row = try store.manuscriptProjectSetFileField(
+                manuscriptId: manuscriptID.uuidString.lowercased(), path: path, field: "build_json", value: json)
+            reload()
+            ImbibImpressStore.shared.postMutation(structural: false, affectedIDs: [manuscriptID], kind: .otherField)
+            return ManuscriptProjectFile(row)
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Replace a figure source's text (the inspector's Save, an external
+    /// editor's write) — the graph then reads its outputs as stale.
+    @discardableResult
+    public func updateFigureSource(path: String, text: String) -> ManuscriptProjectFile? {
+        putText(path: path, text: text, role: "figure-source")
+    }
+
+    /// The last preview per figure, by content hash — a look costs one
+    /// render per edit, not one per redraw.
+    @ObservationIgnored private var previewCache: [String: (hash: String, svg: String)] = [:]
+    public private(set) var renderingFigure: String?
+
+    /// Render one figure's step through the Rust engine. `record` writes the
+    /// outputs as rows derived from the source (the panel's Render); a
+    /// preview (`record == false`) only returns the SVG. Native kinds render
+    /// in memory; Veusz and scripts run in the figures work directory.
+    @discardableResult
+    public func renderFigure(path: String, force: Bool, allowShell: Bool, record: Bool) async -> TreeFigureRender? {
+        guard let figure = files.first(where: { $0.path == path }) else { return nil }
+        if !record, let cached = previewCache[path], cached.hash == inputsHash(of: figure) {
+            return TreeFigureRender(
+                isSuccess: true, path: path, runner: "", status: "fresh", message: "cached preview",
+                svg: cached.svg, produced: [], log: "", durationMs: 0)
+        }
+        let entryText = RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)?.bodyContent ?? ""
+        let treeFiles = compileFiles(entryText: entryText)
+        let workDir = workDirectory(targetID: "figures", preview: !record)
+        renderingFigure = path
+        defer { renderingFigure = nil }
+        Logger.library.infoCapture(
+            "project figure render \(path) (force=\(force), record=\(record))", category: "manuscripts")
+        let r = await TypstRenderer().renderFigure(
+            files: treeFiles, entryPath: entryPath, format: format, path: path,
+            workDir: workDir, allowShell: allowShell, force: force || !record)
+        if r.isSuccess, let svg = r.svg {
+            previewCache[path] = (inputsHash(of: figure), svg)
+        }
+        if record, !r.produced.isEmpty {
+            var rows = 0
+            for p in r.produced {
+                let role = files.first { $0.path == p.path }?.role ?? "output"
+                if putBytes(path: p.path, data: p.bytes, role: role) != nil,
+                   let store = handle(),
+                   (try? store.manuscriptProjectRecordDerived(
+                        manuscriptId: manuscriptID.uuidString.lowercased(), output: p.path,
+                        source: p.derivedFrom, inputHash: p.derivedFromHash)) != nil {
+                    rows += 1
+                }
+            }
+            Logger.library.infoCapture(
+                "project figure \(path): \(r.status) in \(r.durationMs) ms — \(r.message); \(rows) output row(s)",
+                category: "manuscripts")
+            reload()
+        } else if !r.isSuccess {
+            lastError = r.message
+            Logger.library.warningCapture("project figure \(path): \(r.message)", category: "manuscripts")
+        }
+        return r
+    }
+
+    /// The bytes a step reads: the source's hash plus its declared inputs'.
+    private func inputsHash(of figure: ManuscriptProjectFile) -> String {
+        var parts = [figure.contentHash]
+        if let json = figure.buildJSON, let data = json.data(using: .utf8),
+           let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let inputs = raw["inputs"] as? [String] {
+            for input in inputs {
+                parts.append(files.first { $0.path == input }?.contentHash ?? "")
+            }
+        }
+        return parts.joined(separator: "|")
+    }
+
+    /// The snippet that places a figure's first output in this manuscript's
+    /// grammar.
+    public func placementSnippet(for figure: ManuscriptProjectFile) -> String? {
+        let output = outputs(of: figure).first?.path
+            ?? (figure.buildJSON.flatMap { json -> String? in
+                guard let data = json.data(using: .utf8),
+                      let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else { return nil }
+                return (raw["outputs"] as? [String])?.first
+            })
+        guard let output else { return nil }
+        let caption = figure.name.split(separator: ".").first.map(String.init) ?? figure.name
+        switch format {
+        case "latex":
+            return "\\begin{figure}\n  \\centering\n  \\includegraphics[width=\\linewidth]{\(output)}\n  \\caption{\(caption)}\n  \\label{fig:\(caption)}\n\\end{figure}"
+        case "markdown":
+            return "![\(caption)](\(output))"
+        default:
+            return "#figure(\n  image(\"\(output)\", width: 80%),\n  caption: [\(caption)],\n) <fig:\(caption)>"
+        }
+    }
+
+    // MARK: - External editors (Veusz, lilook) over a working copy of one figure
+
+    @ObservationIgnored private var externalEdits: [String: ExternalEdit] = [:]
+
+    private final class ExternalEdit {
+        let url: URL
+        var source: DispatchSourceFileSystemObject?
+        var descriptor: Int32 = -1
+        init(url: URL) { self.url = url }
+        deinit {
+            source?.cancel()
+            if descriptor >= 0 { close(descriptor) }
+        }
+    }
+
+    /// Write one figure source (and the data it declares) into the figures
+    /// work directory and hand back the file's URL for an external editor;
+    /// every save there is checked back into the row (Rust's staleness then
+    /// asks for a re-render). Idempotent per path.
+    public func beginExternalEdit(path: String) -> URL? {
+        guard let figure = files.first(where: { $0.path == path }) else { return nil }
+        let root = workDirectory(targetID: "figures", preview: false)
+        var paths = [path]
+        if let json = figure.buildJSON, let data = json.data(using: .utf8),
+           let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let inputs = raw["inputs"] as? [String] {
+            paths.append(contentsOf: inputs)
+        }
+        paths.append(contentsOf: files.filter { $0.role == "data" }.map(\.path))
+        var written = 0
+        for p in Set(paths) {
+            guard let row = files.first(where: { $0.path == p }) else { continue }
+            let url = root.appendingPathComponent(p)
+            guard let bytes = row.content?.data(using: .utf8) ?? bytes(of: p) else { continue }
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if (try? Data(contentsOf: url)) != bytes {
+                    try bytes.write(to: url, options: .atomic)
+                    written += 1
+                }
+            } catch {
+                lastError = "could not write \(p): \(error.localizedDescription)"
+                return nil
+            }
+        }
+        let url = root.appendingPathComponent(path)
+        Logger.library.infoCapture(
+            "project figure \(path): working copy at \(url.path) (\(written) file(s) written); watching for the editor's saves",
+            category: "manuscripts")
+        watchExternalEdit(path: path, url: url)
+        return url
+    }
+
+    private func watchExternalEdit(path: String, url: URL) {
+        externalEdits[path] = nil
+        let edit = ExternalEdit(url: url)
+        let fd = open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        edit.descriptor = fd
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
+        source.setEventHandler { [weak self, weak edit] in
+            guard let self, let edit else { return }
+            let events = source.data
+            if events.contains(.delete) || events.contains(.rename) {
+                // Editors that write-and-rename: re-open the new inode.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    self?.checkInExternalEdit(path: path, url: edit.url)
+                    self?.watchExternalEdit(path: path, url: edit.url)
+                }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.checkInExternalEdit(path: path, url: edit.url)
+            }
+        }
+        source.resume()
+        edit.source = source
+        externalEdits[path] = edit
+    }
+
+    /// The editor saved: the row takes the file's bytes (a text row as text).
+    private func checkInExternalEdit(path: String, url: URL) {
+        guard let row = files.first(where: { $0.path == path }), let data = try? Data(contentsOf: url) else { return }
+        if row.isText, let text = String(data: data, encoding: .utf8) {
+            if text == row.content { return }
+            Logger.library.infoCapture("project figure \(path): checked in \(text.count) chars from the editor", category: "manuscripts")
+            putText(path: path, text: text, role: row.role)
+        } else {
+            Logger.library.infoCapture("project figure \(path): checked in \(data.count) bytes from the editor", category: "manuscripts")
+            putBytes(path: path, data: data, role: row.role)
+        }
+        previewCache[path] = nil
+    }
+
+    /// Stop watching a figure's working copy.
+    public func endExternalEdit(path: String) {
+        externalEdits[path] = nil
+    }
+
+    // MARK: - Working copies (ADR-0030 D11)
+
+    /// Where the project is checked out, when it is.
+    public var workingCopyPath: String? {
+        snapshotWorkingCopyPath
+    }
+    @ObservationIgnored private var snapshotWorkingCopyPath: String?
+
+    /// Materialise every file into `directory` and remember it as the
+    /// working copy (Git, a shell, Veusz and lilook edit there).
+    @discardableResult
+    public func checkOut(to directory: URL) -> Bool {
+        guard let store = handle() else { return false }
+        let entryText = RustStoreAdapter.shared.getManuscriptDetail(id: manuscriptID)?.bodyContent ?? ""
+        var written = 0
+        for file in compileFiles(entryText: entryText) {
+            let url = directory.appendingPathComponent(file.path)
+            let bytes = file.text?.data(using: .utf8) ?? file.bytes ?? Data()
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if (try? Data(contentsOf: url)) != bytes {
+                    try bytes.write(to: url, options: .atomic)
+                    written += 1
+                }
+            } catch {
+                lastError = "could not write \(file.path): \(error.localizedDescription)"
+                return false
+            }
+        }
+        do {
+            try store.manuscriptProjectSetWorkingCopy(
+                manuscriptId: manuscriptID.uuidString.lowercased(), path: directory.path, author: "user:local")
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+        Logger.library.infoCapture("project checked out to \(directory.path): \(written) file(s) written", category: "manuscripts")
+        reload()
+        return true
+    }
+
+    /// What differs between the rows and the working copy.
+    public struct WorkingCopyStatus: Sendable {
+        public let changed: [String]
+        public let added: [String]
+        public let missing: [String]
+        public var isClean: Bool { changed.isEmpty && added.isEmpty && missing.isEmpty }
+    }
+
+    public func workingCopyStatus() -> WorkingCopyStatus? {
+        guard let path = workingCopyPath else { return nil }
+        let dir = URL(fileURLWithPath: path)
+        let plan = Self.plan(forDirectory: dir, entryOverride: entryPath)
+        guard plan.ok else {
+            lastError = plan.message
+            return nil
+        }
+        let entryHash = self.entryHash
+        var changed: [String] = [], added: [String] = [], missing: [String] = []
+        var seen = Set<String>()
+        for file in plan.files {
+            seen.insert(file.path)
+            if file.path == entryPath {
+                if file.text.map({ sha256Hex($0) }) != entryHash { changed.append(file.path) }
+                continue
+            }
+            guard let row = files.first(where: { $0.path == file.path }) else {
+                added.append(file.path)
+                continue
+            }
+            let hash = file.text.map { sha256Hex($0) } ?? file.bytes.map { sha256Hex($0) } ?? ""
+            if hash != row.contentHash { changed.append(file.path) }
+        }
+        if !seen.contains(entryPath) { missing.append(entryPath) }
+        for row in files where !seen.contains(row.path) { missing.append(row.path) }
+        return WorkingCopyStatus(changed: changed.sorted(), added: added.sorted(), missing: missing.sorted())
+    }
+
+    /// Bring the working copy's changes in: the entry through the document,
+    /// the rest as rows keeping their roles. Returns the paths checked in.
+    @discardableResult
+    public func checkIn(paths only: [String]? = nil) -> [String] {
+        guard let path = workingCopyPath, let status = workingCopyStatus() else { return [] }
+        let dir = URL(fileURLWithPath: path)
+        let plan = Self.plan(forDirectory: dir, entryOverride: entryPath)
+        var done: [String] = []
+        for p in (status.changed + status.added).sorted() where only == nil || only!.contains(p) {
+            guard let file = plan.files.first(where: { $0.path == p }) else { continue }
+            if p == entryPath {
+                guard let text = file.text else { continue }
+                let heads = RustStoreAdapter.shared.manuscriptCollabHeads(id: manuscriptID)
+                if RustStoreAdapter.shared.commitManuscriptBody(id: manuscriptID, body: text, baseHeads: heads) != nil {
+                    done.append(p)
+                }
+                continue
+            }
+            let role = files.first { $0.path == p }?.role ?? file.role
+            if let text = file.text {
+                if putText(path: p, text: text, role: role) != nil { done.append(p) }
+            } else if let bytes = file.bytes {
+                if putBytes(path: p, data: bytes, role: role) != nil { done.append(p) }
+            }
+        }
+        Logger.library.infoCapture("project check-in from \(path): \(done.count) file(s)", category: "manuscripts")
+        ManuscriptSessionRegistry.shared.refreshAllLiveSessions()
+        return done
+    }
+
+    private func sha256Hex(_ text: String) -> String { sha256Hex(Data(text.utf8)) }
+    private func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Import a directory (ADR-0030 P3)

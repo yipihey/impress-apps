@@ -137,6 +137,17 @@ a collaborator, a script or git land back as file-row updates; `project-checkin`
 hash and refuses only when an editor buffer holds unsynced edits to the same file. Git links
 the working copy — `ImprintGitIntegration` needs no new concept.
 
+### D13. A figure is a source of a kind; one panel for all of them
+
+A figure is a `figure-source` row whose kind is its format: a Veusz document (`.vsz`), a Typst
+source (`.typ` — a lilaq figure, a lilook document, what the native inspector wrote), a plot
+spec (`.plot.json`: implore's `PlotSpec` or impress-plot's, told apart by shape), a script.
+Each kind has a runner; `typst` and `implore` compile with the tree as their world through the
+one engine, `impress-plot` renders natively, `veusz` and `shell` run through the host. No Rust
+dependency on lilook (a second Typst stack): lilook — like Veusz — is an EXTERNAL EDITOR of a
+working copy of the figure that is checked back into the row on every save. ONE Plots panel in
+PMC serves imbib and imprint; the old Veusz panel and the native inspector panel fold into it.
+
 ### D12. Every capability is a verb first
 
 `imprint-project-service_project-*` (`#[impress_service]`, store-direct, works with the app
@@ -174,9 +185,9 @@ role earns its two use cases). Remote build runners. Typst `--root` semantics be
 | P2 Typst over the tree | landed | `project::{bib,outline,typst}`, verbs outline/citations/compile, `StoreBibliographyResolver`, FFI `compile_typst_tree_to_output`/`project_graph_json`, `SharedStore.manuscript_project_*`; Swift `ManuscriptProjectModel`, `ManuscriptSessionRegistry.fileSession`, tree previews, imprint Files inspector |
 | P3 materialise / import / export / snapshot | landed | `project::{materialize,import}`, verbs import-directory/export/materialize/snapshot, `manuscript_project::{create_manuscript,set_format,create_project_revision}`; selftest `project.import_export_snapshot`; imprint File ▸ Import Folder as Manuscript…, Files ▸ Import folder… |
 | P4 builds | landed | `project::{runner,build,markdown}`, verbs build/builds/build-output, FFI `project_build_tree`/`markdown_to_typst`, `SharedStore.manuscript_project_record_build/finish_build/record_derived`; selftest `project.build_records`; imprint Build inspector + File ▸ Build Manuscript (⌥⌘B); LaTeX projects preview through the engine |
-| P5 figure code (native runners) | not started | `build.rs` reports `impress-plot`/`implore` steps as `skipped`; `veusz` and `shell` run through the host today |
-| P6 working copies + git | not started | `working_copy_path` is declared on the manuscript row and unused |
-| P7 retirement + docs | in progress | `docs/imprint-projects.md` (guide), matrix rows; `LaTeXProjectService.swift`, `LaTeXProjectSidebarView`, the Swift Veusz plot list and `ManuscriptExporter`'s directory assembly still exist beside the new paths |
+| P5 figure code | landed 2026-09-10 | `project::{figures,build}`: kinds by name and shape, starters, native `typst`/`implore`/`impress-plot` steps (lilaq 0.6 vendored; implore's generator lifted to it), `render_figure`; verbs new-figure/render-figure/figure-preview; FFI `project_render_figure_tree`, `figure_template`, `figure_kind_of`, `default_figure_build_json`; PMC `ManuscriptPlotsPanel` (one panel for every kind, both apps), external editors over per-figure working copies |
+| P6 working copies | landed 2026-09-10 | `project::working_copy::diff`, `manuscript_project::set_working_copy_path`, verbs checkout/status/checkin; Swift `ManuscriptProjectModel.{checkOut,workingCopyStatus,checkIn}` |
+| P7 retirement + docs | landed 2026-09-10 | Veusz plumbing and the LaTeX project scanner deleted (see the matrix's "retired" row); the Veusz intents and routes repointed at project figures; `docs/imprint-projects.md`, matrix, memory |
 
 Verification is the workspace gate plus `cargo test -p impress-core --features "sqlite collab"
 --test manuscript_project`, `cargo test -p imprint-core --features typst-render`,

@@ -25,8 +25,6 @@ extension Notification.Name {
     static let toggleAIAssistant = Notification.Name("toggleAIAssistant")
     static let toggleCommentsSidebar = Notification.Name("toggleCommentsSidebar")
     static let toggleThroughlinePane = Notification.Name("toggleThroughlinePane")
-    static let toggleVeuszPlotsPanel = Notification.Name("toggleVeuszPlotsPanel")
-    static let presentVeuszPlotPicker = Notification.Name("presentVeuszPlotPicker")
     static let addCommentAtSelection = Notification.Name("addCommentAtSelection")
     static let showAIContextMenu = Notification.Name("showAIContextMenu")
     /// Run a specific AI author-task on a source range (from a cell bracket or

@@ -1350,6 +1350,140 @@ pub fn project_build_tree(
     }
 }
 
+/// A starter figure of a kind (ADR-0030 D13), with the build spec that
+/// renders it.
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiFigureTemplate {
+    pub ok: bool,
+    /// veusz | lilaq | typst | implore | impress-plot | script
+    pub kind: String,
+    pub path: String,
+    pub text: String,
+    pub build_json: String,
+    pub message: String,
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn figure_template(kind: String, path: String) -> FfiFigureTemplate {
+    match crate::project::FigureKind::parse(&kind) {
+        Some(k) => {
+            let t = crate::project::template(k, &path);
+            FfiFigureTemplate {
+                ok: true,
+                kind: k.as_str().into(),
+                path: t.path,
+                text: t.text,
+                build_json: t.build.to_json(),
+                message: String::new(),
+            }
+        }
+        None => FfiFigureTemplate {
+            ok: false,
+            kind: kind.clone(),
+            path,
+            text: String::new(),
+            build_json: String::new(),
+            message: format!(
+                "kind {kind:?}: veusz | lilaq | typst | implore | impress-plot | script"
+            ),
+        },
+    }
+}
+
+/// The figure kind a path (and its text) implies, or `None` for a file that
+/// is not a figure source.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn figure_kind_of(path: String, text: Option<String>) -> Option<String> {
+    crate::project::FigureKind::detect(&path, text.as_deref()).map(|k| k.as_str().to_string())
+}
+
+/// The build spec a figure source gets by its name when none is declared,
+/// as JSON.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn default_figure_build_json(path: String, text: Option<String>) -> Option<String> {
+    crate::project::BuildSpec::default_for(&path, text.as_deref()).map(|b| b.to_json())
+}
+
+/// One figure rendered by the app (the Plots panel's Render and preview).
+#[cfg(feature = "uniffi")]
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiFigureRender {
+    pub ok: bool,
+    pub path: String,
+    pub runner: String,
+    /// ran | fresh | skipped | failed | none
+    pub status: String,
+    pub message: String,
+    pub svg: Option<String>,
+    pub produced: Vec<FfiProducedFile>,
+    pub log: String,
+    pub duration_ms: u64,
+}
+
+/// Render one figure of a tree the app holds: native kinds in memory, Veusz
+/// and scripts in `work_dir`. The app records the produced files as rows.
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn project_render_figure_tree(
+    files: Vec<FfiProjectFile>,
+    entry_path: String,
+    format: String,
+    path: String,
+    work_dir: String,
+    allow_shell: bool,
+    force: bool,
+) -> FfiFigureRender {
+    use crate::project::{render_figure, ProcessRunnerHost, StepStatus};
+    let tree = tree_from_ffi(files, &entry_path, &format);
+    let host = ProcessRunnerHost::new();
+    let r = render_figure(
+        &tree,
+        &path,
+        std::path::Path::new(&work_dir),
+        allow_shell,
+        force,
+        &host,
+    );
+    let (runner, status) = match &r.step {
+        Some(s) => (
+            s.runner.clone(),
+            match s.status {
+                StepStatus::Ran => "ran",
+                StepStatus::Fresh => "fresh",
+                StepStatus::Skipped => "skipped",
+                StepStatus::Failed => "failed",
+            }
+            .to_string(),
+        ),
+        None => (String::new(), "none".into()),
+    };
+    FfiFigureRender {
+        ok: r.ok,
+        path,
+        runner,
+        status,
+        message: r.message,
+        svg: r.svg,
+        produced: r
+            .produced
+            .into_iter()
+            .map(|p| FfiProducedFile {
+                path: p.path,
+                bytes: p.bytes,
+                derived_from: p.derived_from,
+                derived_from_hash: p.derived_from_hash,
+            })
+            .collect(),
+        log: r.log,
+        duration_ms: r.duration_ms,
+    }
+}
+
 /// Markdown → Typst markup (ADR-0030 D10), for a preview of what the
 /// engine compiles and for the editor's "convert to Typst".
 #[cfg(feature = "uniffi")]

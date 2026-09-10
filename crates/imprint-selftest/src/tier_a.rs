@@ -69,6 +69,7 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_project_graph_diagnostics().await);
     out.push(cap_project_import_export_snapshot().await);
     out.push(cap_project_build_records().await);
+    out.push(cap_project_figures_and_working_copy().await);
 
     out
 }
@@ -1341,6 +1342,76 @@ async fn cap_project_build_records() -> CapabilityResult {
             Ok(format!(
                 "skipped then ran ({}); output row derived from {}; {} builds recorded",
                 build.steps[0].message, plot.derived_from.clone().unwrap_or_default(), builds.builds.len()
+            ))
+        },
+    )
+    .await
+}
+
+/// ADR-0030 P5/P6: a new figure of a kind gets a starter and a build spec;
+/// the graph sees its step; a working copy round-trips through checkout,
+/// status and check-in (the entry through the document).
+async fn cap_project_figures_and_working_copy() -> CapabilityResult {
+    check(
+        "project.figures_and_working_copy",
+        "project-new-figure writes a starter with a build spec the graph sees; project-checkout / status / checkin round-trip a working copy",
+        Tier::A,
+        || async {
+            use imprint_service::ImprintProjectService;
+            let w = ProjectWorld::open("typst", "= Paper\n#image(\"figures/growth.svg\")")?;
+            let id = w.manuscript_id.clone();
+            let made = w
+                .svc
+                .project_new_figure(id.clone(), "figures/growth".into(), "lilaq".into(), None)
+                .await;
+            if !made.ok {
+                return Err(format!("new figure: {}", made.message));
+            }
+            let file = made.file.as_ref().ok_or("no file row")?;
+            if file.path != "figures/growth.typ" || file.role != "figure-source" {
+                return Err(format!("figure shape: {} ({})", file.path, file.role));
+            }
+            let graph = w.svc.project_graph(id.clone(), None).await;
+            let step = graph
+                .steps
+                .iter()
+                .find(|s| s.source == "figures/growth.typ")
+                .ok_or("the figure's step is missing from the graph")?;
+            if !step.stale || step.missing_outputs != ["figures/growth.svg"] {
+                return Err(format!("step: {step:?}"));
+            }
+
+            let dir = w._dir.path().join("wc");
+            let out = w
+                .svc
+                .project_checkout(id.clone(), dir.display().to_string(), None)
+                .await;
+            if !out.ok || !dir.join("figures/growth.typ").is_file() {
+                return Err(format!("checkout: {}", out.message));
+            }
+            std::fs::write(dir.join("main.typ"), "= Paper, revised\n#image(\"figures/growth.svg\")")
+                .map_err(|e| e.to_string())?;
+            let status = w.svc.project_status(id.clone(), None).await;
+            if status.changed != ["main.typ"] || !status.added.is_empty() {
+                return Err(format!("status: {status:?}"));
+            }
+            let checkin = w.svc.project_checkin(id.clone(), None, None, None, None).await;
+            if !checkin.ok || !checkin.entry_updated {
+                return Err(format!("checkin: {}", checkin.message));
+            }
+            let entry = w.svc.project_file(id.clone(), "main.typ".into()).await;
+            if !entry.text.unwrap_or_default().contains("revised") {
+                return Err("the entry did not take the working copy's text".into());
+            }
+            let clean = w.svc.project_status(id, None).await;
+            if !clean.is_clean {
+                return Err(format!("not clean after check-in: {clean:?}"));
+            }
+            Ok(format!(
+                "figure {} with a stale step; checkout {} file(s); check-in {} file(s), clean",
+                file.path,
+                out.written.len(),
+                checkin.checked_in.len()
             ))
         },
     )

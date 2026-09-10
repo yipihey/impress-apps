@@ -3699,6 +3699,245 @@ public func FfiConverterTypeFfiDataTable_lower(_ value: FfiDataTable) -> RustBuf
 
 
 /**
+ * One figure rendered by the app (the Plots panel's Render and preview).
+ */
+public struct FfiFigureRender {
+    public var ok: Bool
+    public var path: String
+    public var runner: String
+    /**
+     * ran | fresh | skipped | failed | none
+     */
+    public var status: String
+    public var message: String
+    public var svg: String?
+    public var produced: [FfiProducedFile]
+    public var log: String
+    public var durationMs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, path: String, runner: String, 
+        /**
+         * ran | fresh | skipped | failed | none
+         */status: String, message: String, svg: String?, produced: [FfiProducedFile], log: String, durationMs: UInt64) {
+        self.ok = ok
+        self.path = path
+        self.runner = runner
+        self.status = status
+        self.message = message
+        self.svg = svg
+        self.produced = produced
+        self.log = log
+        self.durationMs = durationMs
+    }
+}
+
+
+
+extension FfiFigureRender: Equatable, Hashable {
+    public static func ==(lhs: FfiFigureRender, rhs: FfiFigureRender) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.runner != rhs.runner {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.svg != rhs.svg {
+            return false
+        }
+        if lhs.produced != rhs.produced {
+            return false
+        }
+        if lhs.log != rhs.log {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(path)
+        hasher.combine(runner)
+        hasher.combine(status)
+        hasher.combine(message)
+        hasher.combine(svg)
+        hasher.combine(produced)
+        hasher.combine(log)
+        hasher.combine(durationMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiFigureRender: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiFigureRender {
+        return
+            try FfiFigureRender(
+                ok: FfiConverterBool.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                runner: FfiConverterString.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf), 
+                svg: FfiConverterOptionString.read(from: &buf), 
+                produced: FfiConverterSequenceTypeFfiProducedFile.read(from: &buf), 
+                log: FfiConverterString.read(from: &buf), 
+                durationMs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiFigureRender, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.runner, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterOptionString.write(value.svg, into: &buf)
+        FfiConverterSequenceTypeFfiProducedFile.write(value.produced, into: &buf)
+        FfiConverterString.write(value.log, into: &buf)
+        FfiConverterUInt64.write(value.durationMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFigureRender_lift(_ buf: RustBuffer) throws -> FfiFigureRender {
+    return try FfiConverterTypeFfiFigureRender.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFigureRender_lower(_ value: FfiFigureRender) -> RustBuffer {
+    return FfiConverterTypeFfiFigureRender.lower(value)
+}
+
+
+/**
+ * A starter figure of a kind (ADR-0030 D13), with the build spec that
+ * renders it.
+ */
+public struct FfiFigureTemplate {
+    public var ok: Bool
+    /**
+     * veusz | lilaq | typst | implore | impress-plot | script
+     */
+    public var kind: String
+    public var path: String
+    public var text: String
+    public var buildJson: String
+    public var message: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, 
+        /**
+         * veusz | lilaq | typst | implore | impress-plot | script
+         */kind: String, path: String, text: String, buildJson: String, message: String) {
+        self.ok = ok
+        self.kind = kind
+        self.path = path
+        self.text = text
+        self.buildJson = buildJson
+        self.message = message
+    }
+}
+
+
+
+extension FfiFigureTemplate: Equatable, Hashable {
+    public static func ==(lhs: FfiFigureTemplate, rhs: FfiFigureTemplate) -> Bool {
+        if lhs.ok != rhs.ok {
+            return false
+        }
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.path != rhs.path {
+            return false
+        }
+        if lhs.text != rhs.text {
+            return false
+        }
+        if lhs.buildJson != rhs.buildJson {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ok)
+        hasher.combine(kind)
+        hasher.combine(path)
+        hasher.combine(text)
+        hasher.combine(buildJson)
+        hasher.combine(message)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiFigureTemplate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiFigureTemplate {
+        return
+            try FfiFigureTemplate(
+                ok: FfiConverterBool.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                text: FfiConverterString.read(from: &buf), 
+                buildJson: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiFigureTemplate, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.text, into: &buf)
+        FfiConverterString.write(value.buildJson, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFigureTemplate_lift(_ buf: RustBuffer) throws -> FfiFigureTemplate {
+    return try FfiConverterTypeFfiFigureTemplate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFigureTemplate_lower(_ value: FfiFigureTemplate) -> RustBuffer {
+    return FfiConverterTypeFfiFigureTemplate.lower(value)
+}
+
+
+/**
  * Direct z-grid input: an existing field (analytic function, simulation
  * slice) over data ranges — no binning. Values are row-major
  * `v[iy*nx + ix]` with iy = 0 the LOW-y row.
@@ -8875,6 +9114,18 @@ public func composeHeading(title: String, level: UInt32, format: String) -> Stri
 })
 }
 /**
+ * The build spec a figure source gets by its name when none is declared,
+ * as JSON.
+ */
+public func defaultFigureBuildJson(path: String, text: String?) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_default_figure_build_json(
+        FfiConverterString.lower(path),
+        FfiConverterOptionString.lower(text),$0
+    )
+})
+}
+/**
  * The heading grammar `source` would be parsed with: `typst` or `latex`.
  */
 public func detectSectionFormat(source: String) -> String {
@@ -8929,6 +9180,26 @@ public func extractSections(source: String, documentId: String, format: String?)
         FfiConverterString.lower(source),
         FfiConverterString.lower(documentId),
         FfiConverterOptionString.lower(format),$0
+    )
+})
+}
+/**
+ * The figure kind a path (and its text) implies, or `None` for a file that
+ * is not a figure source.
+ */
+public func figureKindOf(path: String, text: String?) -> String? {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_figure_kind_of(
+        FfiConverterString.lower(path),
+        FfiConverterOptionString.lower(text),$0
+    )
+})
+}
+public func figureTemplate(kind: String, path: String) -> FfiFigureTemplate {
+    return try!  FfiConverterTypeFfiFigureTemplate.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_figure_template(
+        FfiConverterString.lower(kind),
+        FfiConverterString.lower(path),$0
     )
 })
 }
@@ -9119,6 +9390,23 @@ public func projectImportDirectoryPlan(directory: String, entryOverride: String?
     uniffi_imprint_core_fn_func_project_import_directory_plan(
         FfiConverterString.lower(directory),
         FfiConverterOptionString.lower(entryOverride),$0
+    )
+})
+}
+/**
+ * Render one figure of a tree the app holds: native kinds in memory, Veusz
+ * and scripts in `work_dir`. The app records the produced files as rows.
+ */
+public func projectRenderFigureTree(files: [FfiProjectFile], entryPath: String, format: String, path: String, workDir: String, allowShell: Bool, force: Bool) -> FfiFigureRender {
+    return try!  FfiConverterTypeFfiFigureRender.lift(try! rustCall() {
+    uniffi_imprint_core_fn_func_project_render_figure_tree(
+        FfiConverterSequenceTypeFfiProjectFile.lower(files),
+        FfiConverterString.lower(entryPath),
+        FfiConverterString.lower(format),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(workDir),
+        FfiConverterBool.lower(allowShell),
+        FfiConverterBool.lower(force),$0
     )
 })
 }
@@ -9354,6 +9642,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_imprint_core_checksum_func_compose_heading() != 61643) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_imprint_core_checksum_func_default_figure_build_json() != 22722) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_imprint_core_checksum_func_detect_section_format() != 40919) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9364,6 +9655,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_extract_sections() != 58088) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_figure_kind_of() != 48444) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_figure_template() != 52866) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_generate_source_map() != 55964) {
@@ -9415,6 +9712,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_project_import_directory_plan() != 7717) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_imprint_core_checksum_func_project_render_figure_tree() != 19063) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_imprint_core_checksum_func_render_grid_svg() != 36381) {

@@ -1,3 +1,4 @@
+import PublicationManagerCore
 import Foundation
 import ImpressLogging
 import OSLog
@@ -7,8 +8,8 @@ import OSLog
 /// Supports:
 /// - `\` → common LaTeX commands
 /// - `\begin{` → environment names
-/// - `\cite{` → citation keys from .bib files (via LaTeXProjectService)
-/// - `\ref{` → labels from project files (via LaTeXProjectService)
+/// - `\cite{` → keys the manuscript cites (the editor's citation seam + the source)
+/// - `\ref{` → labels in the source
 /// - `\usepackage{` → common package names
 @MainActor
 final class LaTeXCompletionProvider {
@@ -27,12 +28,12 @@ final class LaTeXCompletionProvider {
         // Determine what kind of completion to provide
         if prefix.hasSuffix("\\cite{") || prefix.hasSuffix("\\citep{") || prefix.hasSuffix("\\citet{") ||
            prefix.hasSuffix("\\textcite{") || prefix.hasSuffix("\\parencite{") {
-            return await citationCompletions(partial: extractPartial(prefix, delimiter: "{"))
+            return await citationCompletions(partial: extractPartial(prefix, delimiter: "{"), source: source)
         }
 
         if prefix.hasSuffix("\\ref{") || prefix.hasSuffix("\\eqref{") || prefix.hasSuffix("\\autoref{") ||
            prefix.hasSuffix("\\cref{") || prefix.hasSuffix("\\pageref{") {
-            return await labelCompletions(partial: extractPartial(prefix, delimiter: "{"))
+            return labelCompletions(partial: extractPartial(prefix, delimiter: "{"), source: source)
         }
 
         if prefix.hasSuffix("\\begin{") {
@@ -61,9 +62,20 @@ final class LaTeXCompletionProvider {
 
     // MARK: - Citation Completions
 
-    private func citationCompletions(partial: String) async -> [LaTeXCompletion] {
-        let keys = await LaTeXProjectService.shared.citationKeys
-        return keys
+    /// Keys the manuscript already cites plus every `\bibitem`/BibTeX key in
+    /// its text — the project's `.bib` rows are what `project-citations`
+    /// knows; the editor's seam supplies what the library resolves.
+    private func citationCompletions(partial: String, source: String) async -> [LaTeXCompletion] {
+        var keys = Set(ManuscriptEditorEnvironment.shared.citedKeys())
+        for match in Self.citeKeyPattern.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+            if let r = Range(match.range(at: 1), in: source) {
+                for key in source[r].split(separator: ",") {
+                    let k = key.trimmingCharacters(in: .whitespaces)
+                    if !k.isEmpty { keys.insert(k) }
+                }
+            }
+        }
+        return keys.sorted()
             .filter { partial.isEmpty || $0.localizedCaseInsensitiveContains(partial) }
             .prefix(20)
             .map { LaTeXCompletion(text: $0, displayText: $0, kind: .citation) }
@@ -71,9 +83,18 @@ final class LaTeXCompletionProvider {
 
     // MARK: - Label Completions
 
-    private func labelCompletions(partial: String) async -> [LaTeXCompletion] {
-        let labels = await LaTeXProjectService.shared.labels
-        return labels
+    private static let citeKeyPattern = try! NSRegularExpression(pattern: #"\\(?:cite|citep|citet|textcite|parencite|autocite)\*?(?:\[[^\]]*\])*\{([^}]*)\}"#)
+    private static let labelPattern = try! NSRegularExpression(pattern: #"\\label\{([^}]*)\}"#)
+
+    /// Every `\label{…}` in the source.
+    private func labelCompletions(partial: String, source: String) -> [LaTeXCompletion] {
+        var labels: [String] = []
+        for match in Self.labelPattern.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+            if let r = Range(match.range(at: 1), in: source) {
+                labels.append(String(source[r]))
+            }
+        }
+        return Array(Set(labels)).sorted()
             .filter { partial.isEmpty || $0.localizedCaseInsensitiveContains(partial) }
             .prefix(20)
             .map { LaTeXCompletion(text: $0, displayText: $0, kind: .label) }

@@ -21,14 +21,37 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
-/// The seam conformer both apps install.
-public struct PlotInspectorPanel: ManuscriptSidePanel {
-    public init() {}
-    public var id: String { "plot" }
-    public var label: String { "Plot" }
-    public var systemImage: String { "chart.xyaxis.line" }
-    public func makeView(_ context: ManuscriptPanelContext) -> AnyView {
-        AnyView(PlotPanelView(context: context))
+/// The native-spec inspector over ONE figure row (`.plot.json`, the
+/// `impress-plot` kind), presented by the Plots panel (ADR-0030 D13): the
+/// row's spec loads into the controls, Save writes it back, Insert still
+/// drops the figure's Typst at the caret. The demo and data-file sources
+/// stay as ways to start a spec.
+public struct NativePlotSpecEditorSheet: View {
+    let context: ManuscriptPanelContext
+    let path: String
+    let specJSON: String
+    let onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    public init(context: ManuscriptPanelContext, path: String, specJSON: String, onSave: @escaping (String) -> Void) {
+        self.context = context
+        self.path = path
+        self.specJSON = specJSON
+        self.onSave = onSave
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(path).font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            .padding(10)
+            Divider()
+            PlotPanelView(context: context, figure: (path, specJSON), onSave: onSave)
+        }
+        .impressResizableSheet(minWidth: 720, minHeight: 560)
     }
 }
 
@@ -77,6 +100,7 @@ private enum DemoDataset: String, CaseIterable, Identifiable {
 }
 
 private enum SourceMode: String, CaseIterable, Identifiable {
+    case figure = "Figure"
     case demo = "Demo"
     case file = "Data file"
     case saved = "Saved"
@@ -115,6 +139,9 @@ private enum PlotStyle: String, CaseIterable, Identifiable {
 
 private struct PlotPanelView: View {
     let context: ManuscriptPanelContext
+    /// The figure row this inspector edits, when it edits one.
+    var figure: (path: String, specJSON: String)? = nil
+    var onSave: ((String) -> Void)? = nil
 
     // Source
     @State private var sourceMode: SourceMode = .demo
@@ -160,6 +187,10 @@ private struct PlotPanelView: View {
         .onChange(of: renderKey) { scheduleRender() }
         .task {
             refreshSavedSpecs()
+            if let figure {
+                sourceMode = .figure
+                loadFigureSpec(figure.specJSON)
+            }
             scheduleRender()
         }
     }
@@ -191,11 +222,14 @@ private struct PlotPanelView: View {
     private var controls: some View {
         Form {
             Picker("Source", selection: $sourceMode) {
-                ForEach(SourceMode.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(SourceMode.allCases.filter { $0 != .figure || figure != nil }) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
 
             switch sourceMode {
+            case .figure:
+                Text("The figure's own spec; the axis controls below edit it.")
+                    .font(.caption).foregroundStyle(.secondary)
             case .demo:
                 Picker("Data", selection: $dataset) {
                     ForEach(DemoDataset.allCases) { Text($0.rawValue).tag($0) }
@@ -237,7 +271,12 @@ private struct PlotPanelView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if sourceMode != .saved {
+                if figure != nil {
+                    Button("Save to figure") { saveToFigure() }
+                        .disabled(spec(width: 340, height: 220) == nil)
+                        .help("Write this spec into the figure's project file; the Plots panel re-renders it")
+                }
+                if sourceMode != .saved && sourceMode != .figure {
                     Button("Save spec") { saveCurrentSpec() }
                         .disabled(spec(width: 340, height: 220) == nil)
                 }
@@ -286,13 +325,60 @@ private struct PlotPanelView: View {
         loadedSpec = PlotAutomationHandler.decodeSpec(json)
     }
 
+    /// The row's JSON into the controls: axes, colormap, and the spec itself.
+    private func loadFigureSpec(_ json: String) {
+        guard let data = json.data(using: .utf8),
+            let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+            let decoded = PlotAutomationHandler.decodeSpec(raw)
+        else {
+            renderError = "the figure's spec did not parse"
+            return
+        }
+        renderError = nil
+        loadedSpec = decoded
+        xLog = decoded.x.scale == .log
+        yLog = decoded.y.scale == .log
+        xMin = decoded.x.min.map { String($0) } ?? ""
+        xMax = decoded.x.max.map { String($0) } ?? ""
+        yMin = decoded.y.min.map { String($0) } ?? ""
+        yMax = decoded.y.max.map { String($0) } ?? ""
+        colormap = decoded.colormap
+    }
+
+    private func saveToFigure() {
+        guard let s = spec(width: 480, height: 320), let json = encodeSpec(s) else { return }
+        onSave?(json)
+    }
+
+    /// The spec in the HTTP-API / `.plot.json` shape (Rust reads the same).
+    private func encodeSpec(_ s: FfiPlotSpec) -> String? {
+        var json: [String: Any] = [
+            "title": s.title,
+            "x": axisJSON(s.x), "y": axisJSON(s.y),
+            "series": s.series.map { ser -> [String: Any] in
+                [
+                    "kind": ser.kind == .line ? "line" : (ser.kind == .contour ? "contour" : "scatter"),
+                    "xs": ser.xs, "ys": ser.ys,
+                    "color": ["r": Int(ser.color.r), "g": Int(ser.color.g), "b": Int(ser.color.b)],
+                ]
+            },
+            "strategy": s.strategy == .vector ? "vector" : (s.strategy == .raster ? "raster" : "auto"),
+            "colormap": colormapName(s.colormap),
+            "width": s.width, "height": s.height,
+            "contourLabels": s.contourLabels,
+        ]
+        if s.contourLevels > 0 { json["contourLevels"] = Int(s.contourLevels) }
+        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     private func saveCurrentSpec() {
         guard let s = spec(width: 340, height: 220) else { return }
         let name: String
         switch sourceMode {
         case .demo: name = dataset.rawValue
         case .file: name = "\(fileName): \(yCol) vs \(xCol)"
-        case .saved: return  // already saved
+        case .saved, .figure: return  // already a row
         }
         // Serialize the spec into the HTTP-API JSON shape (the store's format).
         var json: [String: Any] = [
@@ -379,8 +465,8 @@ private struct PlotPanelView: View {
         switch sourceMode {
         case .demo:
             return dataset.series()
-        case .saved:
-            return nil  // saved mode renders loadedSpec directly
+        case .saved, .figure:
+            return nil  // these modes render loadedSpec directly
         case .file:
             guard let t = dataTable,
                 let xc = t.columns.first(where: { $0.name == xCol }),
@@ -399,10 +485,19 @@ private struct PlotPanelView: View {
             s.height = height
             return s
         }
+        if sourceMode == .figure {
+            guard var s = loadedSpec else { return nil }
+            s.width = width
+            s.height = height
+            s.x = FfiAxis(scale: xLog ? .log : .linear, min: Double(xMin), max: Double(xMax), label: s.x.label)
+            s.y = FfiAxis(scale: yLog ? .log : .linear, min: Double(yMin), max: Double(yMax), label: s.y.label)
+            s.colormap = colormap
+            return s
+        }
         guard let d = currentSeries() else { return nil }
         let (xLabel, yLabel): (String, String) = {
             switch sourceMode {
-            case .demo, .saved: return ("x", "y")
+            case .demo, .saved, .figure: return ("x", "y")
             case .file: return (xCol, yCol)
             }
         }()

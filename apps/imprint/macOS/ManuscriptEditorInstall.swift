@@ -83,12 +83,29 @@ enum ManuscriptEditorInstaller {
             AIAssistantSidePanel(),
             PresentationStoryboardSidePanel(),
             ThroughlineSidePanel(),
-            VeuszSidePanel(),
-            PlotInspectorPanel(),
+            ManuscriptPlotsPanel(),
             PaperPreviewSidePanel(),
             ProjectFilesSidePanel(),
             ProjectBuildSidePanel(),
         ]
+
+        // External figure editors (ADR-0030 D13): Veusz.app for `.vsz`, the
+        // lilook app for lilaq figures — both over a working copy the Plots
+        // panel checks back into the row on every save.
+        env.figureEditorAvailable = { kind in
+            switch kind {
+            case "veusz": return VeuszService.locateApp() != nil
+            case "lilaq": return LilookLauncher.executable != nil
+            default: return false
+            }
+        }
+        env.openFigureExternally = { url, kind in
+            switch kind {
+            case "veusz": return VeuszService().openInVeusz(url)
+            case "lilaq": return LilookLauncher.open(url)
+            default: return false
+            }
+        }
 
         // Inverse-sync: a LaTeX preview click → source char offset, via the
         // app-target SyncTeXService (loaded post-compile). Typst resolves inside

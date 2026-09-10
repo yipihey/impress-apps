@@ -13,7 +13,7 @@
 //  ── Why FSEvents and not DispatchSource ─────────────────────────────────────
 //
 //  The repo already has three `DispatchSource.makeFileSystemObjectSource`
-//  watchers (imprint's `VeuszPlotWatcher` and `LaTeXProjectService`, impel's
+//  watchers (imprint's retired Veusz plot watcher and LaTeX project scanner, impel's
 //  `EMLFolderWatcher`), and none of them is a precedent for this one:
 //  `makeFileSystemObjectSource` on a directory fires for changes to its DIRECT
 //  children only. A `.bib` file dropped three levels deep — the exact scenario

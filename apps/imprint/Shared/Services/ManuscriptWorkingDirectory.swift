@@ -18,7 +18,8 @@ import Foundation
 /// .tmp/          ephemeral; render-time body materialization (cleared after use)
 /// ```
 ///
-/// Generalises the per-document `VeuszWorkingDirectory` that this replaces.
+/// Generalises the per-document Veusz working directory it replaced (figures
+/// are project rows now, ADR-0030; this holds one-file manuscripts' assets).
 struct ManuscriptWorkingDirectory {
 
     /// Subdirectory inside the manuscript dir where rendered figure output
@@ -147,7 +148,7 @@ struct ManuscriptWorkingDirectory {
         }
     }
 
-    // MARK: - Figure file I/O (shared with VeuszPlotStore)
+    // MARK: - Figure file I/O
 
     /// Write each entry from `figureFiles` to the figures directory, replacing
     /// any existing file with the same name. Files not present in
