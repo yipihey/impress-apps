@@ -17,7 +17,8 @@ name: workspace - Rust CI
 # So: one job that selects the whole workspace and enables `native`, which is
 # what the apps actually link. The per-app workflows keep their app-specific
 # steps (xcframework builds, binding sync, iOS install smoke) — this one only
-# guarantees the Rust floor is level everywhere.
+# guarantees the Rust floor is level everywhere. The floor has a second shape,
+# every crate built alone with no features: see the `isolated` job.
 
 on:
   push:
@@ -28,6 +29,7 @@ on:
       - 'Cargo.lock'
       - 'schema-refs.json'
       - 'scripts/check-schema-refs.sh'
+      - 'scripts/clippy-each-crate.sh'
       - '.github/workflows/workspace-rust.yml'
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
@@ -78,6 +80,42 @@ jobs:
       # Needs no cache: fmt does not compile.
       - name: Check formatting
         run: cargo fmt --all --check
+
+  # The floor's second shape: every crate built ALONE, with no features, which
+  # is what a dependent crate and a per-app `cargo test -p` compile. The shards
+  # cannot reach it, because cargo unifies features across every package one
+  # invocation selects: the shards turn on `native`, and even a featureless
+  # `--workspace` build inherits impress-mcp's `imprint-service/typst-render`.
+  # So at 536776e9 imprint-service's `not(typst-render)` fallback named a type
+  # that only exists with Typst on, both shards stayed green, and imprint-rust
+  # (`cargo test -p imprint-service`) and impel-rust (`cargo clippy -p
+  # impel-tools`) went red. scripts/clippy-each-crate.sh runs one clippy per
+  # crate, lib targets and then all targets; its header says why both.
+  isolated:
+    name: Clippy (each crate alone, no features)
+    runs-on: [self-hosted, impress-mac]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # No actions/cache here: the repo's 10 GB cache quota was already full
+      # on 2026-09-11 (10.4 GB active), so another target/ tarball would only
+      # evict the shard and xcframework entries. actions/checkout wipes the
+      # gitignored target/ at job start, so the build lives outside the
+      # checkout instead. Cargo's fingerprints keep it correct across commits;
+      # delete the directory to reclaim the space.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/workspace-rust-isolated"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Clippy each crate alone
+        run: ./scripts/clippy-each-crate.sh both
 
   clippy:
     name: Clippy (${{ matrix.shard.name }})

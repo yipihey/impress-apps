@@ -20,9 +20,12 @@ use super::graph::{BuildGraph, Diagnostic, FigureStep, Severity};
 use super::markdown;
 use super::materialize::materialize;
 use super::model::{
-    dir_of, extension_of, file_name_of, Engine, FileBytes, FileRole, ProjectFile, ProjectTree,
-    Runner, Target,
+    dir_of, file_name_of, Engine, FileBytes, FileRole, ProjectFile, ProjectTree, Runner, Target,
 };
+// Only the native (Typst/impress-plot/implore) render path inspects output
+// extensions, and that whole function is behind `typst-render`.
+#[cfg(feature = "typst-render")]
+use super::model::extension_of;
 use super::runner::{RunError, RunOutput, RunRequest, RunnerHost};
 
 /// A document engine gets fifteen minutes (a long LaTeX build with
@@ -549,6 +552,7 @@ fn run_one(host: &dyn RunnerHost, request: RunRequest) -> Result<(RunRequest, Ru
     }
 }
 
+#[cfg(feature = "typst-render")]
 fn produced_file(step: &FigureStep, path: &str, bytes: Vec<u8>) -> ProducedFile {
     ProducedFile {
         path: path.to_string(),

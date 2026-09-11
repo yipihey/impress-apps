@@ -521,6 +521,27 @@ fn find_include_cycle(deps: &DependencyGraph, entry: &str) -> Option<Vec<String>
     visit(entry, deps, &mut marks, &mut stack)
 }
 
+/// What one compile produced.
+#[derive(Debug, Clone)]
+pub struct TreeCompileOutcome {
+    /// `pdf` bytes, or one SVG string per page, per the target's output kind.
+    pub pdf: Option<Vec<u8>>,
+    pub svg_pages: Vec<String>,
+    pub page_count: u32,
+    pub compile_ms: u64,
+    /// Errors and warnings, in tree paths.
+    pub diagnostics: Vec<Diagnostic>,
+    pub ok: bool,
+}
+
+impl TreeCompileOutcome {
+    pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

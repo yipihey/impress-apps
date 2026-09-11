@@ -510,6 +510,23 @@ async fn outline_and_citations_span_the_tree_in_reading_order() {
     assert!(refused.message.contains("tectonic"), "{}", refused.message);
 }
 
+/// Without `typst-render` the compile verb still answers: a failed record that
+/// names the missing feature (the "not enabled" DTO the crate's feature comment
+/// promises), not a transport error. Until 2026-09-11 this arm compiled only
+/// when something else had switched Typst on in imprint-core, because the
+/// outcome type it names lived in imprint-core's Typst-only module.
+#[cfg(not(feature = "typst-render"))]
+#[tokio::test]
+async fn compile_without_typst_render_is_a_structured_refusal() {
+    let w = world();
+    let id = manuscript(&w.store, "typst", "= Paper\nHello.", false);
+    let out = w.svc.project_compile(id, None, None).await;
+    assert!(!out.ok);
+    assert_eq!(out.engine, "typst");
+    assert!(out.message.contains("typst-render"), "{}", out.message);
+    assert!(out.pdf_path.is_none());
+}
+
 #[cfg(feature = "typst-render")]
 #[tokio::test]
 async fn compile_renders_a_multi_file_typst_project_with_a_projected_bibliography() {
