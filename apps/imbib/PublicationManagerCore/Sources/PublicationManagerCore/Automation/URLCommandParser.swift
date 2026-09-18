@@ -94,6 +94,17 @@ public enum AutomationCommand: Sendable {
     /// URL: imbib://shared/library/<libraryID>/paper/<citeKey>
     case sharedPaper(libraryID: UUID, citeKey: String)
 
+    // MARK: - Manuscript Papers Window
+
+    /// Open imbib's papers window on a manuscript's collection — the list
+    /// view, no sidebar, with the citation verbs pointed at that manuscript.
+    /// URL: `imbib://manuscript/<manuscriptID>/papers?format=typst&title=…`
+    ///
+    /// This is how imprint (a separate process) asks for the window that
+    /// replaced its own Papers panel. imbib syncs the collection first, so the
+    /// window always opens on the manuscript's current paper set.
+    case manuscriptPapers(manuscriptID: UUID, title: String?, format: String?)
+
     // MARK: - App Actions
 
     /// General app actions
@@ -130,6 +141,11 @@ public enum FocusTarget: String, Sendable, CaseIterable {
 
 /// Actions that can be performed on a specific paper.
 public enum PaperAction: Sendable {
+    /// Reveal the paper in the main window: switch the sidebar to its library,
+    /// select it and scroll to it. What `imbib://open/paper/<citeKey>` (the form
+    /// `ImpressURL.openPaper` emits — imprint's "Open in imbib") and a bare
+    /// `imbib://paper/<citeKey>` mean.
+    case reveal
     case open
     case openPDF
     case openNotes
@@ -320,6 +336,22 @@ public struct URLCommandParser {
         case "focus":
             return try parseFocusCommand(pathComponents, queryParams)
 
+        case "open":
+            // `imbib://open/paper/<citeKey>`: ImpressURL puts the action in the
+            // host, so this is the shape every "Open in imbib" link in the suite
+            // sends (imprint's paper panel, the citation sheet, Search
+            // Everything). There was no case for it: the parse threw
+            // `unknownCommand`, the handler logged a debug line, and the user got
+            // a window that never showed the paper.
+            let rest = Array(pathComponents.dropFirst())
+            guard rest.first == "paper", rest.count >= 2 else {
+                throw AutomationError.missingParameter("paper/<citeKey>")
+            }
+            return .paper(citeKey: rest[1], action: .reveal)
+
+        case "manuscript":
+            return try parseManuscriptCommand(pathComponents, queryParams)
+
         case "paper":
             return try parsePaperCommand(pathComponents, queryParams)
 
@@ -475,12 +507,37 @@ public struct URLCommandParser {
         return .focus(target: focusTarget)
     }
 
+    /// `imbib://manuscript/<uuid>/papers` — the only manuscript route imbib
+    /// serves. Manuscript EDITING is imprint's; imbib holds the papers.
+    private func parseManuscriptCommand(
+        _ pathComponents: [String], _ params: [String: String]
+    ) throws -> AutomationCommand {
+        guard pathComponents.count >= 2, let id = UUID(uuidString: pathComponents[1]) else {
+            throw AutomationError.missingParameter("manuscript/<uuid>")
+        }
+        let action = pathComponents.count >= 3 ? pathComponents[2] : "papers"
+        guard action == "papers" else {
+            throw AutomationError.invalidParameter("action", action)
+        }
+        return .manuscriptPapers(
+            manuscriptID: id,
+            title: params["title"],
+            format: params["format"]
+        )
+    }
+
     private func parsePaperCommand(_ pathComponents: [String], _ params: [String: String]) throws -> AutomationCommand {
-        guard pathComponents.count >= 3 else {
-            throw AutomationError.missingParameter("citeKey or action")
+        guard pathComponents.count >= 2 else {
+            throw AutomationError.missingParameter("citeKey")
         }
 
         let citeKey = pathComponents[1]
+        // `imbib://paper/<citeKey>` with no action reveals the paper. imprint's
+        // "Show in imbib" sends exactly this and it used to be rejected for
+        // lacking a third component.
+        guard pathComponents.count >= 3 else {
+            return .paper(citeKey: citeKey, action: .reveal)
+        }
         let actionStr = pathComponents[2]
 
         let action: PaperAction

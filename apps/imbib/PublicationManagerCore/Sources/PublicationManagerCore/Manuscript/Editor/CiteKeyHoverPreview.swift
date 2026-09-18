@@ -94,24 +94,6 @@ struct CiteKeyHoverView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            // Open in paper panel button (Track E integration)
-            Divider()
-            HStack {
-                Spacer()
-                Button {
-                    NotificationCenter.default.post(
-                        name: .openPaperPanel,
-                        object: nil,
-                        userInfo: ["publicationID": row.id]
-                    )
-                } label: {
-                    Label("Open in paper panel", systemImage: "square.split.2x1")
-                        .font(.system(size: 11))
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.blue)
-            }
         }
         .padding(12)
         .frame(width: 420, alignment: .leading)
@@ -124,11 +106,11 @@ struct CiteKeyHoverView: View {
 
 /// Manages the lifecycle of the hover preview popover.
 ///
-/// The popover is anchored *below* the cite key, so reaching its
-/// "Open in paper panel" button means the pointer must leave the cite-key
-/// characters and cross a gap of ordinary text. A naive dismiss-on-exit
-/// therefore makes the button unreachable — the popover vanishes the moment
-/// the user moves toward it. Two things keep it alive:
+/// The popover is anchored *below* the cite key, so moving onto it to read
+/// the abstract means the pointer must leave the cite-key characters and
+/// cross a gap of ordinary text. A naive dismiss-on-exit therefore makes the
+/// popover unreachable — it vanishes the moment the user moves toward it. Two
+/// things keep it alive:
 ///
 ///   1. Leaving the key schedules a *deferred* close (`scheduleDismiss`)
 ///      rather than closing immediately, giving the pointer time to travel.
@@ -249,8 +231,7 @@ final class CiteKeyHoverController {
         }
         let hosting = NSHostingController(rootView: content)
         // Size to the content: a fixed height clips tall previews, and the
-        // "Open in paper panel" button is the last thing in the stack — it is
-        // exactly what gets cut off.
+        // actions are the last thing in the stack — exactly what gets cut off.
         hosting.sizingOptions = .preferredContentSize
         hosting.view.frame = NSRect(x: 0, y: 0, width: 420, height: 200)
 

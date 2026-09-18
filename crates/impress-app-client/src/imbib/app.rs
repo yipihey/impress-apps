@@ -9,7 +9,7 @@ use crate::imbib::ImbibClient;
 use crate::transport::decode_envelope;
 
 use imbib_service::app_service::{
-    ActivityEntry, AppStatus, ExternalPaper, LogEntry, SyncNudgeResult,
+    ActivityEntry, AppStatus, ExternalPaper, LogEntry, PapersWindowResult, SyncNudgeResult,
 };
 
 impl ImbibClient {
@@ -90,6 +90,15 @@ impl ImbibClient {
         )
         .await?;
         Ok(body.downloaded)
+    }
+
+    /// `POST /api/manuscripts/{id}/papers-window`
+    pub async fn open_manuscript_papers(&self, manuscript_id: &str) -> Result<PapersWindowResult> {
+        let url = self
+            .base_url
+            .join(&format!("/api/manuscripts/{manuscript_id}/papers-window"))?;
+        let body: PapersWindowResult = decode_envelope(self.http.post(url).send().await?).await?;
+        Ok(body)
     }
 
     /// `POST /api/sync/nudge`

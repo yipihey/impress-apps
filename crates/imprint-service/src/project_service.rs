@@ -19,6 +19,7 @@ use impress_core::item::ItemId;
 use impress_core::manuscript_project::{
     self as mp, Author, ManuscriptBuildRow, ManuscriptFileRow, ProjectSnapshot, PutFile,
 };
+use impress_core::manuscript_reading_list as rl;
 use impress_core::schemas::{
     BUILD_RETENTION, BUILD_STATUS_FAILED, BUILD_STATUS_OK, BUILD_STATUS_RUNNING,
 };
@@ -252,6 +253,73 @@ pub struct ProjectCitationRecord {
     pub byte_len: u32,
     /// The command that cited it (`cite`, `citep`, `textcite`, `typstat`, …).
     pub command: String,
+}
+
+/// One row of a manuscript's reading list.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectReadingListRow {
+    /// The imbib publication, or null for a cite key imbib does not hold.
+    pub publication_id: Option<String>,
+    pub cite_key: String,
+    pub title: Option<String>,
+    pub authors: Option<String>,
+    pub year: Option<i64>,
+    /// The manuscript cites it.
+    pub cited: bool,
+    /// It is in the manuscript's reading-list collection in imbib.
+    pub collected: bool,
+    /// imbib holds a PDF for it.
+    pub has_pdf: bool,
+    /// Last time the user viewed or hand-added it, ms since the epoch.
+    pub last_activity_at: Option<i64>,
+    /// Position of its first citation, if cited.
+    pub citation_index: Option<u32>,
+}
+
+/// A manuscript's reading list: what it cites plus what was collected for it,
+/// the recently viewed first — the list imprint's paper panel shows.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectReadingListRecord {
+    pub ok: bool,
+    pub manuscript_id: String,
+    /// The reading-list collection in imbib, if the manuscript has one.
+    pub collection_id: Option<String>,
+    pub rows: Vec<ProjectReadingListRow>,
+    pub message: String,
+}
+
+/// What a reading-collection sync did.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectSyncCollectionRecord {
+    pub ok: bool,
+    pub manuscript_id: String,
+    /// The imbib collection that holds this manuscript's papers — the scope
+    /// imbib's papers window opens on.
+    pub collection_id: Option<String>,
+    pub collection_name: String,
+    /// This call made the collection.
+    pub created: bool,
+    /// Cited papers this call added to it.
+    pub added: Vec<String>,
+    /// Cite keys the manuscript cites that imbib does not hold, in citation
+    /// order. Nothing can show them as papers, so they are reported.
+    pub missing_cite_keys: Vec<String>,
+    /// Members after the sync.
+    pub member_count: u32,
+    pub message: String,
+}
+
+/// What a collect or uncollect did.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProjectCollectRecord {
+    pub ok: bool,
+    pub manuscript_id: String,
+    pub collection_id: Option<String>,
+    /// This call made the reading-list collection.
+    pub created: bool,
+    /// Publication ids whose membership actually changed.
+    pub changed: Vec<String>,
+    pub message: String,
 }
 
 /// Every citation in a target's reachable files, reading order first.
@@ -599,6 +667,52 @@ pub trait ImprintProjectService: Send + Sync + 'static {
         manuscript_id: String,
         target_id: Option<String>,
     ) -> ProjectOutlineRecord;
+
+    /// The manuscript's reading list: the papers it cites (from its text, in
+    /// reading order) plus the papers collected for it in imbib, with the ones
+    /// the author viewed most recently first. Cite keys imbib lacks are listed
+    /// last with a null `publication_id`.
+    #[impress_method]
+    async fn project_reading_list(
+        &self,
+        manuscript_id: String,
+        target_id: Option<String>,
+    ) -> ProjectReadingListRecord;
+
+    /// Make the manuscript's imbib collection hold every paper it cites,
+    /// creating the collection on first use. Idempotent.
+    ///
+    /// This is what lets ONE imbib collection be the manuscript's papers:
+    /// imprint calls it before opening imbib's papers window, so the window's
+    /// single scope shows the cited papers as well as the collected ones.
+    /// Cite keys imbib lacks come back in `missing_cite_keys`.
+    #[impress_method]
+    async fn project_sync_reading_collection(
+        &self,
+        manuscript_id: String,
+        target_id: Option<String>,
+        collection_name: Option<String>,
+    ) -> ProjectSyncCollectionRecord;
+
+    /// Collect papers (imbib publication ids) into the manuscript's reading
+    /// list, creating its imbib collection on first use — filed under the
+    /// library holding most of the cited papers. `collection_name` defaults to
+    /// "<manuscript title> — papers".
+    #[impress_method]
+    async fn project_collect(
+        &self,
+        manuscript_id: String,
+        publication_ids: Vec<String>,
+        collection_name: Option<String>,
+    ) -> ProjectCollectRecord;
+
+    /// Remove papers from the manuscript's reading list. The papers stay in imbib.
+    #[impress_method]
+    async fn project_uncollect(
+        &self,
+        manuscript_id: String,
+        publication_ids: Vec<String>,
+    ) -> ProjectCollectRecord;
 
     /// Every citation in the target's reachable files, with the file each
     /// sits in, plus the distinct keys.
@@ -1382,6 +1496,42 @@ impl ImprintProjectService for DefaultImprintProjectService {
         self.outline_impl(manuscript_id, target_id).await
     }
 
+    async fn project_reading_list(
+        &self,
+        manuscript_id: String,
+        target_id: Option<String>,
+    ) -> ProjectReadingListRecord {
+        self.reading_list_impl(manuscript_id, target_id).await
+    }
+
+    async fn project_sync_reading_collection(
+        &self,
+        manuscript_id: String,
+        target_id: Option<String>,
+        collection_name: Option<String>,
+    ) -> ProjectSyncCollectionRecord {
+        self.sync_reading_collection_impl(manuscript_id, target_id, collection_name)
+            .await
+    }
+
+    async fn project_collect(
+        &self,
+        manuscript_id: String,
+        publication_ids: Vec<String>,
+        collection_name: Option<String>,
+    ) -> ProjectCollectRecord {
+        self.collect_impl(manuscript_id, publication_ids, collection_name)
+            .await
+    }
+
+    async fn project_uncollect(
+        &self,
+        manuscript_id: String,
+        publication_ids: Vec<String>,
+    ) -> ProjectCollectRecord {
+        self.uncollect_impl(manuscript_id, publication_ids).await
+    }
+
     async fn project_citations(
         &self,
         manuscript_id: String,
@@ -1675,6 +1825,213 @@ impl DefaultImprintProjectService {
                 message: e.to_string(),
             }
         })
+    }
+
+    /// Distinct cite keys in the target's reading order (first appearance).
+    fn cited_keys_in_order(
+        &self,
+        manuscript_id: &str,
+        target_id: Option<&str>,
+    ) -> Result<Vec<String>, StoreError> {
+        let store = self.store();
+        let id = Self::parse(manuscript_id)?;
+        let snapshot = mp::load_project(&store, id)?;
+        let tree = tree_from_snapshot(&snapshot, &self.blobs());
+        let target = resolve_target(&tree, target_id)?;
+        let graph = BuildGraph::derive(&tree, &target);
+        let mut keys: Vec<String> = Vec::new();
+        for usage in imprint_core::project::citations_for_tree(&tree, &graph) {
+            if !keys.contains(&usage.usage.key) {
+                keys.push(usage.usage.key.clone());
+            }
+        }
+        Ok(keys)
+    }
+
+    async fn reading_list_impl(
+        &self,
+        manuscript_id: String,
+        target_id: Option<String>,
+    ) -> ProjectReadingListRecord {
+        let store = self.store();
+        let outcome = (|| -> Result<(Vec<rl::ReadingListEntry>, Option<String>), StoreError> {
+            let keys = self.cited_keys_in_order(&manuscript_id, target_id.as_deref())?;
+            let rows = rl::reading_list(&store, &manuscript_id, &keys)?;
+            Ok((rows, rl::reading_collection(&store, &manuscript_id)?))
+        })()
+        .inspect_err(|e| log_err("project_reading_list", e));
+        match outcome {
+            Ok((rows, collection_id)) => {
+                let cited = rows.iter().filter(|r| r.cited).count();
+                let collected = rows.iter().filter(|r| r.collected).count();
+                let missing = rows.iter().filter(|r| r.publication_id.is_none()).count();
+                ProjectReadingListRecord {
+                    ok: true,
+                    manuscript_id,
+                    collection_id,
+                    message: format!(
+                        "{} paper(s): {cited} cited, {collected} collected, {missing} not in imbib",
+                        rows.len()
+                    ),
+                    rows: rows
+                        .into_iter()
+                        .map(|r| ProjectReadingListRow {
+                            publication_id: r.publication_id,
+                            cite_key: r.cite_key,
+                            title: r.title,
+                            authors: r.authors,
+                            year: r.year,
+                            cited: r.cited,
+                            collected: r.collected,
+                            has_pdf: r.has_pdf,
+                            last_activity_at: r.last_activity_at,
+                            citation_index: r.citation_index,
+                        })
+                        .collect(),
+                }
+            }
+            Err(e) => ProjectReadingListRecord {
+                ok: false,
+                manuscript_id,
+                collection_id: None,
+                rows: Vec::new(),
+                message: e.to_string(),
+            },
+        }
+    }
+
+    async fn sync_reading_collection_impl(
+        &self,
+        manuscript_id: String,
+        target_id: Option<String>,
+        collection_name: Option<String>,
+    ) -> ProjectSyncCollectionRecord {
+        let store = self.store();
+        let outcome = (|| -> Result<rl::SyncOutcome, StoreError> {
+            let keys = self.cited_keys_in_order(&manuscript_id, target_id.as_deref())?;
+            rl::sync_reading_collection(&store, &manuscript_id, &keys, collection_name.as_deref())
+        })()
+        .inspect_err(|e| log_err("project_sync_reading_collection", e));
+        match outcome {
+            Ok(o) => ProjectSyncCollectionRecord {
+                ok: true,
+                manuscript_id,
+                message: format!(
+                    "'{}' holds {} paper(s){}{}",
+                    o.collection_name,
+                    o.member_count,
+                    if o.added.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; {} cited paper(s) added", o.added.len())
+                    },
+                    if o.missing_cite_keys.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; {} cite key(s) not in imbib", o.missing_cite_keys.len())
+                    },
+                ),
+                collection_id: Some(o.collection_id),
+                collection_name: o.collection_name,
+                created: o.created,
+                added: o.added,
+                missing_cite_keys: o.missing_cite_keys,
+                member_count: o.member_count,
+            },
+            Err(e) => ProjectSyncCollectionRecord {
+                ok: false,
+                manuscript_id,
+                collection_id: None,
+                collection_name: String::new(),
+                created: false,
+                added: Vec::new(),
+                missing_cite_keys: Vec::new(),
+                member_count: 0,
+                message: e.to_string(),
+            },
+        }
+    }
+
+    async fn collect_impl(
+        &self,
+        manuscript_id: String,
+        publication_ids: Vec<String>,
+        collection_name: Option<String>,
+    ) -> ProjectCollectRecord {
+        let store = self.store();
+        // The cited keys decide which library a NEW reading list is filed
+        // under; an unreadable manuscript just loses that hint.
+        let keys = self
+            .cited_keys_in_order(&manuscript_id, None)
+            .unwrap_or_default();
+        let outcome = rl::collect(
+            &store,
+            &manuscript_id,
+            &publication_ids,
+            collection_name.as_deref(),
+            &keys,
+        )
+        .inspect_err(|e| log_err("project_collect", e));
+        match outcome {
+            Ok(o) => ProjectCollectRecord {
+                ok: true,
+                manuscript_id,
+                message: format!(
+                    "{} paper(s) added{}",
+                    o.added.len(),
+                    if o.created {
+                        " to a new papers collection"
+                    } else {
+                        ""
+                    }
+                ),
+                collection_id: Some(o.collection_id),
+                created: o.created,
+                changed: o.added,
+            },
+            Err(e) => ProjectCollectRecord {
+                ok: false,
+                manuscript_id,
+                collection_id: None,
+                created: false,
+                changed: Vec::new(),
+                message: e.to_string(),
+            },
+        }
+    }
+
+    async fn uncollect_impl(
+        &self,
+        manuscript_id: String,
+        publication_ids: Vec<String>,
+    ) -> ProjectCollectRecord {
+        let store = self.store();
+        let outcome = (|| -> Result<(Option<String>, Vec<String>), StoreError> {
+            let collection = rl::reading_collection(&store, &manuscript_id)?;
+            Ok((
+                collection,
+                rl::uncollect(&store, &manuscript_id, &publication_ids)?,
+            ))
+        })()
+        .inspect_err(|e| log_err("project_uncollect", e));
+        match outcome {
+            Ok((collection_id, removed)) => ProjectCollectRecord {
+                ok: true,
+                manuscript_id,
+                message: format!("{} paper(s) removed", removed.len()),
+                collection_id,
+                created: false,
+                changed: removed,
+            },
+            Err(e) => ProjectCollectRecord {
+                ok: false,
+                manuscript_id,
+                collection_id: None,
+                created: false,
+                changed: Vec::new(),
+                message: e.to_string(),
+            },
+        }
     }
 
     async fn citations_impl(
@@ -3127,6 +3484,10 @@ impress_service_impl! {
         project_graph(manuscript_id: String, target_id: Option<String>) -> ProjectGraphRecord,
         project_outline(manuscript_id: String, target_id: Option<String>) -> ProjectOutlineRecord,
         project_citations(manuscript_id: String, target_id: Option<String>) -> ProjectCitationsRecord,
+        project_reading_list(manuscript_id: String, target_id: Option<String>) -> ProjectReadingListRecord,
+        project_sync_reading_collection(manuscript_id: String, target_id: Option<String>, collection_name: Option<String>) -> ProjectSyncCollectionRecord,
+        project_collect(manuscript_id: String, publication_ids: Vec<String>, collection_name: Option<String>) -> ProjectCollectRecord,
+        project_uncollect(manuscript_id: String, publication_ids: Vec<String>) -> ProjectCollectRecord,
         project_compile(manuscript_id: String, target_id: Option<String>, entry_override: Option<String>) -> ProjectCompileRecord,
         project_import_directory(directory: String, manuscript_id: Option<String>, entry: Option<String>, title: Option<String>, author: Option<String>) -> ProjectImportRecord,
         project_export(manuscript_id: String, directory: String, target_id: Option<String>, layout: Option<String>) -> ProjectExportRecord,

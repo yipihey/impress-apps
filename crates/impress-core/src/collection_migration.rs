@@ -135,6 +135,11 @@ pub const LEGACY_PAYLOAD_KEY: &str = "legacy_payload";
 /// consume.
 pub const LEGACY_EXTRAS_KEY: &str = "legacy";
 
+/// Payload keys carried through the rewrite verbatim at top level, because the
+/// kernel reads them by name after the flip. Everything else an app wrote goes
+/// under [`LEGACY_EXTRAS_KEY`].
+const CARRIED_KEYS: &[&str] = &[crate::manuscript_reading_list::MANUSCRIPT_REF_FIELD];
+
 /// The three legacy bindings this migration converges, in stable order. The
 /// generic binding is deliberately absent: it is the destination.
 pub const MIGRATED_BINDINGS: [CollectionSchemaBinding; 3] =
@@ -578,6 +583,12 @@ fn unified_payload(
 
     // Keys the canonical fields consume. Everything else lands under `legacy`.
     let mut consumed: Vec<&str> = vec!["name", "sort_order", "is_smart"];
+    // Fields the KERNEL itself reads stay canonical. `manuscript_ref` names the
+    // manuscript whose reading list a collection is
+    // (`crate::manuscript_reading_list`); filed under `legacy` it would vanish
+    // from the lookup the moment a store migrated, and the author's reading list
+    // would read as "none yet" with no error anywhere.
+    consumed.extend(CARRIED_KEYS);
     let parent = match binding.parent_field {
         ParentField::Payload(field) => {
             consumed.push(field);
@@ -611,6 +622,11 @@ fn unified_payload(
         Value::Bool(bool_of(&original, "is_smart").unwrap_or(false)),
     );
 
+    for key in CARRIED_KEYS {
+        if let Some(value) = original.get(*key) {
+            payload.insert((*key).to_string(), value.clone());
+        }
+    }
     let extras: BTreeMap<String, Value> = original
         .iter()
         .filter(|(key, _)| !consumed.contains(&key.as_str()))

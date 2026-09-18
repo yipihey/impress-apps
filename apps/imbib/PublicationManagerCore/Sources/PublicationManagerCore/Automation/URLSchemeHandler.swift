@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ImpressLogging
 import OSLog
 #if os(macOS)
 import AppKit
@@ -348,6 +349,12 @@ public actor URLSchemeHandler {
             }
             return .success(command: "collection", result: ["action": AnyCodable(action.rawValue)])
 
+        // MARK: - Manuscript Papers Window
+
+        case .manuscriptPapers(let manuscriptID, let title, let format):
+            return await openManuscriptPapers(
+                manuscriptID: manuscriptID, title: title, format: format)
+
         // MARK: - Inbox Actions
 
         case .inbox(let action):
@@ -406,14 +413,37 @@ public actor URLSchemeHandler {
 
     // MARK: - Paper Actions
 
+    /// Reveal one paper by cite key: the main window switches its sidebar to the
+    /// paper's library, selects the paper and scrolls to it — the same
+    /// `navigateToPublication` path global search and Spotlight use.
+    private func revealPaper(citeKey: String) async -> AutomationResult {
+        let publicationID: UUID? = await MainActor.run {
+            RustStoreAdapter.shared.findByCiteKey(citeKey: citeKey)?.id
+        }
+        guard let publicationID else {
+            automationLogger.infoCapture("reveal: no paper with cite key \(citeKey)", category: "automation")
+            return .failure(command: "paper", error: "No paper with cite key '\(citeKey)'")
+        }
+        automationLogger.infoCapture("reveal: \(citeKey) -> \(publicationID.uuidString)", category: "automation")
+        await postNotification(.navigateToPublication, userInfo: ["publicationID": publicationID])
+        return .success(command: "paper", result: [
+            "action": AnyCodable("reveal"),
+            "citeKey": AnyCodable(citeKey),
+            "publicationID": AnyCodable(publicationID.uuidString),
+        ])
+    }
+
     private func executePaperAction(citeKey: String, action: PaperAction) async -> AutomationResult {
         // For paper-specific actions, we need to first select the paper
         // This is a simplified implementation - full implementation would look up the paper
         let userInfo: [String: Any] = ["citeKey": citeKey]
 
         switch action {
-        case .open, .openPDF:
-            await postNotification(.openSelectedPaper, userInfo: userInfo)
+        case .reveal, .open, .openPDF:
+            // Look the paper up by cite key and reveal it. This used to post
+            // `.openSelectedPaper`, which ignores the cite key entirely and acts
+            // on whatever the current list happened to have selected.
+            return await revealPaper(citeKey: citeKey)
         case .openNotes:
             await postNotification(.showNotesTab, userInfo: userInfo)
         case .openReferences:
@@ -578,6 +608,42 @@ public actor URLSchemeHandler {
         }
 
         return .success(command: "app", result: ["action": AnyCodable(action.rawValue)])
+    }
+
+    // MARK: - Manuscript Papers Window
+
+    /// Sync the manuscript's collection, then open (or raise) imbib's papers
+    /// window on it with the citation verbs pointed at that manuscript.
+    ///
+    /// The sync runs here rather than in imprint so that ANY caller — the URL,
+    /// the app verb, an agent — gets a window on the manuscript's current
+    /// paper set. Cite keys come from the manuscript's stored text; the
+    /// editor's own command passes its live buffer instead.
+    private func openManuscriptPapers(
+        manuscriptID: UUID,
+        title: String?,
+        format: String?
+    ) async -> AutomationResult {
+        let outcome = await MainActor.run {
+            ManuscriptPapersOpener.open(
+                manuscriptID: manuscriptID,
+                titleOverride: title,
+                formatOverride: format.flatMap(DocumentFormat.init(rawValue:)),
+                citeKeys: nil
+            )
+        }
+        switch outcome {
+        case .opened(let request):
+            return .success(
+                command: "manuscriptPapers",
+                result: [
+                    "collectionID": AnyCodable(request.collectionID.uuidString),
+                    "collection": AnyCodable(request.collectionName),
+                    "missingCiteKeys": AnyCodable(request.missingCiteKeys),
+                ])
+        case .failed(let why):
+            return .failure(command: "manuscriptPapers", error: why)
+        }
     }
 
     // MARK: - Notification Posting

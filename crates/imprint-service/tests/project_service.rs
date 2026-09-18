@@ -67,6 +67,45 @@ fn manuscript(store: &SqliteItemStore, format: &str, body: &str, external: bool)
     id.to_string()
 }
 
+/// A bare item — the reading-list test's libraries and papers.
+fn insert_item(
+    store: &SqliteItemStore,
+    schema: &str,
+    fields: &[(&str, Value)],
+    parent: Option<ItemId>,
+) -> ItemId {
+    let now = Utc::now();
+    store
+        .insert(Item {
+            id: Uuid::new_v4(),
+            schema: schema.into(),
+            payload: fields
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), v.clone()))
+                .collect(),
+            created: now,
+            modified: now,
+            author: "user:test".into(),
+            author_kind: ActorKind::Human,
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: Priority::Normal,
+            visibility: Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent,
+        })
+        .unwrap()
+}
+
 fn world() -> World {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteItemStore::open_in_memory().unwrap());
@@ -1440,4 +1479,184 @@ async fn a_working_copy_round_trips_through_checkout_status_and_checkin() {
     assert_eq!(pruned.pruned, vec!["chapters/a.typ"]);
     let after = w.svc.project_status(id.clone(), None).await;
     assert!(after.is_clean, "{after:?}");
+}
+
+#[tokio::test]
+async fn syncing_the_reading_collection_puts_the_cited_papers_in_one_imbib_scope() {
+    let w = world();
+    let id = manuscript(&w.store, "typst", "= Paper\nSee @beta and @nowhere.", false);
+    let library = insert_item(
+        &w.store,
+        "imbib/library",
+        &[("name", Value::String("ULDM".into()))],
+        None,
+    );
+    let paper = |key: &str| {
+        insert_item(
+            &w.store,
+            "imbib/bibliography-entry",
+            &[
+                ("cite_key", Value::String(key.into())),
+                ("title", Value::String(key.to_uppercase())),
+            ],
+            Some(library),
+        )
+    };
+    let beta = paper("beta");
+    let gamma = paper("gamma");
+
+    // What imprint calls before opening imbib's papers window.
+    let synced = w
+        .svc
+        .project_sync_reading_collection(id.clone(), None, None)
+        .await;
+    assert!(synced.ok, "{}", synced.message);
+    assert!(synced.created);
+    assert_eq!(synced.added, [beta.to_string()]);
+    assert_eq!(synced.missing_cite_keys, ["nowhere"]);
+    assert_eq!(synced.member_count, 1);
+    let collection = synced.collection_id.clone().unwrap();
+
+    // A hand-collected paper and a second sync live together, and the window's
+    // one scope lists both papers.
+    let added = w
+        .svc
+        .project_collect(id.clone(), vec![gamma.to_string()], None)
+        .await;
+    assert!(added.ok, "{}", added.message);
+    assert!(
+        !added.created,
+        "the synced collection is the one it collects into"
+    );
+    let again = w
+        .svc
+        .project_sync_reading_collection(id.clone(), None, None)
+        .await;
+    assert!(again.added.is_empty(), "{:?}", again.added);
+    assert_eq!(again.collection_id.as_deref(), Some(collection.as_str()));
+    assert_eq!(again.member_count, 2);
+
+    let list = w.svc.project_reading_list(id.clone(), None).await;
+    let collected: Vec<&str> = list
+        .rows
+        .iter()
+        .filter(|r| r.collected)
+        .map(|r| r.cite_key.as_str())
+        .collect();
+    assert_eq!(collected, ["beta", "gamma"]);
+}
+
+#[tokio::test]
+async fn the_reading_list_is_what_the_text_cites_plus_what_was_collected() {
+    let w = world();
+    // Files are read in reading order: main's @beta, then a.typ's two keys.
+    let id = manuscript(
+        &w.store,
+        "typst",
+        "= Paper\n#include \"a.typ\"\nSee @beta.",
+        false,
+    );
+    let put = w
+        .svc
+        .project_put_file(
+            id.clone(),
+            "a.typ".into(),
+            Some("== A\n@alpha and @nowhere".into()),
+            None,
+            None,
+            None,
+        )
+        .await;
+    assert!(put.ok, "{}", put.message);
+    let library = insert_item(
+        &w.store,
+        "imbib/library",
+        &[("name", Value::String("ULDM".into()))],
+        None,
+    );
+    let paper = |key: &str| {
+        insert_item(
+            &w.store,
+            "imbib/bibliography-entry",
+            &[
+                ("cite_key", Value::String(key.into())),
+                ("title", Value::String(key.to_uppercase())),
+            ],
+            Some(library),
+        )
+    };
+    let alpha = paper("alpha");
+    paper("beta");
+    let gamma = paper("gamma");
+    let order = |rows: &[imprint_service::ProjectReadingListRow]| -> Vec<String> {
+        rows.iter().map(|r| r.cite_key.clone()).collect()
+    };
+
+    let list = w.svc.project_reading_list(id.clone(), None).await;
+    assert!(list.ok, "{}", list.message);
+    assert_eq!(order(&list.rows), ["beta", "alpha", "nowhere"]);
+    assert_eq!(list.collection_id, None);
+    assert_eq!(list.rows[2].publication_id, None, "not in imbib");
+
+    // Collecting an uncited paper makes the reading list, named after the
+    // manuscript and filed under the library the cited papers live in.
+    let added = w
+        .svc
+        .project_collect(id.clone(), vec![gamma.to_string()], None)
+        .await;
+    assert!(added.ok, "{}", added.message);
+    assert!(added.created);
+    assert_eq!(added.changed, [gamma.to_string()]);
+    let collection_id = added.collection_id.clone().unwrap();
+    let collection = w
+        .store
+        .get(Uuid::parse_str(&collection_id).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        collection.payload.get("name"),
+        Some(&Value::String("Paper — papers".into()))
+    );
+    let again = w
+        .svc
+        .project_collect(id.clone(), vec![gamma.to_string()], None)
+        .await;
+    assert!(again.ok && !again.created && again.changed.is_empty());
+
+    // A viewed paper rises to the top; collected-only papers follow the cited.
+    assert!(w.store.record_recent(&alpha.to_string(), "viewed").unwrap());
+    let list = w.svc.project_reading_list(id.clone(), None).await;
+    assert_eq!(order(&list.rows), ["alpha", "beta", "gamma", "nowhere"]);
+    assert_eq!(list.collection_id.as_deref(), Some(collection_id.as_str()));
+    let gamma_row = &list.rows[2];
+    assert!(gamma_row.collected && !gamma_row.cited);
+    assert!(list.rows[0].last_activity_at.is_some());
+
+    let removed = w
+        .svc
+        .project_uncollect(id.clone(), vec![gamma.to_string()])
+        .await;
+    assert!(removed.ok, "{}", removed.message);
+    assert_eq!(removed.changed, [gamma.to_string()]);
+    let list = w.svc.project_reading_list(id.clone(), None).await;
+    assert_eq!(order(&list.rows), ["alpha", "beta", "nowhere"]);
+    assert!(
+        w.store.get(gamma).unwrap().is_some(),
+        "the paper stays in imbib"
+    );
+
+    // With nothing cited and a paper in no library there is nowhere to file
+    // a new reading list, and the verb says so instead of guessing.
+    let bare = manuscript(&w.store, "typst", "= Empty", false);
+    let orphan = insert_item(
+        &w.store,
+        "imbib/bibliography-entry",
+        &[("cite_key", Value::String("orphan".into()))],
+        None,
+    );
+    let refused = w
+        .svc
+        .project_collect(bare, vec![orphan.to_string()], None)
+        .await;
+    assert!(!refused.ok);
 }

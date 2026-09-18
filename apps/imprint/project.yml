@@ -66,8 +66,6 @@ packages:
     path: ../../packages/ImpressSyntaxHighlight
   ImbibRustCore:
     path: ../imbib/ImbibRustCore
-  ImpressPublicationUI:
-    path: ../../packages/ImpressPublicationUI
   # GUI-meld Phase 3: the Typst compile + editor stack now lives in imbib's
   # PublicationManagerCore. imprint consumes it (one compile implementation,
   # two GUIs). imprint already links ImbibRustCore, so PMC resolves cleanly.
@@ -149,7 +147,6 @@ targets:
       - package: ImpressGit
       - package: ImpressSyntaxHighlight
       - package: ImbibRustCore
-      - package: ImpressPublicationUI
       - package: PublicationManagerCore
     info:
       path: macOS/Info.plist

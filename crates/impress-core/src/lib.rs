@@ -36,6 +36,8 @@ pub mod manuscript_ops;
 /// a manuscript, and the one-read `ProjectSnapshot` the engine consumes.
 #[cfg(feature = "sqlite")]
 pub mod manuscript_project;
+#[cfg(feature = "sqlite")]
+pub mod manuscript_reading_list;
 /// Suite-scoped memory (ADR-0012 D39 knowledge objects): write, dedup-gate,
 /// rank, recall and brief over `memory/claim`, `memory/episode` and
 /// `memory/instruction` rows. Sits next to `search_ops`, which it composes for

@@ -1772,6 +1772,13 @@ public protocol SharedStoreProtocol : AnyObject {
     func manuscriptCollabHeads(id: String) throws  -> [String]
     
     /**
+     * Add papers to the manuscript's reading list, making its collection on
+     * first use (filed under the library holding most of `cite_keys`, named
+     * `collection_name` or "<manuscript title> — papers").
+     */
+    func manuscriptCollect(manuscriptId: String, publicationIds: [String], collectionName: String?, citeKeys: [String]) throws  -> SharedCollectOutcome
+    
+    /**
      * Where this store keeps content-addressed bytes (`None` in memory).
      */
     func manuscriptProjectBlobRoot()  -> String?
@@ -1871,6 +1878,29 @@ public protocol SharedStoreProtocol : AnyObject {
      * The project in one read (ADR-0030 D1).
      */
     func manuscriptProjectSnapshot(manuscriptId: String) throws  -> SharedProjectSnapshot
+    
+    /**
+     * The manuscript's reading-list collection id, if it has one.
+     */
+    func manuscriptReadingCollection(manuscriptId: String) throws  -> String?
+    
+    /**
+     * The manuscript's reading list for the cite keys the caller scanned from
+     * its text (the editor passes its live buffer's keys).
+     */
+    func manuscriptReadingList(manuscriptId: String, citeKeys: [String]) throws  -> [SharedReadingListEntry]
+    
+    /**
+     * Make the manuscript's imbib collection hold every paper it cites,
+     * creating it on first use. Idempotent — imprint calls it every time it
+     * opens imbib's papers window.
+     */
+    func manuscriptSyncReadingCollection(manuscriptId: String, citeKeys: [String], collectionName: String?) throws  -> SharedSyncCollectionOutcome
+    
+    /**
+     * Remove papers from the reading list (the papers stay in imbib).
+     */
+    func manuscriptUncollect(manuscriptId: String, publicationIds: [String]) throws  -> [String]
     
     /**
      * All operations targeting an item, oldest first, shaped for the Info-tab
@@ -2728,6 +2758,22 @@ open func manuscriptCollabHeads(id: String)throws  -> [String] {
 }
     
     /**
+     * Add papers to the manuscript's reading list, making its collection on
+     * first use (filed under the library holding most of `cite_keys`, named
+     * `collection_name` or "<manuscript title> — papers").
+     */
+open func manuscriptCollect(manuscriptId: String, publicationIds: [String], collectionName: String?, citeKeys: [String])throws  -> SharedCollectOutcome {
+    return try  FfiConverterTypeSharedCollectOutcome.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_collect(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterSequenceString.lower(publicationIds),
+        FfiConverterOptionString.lower(collectionName),
+        FfiConverterSequenceString.lower(citeKeys),$0
+    )
+})
+}
+    
+    /**
      * Where this store keeps content-addressed bytes (`None` in memory).
      */
 open func manuscriptProjectBlobRoot() -> String? {
@@ -2962,6 +3008,57 @@ open func manuscriptProjectSnapshot(manuscriptId: String)throws  -> SharedProjec
     return try  FfiConverterTypeSharedProjectSnapshot.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_project_snapshot(self.uniffiClonePointer(),
         FfiConverterString.lower(manuscriptId),$0
+    )
+})
+}
+    
+    /**
+     * The manuscript's reading-list collection id, if it has one.
+     */
+open func manuscriptReadingCollection(manuscriptId: String)throws  -> String? {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_reading_collection(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),$0
+    )
+})
+}
+    
+    /**
+     * The manuscript's reading list for the cite keys the caller scanned from
+     * its text (the editor passes its live buffer's keys).
+     */
+open func manuscriptReadingList(manuscriptId: String, citeKeys: [String])throws  -> [SharedReadingListEntry] {
+    return try  FfiConverterSequenceTypeSharedReadingListEntry.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_reading_list(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterSequenceString.lower(citeKeys),$0
+    )
+})
+}
+    
+    /**
+     * Make the manuscript's imbib collection hold every paper it cites,
+     * creating it on first use. Idempotent — imprint calls it every time it
+     * opens imbib's papers window.
+     */
+open func manuscriptSyncReadingCollection(manuscriptId: String, citeKeys: [String], collectionName: String?)throws  -> SharedSyncCollectionOutcome {
+    return try  FfiConverterTypeSharedSyncCollectionOutcome.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_sync_reading_collection(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterSequenceString.lower(citeKeys),
+        FfiConverterOptionString.lower(collectionName),$0
+    )
+})
+}
+    
+    /**
+     * Remove papers from the reading list (the papers stay in imbib).
+     */
+open func manuscriptUncollect(manuscriptId: String, publicationIds: [String])throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeSharedStoreError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedstore_manuscript_uncollect(self.uniffiClonePointer(),
+        FfiConverterString.lower(manuscriptId),
+        FfiConverterSequenceString.lower(publicationIds),$0
     )
 })
 }
@@ -7282,6 +7379,95 @@ public func FfiConverterTypeSharedBatchResult_lower(_ value: SharedBatchResult) 
 
 
 /**
+ * What a collect did.
+ */
+public struct SharedCollectOutcome {
+    public var collectionId: String
+    /**
+     * The reading-list collection did not exist and this call made it.
+     */
+    public var created: Bool
+    /**
+     * Publications that actually became members.
+     */
+    public var added: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(collectionId: String, 
+        /**
+         * The reading-list collection did not exist and this call made it.
+         */created: Bool, 
+        /**
+         * Publications that actually became members.
+         */added: [String]) {
+        self.collectionId = collectionId
+        self.created = created
+        self.added = added
+    }
+}
+
+
+
+extension SharedCollectOutcome: Equatable, Hashable {
+    public static func ==(lhs: SharedCollectOutcome, rhs: SharedCollectOutcome) -> Bool {
+        if lhs.collectionId != rhs.collectionId {
+            return false
+        }
+        if lhs.created != rhs.created {
+            return false
+        }
+        if lhs.added != rhs.added {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(collectionId)
+        hasher.combine(created)
+        hasher.combine(added)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedCollectOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedCollectOutcome {
+        return
+            try SharedCollectOutcome(
+                collectionId: FfiConverterString.read(from: &buf), 
+                created: FfiConverterBool.read(from: &buf), 
+                added: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedCollectOutcome, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.collectionId, into: &buf)
+        FfiConverterBool.write(value.created, into: &buf)
+        FfiConverterSequenceString.write(value.added, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedCollectOutcome_lift(_ buf: RustBuffer) throws -> SharedCollectOutcome {
+    return try FfiConverterTypeSharedCollectOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedCollectOutcome_lower(_ value: SharedCollectOutcome) -> RustBuffer {
+    return FfiConverterTypeSharedCollectOutcome.lower(value)
+}
+
+
+/**
  * The result of `collection_rename` / `collection_reorder` /
  * `collection_reparent`: the row as it now stands, plus the prior value.
  */
@@ -9668,6 +9854,175 @@ public func FfiConverterTypeSharedRankedCandidate_lower(_ value: SharedRankedCan
 
 
 /**
+ * One reading-list row.
+ */
+public struct SharedReadingListEntry {
+    /**
+     * The imbib publication, or `None` for a cite key imbib does not hold.
+     */
+    public var publicationId: String?
+    public var citeKey: String
+    public var title: String?
+    public var authors: String?
+    public var year: Int64?
+    /**
+     * The manuscript cites it.
+     */
+    public var cited: Bool
+    /**
+     * It is in the manuscript's reading-list collection.
+     */
+    public var collected: Bool
+    /**
+     * imbib holds a PDF for it (fetch the bytes through imbib, not the path).
+     */
+    public var hasPdf: Bool
+    /**
+     * Last view or hand-add, ms since the epoch.
+     */
+    public var lastActivityAt: Int64?
+    /**
+     * Position of its first citation in the manuscript, if cited.
+     */
+    public var citationIndex: UInt32?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The imbib publication, or `None` for a cite key imbib does not hold.
+         */publicationId: String?, citeKey: String, title: String?, authors: String?, year: Int64?, 
+        /**
+         * The manuscript cites it.
+         */cited: Bool, 
+        /**
+         * It is in the manuscript's reading-list collection.
+         */collected: Bool, 
+        /**
+         * imbib holds a PDF for it (fetch the bytes through imbib, not the path).
+         */hasPdf: Bool, 
+        /**
+         * Last view or hand-add, ms since the epoch.
+         */lastActivityAt: Int64?, 
+        /**
+         * Position of its first citation in the manuscript, if cited.
+         */citationIndex: UInt32?) {
+        self.publicationId = publicationId
+        self.citeKey = citeKey
+        self.title = title
+        self.authors = authors
+        self.year = year
+        self.cited = cited
+        self.collected = collected
+        self.hasPdf = hasPdf
+        self.lastActivityAt = lastActivityAt
+        self.citationIndex = citationIndex
+    }
+}
+
+
+
+extension SharedReadingListEntry: Equatable, Hashable {
+    public static func ==(lhs: SharedReadingListEntry, rhs: SharedReadingListEntry) -> Bool {
+        if lhs.publicationId != rhs.publicationId {
+            return false
+        }
+        if lhs.citeKey != rhs.citeKey {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.authors != rhs.authors {
+            return false
+        }
+        if lhs.year != rhs.year {
+            return false
+        }
+        if lhs.cited != rhs.cited {
+            return false
+        }
+        if lhs.collected != rhs.collected {
+            return false
+        }
+        if lhs.hasPdf != rhs.hasPdf {
+            return false
+        }
+        if lhs.lastActivityAt != rhs.lastActivityAt {
+            return false
+        }
+        if lhs.citationIndex != rhs.citationIndex {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(publicationId)
+        hasher.combine(citeKey)
+        hasher.combine(title)
+        hasher.combine(authors)
+        hasher.combine(year)
+        hasher.combine(cited)
+        hasher.combine(collected)
+        hasher.combine(hasPdf)
+        hasher.combine(lastActivityAt)
+        hasher.combine(citationIndex)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedReadingListEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedReadingListEntry {
+        return
+            try SharedReadingListEntry(
+                publicationId: FfiConverterOptionString.read(from: &buf), 
+                citeKey: FfiConverterString.read(from: &buf), 
+                title: FfiConverterOptionString.read(from: &buf), 
+                authors: FfiConverterOptionString.read(from: &buf), 
+                year: FfiConverterOptionInt64.read(from: &buf), 
+                cited: FfiConverterBool.read(from: &buf), 
+                collected: FfiConverterBool.read(from: &buf), 
+                hasPdf: FfiConverterBool.read(from: &buf), 
+                lastActivityAt: FfiConverterOptionInt64.read(from: &buf), 
+                citationIndex: FfiConverterOptionUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedReadingListEntry, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.publicationId, into: &buf)
+        FfiConverterString.write(value.citeKey, into: &buf)
+        FfiConverterOptionString.write(value.title, into: &buf)
+        FfiConverterOptionString.write(value.authors, into: &buf)
+        FfiConverterOptionInt64.write(value.year, into: &buf)
+        FfiConverterBool.write(value.cited, into: &buf)
+        FfiConverterBool.write(value.collected, into: &buf)
+        FfiConverterBool.write(value.hasPdf, into: &buf)
+        FfiConverterOptionInt64.write(value.lastActivityAt, into: &buf)
+        FfiConverterOptionUInt32.write(value.citationIndex, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedReadingListEntry_lift(_ buf: RustBuffer) throws -> SharedReadingListEntry {
+    return try FfiConverterTypeSharedReadingListEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedReadingListEntry_lower(_ value: SharedReadingListEntry) -> RustBuffer {
+    return FfiConverterTypeSharedReadingListEntry.lower(value)
+}
+
+
+/**
  * A flat representation of a typed reference (graph edge) on an item.
  *
  * `edge_type` is the JSON-serialized `EdgeType` enum with surrounding quotes
@@ -10059,6 +10414,139 @@ public func FfiConverterTypeSharedSkippedFile_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeSharedSkippedFile_lower(_ value: SharedSkippedFile) -> RustBuffer {
     return FfiConverterTypeSharedSkippedFile.lower(value)
+}
+
+
+/**
+ * What a reading-collection sync did.
+ */
+public struct SharedSyncCollectionOutcome {
+    /**
+     * The collection imbib's papers window should open on.
+     */
+    public var collectionId: String
+    public var collectionName: String
+    /**
+     * This call made the collection.
+     */
+    public var created: Bool
+    /**
+     * Cited papers this call added.
+     */
+    public var added: [String]
+    /**
+     * Cited keys imbib does not hold, in citation order — no paper exists to
+     * show, so imprint reports them instead.
+     */
+    public var missingCiteKeys: [String]
+    /**
+     * Members after the sync.
+     */
+    public var memberCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The collection imbib's papers window should open on.
+         */collectionId: String, collectionName: String, 
+        /**
+         * This call made the collection.
+         */created: Bool, 
+        /**
+         * Cited papers this call added.
+         */added: [String], 
+        /**
+         * Cited keys imbib does not hold, in citation order — no paper exists to
+         * show, so imprint reports them instead.
+         */missingCiteKeys: [String], 
+        /**
+         * Members after the sync.
+         */memberCount: UInt32) {
+        self.collectionId = collectionId
+        self.collectionName = collectionName
+        self.created = created
+        self.added = added
+        self.missingCiteKeys = missingCiteKeys
+        self.memberCount = memberCount
+    }
+}
+
+
+
+extension SharedSyncCollectionOutcome: Equatable, Hashable {
+    public static func ==(lhs: SharedSyncCollectionOutcome, rhs: SharedSyncCollectionOutcome) -> Bool {
+        if lhs.collectionId != rhs.collectionId {
+            return false
+        }
+        if lhs.collectionName != rhs.collectionName {
+            return false
+        }
+        if lhs.created != rhs.created {
+            return false
+        }
+        if lhs.added != rhs.added {
+            return false
+        }
+        if lhs.missingCiteKeys != rhs.missingCiteKeys {
+            return false
+        }
+        if lhs.memberCount != rhs.memberCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(collectionId)
+        hasher.combine(collectionName)
+        hasher.combine(created)
+        hasher.combine(added)
+        hasher.combine(missingCiteKeys)
+        hasher.combine(memberCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedSyncCollectionOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedSyncCollectionOutcome {
+        return
+            try SharedSyncCollectionOutcome(
+                collectionId: FfiConverterString.read(from: &buf), 
+                collectionName: FfiConverterString.read(from: &buf), 
+                created: FfiConverterBool.read(from: &buf), 
+                added: FfiConverterSequenceString.read(from: &buf), 
+                missingCiteKeys: FfiConverterSequenceString.read(from: &buf), 
+                memberCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedSyncCollectionOutcome, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.collectionId, into: &buf)
+        FfiConverterString.write(value.collectionName, into: &buf)
+        FfiConverterBool.write(value.created, into: &buf)
+        FfiConverterSequenceString.write(value.added, into: &buf)
+        FfiConverterSequenceString.write(value.missingCiteKeys, into: &buf)
+        FfiConverterUInt32.write(value.memberCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSyncCollectionOutcome_lift(_ buf: RustBuffer) throws -> SharedSyncCollectionOutcome {
+    return try FfiConverterTypeSharedSyncCollectionOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedSyncCollectionOutcome_lower(_ value: SharedSyncCollectionOutcome) -> RustBuffer {
+    return FfiConverterTypeSharedSyncCollectionOutcome.lower(value)
 }
 
 
@@ -13558,6 +14046,31 @@ fileprivate struct FfiConverterSequenceTypeSharedRankedCandidate: FfiConverterRu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedReadingListEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedReadingListEntry]
+
+    public static func write(_ value: [SharedReadingListEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedReadingListEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedReadingListEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedReadingListEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedReadingListEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSharedReferenceRow: FfiConverterRustBuffer {
     typealias SwiftType = [SharedReferenceRow]
 
@@ -14169,6 +14682,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_collab_heads() != 26846) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_collect() != 60519) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_blob_root() != 42854) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -14221,6 +14737,18 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_project_snapshot() != 30670) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_reading_collection() != 2616) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_reading_list() != 4768) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_sync_reading_collection() != 63562) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_manuscript_uncollect() != 25941) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_operations_for() != 9390) {

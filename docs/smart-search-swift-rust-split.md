@@ -207,7 +207,9 @@ and PMC reaches it through `ImbibCore.xcframework`, which every app embedding
 PMC already links. **No new xcframework**, no new checksum surface, no app build
 settings touched. `packages/ImpressSmartSearch` depends on
 `apps/imbib/ImbibRustCore` to see it — a `packages/` → `apps/*/…RustCore` edge
-with existing precedent in `packages/ImpressPublicationUI`.
+that had precedent in `packages/ImpressPublicationUI` when this was written.
+That package was deleted on 2026-09-11 once nothing used it, so this is now the
+only such edge.
 
 The alternative, adding the exports to `impress-store-ffi` (whose wrapper
 `packages/ImpressRustCore` is a sibling), was rejected: that crate is the shared

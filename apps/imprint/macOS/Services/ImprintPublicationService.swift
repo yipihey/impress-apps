@@ -15,7 +15,6 @@ import Foundation
 import ImbibRustCore
 import ImpressKit
 import ImpressLogging
-import ImpressPublicationUI
 import OSLog
 
 /// Shared-database publication access for imprint.
@@ -32,7 +31,7 @@ import OSLog
 /// ```
 @MainActor
 @Observable
-public final class ImprintPublicationService: PublicationDataSource {
+public final class ImprintPublicationService {
 
     public static let shared = ImprintPublicationService()
 

@@ -22,6 +22,23 @@ them.
 | ⌃⌘E | Toggle the reMarkable mirror mark on the selection (ADR-025) | Paper ▸ Mirror to reMarkable (also `e`, guarded); disabled until a device is configured, hidden per-row unless it is in individual mode | — |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
 
+**A manuscript's papers (ADR-0031)** — imprint has no Papers panel; the papers
+are an imbib collection shown in imbib's papers window:
+
+| Chord | Where | Semantic |
+|---|---|---|
+| ⌥⌘R | imprint | Papers… — sync what the manuscript cites into its imbib collection and open imbib's window on it (also the Papers button in the editor's footer bar) |
+| ⇧⌘K | imprint | Insert Citation… — raise the inline palette at the caret (⌘S does the same inside the focused editor) |
+| ⏎ | the papers window | Cite the selection into the manuscript, at the caret, in its own syntax |
+| ⌘⏎ | the papers window | Cite, then bring imprint forward |
+
+Inside the window every other key is imbib's own list and detail grammar —
+⌘F filters, `j`/`k` move, `P` puts the PDF full screen on the second display —
+because the window IS imbib's list and detail pane. The editor still answers ⌘F
+only while it is first responder (`SourceEditorNSTextView.ownsKeyboardFocus`;
+AppKit offers key equivalents to every view in the window, so it used to take
+⌘F from every pane).
+
 **⌥⌘0 was missing from this table until 2026-07-31**, through four apps' worth
 of adoption, even though `PaneLayoutState.listPaneVisible` documented it and
 every one of those apps bound it. Rule 2 below ("new universal actions go into

@@ -146,6 +146,25 @@ final class URLCommandParserTests: XCTestCase {
 
     // MARK: - Paper Command
 
+    /// `imbib://paper/<citeKey>` and `imbib://open/paper/<citeKey>` — the latter
+    /// is what `ImpressURL.openPaper` builds for imprint's "Show in imbib" —
+    /// reveal the paper. Neither parsed before, so the link did nothing.
+    func testPaperCommand_bareCiteKeyReveals() throws {
+        let command = try parser.parse(URL(string: "imbib://paper/AminJainKarurMocz2022")!)
+        guard case .paper(let citeKey, let action) = command, case .reveal = action else {
+            return XCTFail("Expected paper reveal, got \(command)")
+        }
+        XCTAssertEqual(citeKey, "AminJainKarurMocz2022")
+    }
+
+    func testOpenPaperURL_reveals() throws {
+        let command = try parser.parse(URL(string: "imbib://open/paper/AminJainKarurMocz2022")!)
+        guard case .paper(let citeKey, let action) = command, case .reveal = action else {
+            return XCTFail("Expected paper reveal, got \(command)")
+        }
+        XCTAssertEqual(citeKey, "AminJainKarurMocz2022")
+    }
+
     func testPaperCommand_openPDF() throws {
         let url = URL(string: "imbib://paper/Einstein1905/open-pdf")!
         let command = try parser.parse(url)

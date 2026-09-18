@@ -22,8 +22,7 @@ let package = Package(
         // The deterministic search logic lives in Rust
         // (`crates/impress-smart-search`) and reaches Swift through
         // ImbibCore.xcframework, which PMC already links into every app that
-        // embeds it — so this port added no new binary framework. Precedent for
-        // a `packages/` module depending on this wrapper: ImpressPublicationUI.
+        // embeds it — so this port added no new binary framework.
         .package(path: "../../apps/imbib/ImbibRustCore"),
     ],
     targets: [

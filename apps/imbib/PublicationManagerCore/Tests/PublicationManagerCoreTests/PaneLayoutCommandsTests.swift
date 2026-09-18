@@ -160,6 +160,29 @@ final class PaneLayoutCommandsTests: XCTestCase {
         }
     }
 
+    /// The window toolbar's top-left group holds the LIST toggle, and the
+    /// manuscript editor's pane toggles join it (`TabContentView`). The group
+    /// sits over the sidebar column; when it gets wider than a narrow sidebar
+    /// leaves, macOS moves it — list toggle included — into the overflow
+    /// chevron. That is what happened when a Papers ACTION button was added to
+    /// `ManuscriptEditorPaneToggles` (2026-09-12): a hidden manuscript list lost
+    /// its visible way back. The cluster is for pane toggles; actions go in the
+    /// editor's own footer.
+    func testTheEditorPaneClusterHoldsTogglesOnly() throws {
+        let source = try Self.source(
+            of: "apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/"
+                + "Manuscript/Editor/ManuscriptSourceTab.swift")
+        guard let start = source.range(of: "public struct ManuscriptEditorPaneToggles"),
+              let bodyStart = source.range(of: "public var body: some View {", range: start.upperBound..<source.endIndex),
+              let end = source.range(of: "\n}\n", range: bodyStart.upperBound..<source.endIndex)
+        else { return XCTFail("ManuscriptEditorPaneToggles moved; update this guard") }
+        let body = String(source[bodyStart.upperBound..<end.lowerBound])
+        XCTAssertFalse(
+            body.contains("Button {") || body.contains("Button("),
+            "an action button in the pane-toggle cluster widens the list toggle's toolbar group")
+        XCTAssertTrue(body.contains("Toggle(isOn:"), "the cluster should still hold the pane toggles")
+    }
+
     /// The repo root really is seven levels up from this file — assert it, or a
     /// moved test file turns every source scan above into a silent skip.
     func testTheSourceScanFindsTheRepositoryRoot() throws {

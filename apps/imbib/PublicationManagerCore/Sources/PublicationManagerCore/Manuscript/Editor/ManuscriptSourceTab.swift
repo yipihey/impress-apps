@@ -29,6 +29,8 @@ public struct ManuscriptSourceTab: View {
     @AppStorage("manuscript.sourceTab.inspectorPanel") private var inspectorPanelID = ""
     /// Whether the compiler-diagnostics popover is up.
     @State private var showDiagnosticsPanel = false
+    /// Why the last "Papers" request could not reach imbib, if it could not.
+    @State private var papersProblem: String?
 
     /// Host-contributed flanking panels (imprint's AI/Throughline/Veusz/Paper).
     /// Empty in imbib → no inspector.
@@ -51,6 +53,19 @@ public struct ManuscriptSourceTab: View {
             guard let info = note.userInfo, let snippet = info["snippet"] as? String else { return }
             if let target = info["documentID"] as? UUID, target != session.manuscriptID { return }
             insertAtCursor(snippet)
+        }
+        // "Papers": sync what this manuscript cites into its imbib collection
+        // and show it in imbib's papers window. Handled here because the LIVE
+        // buffer is the only current copy of the citations.
+        .onReceive(NotificationCenter.default.publisher(for: .manuscriptShowPapers)) { note in
+            if let target = note.userInfo?["documentID"] as? UUID,
+               target != session.manuscriptID { return }
+            let result = ManuscriptPapersCommand.open(
+                manuscriptID: session.manuscriptID,
+                buffer: session.source,
+                format: session.format,
+                title: session.title)
+            papersProblem = result.problem
         }
         // A menu item or shortcut asking for one inspector panel (⌥⌘P → Plots).
         .onReceive(NotificationCenter.default.publisher(for: .manuscriptShowSidePanel)) { note in
@@ -89,17 +104,6 @@ public struct ManuscriptSourceTab: View {
                     .frame(minWidth: 300, idealWidth: 340, maxWidth: 460)
             }
         }
-        .task(id: session.manuscriptID) {
-            // The editor's cite-key click posts .openPaperPanel; auto-open the
-            // inspector on the Paper panel when it fires (if the host provides
-            // one).
-            guard sidePanels.contains(where: { $0.id == "paper" }) else { return }
-            for await _ in NotificationCenter.default
-                .notifications(named: .openPaperPanel).map({ _ in () }) {
-                inspectorPanelID = "paper"
-                showInspector = true
-            }
-        }
     }
 
     private var editor: some View {
@@ -108,6 +112,10 @@ public struct ManuscriptSourceTab: View {
             cursorPosition: $session.cursorPosition,
             syntaxMode: session.format,
             highlight: session.highlightRequest,
+            // Registers this editor as the manuscript's citation target, so
+            // imbib's papers window (another process) can put a cite key at
+            // the caret.
+            manuscriptID: session.manuscriptID,
             onSelectionChange: { _, range in session.selectedRange = range }
         )
     }
@@ -263,6 +271,15 @@ public struct ManuscriptSourceTab: View {
                 }
             }
             Spacer()
+            // The manuscript's papers live in imbib (ADR-0031): sync what this
+            // buffer cites into its collection and open imbib's window on it.
+            Button {
+                ManuscriptPapersCommand.request(manuscriptID: session.manuscriptID)
+            } label: {
+                Label("Papers", systemImage: "books.vertical")
+            }
+            .buttonStyle(.borderless)
+            .help("This manuscript's papers, in imbib (⌥⌘R)")
             Text(session.format.rawValue.capitalized)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -347,6 +364,12 @@ public struct ManuscriptEditorPaneToggles: View {
     public init() {}
 
     public var body: some View {
+        // Pane TOGGLES only. This cluster shares one toolbar group with the
+        // list toggle, over the sidebar column; an action button added here
+        // (Papers, 2026-09-12) widened the group past what a narrow sidebar
+        // leaves, and the group — list toggle included — went into the
+        // overflow chevron, so a hidden manuscript list had no visible way
+        // back. Actions belong in the editor's own footer (`compileStrip`).
         Toggle(isOn: $showOutline) {
             Image(systemName: "list.bullet.indent")
         }

@@ -1253,6 +1253,9 @@ struct SectionContentView: View {
 
     /// Navigate to a publication from global search: switch to its library, select it, scroll to it.
     private func navigateToPublication(_ publicationID: UUID) {
+        // Claim the selection before the list rebuilds: its saved-selection
+        // restore would otherwise race this reveal and win.
+        PendingPublicationReveal.set(publicationID)
         // Find which library the publication belongs to
         let detail = RustStoreAdapter.shared.getPublicationDetail(id: publicationID)
         let needsLibrarySwitch: Bool

@@ -24,6 +24,7 @@ mod ai;
 mod ai_registry;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
+pub mod reading_list;
 
 pub use ai::{
     AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,

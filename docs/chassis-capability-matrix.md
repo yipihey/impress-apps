@@ -1831,6 +1831,46 @@ compile contract is fixed; **the document-level stubs below are still stubs**
 | render a PDF page to an image | `render_pdf_page` | ✅ works | `crates/impress-mcp/src/server.rs` `handle_render_pdf_page` (hand-written; a property of the transport, not an app). It is now feedable headlessly: `compile-typst` returns a `pdf_path`, verified end-to-end against the shipped binary (compile → path → PNG page) |
 | export BibTeX | `imbib-library-service_export-bibtex`, `_export-all-bibtex` | ✅ works headlessly | `crates/imbib-service/src/library_service.rs:1003` — straight against the shared store |
 
+### A manuscript's papers, in imbib's window (ADR-0031, 2026-09-12)
+
+imprint has **no Papers panel** any more. A manuscript's papers are an imbib
+collection (`manuscript_ref` in its payload), and imbib shows it in
+`Chassis/Windows/ManuscriptPapersWindow.swift` — imbib's own
+`UnifiedPublicationListWrapper` + `DetailView`, no sidebar — so rows, context
+menu, filter field, sort, triage keys, PDF acquisition and the full-screen PDF
+are the library's, not a second copy inside the editor. The deleted panel
+(`ManuscriptPapersPanel`, `ManuscriptReadingListModel`, `ReferencePDFWindow`,
+~1,200 lines) had its own of each.
+
+One scope: `impress_core::manuscript_reading_list::sync_reading_collection`
+folds the cited papers into the collection (idempotent, additive — an
+uncollected paper returns only if the text still cites it) and reports the cite
+keys imbib has no paper for. Every entry point runs it first
+(`ManuscriptPapersOpener`), so no caller can show a window that is missing what
+the manuscript cites.
+
+One insertion path: `ManuscriptCitationInserter` (PMC) is a registry of live
+manuscript editors — `SourceEditorView` registers while mounted, keyed by
+manuscript id, most recently focused first. It replaced two channels that both
+claimed success while doing nothing: `POST /api/documents/{id}/insert-citation`
+posted a notification with no observer, and `ImpressURL.insertCitation` built a
+URL imprint never handled. Both now reach the registry, and "no editor open for
+that manuscript" is a distinguishable answer (HTTP 409). A programmatic insert
+suppresses the inline palette while the caret sits on the key it just wrote —
+a finished `@key` under the caret is indistinguishable from one being typed.
+
+| Capability | Surface | Status | Evidence |
+|---|---|---|---|
+| show a manuscript's papers | `imbib-app-service_open-manuscript-papers`, `POST /api/manuscripts/{id}/papers-window`, `imbib://manuscript/<id>/papers?title=&format=`, imprint's ⌥⌘R / the Papers button in the editor's footer (NOT the window toolbar — see the pane-cluster note below) | ✅ app-gated (the window is imbib's) | returns `{opened, collection_id, collection_name, missing_cite_keys, message}`; live 2026-09-12: new collection holding the one cited paper imbib had, `ZZNoSuchKey2020` reported missing |
+| fold cited papers into the collection | `imprint-project-service_project-sync-reading-collection` (stored text), `SharedStore.manuscriptSyncReadingCollection` (the editor's live buffer) | ✅ headless | idempotent; `missing_cite_keys` in citation order; creates the collection under the library holding most cited papers, else the oldest library |
+| cite from the window | ⏎ (⌘⏎ also activates imprint), the Cite button → `ManuscriptCitationInserter` in-process, else `ImprintBridge.insertCitation` over HTTP | ✅ | live: `@KussMarsh2021 @YavetzLiHui2022` at the caret, `inserted: true`; 409 + reason with no editor open |
+| insert a citation from anywhere | `POST /api/documents/{id}/insert-citation` (`citeKey` single/comma, or `citeKeys[]`), `imprint://insert/citation/<keys>?manuscript=<id>` | ✅ | format-aware (`\cite{a,b}` / `@a @b` / `[@a; @b]`); a citation goes after a selection, never replacing it |
+| raise the inline palette from a menu | imprint's Insert Citation… (⇧⌘K) → `ManuscriptCitationInserter.openPalette()` | ✅ | the menu item posted a dead notification before; ⌘S inside the editor was the only way |
+| keep a paper for the manuscript | the window's "Keep for this manuscript" / citing a catalog paper | ✅ | `CollectionStoreAdapter.keepForManuscript` (undoable, membership undo registered) |
+| ordered by recent attention | imbib's sort menu → `LibrarySortOrder.recentActivity` ("Recently Used", key `last_activity`); `imprint-project-service_project-reading-list` for agents | ✅ GUI + headless | An ordinary imbib sort in EVERY scope, not a papers-window special case: `build_sort_descriptors` maps it to `payload.last_activity_at` with `created` as a deterministic secondary, so untouched papers fall to the bottom (NULL sorts last under DESC) and paging cannot reshuffle. Pinned by `recency_sort_orders_a_collection_and_a_library` (imbib-core). The papers window merely opens on it (`initialSortOrder`); the user's saved choice per `source.listViewID` wins after that. `recordRecentView` (dwell-gated, in `publicationDetailLifecycle`) is what feeds it — automated ingest never does. **A `.combined` multi-library scope ignored the sort entirely** until 2026-09-12 (`queryCombined` merged its children and sorted by date-added whatever was asked), so the menu silently did nothing there; it now sorts on the requested field with a total comparator (`RustStoreAdapter.combinedIsBefore`, pinned by `CombinedSourceOrderTests`) and the merged cache is keyed by sort, with counts reusing whatever order is cached. `PublicationSummary.last_activity_at` exposes the stamp to agents, so a caller that asks for the order can see what produced it |
+
+**The top-left toolbar group is for pane TOGGLES only.** `TabContentView` puts the list toggle and `ManuscriptEditorPaneToggles` in one `ToolbarItemGroup(placement: .navigation)`, which sits over the sidebar column, and toolbar items that do not fit go into the overflow chevron. The Papers button went into this group on 2026-09-12; within days the user reported the manuscript list "buried", with `listPaneVisible: false` persisted in `imbib.layout.last` and a saved sidebar width of 148 pt — too little for a list toggle plus six buttons. Whether the toggle itself overflowed or was simply lost among the new neighbours (it was never seen), the list's only obvious way back was the toggle; ⌥⌘0 / View ▸ Toggle Manuscript List always worked. Papers now lives in the editor's footer; `PaneLayoutCommandsTests.testTheEditorPaneClusterHoldsTogglesOnly` keeps actions out of the cluster.
+
 ### Manuscript projects (ADR-0030, P0–P7 landed 2026-09-09/10)
 
 A manuscript is a project: `manuscript-file@1.0.0` rows (parent = the
@@ -1877,6 +1917,7 @@ store-direct verb surface — the CLI and MCP work with the app closed. Tier A:
 | render one figure / look at it | `imprint-project-service_project-render-figure`, `_project-figure-preview` | ✅ headless (P5) | `imprint_core::project::render_figure` runs one step: `typst` sources compile with the tree as their world (`csv("/data/…")` resolves (project paths are absolute from the root)), `implore` specs through implore's lilaq generator, `impress-plot` specs natively (svg/png/pdf), `veusz`/`shell` in the figures work directory; outputs become `output` rows derived from the source (a preview writes nothing and returns the SVG) |
 | a working copy | `imprint-project-service_project-checkout`, `_project-status`, `_project-checkin` | ✅ headless (P6) | materialise + `working_copy_path` (D11); `project::working_copy::diff` compares the rows with the directory by hash (changed / added / missing); check-in writes the entry through the document and the rest as rows keeping their roles, `prune` drops what the directory dropped, `paths` narrows |
 | the Plots inspector (imbib + imprint) | — | ✅ GUI (P5, one panel) | `ManuscriptPlotsPanel` (PMC) replaces imprint's Veusz panel and the native plot inspector: every figure kind listed with staleness, a preview from the engine, New (six kinds), Render (outputs as rows), Edit — a text session, the native-spec inspector as a sheet over the row, or Veusz.app / `lilook-app` over a working copy of the figure whose saves are checked back into the row (`ManuscriptProjectModel.beginExternalEdit`) — and Insert at the caret in the manuscript's grammar; ⌥⌘P shows it |
+| a manuscript's papers (imprint) | `imbib-app-service_open-manuscript-papers`, `imprint-project-service_project-sync-reading-collection`, `_project-reading-list`, `_project-collect`, `_project-uncollect` | ✅ GUI + headless | **The panel is gone (ADR-0031, 2026-09-12).** imprint's ⌥⌘R syncs what the manuscript cites into its imbib collection — an ordinary imbib collection whose payload carries `manuscript_ref` (carried through the WP G7 migration, which would otherwise move it under `legacy`), named "<title> — papers" and filed under the library holding most of the cited papers — and opens imbib's `ManuscriptPapersWindow` on it: imbib's list and detail pane, no sidebar, plus Cite (⏎ / ⌘⏎) and Keep for this manuscript. Everything the panel re-implemented (rows, Info/PDF/Notes/BibTeX, catalog search, PDF acquisition, the full-screen PDF, reveal) is now the library's own. Citing writes through `ManuscriptCitationInserter` — in-process, else `ImprintBridge.insertCitation` over HTTP — and reports whether it landed. See § A manuscript's papers, in imbib's window |
 | the Veusz intents and `/api/veusz/plots…` | — | ✅ repointed (P7) | the same App Intents and HTTP routes act on project figures of every kind (a plot id is a file row id; only loaded manuscripts are searched, as before); insertion reaches the editor through `.manuscriptInsertSnippet` |
 | retired (P7) | — | 🗑 | `VeuszPlotsPanel`, `VeuszPlotStore`/`Registry`/`Watcher`/`Insertion`, `VeuszWiringModifier`, `InsertVeuszPlotPicker`, `VeuszWorkingDirectory`, `LaTeXProjectService` + `LaTeXProjectSidebarView`, the LaTeX TEXINPUTS plot mirror, `PanelManuscriptBridge`'s plot scan; `VeuszPlotRef` stays as the legacy `.imprint` metadata type; `VeuszService` keeps only opening |
 

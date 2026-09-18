@@ -149,6 +149,8 @@ mod tests {
             // Sidebar plan P3: the sidebar as data — "agents can read what
             // the human sees".
             "imbib-library-service_sidebar-view",
+            // imprint's reference surface: imbib's papers window.
+            "imbib-app-service_open-manuscript-papers",
             "imbib-text-service_decode-latex",
             "imbib-text-service_expand-journal-macro",
             "imbib-text-service_generate-cite-key",
@@ -164,6 +166,7 @@ mod tests {
         let names: Vec<&str> = CliSubcommand::iter().map(|c| c.name).collect();
         for expected in [
             "sidebar-view",
+            "open-manuscript-papers",
             "decode-latex",
             "expand-journal-macro",
             "generate-cite-key",

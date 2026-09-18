@@ -820,7 +820,13 @@ public struct PublicationListView: View {
             // On macOS, restore selection for the detail column display
             #if os(macOS)
             // Restore selection if publication still exists in the snapshot
-            if let selectedID = state.selectedPublicationID,
+            // A pending reveal wins over the saved selection: restoring the
+            // saved one here used to overwrite a paper the user had just asked
+            // imbib to show (see PendingPublicationReveal).
+            if let revealed = PendingPublicationReveal.take(ifIn: { listSnapshot.contains(id: $0) }) {
+                selection = [revealed]
+                selectedPublicationID = revealed
+            } else if let selectedID = state.selectedPublicationID,
                listSnapshot.contains(id: selectedID) {
                 selection = [selectedID]
                 // Also update selectedPublicationID directly for macOS detail column

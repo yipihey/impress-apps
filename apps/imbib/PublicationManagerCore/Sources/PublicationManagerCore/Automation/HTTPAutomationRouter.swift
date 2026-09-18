@@ -1027,6 +1027,15 @@ public actor HTTPAutomationRouter: HTTPRouter {
         if path == "/api/smart-searches" {
             return await handleCreateSmartSearch(request)
         }
+        // POST /api/manuscripts/{id}/papers-window
+        if path.hasPrefix("/api/manuscripts/") && path.hasSuffix("/papers-window") {
+            let segment = String(
+                path.dropFirst("/api/manuscripts/".count).dropLast("/papers-window".count))
+            guard let manuscriptID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid manuscript ID")
+            }
+            return await handleOpenManuscriptPapers(manuscriptID: manuscriptID)
+        }
         // POST /api/papers/{citeKey}/files
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/files") {
             // `path` is lowercased; a cite key is not (`KussMarsh2021`).
@@ -4764,6 +4773,42 @@ public actor HTTPAutomationRouter: HTTPRouter {
         } catch {
             return .serverError("Could not delete \(file.filename): \(error.localizedDescription)")
         }
+    }
+
+    /// POST /api/manuscripts/{id}/papers-window
+    ///
+    /// Sync the manuscript's papers collection and show it in imbib's papers
+    /// window — the surface imprint uses for choosing references. Backs the
+    /// `imbib-app-service_open-manuscript-papers` verb, so an agent can put
+    /// the window in front of the user.
+    @MainActor
+    private func handleOpenManuscriptPapers(manuscriptID: UUID) async -> HTTPResponse {
+        #if os(macOS)
+        let outcome = ManuscriptPapersOpener.open(manuscriptID: manuscriptID)
+        switch outcome {
+        case .opened(let request):
+            return .json([
+                "status": "ok",
+                "opened": true,
+                "collection_id": request.collectionID.uuidString,
+                "collection_name": request.collectionName,
+                "missing_cite_keys": request.missingCiteKeys,
+                "message": "Showing \(request.collectionName)",
+            ])
+        case .failed(let why):
+            return .json([
+                "status": "error",
+                "opened": false,
+                "missing_cite_keys": [String](),
+                "message": why,
+            ])
+        }
+        #else
+        return .json([
+            "status": "error", "opened": false, "missing_cite_keys": [String](),
+            "message": "The papers window is macOS-only",
+        ])
+        #endif
     }
 
     // MARK: - ===== Phase D: annotations (file-scoped) =====

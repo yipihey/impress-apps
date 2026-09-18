@@ -1497,7 +1497,11 @@ fn member_query(b: &ResolvedBinding, collection: ItemId) -> ItemQuery {
     }
 }
 
-fn new_item(store: &SqliteItemStore, schema: &str, payload: BTreeMap<String, Value>) -> Item {
+pub(crate) fn new_item(
+    store: &SqliteItemStore,
+    schema: &str,
+    payload: BTreeMap<String, Value>,
+) -> Item {
     let now = Utc::now();
     Item {
         id: Uuid::new_v4(),

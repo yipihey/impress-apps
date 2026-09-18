@@ -55,12 +55,13 @@ pub use project_service::{
     graph_record, tree_from_snapshot, DefaultImprintProjectService, ImprintProjectService,
     ProjectBibliographyRecord, ProjectBuildOutputRecord, ProjectBuildOutputResult,
     ProjectBuildRecord, ProjectBuildResult, ProjectBuildsRecord, ProjectCheckinRecord,
-    ProjectCheckoutRecord, ProjectCitationRecord, ProjectCitationsRecord, ProjectCompileRecord,
-    ProjectDiagnosticRecord, ProjectEdgeRecord, ProjectExportRecord, ProjectFigureRenderRecord,
-    ProjectFigureResult, ProjectFileContentRecord, ProjectFileRecord, ProjectFileResult,
-    ProjectGraphRecord, ProjectImportRecord, ProjectMutationResult, ProjectOutlineRecord,
-    ProjectSectionRecord, ProjectSnapshotRecord, ProjectStatusRecord, ProjectStepRecord,
-    ProjectStepReportRecord, ProjectTargetRecord, ProjectTreeRecord, ProjectUnresolvedRecord,
+    ProjectCheckoutRecord, ProjectCitationRecord, ProjectCitationsRecord, ProjectCollectRecord,
+    ProjectCompileRecord, ProjectDiagnosticRecord, ProjectEdgeRecord, ProjectExportRecord,
+    ProjectFigureRenderRecord, ProjectFigureResult, ProjectFileContentRecord, ProjectFileRecord,
+    ProjectFileResult, ProjectGraphRecord, ProjectImportRecord, ProjectMutationResult,
+    ProjectOutlineRecord, ProjectReadingListRecord, ProjectReadingListRow, ProjectSectionRecord,
+    ProjectSnapshotRecord, ProjectStatusRecord, ProjectStepRecord, ProjectStepReportRecord,
+    ProjectTargetRecord, ProjectTreeRecord, ProjectUnresolvedRecord,
 };
 pub use search::{ManuscriptSearchIndex, SearchHit};
 pub use sections::{SectionMetadata, SectionRecord, SectionStore, SECTION_SCHEMA_REF};
@@ -139,6 +140,10 @@ mod inventory_tests {
             "imprint-project-service_project-checkout",
             "imprint-project-service_project-status",
             "imprint-project-service_project-checkin",
+            "imprint-project-service_project-reading-list",
+            "imprint-project-service_project-sync-reading-collection",
+            "imprint-project-service_project-collect",
+            "imprint-project-service_project-uncollect",
         ] {
             assert!(
                 names.contains(&expected),
@@ -177,6 +182,10 @@ mod inventory_tests {
             "project-checkout",
             "project-status",
             "project-checkin",
+            "project-reading-list",
+            "project-sync-reading-collection",
+            "project-collect",
+            "project-uncollect",
         ] {
             assert!(names.contains(&expected), "missing {expected}");
         }

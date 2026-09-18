@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import ImpressLogging
+import PublicationManagerCore
 import os.log
 
 // MARK: - URL Scheme Handler
@@ -60,10 +61,51 @@ public actor URLSchemeHandler {
             return await handleCreateURL(url)
         case "annotations":
             return await handleAnnotationsURL(url)
+        case "insert":
+            return await handleInsertURL(url)
         default:
             Logger.urlScheme.warningCapture("Unknown command: \(host)", category: "url-scheme")
             return false
         }
+    }
+
+    // MARK: - Insert Command
+
+    /// Handles `imprint://insert/citation/<citeKey>?manuscript=<uuid>`.
+    ///
+    /// `ImpressURL.insertCitation` has built this URL since the suite's early
+    /// days and imprint never handled it. It is the activating twin of
+    /// `POST /api/documents/{id}/insert-citation`: same insertion, but it also
+    /// brings imprint forward, which is what a click in imbib's papers window
+    /// wants when the author is going back to writing. Both go through
+    /// `ManuscriptCitationInserter`, so there is one insertion path.
+    private func handleInsertURL(_ url: URL) async -> Bool {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard parts.first == "citation", parts.count >= 2 else {
+            Logger.urlScheme.warningCapture(
+                "insert: expected imprint://insert/citation/<key>, got \(url)",
+                category: "url-scheme")
+            return false
+        }
+        let keys = parts[1].split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }.filter { !$0.isEmpty }
+        let manuscript = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "manuscript" })?.value
+            .flatMap(UUID.init(uuidString:))
+
+        let outcome = await MainActor.run {
+            ManuscriptCitationInserter.shared.insert(keys, into: manuscript)
+        }
+        Logger.urlScheme.infoCapture(
+            "insert citation \(keys.joined(separator: ",")): \(outcome.message)",
+            category: "url-scheme")
+        #if os(macOS)
+        if outcome.didInsert {
+            await MainActor.run { NSApplication.shared.activate(ignoringOtherApps: true) }
+        }
+        #endif
+        return outcome.didInsert
     }
 
     // MARK: - Open Command

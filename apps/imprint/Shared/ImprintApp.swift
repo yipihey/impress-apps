@@ -869,9 +869,18 @@ struct ImprintApp: App {
         // Edit menu additions
         CommandGroup(after: .textEditing) {
             Button("Insert Citation...") {
-                NotificationCenter.default.post(name: .insertCitation, object: nil)
+                // The inline palette at the caret, in the focused editor. This
+                // used to post `.insertCitation`, which nothing observed.
+                ManuscriptCitationInserter.shared.openPalette()
             }
             .keyboardShortcut("K", modifiers: [.command, .shift])
+
+            Button("Papers...") {
+                // imbib's papers window on this manuscript's collection — what
+                // replaced imprint's own Papers panel.
+                ManuscriptPapersCommand.request()
+            }
+            .keyboardShortcut("R", modifiers: [.command, .option])
 
             Button("Add Comment...") {
                 NotificationCenter.default.post(name: .addCommentAtSelection, object: nil)

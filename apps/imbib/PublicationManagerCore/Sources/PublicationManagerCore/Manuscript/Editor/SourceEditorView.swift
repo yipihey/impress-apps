@@ -22,6 +22,12 @@ public struct SourceEditorView: View {
     var syntaxMode: DocumentFormat = .typst
     var highlight: EditorHighlightRequest? = nil
     var onSelectionChange: ((String, NSRange) -> Void)?
+    /// Which manuscript this editor is editing, when it is editing one.
+    ///
+    /// Only used to register with `ManuscriptCitationInserter`, so imbib's
+    /// papers window (and imprint's HTTP API, and an agent) can put a cite key
+    /// at this editor's caret. `nil` — a scratch editor — registers nothing.
+    var manuscriptID: UUID? = nil
 
     @AppStorage("imprint.helix.isEnabled") private var helixModeEnabled = false
     @AppStorage("imprint.helix.showModeIndicator") private var helixShowModeIndicator = true
@@ -37,12 +43,14 @@ public struct SourceEditorView: View {
         cursorPosition: Binding<Int>,
         syntaxMode: DocumentFormat = .typst,
         highlight: EditorHighlightRequest? = nil,
+        manuscriptID: UUID? = nil,
         onSelectionChange: ((String, NSRange) -> Void)? = nil
     ) {
         self._source = source
         self._cursorPosition = cursorPosition
         self.syntaxMode = syntaxMode
         self.highlight = highlight
+        self.manuscriptID = manuscriptID
         self.onSelectionChange = onSelectionChange
     }
 
@@ -60,6 +68,7 @@ public struct SourceEditorView: View {
                 showCellBrackets: showCellBrackets,
                 inlineCompletionService: inlineCompletionService,
                 highlight: highlight,
+                manuscriptID: manuscriptID,
                 onSelectionChange: onSelectionChange
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -166,6 +175,8 @@ struct TypstEditorRepresentable: NSViewRepresentable {
     var showCellBrackets: Bool = true
     let inlineCompletionService: any InlineCompletionProviding
     var highlight: EditorHighlightRequest? = nil
+    /// See `SourceEditorView.manuscriptID`.
+    var manuscriptID: UUID? = nil
     var onSelectionChange: ((String, NSRange) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -285,6 +296,7 @@ struct TypstEditorRepresentable: NSViewRepresentable {
         // textDidChange would dispatch to the typst highlighter, painting
         // `\b`, `\d`, `\u` etc. as `@constant.character.escape` (red).
         context.coordinator.parent = self
+        context.coordinator.registerForCitationInsertion(manuscriptID)
 
         // Ensure text view fills at least the visible area of the scroll view
         let contentSize = scrollView.contentSize
@@ -401,6 +413,13 @@ struct TypstEditorRepresentable: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
+    }
+
+    /// SwiftUI is done with this editor — stop offering it as a citation target.
+    /// Without this, a closed manuscript's editor stays registered and an
+    /// insert aimed at it reports success into a dead text view.
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        MainActor.assumeIsolated { coordinator.resignCitationInsertion() }
     }
 
     // MARK: - Syntax Highlighting (tree-sitter via ImpressSyntaxHighlight)
@@ -619,13 +638,131 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             if let typst = textView as? TypstTextView { typst.bracketRuler?.needsDisplay = true }
         }
 
-        /// Detects if the current caret position is inside a citation trigger and
-        /// shows/hides the inline palette accordingly. Runs on MainActor because
-        /// BibliographyGenerator and AppKit views are main-isolated.
+        // MARK: - Citation insertion from outside the editor
+
+        /// The manuscript this editor is currently registered as.
+        private var registeredManuscriptID: UUID?
+
+        /// Caret position immediately after a citation this editor inserted
+        /// programmatically.
+        ///
+        /// A finished `@key` under the caret looks exactly like one being
+        /// typed, so the inline palette opened over the editor every time
+        /// imbib's papers window cited something. The palette stays shut while
+        /// the caret is still at that spot, and works normally as soon as the
+        /// author moves or types.
+        private var caretAfterInsertedCitation: Int?
+
+        /// Offer this editor as the citation target for `manuscriptID`.
+        /// Idempotent — `updateNSView` calls it on every refresh.
         @MainActor
+        func registerForCitationInsertion(_ manuscriptID: UUID?) {
+            guard registeredManuscriptID != manuscriptID else { return }
+            if let previous = registeredManuscriptID {
+                ManuscriptCitationInserter.shared.unregister(manuscriptID: previous)
+            }
+            registeredManuscriptID = manuscriptID
+            guard let manuscriptID else { return }
+            ManuscriptCitationInserter.shared.register(
+                manuscriptID: manuscriptID,
+                format: { [weak self] in self?.parent.syntaxMode ?? .typst },
+                insert: { [weak self] keys in
+                    self?.insertCitationKeys(keys) ?? .refused("the editor went away")
+                },
+                openPalette: { [weak self] in
+                    guard let self, let textView = self.textView else { return false }
+                    self.insertCitationManually(in: textView)
+                    return true
+                }
+            )
+        }
+
+        @MainActor
+        func resignCitationInsertion() {
+            if let previous = registeredManuscriptID {
+                ManuscriptCitationInserter.shared.unregister(manuscriptID: previous)
+            }
+            registeredManuscriptID = nil
+        }
+
+        /// A citation with whatever spacing it needs to stand apart from the
+        /// text around it.
+        ///
+        /// BOTH sides matter, and only the leading side was handled at first:
+        /// a Typst `@key` runs until a non-word character, so inserting one
+        /// immediately before existing text produced `@a@b` and `@key= Heading`
+        /// — one mangled label that Typst then reports as "does not exist",
+        /// naming a key nobody typed. Punctuation that naturally follows a
+        /// citation (`.`, `,`, a closing bracket) is left tight against it.
+        static func spaced(
+            _ citation: String, insertedInto text: NSString, at location: Int, format: DocumentFormat
+        ) -> String {
+            let opensTight = CharacterSet(charactersIn: "([{~,;")
+            let closesTight = CharacterSet(charactersIn: ".,;:!?)]}\u{2019}\u{201D}")
+            func character(at index: Int) -> Unicode.Scalar? {
+                guard index >= 0, index < text.length else { return nil }
+                return Unicode.Scalar(text.character(at: index))
+            }
+            let before = character(at: location - 1)
+            let after = character(at: location)
+            let needsLeading = before.map {
+                !CharacterSet.whitespacesAndNewlines.contains($0) && !opensTight.contains($0)
+            } ?? false
+            let needsTrailing = after.map {
+                !CharacterSet.whitespacesAndNewlines.contains($0) && !closesTight.contains($0)
+            } ?? false
+            return (needsLeading ? " " : "") + citation + (needsTrailing ? " " : "")
+        }
+
+        /// Put cite keys in the document at the caret, in the document's own
+        /// citation syntax.
+        ///
+        /// With text selected the citation goes AFTER the selection rather
+        /// than replacing it: the author selected a claim, and a citation
+        /// belongs at its end. A space is added when the character before the
+        /// insertion point would otherwise run into the citation.
+        @MainActor
+        func insertCitationKeys(_ keys: [String]) -> CitationInsertOutcome {
+            guard let textView, let textStorage = textView.textStorage else {
+                return .refused("the editor is not ready")
+            }
+            guard textView.isEditable else {
+                return .refused("this manuscript is not editable here")
+            }
+            let citation = ManuscriptCitationInserter.citationText(
+                for: keys, format: parent.syntaxMode)
+            guard !citation.isEmpty else { return .nothingToInsert }
+
+            let selection = textView.selectedRange()
+            let location = NSMaxRange(selection)
+            let text = textStorage.string as NSString
+            let insertText = Self.spaced(
+                citation, insertedInto: text, at: location, format: parent.syntaxMode)
+            let insertRange = NSRange(location: location, length: 0)
+            guard textView.shouldChangeText(in: insertRange, replacementString: insertText) else {
+                return .refused("the editor refused the edit")
+            }
+            let caret = location + (insertText as NSString).length
+            caretAfterInsertedCitation = caret
+            textStorage.replaceCharacters(in: insertRange, with: insertText)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: caret, length: 0))
+            textView.scrollRangeToVisible(textView.selectedRange())
+            citationPalette.dismiss()
+
+            // Same signal the inline palette posts, so a host that tracks
+            // insertions sees both paths identically.
+            for key in keys {
+                NotificationCenter.default.post(
+                    name: .inlineCitationInserted, object: nil, userInfo: ["citeKey": key])
+            }
+            return .inserted(citation)
+        }
+
         /// Manual (⌘S) citation insert: drop the format-appropriate citation
         /// scaffold at the cursor, then open the palette positioned inside it.
         /// The palette's normal insert(row:) then fills the key.
+        @MainActor
         func insertCitationManually(in textView: NSTextView) {
             guard let textStorage = textView.textStorage else { return }
             let format = parent.syntaxMode
@@ -663,8 +800,18 @@ struct TypstEditorRepresentable: NSViewRepresentable {
             }
         }
 
+        /// Detects if the current caret position is inside a citation trigger and
+        /// shows/hides the inline palette accordingly. Runs on MainActor because
+        /// BibliographyGenerator and AppKit views are main-isolated.
         @MainActor
         private func maybeShowCitationPalette(in textView: NSTextView, at cursorLocation: Int) {
+            if let inserted = caretAfterInsertedCitation {
+                if cursorLocation == inserted {
+                    if citationPalette.isShowing { citationPalette.dismiss() }
+                    return
+                }
+                caretAfterInsertedCitation = nil
+            }
             let format = parent.syntaxMode
             if let trigger = CitationPaletteTriggerDetector.detect(
                 in: textView.string,
@@ -860,6 +1007,11 @@ class TypstTextView: HelixTextView {
     /// (`usesFindBar = true`). SwiftUI's custom menu commands don't wire a
     /// Find menu item, so Cmd+F never reaches the responder chain otherwise.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // AppKit offers a key equivalent to EVERY view in the window, not only
+        // the first responder; without this the editor answered ⌘F/⌘G/⌘E/⌘S
+        // and the AI chords while another pane (the Papers panel's search, a
+        // list) had focus.
+        guard ownsKeyboardFocus else { return super.performKeyEquivalent(with: event) }
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let key = event.charactersIgnoringModifiers?.lowercased()
 
@@ -903,6 +1055,20 @@ class TypstTextView: HelixTextView {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// This editor, or the find bar inside its scroll view, has keyboard focus.
+    private var ownsKeyboardFocus: Bool {
+        guard let responder = window?.firstResponder else { return false }
+        if responder === self { return true }
+        // Typing in the find bar: the field editor's delegate is the find
+        // bar's text field, which lives inside this editor's scroll view.
+        if let fieldEditor = responder as? NSTextView, fieldEditor.isFieldEditor,
+           let field = fieldEditor.delegate as? NSView,
+           let scrollView = enclosingScrollView {
+            return field.isDescendant(of: scrollView)
+        }
+        return false
     }
 
     /// Invoke a text-finder action via a lightweight sender carrying the tag,

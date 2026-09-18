@@ -13,7 +13,6 @@
 import AppKit
 import SwiftUI
 import PublicationManagerCore
-import ImpressPublicationUI
 import ImpressKit
 import ImprintCore
 import ImpressLogging
@@ -516,53 +515,6 @@ private struct AIAssistantPanelHost: View {
 
 // MARK: - Veusz Plots (hardest — ImprintDocument plots round-trip)
 
-// MARK: - Paper preview (easiest — view already in a shared package)
-
-struct PaperPreviewSidePanel: ManuscriptSidePanel {
-    let id = "paper"
-    let label = "Paper"
-    let systemImage = "doc.text.magnifyingglass"
-
-    func makeView(_ context: ManuscriptPanelContext) -> AnyView {
-        AnyView(PaperPreviewPanelHost())
-    }
-}
-
-/// Observes `.openPaperPanel` (posted by the editor's cite-key click/hover) and
-/// renders `PaperDetailPanel` for that publication, or a placeholder.
-private struct PaperPreviewPanelHost: View {
-    @State private var publicationID: String?
-
-    var body: some View {
-        Group {
-            if let publicationID {
-                PaperDetailPanel(
-                    publicationID: publicationID,
-                    dataSource: ImprintPublicationService.shared,
-                    onClose: { self.publicationID = nil },
-                    onOpenInImbib: { citeKey in
-                        if let url = ImpressURL.openPaper(citeKey: citeKey).url {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                )
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 28)).foregroundStyle(.tertiary)
-                    Text("Click a citation to preview the paper")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openPaperPanel)) { note in
-            if let id = note.userInfo?["publicationID"] as? String {
-                publicationID = id
-            }
-        }
-    }
-}
+// There is no Papers panel: a manuscript's papers are an imbib collection,
+// shown in imbib's own papers window (⇧⌘P → `ManuscriptPapersCommand`).
 #endif

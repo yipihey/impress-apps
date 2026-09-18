@@ -2,21 +2,16 @@
 //  CitationPaperSheet.swift
 //  PublicationManagerCore
 //
-//  The iOS counterpart of the macOS cite-key hover preview + paper panel.
+//  The iOS counterpart of the macOS cite-key hover preview.
 //
-//  On macOS, hovering `@smith2024` pops a `CiteKeyHoverView` with a
-//  "Open in paper panel" button that hands the publication to
-//  `PaperDetailPanel` (packages/ImpressPublicationUI) in the Source tab's
-//  flanking inspector. iOS has neither hover nor a flanking inspector, so the
-//  two collapse into one sheet raised by a long press — same content, same
-//  "open in imbib" exit, one gesture instead of hover-then-click.
+//  On macOS, hovering `@smith2024` pops a `CiteKeyHoverView` (title, authors,
+//  abstract and note excerpts), and choosing references happens in imbib's
+//  papers window (`ManuscriptPapersWindow`, opened by ⇧⌘P). iOS has neither
+//  hover nor a second window, so one sheet raised by a long press stands in
+//  for both — the paper a cite key names, with the same "open in imbib" exit.
 //
-//  `PaperDetailPanel` itself is not reusable here: `ImpressPublicationUI`
-//  declares `platforms: [.macOS(.v26)]`, imports AppKit, and its PDF tab is an
-//  `NSViewRepresentable` resolving attachments under
-//  `homeDirectoryForCurrentUser` — a path that does not exist on iOS. This view
-//  lives in PMC (not in imprint-iOS) so imbib-iOS's manuscript editor gets the
-//  same affordance from the same code.
+//  This view lives in PMC (not in imprint-iOS) so imbib-iOS's manuscript
+//  editor gets the same affordance from the same code.
 //
 //  It renders a `CitationResolution`, not a row, because the interesting half
 //  of this feature is the MISS: see `ManuscriptCitationResolver` for why "no

@@ -77,14 +77,19 @@ enum ManuscriptEditorInstaller {
         ManuscriptSessionRegistry.shared.currentApp = .imprint
 
         // Panels: contribute imprint's flanking inspector panels into the shared
-        // Source tab (imbib installs none → no inspector). Phase A: AI Assistant
-        // + Paper preview. Throughline + Veusz append in later phases.
+        // Source tab (imbib installs none → no inspector).
+        //
+        // There is deliberately NO papers panel. A manuscript's papers are an
+        // imbib collection, and imbib shows collections better than a panel
+        // ever will — so "Papers" (⇧⌘P, or the toolbar button) syncs what the
+        // manuscript cites into that collection and opens imbib's papers
+        // window on it. Citing from there comes back through
+        // `ManuscriptCitationInserter`.
         env.sidePanels = [
             AIAssistantSidePanel(),
             PresentationStoryboardSidePanel(),
             ThroughlineSidePanel(),
             ManuscriptPlotsPanel(),
-            PaperPreviewSidePanel(),
             ProjectFilesSidePanel(),
             ProjectBuildSidePanel(),
         ]

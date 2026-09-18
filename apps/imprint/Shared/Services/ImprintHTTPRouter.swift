@@ -1648,36 +1648,48 @@ public actor ImprintHTTPRouter: HTTPRouter {
             return .badRequest("Invalid JSON body")
         }
 
-        guard let citeKey = json["citeKey"] as? String else {
-            return .badRequest("Missing 'citeKey' parameter")
+        // Either spelling: one key, a comma-separated list, or `citeKeys`.
+        // imbib's papers window cites a multi-selection as one citation.
+        let keys: [String] = {
+            if let many = json["citeKeys"] as? [String] {
+                return many.map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            }
+            guard let one = json["citeKey"] as? String else { return [] }
+            return one.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }()
+        guard !keys.isEmpty else {
+            return .badRequest("Missing 'citeKey' or 'citeKeys' parameter")
         }
-
-        let bibtex = json["bibtex"] as? String
-        let position = json["position"] as? Int
+        let citeKey = keys.joined(separator: ",")
 
         guard await findManuscript(by: uuid) != nil else {
             return .notFound("Document not found: \(id)")
         }
 
-        // Post notification to insert citation
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: .insertCitation,
-                object: nil,
-                userInfo: [
-                    "documentID": uuid,
-                    "citeKey": citeKey,
-                    "bibtex": bibtex as Any,
-                    "position": position as Any
-                ]
-            )
+        // The editor for this manuscript does the insertion, at its caret, in
+        // the document's own citation syntax. This used to post a notification
+        // nothing observed and answer "Citation insert requested" regardless —
+        // the caller could not tell a citation from a no-op.
+        let outcome = await MainActor.run {
+            ManuscriptCitationInserter.shared.insert(keys, into: uuid)
         }
-
+        guard outcome.didInsert else {
+            return .json([
+                "status": "error",
+                "inserted": false,
+                "documentId": id,
+                "citeKey": citeKey,
+                "message": outcome.message,
+            ], status: 409)
+        }
         return .json([
             "status": "ok",
-            "message": "Citation insert requested",
+            "inserted": true,
             "documentId": id,
-            "citeKey": citeKey
+            "citeKey": citeKey,
+            "message": outcome.message,
         ])
     }
 

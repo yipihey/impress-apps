@@ -110,6 +110,19 @@ pub struct AppStatus {
     pub detail: String,
 }
 
+/// What opening the manuscript-papers window did.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PapersWindowResult {
+    pub opened: bool,
+    /// The imbib collection the window is showing.
+    pub collection_id: Option<String>,
+    pub collection_name: Option<String>,
+    /// Cite keys the manuscript uses that imbib has no paper for.
+    #[serde(default)]
+    pub missing_cite_keys: Vec<String>,
+    pub message: String,
+}
+
 #[impress_service]
 pub trait ImbibAppService: Send + Sync + 'static {
     /// Search external academic sources — ADS, arXiv, Crossref and the rest —
@@ -143,6 +156,17 @@ pub trait ImbibAppService: Send + Sync + 'static {
     /// goes out to publishers and preprint servers.
     #[impress_method]
     async fn download_pdfs(&self, publication_ids: Vec<String>) -> u32;
+
+    /// Show a manuscript's papers in imbib: a window on the manuscript's own
+    /// collection — imbib's list and inspector, no sidebar — with the citation
+    /// verbs pointed at that manuscript. imbib folds the papers the manuscript
+    /// cites into the collection first, so the window always opens on its
+    /// current set, and reports the cite keys it has no paper for.
+    ///
+    /// This is the surface imprint uses for choosing references; imprint no
+    /// longer has a paper panel of its own.
+    #[impress_method]
+    async fn open_manuscript_papers(&self, manuscript_id: String) -> PapersWindowResult;
 
     /// Ask imbib's sync engine for an immediate push+pull instead of waiting
     /// for its schedule. THIS IS WHAT DELIVERS YOUR WORK TO THE USER'S OTHER
@@ -267,6 +291,17 @@ impl ImbibAppService for DefaultImbibAppService {
         0
     }
 
+    async fn open_manuscript_papers(&self, _manuscript_id: String) -> PapersWindowResult {
+        refuse("open_manuscript_papers");
+        PapersWindowResult {
+            opened: false,
+            collection_id: None,
+            collection_name: None,
+            missing_cite_keys: Vec::new(),
+            message: NOT_RUNNING.into(),
+        }
+    }
+
     async fn sync_nudge(&self) -> SyncNudgeResult {
         refuse("sync_nudge");
         SyncNudgeResult {
@@ -353,6 +388,7 @@ impress_service_impl! {
         search_sources(query: String, sources: Option<String>, limit: u32) -> Vec<ExternalPaper>,
         recent_activity(limit: u32, parent_id: Option<String>) -> Vec<ActivityEntry>,
         download_pdfs(publication_ids: Vec<String>) -> u32,
+        open_manuscript_papers(manuscript_id: String) -> PapersWindowResult,
         sync_nudge() -> SyncNudgeResult,
         sync_status() -> AppStatus,
         status() -> AppStatus,

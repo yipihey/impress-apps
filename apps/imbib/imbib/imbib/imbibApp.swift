@@ -354,6 +354,17 @@ struct imbibApp: App {
         _searchViewModel = State(initialValue: searchViewModel)
         _settingsViewModel = State(initialValue: settingsViewModel)
 
+        // The manuscript-papers window runs imbib's own list and detail, so it
+        // needs the same view models the main window has. Installed here
+        // because the window can be opened by a URL or an agent verb long
+        // before any view has appeared.
+        #if os(macOS)
+        ManuscriptPapersWindowController.shared.configure(
+            libraryViewModel: libraryViewModel,
+            searchViewModel: searchViewModel,
+            libraryManager: libraryManager)
+        #endif
+
         // Phase 4: Set up notification observers for extensions
         Self.setupNotificationObservers()
 
@@ -782,6 +793,12 @@ struct imbibApp: App {
         }
         #if os(macOS)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
+        // URLs are delivered by the app delegate (`application(_:open:)` →
+        // URLSchemeHandler) and act on the existing window. Without this,
+        // SwiftUI ALSO made a new window for every imbib:// URL — the extra
+        // window "Open in imbib" left behind — because a WindowGroup matches
+        // every external event by default.
+        .handlesExternalEvents(matching: Set<String>())
         #endif
 
         #if os(macOS)
@@ -796,17 +813,20 @@ struct imbibApp: App {
         }
         .keyboardShortcut("c", modifiers: [.command, .shift])
         .defaultSize(width: 800, height: 400)
+        .handlesExternalEvents(matching: Set<String>())
 
         Window("Keyboard Shortcuts", id: "keyboard-shortcuts") {
             KeyboardShortcutsView()
         }
         .keyboardShortcut("/", modifiers: .command)
         .defaultSize(width: 450, height: 700)
+        .handlesExternalEvents(matching: Set<String>())
 
         Window("Help", id: "help") {
             HelpWindowView()
         }
         .defaultSize(width: 900, height: 700)
+        .handlesExternalEvents(matching: Set<String>())
         #endif
     }
 

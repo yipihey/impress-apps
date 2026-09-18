@@ -562,6 +562,127 @@ public final class CollectionStoreAdapter {
         return changed
     }
 
+    // MARK: - A manuscript's papers
+
+    // The manuscript's papers ARE an imbib collection (`manuscript_ref` in its
+    // payload) — that is what lets imbib's papers window show them with
+    // imbib's own list instead of imprint growing a second one. The logic is
+    // `impress_core::manuscript_reading_list`, which the
+    // `imprint-project-service_project-*` verbs also call, so the window, the
+    // editor and an agent agree.
+
+    /// Fold the manuscript's cited papers into its collection, making the
+    /// collection on first use. Idempotent.
+    ///
+    /// `citeKeys` come from the caller's live text — the editor's buffer, not
+    /// the stored copy, which lags what is being typed.
+    @discardableResult
+    public func syncManuscriptPapers(
+        manuscriptID: UUID,
+        citeKeys: [String],
+        collectionName: String? = nil
+    ) -> SharedSyncCollectionOutcome? {
+        guard let store else { return nil }
+        do {
+            let outcome = try store.manuscriptSyncReadingCollection(
+                manuscriptId: manuscriptID.uuidString.lowercased(),
+                citeKeys: citeKeys,
+                collectionName: collectionName)
+            if outcome.created || !outcome.added.isEmpty { scope.noteMutation(true, nil, nil) }
+            Self.logger.infoCapture(
+                "manuscript papers: '\(outcome.collectionName)' holds \(outcome.memberCount) "
+                    + "paper(s); added \(outcome.added.count); "
+                    + "\(outcome.missingCiteKeys.count) cite key(s) not in imbib",
+                category: "collections")
+            return outcome
+        } catch {
+            Self.logger.errorCapture(
+                "syncManuscriptPapers(\(manuscriptID)) failed: \(error)", category: "collections")
+            return nil
+        }
+    }
+
+    /// Add papers to the manuscript's collection (undoable), making it on
+    /// first use. Returns the ids that actually became members.
+    @discardableResult
+    public func keepForManuscript(
+        manuscriptID: UUID,
+        publicationIDs: [UUID],
+        citeKeys: [String] = [],
+        collectionName: String? = nil,
+        undo: StoreUndoScope? = nil
+    ) -> SharedCollectOutcome? {
+        guard let store, !publicationIDs.isEmpty else { return nil }
+        do {
+            let outcome = try store.manuscriptCollect(
+                manuscriptId: manuscriptID.uuidString.lowercased(),
+                publicationIds: publicationIDs.map { $0.uuidString.lowercased() },
+                collectionName: collectionName,
+                citeKeys: citeKeys)
+            scope.noteMutation(true, nil, nil)
+            if !outcome.added.isEmpty {
+                registerMembershipUndo(
+                    CollectionBindingID.publication, collectionID: outcome.collectionId,
+                    itemIDs: outcome.added, wasAdd: true, undo: undo)
+            }
+            Self.logger.infoCapture(
+                "manuscript papers: kept \(outcome.added.count)/\(publicationIDs.count) "
+                    + "paper(s) for \(manuscriptID)",
+                category: "collections")
+            return outcome
+        } catch {
+            Self.logger.errorCapture(
+                "keepForManuscript(\(manuscriptID)) failed: \(error)", category: "collections")
+            return nil
+        }
+    }
+
+    /// Remove papers from the manuscript's collection (undoable). The papers
+    /// stay in imbib; a paper the text still cites comes back on the next sync.
+    @discardableResult
+    public func dropFromManuscript(
+        manuscriptID: UUID,
+        publicationIDs: [UUID],
+        undo: StoreUndoScope? = nil
+    ) -> [String] {
+        guard let store, !publicationIDs.isEmpty else { return [] }
+        do {
+            let collection = try store.manuscriptReadingCollection(
+                manuscriptId: manuscriptID.uuidString.lowercased())
+            let removed = try store.manuscriptUncollect(
+                manuscriptId: manuscriptID.uuidString.lowercased(),
+                publicationIds: publicationIDs.map { $0.uuidString.lowercased() })
+            if !removed.isEmpty {
+                scope.noteMutation(true, nil, nil)
+                if let collection {
+                    registerMembershipUndo(
+                        CollectionBindingID.publication, collectionID: collection,
+                        itemIDs: removed, wasAdd: false, undo: undo)
+                }
+            }
+            return removed
+        } catch {
+            Self.logger.errorCapture(
+                "dropFromManuscript(\(manuscriptID)) failed: \(error)", category: "collections")
+            return []
+        }
+    }
+
+    /// The manuscript's papers collection, if it has one yet.
+    public func manuscriptPapersCollection(manuscriptID: UUID) -> UUID? {
+        guard let store else { return nil }
+        do {
+            return try store.manuscriptReadingCollection(
+                manuscriptId: manuscriptID.uuidString.lowercased())
+                .flatMap(UUID.init(uuidString:))
+        } catch {
+            Self.logger.errorCapture(
+                "manuscriptPapersCollection(\(manuscriptID)) failed: \(error)",
+                category: "collections")
+            return nil
+        }
+    }
+
     private func registerMembershipUndo(
         _ bindingID: String, collectionID: String, itemIDs: [String], wasAdd: Bool,
         undo: StoreUndoScope?

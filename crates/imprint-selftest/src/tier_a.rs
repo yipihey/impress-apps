@@ -70,6 +70,7 @@ pub async fn run() -> Vec<CapabilityResult> {
     out.push(cap_project_import_export_snapshot().await);
     out.push(cap_project_build_records().await);
     out.push(cap_project_figures_and_working_copy().await);
+    out.push(cap_papers_sync_reading_collection().await);
 
     out
 }
@@ -81,6 +82,9 @@ struct ProjectWorld {
     _dir: tempfile::TempDir,
     svc: imprint_service::DefaultImprintProjectService,
     manuscript_id: String,
+    /// The same handle the service holds — for capabilities that need imbib
+    /// rows (a library, a paper) beside the manuscript.
+    store: std::sync::Arc<impress_core::sqlite_store::SqliteItemStore>,
 }
 
 impl ProjectWorld {
@@ -132,15 +136,153 @@ impl ProjectWorld {
             })
             .map_err(|e| format!("insert manuscript: {e}"))?;
         let svc = imprint_service::DefaultImprintProjectService::with_store(
-            store,
+            store.clone(),
             dir.path().join("content"),
         );
         Ok(Self {
             _dir: dir,
             svc,
             manuscript_id: id.to_string(),
+            store,
         })
     }
+
+    /// Insert an imbib row (library, bibliography entry) into the same store.
+    fn insert_row(
+        &self,
+        schema: &str,
+        fields: &[(&str, impress_core::item::Value)],
+        parent: Option<uuid::Uuid>,
+    ) -> Result<uuid::Uuid, String> {
+        use impress_core::item::{ActorKind, Item, Priority, Value, Visibility};
+        use impress_core::store::ItemStore;
+        let _ = Value::Bool(true); // keep the import honest across field shapes
+        let id = uuid::Uuid::new_v4();
+        let now = chrono::Utc::now();
+        let payload = fields
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect();
+        self.store
+            .insert(Item {
+                id,
+                schema: schema.into(),
+                payload,
+                created: now,
+                modified: now,
+                author: "selftest".into(),
+                author_kind: ActorKind::System,
+                logical_clock: 0,
+                origin: None,
+                canonical_id: None,
+                tags: vec![],
+                flag: None,
+                is_read: false,
+                is_starred: false,
+                priority: Priority::Normal,
+                visibility: Visibility::Private,
+                message_type: None,
+                produced_by: None,
+                version: None,
+                batch_id: None,
+                references: vec![],
+                parent,
+            })
+            .map_err(|e| format!("insert {schema}: {e}"))?;
+        Ok(id)
+    }
+}
+
+/// ADR-0031: the manuscript's papers are ONE imbib collection, and the sync
+/// that fills it is what every entry point runs before imbib's papers window
+/// opens. Cited papers join it, a second run adds nothing, and a cite key
+/// imbib has no paper for is REPORTED rather than dropped — the window cannot
+/// show a paper that does not exist, so the author has to be told.
+async fn cap_papers_sync_reading_collection() -> CapabilityResult {
+    check(
+        "papers.sync_reading_collection",
+        "Cited papers land in the manuscript's imbib collection, idempotently, and missing cite keys are reported",
+        Tier::A,
+        || async {
+            use impress_core::item::Value;
+            use imprint_service::ImprintProjectService;
+
+            let w = ProjectWorld::open(
+                "typst",
+                "= Paper\n\nSee @alpha2020 and @nowhere1999.\n",
+            )?;
+            let library = w.insert_row(
+                "imbib/library",
+                &[("name", Value::String("Selftest library".into()))],
+                None,
+            )?;
+            w.insert_row(
+                "imbib/bibliography-entry",
+                &[
+                    ("cite_key", Value::String("alpha2020".into())),
+                    ("title", Value::String("Alpha".into())),
+                ],
+                Some(library),
+            )?;
+
+            let id = w.manuscript_id.clone();
+            let first = w
+                .svc
+                .project_sync_reading_collection(id.clone(), None, None)
+                .await;
+            if !first.ok {
+                return Err(format!("sync: {}", first.message));
+            }
+            if !first.created || first.added.len() != 1 || first.member_count != 1 {
+                return Err(format!(
+                    "first sync: created={} added={:?} members={}",
+                    first.created, first.added, first.member_count
+                ));
+            }
+            if first.missing_cite_keys != ["nowhere1999"] {
+                return Err(format!("missing keys: {:?}", first.missing_cite_keys));
+            }
+
+            let again = w
+                .svc
+                .project_sync_reading_collection(id.clone(), None, None)
+                .await;
+            if again.created || !again.added.is_empty() || again.member_count != 1 {
+                return Err(format!(
+                    "second sync was not a no-op: created={} added={:?} members={}",
+                    again.created, again.added, again.member_count
+                ));
+            }
+            if again.collection_id != first.collection_id {
+                return Err("the second sync made a different collection".into());
+            }
+
+            // The window's scope and the agent's list agree: the cited paper
+            // is a member now, and the key imbib lacks has no publication.
+            let list = w.svc.project_reading_list(id, None).await;
+            let alpha = list
+                .rows
+                .iter()
+                .find(|r| r.cite_key == "alpha2020")
+                .ok_or("alpha2020 missing from the reading list")?;
+            if !alpha.collected || !alpha.cited {
+                return Err(format!("alpha2020: cited={} collected={}", alpha.cited, alpha.collected));
+            }
+            let nowhere = list
+                .rows
+                .iter()
+                .find(|r| r.cite_key == "nowhere1999")
+                .ok_or("nowhere1999 missing from the reading list")?;
+            if nowhere.publication_id.is_some() {
+                return Err("nowhere1999 resolved to a publication".into());
+            }
+            Ok(format!(
+                "'{}' holds {} paper(s); 1 cite key not in imbib",
+                first.collection_name, first.member_count
+            ))
+        },
+    )
+    .await
 }
 
 /// ADR-0030 P0/P1: a manuscript is a project. A chapter and a figure added

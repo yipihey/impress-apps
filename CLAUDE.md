@@ -302,6 +302,22 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   keychain (apps push them into Rust memory; daemons read the same items via `security`).
   `IMPRESS_<PROVIDER>_URL` / `IMPRESS_AI_PROVIDER` / `IMPRESS_AI_MODEL` are explicit
   overrides, not the source of truth.
+- **A tool's own surface shows its own domain** (ADR-0031): when one app needs
+  another's domain, it asks for that app's surface instead of rebuilding it.
+  A manuscript's papers are an imbib collection and imbib shows them — imprint
+  opens `ManuscriptPapersWindow` (imbib's list + detail, no sidebar, scoped to
+  the manuscript's collection) with ⌥⌘R, and citing comes back through
+  `ManuscriptCitationInserter`, one registry of live editors that answers
+  whether the citation landed. imprint's Papers panel had grown a second imbib
+  inside the editor — its own rows, inspector tabs, catalog search, PDF
+  acquisition and full-screen PDF window — and is deleted. Two definitions of
+  one capability drift; the only question is when you notice. The same rule
+  killed the TypeScript MCP server. **Watch for the failure this one hid:** a
+  cross-app "do this for me" seam that reports success without doing anything
+  (`POST /api/documents/{id}/insert-citation` posted a notification with no
+  observer for months, and `ImpressURL.insertCitation` built a URL imprint
+  never handled). A seam's answer must distinguish "done" from "nobody was
+  listening".
 - **E-ink mirroring lives in Rust and in store records** (imbib ADR-025): the reMarkable
   is reached over its USB web interface, which can only list, upload and download — no
   folder creation, rename, move or delete, and an upload lands in whatever folder was

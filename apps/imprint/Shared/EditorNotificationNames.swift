@@ -20,10 +20,6 @@ extension Notification.Name {
     /// userInfo: `publicationID` (String), `citeKey` (String)
     static let inlineCitationInserted = Notification.Name("imprint.inlineCitationInserted")
 
-    /// Posted to request opening the paper detail panel for a given publication.
-    /// userInfo: `publicationID` (String)
-    static let openPaperPanel = Notification.Name("imprint.openPaperPanel")
-
     /// Posted when the inline citation palette opens.
     static let inlineCitationPaletteOpened = Notification.Name("imprint.inlineCitationPaletteOpened")
 

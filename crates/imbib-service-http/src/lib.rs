@@ -14,7 +14,8 @@ use imbib_service::annotations_service::{
     AnnotationRecord, CommentRecord, ImbibAnnotationsService,
 };
 use imbib_service::app_service::{
-    ActivityEntry, AppStatus, ExternalPaper, ImbibAppService, LogEntry, SyncNudgeResult,
+    ActivityEntry, AppStatus, ExternalPaper, ImbibAppService, LogEntry, PapersWindowResult,
+    SyncNudgeResult,
 };
 use imbib_service::artifacts_service::{
     ArtifactRecord, ArtifactRelationRecord, ImbibArtifactsService,
@@ -1315,6 +1316,23 @@ impl ImbibAppService for HttpImbibAppService {
             .unwrap_or_else(|e| {
                 log_err("download_pdfs", e);
                 0
+            })
+    }
+
+    async fn open_manuscript_papers(&self, manuscript_id: String) -> PapersWindowResult {
+        self.client
+            .open_manuscript_papers(&manuscript_id)
+            .await
+            .unwrap_or_else(|e| {
+                let message = format!("could not reach imbib: {e}");
+                log_err("open_manuscript_papers", e);
+                PapersWindowResult {
+                    opened: false,
+                    collection_id: None,
+                    collection_name: None,
+                    missing_cite_keys: Vec::new(),
+                    message,
+                }
             })
     }
 

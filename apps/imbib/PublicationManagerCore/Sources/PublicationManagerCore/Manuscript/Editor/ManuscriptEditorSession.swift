@@ -102,7 +102,9 @@ public final class ManuscriptEditorSession {
     private var isSaving = false
     private var saveTask: Task<Void, Never>?
     private let saveDebounceMs: Int
-    private let title: String
+    /// The manuscript's title. Readable because the Papers command names the
+    /// window and the papers collection after it.
+    public let title: String
 
     /// The buffer content as of the last successful load or save. Used to tell
     /// whether the user has local unsaved edits when an external change lands.
