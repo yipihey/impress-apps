@@ -2421,8 +2421,8 @@ cargo build --release --target aarch64-apple-ios       # iOS device
 cargo build --release --target aarch64-apple-ios-sim   # iOS simulator
 
 # Generate UniFFI bindings
-cargo run --bin uniffi-bindgen generate \
-    --library target/aarch64-apple-darwin/release/libimprint_core.dylib \
+cargo run --release -p uniffi-bindgen -- generate \
+    --library target/aarch64-apple-darwin/release/libimprint_core.a \
     --language swift \
     --out-dir "$OUT_DIR/Generated"
 

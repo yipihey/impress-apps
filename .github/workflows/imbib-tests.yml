@@ -41,36 +41,30 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Cache Swift Package Manager
-        uses: actions/cache@v4
-        with:
-          # NOT ~/Library/Developer/Xcode/DerivedData: on the self-hosted
-          # runner that is the DEVELOPER's DerivedData. Caching it let CI
-          # restore over the copy the human is using, and CI's
-          # CODE_SIGNING_ALLOWED=NO builds (no entitlements, ad-hoc signed)
-          # then re-prompt TCC for app-group access every launch.
-          path: |
-            ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
-
+      # No SwiftPM cache: ~/Library/Caches/org.swift.swiftpm is the developer's
+      # own directory on this self-hosted Mac and already persists between jobs.
+      # The step cost 8-9 minutes of upload per job, and its key hashed
+      # Package.resolved, which is gitignored - so the key never changed.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
-      - name: Cache Rust
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
@@ -161,17 +155,21 @@ jobs:
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
-      - name: Cache Rust
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
@@ -260,17 +258,21 @@ jobs:
         with:
           targets: aarch64-apple-ios, x86_64-apple-ios, aarch64-apple-ios-sim
 
-      - name: Cache Rust
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-ios-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       # Same MACOSX_DEPLOYMENT_TARGET as the macOS jobs — it is the script's
       # own default, stated explicitly so all three jobs share one cache entry
       # instead of building the identical artifact twice.
@@ -315,6 +317,7 @@ jobs:
           xcodebuild -derivedDataPath "$PWD/.ci-derived" build \
             -scheme imbib-iOS \
             -destination 'generic/platform=iOS Simulator' \
+            ARCHS=arm64 \
             -resultBundlePath ${{ runner.temp }}/BuildResults-iOS.xcresult \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \

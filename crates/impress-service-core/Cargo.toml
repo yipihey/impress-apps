@@ -7,6 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [features]
+# Manual probes/examples are opt-in: `--all-targets` (the workspace gate)
+# otherwise builds and LINKS them on every run - 303 MB of binaries that
+# cannot run in a gate anyway (one needs a plugged-in tablet, another a
+# running app on localhost).
+examples = []
 default = []
 uniffi = ["dep:uniffi"]
 pyo3 = ["dep:pyo3"]
@@ -29,4 +34,4 @@ impress-service-macros = { path = "../impress-service-macros" }
 
 [[example]]
 name = "echo_demo"
-path = "examples/echo_demo.rs"
+required-features = ["examples"]

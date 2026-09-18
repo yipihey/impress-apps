@@ -13,6 +13,7 @@ on:
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
 env:
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
 
 concurrency:
@@ -31,17 +32,21 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impel-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: Check formatting
         run: cargo fmt -p impel-core --check
 
@@ -81,17 +86,21 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impel-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: Check formatting
         run: cargo fmt -p impel-tui --check
 
@@ -112,17 +121,21 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impel-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: Check formatting
         run: cargo fmt -p impel-server --check
 
@@ -141,25 +154,31 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impel-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: Build library with UniFFI
-        run: cargo build -p impel-core --release --features native
+        run: # Release compile check, then the staticlib the bindgen step reads.
+          cargo build -p impel-core --release --features native
+          cargo rustc -p impel-core --release --features native --lib --crate-type staticlib
 
       - name: Generate Swift bindings
         run: |
           mkdir -p crates/impel-core/generated
-          cargo run -p impel-core --release --features native --bin uniffi-bindgen generate \
-            --library target/release/libimpel_core.dylib \
+          cargo run --release -p uniffi-bindgen -- generate \
+            --library target/release/libimpel_core.a \
             --language swift \
             --out-dir crates/impel-core/generated
 

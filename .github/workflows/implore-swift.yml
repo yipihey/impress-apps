@@ -22,6 +22,7 @@ on:
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
 env:
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
 
 concurrency:
@@ -48,27 +49,25 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-implore-swift-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-implore-
-
-      - name: Cache Swift Package Manager
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-implore-${{ hashFiles('apps/implore/Packages/*/Package.swift') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-implore-
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+      # No SwiftPM cache: ~/Library/Caches/org.swift.swiftpm is the developer's
+      # own directory on this self-hosted Mac and already persists between jobs.
+      # The step cost 8-9 minutes of upload per job, and its key hashed
+      # Package.resolved, which is gitignored - so the key never changed.
       # Also copies into apps/implore/Frameworks/, which is where
       # ImploreRustCore's binary target points — both destinations are in the
       # composite action's cache path list.
@@ -82,6 +81,9 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
+          # macOS-only project: no iOS slices needed (the same reasoning the
+          # imprint-core step below already applies).
+          env-extra: IMPRESS_SKIP_IOS=1
 
       - name: Test ImploreCore
         working-directory: apps/implore/Packages/ImploreCore
@@ -99,19 +101,21 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-implore-swift-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-implore-
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: Install xcodegen
         run: brew install xcodegen
 
@@ -124,12 +128,18 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: impress-store-ffi
+          # macOS-only project: no iOS slices needed (the same reasoning the
+          # imprint-core step below already applies).
+          env-extra: IMPRESS_SKIP_IOS=1
 
       # The app links ImpressHelixCore for its editor surfaces.
       - name: ImpressHelix.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: impress-helix
+          # macOS-only project: no iOS slices needed (the same reasoning the
+          # imprint-core step below already applies).
+          env-extra: IMPRESS_SKIP_IOS=1
 
       # The app also links the PublicationManagerCore chassis, which brings the
       # SciX client and imbib cores with it. Gitignored artifacts, so a clean
@@ -138,12 +148,15 @@ jobs:
         uses: ./.github/actions/xcframework
         with:
           crate: scix-client-ffi
+          # macOS-only project: no iOS slices needed (the same reasoning the
+          # imprint-core step below already applies).
+          env-extra: IMPRESS_SKIP_IOS=1
 
       - name: ImbibCore.xcframework
         uses: ./.github/actions/xcframework
         with:
           crate: imbib-core
-          env-extra: MACOSX_DEPLOYMENT_TARGET=14.0
+          env-extra: IMPRESS_SKIP_IOS=1
 
       # PMC -> ImprintCore -> imprint_coreFFI. implore is a macOS-only project,
       # so skip the three iOS slices — imprint-core links Typst and is by far

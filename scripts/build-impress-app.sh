@@ -62,15 +62,30 @@ esac
 "$(dirname "$0")/prune-derived-data.sh" --apply --quiet || true
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DERIVED="$HOME/Library/Developer/Xcode/DerivedData/$APP"
+# ONE DerivedData for the whole suite, reached through impress.xcworkspace.
+# Per-app derived data meant PublicationManagerCore + ImpressChassis + ~25
+# packages were compiled once per app (17 PublicationManagerCore.build trees,
+# 9.7 GB, 603 recompiles per app after any framework swap). In a workspace each
+# local package is built once per platform/configuration and every scheme
+# links it. Override with IMPRESS_DERIVED=... if you need an isolated build.
+DERIVED="${IMPRESS_DERIVED:-$HOME/Library/Developer/Xcode/DerivedData/impress-suite}"
 APP_PATH="$DERIVED/Build/Products/$CONFIG/$APP.app"
 LAUNCHER="$HOME/MyApplications/$APP.app"
 
 cd "$REPO_ROOT"
 
 # Regenerate .xcodeproj from project.yml if xcodegen is installed.
-if command -v xcodegen >/dev/null 2>&1 && [ -f "$SPEC_DIR/project.yml" ]; then
-    (cd "$SPEC_DIR" && xcodegen generate >/dev/null)
+if command -v xcodegen >/dev/null 2>&1; then
+    # Every project the workspace references must exist, not just the one being
+    # built - a dangling FileRef breaks package resolution for the whole
+    # workspace. --use-cache means an unchanged spec does NOT rewrite
+    # project.pbxproj, which would otherwise invalidate the build description
+    # (and every downstream module) on each run.
+    for spec in apps/imbib/imbib apps/imprint apps/implore apps/impel apps/impart apps/impress; do
+        [ -f "$REPO_ROOT/$spec/project.yml" ] || continue
+        (cd "$REPO_ROOT/$spec" && xcodegen generate --use-cache >/dev/null) || {
+            echo "xcodegen failed for $spec" >&2; exit 1; }
+    done
 fi
 
 # Pretty-print via xcbeautify when available; fall back to raw output.
@@ -82,7 +97,7 @@ fi
 
 set -o pipefail
 xcodebuild \
-    -project "$PROJECT_REL" \
+    -workspace "$REPO_ROOT/impress.xcworkspace" \
     -scheme "$APP" \
     -configuration "$CONFIG" \
     -destination 'platform=macOS' \

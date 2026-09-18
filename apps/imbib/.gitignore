@@ -1,7 +1,10 @@
 # Swift Package Manager
 .build/
 .swiftpm/
-Package.resolved
+# Package.resolved is committed for the real package manifests (see the root
+# .gitignore for why); only the copies inside generated projects stay ignored.
+**/*.xcodeproj/**/Package.resolved
+**/.swiftpm/**/Package.resolved
 
 # Xcode
 *.xcodeproj/

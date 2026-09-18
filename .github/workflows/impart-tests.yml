@@ -62,6 +62,7 @@ on:
 # never reach that machine.
 
 env:
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
 
 concurrency:
@@ -106,30 +107,25 @@ jobs:
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
-      - name: Cache Rust
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impart-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-impart-
-
-      - name: Cache Swift Package Manager
-        uses: actions/cache@v4
-        with:
-          # NOT ~/Library/Developer/Xcode/DerivedData: on the self-hosted
-          # runner that is the DEVELOPER's DerivedData (see imbib-tests.yml).
-          path: |
-            ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-impart-${{ hashFiles('apps/impart/*/Package.swift') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-impart-
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+      # No SwiftPM cache: ~/Library/Caches/org.swift.swiftpm is the developer's
+      # own directory on this self-hosted Mac and already persists between jobs.
+      # The step cost 8-9 minutes of upload per job, and its key hashed
+      # Package.resolved, which is gitignored - so the key never changed.
       # MessageManagerCore -> ImpressRustCore, whose binary target is the
       # gitignored ImpressStoreFfi.xcframework. `swift test` resolves the whole
       # package graph, so the artifact has to exist before resolution.
@@ -184,19 +180,21 @@ jobs:
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
-      - name: Cache Rust
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impart-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-impart-
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       # Both impart targets link PublicationManagerCore, which drags in four
       # more Rust cores on top of impart's own graph. Every xcframework below is
       # a gitignored build artifact, so a clean checkout has to produce them all
@@ -295,19 +293,21 @@ jobs:
         with:
           targets: aarch64-apple-ios, x86_64-apple-ios, aarch64-apple-ios-sim
 
-      - name: Cache Rust
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-impart-ios-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-impart-ios-
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: ImpressStoreFfi.xcframework
         uses: ./.github/actions/xcframework
         with:
@@ -359,6 +359,7 @@ jobs:
             -scheme impart-iOS \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
+            ARCHS=arm64 \
             -resultBundlePath ${{ runner.temp }}/BuildResults-impart-iOS.xcresult \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \

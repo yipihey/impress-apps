@@ -195,7 +195,7 @@ export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 rustup target add aarch64-apple-darwin 2>/dev/null || true
 
 # Build for macOS
-cargo build --release --target aarch64-apple-darwin
+cargo rustc --release --target aarch64-apple-darwin --lib --crate-type staticlib
 
 step_end
 
@@ -215,12 +215,12 @@ mkdir -p "$FRAMEWORK_DIR"
 # Build iOS target (for combined XCFramework)
 echo "  Building iOS target..."
 rustup target add aarch64-apple-ios 2>/dev/null || true
-cargo build --release --target aarch64-apple-ios
+cargo rustc --release --target aarch64-apple-ios --lib --crate-type staticlib
 
 # Generate Swift bindings
 echo "  Generating Swift bindings..."
-cargo run --bin uniffi-bindgen generate \
-    --library "$RUST_BUILD_DIR/aarch64-apple-darwin/release/libimbib_core.dylib" \
+cargo run --release -p uniffi-bindgen -- generate \
+    --library "$RUST_BUILD_DIR/aarch64-apple-darwin/release/libimbib_core.a" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"
 

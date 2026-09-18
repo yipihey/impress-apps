@@ -77,7 +77,7 @@ if [ "$BUILD_SIM" = "y" ]; then
 
     # Build for iOS Simulator
     rustup target add aarch64-apple-ios-sim 2>/dev/null || true
-    cargo build --release --features native --target aarch64-apple-ios-sim
+    cargo rustc --release --features native --target aarch64-apple-ios-sim --lib --crate-type staticlib
 
     echo "Rebuilding XCFramework with simulator support..."
     # This would need to rebuild the XCFramework to include simulator

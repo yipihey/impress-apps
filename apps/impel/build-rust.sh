@@ -81,7 +81,7 @@ BINDINGS_DIR="$OUTPUT_DIR/Sources/ImpelCore/Generated"
 mkdir -p "$BINDINGS_DIR"
 
 # Use uniffi-bindgen to generate Swift code
-cargo run --features native --bin uniffi-bindgen generate \
+cargo run --release -p uniffi-bindgen -- generate \
     --library "$AARCH64_LIB" \
     --language swift \
     --out-dir "$BINDINGS_DIR" 2>/dev/null || {

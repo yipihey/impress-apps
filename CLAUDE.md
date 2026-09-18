@@ -247,10 +247,17 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
 - **Definition of done — features**: a feature isn't done until a Tier A or Tier B selftest capability (or a unit/integration test) covers it, and the three-point trace (mutation/save/display) is in place for anything persistence-touching.
 - **Definition of done — schema refs**: any change that adds, renames, reads or writes a store record kind must keep [`schema-refs.json`](schema-refs.json) true in the same PR, and `./scripts/check-schema-refs.sh` must pass before pushing. The store matches `items.schema_ref` by **exact equality**, so a reader that spells a ref differently from its writer returns zero rows forever — silently, on every platform, with no error and no log line. It looks exactly like "the user has no data yet", which is why it has shipped five times (the iOS citation picker's empty library, `/api/manuscripts` reporting `count: 0`, imprint's empty outline/sections/cross-doc search, the citation-usage readers, the impel enrichment trigger). **There is no naming convention to infer**: bare (`manuscript`), namespaced (`imbib/library`) and versioned (`task@1.0.0`) refs all exist and are all correct for their kind — copy the spelling from the manifest, never from a sibling call site. See [docs/chassis-capability-matrix.md](docs/chassis-capability-matrix.md) § Schema refs.
 - **Definition of done — Rust changes**: run the workspace gate before pushing, not a per-crate one:
+  ```bash
+  ./scripts/rust-gate.sh fmt
+  ./scripts/rust-gate.sh clippy auto
   ```
-  cargo fmt --all --check
-  cargo clippy --workspace --all-targets --features native -- -D warnings
-  ```
+  `rust-gate.sh` owns the shard selection that CI uses, so the local gate and
+  the CI gate are the same command. `auto` picks the shard(s) your changes
+  touch; `imprint` is the Typst half (imprint-* plus impress-mcp), `rest` is
+  everything else. The old spelling in this file
+  (`cargo clippy --workspace --all-targets --features native`) was the one CI
+  abandoned in 2026-07 for being a ~90-minute cold job, and it disagreed with
+  the four copies in `workspace-rust.yml`.
   Each app's workflow scopes clippy to that app's core crate (imbib-rust.yml runs
   from `crates/imbib-core`), so a clean per-crate run proves nothing about the
   crates between them — `impart-core` did not compile with `--features native`
@@ -258,17 +265,29 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   app-scoped gate. `.github/workflows/workspace-rust.yml` is the floor that
   catches this; the per-app workflows keep their app-specific steps.
 - **Fast local framework rebuilds**: every `crates/*/build-xcframework.sh` honors
-  `IMPRESS_SKIP_X86=1` (arm64-only macOS slice) and `IMPRESS_SKIP_IOS=1` (skip the
-  iOS device+sim slices). `./scripts/build-xcframeworks.sh --fast [crate...]` sets
-  both; `--macos-only` sets just the iOS skip. Debug/macOS app builds link the
-  skinny frameworks fine (Debug is arm64-only via ONLY_ACTIVE_ARCH). But the
-  pre-push dual-platform gate builds imbib-iOS against these same local
-  frameworks — before pushing a change that triggers it (PMC/iOS/packages),
-  rebuild with `IMPRESS_SKIP_X86=1` alone so the iOS slices exist, or the push
-  fails with an iOS resolution error. CI and
-  release set neither env and stay universal + all-slices; imprint-core also
-  accepts its original `IMPRINT_SKIP_IOS` spelling, which CI passes as env-extra
-  and which is baked into the xcframework cache key — never rename it in CI.
+  `IMPRESS_SKIP_X86=1` (no x86_64 anywhere — macOS *and* the iOS simulator
+  slice) and `IMPRESS_SKIP_IOS=1` (skip the iOS device+sim slices).
+  `./scripts/build-xcframeworks.sh --fast [crate...]` sets both; `--macos-only`
+  sets just the iOS skip. The pre-push dual-platform gate builds imbib-iOS with
+  `ARCHS=arm64`, so an `IMPRESS_SKIP_X86=1` build now satisfies it: the x86_64
+  simulator slice existed only because a bare
+  `-destination 'generic/platform=iOS Simulator'` compiles both simulator
+  architectures, which also doubled every Swift compile in the gate. Before a
+  push that triggers the gate (PMC/iOS/packages), rebuild with
+  `IMPRESS_SKIP_X86=1` so the iOS slices exist. CI and release set neither and
+  stay universal + all-slices; imprint-core also accepts its original
+  `IMPRINT_SKIP_IOS` spelling, which CI passes as env-extra and which is baked
+  into the xcframework cache key — never rename it in CI, though adding the
+  suite spelling `IMPRESS_SKIP_IOS` alongside it is fine and is what the
+  macOS-only lanes now do.
+  The scripts publish by CONTENT (`impress_sync_file`/`impress_sync_tree` plus a
+  timestamp restore): rewriting a byte-identical FFI header used to invalidate
+  every precompiled module built against it and force a cold rebuild of
+  PublicationManagerCore in every app.
+  Deployment targets are pinned once in `.cargo/config.toml`, not exported per
+  script — exporting them made cc-rs re-run every C build script (sqlite, zstd,
+  ring) whenever a framework build and a plain `cargo test` alternated.
+
 - **Rust-first logic**: non-UI logic added in Swift needs a justification or a `*-service` Rust trait — `#[impress_service]` derives the MCP tool, CLI subcommand, and Tier-A testability for free. (The Rust-generated MCP server, `crates/impress-mcp`, is the only one; the hand-written TypeScript server was deleted on 2026-07-26 — see `docs/mcp-migration-ledger.md`.)
 - **AI providers live in Rust** (ADR-0029): every model host the suite talks to — oMLX,
   Ollama, any OpenAI-compatible server, Anthropic, OpenAI, Google, OpenRouter — is a

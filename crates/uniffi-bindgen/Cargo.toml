@@ -1,0 +1,22 @@
+[package]
+name = "uniffi-bindgen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The UniFFI binding generator, as ONE binary for the whole workspace."
+
+# Why this crate exists: the workspace `uniffi` entry used to carry
+# `features = ["cli"]`, which makes `uniffi_bindgen` a normal dependency of the
+# uniffi facade. Dependencies are package-level, so every library that enabled
+# `uniffi` linked the whole generator stack - uniffi_bindgen, askama, goblin,
+# cargo_metadata, clap and ~35 more - in every profile and for all five Apple
+# triples, including cross-compiles for iPhone, where a code generator can
+# never run. Nine crates then each shipped an identical three-line binary to
+# invoke it.
+#
+# Keep this OUT of `--workspace` gate selections (`--exclude uniffi-bindgen`):
+# cargo unifies features per package across the selected graph, so selecting
+# this crate switches `cli` back on for everyone.
+[dependencies]
+uniffi = { version = "0.28", features = ["cli"] }

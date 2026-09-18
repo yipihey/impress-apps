@@ -19,11 +19,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Default crates to build (every crate with a build-xcframework.sh)
+# impart-core is deliberately NOT here: apps/impart/ImpartRustCore is a
+# placeholder target with no binaryTarget, nothing references ImpartCore
+# .xcframework, and impart-tests.yml already skips it for the same reason.
+# Building it by default cost five release cross-compiles of a 211-crate
+# graph plus a binding pass, for an artifact no target opens. Name it
+# explicitly (`build-xcframeworks.sh impart-core`) once it has a consumer.
 ALL_CRATES=(
     "imbib-core"
     "imprint-core"
     "implore-core"
-    "impart-core"
     "impress-store-ffi"
     "impress-helix"
     "scix-client-ffi"
@@ -119,41 +124,47 @@ build_crate() {
 
     echo "Building $crate..."
 
+    # NB: this runs inside a subshell under --parallel, so it must report
+    # failure through its EXIT STATUS. Setting BUILD_FAILED here is invisible
+    # to the parent, and ending the function on an `echo` made every parallel
+    # build exit 0 — a failed crate printed "✗" and the run still reported
+    # "All builds completed successfully" and exited 0.
+    local log
+    log="$(mktemp -t "xcfw-$crate")"
     if [ "$VERBOSE" = true ]; then
-        if bash "$build_script"; then
-            echo "✓ $crate built successfully"
-        else
-            BUILD_FAILED=true
-            echo "✗ $crate build failed"
+        if bash "$build_script" 2>&1 | tee "$log"; then
+            echo "✓ $crate built successfully"; rm -f "$log"; return 0
         fi
     else
-        if bash "$build_script" > /dev/null 2>&1; then
-            echo "✓ $crate built successfully"
-        else
-            BUILD_FAILED=true
-            echo "✗ $crate build failed (run with --verbose for details)"
+        # Not silenced: cargo's "Blocking waiting for file lock on build
+        # directory" lines were being discarded, which is why --parallel looked
+        # like it was overlapping when it was in fact serialising.
+        if bash "$build_script" > "$log" 2>&1; then
+            echo "✓ $crate built successfully"; rm -f "$log"; return 0
         fi
     fi
+    echo "✗ $crate build FAILED — last 20 lines of $log:"
+    tail -20 "$log" | sed 's/^/    /'
+    return 1
 }
 
 if [ "$PARALLEL" = true ]; then
     # Parallel builds using background processes
+    # One cargo build-directory lock serialises the cargo phases of these
+    # scripts no matter how many run at once; only the packaging steps (lipo,
+    # create-xcframework, copies) actually overlap.
     pids=()
     for crate in "${CRATES_TO_BUILD[@]}"; do
-        (
-            build_crate "$crate"
-        ) &
+        ( build_crate "$crate" ) &
         pids+=($!)
     done
-
-    # Wait for all builds to complete
     for pid in "${pids[@]}"; do
         wait "$pid" || BUILD_FAILED=true
     done
 else
     # Sequential builds
     for crate in "${CRATES_TO_BUILD[@]}"; do
-        build_crate "$crate"
+        build_crate "$crate" || BUILD_FAILED=true
     done
 fi
 

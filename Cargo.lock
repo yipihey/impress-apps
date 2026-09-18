@@ -298,99 +298,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
-name = "arrow-array"
-version = "53.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7845c32b41f7053e37a075b3c2f29c6f5ea1b3ca6e5df7a2d325ee6e1b4a63cf"
-dependencies = [
- "ahash 0.8.12",
- "arrow-buffer",
- "arrow-data",
- "arrow-schema",
- "chrono",
- "half",
- "hashbrown 0.15.5",
- "num",
-]
-
-[[package]]
-name = "arrow-buffer"
-version = "53.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b5c681a99606f3316f2a99d9c8b6fa3aad0b1d34d8f6d7a1b471893940219d8"
-dependencies = [
- "bytes",
- "half",
- "num",
-]
-
-[[package]]
-name = "arrow-cast"
-version = "53.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6365f8527d4f87b133eeb862f9b8093c009d41a210b8f101f91aa2392f61daac"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-data",
- "arrow-schema",
- "arrow-select",
- "atoi",
- "base64 0.22.1",
- "chrono",
- "half",
- "lexical-core",
- "num",
- "ryu",
-]
-
-[[package]]
-name = "arrow-data"
-version = "53.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd962fc3bf7f60705b25bcaa8eb3318b2545aa1d528656525ebdd6a17a6cd6fb"
-dependencies = [
- "arrow-buffer",
- "arrow-schema",
- "half",
- "num",
-]
-
-[[package]]
-name = "arrow-ipc"
-version = "53.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3527365b24372f9c948f16e53738eb098720eea2093ae73c7af04ac5e30a39b"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-cast",
- "arrow-data",
- "arrow-schema",
- "flatbuffers",
-]
-
-[[package]]
-name = "arrow-schema"
-version = "53.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35b0f9c0c3582dd55db0f136d3b44bfa0189df07adcf7dc7f2f2e74db0f52eb8"
-
-[[package]]
-name = "arrow-select"
-version = "53.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92fc337f01635218493c23da81a364daf38c694b05fc20569c3193c11c561984"
-dependencies = [
- "ahash 0.8.12",
- "arrow-array",
- "arrow-buffer",
- "arrow-data",
- "arrow-schema",
- "num",
-]
-
-[[package]]
 name = "as-slice"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -487,15 +394,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.114",
-]
-
-[[package]]
-name = "atoi"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f28d99ec8bfea296261ca1af174f24225171fea9664ba9003cbebee704810528"
-dependencies = [
- "num-traits",
 ]
 
 [[package]]
@@ -1323,38 +1221,15 @@ dependencies = [
 
 [[package]]
 name = "comemo"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df6916408a724339aa77b18214233355f3eb04c42eb895e5f8909215bd8a7a91"
-dependencies = [
- "comemo-macros 0.4.0",
- "once_cell",
- "parking_lot 0.12.5",
- "siphasher 1.0.1",
-]
-
-[[package]]
-name = "comemo"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "649d7b2d867b569729c03c0f6968db10bc95921182a1f2b2012b1b549492f39d"
 dependencies = [
- "comemo-macros 0.5.0",
+ "comemo-macros",
  "parking_lot 0.12.5",
  "rustc-hash 2.1.1",
  "siphasher 1.0.1",
  "slab",
-]
-
-[[package]]
-name = "comemo-macros"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8936e42f9b4f5bdfaf23700609ac1f11cb03ad4c1ec128a4ee4fd0903e228db"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.114",
 ]
 
 [[package]]
@@ -2426,16 +2301,6 @@ name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
-
-[[package]]
-name = "flatbuffers"
-version = "24.12.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f1baf0dbf96932ec9a3038d57900329c015b0bfb7b63d904f3bc27e2b02a096"
-dependencies = [
- "bitflags 1.3.2",
- "rustc_version",
-]
 
 [[package]]
 name = "flate2"
@@ -4338,7 +4203,6 @@ name = "implore-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "comemo 0.4.0",
  "implore-io",
  "implore-stats",
  "impress-collab",
@@ -4752,7 +4616,6 @@ dependencies = [
 name = "impress-plot"
 version = "0.1.0"
 dependencies = [
- "imprint-core",
  "png 0.17.16",
 ]
 
@@ -4932,7 +4795,6 @@ name = "imprint-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "comemo 0.4.0",
  "dirs 5.0.1",
  "flate2",
  "implore-core",
@@ -5405,7 +5267,7 @@ checksum = "a0ddfec86fec13d068075e14f22a7e217c281f3ed69ddcb427bf3f5d504fd674"
 dependencies = [
  "base64 0.22.1",
  "bumpalo",
- "comemo 0.5.0",
+ "comemo",
  "flate2",
  "float-cmp 0.10.0",
  "gif 0.13.3",
@@ -5531,63 +5393,6 @@ name = "levenshtein_automata"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c2cdeb66e45e9f36bfad5bbdb4d2384e70936afbee843c6f6543f0c551ebb25"
-
-[[package]]
-name = "lexical-core"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d8d125a277f807e55a77304455eb7b1cb52f2b18c143b60e766c120bd64a594"
-dependencies = [
- "lexical-parse-float",
- "lexical-parse-integer",
- "lexical-util",
- "lexical-write-float",
- "lexical-write-integer",
-]
-
-[[package]]
-name = "lexical-parse-float"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52a9f232fbd6f550bc0137dcb5f99ab674071ac2d690ac69704593cb4abbea56"
-dependencies = [
- "lexical-parse-integer",
- "lexical-util",
-]
-
-[[package]]
-name = "lexical-parse-integer"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a7a039f8fb9c19c996cd7b2fcce303c1b2874fe1aca544edc85c4a5f8489b34"
-dependencies = [
- "lexical-util",
-]
-
-[[package]]
-name = "lexical-util"
-version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2604dd126bb14f13fb5d1bd6a66155079cb9fa655b37f875b3a742c705dbed17"
-
-[[package]]
-name = "lexical-write-float"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50c438c87c013188d415fbabbb1dceb44249ab81664efbd31b14ae55dabb6361"
-dependencies = [
- "lexical-util",
- "lexical-write-integer",
-]
-
-[[package]]
-name = "lexical-write-integer"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "409851a618475d2d5796377cad353802345cba92c867d9fbcde9cf4eac4e14df"
-dependencies = [
- "lexical-util",
-]
 
 [[package]]
 name = "libc"
@@ -6266,7 +6071,6 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35bd024e8b2ff75562e5f34e7f4905839deb4b22955ef5e73d2fea1b9813cb23"
 dependencies = [
- "num-bigint",
  "num-complex",
  "num-integer",
  "num-iter",
@@ -6694,13 +6498,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f8cf58b29782a7add991f655ff42929e31a7859f5319e53db9e39a714cb113c"
 dependencies = [
  "ahash 0.8.12",
- "arrow-array",
- "arrow-buffer",
- "arrow-cast",
- "arrow-data",
- "arrow-ipc",
- "arrow-schema",
- "arrow-select",
  "base64 0.22.1",
  "brotli",
  "bytes",
@@ -10434,7 +10231,7 @@ version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f6511ee598476f4f322b4d13891083d96dbacb8f9c2b908604c7094ba390653"
 dependencies = [
- "comemo 0.5.0",
+ "comemo",
  "ecow",
  "rustc-hash 2.1.1",
  "typst-eval",
@@ -10455,7 +10252,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bcbcc3ae20680ac8229ae7bf82443570bf381705c89da140df762579463599a0"
 dependencies = [
  "chrono",
- "comemo 0.5.0",
+ "comemo",
  "dirs 6.0.0",
  "ecow",
  "thiserror 2.0.18",
@@ -10475,7 +10272,7 @@ version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "687757487dfc0c1e941344d5024cf7a28364e70c3e304faad89ac65597f62526"
 dependencies = [
- "comemo 0.5.0",
+ "comemo",
  "ecow",
  "indexmap",
  "rustc-hash 2.1.1",
@@ -10496,7 +10293,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e29f8da4f964d4c90739c3c1e0288b0ba1bccc3cc50623a6d558300b86ca8aad"
 dependencies = [
  "bumpalo",
- "comemo 0.5.0",
+ "comemo",
  "ecow",
  "palette",
  "rustc-hash 2.1.1",
@@ -10537,7 +10334,7 @@ dependencies = [
  "az",
  "bumpalo",
  "codex",
- "comemo 0.5.0",
+ "comemo",
  "ecow",
  "either",
  "hypher",
@@ -10576,7 +10373,7 @@ dependencies = [
  "chinese-number",
  "ciborium",
  "codex",
- "comemo 0.5.0",
+ "comemo",
  "csv",
  "ecow",
  "flate2",
@@ -10650,7 +10447,7 @@ checksum = "37c8a4630754767cd10d48e8b8186e7dc784631a30a3a93521edf7d77aebd0c0"
 dependencies = [
  "az",
  "bytemuck",
- "comemo 0.5.0",
+ "comemo",
  "ecow",
  "image",
  "indexmap",
@@ -10676,7 +10473,7 @@ checksum = "f7ffe964757fb93d2e98978aa2a74ee85b0f94c8643e8f3550737258b58f39d8"
 dependencies = [
  "arrayvec",
  "bumpalo",
- "comemo 0.5.0",
+ "comemo",
  "ecow",
  "regex",
  "typst-library",
@@ -10693,7 +10490,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e46b811837ade1f0243ef0d8bf3fb06d166443090eac22c28643f374c2ccdc9d"
 dependencies = [
  "base64 0.22.1",
- "comemo 0.5.0",
+ "comemo",
  "ecow",
  "flate2",
  "hayro",
@@ -10938,6 +10735,13 @@ dependencies = [
  "uniffi_build",
  "uniffi_core",
  "uniffi_macros",
+]
+
+[[package]]
+name = "uniffi-bindgen"
+version = "0.1.0"
+dependencies = [
+ "uniffi",
 ]
 
 [[package]]

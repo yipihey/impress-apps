@@ -9,6 +9,7 @@ on:
 # pull_request trigger removed 2026-07-28: this lane runs on a self-hosted
 # runner and the repo is public — fork PRs must never reach that machine.
 env:
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
 
 concurrency:
@@ -27,17 +28,21 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-implore-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: Check formatting (implore-core)
         working-directory: crates/implore-core
         run: cargo fmt --check
@@ -72,27 +77,37 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-implore-${{ hashFiles('**/Cargo.lock') }}
-
+      # target/ is NOT round-tripped through actions/cache any more. All four
+      # runners are directories on this ONE Mac: actions/checkout deletes the
+      # gitignored target/ at job start, the tarball is then downloaded from
+      # GitHub and re-uploaded at the end. Measured 15-60 min of "Post Cache"
+      # per job against cold builds of a few minutes, three saves per push
+      # failing outright on an expired upload token, and a full 10 GB repo quota
+      # whose evictions took the xcframework entries with them.
+      # A per-runner directory outside the checkout survives `git clean -ffdx`,
+      # uploads nothing, and is not subject to the quota. ~/.cargo already
+      # persists on this machine and needs no cache step.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-${{ github.job }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: Build library
         working-directory: crates/implore-core
-        run: cargo build --release --features uniffi
+        run: |
+          # Release compile check (lib + bins), as before.
+          cargo build --release --features uniffi
+          # The FFI crates are crate-type=["lib"] now, so ask explicitly for the
+          # staticlib the bindgen step reads (emitting staticlib+cdylib from the
+          # shared lib target made every dependent build archive and link them).
+          cargo rustc --release --features uniffi --lib --crate-type staticlib
 
       - name: Generate Swift bindings
         working-directory: crates/implore-core
         run: |
           mkdir -p generated
-          cargo run --release --features uniffi --bin uniffi-bindgen generate \
-            --library ../../target/release/libimplore_core.dylib \
+          cargo run --release -p uniffi-bindgen -- generate \
+            --library ../../target/release/libimplore_core.a \
             --language swift \
             --out-dir generated
 

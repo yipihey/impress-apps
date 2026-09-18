@@ -43,8 +43,8 @@ cargo build --release --target aarch64-apple-ios-sim  # iOS simulator
 ### 2. Generate Swift Bindings
 
 ```bash
-cargo run --release --bin uniffi-bindgen generate \
-    --library target/release/libimbib_core.dylib \
+cargo run --release -p uniffi-bindgen -- generate \
+    --library target/release/libimbib_core.a \
     --language swift \
     --out-dir generated
 ```

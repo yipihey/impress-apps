@@ -7,17 +7,50 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Set deployment targets (can be overridden by environment)
-export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
-export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
+# Incremental release codegen for the framework loop only. This used to be
+# `[profile.release] incremental = true` in the root manifest, where it also
+# applied to the signed binaries in target/release.
+export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-1}"
 
-echo "Using MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
-echo "Using IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
+# Deployment targets are pinned in the workspace .cargo/config.toml (force=true)
+# so script builds and plain `cargo test`/`clippy` agree; exporting them here
+# re-ran every cc-rs build script on each alternation.
+
 
 # Output directories
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BUILD_DIR="$WORKSPACE_ROOT/target"
+BUILD_DIR="${CARGO_TARGET_DIR:-$WORKSPACE_ROOT/target}"
 FRAMEWORK_DIR="$SCRIPT_DIR/frameworks"
+
+# --- content-guarded publication -------------------------------------------
+# Xcode stages the FFI headers into DerivedData preserving their mtime, so
+# rewriting a byte-identical header invalidates every precompiled module built
+# against it: a cold rebuild of PublicationManagerCore (602 files) in every app,
+# plus the manual module-cache purge. Only the .a really changes on a rebuild,
+# so publish by content and leave everything else alone.
+impress_sync_file() {   # src dst|dstdir/
+    [ -f "$1" ] || return 0
+    local dst="$2"
+    case "$dst" in */) dst="$dst$(basename "$1")";; esac
+    [ -d "$dst" ] && dst="$dst/$(basename "$1")"
+    if [ -f "$dst" ] && cmp -s "$1" "$dst"; then return 0; fi
+    mkdir -p "$(dirname "$dst")" && cp "$1" "$dst"
+}
+impress_sync_tree() {   # srcdir dstdir
+    [ -d "$1" ] || return 0
+    mkdir -p "$2"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -rlc --delete "$1/" "$2/"
+    else
+        rm -rf "$2" && cp -R "$1" "$2"
+    fi
+}
+
+# Snapshot the previous framework so unchanged files can keep their timestamps.
+PREV_SNAPSHOT="$(mktemp -d)"
+if [ -d "$FRAMEWORK_DIR" ]; then
+    cp -Rp "$FRAMEWORK_DIR/." "$PREV_SNAPSHOT/" 2>/dev/null || true
+fi
 XCFRAMEWORK_NAME="ImprintCore"
 
 # Rust targets. iOS slices always build with plain `native` features —
@@ -72,24 +105,27 @@ fi
 # Build for macOS with the selected features
 echo ""
 echo "Building for macOS (arm64) with features: $CARGO_FEATURES ..."
-cargo build --release --target $MACOS_TARGET --features "$CARGO_FEATURES"
+cargo rustc --release --target $MACOS_TARGET --features "$CARGO_FEATURES" --lib --crate-type staticlib
 
 if [ "$BUILD_X86" = "1" ]; then
     echo ""
     echo "Building for macOS (x86_64) with features: $CARGO_FEATURES ..."
-    cargo build --release --target $MACOS_X86_TARGET --features "$CARGO_FEATURES"
+    cargo rustc --release --target $MACOS_X86_TARGET --features "$CARGO_FEATURES" --lib --crate-type staticlib
 fi
 
 if [ "$BUILD_IOS" = "1" ]; then
     echo ""
     echo "Building for iOS device (arm64) with features: $IOS_FEATURES ..."
-    cargo build --release --target $IOS_TARGET --features "$IOS_FEATURES" -p imprint-core
+    cargo rustc --release --target $IOS_TARGET --features "$IOS_FEATURES" --lib --crate-type staticlib -p imprint-core
     echo ""
     echo "Building for iOS Simulator (arm64) with features: $IOS_FEATURES ..."
-    cargo build --release --target $IOS_SIM_TARGET --features "$IOS_FEATURES" -p imprint-core
+    cargo rustc --release --target $IOS_SIM_TARGET --features "$IOS_FEATURES" --lib --crate-type staticlib -p imprint-core
     echo ""
     echo "Building for iOS Simulator (x86_64) with features: $IOS_FEATURES ..."
-    cargo build --release --target $IOS_SIM_X86_TARGET --features "$IOS_FEATURES" -p imprint-core
+    if [ "$BUILD_X86" = "1" ]; then
+        cargo rustc --release --target $IOS_SIM_X86_TARGET --features "$IOS_FEATURES" -p imprint-core --lib --crate-type staticlib
+
+    fi
 fi
 
 # Create framework directory structure
@@ -118,13 +154,13 @@ fi
 echo ""
 echo "Generating Swift bindings..."
 
-# First, build the uniffi-bindgen binary
-cargo build --release --target $MACOS_TARGET --features "$CARGO_FEATURES" --bin uniffi-bindgen
+# (no separate pre-build of the bindgen bin: the `cargo run` below builds it,
+# and it reuses the release artifacts this script just produced)
 
 # Then use it to generate bindings (features must match so Tectonic exports
 # like `compileLatexTectonic` appear when IMPRINT_TECTONIC=1)
-cargo run --release --target $MACOS_TARGET --features "$CARGO_FEATURES" --bin uniffi-bindgen -- generate \
-    --library "$BUILD_DIR/$MACOS_TARGET/release/libimprint_core.dylib" \
+cargo run --release -p uniffi-bindgen -- generate \
+    --library "$BUILD_DIR/$MACOS_TARGET/release/libimprint_core.a" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"
 
@@ -204,19 +240,15 @@ done
 if [ -f "$FRAMEWORK_DIR/generated/imprint_core.swift" ]; then
     echo ""
     echo "Copying Swift bindings..."
-    cp "$FRAMEWORK_DIR/generated/imprint_core.swift" "$FRAMEWORK_DIR/"
-
+    impress_sync_file "$FRAMEWORK_DIR/generated/imprint_core.swift" "$FRAMEWORK_DIR/"
     # Also copy to the Swift packages if they exist
-    SWIFT_PACKAGE_DIR="$WORKSPACE_ROOT/apps/imprint/Packages/ImprintCore/Sources/ImprintCore"
-    if [ -d "$SWIFT_PACKAGE_DIR" ]; then
-        echo "Copying Swift bindings to ImprintCore package..."
-        cp "$FRAMEWORK_DIR/generated/imprint_core.swift" "$SWIFT_PACKAGE_DIR/"
-    fi
+    # NOTE: no copy into Packages/ImprintCore any more. That package now
+    # re-exports ImprintRustCore, which is the single owner of the binding.
 
     RUST_CORE_PKG_DIR="$WORKSPACE_ROOT/apps/imprint/ImprintRustCore/Sources/ImprintRustCore"
     if [ -d "$RUST_CORE_PKG_DIR" ]; then
         echo "Copying Swift bindings to ImprintRustCore package..."
-        cp "$FRAMEWORK_DIR/generated/imprint_core.swift" "$RUST_CORE_PKG_DIR/"
+        impress_sync_file "$FRAMEWORK_DIR/generated/imprint_core.swift" "$RUST_CORE_PKG_DIR/"
     fi
 fi
 
@@ -227,9 +259,7 @@ fi
 APP_FRAMEWORKS_DIR="$WORKSPACE_ROOT/apps/imprint/Frameworks"
 mkdir -p "$APP_FRAMEWORKS_DIR"
 echo "Copying XCFramework to app Frameworks directory..."
-rm -rf "$APP_FRAMEWORKS_DIR/$XCFRAMEWORK_NAME.xcframework"
-cp -R "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework" "$APP_FRAMEWORKS_DIR/"
-
+impress_sync_tree "$FRAMEWORK_DIR/$XCFRAMEWORK_NAME.xcframework" "$APP_FRAMEWORKS_DIR/$XCFRAMEWORK_NAME.xcframework"
 echo ""
 echo "=== Build complete! ==="
 echo ""
@@ -241,3 +271,15 @@ echo ""
 echo "To use in your Swift package:"
 echo "1. Add the XCFramework as a binary target"
 echo "2. Copy imprint_core.swift to your sources (if generated)"
+
+# Restore timestamps on every file whose bytes did not change during this
+# rebuild, so SwiftPM/clang see "unchanged" rather than "rewritten". Paired
+# with the PREV_SNAPSHOT capture above.
+if [ -n "${PREV_SNAPSHOT:-}" ] && [ -d "$PREV_SNAPSHOT" ]; then
+    ( cd "$FRAMEWORK_DIR" && find . -type f -print | while IFS= read -r f; do
+        if [ -f "$PREV_SNAPSHOT/$f" ] && cmp -s "$f" "$PREV_SNAPSHOT/$f"; then
+            cp -p "$PREV_SNAPSHOT/$f" "$f"
+        fi
+      done )
+    rm -rf "$PREV_SNAPSHOT"
+fi

@@ -27,7 +27,16 @@
 .build/
 build/
 .swiftpm/
-Package.resolved
+# Package.resolved is COMMITTED for the real package manifests, mirroring the
+# Cargo.lock decision above. Six remote packages float on `from:` (upToNextMajor)
+# ranges — SwiftTreeSitter, GRDB, keychain-swift, swift-markdown-ui, SwiftMath,
+# HighlightSwift — and with nothing pinned, each DerivedData tree resolved
+# independently (3.6 GB of SourcePackages across 12+ copies) and an upstream
+# minor release could land differently per checkout with no artifact recording
+# what moved. Only the copies Xcode writes inside generated projects stay
+# ignored, since those projects are themselves generated.
+**/*.xcodeproj/**/Package.resolved
+**/.swiftpm/**/Package.resolved
 
 # Xcode
 xcuserdata/

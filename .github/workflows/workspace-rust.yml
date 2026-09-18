@@ -33,6 +33,9 @@ on:
 # runner and the repo is public — fork PRs must never reach that machine.
 env:
   CARGO_TERM_COLOR: always
+  # Incremental state is per-workspace-member and worth nothing to a CI job that
+  # builds once; it was also riding along inside the cached target/ tarballs.
+  CARGO_INCREMENTAL: 0
 
 concurrency:
   group: workspace-rust-${{ github.ref }}
@@ -52,8 +55,11 @@ concurrency:
 # because a plain `--features native` errors on an explicit package list
 # (and only imprint-core HAS one there: imprint-service's features are
 # the render engines, proven by a local dry run of both shard commands).
-# The shard lists are spelled twice (clippy and test matrices) because a
-# matrix cannot read `env:` — keep the four copies identical when editing.
+# The shard lists used to be spelled twice here (clippy and test matrices)
+# because a matrix cannot read `env:`, with a note to keep the copies
+# identical - and a fifth, different spelling lived in CLAUDE.md. They now all
+# call scripts/rust-gate.sh, which owns the selection once. A `run:` step can
+# call a script even though a matrix cannot read `env:`.
 
 jobs:
   guards:
@@ -77,7 +83,7 @@ jobs:
       # drift between them is the single most common cause of a red main.
       # Needs no cache: fmt does not compile.
       - name: Check formatting
-        run: cargo fmt --all --check
+        run: ./scripts/rust-gate.sh fmt
 
   clippy:
     name: Clippy (${{ matrix.shard.name }})
@@ -87,11 +93,7 @@ jobs:
       matrix:
         shard:
           - name: imprint
-            select: -p imprint-core -p imprint-service -p imprint-service-http -p imprint-selftest -p imprint-cli
-            features: --features imprint-core/native
           - name: rest
-            select: --workspace --exclude imprint-core --exclude imprint-service --exclude imprint-service-http --exclude imprint-selftest --exclude imprint-cli
-            features: --features native
     steps:
       - uses: actions/checkout@v4
 
@@ -100,21 +102,28 @@ jobs:
         with:
           components: clippy
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-ws-clippy-${{ matrix.shard.name }}-${{ hashFiles('**/Cargo.lock') }}
+      # No actions/cache for target/ here. All four runners are directories on
+      # ONE Mac, so the cache round-trip was pure overhead: actions/checkout
+      # deletes the gitignored target/ at job start, the tarball is then
+      # downloaded from GitHub and re-uploaded at the end. Measured on this
+      # workflow: 48s-6m21s of real work against 14-36 minutes of "Post Cache",
+      # and three sibling jobs spent an hour each on saves that then FAILED on
+      # an expired upload token. The 10 GB repo quota was full, so the shard
+      # caches evicted each other and the xcframework entries besides.
+      #
+      # A per-runner, per-shard directory outside the checkout survives
+      # `git clean -ffdx`, costs no upload, and is not subject to the quota.
+      # ~/.cargo is already shared and persistent on this machine.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-clippy-${{ matrix.shard.name }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
 
       # `--all-targets` reaches tests and benches; the feature spelling matches
       # what the apps actually link — see the sharding note above.
       - name: Clippy
-        run: cargo clippy ${{ matrix.shard.select }} --all-targets ${{ matrix.shard.features }} -- -D warnings
+        run: ./scripts/rust-gate.sh clippy ${{ matrix.shard.name }}
 
   test:
     name: Tests (${{ matrix.shard.name }})
@@ -124,27 +133,30 @@ jobs:
       matrix:
         shard:
           - name: imprint
-            select: -p imprint-core -p imprint-service -p imprint-service-http -p imprint-selftest -p imprint-cli
-            features: --features imprint-core/native
           - name: rest
-            select: --workspace --exclude imprint-core --exclude imprint-service --exclude imprint-service-http --exclude imprint-selftest --exclude imprint-cli
-            features: --features native
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-ws-test-${{ matrix.shard.name }}-${{ hashFiles('**/Cargo.lock') }}
+      # No actions/cache for target/ here. All four runners are directories on
+      # ONE Mac, so the cache round-trip was pure overhead: actions/checkout
+      # deletes the gitignored target/ at job start, the tarball is then
+      # downloaded from GitHub and re-uploaded at the end. Measured on this
+      # workflow: 48s-6m21s of real work against 14-36 minutes of "Post Cache",
+      # and three sibling jobs spent an hour each on saves that then FAILED on
+      # an expired upload token. The 10 GB repo quota was full, so the shard
+      # caches evicted each other and the xcframework entries besides.
+      #
+      # A per-runner, per-shard directory outside the checkout survives
+      # `git clean -ffdx`, costs no upload, and is not subject to the quota.
+      # ~/.cargo is already shared and persistent on this machine.
+      - name: Use a persistent cargo target directory
+        run: |
+          dir="$HOME/ci-cargo-target/${{ github.workflow }}-test-${{ matrix.shard.name }}"
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
 
       - name: Run tests
-        run: cargo test ${{ matrix.shard.select }} ${{ matrix.shard.features }}
+        run: ./scripts/rust-gate.sh test ${{ matrix.shard.name }}

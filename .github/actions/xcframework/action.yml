@@ -157,13 +157,11 @@ runs:
               "$F/headers"
               "$F/imprint_core.swift"
               "apps/imprint/Frameworks/ImprintCore.xcframework"
-              "apps/imprint/Packages/ImprintCore/Sources/ImprintCore/imprint_core.swift"
               "apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift"
             )
             REQUIRED=(
               "$F/ImprintCore.xcframework"
               "apps/imprint/Frameworks/ImprintCore.xcframework"
-              "apps/imprint/Packages/ImprintCore/Sources/ImprintCore/imprint_core.swift"
               "apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift"
             )
             ;;
@@ -221,6 +219,33 @@ runs:
 
         echo "crate=$CRATE variant=$VARIANT image=$IMAGE"
 
+    - name: Scope the cache key to this crate's own sources
+      id: scope
+      shell: bash
+      env:
+        CRATE: ${{ inputs.crate }}
+      run: |
+        # The key used to hash EVERY crates/**/*.rs in the workspace, so any
+        # crate edit - 37 commits touched crates/ in one week - invalidated all
+        # five slices of every framework in every Swift lane, and several lanes
+        # then rebuilt the same key concurrently. Hash this crate's own
+        # path-dependency closure instead. --all-features over-approximates on
+        # purpose: extra invalidation is safe, missing one is not.
+        set -uo pipefail
+        dirs=$(cargo tree -p "$CRATE" --all-features -e normal,build --prefix none 2>/dev/null \
+                 | grep -o '(/[^)]*)' | tr -d '()' | sed "s|^$PWD/||" | sort -u)
+        if [ -z "$dirs" ]; then
+          echo "scope=workspace" >> "$GITHUB_OUTPUT"          # conservative fallback
+          echo "sha=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        sha=$(git ls-files -s -- $dirs Cargo.toml Cargo.lock \
+                "crates/$CRATE/build-xcframework.sh" .github/actions/xcframework/action.yml \
+              | shasum -a 256 | cut -d' ' -f1)
+        echo "scope=crate" >> "$GITHUB_OUTPUT"
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "cache scope: $CRATE closure = $(echo "$dirs" | wc -l | tr -d ' ') crate dirs, sha ${sha:0:12}"
+
     - name: Restore ${{ inputs.crate }} xcframework
       id: cache
       uses: actions/cache@v4
@@ -235,7 +260,7 @@ runs:
         # is ever written under crates/*/frameworks/), so the key is stable
         # whether or not an earlier step in the same job already built a
         # sibling crate.
-        key: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh') }}
+        key: ${{ steps.meta.outputs.image }}-xcfw-${{ inputs.crate }}-${{ steps.meta.outputs.variant }}-${{ steps.scope.outputs.sha || hashFiles('Cargo.toml', 'Cargo.lock', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.udl', 'crates/**/*.sh') }}
 
     - name: Check restored artifacts
       id: check

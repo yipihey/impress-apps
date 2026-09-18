@@ -27,3 +27,11 @@ tempfile = "3"
 mockito = { workspace = true }
 # The P0 spike example talks to the tablet with blocking reqwest.
 reqwest = { workspace = true, features = ["blocking"] }
+
+[features]
+# Manual probes are opt-in; see the note on the [[example]] blocks below.
+examples = []
+
+[[example]]
+name = "usb_spike"
+required-features = ["examples"]

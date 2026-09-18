@@ -1,3 +1,11 @@
+// Moved here from crates/impress-plot/tests/. It lived in the leaf plotting
+// crate behind `[dev-dependencies] imprint-core = { features = ["native"] }`,
+// which made `cargo test -p impress-plot` compile 571 crates instead of 12,
+// created a dev-dependency CYCLE (imprint-core -> impress-plot -> imprint-core),
+// and was the ONLY thing enabling imprint-core/uniffi in the CI `rest` shard.
+// imprint-core already depends on impress-plot under `typst-render`.
+#![cfg(feature = "typst-render")]
+
 //! Integration: generated plot specs actually compile through the suite's
 //! persistent Typst engine, and the axis controls (lin/log + min/max) change
 //! the output. Emits SVG/PDF samples for eyeballing.

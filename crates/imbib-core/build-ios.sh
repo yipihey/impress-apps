@@ -21,21 +21,21 @@ echo "=== Building imbib-core ==="
 
 # Build for all targets in release mode
 echo "Building for macOS ($MACOS_TARGET)..."
-cargo build --release --target "$MACOS_TARGET"
+cargo rustc --release --target "$MACOS_TARGET" --lib --crate-type staticlib
 
 echo "Building for iOS device ($IOS_TARGET)..."
-cargo build --release --target "$IOS_TARGET"
+cargo rustc --release --target "$IOS_TARGET" --lib --crate-type staticlib
 
 echo "Building for iOS simulator ($IOS_SIM_TARGET)..."
-cargo build --release --target "$IOS_SIM_TARGET"
+cargo rustc --release --target "$IOS_SIM_TARGET" --lib --crate-type staticlib
 
 # Generate Swift bindings
 echo "=== Generating Swift bindings ==="
 mkdir -p "$SWIFT_OUT"
 
 # Use cargo run with uniffi-bindgen to generate bindings
-cargo run --bin uniffi-bindgen generate \
-    --library "$OUTPUT_DIR/$MACOS_TARGET/release/libimbib_core.dylib" \
+cargo run --release -p uniffi-bindgen -- generate \
+    --library "$OUTPUT_DIR/$MACOS_TARGET/release/libimbib_core.a" \
     --language swift \
     --out-dir "$SWIFT_OUT" \
     2>/dev/null || {
@@ -43,7 +43,7 @@ cargo run --bin uniffi-bindgen generate \
     echo "Trying alternate binding generation method..."
     cargo install uniffi-bindgen-library-mode 2>/dev/null || true
     uniffi-bindgen-library-mode generate \
-        --library "$OUTPUT_DIR/$MACOS_TARGET/release/libimbib_core.dylib" \
+        --library "$OUTPUT_DIR/$MACOS_TARGET/release/libimbib_core.a" \
         --language swift \
         --out-dir "$SWIFT_OUT" \
         2>/dev/null || {

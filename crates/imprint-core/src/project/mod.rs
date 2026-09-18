@@ -54,7 +54,7 @@ pub use build::{
     StepReport, StepStatus,
 };
 pub use figures::{figure_path, template, FigureKind, FigureTemplate, LILAQ_PACKAGE};
-pub use graph::{BuildGraph, Diagnostic, FigureStep, Severity};
+pub use graph::{BuildGraph, Diagnostic, FigureStep, Severity, TreeCompileOutcome};
 pub use import::{guess_entry, import_directory, ImportError, ImportOptions, ImportedTree};
 pub use markdown::{latex_math_to_typst, to_typst, TypstConversion};
 pub use materialize::{
@@ -73,5 +73,5 @@ pub use runner::{
 };
 pub use scan::{scan, scan_text, DepEdge, DepKind, DependencyGraph, RawReference, Unresolved};
 #[cfg(feature = "typst-render")]
-pub use typst::{compile_typst_tree, TreeCompileOutcome, TreeCompiler};
+pub use typst::{compile_typst_tree, TreeCompiler};
 pub use working_copy::{diff as diff_working_copy, WorkingCopyStatus};

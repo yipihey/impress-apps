@@ -214,6 +214,7 @@ run_build() {
         -project "$XCODE_PROJECT" \
         -scheme imbib-iOS \
         -destination "generic/platform=iOS Simulator" \
+        ARCHS=arm64 \
         -derivedDataPath "$DERIVED_DATA/ios" \
         -clonedSourcePackagesDirPath "$source_packages" \
         CODE_SIGN_IDENTITY=- \

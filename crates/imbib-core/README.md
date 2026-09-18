@@ -32,8 +32,8 @@ cargo build --release --target aarch64-apple-ios-sim
 cargo test
 
 # Generate Swift bindings
-cargo run --release --bin uniffi-bindgen generate \
-    --library target/release/libimbib_core.dylib \
+cargo run --release -p uniffi-bindgen -- generate \
+    --library target/release/libimbib_core.a \
     --language swift \
     --out-dir generated
 ```

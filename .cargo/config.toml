@@ -1,0 +1,32 @@
+# Workspace-wide build environment.
+#
+# The deployment targets are pinned HERE rather than exported by each
+# crates/*/build-xcframework.sh, because cc-rs reads them and therefore emits
+# `cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET` (and the iOS twin) for
+# every C dependency it builds. When the scripts exported them and plain
+# `cargo test` / `cargo clippy` did not, the two worlds disagreed inside the
+# SAME target/debug: four crates (libsqlite3-sys, zstd-sys, ring, psm) had
+# build-script fingerprints recorded with the value pinned while 557 others had
+# it unset. Those four sit under rusqlite, zstd, tantivy and impress-core, so
+# every alternation re-ran them and re-checked the tree above - a clippy pass
+# straight after a framework build opened by compiling libsqlite3-sys and took
+# 8m28s with nothing new to check.
+#
+# `force = true` so the value is identical no matter who invokes cargo: a
+# script, a plain gate, rust-analyzer, or CI passing its own env-extra. The
+# scripts no longer export these; the eight of them had drifted to three
+# different values (14.0, 17.0 and 26.0), which flipped the fingerprints again
+# every time a different crate's script ran.
+#
+# 17.0 for iOS matches what the Swift packages already declare (.iOS(.v17));
+# 14.0 for macOS is the floor the static archives are built against, and links
+# into the macOS 26 apps unchanged.
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = true }
+IPHONEOS_DEPLOYMENT_TARGET = { value = "17.0", force = true }
+
+# NOTE: deliberately no `[build] rustc-wrapper = "sccache"` here. Three release
+# workflows run on GitHub-hosted macos-15 runners where the binary does not
+# exist, and cargo hard-errors on a missing wrapper. sccache belongs in the
+# developer's own ~/.cargo/config.toml, where it also serves the other
+# checkouts and the four self-hosted runners that share this $HOME.

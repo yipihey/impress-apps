@@ -116,10 +116,10 @@ See [impel ADRs](crates/impel-core/docs/adr/) for architecture decisions.
 
 ```bash
 # Check all crates
-cargo check
+./scripts/rust-gate.sh clippy auto   # the gate CI runs (sharded)
 
 # Run tests
-cargo test
+./scripts/rust-gate.sh test auto
 
 # Build impel TUI
 cargo build -p impel-tui --release

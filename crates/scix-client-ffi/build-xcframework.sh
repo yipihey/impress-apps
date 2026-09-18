@@ -15,15 +15,48 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
-export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-14.0}"
+# Incremental release codegen for the framework loop only (was
+# `[profile.release] incremental = true` in the root manifest, where it also
+# applied to the signed binaries in target/release).
+export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-1}"
+
+# Deployment targets are pinned in the workspace .cargo/config.toml (force=true).
 
 echo "Building ScixClientCore XCFramework"
-echo "MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
 
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BUILD_DIR="$WORKSPACE_ROOT/target"
+BUILD_DIR="${CARGO_TARGET_DIR:-$WORKSPACE_ROOT/target}"
 FRAMEWORK_DIR="$SCRIPT_DIR/frameworks"
+
+# --- content-guarded publication -------------------------------------------
+# Xcode stages the FFI headers into DerivedData preserving their mtime, so
+# rewriting a byte-identical header invalidates every precompiled module built
+# against it: a cold rebuild of PublicationManagerCore (602 files) in every app,
+# plus the manual module-cache purge. Only the .a really changes on a rebuild,
+# so publish by content and leave everything else alone.
+impress_sync_file() {   # src dst|dstdir/
+    [ -f "$1" ] || return 0
+    local dst="$2"
+    case "$dst" in */) dst="$dst$(basename "$1")";; esac
+    [ -d "$dst" ] && dst="$dst/$(basename "$1")"
+    if [ -f "$dst" ] && cmp -s "$1" "$dst"; then return 0; fi
+    mkdir -p "$(dirname "$dst")" && cp "$1" "$dst"
+}
+impress_sync_tree() {   # srcdir dstdir
+    [ -d "$1" ] || return 0
+    mkdir -p "$2"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -rlc --delete "$1/" "$2/"
+    else
+        rm -rf "$2" && cp -R "$1" "$2"
+    fi
+}
+
+# Snapshot the previous framework so unchanged files can keep their timestamps.
+PREV_SNAPSHOT="$(mktemp -d)"
+if [ -d "$FRAMEWORK_DIR" ]; then
+    cp -Rp "$FRAMEWORK_DIR/." "$PREV_SNAPSHOT/" 2>/dev/null || true
+fi
 XCFRAMEWORK_NAME="ScixClientCore"
 LIB_NAME="scix_client_ffi"
 
@@ -47,14 +80,17 @@ if [ "$BUILD_IOS" = "1" ]; then
 fi
 
 echo "=== Building (native feature) ==="
-cargo build --release --target $MACOS_TARGET --features native
+cargo rustc --release --target $MACOS_TARGET --features native --lib --crate-type staticlib
 if [ "$BUILD_X86" = "1" ]; then
-    cargo build --release --target $MACOS_X86_TARGET --features native
+    cargo rustc --release --target $MACOS_X86_TARGET --features native --lib --crate-type staticlib
 fi
 if [ "$BUILD_IOS" = "1" ]; then
-    cargo build --release --target $IOS_TARGET --features native
-    cargo build --release --target $IOS_SIM_TARGET --features native
-    cargo build --release --target $IOS_SIM_X86_TARGET --features native
+    cargo rustc --release --target $IOS_TARGET --features native --lib --crate-type staticlib
+    cargo rustc --release --target $IOS_SIM_TARGET --features native --lib --crate-type staticlib
+    if [ "$BUILD_X86" = "1" ]; then
+        cargo rustc --release --target $IOS_SIM_X86_TARGET --features native --lib --crate-type staticlib
+
+    fi
 fi
 
 echo "=== Creating framework structure ==="
@@ -89,11 +125,12 @@ echo "=== Generating Swift bindings ==="
 BINDINGS_DIR="$FRAMEWORK_DIR/bindings"
 mkdir -p "$BINDINGS_DIR"
 
-# Build a macOS dylib for bindgen (cdylib target)
-cargo build --release --target $MACOS_TARGET --features native
+# (the macOS slice with these exact features was already built above; this
+# second identical invocation was a no-op that still paid a full freshness
+# walk of the ~1,000-crate graph)
 
-cargo run --bin uniffi-bindgen --features native -- generate \
-    --library "$BUILD_DIR/$MACOS_TARGET/release/lib${LIB_NAME}.dylib" \
+cargo run --release -p uniffi-bindgen -- generate \
+    --library "$BUILD_DIR/$MACOS_TARGET/release/lib${LIB_NAME}.a" \
     --language swift \
     --out-dir "$BINDINGS_DIR"
 
@@ -154,9 +191,7 @@ IMPRESSSCIXCORE_SOURCES="$WORKSPACE_ROOT/packages/ImpressScixCore/Sources/Impres
 mkdir -p "$IMPRESSSCIXCORE_FRAMEWORKS" "$IMPRESSSCIXCORE_SOURCES"
 
 # Copy XCFramework
-rm -rf "$IMPRESSSCIXCORE_FRAMEWORKS/${XCFRAMEWORK_NAME}.xcframework"
-cp -R "$FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.xcframework" "$IMPRESSSCIXCORE_FRAMEWORKS/"
-
+impress_sync_tree "$FRAMEWORK_DIR/${XCFRAMEWORK_NAME}.xcframework" "$IMPRESSSCIXCORE_FRAMEWORKS/${XCFRAMEWORK_NAME}.xcframework"
 # Copy Swift bindings (rename to avoid conflicts with hand-written wrappers)
 SWIFT_BINDING=$(ls "$BINDINGS_DIR"/*.swift 2>/dev/null | head -1)
 if [ -n "$SWIFT_BINDING" ]; then
@@ -172,3 +207,15 @@ echo ""
 echo "Next steps:"
 echo "  1. Verify the XCFramework at packages/ImpressScixCore/frameworks/"
 echo "  2. Build PublicationManagerCore: swift build"
+
+# Restore timestamps on every file whose bytes did not change during this
+# rebuild, so SwiftPM/clang see "unchanged" rather than "rewritten". Paired
+# with the PREV_SNAPSHOT capture above.
+if [ -n "${PREV_SNAPSHOT:-}" ] && [ -d "$PREV_SNAPSHOT" ]; then
+    ( cd "$FRAMEWORK_DIR" && find . -type f -print | while IFS= read -r f; do
+        if [ -f "$PREV_SNAPSHOT/$f" ] && cmp -s "$f" "$PREV_SNAPSHOT/$f"; then
+            cp -p "$PREV_SNAPSHOT/$f" "$f"
+        fi
+      done )
+    rm -rf "$PREV_SNAPSHOT"
+fi

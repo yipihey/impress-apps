@@ -9,7 +9,10 @@ description = "Native, Typst-first plotting: declarative plot specs → Typst so
 [dependencies]
 png = "0.17"
 
-[dev-dependencies]
-# Compile-verification of generated plots goes through imprint-core's persistent
-# Typst engine (dev-only so impress-plot itself stays free of the typst stack).
-imprint-core = { path = "../imprint-core", features = ["native"] }
+# No [dev-dependencies]. The Typst compile-verification test used to live here
+# behind `imprint-core = { features = ["native"] }`, which made
+# `cargo test -p impress-plot` build 571 crates instead of 12, formed a
+# dev-dependency cycle (imprint-core -> impress-plot -> imprint-core), and was
+# the only thing switching imprint-core to its uniffi shape in the CI `rest`
+# shard. The test now lives at crates/imprint-core/tests/plot_render_typst.rs,
+# where the Typst engine already is.

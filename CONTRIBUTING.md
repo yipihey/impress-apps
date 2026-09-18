@@ -22,10 +22,10 @@ This is a monorepo containing:
 
 ```bash
 # Check all crates compile
-cargo check
+./scripts/rust-gate.sh clippy auto   # the gate CI runs (sharded)
 
 # Run all tests
-cargo test
+./scripts/rust-gate.sh test auto
 
 # Build specific crate
 cargo build -p imbib-core
@@ -48,7 +48,7 @@ See each app's README for specific instructions.
 1. **Fork and clone** the repository
 2. **Create a branch** for your feature or fix
 3. **Make your changes** following our conventions
-4. **Run tests**: `cargo test` for Rust, Xcode tests for Swift
+4. **Run tests**: `./scripts/rust-gate.sh test auto` for Rust, Xcode tests for Swift
 5. **Submit a pull request** with a clear description
 
 ## Code Style

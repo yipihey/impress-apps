@@ -7,14 +7,27 @@ license.workspace = true
 repository.workspace = true
 
 [lib]
-crate-type = ["lib", "staticlib", "cdylib"]
+# `lib` only. This target is a dependency of ~17 other workspace crates, and
+# listing `staticlib`/`cdylib` here made cargo hand rustc all three crate types
+# on EVERY dependent build: a plain `cargo build -p impress-mcp` archived a
+# 203 MB libimprint_core.a and linked a dylib without ever naming imprint-core,
+# and the debug pair is 1.36 GB + 169 MB, rewritten on every test run. Worse,
+# cargo drops the feature hash from the FILENAME for path crates that emit a
+# cdylib, so one package-id directory held both the `default,typst-render`
+# shape (impress-mcp) and the `native` shape (tests, frameworks) and every
+# alternation recompiled the crate and all its dependents.
+#
+# The staticlib the xcframeworks need is produced on demand by the build
+# scripts with `cargo rustc --lib --crate-type staticlib`, which uplifts to the
+# same target/<triple>/release/lib<crate>.a path they already read.
+crate-type = ["lib"]
 
 [features]
 default = []
 uniffi = ["dep:uniffi"]
 parallel = ["dep:rayon"]
 kuva = ["dep:kuva"]
-lilaq = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib", "dep:comemo"]
+lilaq = ["dep:typst", "dep:typst-pdf", "dep:typst-svg", "dep:typst-as-lib"]
 
 [dependencies]
 # Workspace crates
@@ -43,7 +56,7 @@ url = { workspace = true }
 urlencoding = { workspace = true }
 
 # UniFFI for FFI bindings (optional)
-uniffi = { workspace = true, optional = true, features = ["bindgen"] }
+uniffi = { workspace = true, optional = true }
 
 # Parallel processing (optional)
 rayon = { workspace = true, optional = true }
@@ -56,14 +69,9 @@ typst = { workspace = true, optional = true }
 typst-pdf = { workspace = true, optional = true }
 typst-svg = { workspace = true, optional = true }
 typst-as-lib = { workspace = true, optional = true }
-comemo = { workspace = true, optional = true }
 
 # Statistics (for histogram computation)
 implore-stats = { workspace = true }
 
-[[bin]]
-name = "uniffi-bindgen"
-path = "src/uniffi_bindgen.rs"
-required-features = ["uniffi"]
 
 [dev-dependencies]

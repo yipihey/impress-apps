@@ -34,26 +34,10 @@ use super::graph::{Diagnostic, Severity};
 use super::model::{FileBytes, OutputKind, ProjectTree, Target};
 use crate::render::line_column_at;
 
-/// What one compile produced.
-#[derive(Debug, Clone)]
-pub struct TreeCompileOutcome {
-    /// `pdf` bytes, or one SVG string per page, per the target's output kind.
-    pub pdf: Option<Vec<u8>>,
-    pub svg_pages: Vec<String>,
-    pub page_count: u32,
-    pub compile_ms: u64,
-    /// Errors and warnings, in tree paths.
-    pub diagnostics: Vec<Diagnostic>,
-    pub ok: bool,
-}
-
-impl TreeCompileOutcome {
-    pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.diagnostics
-            .iter()
-            .filter(|d| d.severity == Severity::Error)
-    }
-}
+// `TreeCompileOutcome` lives in `graph.rs`: it is plain data (bytes, page
+// count, diagnostics) with no Typst types in it, and the service's
+// `not(typst-render)` fallback has to name it too.
+use super::graph::TreeCompileOutcome;
 
 /// The files the resolver serves: sources by id (kept, so diagnostics can be
 /// resolved to lines) and bytes by rootless path.

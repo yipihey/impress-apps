@@ -13,10 +13,13 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 XCFRAMEWORK_DIR="$PROJECT_DIR/imbib-core/frameworks/ImbibCore.xcframework"
 
 # Required slices for full platform support
+# A simulator slice may be arm64-only now: the gate builds with ARCHS=arm64, and
+# IMPRESS_SKIP_X86=1 skips x86_64 on macOS and the simulator alike. Accept either
+# spelling per platform rather than demanding the universal one.
 REQUIRED_SLICES=(
-    "ios-arm64"                    # iOS device
-    "ios-arm64_x86_64-simulator"   # iOS Simulator (universal)
-    "macos-arm64_x86_64"           # macOS (universal)
+    "ios-arm64"                                          # iOS device
+    "ios-arm64-simulator|ios-arm64_x86_64-simulator"     # iOS Simulator
+    "macos-arm64|macos-arm64_x86_64"                     # macOS
 )
 
 # Check if xcframework directory is being modified
@@ -32,8 +35,16 @@ echo "Checking ImbibCore.xcframework slices..."
 # Verify all required slices exist
 MISSING_SLICES=()
 for slice in "${REQUIRED_SLICES[@]}"; do
-    if [ ! -d "$XCFRAMEWORK_DIR/$slice" ]; then
-        MISSING_SLICES+=("$slice")
+    # Each entry may list alternatives separated by "|": a simulator or macOS
+    # slice is arm64-only when built with IMPRESS_SKIP_X86=1, and universal in
+    # CI/release builds. Either satisfies the platform.
+    found=0
+    IFS='|' read -r -a alts <<< "$slice"
+    for alt in "${alts[@]}"; do
+        if [ -d "$XCFRAMEWORK_DIR/$alt" ]; then found=1; break; fi
+    done
+    if [ "$found" -eq 0 ]; then
+        MISSING_SLICES+=("${alts[0]}")
     fi
 done
 

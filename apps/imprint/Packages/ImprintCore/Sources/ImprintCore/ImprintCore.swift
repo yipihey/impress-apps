@@ -1,5 +1,11 @@
 import Foundation
-import ImprintRustCore
+// @_exported: this module used to ship its OWN copy of the 9,773-line generated
+// imprint_core.swift while also depending on ImprintRustCore, so every app
+// compiled the identical UniFFI binding twice per platform and the two copies
+// drifted apart for six commits in July (a stale copy compiles fine and then
+// aborts at runtime on the UniFFI checksum check). One owner now; the
+// re-export keeps `import ImprintCore` giving callers the generated names.
+@_exported import ImprintRustCore
 
 /// ImprintCore provides Swift bindings to the imprint-core Rust library
 ///

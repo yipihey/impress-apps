@@ -171,6 +171,7 @@ echo "pre-push: building imbib-iOS (Simulator)"
 if ! xcodebuild build \
     -scheme imbib-iOS \
     -destination 'generic/platform=iOS Simulator' \
+    ARCHS=arm64 \
     CODE_SIGN_IDENTITY="-" \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=NO \

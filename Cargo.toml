@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/uniffi-bindgen",
     "crates/im-bibtex",
     "crates/im-identifiers",
     "crates/impress-domain",
@@ -135,8 +136,13 @@ nom = "7.1"
 regex = "1.10"
 lazy_static = "1.4"
 
-# UniFFI for FFI bindings (optional)
-uniffi = { version = "0.28", features = ["cli"] }
+# UniFFI for FFI bindings (optional).
+# NO `cli` here: that feature makes `uniffi_bindgen` a normal dependency of the
+# facade, so every library enabling `uniffi` linked the whole generator stack
+# (askama, goblin, cargo_metadata, clap - 40 crates) in every profile and for
+# all five Apple triples. The generator lives in ONE binary crate now,
+# `crates/uniffi-bindgen`, which the build-xcframework scripts invoke.
+uniffi = { version = "0.28", default-features = false }
 
 # Async trait support (HTTP source plugins, service traits)
 async-trait = "0.1"
@@ -193,7 +199,11 @@ implore-selection = { path = "crates/implore-selection" }
 # Scientific data I/O (for implore)
 hdf5 = "0.8"
 fitsio = "0.21"
-parquet = "53"
+# `arrow` is in parquet's default feature set and pulls arrow-array/-cast/-ipc/
+# -select, flatbuffers and the lexical-* family (~16 crates) for a reader that
+# only uses `parquet::record` - the row API. Codecs are kept, brotli included,
+# so existing files still read.
+parquet = { version = "53", default-features = false, features = ["snap", "zstd", "flate2", "lz4", "brotli", "base64"] }
 csv = "1.3"
 
 # URL handling
@@ -221,7 +231,6 @@ typst = "0.14"
 typst-pdf = "0.14"
 typst-svg = "0.14"
 typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
-comemo = "0.4"
 
 # impel crates
 impel-core = { path = "crates/impel-core" }
@@ -277,9 +286,29 @@ impart-service-http = { path = "crates/impart-service-http" }
 impress-bridges-service = { path = "crates/impress-bridges-service" }
 impress-store-service = { path = "crates/impress-store-service" }
 
-# Faster local framework-rebuild loop: release builds reuse incremental
-# artifacts across the edit-build cycle (the xcframework scripts build
-# release for every slice). CI caches target/ anyway; locally this turns
-# a full imprint-core release rebuild into seconds after a small edit.
-[profile.release]
-incremental = true
+# Dev/test debug info. macOS defaults to `split-debuginfo = "unpacked"`, which
+# means rustc KEEPS every codegen unit's `.o` file next to the rlib whenever
+# debuginfo is on - that is where DWARF lives. With ~1,080 registry crates and
+# one flat `target/debug/deps`, those objects reached 1,223,708 files, and a
+# directory that size costs 40-70 SECONDS to launch a test binary out of (same
+# bytes one directory up: 1.7s). A 4-package test run is 21 such launches, which
+# is where ~55 minutes of a measured 58m49s job went - against 3m06s of
+# compiling and 28.8s of actual tests.
+#
+# `debug = false` for dependencies stops the retention for every registry crate
+# (rustc keeps the objects only when debuginfo is enabled); members keep
+# line tables, so backtraces still resolve to file:line in our own code.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# `[profile.test]` inherits dev, so test binaries get the same treatment.
+#
+# Release is NOT incremental: it used to be, to speed the framework-rebuild
+# loop, but incremental applies only to workspace members while the shipped
+# binaries (impress-mcp, imprint, impress, impel-taskd - signed out of
+# target/release) paid 256-way codegen-unit partitioning for it. The framework
+# scripts set CARGO_INCREMENTAL=1 for themselves instead; they build into
+# target/<triple>/release, which the shipped binaries never share.

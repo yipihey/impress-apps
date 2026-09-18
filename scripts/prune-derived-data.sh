@@ -70,6 +70,7 @@ say() { [ "$QUIET" = yes ] || printf '%s\n' "$*"; }
 is_protected() {
     case "$1" in
         imbib|imprint|implore|impel|impart|impress) return 0 ;;
+        impress-suite) return 0 ;;   # the shared workspace build (build-impress-app.sh)
         *.noindex) return 0 ;;   # ModuleCache & friends — Xcode's, not ours
         *) return 1 ;;
     esac

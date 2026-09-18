@@ -485,7 +485,7 @@ MACOS_ARM_LIB="$REPO_ROOT/target/aarch64-apple-darwin/release/libimbib_core.a"
 if $RUST_NEEDS_BUILD || [ ! -f "$MACOS_ARM_LIB" ]; then
     echo "  Building macOS (aarch64-apple-darwin)..."
     rustup target add aarch64-apple-darwin 2>/dev/null || true
-    cargo build --release --features native --target aarch64-apple-darwin
+    cargo rustc --release --features native --target aarch64-apple-darwin --lib --crate-type staticlib
 else
     echo "  Skipping macOS arm64 (up to date)"
 fi
@@ -495,7 +495,7 @@ if $BUILD_MACOS; then
     if $RUST_NEEDS_BUILD || [ ! -f "$MACOS_X86_LIB" ]; then
         echo "  Building macOS (x86_64-apple-darwin)..."
         rustup target add x86_64-apple-darwin 2>/dev/null || true
-        cargo build --release --features native --target x86_64-apple-darwin
+        cargo rustc --release --features native --target x86_64-apple-darwin --lib --crate-type staticlib
     else
         echo "  Skipping macOS x86_64 (up to date)"
     fi
@@ -507,7 +507,7 @@ if $BUILD_IOS; then
     if $RUST_NEEDS_BUILD || [ ! -f "$IOS_LIB" ]; then
         echo "  Building iOS (aarch64-apple-ios)..."
         rustup target add aarch64-apple-ios 2>/dev/null || true
-        cargo build --release --features native --target aarch64-apple-ios
+        cargo rustc --release --features native --target aarch64-apple-ios --lib --crate-type staticlib
     else
         echo "  Skipping iOS (up to date)"
     fi
@@ -550,8 +550,8 @@ mkdir -p "$FRAMEWORK_DIR"
 
 # Generate Swift bindings
 echo "  Generating Swift bindings..."
-cargo run --features native --bin uniffi-bindgen generate \
-    --library "$RUST_BUILD_DIR/aarch64-apple-darwin/release/libimbib_core.dylib" \
+cargo run --release -p uniffi-bindgen -- generate \
+    --library "$RUST_BUILD_DIR/aarch64-apple-darwin/release/libimbib_core.a" \
     --language swift \
     --out-dir "$FRAMEWORK_DIR/generated"
 
