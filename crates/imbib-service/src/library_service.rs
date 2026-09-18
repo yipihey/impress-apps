@@ -89,6 +89,13 @@ pub struct PublicationSummary {
     /// mode is configured; see `BibliographyRow::eink_state`.
     #[serde(alias = "einkState", default)]
     pub eink_state: Option<String>,
+    /// When the USER last viewed or hand-added this paper, ms since the epoch,
+    /// or null if never. This is the field `sort_field = "last_activity"`
+    /// orders by ("Recently Used" in imbib's sort menu), so a caller that asks
+    /// for that order can see what produced it — automated ingest never writes
+    /// it, which is what makes it the user's own trail.
+    #[serde(alias = "lastActivityAt", default)]
+    pub last_activity_at: Option<i64>,
 }
 
 impl From<&imbib_core::unified::shaped_queries::BibliographyRow> for PublicationSummary {
@@ -108,6 +115,7 @@ impl From<&imbib_core::unified::shaped_queries::BibliographyRow> for Publication
             tags: r.tags.iter().map(|t| t.path.clone()).collect(),
             has_pdf: r.has_downloaded_pdf,
             eink_state: r.eink_state.clone(),
+            last_activity_at: r.last_activity_at,
         }
     }
 }

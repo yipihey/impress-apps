@@ -2613,27 +2613,35 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
             if let offset, offset > 0 { return [] }
             return queryRecentActivity(limit: min(limit ?? cap, cap))
         case .combined(let children):
-            return queryCombined(children: children, ascending: ascending, limit: limit, offset: offset)
+            return queryCombined(
+                children: children, sort: sort, ascending: ascending, limit: limit, offset: offset)
         }
     }
 
     /// Query the union of multiple child sources. Fetches each child's rows,
-    /// deduplicates by paper UUID (first occurrence wins), sorts by date-added
-    /// (descending unless `ascending` is true), then applies paging.
+    /// deduplicates by paper UUID (first occurrence wins), sorts them, then
+    /// applies paging.
     ///
-    /// Honors only the `ascending` flag — `sort` is ignored, matching the
-    /// established pattern for pseudo-sources like `.citedInManuscripts`.
+    /// The sort is honoured here, not only the direction: a multi-library
+    /// selection is an ordinary list and its sort menu has to mean the same
+    /// thing it means in a single library (picking "Recently Used" and getting
+    /// date-added order is worse than not offering the option). Each child is
+    /// fetched in the same order from SQL and the merge re-sorts on the one
+    /// field, so the result matches what a single-scope query would give.
     /// At scale (5+ libraries with thousands of papers each) this materialises
     /// the full set in memory; profile and optimise to a Rust-side `Predicate::Or`
     /// query if the client-side dedup proves slow in practice.
     /// Cached merged-sorted result for `queryCombined`. Pagination calls slice
     /// from this cache instead of re-materialising on every page load. The
-    /// cache key encodes the deduplicated set of child viewIDs and the store's
-    /// `dataVersion` — any mutation bumps `dataVersion` and invalidates the cache.
-    private var combinedCache: (key: String, descending: [PublicationRowData])? = nil
+    /// cache key encodes the deduplicated set of child viewIDs, the SORT, and
+    /// the store's `dataVersion` — any mutation bumps `dataVersion` and
+    /// invalidates the cache.
+    private var combinedCache:
+        (childKey: String, sort: String, version: Int, rows: [PublicationRowData])? = nil
 
     public func queryCombined(
         children: [PublicationSource],
+        sort: String = "created",
         ascending: Bool = false,
         limit: UInt32? = nil,
         offset: UInt32? = nil
@@ -2641,19 +2649,21 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         StoreTimings.shared.measure("queryCombined") {
             guard !children.isEmpty else { return [] }
 
-            // Cache key: child viewIDs (set semantics, order-independent) + dataVersion.
-            // Identical re-queries during a scroll session hit the cached merged set.
+            // Cache: child viewIDs (set semantics, order-independent) + the
+            // sort + dataVersion. Identical re-queries during a scroll session
+            // hit the cached merged set; a sort change must not.
             let childKey = children.map { $0.viewID.uuidString }.sorted().joined(separator: "|")
-            let key = "\(childKey)#\(dataVersion)"
 
             let merged: [PublicationRowData]
-            if let cache = combinedCache, cache.key == key {
-                merged = cache.descending
+            if let cache = combinedCache, cache.childKey == childKey,
+               cache.sort == sort, cache.version == dataVersion {
+                merged = cache.rows
             } else {
                 var seen = Set<UUID>()
                 var assembled: [PublicationRowData] = []
                 for child in children {
-                    let rows = queryPublications(for: child, sort: "created", ascending: false, limit: nil, offset: nil)
+                    let rows = queryPublications(
+                        for: child, sort: sort, ascending: false, limit: nil, offset: nil)
                     let label = sourceLabel(for: child)
                     for row in rows where seen.insert(row.id).inserted {
                         var tagged = row
@@ -2661,8 +2671,8 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                         assembled.append(tagged)
                     }
                 }
-                assembled.sort { $0.dateAdded > $1.dateAdded }
-                combinedCache = (key, assembled)
+                assembled.sort { Self.combinedIsBefore($0, $1, sort: sort) }
+                combinedCache = (childKey, sort, dataVersion, assembled)
                 merged = assembled
             }
 
@@ -2678,6 +2688,54 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                 endIndex = ordered.count
             }
             return Array(ordered[startIndex..<endIndex])
+        }
+    }
+
+    /// Descending order for the merged `.combined` set, on the same field the
+    /// SQL query was given.
+    ///
+    /// Every comparison ends at `dateAdded` and then `id`, so the order is
+    /// TOTAL: papers with no value for the field (no year, never viewed) keep a
+    /// stable place instead of reshuffling between pages, which is what a
+    /// partial comparator would do to a scrolling list.
+    nonisolated static func combinedIsBefore(
+        _ lhs: PublicationRowData, _ rhs: PublicationRowData, sort: String
+    ) -> Bool {
+        func fallback() -> Bool {
+            if lhs.dateAdded != rhs.dateAdded { return lhs.dateAdded > rhs.dateAdded }
+            return lhs.id.uuidString > rhs.id.uuidString
+        }
+        switch sort {
+        case "last_activity", "lastActivity", "recent":
+            // Never-touched papers sort last, matching SQLite's NULLs-last
+            // under DESC.
+            switch (lhs.lastActivityAt, rhs.lastActivityAt) {
+            case (let l?, let r?): return l == r ? fallback() : l > r
+            case (nil, _?): return false
+            case (_?, nil): return true
+            case (nil, nil): return fallback()
+            }
+        case "modified", "dateModified", "date_modified":
+            return lhs.dateModified == rhs.dateModified ? fallback() : lhs.dateModified > rhs.dateModified
+        case "title", "payload.title":
+            let l = lhs.title, r = rhs.title
+            // Titles ascend even in the "descending" cache: the caller
+            // reverses it for ascending, and `defaultAscending` is true here.
+            return l.localizedCaseInsensitiveCompare(r) == .orderedSame
+                ? fallback() : l.localizedCaseInsensitiveCompare(r) == .orderedDescending
+        case "cite_key", "citeKey":
+            return lhs.citeKey == rhs.citeKey
+                ? fallback() : lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedDescending
+        case "year", "payload.year":
+            let l = lhs.year ?? Int.min, r = rhs.year ?? Int.min
+            return l == r ? fallback() : l > r
+        case "citation_count", "citationCount":
+            return lhs.citationCount == rhs.citationCount
+                ? fallback() : lhs.citationCount > rhs.citationCount
+        case "starred":
+            return lhs.isStarred == rhs.isStarred ? fallback() : lhs.isStarred
+        default:
+            return fallback()
         }
     }
 
@@ -2774,10 +2832,18 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                             limit: UInt32(SyncedSettingsStore.shared.recentPapersToKeep)
                         ).count)
                 case .combined(let children):
-                    // Reuse queryCombined's cache. Calling with no limit/offset
-                    // returns the full merged set; we just need its count, and
-                    // the Array slice is cheap (it's the cache's storage).
-                    let merged = queryCombined(children: children, ascending: false, limit: nil, offset: nil)
+                    // A count is order-independent, so any cached order for
+                    // these children answers it — asking for one particular
+                    // sort here would evict the list's cache on every page.
+                    let childKey = children.map { $0.viewID.uuidString }
+                        .sorted().joined(separator: "|")
+                    if let cache = combinedCache, cache.childKey == childKey,
+                       cache.version == dataVersion {
+                        return UInt32(cache.rows.count)
+                    }
+                    let merged = queryCombined(
+                        children: children, sort: "created", ascending: false,
+                        limit: nil, offset: nil)
                     return UInt32(merged.count)
                 }
             }()

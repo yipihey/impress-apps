@@ -6385,6 +6385,81 @@ mod tests {
         assert_eq!(store.query_recent_activity(1).unwrap().len(), 1);
     }
 
+    /// "Recently Used" (`LibrarySortOrder.recentActivity`, sort key
+    /// `last_activity`) has to work in every scope a list serves, not just the
+    /// Recent library — a collection is where it matters most, because that is
+    /// the scope a manuscript's papers are shown in (ADR-0031).
+    #[test]
+    fn recency_sort_orders_a_collection_and_a_library() {
+        let store = make_store();
+        let lib = store.create_library("Test".into()).unwrap();
+        let bibtex = r#"
+@article{A, title={Paper A}, doi={10.1234/a}}
+@article{B, title={Paper B}, doi={10.1234/b}}
+@article{C, title={Paper C}, doi={10.1234/c}}
+"#;
+        store.import_bibtex(bibtex.into(), lib.id.clone()).unwrap();
+        let all = store
+            .query_publications(lib.id.clone(), "title".into(), true, None, None)
+            .unwrap();
+        let (a, b, c) = (all[0].id.clone(), all[1].id.clone(), all[2].id.clone());
+
+        let collection = store
+            .create_collection("Reading".into(), lib.id.clone(), false, None)
+            .unwrap();
+        store
+            .add_to_collection(vec![a.clone(), b.clone(), c.clone()], collection.id.clone())
+            .unwrap();
+
+        // A is viewed, then C — B is never touched.
+        assert!(store.record_recent_view(a.clone()).unwrap());
+        assert!(store.record_recent_view(c.clone()).unwrap());
+
+        let ids = |rows: Vec<BibliographyRow>| -> Vec<String> {
+            rows.into_iter().map(|r| r.id).collect()
+        };
+
+        let in_collection = ids(store
+            .list_collection_members(
+                collection.id.clone(),
+                "last_activity".into(),
+                false,
+                None,
+                None,
+            )
+            .unwrap());
+        assert_eq!(
+            in_collection,
+            vec![c.clone(), a.clone(), b.clone()],
+            "most recently viewed first; the untouched paper last (NULL stamps sort last under DESC)"
+        );
+
+        let in_library = ids(store
+            .query_publications(lib.id.clone(), "last_activity".into(), false, None, None)
+            .unwrap());
+        assert_eq!(in_library, vec![c.clone(), a.clone(), b.clone()]);
+
+        // Ascending is the same order reversed, with the untouched paper FIRST
+        // — the direction toggle in the sort menu has to mean something.
+        let ascending = ids(store
+            .list_collection_members(
+                collection.id.clone(),
+                "last_activity".into(),
+                true,
+                None,
+                None,
+            )
+            .unwrap());
+        assert_eq!(ascending, vec![b.clone(), a.clone(), c.clone()]);
+
+        // Paging cannot reshuffle: the secondary sort is deterministic, so the
+        // first page of one is the first element of the whole.
+        let first_page = ids(store
+            .list_collection_members(collection.id, "last_activity".into(), false, Some(1), None)
+            .unwrap());
+        assert_eq!(first_page, vec![c]);
+    }
+
     #[test]
     fn deduplication_queries() {
         let store = make_store();

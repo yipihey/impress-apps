@@ -51,6 +51,15 @@ struct UnifiedPublicationListWrapper: View {
     /// Initial filter mode (for Unread sidebar item)
     var initialFilterMode: LibraryFilterMode = .all
 
+    /// The sort this list opens on the FIRST time it is shown.
+    ///
+    /// Only a default: the list restores whatever the user last chose for this
+    /// scope (`ListViewStateStore`, keyed by `source.listViewID`), so a host's
+    /// preference never overrides a decision the user made. The manuscript
+    /// papers window opens on `.recentActivity` — the papers you are actually
+    /// reading while you write belong at the top (ADR-0031).
+    var initialSortOrder: LibrarySortOrder = .dateAdded
+
     /// Called when "Download PDFs" is requested for selected publications
     var onDownloadPDFs: ((Set<UUID>) -> Void)?
 
@@ -64,6 +73,7 @@ struct UnifiedPublicationListWrapper: View {
         selectedPublicationID: Binding<UUID?>,
         selectedPublicationIDs: Binding<Set<UUID>>,
         initialFilterMode: LibraryFilterMode = .all,
+        initialSortOrder: LibrarySortOrder = .dateAdded,
         onDownloadPDFs: ((Set<UUID>) -> Void)? = nil,
         focusedPane: Binding<FocusedPane?>? = nil
     ) {
@@ -71,8 +81,11 @@ struct UnifiedPublicationListWrapper: View {
         self._selectedPublicationID = selectedPublicationID
         self._selectedPublicationIDs = selectedPublicationIDs
         self.initialFilterMode = initialFilterMode
+        self.initialSortOrder = initialSortOrder
         self.onDownloadPDFs = onDownloadPDFs
         self.focusedPane = focusedPane
+        _currentSortOrder = State(initialValue: initialSortOrder)
+        _currentSortAscending = State(initialValue: initialSortOrder.defaultAscending)
 
         // Create a paginated data source that loads publications in pages.
         // Sorting is handled by SQL via the Rust layer.
@@ -80,8 +93,10 @@ struct UnifiedPublicationListWrapper: View {
         _dataSource = State(initialValue: ds)
 
         // Load the first page synchronously so the first render shows data
-        // immediately, eliminating the empty list on launch.
-        ds.loadInitialPage()
+        // immediately, eliminating the empty list on launch — in the sort it
+        // will be shown in, so the first paint is not a different order.
+        ds.loadInitialPage(
+            sort: initialSortOrder.sortKey, ascending: initialSortOrder.defaultAscending)
         _publications = State(initialValue: ds.rows)
         _lastRefreshedStoreVersion = State(initialValue: RustStoreAdapter.shared.dataVersion)
     }
