@@ -167,8 +167,13 @@ struct NotesTab: View {
         .onChange(of: publication.id) { _, _ in
             checkAndLoadPDF()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .attachmentDidChange)) { notification in
-            if let pubID = notification.object as? UUID, pubID == publication.id {
+        .task(id: publication.id) {
+            // Same signal the PDF tab watches: this paper's attachments
+            // changed, so the side-by-side viewer re-resolves its PDF.
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                guard case .itemsMutated(let kind, let ids) = event,
+                      kind == .attachment, ids.contains(publication.id)
+                else { continue }
                 checkAndLoadPDF()
             }
         }

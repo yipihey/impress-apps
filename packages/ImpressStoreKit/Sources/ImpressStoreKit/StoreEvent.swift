@@ -75,6 +75,17 @@ public enum MutationKind: Sendable, Equatable {
     /// marker (`BibliographyRow.einkState`) re-read the affected rows;
     /// everything else may ignore it.
     case einkMirror
+    /// A publication's attached files changed — one was added, deleted, or
+    /// materialized locally.
+    ///
+    /// `ids` names the OWNING PUBLICATIONS, never the linked-file records:
+    /// every surface that renders attachments (the Info tab's list, the PDF
+    /// and Notes tabs, the list row's PDF marker) is keyed by the publication
+    /// it is showing, and a child record's own id matches nothing they hold.
+    /// A linked-file delete used to emit bare `.structural`, which those
+    /// surfaces ignore — the deleted file stayed on screen until the user
+    /// navigated away and back.
+    case attachment
     /// A catch-all for field mutations that don't fit a narrower kind
     /// (title edits, abstract rewrites, cite key changes, etc.).
     /// Subscribers that don't care about any particular field should

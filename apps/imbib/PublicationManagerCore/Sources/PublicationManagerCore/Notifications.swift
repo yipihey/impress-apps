@@ -674,12 +674,6 @@ public extension Notification.Name {
     /// 4. Showing the PDF viewer tab
     static let pdfImportCompleted = Notification.Name("pdfImportCompleted")
 
-    /// Posted when an attachment (linked file) is added to or removed from a publication.
-    ///
-    /// object: UUID of the affected publication (may be nil for global refresh)
-    ///
-    /// Both PDFTab and NotesTab observe this to refresh their PDF viewer state.
-    static let attachmentDidChange = Notification.Name("attachmentDidChange")
 
     // MARK: - CloudKit Sharing
 

@@ -1863,9 +1863,7 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
                 sha256: sha256,
                 isPdf: isPdf
             )
-            didMutate()
-            NotificationCenter.default.post(name: .attachmentDidChange, object: nil,
-                userInfo: ["publicationID": publicationId])
+            didMutate(structural: false, affectedIDs: [publicationId], kind: .attachment)
             return LinkedFileModel(from: row)
         } catch {
             Logger.library.error("addLinkedFile failed: \(error)")
@@ -1874,22 +1872,77 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     }
 
     /// Set locally materialized status on a linked file.
-    public func setLocallyMaterialized(id: UUID, materialized: Bool) {
+    ///
+    /// Pass `publicationId` when the owner is known: the event then names
+    /// that publication (`.attachment`) instead of being a bare structural
+    /// change, which is what the open detail panes and the list row's PDF
+    /// marker listen for — and it spares the sidebar a full recount.
+    public func setLocallyMaterialized(id: UUID, materialized: Bool, publicationId: UUID? = nil) {
         do {
             try store.setLocallyMaterialized(id: id.uuidString, materialized: materialized)
-            didMutate()
+            didMutateAttachment(of: publicationId)
         } catch {
             Logger.library.error("setLocallyMaterialized failed: \(error)")
         }
     }
 
     /// Set PDF cloud availability on a linked file.
-    public func setPdfCloudAvailable(id: UUID, available: Bool) {
+    ///
+    /// `publicationId` carries the same meaning as in
+    /// ``setLocallyMaterialized(id:materialized:publicationId:)``.
+    public func setPdfCloudAvailable(id: UUID, available: Bool, publicationId: UUID? = nil) {
         do {
             try store.setPdfCloudAvailable(id: id.uuidString, available: available)
-            didMutate()
+            didMutateAttachment(of: publicationId)
         } catch {
             Logger.library.error("setPdfCloudAvailable failed: \(error)")
+        }
+    }
+
+    /// Delete a linked-file record, telling the publication's surfaces which
+    /// publication changed (undoable — snapshots the record first).
+    ///
+    /// `deleteItem` would do the same deletion, but its event is a bare
+    /// `.structural`: the Info tab's attachment list, the PDF and Notes tabs
+    /// and the row's PDF marker are all keyed by publication id and ignore
+    /// it, so a deleted attachment stayed on screen until the user switched
+    /// papers and back.
+    public func deleteLinkedFile(id: UUID, publicationId: UUID?) {
+        do {
+            let snapshots = try store.deletePublicationsUndoable(ids: [id.uuidString])
+            didMutateAttachment(of: publicationId)
+            let capturedStore = store
+            UndoCoordinator.shared.registerUndoClosure(
+                actionName: "Delete Attachment",
+                undo: { [weak self] in
+                    do {
+                        try capturedStore.restoreSnapshots(snapshots: snapshots)
+                        self?.didMutateAttachment(of: publicationId)
+                    } catch {
+                        Logger.library.error("Undo deleteLinkedFile failed: \(error)")
+                    }
+                },
+                redo: { [weak self] in
+                    do {
+                        try capturedStore.deleteItem(id: id.uuidString)
+                        self?.didMutateAttachment(of: publicationId)
+                    } catch {
+                        Logger.library.error("Redo deleteLinkedFile failed: \(error)")
+                    }
+                }
+            )
+        } catch {
+            Logger.library.error("deleteLinkedFile failed: \(error)")
+        }
+    }
+
+    /// One publication's attached files changed. Falls back to a structural
+    /// event when the owner is unknown — a stale pane is worse than a recount.
+    private func didMutateAttachment(of publicationId: UUID?) {
+        if let publicationId {
+            didMutate(structural: false, affectedIDs: [publicationId], kind: .attachment)
+        } else {
+            didMutate()
         }
     }
 

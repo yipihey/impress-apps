@@ -252,8 +252,8 @@ public final class AttachmentManager {
 
         // Mark cloud availability and local materialization for PDFs
         if isPDF {
-            store.setPdfCloudAvailable(id: linkedFile.id, available: true)
-            store.setLocallyMaterialized(id: linkedFile.id, materialized: true)
+            store.setPdfCloudAvailable(id: linkedFile.id, available: true, publicationId: publicationId)
+            store.setLocallyMaterialized(id: linkedFile.id, materialized: true, publicationId: publicationId)
         }
 
         // Mark PDF downloaded if it's a PDF
@@ -432,8 +432,8 @@ public final class AttachmentManager {
 
         // Mark cloud availability and local materialization for PDFs
         if isPDF {
-            store.setPdfCloudAvailable(id: linkedFile.id, available: true)
-            store.setLocallyMaterialized(id: linkedFile.id, materialized: true)
+            store.setPdfCloudAvailable(id: linkedFile.id, available: true, publicationId: publicationId)
+            store.setLocallyMaterialized(id: linkedFile.id, materialized: true, publicationId: publicationId)
             Logger.files.debugCapture("Marked linked file as cloud-available and locally materialized", category: "files")
         }
 
@@ -805,8 +805,10 @@ public final class AttachmentManager {
             try? fileManager.removeItem(at: url)
         }
 
-        // Delete from Rust store
-        store.deleteItem(id: linkedFile.id)
+        // Delete from Rust store. The event names the publication so the
+        // open Info/PDF/Notes tabs and the row's PDF marker refresh; a bare
+        // structural event leaves the deleted row on screen.
+        store.deleteLinkedFile(id: linkedFile.id, publicationId: publicationId)
 
         if let publicationId, linkedFile.isPDF {
             let remaining = store.listLinkedFiles(publicationId: publicationId)

@@ -127,8 +127,17 @@ struct PDFTab: View {
                 resetAndCheckPDF()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .attachmentDidChange)) { notification in
-            if let pubID = notification.object as? UUID, pubID == publicationID {
+        .task(id: publicationID) {
+            // An attachment was added, deleted or materialized for the paper
+            // on screen — re-resolve the PDF. This replaced an
+            // `.attachmentDidChange` notification whose two posters disagreed
+            // about the payload (`object` vs `userInfo`), so the store's own
+            // adds never reached this handler and deletes posted nothing.
+            guard let pubID = publicationID else { return }
+            for await event in ImbibImpressStore.shared.events.subscribe() {
+                guard case .itemsMutated(let kind, let ids) = event,
+                      kind == .attachment, ids.contains(pubID)
+                else { continue }
                 resetAndCheckPDF()
             }
         }

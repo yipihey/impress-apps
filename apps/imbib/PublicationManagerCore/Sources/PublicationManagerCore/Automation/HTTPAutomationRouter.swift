@@ -1029,7 +1029,8 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
         // POST /api/papers/{citeKey}/files
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/files") {
-            let citeKey = String(path.dropFirst("/api/papers/".count).dropLast("/files".count))
+            // `path` is lowercased; a cite key is not (`KussMarsh2021`).
+            let citeKey = String(request.path.dropFirst("/api/papers/".count).dropLast("/files".count))
             return await handleAddLinkedFile(citeKey: citeKey, request: request)
         }
         // POST /api/files/{linkedFileId}/annotations
@@ -1373,6 +1374,18 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 return .badRequest("Invalid scix-library ID")
             }
             return await handleRemoveFromScixLibrary(scixLibraryID: id, request: request)
+        }
+
+        // DELETE /api/papers/{citeKey}/files/{linkedFileId}
+        if path.hasPrefix("/api/papers/"),
+           let filesRange = originalPath.range(of: "/files/", options: .caseInsensitive) {
+            let citeKey = String(originalPath[originalPath.startIndex..<filesRange.lowerBound]
+                .dropFirst("/api/papers/".count))
+            let segment = String(originalPath[filesRange.upperBound...])
+            guard let fileID = UUID(uuidString: segment) else {
+                return .badRequest("Invalid linked-file ID")
+            }
+            return await handleDeleteLinkedFile(citeKey: citeKey, linkedFileID: fileID)
         }
 
         // DELETE /api/annotations/{id}
@@ -4727,6 +4740,30 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return .serverError("Failed to add linked file")
         }
         return .json(["status": "ok", "file": linkedFileToDict(file)])
+    }
+
+    /// DELETE /api/papers/{citeKey}/files/{linkedFileId}
+    ///
+    /// Removes the file from disk and its record from the store — the same
+    /// call the Info tab's trash button makes, so an agent can clear a
+    /// damaged attachment (a truncated publisher PDF, say) without the GUI.
+    @MainActor
+    private func handleDeleteLinkedFile(citeKey: String, linkedFileID: UUID) async -> HTTPResponse {
+        guard let pubID = uuidForCiteKey(citeKey) else {
+            return .notFound("Publication not found for cite key: \(citeKey)")
+        }
+        guard let file = RustStoreAdapter.shared.listLinkedFiles(publicationId: pubID)
+            .first(where: { $0.id == linkedFileID })
+        else {
+            return .notFound("No file \(linkedFileID) attached to \(citeKey)")
+        }
+        let library = RustStoreAdapter.shared.getPublicationDetail(id: pubID)?.libraryIDs.first
+        do {
+            try AttachmentManager.shared.delete(file, in: library, for: pubID)
+            return .json(["status": "ok", "deleted": true, "filename": file.filename])
+        } catch {
+            return .serverError("Could not delete \(file.filename): \(error.localizedDescription)")
+        }
     }
 
     // MARK: - ===== Phase D: annotations (file-scoped) =====

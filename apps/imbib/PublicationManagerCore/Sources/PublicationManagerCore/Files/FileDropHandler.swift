@@ -187,8 +187,9 @@ public final class FileDropHandler {
         // All done
         isImporting = false
         importProgress = nil
+        // Each imported file already emitted `.itemsMutated(kind: .attachment)`
+        // naming this publication, which is what the detail surfaces watch.
         Logger.files.infoCapture("Drop import completed", category: "files")
-        NotificationCenter.default.post(name: .attachmentDidChange, object: publicationId)
     }
 
     // MARK: - Duplicate Resolution
@@ -228,7 +229,6 @@ public final class FileDropHandler {
                 isImporting = false
                 importProgress = nil
                 Logger.files.infoCapture("Drop import completed", category: "files")
-                NotificationCenter.default.post(name: .attachmentDidChange, object: pending.publicationId)
             }
         }
     }

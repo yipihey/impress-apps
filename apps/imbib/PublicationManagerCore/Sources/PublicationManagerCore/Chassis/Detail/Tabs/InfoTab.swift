@@ -66,16 +66,44 @@ struct InfoTab: View {
     /// Replaces the computed property that was calling FFI ~15 times per body evaluation.
     @State private var cachedPublication: PublicationModel?
 
+    /// Pending coalesced reload for a `.structural` event (see
+    /// `scheduleStructuralReload`).
+    @State private var structuralReloadTask: Task<Void, Never>?
+
     /// Alias for backward compatibility with body code that binds `let pub = publication`.
     private var publication: PublicationModel? { cachedPublication }
 
     /// Fetch the publication from the Rust store and cache it.
+    ///
+    /// Assigns only on a real change: this runs on store events, and an
+    /// unchanged assignment would re-evaluate the body (which stats every
+    /// attachment for its size) for nothing.
     private func loadPublication() {
         guard let id = publicationID else {
             cachedPublication = nil
             return
         }
-        cachedPublication = RustStoreAdapter.shared.getPublicationDetail(id: id)
+        let fresh = RustStoreAdapter.shared.getPublicationDetail(id: id)
+        if fresh != cachedPublication { cachedPublication = fresh }
+    }
+
+    /// Coalesced reload for `.structural` events, which carry no ids.
+    ///
+    /// A mutation from ANOTHER process — imprint, the CLI, an applied
+    /// CloudKit batch — reaches this app as a bare `.structural`
+    /// (`StoreMutationObserver` listens on a payload-less Darwin
+    /// notification), so the id filter below cannot see it and the pane used
+    /// to sit on stale data until the user re-navigated. One read per second
+    /// at most, and the equality guard above means no re-render unless this
+    /// paper actually changed.
+    private func scheduleStructuralReload() {
+        guard structuralReloadTask == nil else { return }
+        structuralReloadTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            structuralReloadTask = nil
+            guard !Task.isCancelled else { return }
+            loadPublication()
+        }
     }
 
     var body: some View {
@@ -197,10 +225,21 @@ struct InfoTab: View {
             // flag/tag/field observers. Reload the publication only
             // when the current pub id is among the affected ids.
             for await event in ImbibImpressStore.shared.events.subscribe() {
-                guard case .itemsMutated(_, let ids) = event,
+                if case .structural = event {
+                    scheduleStructuralReload()
+                    continue
+                }
+                guard case .itemsMutated(let kind, let ids) = event,
                       let pubID = publicationID,
                       ids.contains(pubID)
                 else { continue }
+                if kind == .attachment {
+                    // Display half of the attachment trace: the file list on
+                    // screen is re-read. Without this event the deleted row
+                    // stayed until the user switched papers and back.
+                    Logger.files.infoCapture(
+                        "[InfoTab] Attachments changed — reloading \(pubID)", category: "files")
+                }
                 loadPublication()
             }
         }
