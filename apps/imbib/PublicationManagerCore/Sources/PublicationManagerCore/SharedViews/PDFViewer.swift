@@ -2229,7 +2229,15 @@ public struct PDFViewerWithControls: View {
                 if let data = try? Data(contentsOf: url, options: .mappedIfSafe),
                    data.count >= 4 {
                     let headerBytes = data.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")
-                    Logger.files.errorCapture("Invalid PDF - file header bytes: \(headerBytes) (expected: 25 50 44 46 = %PDF)", category: "pdf")
+                    if PDFDataValidator.hasPDFHeader(data) {
+                        // The header is fine, so say what is actually wrong —
+                        // usually a download that was cut short.
+                        Logger.files.errorCapture(
+                            "Invalid PDF \(url.lastPathComponent): \(PDFDataValidator.check(data).problem ?? "PDFKit cannot open it")",
+                            category: "pdf")
+                    } else {
+                        Logger.files.errorCapture("Invalid PDF - file header bytes: \(headerBytes) (expected: 25 50 44 46 = %PDF)", category: "pdf")
+                    }
 
                     // Check if it's HTML content (common when publisher returns error page)
                     // Look for '<' (0x3C) in first 20 bytes

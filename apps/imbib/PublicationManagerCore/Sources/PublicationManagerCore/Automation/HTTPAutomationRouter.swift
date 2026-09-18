@@ -59,6 +59,7 @@ nonisolated(unsafe) private let routerLogger = Logger(subsystem: "com.imbib.app"
 /// - `POST /api/papers/add` - Add papers by identifier
 /// - `POST /api/collections` - Create a collection
 /// - `POST /api/papers/download-pdfs` - Download PDFs
+/// - `GET /api/papers/{citeKey}/pdf` - The primary PDF's bytes
 /// - `POST /api/papers/{citeKey}/comments` - Add comment to a paper
 /// - `POST /api/papers/{citeKey}/annotations` - Add PDF annotation
 /// - `POST /api/assignments` - Create an assignment
@@ -421,6 +422,11 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return await handleCountByTag(request)
         }
 
+        // GET /api/papers/{citeKey}/pdf — the primary PDF's bytes
+        if path.hasPrefix("/api/papers/") && path.hasSuffix("/pdf") {
+            let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/pdf".count))
+            return await handleGetPaperPDF(citeKey: citeKey)
+        }
         // GET /api/papers/{citeKey}/files
         if path.hasPrefix("/api/papers/") && path.hasSuffix("/files") {
             let citeKey = String(originalPath.dropFirst("/api/papers/".count).dropLast("/files".count))
@@ -2425,6 +2431,7 @@ public actor HTTPAutomationRouter: HTTPRouter {
                 "POST /api/collections/add-papers": "Add existing papers to a collection (body: collectionID, identifiers)",
                 "POST /api/collections": "Create a collection (body: name, libraryID?, isSmartCollection?, predicate?)",
                 "POST /api/papers/download-pdfs": "Download PDFs (body: identifiers); awaited, per-paper outcomes",
+                "GET /api/papers/{citeKey}/pdf": "The primary PDF as application/pdf (404 when none on this device, 422 when the one it holds is damaged)",
                 // reMarkable USB mirror (ADR-025)
                 "GET /api/eink/status": "reMarkable mirror status: devices, marker device, per-state counts",
                 "POST /api/eink/sync": "Run one reMarkable mirror pass now (body: import?)",
@@ -4634,6 +4641,53 @@ public actor HTTPAutomationRouter: HTTPRouter {
         }
         let files = RustStoreAdapter.shared.listLinkedFiles(publicationId: pubID)
         return .json(["status": "ok", "files": files.map { linkedFileToDict($0) }])
+    }
+
+    /// GET /api/papers/{citeKey}/pdf
+    ///
+    /// The paper's primary PDF as `application/pdf`, or 404 when imbib holds
+    /// none on this device. imbib's PDFs live in its own sandbox container, so
+    /// this is how anything outside imbib — an agent, a script — reads one: it
+    /// cannot open the path itself. imbib's own papers window needs no such
+    /// route; it reads the file directly. The reMarkable-annotated variant is served only
+    /// when it is the sole PDF.
+    @MainActor
+    private func handleGetPaperPDF(citeKey: String) async -> HTTPResponse {
+        guard let pubID = uuidForCiteKey(citeKey) else {
+            return .notFound("Publication not found for cite key: \(citeKey)")
+        }
+        let pdfs = RustStoreAdapter.shared.listLinkedFiles(publicationId: pubID).filter(\.isPDF)
+        let ordered = pdfs.filter { ($0.role ?? "primary") == "primary" }
+            + pdfs.filter { ($0.role ?? "primary") != "primary" }
+        let libraries: [UUID?] = (RustStoreAdapter.shared.getPublicationDetail(id: pubID)?.libraryIDs ?? []).map { $0 } + [nil]
+        var damaged: String?
+        for file in ordered {
+            // resolveURL also finds a file filed under another library.
+            guard let url = libraries.lazy
+                .compactMap({ AttachmentManager.shared.resolveURL(for: file, in: $0) })
+                .first(where: { FileManager.default.fileExists(atPath: $0.path) }),
+                  let data = try? Data(contentsOf: url)
+            else { continue }
+            // A truncated download still starts with %PDF, so parse it — off
+            // the main actor — before handing it to a sibling that will try to
+            // show it.
+            let check = await Task.detached(priority: .userInitiated) { PDFDataValidator.check(data) }.value
+            guard check.isComplete else {
+                damaged = "\(file.filename): \(check.problem ?? "unusable")"
+                Logger.files.warningCapture("GET /api/papers/\(citeKey)/pdf: \(damaged ?? "")", category: "files")
+                continue
+            }
+            return HTTPResponse(
+                status: 200,
+                statusText: "OK",
+                headers: ["Content-Type": "application/pdf", "X-Imbib-Filename": file.filename],
+                body: data
+            )
+        }
+        if let damaged {
+            return .json(["status": "error", "error": "The PDF imbib holds is damaged — \(damaged)"], status: 422)
+        }
+        return .notFound("No PDF on this device for \(citeKey)")
     }
 
     /// GET /api/papers/{citeKey}/files/count

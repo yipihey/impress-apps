@@ -35,13 +35,18 @@ public final class AttachmentManager {
     private let store: RustStoreAdapter
     private let fileManager = FileManager.default
 
+    /// Root of imbib's Application Support folder. Nil means the real one;
+    /// tests point it at a scratch directory.
+    private let applicationSupportRoot: URL?
+
     /// Default papers directory name
     private let papersFolderName = "Papers"
 
     // MARK: - Initialization
 
-    public init(store: RustStoreAdapter = .shared) {
+    public init(store: RustStoreAdapter = .shared, applicationSupportRoot: URL? = nil) {
         self.store = store
+        self.applicationSupportRoot = applicationSupportRoot
     }
 
     // MARK: - Link Existing PDF (BibDesk Import)
@@ -174,7 +179,7 @@ public final class AttachmentManager {
         Logger.files.infoCapture("Importing attachment: \(sourceURL.lastPathComponent) (preserve: \(shouldPreserveFilename))", category: "files")
 
         // Determine papers directory
-        let papersDirectory = try resolvePapersDirectory(for: libraryId)
+        let papersDirectory = try resolvePapersDirectory(for: owningLibrary(of: publicationId, requested: libraryId))
 
         // Generate filename
         let filename: String
@@ -381,8 +386,16 @@ public final class AttachmentManager {
         let isPDF = fileExtension.lowercased() == "pdf"
         Logger.files.infoCapture("Importing attachment data (\(data.count) bytes, .\(fileExtension))", category: "files")
 
+        // A PDF imbib cannot open is not an attachment. A download cut short
+        // still starts with %PDF (2026-09-11: the first 770 KB of a 2.2 MB APS
+        // PDF was stored like that and then shown as "Invalid or corrupted").
+        if isPDF, let problem = PDFDataValidator.check(data).problem {
+            Logger.files.errorCapture("Not importing the PDF: \(problem)", category: "files")
+            throw AttachmentError.unusablePDF(problem)
+        }
+
         // Determine papers directory
-        let papersDirectory = try resolvePapersDirectory(for: libraryId)
+        let papersDirectory = try resolvePapersDirectory(for: owningLibrary(of: publicationId, requested: libraryId))
 
         // Generate human-readable filename
         let filename = generateFilename(for: publicationId, extension: fileExtension)
@@ -665,6 +678,11 @@ public final class AttachmentManager {
             } else if fileManager.fileExists(atPath: legacyURL.path) {
                 return legacyURL
             }
+            // Filed under another library — what imports that followed the
+            // UI's active library rather than the paper's left behind.
+            if let misfiled = findInOtherLibraries(linkedFile, path: normalizedPath, skipping: libraryId) {
+                return misfiled
+            }
             // File not found at any known location. Return the primary URL
             // (callers may still act on it, e.g. reveal the parent folder),
             // but surface the miss so it isn't silent.
@@ -688,7 +706,54 @@ public final class AttachmentManager {
         } else if fileManager.fileExists(atPath: legacyURL.path) {
             return legacyURL
         }
+        if let misfiled = findInOtherLibraries(linkedFile, path: normalizedPath, skipping: nil) {
+            return misfiled
+        }
         return defaultURL
+    }
+
+    /// The library whose container holds a paper's files: the paper's own (its
+    /// store parent). The library the caller had in view counts only for a
+    /// paper that belongs to none — the active library is a UI concept, and
+    /// every reader of a paper's files looks under the paper's library.
+    private func owningLibrary(of publicationId: UUID, requested: UUID?) -> UUID? {
+        guard let home = store.getPublicationDetail(id: publicationId)?.libraryIDs.first else {
+            return requested
+        }
+        if let requested, requested != home {
+            Logger.files.infoCapture(
+                "Filing under the paper's library \(home.uuidString), not the requested \(requested.uuidString)",
+                category: "files")
+        }
+        return home
+    }
+
+    /// A linked file whose bytes sit under a library other than the one asked
+    /// about — left there by imports that followed the UI's active library
+    /// (Open, Show in Finder and Delete all missed them). Accepted only when
+    /// the size matches the record, so another paper's same-named file is never
+    /// mistaken for this one.
+    private func findInOtherLibraries(
+        _ linkedFile: LinkedFileModel,
+        path: String,
+        skipping libraryId: UUID?
+    ) -> URL? {
+        for library in store.listLibraries() where library.id != libraryId {
+            let candidate = containerURL(for: library.id).appendingPathComponent(path)
+            for url in [candidate, alternateSandboxURL(for: candidate)].compactMap({ $0 }) {
+                guard fileManager.fileExists(atPath: url.path) else { continue }
+                if linkedFile.fileSize > 0,
+                   let size = (try? fileManager.attributesOfItem(atPath: url.path))?[.size] as? Int64,
+                   size != linkedFile.fileSize {
+                    continue
+                }
+                Logger.files.infoCapture(
+                    "resolveURL: '\(linkedFile.filename)' is filed under library '\(library.name)' (\(library.id.uuidString))",
+                    category: "files")
+                return url
+            }
+        }
+        return nil
     }
 
     /// Compute the alternate sandbox/non-sandbox path for a URL.
@@ -922,7 +987,8 @@ public final class AttachmentManager {
 
     /// Application support directory.
     private var applicationSupportURL: URL? {
-        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+        if let applicationSupportRoot { return applicationSupportRoot }
+        return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("imbib")
     }
 
@@ -1189,6 +1255,8 @@ public enum AttachmentError: LocalizedError {
     case noPapersDirectory
     case fileNotFound(String)
     case unsupportedFileType(String)
+    /// PDF bytes imbib cannot open: not a PDF, or a download cut short.
+    case unusablePDF(String)
 
     public var errorDescription: String? {
         switch self {
@@ -1211,6 +1279,8 @@ public enum AttachmentError: LocalizedError {
             return "File not found: \(path)"
         case .unsupportedFileType(let ext):
             return "Unsupported file type: \(ext)"
+        case .unusablePDF(let problem):
+            return "The PDF can't be used: \(problem)"
         }
     }
 }

@@ -78,9 +78,10 @@ struct DetailView: View {
         paper.sourceType.isPersistent
     }
 
-    /// The owning library ID for this publication (for file drop imports)
+    /// The library that owns this publication's files (for file drop imports):
+    /// the paper's own library, not the active one, which is a UI concept.
     private var owningLibraryID: UUID? {
-        libraryManager.activeLibrary?.id
+        cachedPublication?.libraryIDs.first ?? libraryManager.activeLibrary?.id
     }
 
     /// Cached publication model — loaded on paper switch via `.onChange(of: publicationID)`,

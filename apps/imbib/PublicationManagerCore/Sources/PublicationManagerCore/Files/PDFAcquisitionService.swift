@@ -356,7 +356,7 @@ public actor PDFAcquisitionService {
     public static let pdfMagic = Data([0x25, 0x50, 0x44, 0x46])
 
     public static func hasPDFMagic(_ data: Data) -> Bool {
-        data.count >= 4 && data.prefix(4).elementsEqual(pdfMagic)
+        PDFDataValidator.hasPDFHeader(data)
     }
 
     /// The first bytes as printable text, for the log line and the error.

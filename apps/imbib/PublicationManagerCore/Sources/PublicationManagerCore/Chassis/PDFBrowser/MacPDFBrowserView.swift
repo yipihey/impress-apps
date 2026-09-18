@@ -323,11 +323,9 @@ struct MacWebViewRepresentable: NSViewRepresentable {
         let viewModel: PDFBrowserViewModel
         let interceptor: PDFDownloadInterceptor
 
-        // Track current download
-        private var downloadData = Data()
-        private var downloadFilename: String = ""
-        private var downloadExpectedLength: Int64 = 0
-        private var downloadTempFileURL: URL?
+        /// Downloads in flight, one entry each: a page that starts the same PDF
+        /// twice must not have the two share a temp file (see PDFDownloadLedger).
+        private let downloads = PDFDownloadLedger()
 
         // Track redirect chain for debugging
         private var redirectChain: [URL] = []
@@ -937,10 +935,6 @@ struct MacWebViewRepresentable: NSViewRepresentable {
         func download(_ download: WKDownload,
                      decideDestinationUsing response: URLResponse,
                      suggestedFilename: String) async -> URL? {
-            downloadFilename = suggestedFilename
-            downloadExpectedLength = response.expectedContentLength
-            downloadData = Data()
-
             Logger.pdfBrowser.browserDownload("Started", filename: suggestedFilename)
 
             Task { @MainActor in
@@ -948,67 +942,70 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 viewModel.isDownloading = true
             }
 
-            // Always use a temp file - returning nil causes sandbox extension errors
-            let tempDir = FileManager.default.temporaryDirectory
-            self.downloadTempFileURL = tempDir.appendingPathComponent(UUID().uuidString + ".download")
-            Logger.pdfBrowser.debug("Using temp file: \(self.downloadTempFileURL?.path ?? "nil")")
-            return self.downloadTempFileURL
-        }
-
-        func download(_ download: WKDownload, didReceive data: Data) {
-            downloadData.append(data)
-            if downloadExpectedLength > 0 {
-                let progress = Double(downloadData.count) / Double(downloadExpectedLength)
-                Task { @MainActor in
-                    viewModel.downloadProgress = progress
-                }
-            }
+            // Always a temp file (returning nil causes sandbox extension
+            // errors), and a separate one per download.
+            let tempURL = downloads.begin(
+                ObjectIdentifier(download),
+                filename: suggestedFilename,
+                expectedLength: response.expectedContentLength)
+            Logger.pdfBrowser.debug("Using temp file: \(tempURL.path)")
+            return tempURL
         }
 
         func downloadDidFinish(_ download: WKDownload) {
-            // Read data from temp file (WKDownload writes directly to file, not via didReceive)
-            let finalData: Data
-            if let tempURL = downloadTempFileURL {
-                do {
-                    finalData = try Data(contentsOf: tempURL)
-                    // Clean up temp file
-                    try? FileManager.default.removeItem(at: tempURL)
-                    downloadTempFileURL = nil
-                } catch {
-                    Logger.pdfBrowser.error("Failed to read temp file: \(error.localizedDescription)")
-                    Task { @MainActor in
-                        viewModel.errorMessage = "Failed to read downloaded file"
-                        viewModel.downloadProgress = nil
-                    }
-                    return
-                }
-            } else {
-                // Fallback to in-memory data (shouldn't happen with current code)
-                finalData = downloadData
+            // WKDownload writes straight into THIS download's temp file.
+            guard let (entry, data) = downloads.finish(ObjectIdentifier(download)) else {
+                Logger.pdfBrowser.warningCapture("Finished a download that was never registered", category: "pdfbrowser")
+                return
             }
-
-            Logger.pdfBrowser.browserDownload("Finished", filename: downloadFilename, bytes: finalData.count)
-
-            // Check if it's a PDF
-            if isPDF(data: finalData) {
+            let othersRunning = downloads.inFlightCount > 0
+            guard let finalData = data else {
+                Logger.pdfBrowser.error("Failed to read temp file for \(entry.filename)")
                 Task { @MainActor in
-                    viewModel.detectedPDFFilename = downloadFilename
-                    viewModel.detectedPDFData = finalData
+                    guard !othersRunning, viewModel.detectedPDFData == nil else { return }
+                    viewModel.errorMessage = "Failed to read downloaded file"
                     viewModel.downloadProgress = nil
                     viewModel.isDownloading = false
                 }
-            } else {
-                // Log diagnostic info to help debug why it's not a PDF
-                logDownloadDiagnostics(data: finalData, filename: downloadFilename)
+                return
+            }
 
+            Logger.pdfBrowser.browserDownload("Finished", filename: entry.filename, bytes: finalData.count)
+
+            // Magic bytes are not enough: a download cut short still starts
+            // with %PDF. Only a PDF PDFKit opens, with every announced byte,
+            // becomes the captured PDF.
+            switch PDFDataValidator.check(finalData, expectedLength: entry.expectedLength) {
+            case .complete:
                 Task { @MainActor in
+                    // The same PDF often arrives twice; the second is not news.
+                    if viewModel.detectedPDFData != finalData {
+                        viewModel.detectedPDFFilename = entry.filename
+                        viewModel.detectedPDFData = finalData
+                    }
+                    if !othersRunning {
+                        viewModel.downloadProgress = nil
+                        viewModel.isDownloading = false
+                    }
+                }
+            case .notPDF:
+                logDownloadDiagnostics(data: finalData, filename: entry.filename)
+                Task { @MainActor in
+                    guard !othersRunning, viewModel.detectedPDFData == nil else { return }
                     viewModel.errorMessage = "Downloaded file is not a PDF"
                     viewModel.downloadProgress = nil
                     viewModel.isDownloading = false
                 }
+            case .incomplete(let reason):
+                Logger.pdfBrowser.warningCapture(
+                    "Not capturing \(entry.filename): \(reason)", category: "pdfbrowser")
+                Task { @MainActor in
+                    guard !othersRunning, viewModel.detectedPDFData == nil else { return }
+                    viewModel.errorMessage = "The PDF download was incomplete (\(reason)). Try again."
+                    viewModel.downloadProgress = nil
+                    viewModel.isDownloading = false
+                }
             }
-
-            downloadData = Data()
         }
 
         /// Log detailed diagnostics when a download is not recognized as PDF
@@ -1045,20 +1042,16 @@ struct MacWebViewRepresentable: NSViewRepresentable {
         }
 
         func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-            Logger.pdfBrowser.error("Download failed: \(error.localizedDescription)")
-
-            // Clean up temp file if used
-            if let tempURL = downloadTempFileURL {
-                try? FileManager.default.removeItem(at: tempURL)
-                downloadTempFileURL = nil
-            }
-
+            let entry = downloads.fail(ObjectIdentifier(download))
+            Logger.pdfBrowser.error("Download failed (\(entry?.filename ?? "unregistered")): \(error.localizedDescription)")
+            let othersRunning = downloads.inFlightCount > 0
             Task { @MainActor in
+                // A sibling download of the same PDF may still succeed.
+                guard !othersRunning, viewModel.detectedPDFData == nil else { return }
                 viewModel.errorMessage = "Download failed: \(error.localizedDescription)"
                 viewModel.downloadProgress = nil
                 viewModel.isDownloading = false
             }
-            downloadData = Data()
         }
 
         // MARK: - WKUIDelegate

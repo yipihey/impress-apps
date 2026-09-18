@@ -507,7 +507,7 @@ struct InfoTab: View {
                     await dropHandler.handleDrop(
                         providers: providers,
                         for: pub.id,
-                        in: libraryManager.activeLibrary?.id
+                        in: pub.libraryIDs.first ?? libraryManager.activeLibrary?.id
                     )
                 }
                 return true
@@ -1085,14 +1085,18 @@ struct InfoTab: View {
 
     #if os(macOS)
     private func openInImBibBrowser(_ url: URL, publication pub: PublicationModel) async {
-        guard let library = libraryManager.activeLibrary else { return }
+        // The paper's own library, not the active one: the file has to land
+        // where every reader of this paper's files looks. (2026-09-11: an APS
+        // PDF captured while the Inbox was active was filed under the Inbox,
+        // and Open / Show in Finder looked for it under the paper's library.)
+        guard let libraryID = pub.libraryIDs.first ?? libraryManager.activeLibrary?.id else { return }
 
         let capturedPubID = pub.id
 
         await PDFBrowserWindowController.shared.openBrowser(
             for: pub,
             startURL: url,
-            libraryID: library.id
+            libraryID: libraryID
         ) { [self] data in
             // Check for duplicates first
             let result = AttachmentManager.shared.checkForDuplicate(data: data, in: capturedPubID)
@@ -1110,7 +1114,7 @@ struct InfoTab: View {
             case .noDuplicate:
                 // Import directly
                 do {
-                    try AttachmentManager.shared.importPDF(data: data, for: capturedPubID, in: library.id)
+                    try AttachmentManager.shared.importPDF(data: data, for: capturedPubID, in: libraryID)
                     Logger.files.infoCapture("[InfoTab] PDF imported from browser successfully", category: "pdf")
 
                     await MainActor.run {
@@ -1127,12 +1131,12 @@ struct InfoTab: View {
     private func importBrowserPDF() {
         guard let data = browserDuplicateData,
               let pubID = publicationID,
-              let library = libraryManager.activeLibrary else {
+              let libraryID = fileOwnerLibraryID else {
             return
         }
 
         do {
-            try AttachmentManager.shared.importPDF(data: data, for: pubID, in: library.id)
+            try AttachmentManager.shared.importPDF(data: data, for: pubID, in: libraryID)
             Logger.files.infoCapture("[InfoTab] Duplicate PDF imported after user confirmation", category: "pdf")
 
             NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pubID)
