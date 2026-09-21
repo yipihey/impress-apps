@@ -35,7 +35,7 @@ A **pane** is the unit of the layout. Its specification is data:
 ```
 PaneSpec {
   query:      PaneQuery,            // what the pane shows (D2)
-  view_kind:  ViewKindId,           // how it is rendered ("outline", "list", "info", "pdf", "editor", "plot", …)
+  view_kind:  ViewKindId,           // how it is rendered ("outline", "list", "info", "pdf", "source", "plot", …)
   view_state: Json,                 // opaque, owned by the view kind (scroll, expanded nodes, colormap…)
   params:     [ParamBinding],       // the query's parameters and where each value comes from (D3)
   channel:    ChannelId,            // the channel this pane PUBLISHES its selection on (D3)

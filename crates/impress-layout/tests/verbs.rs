@@ -2,7 +2,10 @@
 
 mod common;
 
-use common::{assert_arena_is_sound, assert_focus_is_a_leaf, scratch_pane, three_column};
+use common::{
+    assert_arena_is_sound, assert_focus_is_a_leaf, assert_focus_is_visible, scratch_pane,
+    three_column,
+};
 use impress_layout::preset::DETAIL_PARAM;
 use impress_layout::{
     ChannelId, Container, ContainerKind, Direction, Geometry, Layout, LayoutError, PaneQuery,
@@ -479,6 +482,117 @@ fn focus_and_focus_direction_walk_the_leaves() {
         layout.window(parts.window).unwrap().focused,
         Some(parts.navigator)
     );
+}
+
+/// The tab strip a tabbed fixture builds, and the tabs in it.
+fn tabbed(
+    layout: &mut Layout,
+    parts: &impress_layout::preset::ThreeColumn,
+) -> impress_layout::TileId {
+    // navigator and list both tabbed over the detail pane: one strip,
+    // [detail, navigator, list], holding the window's whole tree.
+    layout
+        .apply(Verb::MoveTile {
+            tile: PaneRef::id(parts.navigator),
+            target: PaneRef::id(parts.detail),
+            placement: Placement::IntoTabs,
+        })
+        .unwrap();
+    layout
+        .apply(Verb::MoveTile {
+            tile: PaneRef::id(parts.list),
+            target: PaneRef::id(parts.navigator),
+            placement: Placement::IntoTabs,
+        })
+        .unwrap();
+    layout.parent_of(parts.detail).unwrap()
+}
+
+fn active_tab(layout: &Layout, strip: impress_layout::TileId) -> Option<impress_layout::TileId> {
+    match layout.tile(strip).unwrap().as_container().unwrap() {
+        Container::Tabs { active, .. } => *active,
+        other => panic!("tile {strip} is not a tab strip: {other:?}"),
+    }
+}
+
+#[test]
+fn focusing_a_pane_behind_an_inactive_tab_makes_it_the_visible_one() {
+    let (mut layout, parts) = three_column();
+    let strip = tabbed(&mut layout, &parts);
+    assert_eq!(
+        active_tab(&layout, strip),
+        Some(parts.list),
+        "focus followed the last pane moved into the strip"
+    );
+
+    let patch = layout
+        .apply(Verb::Focus {
+            target: PaneRef::id(parts.detail),
+        })
+        .unwrap();
+
+    assert_eq!(
+        layout.window(parts.window).unwrap().focused,
+        Some(parts.detail)
+    );
+    assert_eq!(
+        active_tab(&layout, strip),
+        Some(parts.detail),
+        "focusing a hidden tab shows it"
+    );
+    assert!(
+        patch.tiles.contains_key(&strip),
+        "the patch captures the tab strip, so undo puts the visible tab back"
+    );
+    layout.revert(&patch);
+    assert_eq!(active_tab(&layout, strip), Some(parts.list));
+    assert_focus_is_visible(&layout);
+}
+
+#[test]
+fn focus_direction_next_activates_each_tab_in_turn() {
+    let (mut layout, parts) = three_column();
+    let strip = tabbed(&mut layout, &parts);
+    layout
+        .apply(Verb::Focus {
+            target: PaneRef::id(parts.detail),
+        })
+        .unwrap();
+
+    // Tree order in the strip: detail, navigator, list — and Next wraps.
+    for expected in [parts.navigator, parts.list, parts.detail] {
+        layout
+            .apply(Verb::FocusDirection {
+                direction: Direction::Next,
+            })
+            .unwrap();
+        assert_eq!(layout.window(parts.window).unwrap().focused, Some(expected));
+        assert_eq!(
+            active_tab(&layout, strip),
+            Some(expected),
+            "stepping onto a tab shows it"
+        );
+        assert_focus_is_visible(&layout);
+    }
+}
+
+#[test]
+fn retyping_a_row_into_tabs_keeps_the_focused_pane_visible() {
+    // `SetContainerKind` never touches focus, so normalization is what keeps
+    // the invariant standing here.
+    let (mut layout, parts) = three_column();
+    assert_eq!(
+        layout.window(parts.window).unwrap().focused,
+        Some(parts.list)
+    );
+    layout
+        .apply(Verb::SetContainerKind {
+            container: parts.root,
+            kind: ContainerKind::Tabs,
+        })
+        .unwrap();
+    assert_eq!(active_tab(&layout, parts.root), Some(parts.list));
+    assert_focus_is_visible(&layout);
 }
 
 #[test]

@@ -55,17 +55,16 @@ public struct ViewKindID: RawRepresentable, Hashable, Sendable, Codable,
     public static let pdf = ViewKindID("pdf")
     public static let notes = ViewKindID("notes")
     public static let bibtex = ViewKindID("bibtex")
+    /// `impress_layout::ViewKindId::SOURCE` — the manuscript editor, the
+    /// session-bearing view kind of ADR-0031 D6 (imbib's `DetailTab.source`).
     public static let source = ViewKindID("source")
-    /// `impress_layout::ViewKindId::EDITOR`. Same thing as `source` from the
-    /// session's point of view; both are session-bearing (see the registry).
-    public static let editor = ViewKindID("editor")
     /// Hosts a legacy `SectionContentView` route unchanged (ADR-0031 D11).
     public static let legacy = ViewKindID("legacy")
     public static let placeholder = ViewKindID("placeholder")
 
     /// Every kind this build registers a factory for.
     public static let builtins: [ViewKindID] = [
-        .outline, .list, .info, .pdf, .notes, .bibtex, .source, .editor, .legacy, .placeholder,
+        .outline, .list, .info, .pdf, .notes, .bibtex, .source, .legacy, .placeholder,
     ]
 }
 
@@ -255,9 +254,6 @@ public final class ViewKindRegistry: @unchecked Sendable {
         ViewKindFactory(kind: .notes) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
         ViewKindFactory(kind: .bibtex) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
         ViewKindFactory(kind: .source, isSessionBearing: true) {
-            AnyView(LayoutPlaceholderPaneView(context: $0))
-        },
-        ViewKindFactory(kind: .editor, isSessionBearing: true) {
             AnyView(LayoutPlaceholderPaneView(context: $0))
         },
     ])

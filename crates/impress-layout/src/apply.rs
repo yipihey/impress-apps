@@ -180,13 +180,17 @@ impl Layout {
 
     // ------------------------------------------------------------- helpers
 
-    /// Focus lands on a *leaf*: focusing a container focuses the pane it shows.
+    /// Focus lands on a *leaf*: focusing a container focuses the pane it
+    /// shows, and that pane is revealed through every tab strip above it.
     fn focus_tile(&mut self, fallback: WindowId, tile: TileId) {
         let leaf = self.first_leaf(tile).unwrap_or(tile);
         let home = self.window_of(leaf).unwrap_or(fallback);
         if let Some(w) = self.window_mut(home) {
             w.focused = Some(leaf);
         }
+        // Focus is always visible: bring the leaf out from under every tab
+        // strip above it.
+        self.reveal(leaf);
     }
 
     fn replace_slot(&mut self, slot: Slot, new: TileId) {
@@ -395,8 +399,11 @@ impl Layout {
             Some(Slot::Root(_)) => return Err(LayoutError::CannotCloseLastPane),
             None => return Err(LayoutError::UnknownTile { tile }),
         }
-        if let (Some(survivor), Some(w)) = (survivor, self.window_mut(home)) {
-            w.focused = Some(survivor);
+        if let Some(survivor) = survivor {
+            if let Some(w) = self.window_mut(home) {
+                w.focused = Some(survivor);
+            }
+            self.reveal(survivor);
         }
         Ok(())
     }
@@ -528,8 +535,11 @@ impl Layout {
             Some(Slot::Root(_)) => return Err(LayoutError::CannotCloseLastPane),
             None => return Err(LayoutError::UnknownTile { tile }),
         }
-        if let (Some(survivor), Some(w)) = (survivor, self.window_mut(home)) {
-            w.focused = Some(survivor);
+        if let Some(survivor) = survivor {
+            if let Some(w) = self.window_mut(home) {
+                w.focused = Some(survivor);
+            }
+            self.reveal(survivor);
         }
         // Focus follows the pane out of the window it left.
         self.add_window(tile);

@@ -2853,7 +2853,7 @@ placeholder forever, in silence, on every platform). Copy the spelling from
 | `pdf` | ⏳ placeholder | — | ➖ | `PDFTab` needs `any PaperRepresentable` + the detail lifecycle around it; L8 |
 | `notes` | ⏳ placeholder | — | ➖ | `NotesTab` needs the `PublicationModel`, and the note field has a FORMAT (`PublicationNotesDocument`); L8 |
 | `bibtex` | ⏳ placeholder | — | ➖ | `BibTeXTab` takes the paper + id list; L8 |
-| `source` / `editor` | ⏳ placeholder | — | ✅ | Needs `PaneSessionRegistry` (shipped in L6, unused): an `NSTextView`, its undo stack and an in-flight compile must outlive every layout mutation |
+| `source` | ⏳ placeholder | — | ✅ | Needs `PaneSessionRegistry` (shipped in L6, unused): an `NSTextView`, its undo stack and an in-flight compile must outlive every layout mutation |
 | `plot`, `console` | ❌ unregistered | placeholder | ➖ | implore / the log console; not in imbib's build |
 
 ### Containers

@@ -205,7 +205,10 @@ impl ViewKindId {
     pub const LIST: ViewKindId = ViewKindId(Cow::Borrowed("list"));
     pub const INFO: ViewKindId = ViewKindId(Cow::Borrowed("info"));
     pub const PDF: ViewKindId = ViewKindId(Cow::Borrowed("pdf"));
-    pub const EDITOR: ViewKindId = ViewKindId(Cow::Borrowed("editor"));
+    /// A source buffer. Session-bearing (ADR-0031 D6): the spelling is
+    /// `source`, which is what the presets and the Swift `ViewKindRegistry`
+    /// both say.
+    pub const SOURCE: ViewKindId = ViewKindId(Cow::Borrowed("source"));
     pub const PLOT: ViewKindId = ViewKindId(Cow::Borrowed("plot"));
     pub const CONSOLE: ViewKindId = ViewKindId(Cow::Borrowed("console"));
     /// Hosts a legacy `SectionContentView` route unchanged (ADR-0031 D11).

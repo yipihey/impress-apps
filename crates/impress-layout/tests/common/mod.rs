@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use impress_layout::preset::{self, ThreeColumn};
-use impress_layout::{Layout, PaneQuery, PaneSpec, ViewKindId};
+use impress_layout::{Container, Layout, PaneQuery, PaneSpec, ViewKindId};
 
 /// The query imbib's publication list issues.
 pub fn publication_query() -> PaneQuery {
@@ -46,6 +46,34 @@ pub fn assert_focus_is_a_leaf(layout: &Layout) {
                 "window {} has panes {leaves:?} but no focus",
                 window.id
             ),
+        }
+    }
+}
+
+/// The focused pane is *visible*: every `Tabs` ancestor of the focused leaf
+/// shows the child that leads down to it. Focus behind an inactive tab is
+/// focus the user cannot see.
+pub fn assert_focus_is_visible(layout: &Layout) {
+    for window in &layout.windows {
+        let Some(focused) = window.focused else {
+            continue;
+        };
+        let mut cursor = focused;
+        for _ in 0..64 {
+            let Some(parent) = layout.parent_of(cursor) else {
+                break;
+            };
+            if let Some(Container::Tabs { active, .. }) =
+                layout.tile(parent).and_then(|t| t.as_container())
+            {
+                assert_eq!(
+                    *active,
+                    Some(cursor),
+                    "window {} focuses {focused}, hidden behind tab strip {parent}",
+                    window.id
+                );
+            }
+            cursor = parent;
         }
     }
 }

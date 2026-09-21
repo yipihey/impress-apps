@@ -47,7 +47,6 @@ final class ViewKindRegistryTests: XCTestCase {
         XCTAssertEqual(ViewKindID.list.rawValue, "list")
         XCTAssertEqual(ViewKindID.info.rawValue, "info")
         XCTAssertEqual(ViewKindID.pdf.rawValue, "pdf")
-        XCTAssertEqual(ViewKindID.editor.rawValue, "editor")
         XCTAssertEqual(ViewKindID.legacy.rawValue, "legacy")
         XCTAssertEqual(ViewKindID.placeholder.rawValue, "placeholder")
     }
@@ -57,7 +56,6 @@ final class ViewKindRegistryTests: XCTestCase {
     func testOnlyEditorKindsAreSessionBearing() {
         let registry = ViewKindRegistry.builtin
         XCTAssertTrue(registry.isSessionBearing(.source))
-        XCTAssertTrue(registry.isSessionBearing(.editor))
         for kind: ViewKindID in [.outline, .list, .info, .pdf, .notes, .bibtex, .legacy, .placeholder] {
             XCTAssertFalse(
                 registry.isSessionBearing(kind),

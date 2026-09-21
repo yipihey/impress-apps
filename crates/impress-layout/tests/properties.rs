@@ -9,11 +9,16 @@
 //! 3. revert-then-reapply is the identity (that is what redo is);
 //! 4. the tree is normalized and the arena sound after every verb;
 //! 5. focus is always a pane of its own window;
-//! 6. normalization is idempotent at every step.
+//! 6. normalization is idempotent at every step;
+//! 7. the focused leaf is visible: every `Tabs` ancestor's active child is on
+//!    its path.
 
 mod common;
 
-use common::{assert_arena_is_sound, assert_focus_is_a_leaf, scratch_pane, three_column};
+use common::{
+    assert_arena_is_sound, assert_focus_is_a_leaf, assert_focus_is_visible, scratch_pane,
+    three_column,
+};
 use impress_layout::{
     ChannelId, ContainerKind, Direction, Geometry, Layout, LinearDir, PaneRef, PaneSpec,
     ParamSource, Placement, Role, TileId, Verb, ViewKindId,
@@ -152,7 +157,7 @@ fn any_verb(rng: &mut Lcg, layout: &Layout) -> Verb {
         },
         10 => Verb::SetViewKind {
             target: any_ref(rng, layout),
-            view_kind: rng.pick_cloned(&[ViewKindId::INFO, ViewKindId::PDF, ViewKindId::EDITOR]),
+            view_kind: rng.pick_cloned(&[ViewKindId::INFO, ViewKindId::PDF, ViewKindId::SOURCE]),
         },
         11 => Verb::BindParam {
             target: any_ref(rng, layout),
@@ -256,9 +261,10 @@ fn random_verb_sequences_hold_every_invariant() {
                 Ok(patch) => {
                     applied += 1;
 
-                    // (4) and (5): the shape invariants.
+                    // (4), (5) and (7): the shape invariants.
                     assert_arena_is_sound(&layout);
                     assert_focus_is_a_leaf(&layout);
+                    assert_focus_is_visible(&layout);
 
                     // (6): normalization reached a fixed point.
                     let mut again = layout.clone();

@@ -320,6 +320,34 @@ impl Layout {
         None
     }
 
+    /// Make `tile` visible: every [`Container::Tabs`] between it and its
+    /// window's root has its `active` set to the child on the path down to
+    /// `tile`.
+    ///
+    /// Focus that cannot be seen is not focus. Without this, focusing a pane
+    /// buried under an inactive tab — by chord, by agent verb, or because a
+    /// split or a close handed focus to a neighbour inside a tab strip — would
+    /// type into a pane the user is not looking at. So every focus assignment
+    /// goes through here, and [`Layout::normalize`] runs it once more for the
+    /// verbs that restructure the tree *around* the focused pane without
+    /// touching focus at all (`Swap`, `SetContainerKind`).
+    ///
+    /// Idempotent, and a no-op for a tile with no `Tabs` ancestor.
+    pub fn reveal(&mut self, tile: TileId) {
+        let mut cursor = tile;
+        for _ in 0..MAX_DEPTH {
+            let Some(parent) = self.parent_of(cursor) else {
+                return;
+            };
+            if let Some(Container::Tabs { children, active }) = self.container_mut(parent) {
+                if children.contains(&cursor) {
+                    *active = Some(cursor);
+                }
+            }
+            cursor = parent;
+        }
+    }
+
     /// Every pane in the layout, window by window, in tree order.
     pub fn panes(&self) -> Vec<TileId> {
         self.windows
@@ -528,7 +556,9 @@ impl Layout {
     /// * `Tabs` directly inside `Tabs` are flattened;
     /// * unreachable tiles are garbage-collected;
     /// * a tab strip's `active`, a linear's `shares`, a window's `focused` and
-    ///   `maximized` are repaired if they point at something that is gone.
+    ///   `maximized` are repaired if they point at something that is gone;
+    /// * every tab strip above a window's focused pane is re-pointed at it
+    ///   ([`Layout::reveal`]), so focus is never hidden behind another tab.
     ///
     /// The last pane of a window is never removed: a window whose tree has
     /// collapsed to one pane keeps that pane *as* its root. A window left with
@@ -707,10 +737,11 @@ impl Layout {
         self.tiles.retain(|id, _| reachable.contains(id));
     }
 
-    /// Keep focus a leaf of its own window, drop a maximize that points at a
-    /// tile the window no longer holds, and keep the window-id allocator above
-    /// every window there is — so that a layout assembled by hand, merged, or
-    /// loaded from an older build cannot hand out an id twice.
+    /// Keep focus a leaf of its own window and visible, drop a maximize that
+    /// points at a tile the window no longer holds, and keep the window-id
+    /// allocator above every window there is — so that a layout assembled by
+    /// hand, merged, or loaded from an older build cannot hand out an id
+    /// twice.
     fn repair_windows(&mut self) {
         let floor = self
             .windows
@@ -727,6 +758,13 @@ impl Layout {
             let valid = focused.map(|f| leaves.contains(&f)).unwrap_or(false);
             if !valid {
                 self.windows[index].focused = leaves.first().copied();
+            }
+            if let Some(focused) = self.windows[index].focused {
+                // The focused pane is visible: a verb can move the tree around
+                // focus without ever assigning it (`Swap` exchanges two slots,
+                // `SetContainerKind` retypes a row into a tab strip), and would
+                // otherwise leave the focused pane behind an inactive tab.
+                self.reveal(focused);
             }
             if let Some(max) = self.windows[index].maximized {
                 if !self.is_ancestor(root, max) || !self.tiles.contains_key(&max) {
