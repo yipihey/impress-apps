@@ -113,7 +113,12 @@ final class FolderWatchServiceTests: XCTestCase {
             if condition() { return }
             try? await Task.sleep(for: .milliseconds(15))
         }
-        XCTFail("timed out waiting for \(description)", file: file, line: line)
+        // One last look before failing. A 15ms sleep on a loaded machine can
+        // overshoot by seconds, so the loop can exit on the clock without ever
+        // having re-read a condition that came true while we were descheduled.
+        if condition() { return }
+        XCTFail(
+            "timed out after \(timeout)s waiting for \(description)", file: file, line: line)
     }
 
     // MARK: - Initial gather
@@ -208,10 +213,17 @@ final class FolderWatchServiceTests: XCTestCase {
         try write("nested/added.bib")
         notifier.fire()
 
-        await waitUntil("the added file to surface") {
-            service.files(in: registration.id).count == 2
+        // Wait on the thing being asserted. `handle(_:from:)` writes
+        // `discoveredFiles` and THEN publishes, and the collector drains the
+        // stream on its own main-actor hop, so `files(in:)` reaching 2 does not
+        // mean the event has landed. Waiting on the count and asserting on the
+        // collector is a race a loaded machine wins (seen 2026-09-11 at load
+        // average ~310 during a full `swift test --parallel`).
+        await waitUntil("the addition to be reported") {
+            self.collector.addedURLs.count == 1
         }
         XCTAssertEqual(collector.addedURLs.map(\.lastPathComponent), ["added.bib"])
+        XCTAssertEqual(service.files(in: registration.id).count, 2)
         XCTAssertTrue(collector.removedURLs.isEmpty)
     }
 
@@ -227,10 +239,11 @@ final class FolderWatchServiceTests: XCTestCase {
         try FileManager.default.removeItem(at: doomed)
         notifier.fire()
 
-        await waitUntil("the removal to surface") {
-            service.files(in: registration.id).count == 1
+        await waitUntil("the removal to be reported") {
+            self.collector.removedURLs.count == 1
         }
         XCTAssertEqual(collector.removedURLs.map(\.lastPathComponent), ["doomed.bib"])
+        XCTAssertEqual(service.files(in: registration.id).count, 1)
     }
 
     func testTouchingAFileIsNotRepublishedAsAnAddition() async throws {
@@ -280,13 +293,15 @@ final class FolderWatchServiceTests: XCTestCase {
         service.add(registration)
         await service.start(registration.id)
 
-        await waitUntil("the fallback state") {
-            service.row(for: registration.id)?.state == .fallback
+        // `setState` stores the row and THEN yields the event, so waiting on
+        // the row lets a loaded machine reach the collector before the stream
+        // drains. The published transition is what this test is about, so wait
+        // on that and let the stored row be the corroborating assertion.
+        await waitUntil("the fallback transition to be published, not only stored") {
+            self.collector.states.contains(.fallback)
         }
+        XCTAssertEqual(service.row(for: registration.id)?.state, .fallback)
         XCTAssertEqual(service.engineName(for: registration.id), "walk+manual")
-        XCTAssertTrue(
-            collector.states.contains(.fallback),
-            "a state transition must be published, not only stored")
     }
 
     func testAFolderWithNoEnginesIsScanOnDemandNotAFailure() async throws {
