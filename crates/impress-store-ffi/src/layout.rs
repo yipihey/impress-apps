@@ -56,7 +56,7 @@ use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout::{
     ChannelId, Container, Direction, Layout, LinearDir, PaneRef, PaneSpec, Placement, Role, Tile,
-    TileId, Verb,
+    TileId, Verb, HIDDEN_SHARE,
 };
 use impress_layout_service::{
     DefaultLayoutService, LayoutService, LayoutStore, LayoutVerbResult, PaneRefDto,
@@ -487,13 +487,14 @@ impl SharedLayout {
     /// siblings' shares alone.
     ///
     /// This is what a role toggle is built from: ⌃⌘S sets the navigator's
-    /// share to [`MIN_SHARE`] and back. The tree refuses a share of exactly
-    /// zero (`InvalidShares`: a weight must be positive and finite), so
-    /// "hidden" is spelled as the smallest weight it accepts — sub-pixel
-    /// against any realistic sum, and reversible by one `Resize`. Hiding a pane by *closing* it would take its
-    /// session and its place in the tree with it, and a hidden-role set kept
-    /// beside the tree would be exactly the view-held layout state ADR-0019 D3
-    /// exists to remove — so the pane stays in the tree with no width.
+    /// share to [`impress_layout::HIDDEN_SHARE`] and back. The tree refuses a
+    /// share of exactly zero (`InvalidShares`: a weight must be positive and
+    /// finite), so "hidden" is spelled as the smallest weight it accepts —
+    /// sub-pixel against any realistic sum, and reversible by one `Resize`.
+    /// Hiding a pane by *closing* it would take its session and its place in
+    /// the tree with it, and a hidden-role set kept beside the tree would be
+    /// exactly the view-held layout state ADR-0019 D3 exists to remove — so
+    /// the pane stays in the tree with no width.
     pub fn resize_share(&self, pane: u64, share: f32, actor: String) -> Result<SharedAppliedVerb> {
         let layout = self.read_layout()?;
         let tile = TileId::new(pane);
@@ -519,7 +520,7 @@ impl SharedLayout {
         let mut shares: Vec<f32> = (0..container.len())
             .map(|i| existing.get(i).copied().unwrap_or(1.0))
             .collect();
-        shares[index] = share.max(MIN_SHARE);
+        shares[index] = share.max(HIDDEN_SHARE);
         let result = runtime().block_on(self.service.resize(
             self.app_id.clone(),
             self.device.clone(),
@@ -876,12 +877,6 @@ fn snapshot_of(layout: &Layout, version: u64) -> SharedLayoutSnapshot {
         version,
     }
 }
-
-/// The smallest share a pane can be given. `impress_layout` requires a
-/// positive, finite weight, so a "hidden" pane is a very small one rather
-/// than a zero-width one — which is also what keeps it in the tree, with its
-/// session and its place, instead of closing it.
-pub const MIN_SHARE: f32 = 1e-4;
 
 /// A bare `{"verb":"split", "target":…, "dir":…}` with no `new` pane.
 struct BareSplit {
@@ -1396,7 +1391,7 @@ mod tests {
             .and_then(Container::shares)
             .expect("the root is a split")
             .to_vec();
-        assert_eq!(shares[0], MIN_SHARE, "shares: {shares:?}");
+        assert_eq!(shares[0], HIDDEN_SHARE, "shares: {shares:?}");
 
         // Undo puts the share back: an arrangement gesture lands on the
         // arrangement ring.

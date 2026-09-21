@@ -38,26 +38,15 @@
 //! D2 — a section that is missing from both lists is a bug, and
 //! `every_visible_section_is_accounted_for` is the test that says so.
 //!
-//! # Hiding a pane: there is no zero share
+//! # Hiding a pane
 //!
 //! `PaneLayoutState`'s three Booleans (`sidebarVisible`, `listPaneVisible`,
-//! `detailPaneVisible`) become shares, and the obvious encoding of "hidden"
-//! — a share of `0.0` — **is not representable**:
-//!
-//! * [`impress_layout::Verb::Resize`] refuses a share that is not a positive,
-//!   finite weight (`InvalidShares`), and
-//! * `Layout::normalize` repairs shares through `sane_share`, which rewrites
-//!   any non-positive value to `1.0` — so a hand-built `0.0` does not
-//!   survive one normalization, and the pane springs open.
-//!
-//! Both are checked in this module's tests rather than asserted about. The
-//! smallest representable alternative is [`HIDDEN_SHARE`]: positive and
-//! normal (so it survives `sane_share` and the multiply-and-divide of a
-//! container join), and small enough to be sub-pixel at any real window width.
-//! A hidden pane is therefore still *in* the tree — it keeps its query, its
-//! role and its session — and ⌘0 / ⌥⌘0 / ⌃⌘S are a `resize` back, not a
-//! `split`. That is the whole reason to prefer a share over removing the
-//! pane: a toggle must not cost the user the pane's state.
+//! `detailPaneVisible`) become shares, and "hidden" is [`HIDDEN_SHARE`] —
+//! **not** `0.0`, which the tree refuses and `normalize` rewrites to a full
+//! column. [`impress_layout::shares`] is where that constant lives and why;
+//! Triage and Reading below are the presets that use it, and a hidden pane
+//! keeps its query, its role and its session, so ⌘0 / ⌥⌘0 / ⌃⌘S are a
+//! `resize` back rather than a close and a re-split.
 
 use std::collections::BTreeMap;
 
@@ -100,32 +89,12 @@ pub mod field {
     pub const VERSION: &str = "version";
 }
 
-/// The share a *hidden* pane carries. See the module docs: `0.0` is refused
-/// by `Verb::Resize` and rewritten to `1.0` by `normalize`, so "hidden" is
-/// the smallest share that survives both.
-///
-/// Note that `impress_store_ffi::MIN_SHARE` (L5) is the same weight, chosen
-/// independently for the same reason — the two must stay equal, and should
-/// eventually be one constant in `impress_layout`, which both crates already
-/// depend on.
-///
-/// `1e-4` rather than `f32::MIN_POSITIVE`: normalization joins a linear into
-/// its parent by `share * child / total`, and a denormal there flushes to
-/// zero, which `sane_share` then turns back into a full column. `1e-4` stays
-/// normal through several joins and is 0.1 px of a 3000 px window — zero to
-/// the eye, positive to the arithmetic.
-pub const HIDDEN_SHARE: f32 = 1.0e-4;
-
-/// A share at or below this is what a renderer (and [`is_hidden`]) reads as
-/// "this pane is toggled off". A threshold rather than an equality test: a
-/// share that has been through a container join is `HIDDEN_SHARE` scaled by
-/// its parent's arithmetic, not the constant itself.
-pub const HIDDEN_SHARE_CEILING: f32 = 1.0e-3;
-
-/// Is this share one of the module's "hidden" weights?
-pub fn is_hidden(share: f32) -> bool {
-    share.is_finite() && share > 0.0 && share <= HIDDEN_SHARE_CEILING
-}
+/// Hiding a pane is one weight for the whole suite, defined in
+/// [`impress_layout::shares`] and re-exported here so a preset reads in one
+/// place. `impress-store-ffi`'s `resize_share` — what the role toggles
+/// actually call — uses the same constant, because two thresholds would be
+/// two answers to "is this pane hidden?" and the renderer only gets one.
+pub use impress_layout::{is_hidden, HIDDEN_SHARE, HIDDEN_SHARE_CEILING};
 
 /// The parameter an app's list pane binds when its scope is a library: the
 /// library the navigator has selected, on channel 1.
@@ -1480,7 +1449,7 @@ fn from_value<T: serde::de::DeserializeOwned>(value: &Value, what: &str) -> Resu
 mod tests {
     use super::*;
     use impress_core::pane_query::{compile, Bindings, KindManifest, ParamDecl};
-    use impress_layout::{Tile, Verb};
+    use impress_layout::Tile;
 
     fn manifest() -> KindManifest {
         KindManifest::builtin()
@@ -1791,61 +1760,17 @@ mod tests {
     }
 
     // ── Hiding a pane ───────────────────────────────────────────────────
+    //
+    // That `0.0` is refused by `Verb::Resize` and rewritten to a full column
+    // by `normalize` — the reason HIDDEN_SHARE exists at all — is proven
+    // where the constant lives, in `impress_layout::shares`. What is left
+    // here is the presets' own claim: that Triage and Reading actually hide
+    // the pane they say they hide.
 
-    /// The claim the module docs make, checked: a zero share is refused by
-    /// the resize verb.
+    /// Triage's hidden detail pane survives normalization, reads as hidden,
+    /// and is still a pane.
     #[test]
-    fn a_zero_share_is_refused_by_resize() {
-        let preset = imbib_default();
-        let mut layout = preset.layout.clone();
-        let window = layout.current_window().expect("a window");
-        let root = layout.window(window).expect("the window").root;
-        let err = layout
-            .apply(Verb::Resize {
-                container: root,
-                shares: vec![1.0, 2.0, 0.0],
-            })
-            .expect_err("a zero share must be refused");
-        assert!(
-            matches!(err, impress_layout::LayoutError::InvalidShares { .. }),
-            "expected InvalidShares, got {err:?}"
-        );
-    }
-
-    /// And the other half: a zero share written straight into the arena does
-    /// not survive one normalization — `sane_share` turns it into a full
-    /// column, so the "hidden" pane springs open.
-    #[test]
-    fn a_zero_share_does_not_survive_normalization() {
-        let preset = imbib_default();
-        let mut layout = preset.layout.clone();
-        let window = layout.current_window().expect("a window");
-        let root = layout.window(window).expect("the window").root;
-        // Write the zero share straight into the arena — the only way to get
-        // one into the tree at all, since the verb refuses it.
-        match layout.tiles.get_mut(&root) {
-            Some(Tile::Container(Container::Linear { shares, .. })) => {
-                *shares = vec![1.0, 2.0, 0.0];
-            }
-            _ => panic!("the root of a three-column preset is a linear container"),
-        }
-        layout.normalize();
-        let shares = match layout.tile(root) {
-            Some(Tile::Container(Container::Linear { shares, .. })) => shares.clone(),
-            _ => panic!("the root should still be a linear container"),
-        };
-        assert_eq!(
-            shares,
-            vec![1.0, 2.0, 1.0],
-            "normalize rewrites a non-positive share to a FULL column, which is why \
-             HIDDEN_SHARE exists"
-        );
-    }
-
-    /// The alternative the module picked, checked the same way: it survives
-    /// normalization, and it reads as hidden.
-    #[test]
-    fn the_hidden_share_survives_normalization_and_reads_as_hidden() {
+    fn triage_hides_the_detail_pane_without_taking_it_out_of_the_tree() {
         let preset = imbib_triage();
         let mut layout = preset.layout.clone();
         layout.normalize();
@@ -1877,20 +1802,6 @@ mod tests {
             .copied()
             .expect("detail role");
         assert!(layout.pane(detail).is_some());
-    }
-
-    #[test]
-    fn a_hidden_share_is_a_legal_resize() {
-        let preset = imbib_default();
-        let mut layout = preset.layout.clone();
-        let window = layout.current_window().expect("a window");
-        let root = layout.window(window).expect("the window").root;
-        layout
-            .apply(Verb::Resize {
-                container: root,
-                shares: vec![1.0, 2.0, HIDDEN_SHARE],
-            })
-            .expect("HIDDEN_SHARE is a positive, finite weight");
     }
 
     #[test]
