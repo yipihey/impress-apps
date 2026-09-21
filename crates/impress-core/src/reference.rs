@@ -15,6 +15,7 @@ pub struct TypedReference {
 ///
 /// Common types are enum variants; domain-specific types use `Custom`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum EdgeType {
     // Academic
     Cites,
