@@ -399,6 +399,22 @@ fileprivate class UniffiHandleMap<T> {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
+    typealias FfiType = UInt8
+    typealias SwiftType = UInt8
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt8 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: UInt8, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
     typealias FfiType = UInt16
     typealias SwiftType = UInt16
@@ -1546,6 +1562,528 @@ public func FfiConverterTypeSharedAiStore_lift(_ pointer: UnsafeMutableRawPointe
 #endif
 public func FfiConverterTypeSharedAiStore_lower(_ value: SharedAiStore) -> UnsafeMutableRawPointer {
     return FfiConverterTypeSharedAiStore.lower(value)
+}
+
+
+
+
+/**
+ * The layout of one `(app_id, device)` scope, bound to an open
+ * [`SharedStore`].
+ *
+ * Construct it once per app launch and keep it: it holds the service's
+ * session registry, which is where the two undo rings of ADR-0031 D7 live for
+ * the duration of this sitting.
+ */
+public protocol SharedLayoutProtocol : AnyObject {
+    
+    /**
+     * Apply one verb, as the serde form of [`impress_layout::Verb`].
+     *
+     * This is the whole mutating surface. `actor` is `human` | `agent` |
+     * `system`; the GUI passes `human`.
+     */
+    func apply(verbJson: String, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * Recall a saved layout by name, by id, or by ⌃⌘1–9 ordinal — a string
+     * that parses as a positive integer is read as the ordinal.
+     */
+    func applyLayout(nameOrOrdinal: String, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. The
+     * h / l grammar.
+     */
+    func focusDirection(dir: String, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * The saved layouts of this app, in ⌃⌘1–9 order.
+     */
+    func listLayouts() throws  -> [SharedLayoutRow]
+    
+    /**
+     * One pane's spec, its compiled query and its resolved bindings.
+     */
+    func pane(id: UInt64) throws  -> SharedPane
+    
+    /**
+     * Which pane holds `role` right now, if any.
+     *
+     * The universal chords act on roles, not slots (ADR-0031 D5): ⌃⌘S hides
+     * whichever pane carries `navigator`. This is how a host asks which tile
+     * that is — and then drives it with [`Self::resize_share`], which keeps
+     * the pane in the tree rather than closing it.
+     */
+    func paneWithRole(role: String) throws  -> UInt64?
+    
+    /**
+     * Redo on one ring. Same stacks as [`Self::undo`].
+     */
+    func redo(stack: String, pane: UInt64?, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * Give one pane a relative share of its parent split, leaving its
+     * siblings' shares alone.
+     *
+     * This is what a role toggle is built from: ⌃⌘S sets the navigator's
+     * share to [`impress_layout::HIDDEN_SHARE`] and back. The tree refuses a
+     * share of exactly zero (`InvalidShares`: a weight must be positive and
+     * finite), so "hidden" is spelled as the smallest weight it accepts —
+     * sub-pixel against any realistic sum, and reversible by one `Resize`.
+     * Hiding a pane by *closing* it would take its session and its place in
+     * the tree with it, and a hidden-role set kept beside the tree would be
+     * exactly the view-held layout state ADR-0019 D3 exists to remove — so
+     * the pane stays in the tree with no width.
+     */
+    func resizeShare(pane: UInt64, share: Float, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * Run a pane's compiled query. The read path every list pane uses.
+     *
+     * `limit` of 0 keeps whatever limit the pane's own query carries. Rows
+     * come back as the ordinary [`SharedItemRow`], so Swift reuses the
+     * payload decoders it already has.
+     */
+    func runPane(id: UInt64, offset: UInt32, limit: UInt32) throws  -> [SharedItemRow]
+    
+    /**
+     * Save the current arrangement under a name, durably. Re-saving a name
+     * overwrites it.
+     */
+    func saveLayout(name: String, purpose: String?, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * Publish a selection of `kind` on a pane's channel — what clicking a row
+     * is. An empty `ids` is a real value: it says nothing of that kind is
+     * selected, which is what a detail pane renders its empty state from.
+     */
+    func select(pane: UInt64, kind: String, ids: [String], actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * How long a burst of store mutations is coalesced before the feed calls
+     * `panes_invalidated`. Default 50 ms. Set before subscribing.
+     */
+    func setDebounceMs(millis: UInt32) 
+    
+    /**
+     * Collect invalidations for this many seconds after `subscribe_invalidations`
+     * without delivering any, then deliver one batch.
+     *
+     * The GUI passes 90; tests pass 0. This is CLAUDE.md's startup
+     * render-loop guard (ADR-0019 D6) at the source: a background service that
+     * wakes SwiftUI during the first ~90 s of launch compounds into a
+     * perpetual render loop, and the fix belongs here rather than in every
+     * subscriber. Set before subscribing.
+     */
+    func setStartupGraceSecs(secs: UInt32) 
+    
+    /**
+     * The whole tree.
+     */
+    func snapshot() throws  -> SharedLayoutSnapshot
+    
+    /**
+     * Start (or restart) the invalidation feed.
+     *
+     * One background thread per `SharedLayout`; subscribing again replaces
+     * the previous listener. See the module docs for the threading model.
+     */
+    func subscribeInvalidations(listener: SharedLayoutListener) throws 
+    
+    /**
+     * Undo on one ring: `arrangement` (the window's shape) or `exploration`
+     * (one pane's bindings and view state). `pane` names the exploration
+     * ring's pane; `None` means the focused one.
+     */
+    func undo(stack: String, pane: UInt64?, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
+     * Stop the feed. Idempotent; `SharedLayout`'s `Drop` does it too.
+     */
+    func unsubscribeInvalidations() 
+    
+    /**
+     * The counter the snapshot and every applied verb carry.
+     */
+    func version()  -> UInt64
+    
+}
+
+/**
+ * The layout of one `(app_id, device)` scope, bound to an open
+ * [`SharedStore`].
+ *
+ * Construct it once per app launch and keep it: it holds the service's
+ * session registry, which is where the two undo rings of ADR-0031 D7 live for
+ * the duration of this sitting.
+ */
+open class SharedLayout:
+    SharedLayoutProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_impress_store_ffi_fn_clone_sharedlayout(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_impress_store_ffi_fn_free_sharedlayout(pointer, $0) }
+    }
+
+    
+    /**
+     * Bind to the layout of `app_id` on `device` (`None` = this machine).
+     *
+     * The tree is not read here: the first `snapshot` or verb cold-starts the
+     * three-column preset and persists it, so a caller never has to ask
+     * whether a layout exists.
+     */
+public static func `open`(store: SharedStore, appId: String, device: String?) -> SharedLayout {
+    return try!  FfiConverterTypeSharedLayout.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_constructor_sharedlayout_open(
+        FfiConverterTypeSharedStore.lower(store),
+        FfiConverterString.lower(appId),
+        FfiConverterOptionString.lower(device),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Apply one verb, as the serde form of [`impress_layout::Verb`].
+     *
+     * This is the whole mutating surface. `actor` is `human` | `agent` |
+     * `system`; the GUI passes `human`.
+     */
+open func apply(verbJson: String, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_apply(self.uniffiClonePointer(),
+        FfiConverterString.lower(verbJson),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * Recall a saved layout by name, by id, or by ⌃⌘1–9 ordinal — a string
+     * that parses as a positive integer is read as the ordinal.
+     */
+open func applyLayout(nameOrOrdinal: String, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_apply_layout(self.uniffiClonePointer(),
+        FfiConverterString.lower(nameOrOrdinal),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. The
+     * h / l grammar.
+     */
+open func focusDirection(dir: String, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_focus_direction(self.uniffiClonePointer(),
+        FfiConverterString.lower(dir),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * The saved layouts of this app, in ⌃⌘1–9 order.
+     */
+open func listLayouts()throws  -> [SharedLayoutRow] {
+    return try  FfiConverterSequenceTypeSharedLayoutRow.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_list_layouts(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * One pane's spec, its compiled query and its resolved bindings.
+     */
+open func pane(id: UInt64)throws  -> SharedPane {
+    return try  FfiConverterTypeSharedPane.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_pane(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Which pane holds `role` right now, if any.
+     *
+     * The universal chords act on roles, not slots (ADR-0031 D5): ⌃⌘S hides
+     * whichever pane carries `navigator`. This is how a host asks which tile
+     * that is — and then drives it with [`Self::resize_share`], which keeps
+     * the pane in the tree rather than closing it.
+     */
+open func paneWithRole(role: String)throws  -> UInt64? {
+    return try  FfiConverterOptionUInt64.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_pane_with_role(self.uniffiClonePointer(),
+        FfiConverterString.lower(role),$0
+    )
+})
+}
+    
+    /**
+     * Redo on one ring. Same stacks as [`Self::undo`].
+     */
+open func redo(stack: String, pane: UInt64?, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_redo(self.uniffiClonePointer(),
+        FfiConverterString.lower(stack),
+        FfiConverterOptionUInt64.lower(pane),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * Give one pane a relative share of its parent split, leaving its
+     * siblings' shares alone.
+     *
+     * This is what a role toggle is built from: ⌃⌘S sets the navigator's
+     * share to [`impress_layout::HIDDEN_SHARE`] and back. The tree refuses a
+     * share of exactly zero (`InvalidShares`: a weight must be positive and
+     * finite), so "hidden" is spelled as the smallest weight it accepts —
+     * sub-pixel against any realistic sum, and reversible by one `Resize`.
+     * Hiding a pane by *closing* it would take its session and its place in
+     * the tree with it, and a hidden-role set kept beside the tree would be
+     * exactly the view-held layout state ADR-0019 D3 exists to remove — so
+     * the pane stays in the tree with no width.
+     */
+open func resizeShare(pane: UInt64, share: Float, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_resize_share(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(pane),
+        FfiConverterFloat.lower(share),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * Run a pane's compiled query. The read path every list pane uses.
+     *
+     * `limit` of 0 keeps whatever limit the pane's own query carries. Rows
+     * come back as the ordinary [`SharedItemRow`], so Swift reuses the
+     * payload decoders it already has.
+     */
+open func runPane(id: UInt64, offset: UInt32, limit: UInt32)throws  -> [SharedItemRow] {
+    return try  FfiConverterSequenceTypeSharedItemRow.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_run_pane(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(id),
+        FfiConverterUInt32.lower(offset),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+    
+    /**
+     * Save the current arrangement under a name, durably. Re-saving a name
+     * overwrites it.
+     */
+open func saveLayout(name: String, purpose: String?, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_save_layout(self.uniffiClonePointer(),
+        FfiConverterString.lower(name),
+        FfiConverterOptionString.lower(purpose),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * Publish a selection of `kind` on a pane's channel — what clicking a row
+     * is. An empty `ids` is a real value: it says nothing of that kind is
+     * selected, which is what a detail pane renders its empty state from.
+     */
+open func select(pane: UInt64, kind: String, ids: [String], actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_select(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(pane),
+        FfiConverterString.lower(kind),
+        FfiConverterSequenceString.lower(ids),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * How long a burst of store mutations is coalesced before the feed calls
+     * `panes_invalidated`. Default 50 ms. Set before subscribing.
+     */
+open func setDebounceMs(millis: UInt32) {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_set_debounce_ms(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(millis),$0
+    )
+}
+}
+    
+    /**
+     * Collect invalidations for this many seconds after `subscribe_invalidations`
+     * without delivering any, then deliver one batch.
+     *
+     * The GUI passes 90; tests pass 0. This is CLAUDE.md's startup
+     * render-loop guard (ADR-0019 D6) at the source: a background service that
+     * wakes SwiftUI during the first ~90 s of launch compounds into a
+     * perpetual render loop, and the fix belongs here rather than in every
+     * subscriber. Set before subscribing.
+     */
+open func setStartupGraceSecs(secs: UInt32) {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_set_startup_grace_secs(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(secs),$0
+    )
+}
+}
+    
+    /**
+     * The whole tree.
+     */
+open func snapshot()throws  -> SharedLayoutSnapshot {
+    return try  FfiConverterTypeSharedLayoutSnapshot.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_snapshot(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Start (or restart) the invalidation feed.
+     *
+     * One background thread per `SharedLayout`; subscribing again replaces
+     * the previous listener. See the module docs for the threading model.
+     */
+open func subscribeInvalidations(listener: SharedLayoutListener)throws  {try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_subscribe_invalidations(self.uniffiClonePointer(),
+        FfiConverterCallbackInterfaceSharedLayoutListener.lower(listener),$0
+    )
+}
+}
+    
+    /**
+     * Undo on one ring: `arrangement` (the window's shape) or `exploration`
+     * (one pane's bindings and view state). `pane` names the exploration
+     * ring's pane; `None` means the focused one.
+     */
+open func undo(stack: String, pane: UInt64?, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_undo(self.uniffiClonePointer(),
+        FfiConverterString.lower(stack),
+        FfiConverterOptionUInt64.lower(pane),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * Stop the feed. Idempotent; `SharedLayout`'s `Drop` does it too.
+     */
+open func unsubscribeInvalidations() {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_unsubscribe_invalidations(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * The counter the snapshot and every applied verb carry.
+     */
+open func version() -> UInt64 {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_version(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedLayout: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = SharedLayout
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> SharedLayout {
+        return SharedLayout(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: SharedLayout) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedLayout {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: SharedLayout, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedLayout_lift(_ pointer: UnsafeMutableRawPointer) throws -> SharedLayout {
+    return try FfiConverterTypeSharedLayout.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedLayout_lower(_ value: SharedLayout) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeSharedLayout.lower(value)
 }
 
 
@@ -7310,6 +7848,121 @@ public func FfiConverterTypeGuardedUpsertOutcome_lower(_ value: GuardedUpsertOut
 
 
 /**
+ * What one verb changed — the renderer's whole input (ADR-0019 D3).
+ */
+public struct SharedAppliedVerb {
+    public var version: UInt64
+    public var focused: UInt64?
+    /**
+     * The panes to redraw. For `select`, every pane whose bindings the
+     * publication changed; otherwise the tiles the patch touched.
+     */
+    public var affectedPanes: [UInt64]
+    /**
+     * Every tile the patch touched, created and removed included — what a
+     * host diffing its view tree needs, as opposed to what it must re-query.
+     */
+    public var changedTiles: [UInt64]
+    /**
+     * The tree afterwards, same shape as [`SharedLayoutSnapshot::layout_json`].
+     */
+    public var layoutJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(version: UInt64, focused: UInt64?, 
+        /**
+         * The panes to redraw. For `select`, every pane whose bindings the
+         * publication changed; otherwise the tiles the patch touched.
+         */affectedPanes: [UInt64], 
+        /**
+         * Every tile the patch touched, created and removed included — what a
+         * host diffing its view tree needs, as opposed to what it must re-query.
+         */changedTiles: [UInt64], 
+        /**
+         * The tree afterwards, same shape as [`SharedLayoutSnapshot::layout_json`].
+         */layoutJson: String) {
+        self.version = version
+        self.focused = focused
+        self.affectedPanes = affectedPanes
+        self.changedTiles = changedTiles
+        self.layoutJson = layoutJson
+    }
+}
+
+
+
+extension SharedAppliedVerb: Equatable, Hashable {
+    public static func ==(lhs: SharedAppliedVerb, rhs: SharedAppliedVerb) -> Bool {
+        if lhs.version != rhs.version {
+            return false
+        }
+        if lhs.focused != rhs.focused {
+            return false
+        }
+        if lhs.affectedPanes != rhs.affectedPanes {
+            return false
+        }
+        if lhs.changedTiles != rhs.changedTiles {
+            return false
+        }
+        if lhs.layoutJson != rhs.layoutJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(version)
+        hasher.combine(focused)
+        hasher.combine(affectedPanes)
+        hasher.combine(changedTiles)
+        hasher.combine(layoutJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedAppliedVerb: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedAppliedVerb {
+        return
+            try SharedAppliedVerb(
+                version: FfiConverterUInt64.read(from: &buf), 
+                focused: FfiConverterOptionUInt64.read(from: &buf), 
+                affectedPanes: FfiConverterSequenceUInt64.read(from: &buf), 
+                changedTiles: FfiConverterSequenceUInt64.read(from: &buf), 
+                layoutJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedAppliedVerb, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.version, into: &buf)
+        FfiConverterOptionUInt64.write(value.focused, into: &buf)
+        FfiConverterSequenceUInt64.write(value.affectedPanes, into: &buf)
+        FfiConverterSequenceUInt64.write(value.changedTiles, into: &buf)
+        FfiConverterString.write(value.layoutJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedAppliedVerb_lift(_ buf: RustBuffer) throws -> SharedAppliedVerb {
+    return try FfiConverterTypeSharedAppliedVerb.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedAppliedVerb_lower(_ value: SharedAppliedVerb) -> RustBuffer {
+    return FfiConverterTypeSharedAppliedVerb.lower(value)
+}
+
+
+/**
  * Outcome of a batch upsert.
  */
 public struct SharedBatchResult {
@@ -8914,6 +9567,256 @@ public func FfiConverterTypeSharedItemUpsert_lower(_ value: SharedItemUpsert) ->
 
 
 /**
+ * One saved layout, in ⌃⌘1–9 order.
+ */
+public struct SharedLayoutRow {
+    public var id: String
+    /**
+     * 1-based; what `apply_layout("3")` recalls. Only the first nine have a
+     * chord.
+     */
+    public var ordinal: UInt32
+    public var name: String?
+    /**
+     * The user's own words for what the layout is for. Uninterpreted.
+     */
+    public var purpose: String?
+    /**
+     * RFC 3339.
+     */
+    public var created: String
+    /**
+     * RFC 3339.
+     */
+    public var modified: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, 
+        /**
+         * 1-based; what `apply_layout("3")` recalls. Only the first nine have a
+         * chord.
+         */ordinal: UInt32, name: String?, 
+        /**
+         * The user's own words for what the layout is for. Uninterpreted.
+         */purpose: String?, 
+        /**
+         * RFC 3339.
+         */created: String, 
+        /**
+         * RFC 3339.
+         */modified: String) {
+        self.id = id
+        self.ordinal = ordinal
+        self.name = name
+        self.purpose = purpose
+        self.created = created
+        self.modified = modified
+    }
+}
+
+
+
+extension SharedLayoutRow: Equatable, Hashable {
+    public static func ==(lhs: SharedLayoutRow, rhs: SharedLayoutRow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.ordinal != rhs.ordinal {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.purpose != rhs.purpose {
+            return false
+        }
+        if lhs.created != rhs.created {
+            return false
+        }
+        if lhs.modified != rhs.modified {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(ordinal)
+        hasher.combine(name)
+        hasher.combine(purpose)
+        hasher.combine(created)
+        hasher.combine(modified)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedLayoutRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedLayoutRow {
+        return
+            try SharedLayoutRow(
+                id: FfiConverterString.read(from: &buf), 
+                ordinal: FfiConverterUInt32.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                purpose: FfiConverterOptionString.read(from: &buf), 
+                created: FfiConverterString.read(from: &buf), 
+                modified: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedLayoutRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterUInt32.write(value.ordinal, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterOptionString.write(value.purpose, into: &buf)
+        FfiConverterString.write(value.created, into: &buf)
+        FfiConverterString.write(value.modified, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedLayoutRow_lift(_ buf: RustBuffer) throws -> SharedLayoutRow {
+    return try FfiConverterTypeSharedLayoutRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedLayoutRow_lower(_ value: SharedLayoutRow) -> RustBuffer {
+    return FfiConverterTypeSharedLayoutRow.lower(value)
+}
+
+
+/**
+ * The whole tree as Swift receives it.
+ */
+public struct SharedLayoutSnapshot {
+    /**
+     * `serde_json::to_string(&impress_layout::Layout)` — windows, the tile
+     * arena and the channel state. The one place the recursive value lives.
+     */
+    public var layoutJson: String
+    /**
+     * The focused leaf of the current window.
+     */
+    public var focused: UInt64?
+    public var windows: [SharedWindow]
+    /**
+     * The current window's leaves in tree order. Per-window lists are on
+     * [`SharedWindow::leaves`]; this is the one a single-window host wants.
+     */
+    public var leaves: [UInt64]
+    /**
+     * Bumped on every applied verb. A host that holds this number can skip a
+     * snapshot it has already rendered.
+     */
+    public var version: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `serde_json::to_string(&impress_layout::Layout)` — windows, the tile
+         * arena and the channel state. The one place the recursive value lives.
+         */layoutJson: String, 
+        /**
+         * The focused leaf of the current window.
+         */focused: UInt64?, windows: [SharedWindow], 
+        /**
+         * The current window's leaves in tree order. Per-window lists are on
+         * [`SharedWindow::leaves`]; this is the one a single-window host wants.
+         */leaves: [UInt64], 
+        /**
+         * Bumped on every applied verb. A host that holds this number can skip a
+         * snapshot it has already rendered.
+         */version: UInt64) {
+        self.layoutJson = layoutJson
+        self.focused = focused
+        self.windows = windows
+        self.leaves = leaves
+        self.version = version
+    }
+}
+
+
+
+extension SharedLayoutSnapshot: Equatable, Hashable {
+    public static func ==(lhs: SharedLayoutSnapshot, rhs: SharedLayoutSnapshot) -> Bool {
+        if lhs.layoutJson != rhs.layoutJson {
+            return false
+        }
+        if lhs.focused != rhs.focused {
+            return false
+        }
+        if lhs.windows != rhs.windows {
+            return false
+        }
+        if lhs.leaves != rhs.leaves {
+            return false
+        }
+        if lhs.version != rhs.version {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(layoutJson)
+        hasher.combine(focused)
+        hasher.combine(windows)
+        hasher.combine(leaves)
+        hasher.combine(version)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedLayoutSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedLayoutSnapshot {
+        return
+            try SharedLayoutSnapshot(
+                layoutJson: FfiConverterString.read(from: &buf), 
+                focused: FfiConverterOptionUInt64.read(from: &buf), 
+                windows: FfiConverterSequenceTypeSharedWindow.read(from: &buf), 
+                leaves: FfiConverterSequenceUInt64.read(from: &buf), 
+                version: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedLayoutSnapshot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.layoutJson, into: &buf)
+        FfiConverterOptionUInt64.write(value.focused, into: &buf)
+        FfiConverterSequenceTypeSharedWindow.write(value.windows, into: &buf)
+        FfiConverterSequenceUInt64.write(value.leaves, into: &buf)
+        FfiConverterUInt64.write(value.version, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedLayoutSnapshot_lift(_ buf: RustBuffer) throws -> SharedLayoutSnapshot {
+    return try FfiConverterTypeSharedLayoutSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedLayoutSnapshot_lower(_ value: SharedLayoutSnapshot) -> RustBuffer {
+    return FfiConverterTypeSharedLayoutSnapshot.lower(value)
+}
+
+
+/**
  * One explicit build (ADR-0030 D8).
  */
 public struct SharedManuscriptBuild {
@@ -9331,6 +10234,174 @@ public func FfiConverterTypeSharedOperationRow_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeSharedOperationRow_lower(_ value: SharedOperationRow) -> RustBuffer {
     return FfiConverterTypeSharedOperationRow.lower(value)
+}
+
+
+/**
+ * One pane: what it shows, what the store will actually be asked, and what
+ * its parameters resolve to right now.
+ */
+public struct SharedPane {
+    public var tile: UInt64
+    /**
+     * `impress_layout::PaneSpec` JSON.
+     */
+    public var specJson: String
+    /**
+     * The compiled `impress_core::query::ItemQuery` JSON — literally what
+     * the store is asked, which is how "why is this pane empty?" becomes a
+     * question with an answer.
+     */
+    public var compiledQueryJson: String
+    /**
+     * Parameter name → the item id it resolves to, as a JSON object.
+     */
+    public var bindingsJson: String
+    /**
+     * Set when the scope was a single item and it resolved: a detail pane
+     * short-circuits on this.
+     */
+    public var singleItem: String?
+    /**
+     * Every schema ref the query can touch — the invalidation key.
+     */
+    public var schemaRefs: [String]
+    /**
+     * The channel this pane publishes on, resolved against its window.
+     */
+    public var channel: UInt8?
+    public var viewKind: String
+    public var role: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(tile: UInt64, 
+        /**
+         * `impress_layout::PaneSpec` JSON.
+         */specJson: String, 
+        /**
+         * The compiled `impress_core::query::ItemQuery` JSON — literally what
+         * the store is asked, which is how "why is this pane empty?" becomes a
+         * question with an answer.
+         */compiledQueryJson: String, 
+        /**
+         * Parameter name → the item id it resolves to, as a JSON object.
+         */bindingsJson: String, 
+        /**
+         * Set when the scope was a single item and it resolved: a detail pane
+         * short-circuits on this.
+         */singleItem: String?, 
+        /**
+         * Every schema ref the query can touch — the invalidation key.
+         */schemaRefs: [String], 
+        /**
+         * The channel this pane publishes on, resolved against its window.
+         */channel: UInt8?, viewKind: String, role: String?) {
+        self.tile = tile
+        self.specJson = specJson
+        self.compiledQueryJson = compiledQueryJson
+        self.bindingsJson = bindingsJson
+        self.singleItem = singleItem
+        self.schemaRefs = schemaRefs
+        self.channel = channel
+        self.viewKind = viewKind
+        self.role = role
+    }
+}
+
+
+
+extension SharedPane: Equatable, Hashable {
+    public static func ==(lhs: SharedPane, rhs: SharedPane) -> Bool {
+        if lhs.tile != rhs.tile {
+            return false
+        }
+        if lhs.specJson != rhs.specJson {
+            return false
+        }
+        if lhs.compiledQueryJson != rhs.compiledQueryJson {
+            return false
+        }
+        if lhs.bindingsJson != rhs.bindingsJson {
+            return false
+        }
+        if lhs.singleItem != rhs.singleItem {
+            return false
+        }
+        if lhs.schemaRefs != rhs.schemaRefs {
+            return false
+        }
+        if lhs.channel != rhs.channel {
+            return false
+        }
+        if lhs.viewKind != rhs.viewKind {
+            return false
+        }
+        if lhs.role != rhs.role {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(tile)
+        hasher.combine(specJson)
+        hasher.combine(compiledQueryJson)
+        hasher.combine(bindingsJson)
+        hasher.combine(singleItem)
+        hasher.combine(schemaRefs)
+        hasher.combine(channel)
+        hasher.combine(viewKind)
+        hasher.combine(role)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedPane: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedPane {
+        return
+            try SharedPane(
+                tile: FfiConverterUInt64.read(from: &buf), 
+                specJson: FfiConverterString.read(from: &buf), 
+                compiledQueryJson: FfiConverterString.read(from: &buf), 
+                bindingsJson: FfiConverterString.read(from: &buf), 
+                singleItem: FfiConverterOptionString.read(from: &buf), 
+                schemaRefs: FfiConverterSequenceString.read(from: &buf), 
+                channel: FfiConverterOptionUInt8.read(from: &buf), 
+                viewKind: FfiConverterString.read(from: &buf), 
+                role: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedPane, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.tile, into: &buf)
+        FfiConverterString.write(value.specJson, into: &buf)
+        FfiConverterString.write(value.compiledQueryJson, into: &buf)
+        FfiConverterString.write(value.bindingsJson, into: &buf)
+        FfiConverterOptionString.write(value.singleItem, into: &buf)
+        FfiConverterSequenceString.write(value.schemaRefs, into: &buf)
+        FfiConverterOptionUInt8.write(value.channel, into: &buf)
+        FfiConverterString.write(value.viewKind, into: &buf)
+        FfiConverterOptionString.write(value.role, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedPane_lift(_ buf: RustBuffer) throws -> SharedPane {
+    return try FfiConverterTypeSharedPane.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedPane_lower(_ value: SharedPane) -> RustBuffer {
+    return FfiConverterTypeSharedPane.lower(value)
 }
 
 
@@ -11264,6 +12335,155 @@ public func FfiConverterTypeSharedWatchedScanReport_lower(_ value: SharedWatched
 
 
 /**
+ * One window of the tree, flattened for a renderer that walks it.
+ */
+public struct SharedWindow {
+    public var id: UInt64
+    /**
+     * The root tile. Look it up in `layout_json`'s `tiles` map.
+     */
+    public var root: UInt64
+    /**
+     * The focused leaf of this window.
+     */
+    public var focused: UInt64?
+    /**
+     * What `follow` resolves to here, `1..=8`.
+     */
+    public var defaultChannel: UInt8
+    /**
+     * The tile shown alone, if any. Zoom is a window view state, not a
+     * mutation of the tree.
+     */
+    public var maximized: UInt64?
+    /**
+     * The device-scoped frame, as `impress_layout::Geometry` JSON.
+     */
+    public var geometryJson: String?
+    /**
+     * This window's leaves in tree order — the order h / l walks, and the
+     * order a flattened renderer should build panes in.
+     */
+    public var leaves: [UInt64]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: UInt64, 
+        /**
+         * The root tile. Look it up in `layout_json`'s `tiles` map.
+         */root: UInt64, 
+        /**
+         * The focused leaf of this window.
+         */focused: UInt64?, 
+        /**
+         * What `follow` resolves to here, `1..=8`.
+         */defaultChannel: UInt8, 
+        /**
+         * The tile shown alone, if any. Zoom is a window view state, not a
+         * mutation of the tree.
+         */maximized: UInt64?, 
+        /**
+         * The device-scoped frame, as `impress_layout::Geometry` JSON.
+         */geometryJson: String?, 
+        /**
+         * This window's leaves in tree order — the order h / l walks, and the
+         * order a flattened renderer should build panes in.
+         */leaves: [UInt64]) {
+        self.id = id
+        self.root = root
+        self.focused = focused
+        self.defaultChannel = defaultChannel
+        self.maximized = maximized
+        self.geometryJson = geometryJson
+        self.leaves = leaves
+    }
+}
+
+
+
+extension SharedWindow: Equatable, Hashable {
+    public static func ==(lhs: SharedWindow, rhs: SharedWindow) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.root != rhs.root {
+            return false
+        }
+        if lhs.focused != rhs.focused {
+            return false
+        }
+        if lhs.defaultChannel != rhs.defaultChannel {
+            return false
+        }
+        if lhs.maximized != rhs.maximized {
+            return false
+        }
+        if lhs.geometryJson != rhs.geometryJson {
+            return false
+        }
+        if lhs.leaves != rhs.leaves {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(root)
+        hasher.combine(focused)
+        hasher.combine(defaultChannel)
+        hasher.combine(maximized)
+        hasher.combine(geometryJson)
+        hasher.combine(leaves)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedWindow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedWindow {
+        return
+            try SharedWindow(
+                id: FfiConverterUInt64.read(from: &buf), 
+                root: FfiConverterUInt64.read(from: &buf), 
+                focused: FfiConverterOptionUInt64.read(from: &buf), 
+                defaultChannel: FfiConverterUInt8.read(from: &buf), 
+                maximized: FfiConverterOptionUInt64.read(from: &buf), 
+                geometryJson: FfiConverterOptionString.read(from: &buf), 
+                leaves: FfiConverterSequenceUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedWindow, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.id, into: &buf)
+        FfiConverterUInt64.write(value.root, into: &buf)
+        FfiConverterOptionUInt64.write(value.focused, into: &buf)
+        FfiConverterUInt8.write(value.defaultChannel, into: &buf)
+        FfiConverterOptionUInt64.write(value.maximized, into: &buf)
+        FfiConverterOptionString.write(value.geometryJson, into: &buf)
+        FfiConverterSequenceUInt64.write(value.leaves, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWindow_lift(_ buf: RustBuffer) throws -> SharedWindow {
+    return try FfiConverterTypeSharedWindow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedWindow_lower(_ value: SharedWindow) -> RustBuffer {
+    return FfiConverterTypeSharedWindow.lower(value)
+}
+
+
+/**
  * Outcome counters for one remote-apply call.
  */
 public struct SyncApplyReport {
@@ -12751,6 +13971,113 @@ extension SharedCollectionPrior: Equatable, Hashable {}
 
 
 /**
+ * One case per family of thing that can go wrong behind a layout call.
+ *
+ * Separate from `SharedStoreError` for the same reason `AiError` is: the
+ * Swift `catch` arms for the store are already spread across five apps, and a
+ * refused *query* (an unknown record kind, an unbound required parameter) is
+ * a different conversation from a refused *write*.
+ */
+public enum SharedLayoutError {
+
+    
+    
+    /**
+     * A verb was refused by the tree or the service: no such pane, the last
+     * pane of a window, a detach of a whole window.
+     */
+    case Layout(message: String
+    )
+    /**
+     * A pane query did not compile — a typed refusal, never an empty list
+     * that reads as "no data yet".
+     */
+    case Query(message: String
+    )
+    /**
+     * The store could not be read or written.
+     */
+    case Store(message: String
+    )
+    /**
+     * A JSON argument or result would not parse.
+     */
+    case Json(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedLayoutError: FfiConverterRustBuffer {
+    typealias SwiftType = SharedLayoutError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedLayoutError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Layout(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Query(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .Store(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 4: return .Json(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SharedLayoutError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Layout(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Query(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Store(message):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Json(message):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+extension SharedLayoutError: Equatable, Hashable {}
+
+extension SharedLayoutError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
+/**
  * Errors returned by the shared store FFI.
  */
 public enum SharedStoreError {
@@ -12834,6 +14161,175 @@ extension SharedStoreError: Equatable, Hashable {}
 extension SharedStoreError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
+    }
+}
+
+
+
+
+/**
+ * What Swift implements to be told when panes go stale.
+ *
+ * Both calls arrive on the feed's own thread, never on the caller's — hop to
+ * the main actor before touching a view.
+ */
+public protocol SharedLayoutListener : AnyObject {
+    
+    /**
+     * These panes must re-run their queries. Deduplicated, and coalesced over
+     * the debounce window: a 500-row triage sweep wakes each pane once.
+     */
+    func panesInvalidated(panes: [UInt64]) 
+    
+    /**
+     * The tree itself changed — re-read [`SharedLayout::snapshot`]. The
+     * number is the same counter the snapshot carries.
+     */
+    func layoutChanged(version: UInt64) 
+    
+}
+
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceSharedLayoutListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceSharedLayoutListener = UniffiVTableCallbackInterfaceSharedLayoutListener(
+        panesInvalidated: { (
+            uniffiHandle: UInt64,
+            panes: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedLayoutListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.panesInvalidated(
+                     panes: try FfiConverterSequenceUInt64.lift(panes)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        layoutChanged: { (
+            uniffiHandle: UInt64,
+            version: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedLayoutListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.layoutChanged(
+                     version: try FfiConverterUInt64.lift(version)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceSharedLayoutListener.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface SharedLayoutListener: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitSharedLayoutListener() {
+    uniffi_impress_store_ffi_fn_init_callback_vtable_sharedlayoutlistener(&UniffiCallbackInterfaceSharedLayoutListener.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceSharedLayoutListener {
+    fileprivate static var handleMap = UniffiHandleMap<SharedLayoutListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceSharedLayoutListener : FfiConverter {
+    typealias SwiftType = SharedLayoutListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt8: FfiConverterRustBuffer {
+    typealias SwiftType = UInt8?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt8.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt8.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
     }
 }
 
@@ -13313,6 +14809,31 @@ fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterUInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt64]
+
+    public static func write(_ value: [UInt64], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt64]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt64.read(from: &buf))
         }
         return seq
     }
@@ -13946,6 +15467,31 @@ fileprivate struct FfiConverterSequenceTypeSharedItemUpsert: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedLayoutRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedLayoutRow]
+
+    public static func write(_ value: [SharedLayoutRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedLayoutRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedLayoutRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedLayoutRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedLayoutRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSharedManuscriptBuild: FfiConverterRustBuffer {
     typealias SwiftType = [SharedManuscriptBuild]
 
@@ -14221,6 +15767,31 @@ fileprivate struct FfiConverterSequenceTypeSharedWatchedFolder: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSharedWindow: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedWindow]
+
+    public static func write(_ value: [SharedWindow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedWindow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedWindow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedWindow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedWindow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSyncItemRecord: FfiConverterRustBuffer {
     typealias SwiftType = [SyncItemRecord]
 
@@ -14415,6 +15986,59 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
     }
 }
 /**
+ * The cold-start three-column preset as layout JSON, for a host that wants to
+ * render before it has opened a store. Nothing persists it.
+ */
+public func coldStartLayoutJson() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_cold_start_layout_json($0
+    )
+})
+}
+/**
+ * Compile a pane query against the built-in record-kind manifest.
+ *
+ * `query_json` is an `impress_core::pane_query::PaneQuery`, `decls_json` a
+ * `[ParamDecl]`, `bindings_json` an object of parameter name → item id.
+ * Returns the `ItemQuery` JSON the store would be asked — which is what a
+ * debug console shows when the question is "why is this pane empty?".
+ *
+ * `Scope::CollectionSubtree` degrades to the named collection's own members
+ * here: there is no store to read the tree from. Use
+ * [`SharedLayout::pane`] when descendants matter.
+ */
+public func compilePaneQuery(queryJson: String, declsJson: String, bindingsJson: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_func_compile_pane_query(
+        FfiConverterString.lower(queryJson),
+        FfiConverterString.lower(declsJson),
+        FfiConverterString.lower(bindingsJson),$0
+    )
+})
+}
+/**
+ * The record-kind manifest as JSON: kind id → the schema refs the store
+ * matches by exact equality. The one place that mapping lives.
+ */
+public func kindManifestJson() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_impress_store_ffi_fn_func_kind_manifest_json($0
+    )
+})
+}
+/**
+ * A pane spec's JSON, for a host building a `Split` verb's `new` pane without
+ * hand-writing the shape.
+ */
+public func paneSpecJson(queryJson: String, viewKind: String)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_func_pane_spec_json(
+        FfiConverterString.lower(queryJson),
+        FfiConverterString.lower(viewKind),$0
+    )
+})
+}
+/**
  * Rank imbib's hybrid (full-text + semantic + chunk) candidate set.
  *
  * The single implementation of the hybrid relevance formula: full-text hits
@@ -14459,6 +16083,18 @@ private var initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_impress_store_ffi_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_cold_start_layout_json() != 10741) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_compile_pane_query() != 7773) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_kind_manifest_json() != 39295) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_func_pane_spec_json() != 21207) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_func_rank_hybrid_search_results() != 39200) {
         return InitializationResult.apiChecksumMismatch
@@ -14602,6 +16238,60 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedaistore_tool_options() != 34205) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_apply() != 25284) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_apply_layout() != 60163) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_focus_direction() != 50096) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_list_layouts() != 46556) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_pane() != 28645) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_pane_with_role() != 14046) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_redo() != 36848) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_resize_share() != 3639) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_run_pane() != 20896) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_save_layout() != 2161) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_select() != 35210) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_set_debounce_ms() != 3488) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_set_startup_grace_secs() != 34653) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_snapshot() != 63005) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_subscribe_invalidations() != 43544) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_undo() != 41071) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_unsubscribe_invalidations() != 53845) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_version() != 17861) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_add_reference() != 26356) {
@@ -14880,13 +16570,23 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_constructor_sharedaistore_open() != 30140) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_constructor_sharedlayout_open() != 42182) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open() != 6376) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_constructor_sharedstore_open_in_memory() != 51392) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_panes_invalidated() != 34210) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayoutlistener_layout_changed() != 36108) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
+    uniffiCallbackInitSharedLayoutListener()
     return InitializationResult.ok
 }()
 

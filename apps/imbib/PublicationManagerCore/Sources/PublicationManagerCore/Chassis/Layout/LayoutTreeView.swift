@@ -482,7 +482,7 @@ struct LayoutTabsView: View {
         HStack(spacing: 2) {
             ForEach(children, id: \.self) { tile in
                 Button {
-                    controller.apply(.focus(.id(tile)))
+                    controller.apply(.focus(target: .id(tile)))
                 } label: {
                     Text(title(of: tile))
                         .font(.caption)
@@ -614,7 +614,7 @@ struct LayoutPaneHost: View {
         .simultaneousGesture(
             TapGesture().onEnded {
                 guard controller.focused != tile else { return }
-                controller.apply(.focus(.id(tile)))
+                controller.apply(.focus(target: .id(tile)))
             }
         )
         .onAppear { resolve() }
