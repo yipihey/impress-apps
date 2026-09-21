@@ -4672,6 +4672,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-layout"
+version = "0.1.0"
+dependencies = [
+ "impress-core",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
 name = "impress-mcp"
 version = "0.1.0"
 dependencies = [

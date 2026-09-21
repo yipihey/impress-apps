@@ -1,0 +1,25 @@
+[package]
+name = "impress-layout"
+description = "The layout tree (ADR-0031 D4): panes, containers, channels, verbs, patches and undo rings as pure values"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Derive `schemars::JsonSchema` on the layout value and every verb, so the
+# `layout-service` verbs (L3) can publish their argument schemas. Pulls the
+# same feature through impress-core, whose `PaneQuery` we embed.
+schema = ["dep:schemars", "impress-core/schema"]
+
+[dependencies]
+# Types only: `PaneQuery`, `ParamDecl`, `Bindings`, `RecordKindId`, `ParamName`
+# and `ItemId` are spelled once, in the algebra (ADR-0031 D2). This crate never
+# compiles or runs a query; it only carries them.
+impress-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }

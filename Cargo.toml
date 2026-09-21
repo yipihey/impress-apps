@@ -61,6 +61,9 @@ members = [
     "crates/impress-toolbox",
     # impress-core - unified item protocol
     "crates/impress-core",
+    # impress-layout - the ADR-0031 layout tree: query-addressed panes,
+    # containers, channels and the D8 verbs as pure functions over a value.
+    "crates/impress-layout",
     # impress-plot - native Typst-first plotting (declarative spec → Typst + raster)
     "crates/impress-plot",
     # impress-embeddings - the suite's embedding stack (sidecar vector/chunk
@@ -164,6 +167,7 @@ imprint-selftest = { path = "crates/imprint-selftest" }
 imbib-service = { path = "crates/imbib-service" }
 imbib-core = { path = "crates/imbib-core" }
 impress-core = { path = "crates/impress-core" }
+impress-layout = { path = "crates/impress-layout" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and

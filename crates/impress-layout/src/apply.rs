@@ -1,0 +1,557 @@
+//! Applying a verb (ADR-0031 D8).
+//!
+//! Every verb goes through [`Layout::apply_in`]: it runs against a scratch
+//! clone, normalizes, and only then replaces the live value — so a refused
+//! verb leaves the layout byte-identical, and the [`Patch`] is the diff of the
+//! two values rather than a prediction of what the verb was going to do.
+
+use crate::error::LayoutError;
+use crate::ids::{ChannelId, TileId, WindowId};
+use crate::layout::{sane_share, Slot};
+use crate::patch::Patch;
+use crate::spec::PaneSpec;
+use crate::tree::{Container, ContainerKind, LinearDir, Tile};
+use crate::verb::{PaneRef, Placement, Verb};
+use crate::Layout;
+
+impl Layout {
+    /// Apply a verb to the window [`Layout::current_window`] picks.
+    pub fn apply(&mut self, verb: Verb) -> Result<Patch, LayoutError> {
+        let window = self.current_window()?;
+        self.apply_in(window, verb)
+    }
+
+    /// Apply a verb, resolving window-relative references (`Role`, `Focused`,
+    /// `Direction`) against `window`.
+    pub fn apply_in(&mut self, window: WindowId, verb: Verb) -> Result<Patch, LayoutError> {
+        if self.window(window).is_none() {
+            return Err(LayoutError::UnknownWindow { window });
+        }
+        let before = self.clone();
+        let mut scratch = before.clone();
+        scratch.apply_inner(window, &verb)?;
+        scratch.normalize();
+        let patch = Patch::diff(verb, &before, &scratch);
+        *self = scratch;
+        Ok(patch)
+    }
+
+    fn apply_inner(&mut self, window: WindowId, verb: &Verb) -> Result<(), LayoutError> {
+        match verb {
+            Verb::Split {
+                target,
+                dir,
+                after,
+                new,
+            } => self.do_split(window, target, *dir, *after, new.clone()),
+            Verb::MoveTile {
+                tile,
+                target,
+                placement,
+            } => self.do_move(window, tile, target, *placement),
+            Verb::Close { target } => self.do_close(window, target),
+            Verb::Swap { a, b } => self.do_swap(window, a, b),
+            Verb::Resize { container, shares } => self.do_resize(*container, shares),
+            Verb::SetContainerKind { container, kind } => {
+                self.do_set_container_kind(*container, *kind)
+            }
+            Verb::Maximize { target } => self.do_maximize(window, target),
+            Verb::Detach { target } => self.do_detach(window, target),
+            Verb::Restore => {
+                if let Some(w) = self.window_mut(window) {
+                    w.maximized = None;
+                }
+                Ok(())
+            }
+            Verb::SetPane { target, spec } => {
+                let tile = self.resolve(window, target)?;
+                let slot = self.expect_pane_mut(tile)?;
+                *slot = spec.clone();
+                Ok(())
+            }
+            Verb::SetQuery { target, query } => {
+                let tile = self.resolve(window, target)?;
+                self.expect_pane_mut(tile)?.query = query.clone();
+                Ok(())
+            }
+            Verb::SetViewKind { target, view_kind } => {
+                let tile = self.resolve(window, target)?;
+                self.expect_pane_mut(tile)?.view_kind = view_kind.clone();
+                Ok(())
+            }
+            Verb::BindParam {
+                target,
+                name,
+                source,
+            } => {
+                let tile = self.resolve(window, target)?;
+                let spec = self.expect_pane_mut(tile)?;
+                match spec.param_mut(name) {
+                    Some(binding) => {
+                        binding.source = source.clone();
+                        Ok(())
+                    }
+                    None => Err(LayoutError::UnknownParam {
+                        tile,
+                        name: name.clone(),
+                    }),
+                }
+            }
+            Verb::SetChannel { target, channel } => {
+                let tile = self.resolve(window, target)?;
+                self.expect_pane_mut(tile)?.channel = *channel;
+                Ok(())
+            }
+            Verb::SetRole { target, role } => {
+                let tile = self.resolve(window, target)?;
+                // A role is what the universal chords aim at, so it is unique
+                // per window: giving it to a pane takes it from whichever pane
+                // held it. Otherwise ⌘0 would be a coin toss.
+                if let Some(role) = role {
+                    let home = self.window_of(tile).unwrap_or(window);
+                    for other in self.leaves(home) {
+                        if other != tile {
+                            if let Some(spec) = self.pane_mut(other) {
+                                if spec.role.as_ref() == Some(role) {
+                                    spec.role = None;
+                                }
+                            }
+                        }
+                    }
+                }
+                self.expect_pane_mut(tile)?.role = role.clone();
+                Ok(())
+            }
+            Verb::Focus { target } => {
+                let tile = self.resolve(window, target)?;
+                self.focus_tile(window, tile);
+                Ok(())
+            }
+            Verb::FocusDirection { direction } => {
+                let tile = self.resolve(
+                    window,
+                    &PaneRef::Direction {
+                        direction: *direction,
+                    },
+                )?;
+                self.focus_tile(window, tile);
+                Ok(())
+            }
+            Verb::Select { target, kind, ids } => {
+                let tile = self.resolve(window, target)?;
+                let spec = match self.pane(tile) {
+                    Some(spec) => spec,
+                    None if self.tiles.contains_key(&tile) => {
+                        return Err(LayoutError::NotAPane { tile })
+                    }
+                    None => return Err(LayoutError::UnknownTile { tile }),
+                };
+                let channel = spec.channel;
+                let default_channel = self.default_channel_for(tile);
+                self.channels
+                    .publish(channel.resolve(default_channel), kind.clone(), ids.clone());
+                Ok(())
+            }
+            Verb::SetWindowGeometry {
+                window: target,
+                geometry,
+            } => {
+                let w = self
+                    .window_mut(*target)
+                    .ok_or(LayoutError::UnknownWindow { window: *target })?;
+                w.geometry = geometry.clone();
+                Ok(())
+            }
+            Verb::SetDefaultChannel {
+                window: target,
+                channel,
+            } => {
+                if matches!(channel, ChannelId::Follow) {
+                    return Err(LayoutError::InvalidChannel { channel: *channel });
+                }
+                let w = self
+                    .window_mut(*target)
+                    .ok_or(LayoutError::UnknownWindow { window: *target })?;
+                w.default_channel = *channel;
+                Ok(())
+            }
+        }
+    }
+
+    // ------------------------------------------------------------- helpers
+
+    /// Focus lands on a *leaf*: focusing a container focuses the pane it shows.
+    fn focus_tile(&mut self, fallback: WindowId, tile: TileId) {
+        let leaf = self.first_leaf(tile).unwrap_or(tile);
+        let home = self.window_of(leaf).unwrap_or(fallback);
+        if let Some(w) = self.window_mut(home) {
+            w.focused = Some(leaf);
+        }
+    }
+
+    fn replace_slot(&mut self, slot: Slot, new: TileId) {
+        match slot {
+            Slot::Root(index) => {
+                if let Some(w) = self.windows.get_mut(index) {
+                    w.root = new;
+                }
+            }
+            Slot::Child(parent, index) => {
+                if let Some(c) = self.container_mut(parent) {
+                    if index < c.len() {
+                        c.replace_child_at(index, new);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Put `tile` beside `target` along `dir`, extending `target`'s parent when
+    /// it already runs that way and wrapping `target` in a new linear when it
+    /// does not. `share` is what the newcomer gets; it is taken out of
+    /// `target`'s own share so the rest of the tree does not move.
+    fn insert_beside(
+        &mut self,
+        target: TileId,
+        tile: TileId,
+        dir: LinearDir,
+        after: bool,
+    ) -> Result<(), LayoutError> {
+        let parent = self.parent_of(target);
+        let extends = parent
+            .and_then(|p| self.container(p))
+            .map(|c| matches!(c, Container::Linear { dir: d, .. } if *d == dir))
+            .unwrap_or(false);
+        if let (Some(parent), true) = (parent, extends) {
+            let index = self
+                .container(parent)
+                .and_then(|c| c.index_of(target))
+                .ok_or(LayoutError::UnknownTile { tile: target })?;
+            let container = self
+                .container_mut(parent)
+                .ok_or(LayoutError::NotAContainer { tile: parent })?;
+            let share = sane_share(container.share_at(index)) / 2.0;
+            container.set_share_at(index, share);
+            container.insert_child(index + usize::from(after), tile, Some(share));
+            return Ok(());
+        }
+        let slot = self
+            .slot_of(target)
+            .ok_or(LayoutError::UnknownTile { tile: target })?;
+        let wrapper = self.alloc_tile();
+        let children = if after {
+            vec![target, tile]
+        } else {
+            vec![tile, target]
+        };
+        self.tiles.insert(
+            wrapper,
+            Tile::Container(Container::linear(dir, children, vec![1.0, 1.0])),
+        );
+        self.replace_slot(slot, wrapper);
+        Ok(())
+    }
+
+    /// Tab `tile` alongside `target` (pyqtgraph's centre drop zone).
+    fn insert_into_tabs(&mut self, target: TileId, tile: TileId) -> Result<(), LayoutError> {
+        if matches!(self.container(target), Some(Container::Tabs { .. })) {
+            let container = self
+                .container_mut(target)
+                .ok_or(LayoutError::NotAContainer { tile: target })?;
+            container.push_child(tile);
+            if let Container::Tabs { active, .. } = container {
+                *active = Some(tile);
+            }
+            return Ok(());
+        }
+        if let Some(parent) = self.parent_of(target) {
+            if matches!(self.container(parent), Some(Container::Tabs { .. })) {
+                let index = self
+                    .container(parent)
+                    .and_then(|c| c.index_of(target))
+                    .ok_or(LayoutError::UnknownTile { tile: target })?;
+                let container = self
+                    .container_mut(parent)
+                    .ok_or(LayoutError::NotAContainer { tile: parent })?;
+                container.insert_child(index + 1, tile, None);
+                if let Container::Tabs { active, .. } = container {
+                    *active = Some(tile);
+                }
+                return Ok(());
+            }
+        }
+        let slot = self
+            .slot_of(target)
+            .ok_or(LayoutError::UnknownTile { tile: target })?;
+        let wrapper = self.alloc_tile();
+        self.tiles.insert(
+            wrapper,
+            Tile::Container(Container::Tabs {
+                children: vec![target, tile],
+                active: Some(tile),
+            }),
+        );
+        self.replace_slot(slot, wrapper);
+        Ok(())
+    }
+
+    // --------------------------------------------------------------- verbs
+
+    fn do_split(
+        &mut self,
+        window: WindowId,
+        target: &PaneRef,
+        dir: LinearDir,
+        after: bool,
+        new: PaneSpec,
+    ) -> Result<(), LayoutError> {
+        let target = self.resolve(window, target)?;
+        let tile = self.alloc_tile();
+        self.tiles.insert(tile, Tile::Pane(new));
+        self.insert_beside(target, tile, dir, after)?;
+        // Focus follows the new pane: a split exists to be typed into.
+        self.focus_tile(window, tile);
+        Ok(())
+    }
+
+    fn do_move(
+        &mut self,
+        window: WindowId,
+        tile: &PaneRef,
+        target: &PaneRef,
+        placement: Placement,
+    ) -> Result<(), LayoutError> {
+        let tile = self.resolve(window, tile)?;
+        let target = self.resolve(window, target)?;
+        if tile == target || self.is_ancestor(tile, target) {
+            return Err(LayoutError::CyclicMove { tile });
+        }
+        match self.slot_of(tile) {
+            Some(Slot::Child(parent, index)) => {
+                if let Some(container) = self.container_mut(parent) {
+                    container.remove_child_at(index);
+                }
+            }
+            // A window root holds every pane of its window, and a same-window
+            // target is already cyclic — so this is "move the whole of window
+            // A into window B". The emptied window goes: a window with no
+            // tiles never persists. Unless it is the only one left.
+            Some(Slot::Root(index)) => {
+                if self.windows.len() < 2 {
+                    return Err(LayoutError::CannotCloseLastPane);
+                }
+                self.windows.remove(index);
+            }
+            None => return Err(LayoutError::UnknownTile { tile }),
+        }
+        match placement.linear() {
+            Some((dir, after)) => self.insert_beside(target, tile, dir, after)?,
+            None => self.insert_into_tabs(target, tile)?,
+        }
+        self.focus_tile(window, tile);
+        Ok(())
+    }
+
+    fn do_close(&mut self, window: WindowId, target: &PaneRef) -> Result<(), LayoutError> {
+        let tile = self.resolve(window, target)?;
+        let home = self
+            .window_of(tile)
+            .ok_or(LayoutError::UnknownTile { tile })?;
+        let leaves = self.leaves(home);
+        let doomed = self.leaves_of(tile);
+        if doomed.len() >= self.panes().len() {
+            // The last pane in the whole layout. There is nothing left to
+            // show, so this is the one close that is refused.
+            return Err(LayoutError::CannotCloseLastPane);
+        }
+        if doomed.len() >= leaves.len() {
+            // The last pane of this window, but not of the layout: closing it
+            // closes the window, which is what closing a detached PDF means.
+            self.windows.retain(|w| w.id != home);
+            return Ok(());
+        }
+        // Focus moves to the neighbour: the first surviving leaf after the
+        // closed subtree, else the last one before it.
+        let survivor = leaves
+            .iter()
+            .skip_while(|l| !doomed.contains(l))
+            .find(|l| !doomed.contains(l))
+            .copied()
+            .or_else(|| {
+                leaves
+                    .iter()
+                    .take_while(|l| !doomed.contains(l))
+                    .last()
+                    .copied()
+            });
+        match self.slot_of(tile) {
+            Some(Slot::Child(parent, index)) => {
+                if let Some(container) = self.container_mut(parent) {
+                    container.remove_child_at(index);
+                }
+            }
+            // Unreachable: a root holds every pane of its window, which the
+            // two checks above have already dealt with.
+            Some(Slot::Root(_)) => return Err(LayoutError::CannotCloseLastPane),
+            None => return Err(LayoutError::UnknownTile { tile }),
+        }
+        if let (Some(survivor), Some(w)) = (survivor, self.window_mut(home)) {
+            w.focused = Some(survivor);
+        }
+        Ok(())
+    }
+
+    fn do_swap(&mut self, window: WindowId, a: &PaneRef, b: &PaneRef) -> Result<(), LayoutError> {
+        let a = self.resolve(window, a)?;
+        let b = self.resolve(window, b)?;
+        if a == b {
+            return Ok(());
+        }
+        if self.is_ancestor(a, b) {
+            return Err(LayoutError::CyclicMove { tile: a });
+        }
+        if self.is_ancestor(b, a) {
+            return Err(LayoutError::CyclicMove { tile: b });
+        }
+        let slot_a = self
+            .slot_of(a)
+            .ok_or(LayoutError::UnknownTile { tile: a })?;
+        let slot_b = self
+            .slot_of(b)
+            .ok_or(LayoutError::UnknownTile { tile: b })?;
+        self.replace_slot(slot_a, b);
+        self.replace_slot(slot_b, a);
+        Ok(())
+    }
+
+    fn do_resize(&mut self, container: TileId, shares: &[f32]) -> Result<(), LayoutError> {
+        match self.tiles.get_mut(&container) {
+            None => Err(LayoutError::UnknownTile { tile: container }),
+            Some(Tile::Pane(_)) => Err(LayoutError::NotAContainer { tile: container }),
+            Some(Tile::Container(Container::Linear {
+                children,
+                shares: current,
+                ..
+            })) => {
+                if shares.len() != children.len() {
+                    return Err(LayoutError::InvalidShares {
+                        reason: format!("{} shares for {} children", shares.len(), children.len()),
+                    });
+                }
+                if let Some(bad) = shares.iter().find(|s| !s.is_finite() || **s <= 0.0) {
+                    return Err(LayoutError::InvalidShares {
+                        reason: format!("share {bad} is not a positive, finite weight"),
+                    });
+                }
+                *current = shares.to_vec();
+                Ok(())
+            }
+            Some(Tile::Container(_)) => Err(LayoutError::InvalidShares {
+                reason: "only a linear container has shares".into(),
+            }),
+        }
+    }
+
+    fn do_set_container_kind(
+        &mut self,
+        container: TileId,
+        kind: ContainerKind,
+    ) -> Result<(), LayoutError> {
+        let existing = match self.tiles.get(&container) {
+            None => return Err(LayoutError::UnknownTile { tile: container }),
+            Some(Tile::Pane(_)) => return Err(LayoutError::NotAContainer { tile: container }),
+            Some(Tile::Container(c)) => c.clone(),
+        };
+        if existing.kind() == kind {
+            return Ok(());
+        }
+        let children = existing.children().to_vec();
+        let rebuilt = match (kind, &existing) {
+            // Rotating a split keeps its shares: turning a row into a column
+            // must not silently re-even the panes.
+            (
+                ContainerKind::Horizontal | ContainerKind::Vertical,
+                Container::Linear { shares, .. },
+            ) => Container::Linear {
+                dir: if matches!(kind, ContainerKind::Horizontal) {
+                    LinearDir::Horizontal
+                } else {
+                    LinearDir::Vertical
+                },
+                children,
+                shares: shares.clone(),
+            },
+            (ContainerKind::Grid, Container::Grid { columns, .. }) => Container::Grid {
+                children,
+                columns: *columns,
+            },
+            _ => Container::with_children(kind, children),
+        };
+        self.tiles.insert(container, Tile::Container(rebuilt));
+        Ok(())
+    }
+
+    /// Move a tile out into a new window of its own (ADR-0031 D4).
+    fn do_detach(&mut self, window: WindowId, target: &PaneRef) -> Result<(), LayoutError> {
+        let tile = self.resolve(window, target)?;
+        let home = self
+            .window_of(tile)
+            .ok_or(LayoutError::UnknownTile { tile })?;
+        let leaves = self.leaves(home);
+        let leaving = self.leaves_of(tile);
+        if leaving.len() >= leaves.len() {
+            // It is already a window of its own.
+            return Err(LayoutError::CannotCloseLastPane);
+        }
+        // The pane the source window falls back to, chosen exactly as a close
+        // chooses it: the first survivor after the departing subtree, else the
+        // last one before it.
+        let survivor = leaves
+            .iter()
+            .skip_while(|l| !leaving.contains(l))
+            .find(|l| !leaving.contains(l))
+            .copied()
+            .or_else(|| {
+                leaves
+                    .iter()
+                    .take_while(|l| !leaving.contains(l))
+                    .last()
+                    .copied()
+            });
+        match self.slot_of(tile) {
+            Some(Slot::Child(parent, index)) => {
+                if let Some(container) = self.container_mut(parent) {
+                    container.remove_child_at(index);
+                }
+            }
+            // Unreachable: the pane count check above covers a window root.
+            Some(Slot::Root(_)) => return Err(LayoutError::CannotCloseLastPane),
+            None => return Err(LayoutError::UnknownTile { tile }),
+        }
+        if let (Some(survivor), Some(w)) = (survivor, self.window_mut(home)) {
+            w.focused = Some(survivor);
+        }
+        // Focus follows the pane out of the window it left.
+        self.add_window(tile);
+        Ok(())
+    }
+
+    fn do_maximize(&mut self, window: WindowId, target: &PaneRef) -> Result<(), LayoutError> {
+        let tile = self.resolve(window, target)?;
+        let home = self
+            .window_of(tile)
+            .ok_or(LayoutError::UnknownTile { tile })?;
+        let inside = self
+            .window(home)
+            .and_then(|w| w.focused)
+            .map(|f| self.is_ancestor(tile, f))
+            .unwrap_or(false);
+        if let Some(w) = self.window_mut(home) {
+            w.maximized = Some(tile);
+        }
+        if !inside {
+            self.focus_tile(home, tile);
+        }
+        Ok(())
+    }
+}
