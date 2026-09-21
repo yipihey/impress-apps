@@ -30,6 +30,12 @@ native = ["uniffi"]
 [dependencies]
 impress-core = { workspace = true, features = ["sqlite", "collab"] }
 impress-ai.workspace = true
+# The ADR-0031 layout tree (L5). `impress-layout` for the verb vocabulary and
+# the tree value Swift renders; `impress-layout-service` for the store-backed
+# live layout, the undo rings and the D8 verbs — this crate translates, it
+# never decides anything about the tree.
+impress-layout.workspace = true
+impress-layout-service.workspace = true
 futures-util = "0.3"
 uniffi = { workspace = true, optional = true }
 serde = { workspace = true }

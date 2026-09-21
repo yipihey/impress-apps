@@ -36,6 +36,40 @@
 
 import SwiftUI
 
+/// Where the three universal toggles LAND, which is no longer one place.
+///
+/// ADR-0031 D5: "roles, not slots, are what universal chords act on". When
+/// the layout tree is rendering the window, ⌃⌘S toggles whichever pane
+/// carries the `navigator` role, ⌥⌘0 the `list` one and ⌘0 the `detail` one —
+/// wherever the user has since moved them — and the toggle is a RESIZE of
+/// that pane's share in the tree, never a Boolean beside it. With the tree
+/// off (every shipped preset today) the chord flips the same
+/// `PaneLayoutState` field it always did.
+///
+/// The routing lives here, in the ONE value that owns these three chords, so
+/// the two chassis roots cannot drift the way the four hand-written copies
+/// did (ADR-0022 D9 finding 4, which is why this file exists at all).
+@MainActor
+enum PaneLayoutChordRouter {
+
+    /// `impress_layout::Role`'s constants, as the chords name them.
+    static let navigatorRole = "navigator"
+    static let listRole = "list"
+    static let detailRole = "detail"
+
+    /// Toggle `role` in the layout tree, or apply `fallback` to the live
+    /// `PaneLayoutState` when no tree is rendering.
+    static func toggle(role: String, otherwise fallback: (inout PaneLayoutState) -> Void) {
+        #if os(macOS)
+        if let controller = LayoutTreeRuntime.shared.controller {
+            controller.toggleRole(role)
+            return
+        }
+        #endif
+        fallback(&PaneLayoutStore.shared.current)
+    }
+}
+
 /// The three chassis pane toggles as MENU CONTENT, for a host that already owns
 /// a `CommandGroup(after: .sidebar)` and wants them at a specific position in
 /// it.
@@ -82,17 +116,23 @@ public struct ImpressPaneLayoutButtons: View {
     @ViewBuilder
     public var body: some View {
         Button("Toggle Detail Pane") {
-            PaneLayoutStore.shared.current.detailPaneVisible.toggle()
+            PaneLayoutChordRouter.toggle(role: PaneLayoutChordRouter.detailRole) {
+                $0.detailPaneVisible.toggle()
+            }
         }
         .keyboardShortcut("0", modifiers: .command)
 
         Button(listTitle) {
-            PaneLayoutStore.shared.current.listPaneVisible.toggle()
+            PaneLayoutChordRouter.toggle(role: PaneLayoutChordRouter.listRole) {
+                $0.listPaneVisible.toggle()
+            }
         }
         .keyboardShortcut("0", modifiers: [.command, .option])
 
         Button("Toggle Sidebar") {
-            PaneLayoutStore.shared.current.sidebarVisible.toggle()
+            PaneLayoutChordRouter.toggle(role: PaneLayoutChordRouter.navigatorRole) {
+                $0.sidebarVisible.toggle()
+            }
         }
         .keyboardShortcut("s", modifiers: [.control, .command])
     }
@@ -128,6 +168,13 @@ public struct ImpressPaneLayoutCommands: Commands {
 ///
 /// Anything that changes here changes the published grammar, and
 /// `PaneLayoutCommandsTests` fails until the doc row moves with it.
+///
+/// `toggle` is still the `PaneLayoutState` mutation, deliberately: it is the
+/// half of the chord that can be exercised without a window, a store or an
+/// FFI. The layout-tree half (`PaneLayoutChordRouter`, ADR-0031 D5) is a
+/// ROUTING decision taken at the button, and it is proven by the tree's own
+/// tests plus the Tier A `resize` capability in `impress-layout-service`, not
+/// by pretending a `PaneLayoutState` stands in for a share.
 public extension ImpressPaneLayoutButtons {
 
     /// One toggle: its menu title, its key, its modifiers, and the

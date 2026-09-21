@@ -2,6 +2,9 @@ pub mod event;
 pub mod item;
 pub mod maintenance;
 pub mod operation;
+/// The pane query algebra (ADR-0031 D2): what a pane shows, compiled to an
+/// `ItemQuery` in one place from the kind manifest.
+pub mod pane_query;
 pub mod query;
 pub mod reference;
 pub mod registry;

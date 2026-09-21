@@ -38,9 +38,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::event::ItemEvent;
+use crate::event::{ItemEvent, MutationKind, StoreMutation};
 use crate::item::{ActorKind, ItemId, Value};
 use crate::manuscript_ops;
+use crate::reference::EdgeType;
 use crate::sqlite_store::{parse_actor_kind, SqliteItemStore};
 use crate::store::{ItemStore, StoreError};
 
@@ -854,10 +855,24 @@ impl SqliteItemStore {
         for id in created_ids {
             if let Ok(Some(item)) = self.get(id) {
                 let schema = item.schema.to_string();
+                // ADR-0031 D9: a pane must re-run for a row that arrived over
+                // sync exactly as for one the user created. imbib's review
+                // queue going stale against impel-taskd's writes is the same
+                // bug one process further out.
+                self.emit_mutation(StoreMutation::new(
+                    id,
+                    Some(schema.clone()),
+                    MutationKind::Created,
+                ));
                 self.emit(Some(&schema), ItemEvent::Created(Box::new(item)));
             }
         }
         for (id, schema) in updated_events {
+            self.emit_mutation(StoreMutation::new(
+                id,
+                Some(schema.clone()),
+                MutationKind::Updated,
+            ));
             self.emit(
                 Some(&schema),
                 ItemEvent::Updated {
@@ -873,11 +888,74 @@ impl SqliteItemStore {
     /// Apply fetched remote reference records: both endpoints present →
     /// `INSERT OR IGNORE`; missing endpoint → parked in `sync_pending_refs`
     /// for `sync_retry_pending_references` (plan decision 5).
+    /// The [`StoreMutation`] a remote edge that just landed amounts to
+    /// (ADR-0031 D9).
+    ///
+    /// An edge arriving over sync changes a collection-scoped pane exactly as
+    /// much as one the user filed by hand, and this is the one write path
+    /// that does not go through `apply_operation` — it inserts into
+    /// `item_references` directly, so nothing described it until now. imbib's
+    /// review queue going stale against impel-taskd's writes was this bug one
+    /// process further out.
+    ///
+    /// `None` on a wire form that does not parse: a malformed edge type or a
+    /// non-UUID endpoint is a bad record, not a reason to fail a sync batch
+    /// that has already committed, so it is warned about and the edge lands
+    /// unannounced (the pane refreshes on its next ordinary invalidation).
+    fn landed_reference_mutation(
+        conn: &Connection,
+        source_id: &str,
+        target_id: &str,
+        edge_type: &str,
+    ) -> Option<StoreMutation> {
+        // The column holds `serde_json::to_string(&EdgeType)` — the same wire
+        // form `materialize_operation` writes, which is why the remote record
+        // can be inserted verbatim.
+        let edge: EdgeType = match serde_json::from_str(edge_type) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!(
+                    "[impress-core] synced reference {source_id} -> {target_id}: \
+                     unparseable edge_type {edge_type:?} ({e}); \
+                     edge applied, mutation not published"
+                );
+                return None;
+            }
+        };
+        let (Ok(source), Ok(target)) = (Uuid::parse_str(source_id), Uuid::parse_str(target_id))
+        else {
+            eprintln!(
+                "[impress-core] synced reference {source_id} -> {target_id}: \
+                 endpoint is not a UUID; edge applied, mutation not published"
+            );
+            return None;
+        };
+        let schema_ref: Option<String> = conn
+            .query_row(
+                "SELECT schema_ref FROM items WHERE id = ?1",
+                params![source_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten();
+        Some(StoreMutation::new(
+            source,
+            schema_ref,
+            MutationKind::ReferenceAdded {
+                edge,
+                source,
+                target,
+            },
+        ))
+    }
+
     pub fn sync_apply_remote_references(
         &self,
         refs: Vec<SyncReferenceRecord>,
     ) -> Result<SyncApplyReport, StoreError> {
         let mut report = SyncApplyReport::default();
+        let mut landed: Vec<StoreMutation> = Vec::new();
         self.with_suppressed_tx(|conn| {
             for r in &refs {
                 Self::hlc_observe_remote(conn, r.logical_clock)?;
@@ -896,6 +974,12 @@ impl SqliteItemStore {
                         params![&r.source_id, &r.target_id, &r.edge_type, &r.metadata],
                     )
                     .map_err(|e| StoreError::Storage(format!("apply reference: {}", e)))?;
+                    landed.extend(Self::landed_reference_mutation(
+                        conn,
+                        &r.source_id,
+                        &r.target_id,
+                        &r.edge_type,
+                    ));
                     report.applied += 1;
                 } else {
                     conn.execute(
@@ -923,6 +1007,11 @@ impl SqliteItemStore {
             }
             Ok(())
         })?;
+        // After commit, outside the writer lock — the same discipline every
+        // other emit in this module follows.
+        for mutation in landed {
+            self.emit_mutation(mutation);
+        }
         Ok(report)
     }
 
@@ -931,6 +1020,9 @@ impl SqliteItemStore {
     /// never resolve — counted as `skipped_lww`); the rest stay deferred.
     pub fn sync_retry_pending_references(&self) -> Result<SyncApplyReport, StoreError> {
         let mut report = SyncApplyReport::default();
+        // A deferred edge lands here instead of in `sync_apply_remote_references`,
+        // and a pane cannot tell the difference — so neither does this.
+        let mut landed: Vec<StoreMutation> = Vec::new();
         self.with_suppressed_tx(|conn| {
             let pending: Vec<(String, String, String, String, Option<String>)> = {
                 let mut stmt = conn
@@ -969,6 +1061,9 @@ impl SqliteItemStore {
                         params![record_name],
                     )
                     .map_err(|e| StoreError::Storage(format!("retry dequeue: {}", e)))?;
+                    landed.extend(Self::landed_reference_mutation(
+                        conn, source_id, target_id, edge_type,
+                    ));
                     report.applied += 1;
                 } else {
                     let tombstoned: i64 = conn
@@ -992,6 +1087,9 @@ impl SqliteItemStore {
             }
             Ok(())
         })?;
+        for mutation in landed {
+            self.emit_mutation(mutation);
+        }
         Ok(report)
     }
 
@@ -1062,6 +1160,11 @@ impl SqliteItemStore {
         })?;
 
         for (id, schema) in deleted_events {
+            self.emit_mutation(StoreMutation::new(
+                id,
+                Some(schema.clone()),
+                MutationKind::Deleted,
+            ));
             self.emit(Some(&schema), ItemEvent::Deleted(id));
         }
         Ok(report)
@@ -1093,6 +1196,11 @@ impl SqliteItemStore {
         })?;
 
         for (id, schema) in deleted_events {
+            self.emit_mutation(StoreMutation::new(
+                id,
+                Some(schema.clone()),
+                MutationKind::Deleted,
+            ));
             self.emit(Some(&schema), ItemEvent::Deleted(id));
         }
         Ok(report)

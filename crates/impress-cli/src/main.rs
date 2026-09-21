@@ -45,6 +45,9 @@ const _SMART_SEARCH_FORCE_LINK: fn() -> impress_smart_search_service::DefaultSma
 const _PARSERS_FORCE_LINK: fn() -> impress_parsers_service::DefaultParsersService =
     impress_parsers_service::DefaultParsersService::default;
 #[allow(dead_code)]
+const _LAYOUT_SERVICE_FORCE_LINK: fn() -> impress_layout_service::DefaultLayoutService =
+    impress_layout_service::DefaultLayoutService::new;
+#[allow(dead_code)]
 const _MEMORY_SERVICE_FORCE_LINK: fn() -> impress_memory_service::DefaultMemoryService =
     impress_memory_service::DefaultMemoryService::new;
 

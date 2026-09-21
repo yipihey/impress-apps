@@ -198,6 +198,18 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
         }
     }
 
+    /// The `SharedStore` handle the ADR-0031 layout tree opens `SharedLayout`
+    /// on (`Chassis/Layout/LayoutTreeView.swift`).
+    ///
+    /// The SAME handle the review queue uses — the kernel one, on the same
+    /// database file — because a third full store open costs a schema init
+    /// and a reader pool at first draw, which is how the sidebar once spent
+    /// ~15 s of launch. Named separately so a reader of `LayoutTreeHost` is
+    /// not left wondering what reviews have to do with panes.
+    func layoutSharedStore() -> ImpressRustCore.SharedStore? {
+        sharedReviewStore()
+    }
+
     // MARK: - Initialization
 
     private init() throws {

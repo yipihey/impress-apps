@@ -2860,3 +2860,71 @@ Two invariants a future reader will need (see ADR-0027 D2/D4):
   `ManuscriptStoreAdapter.setBody` used to; it now commits through the
   document. A raw write is not lost (D4 recovery catches it), but it forfeits
   merge — the write is applied last-writer-wins on next touch.
+
+## Layout tree (ADR-0031 L6)
+
+**Status: the Swift host exists and is OFF in every shipped preset.**
+`apps/imbib/PublicationManagerCore/Sources/PublicationManagerCore/Chassis/Layout/`
+renders the Rust-owned tree (`SharedLayout`) instead of `TabContentView` when
+either `AppShellConfiguration.usesLayoutTree` (false in every preset) or the
+per-machine override is set:
+
+```
+defaults write com.impress.imbib impress.layoutTree.enabled -bool YES   # on
+defaults delete com.impress.imbib impress.layoutTree.enabled            # off
+```
+
+The flag is read ONCE per launch (`LayoutTreeFlag.isEnabled`), so it cannot
+change under a live window.
+
+### View kinds
+
+The registry key is `PaneSpec.view_kind`, matched by **string equality**
+against `impress_layout::ViewKindId` — the same exact-match discipline as
+schema refs, with the same failure mode (a misspelled kind renders a
+placeholder forever, in silence, on every platform). Copy the spelling from
+`crates/impress-layout/src/ids.rs`.
+
+| View kind | L6 status | Renders | Session-bearing (D6) | Notes |
+|---|---|---|---|---|
+| `outline` | ✅ rendered | `LayoutRowsPaneView(.outline)` — the navigator query's rows as a sidebar-styled list | ➖ | Selection publishes on the pane's channel via the `select` verb; it is NOT `@State` |
+| `list` | ✅ rendered | `LayoutRowsPaneView(.list)` — the pane's compiled query, run | ➖ | Rows re-run when the invalidation feed marks the pane stale (L4), not on every mutation |
+| `info` | ✅ rendered | the existing `DetailView(publicationID:selectedTab:)` | ➖ | Resolves `SharedPane.single_item`, else the `item` binding. A non-publication id gets a named empty state, never an error |
+| `legacy` | ✅ rendered | `TabContentView` — today's whole chassis inside one pane (D11) | ➖ | L6 hosts the app's CURRENT route so the flagged-on build shows what the flagged-off build shows; L8 makes it per-route |
+| `placeholder` | ✅ rendered | `ChassisEmptyState` naming the missing kind, keeping the spec | ➖ | D4's degradation rule: the tree outlives its content |
+| `pdf` | ⏳ placeholder | — | ➖ | `PDFTab` needs `any PaperRepresentable` + the detail lifecycle around it; L8 |
+| `notes` | ⏳ placeholder | — | ➖ | `NotesTab` needs the `PublicationModel`, and the note field has a FORMAT (`PublicationNotesDocument`); L8 |
+| `bibtex` | ⏳ placeholder | — | ➖ | `BibTeXTab` takes the paper + id list; L8 |
+| `source` | ⏳ placeholder | — | ✅ | Needs `PaneSessionRegistry` (shipped in L6, unused): an `NSTextView`, its undo stack and an in-flight compile must outlive every layout mutation |
+| `plot`, `console` | ❌ unregistered | placeholder | ➖ | implore / the log console; not in imbib's build |
+
+### Containers
+
+| Container | Renders as | Notes |
+|---|---|---|
+| `linear(horizontal)` | `LayoutLinearSplit` — N children, N weights, N−1 dividers | Not `ImpressSplitView` (a two-pane value with a `UserDefaults` fraction); its conventions are kept — 1 pt divider, 10 pt hit area, `NSCursor` push/pop, `.ignoresSafeArea(.container, edges: .top)` on every pane but the first |
+| `linear(vertical)` | the same view, `VStack` axis | |
+| `tabs` | a strip of buttons + the visible child | **The visible tab is DERIVED**: the tab containing the focused leaf, else the container's `active`, else the first child. D8 has no `set-active-tab` verb and `Verb::Focus` does not activate a tab in `impress_layout::apply` — a `@State selectedTab` here would be exactly the view-held layout state ADR-0019 D3 forbids. Open question for L7 |
+| `grid` | `LazyVGrid`, `columns` or ⌈√n⌉ | |
+| a child whose share ≤ 1e-3 | zero length, divider hidden | How a role toggle hides a pane without closing it — the pane, its session and its place in the tree survive (`MIN_SHARE` = 1e-4 in `impress_store_ffi::layout`) |
+
+### Chords
+
+| Chord | Tree on | Tree off |
+|---|---|---|
+| ⌃⌘S / ⌥⌘0 / ⌘0 | `resizeShare` on whichever pane carries the `navigator` / `list` / `detail` ROLE (D5). Un-collapsing restores the **sibling average** — the remembered width lives in the tree, never in a Swift value | flips `PaneLayoutState.sidebarVisible` / `listPaneVisible` / `detailPaneVisible` |
+| h / l | `focus_direction` left/right over the tree's leaves (`TriageKeyGrammar.focusPaneLeft/Right`) | `PaneFocusCycler` over the app's pane enum |
+| ⌘Z / ⇧⌘Z | `undo`/`redo` on the focused pane's **exploration** ring — unless the focused pane is session-bearing, when the chord is left to the responder chain (D7 stack 1) | the responder chain |
+| ⌥⌘Z / ⌥⇧⌘Z | `undo`/`redo` on the **arrangement** ring (`UniversalShortcut.undoArrangement` / `.redoArrangement`, new in L6) | unbound |
+
+Both new chords are in `docs/keyboard-grammar.md`'s universal table, per its
+rule 2.
+
+### What holds no state
+
+Nothing in `Chassis/Layout/` holds layout state (ADR-0019 D3 / ADR-0031
+invariant 1). The two `@State` values that exist are derived data or a
+gesture: `LayoutRowsPaneView.rows` (query results) and
+`LayoutLinearSplit.drag` (the in-flight divider drag, discarded on release —
+which is also why `resizeShare` is called exactly once, on mouse-up, instead
+of once per frame).

@@ -103,6 +103,14 @@ fn compile_predicate(pred: &Predicate) -> (String, Vec<SqlValue>) {
                 format!("{} LIKE ? ESCAPE '\\'", col)
             }
         }
+        Predicate::In(_, values) if values.is_empty() => {
+            // `x IN ()` is a SQLite SYNTAX ERROR, so an empty set used to fail
+            // the whole statement rather than match nothing. An empty `In` is
+            // the algebra's spelling of FALSE — `pane_query` emits
+            // `In("id", [])` for a pane whose optional parameter is unbound,
+            // which must render an empty pane, never every row in the store.
+            "0".to_string()
+        }
         Predicate::In(field, values) => {
             let col = field_to_column(field);
             let placeholders: Vec<String> = values
@@ -478,6 +486,34 @@ mod tests {
         };
         let compiled = compile_query(&q);
         assert_eq!(compiled.limit_offset, "LIMIT 50 OFFSET 100");
+    }
+
+    #[test]
+    fn compile_in_with_values() {
+        let q = ItemQuery {
+            predicates: vec![Predicate::In(
+                "schema_ref".into(),
+                vec![
+                    Value::String("email-message".into()),
+                    Value::String("chat-message".into()),
+                ],
+            )],
+            ..Default::default()
+        };
+        let compiled = compile_query(&q);
+        assert!(compiled.where_clause.contains("schema_ref IN (?, ?)"));
+        assert_eq!(compiled.params.len(), 2);
+    }
+
+    #[test]
+    fn compile_empty_in_is_constant_false_not_a_syntax_error() {
+        let q = ItemQuery {
+            predicates: vec![Predicate::In("id".into(), vec![])],
+            ..Default::default()
+        };
+        let compiled = compile_query(&q);
+        assert_eq!(compiled.where_clause, "WHERE 0");
+        assert!(compiled.params.is_empty());
     }
 
     #[test]

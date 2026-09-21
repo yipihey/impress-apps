@@ -28,6 +28,8 @@ use impress_ai_service as _force_link_ai_service;
 #[allow(unused_imports)]
 use impress_bridges_service as _force_link_bridges;
 #[allow(unused_imports)]
+use impress_layout_service as _force_link_layout_service;
+#[allow(unused_imports)]
 use impress_memory_service as _force_link_memory_service;
 #[allow(unused_imports)]
 use impress_parsers_service as _force_link_parsers_service;

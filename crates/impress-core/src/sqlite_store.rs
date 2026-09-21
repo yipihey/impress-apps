@@ -8,7 +8,7 @@ use chrono::{TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-use crate::event::ItemEvent;
+use crate::event::{ItemEvent, MutationKind, StoreMutation};
 use crate::item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility};
 use crate::operation::{
     build_operation_payload, inverse_of, undo_description, EffectiveState, OperationIntent,
@@ -258,6 +258,13 @@ pub struct SqliteItemStore {
     /// independent channel, optionally filtered by schema-ref prefix.
     /// Dead subscribers (dropped receivers) are pruned on emit.
     subscribers: Mutex<Vec<EventSubscriber>>,
+    /// The second, finer bus (ADR-0031 D9, work package L4): the same
+    /// mutations described as [`StoreMutation`]s, for query-addressed panes
+    /// that need to know WHICH edge moved. Separate from `subscribers`
+    /// because `ItemEvent` is the Swift contract and must not change shape
+    /// (`StoreMirrorKernel` subscribes with a schema-ref prefix and matches
+    /// on its four variants). Pruned on emit, like `subscribers`.
+    mutation_subscribers: Mutex<Vec<Sender<StoreMutation>>>,
     pub(crate) default_author: String,
     pub(crate) default_author_kind: ActorKind,
     pub(crate) origin_id: String,
@@ -686,6 +693,7 @@ impl SqliteItemStore {
             conn: Mutex::new(conn),
             readers: None,
             subscribers: Mutex::new(Vec::new()),
+            mutation_subscribers: Mutex::new(Vec::new()),
             default_author: config.author,
             default_author_kind: config.author_kind,
             origin_id,
@@ -1558,6 +1566,61 @@ impl SqliteItemStore {
         });
     }
 
+    /// Fan a [`StoreMutation`] out to every live mutation subscriber
+    /// (ADR-0031 D9). Dead subscribers are pruned here.
+    ///
+    /// This bus is UNFILTERED: a pane's dependency set is not a schema-ref
+    /// prefix (a collection pane depends on the collection row's edges, whose
+    /// schema ref is nothing like the pane's own), so filtering on the store
+    /// side would drop exactly the mutations incremental invalidation exists
+    /// to catch. Matching happens on the subscriber side, against
+    /// [`crate::pane_query::invalidation::Invalidation`].
+    ///
+    /// It deliberately does NOT post the cross-process Darwin note: every
+    /// call site here also calls [`Self::emit`], which posts it once.
+    pub(crate) fn emit_mutation(&self, mutation: StoreMutation) {
+        let Ok(mut subs) = self.mutation_subscribers.lock() else {
+            return;
+        };
+        subs.retain(|tx| tx.send(mutation.clone()).is_ok());
+    }
+
+    /// The [`StoreMutation`] an operation amounts to.
+    ///
+    /// `prev` is the value [`Self::capture_previous_value`] captured BEFORE
+    /// the operation was materialized, which is the only place the old parent
+    /// still exists — by the time an event is emitted, `items.parent_id`
+    /// already holds the new one.
+    fn mutation_kind_for(
+        target_id: ItemId,
+        op_type: &OperationType,
+        prev: Option<&Value>,
+    ) -> MutationKind {
+        match op_type {
+            OperationType::AddReference(typed_ref) => MutationKind::ReferenceAdded {
+                edge: typed_ref.edge_type.clone(),
+                // `materialize_operation` writes the operation's TARGET as
+                // the edge's source_id, so the row the operation names is the
+                // source and the reference's `target` is the target.
+                source: target_id,
+                target: typed_ref.target,
+            },
+            OperationType::RemoveReference(target, edge) => MutationKind::ReferenceRemoved {
+                edge: edge.clone(),
+                source: target_id,
+                target: *target,
+            },
+            OperationType::SetParent(new) => MutationKind::ParentChanged {
+                old: match prev {
+                    Some(Value::String(s)) => Uuid::parse_str(s).ok(),
+                    _ => None,
+                },
+                new: *new,
+            },
+            _ => MutationKind::Updated,
+        }
+    }
+
     /// Schema of an item, for event filtering. `None` when the item is
     /// gone or unreadable — callers deliver unfiltered in that case.
     fn schema_of(conn: &Connection, id: &str) -> Option<String> {
@@ -1950,6 +2013,11 @@ impl SqliteItemStore {
         // Capture previous value before materializing change
         let prev = Self::capture_previous_value(&conn, &target_str, &spec.op_type)?;
 
+        // The fine description of this mutation (ADR-0031 D9), taken HERE
+        // because `prev` is about to be moved into the operation payload and
+        // it is the only record of the OLD parent.
+        let mutation_kind = Self::mutation_kind_for(spec.target_id, &spec.op_type, prev.as_ref());
+
         // Get next logical clock
         let clock = Self::next_clock(&conn)?;
 
@@ -2012,6 +2080,11 @@ impl SqliteItemStore {
 
         let target_schema = Self::schema_of(&conn, &spec.target_id.to_string());
         drop(conn);
+        self.emit_mutation(StoreMutation::new(
+            spec.target_id,
+            target_schema.clone(),
+            mutation_kind,
+        ));
         self.emit(
             target_schema.as_deref(),
             ItemEvent::OperationApplied {
@@ -2039,6 +2112,7 @@ impl SqliteItemStore {
         let batch_id = Uuid::new_v4().to_string();
         let mut op_ids = Vec::with_capacity(specs.len());
         let mut targets = Vec::with_capacity(op_ids.capacity());
+        let mut mutation_kinds: Vec<MutationKind> = Vec::with_capacity(op_ids.capacity());
 
         for mut spec in specs {
             spec.batch_id = Some(batch_id.clone());
@@ -2060,6 +2134,14 @@ impl SqliteItemStore {
 
             // Capture previous value before materializing change
             let prev = Self::capture_previous_value(&tx, &target_str, &spec.op_type)?;
+
+            // Same reason as the single-op path: `prev` holds the old parent
+            // and is about to be moved into the operation payload.
+            mutation_kinds.push(Self::mutation_kind_for(
+                spec.target_id,
+                &spec.op_type,
+                prev.as_ref(),
+            ));
 
             let clock = Self::next_clock(&tx)?;
             let op_id = Uuid::new_v4();
@@ -2126,7 +2208,13 @@ impl SqliteItemStore {
             .map(|t| Self::schema_of(&conn, &t.to_string()))
             .collect();
         drop(conn);
-        for ((op_id, target_id), schema) in op_ids.iter().zip(targets.iter()).zip(schemas.iter()) {
+        for (((op_id, target_id), schema), kind) in op_ids
+            .iter()
+            .zip(targets.iter())
+            .zip(schemas.iter())
+            .zip(mutation_kinds)
+        {
+            self.emit_mutation(StoreMutation::new(*target_id, schema.clone(), kind));
             self.emit(
                 schema.as_deref(),
                 ItemEvent::OperationApplied {
@@ -4765,6 +4853,11 @@ impl ItemStore for SqliteItemStore {
         Self::insert_item(&conn, &item, &self.origin_id)?;
         drop(conn);
         let schema = item.schema.clone();
+        self.emit_mutation(StoreMutation::new(
+            id,
+            Some(schema.clone()),
+            MutationKind::Created,
+        ));
         self.emit(Some(&schema), ItemEvent::Created(Box::new(item)));
         Ok(id)
     }
@@ -4790,6 +4883,11 @@ impl ItemStore for SqliteItemStore {
         drop(conn);
         for item in items {
             let schema = item.schema.clone();
+            self.emit_mutation(StoreMutation::new(
+                item.id,
+                Some(schema.clone()),
+                MutationKind::Created,
+            ));
             self.emit(Some(&schema), ItemEvent::Created(Box::new(item)));
         }
         Ok(ids)
@@ -4950,6 +5048,11 @@ impl ItemStore for SqliteItemStore {
         }
 
         drop(conn);
+        self.emit_mutation(StoreMutation::new(
+            id,
+            schema.clone(),
+            MutationKind::Deleted,
+        ));
         self.emit(schema.as_deref(), ItemEvent::Deleted(id));
         Ok(())
     }
@@ -5065,6 +5168,28 @@ impl ItemStore for SqliteItemStore {
                 schema_prefix: q.schema,
                 tx,
             });
+        Ok(rx)
+    }
+}
+
+impl SqliteItemStore {
+    /// Subscribe to [`StoreMutation`]s (ADR-0031 D9, work package L4).
+    ///
+    /// The same mutations [`ItemStore::subscribe`] reports, described finely
+    /// enough for a query-addressed pane to decide whether to re-run:
+    /// `OperationApplied` becomes `Updated`, `ParentChanged`,
+    /// `ReferenceAdded` or `ReferenceRemoved`, and every mutation carries its
+    /// row's schema ref.
+    ///
+    /// Unfiltered by design — see [`Self::emit_mutation`]. Callers filter
+    /// with [`crate::pane_query::invalidation::QuerySubscriptions`]. Dropping
+    /// the receiver unsubscribes implicitly (pruned on the next emit).
+    pub fn subscribe_mutations(&self) -> Result<Receiver<StoreMutation>, StoreError> {
+        let (tx, rx) = mpsc::channel();
+        self.mutation_subscribers
+            .lock()
+            .map_err(|e| StoreError::Storage(e.to_string()))?
+            .push(tx);
         Ok(rx)
     }
 }
@@ -5911,6 +6036,398 @@ mod tests {
         // The dead subscriber was pruned during emit.
         let subs = store.subscribers.lock().unwrap();
         assert_eq!(subs.len(), 1);
+    }
+
+    // ── The mutation bus (ADR-0031 D9, work package L4) ─────────────────
+
+    #[test]
+    fn mutation_bus_describes_a_reference_add_as_an_edge() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let collection = store
+            .insert(make_item("imbib/collection", "Reading"))
+            .unwrap();
+        let paper = store
+            .insert(make_item("imbib/bibliography-entry", "A Paper"))
+            .unwrap();
+
+        // Subscribe AFTER the inserts so the channel holds only the edge.
+        let rx = store.subscribe_mutations().unwrap();
+
+        store
+            .update(
+                collection,
+                vec![FieldMutation::AddReference(TypedReference {
+                    target: paper,
+                    edge_type: EdgeType::Contains,
+                    metadata: None,
+                })],
+            )
+            .unwrap();
+
+        let m = rx.try_recv().expect("a mutation was published");
+        assert_eq!(m.item_id, collection);
+        assert_eq!(m.schema_ref.as_deref(), Some("imbib/collection"));
+        assert_eq!(
+            m.kind,
+            MutationKind::ReferenceAdded {
+                edge: EdgeType::Contains,
+                source: collection,
+                target: paper,
+            },
+            "the operation\'s target is the edge\'s SOURCE"
+        );
+
+        // …and a pane scoped to that collection wakes for it, while one
+        // scoped to another kind does not. This is the whole of L4 in one
+        // assertion.
+        let manifest = crate::pane_query::KindManifest::builtin();
+        let in_collection = crate::pane_query::compile(
+            &crate::pane_query::PaneQuery {
+                kinds: vec!["publication".into()],
+                scope: crate::pane_query::Scope::Collection {
+                    id: crate::pane_query::ItemRef::Id { id: collection },
+                },
+                ..Default::default()
+            },
+            &[],
+            &crate::pane_query::Bindings::new(),
+            &manifest,
+        )
+        .unwrap();
+        let manuscripts = crate::pane_query::compile(
+            &crate::pane_query::PaneQuery {
+                kinds: vec!["manuscript".into()],
+                ..Default::default()
+            },
+            &[],
+            &crate::pane_query::Bindings::new(),
+            &manifest,
+        )
+        .unwrap();
+        assert!(in_collection.invalidation.is_affected_by(&m));
+        assert!(!manuscripts.invalidation.is_affected_by(&m));
+    }
+
+    #[test]
+    fn mutation_bus_describes_a_reference_remove() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let collection = store
+            .insert(make_item("imbib/collection", "Reading"))
+            .unwrap();
+        let paper = store
+            .insert(make_item("imbib/bibliography-entry", "A Paper"))
+            .unwrap();
+        store
+            .update(
+                collection,
+                vec![FieldMutation::AddReference(TypedReference {
+                    target: paper,
+                    edge_type: EdgeType::Contains,
+                    metadata: None,
+                })],
+            )
+            .unwrap();
+
+        let rx = store.subscribe_mutations().unwrap();
+        store
+            .update(
+                collection,
+                vec![FieldMutation::RemoveReference(paper, EdgeType::Contains)],
+            )
+            .unwrap();
+
+        assert_eq!(
+            rx.try_recv().unwrap().kind,
+            MutationKind::ReferenceRemoved {
+                edge: EdgeType::Contains,
+                source: collection,
+                target: paper,
+            }
+        );
+    }
+
+    #[test]
+    fn mutation_bus_carries_both_ends_of_a_parent_change() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let lib_a = store.insert(make_item("imbib/library", "A")).unwrap();
+        let lib_b = store.insert(make_item("imbib/library", "B")).unwrap();
+        let paper = store
+            .insert(make_item("imbib/bibliography-entry", "A Paper"))
+            .unwrap();
+
+        let rx = store.subscribe_mutations().unwrap();
+
+        store
+            .update(paper, vec![FieldMutation::SetParent(Some(lib_a))])
+            .unwrap();
+        assert_eq!(
+            rx.try_recv().unwrap().kind,
+            MutationKind::ParentChanged {
+                old: None,
+                new: Some(lib_a),
+            }
+        );
+
+        // The OLD parent is the part only `capture_previous_value` knows:
+        // by emit time `items.parent_id` already holds the new one. A pane
+        // scoped to library A has to re-run precisely because of `old`.
+        store
+            .update(paper, vec![FieldMutation::SetParent(Some(lib_b))])
+            .unwrap();
+        let moved = rx.try_recv().unwrap();
+        assert_eq!(
+            moved.kind,
+            MutationKind::ParentChanged {
+                old: Some(lib_a),
+                new: Some(lib_b),
+            }
+        );
+
+        let in_a = crate::pane_query::compile(
+            &crate::pane_query::PaneQuery {
+                kinds: vec!["publication".into()],
+                scope: crate::pane_query::Scope::Parent {
+                    id: crate::pane_query::ItemRef::Id { id: lib_a },
+                },
+                ..Default::default()
+            },
+            &[],
+            &crate::pane_query::Bindings::new(),
+            &crate::pane_query::KindManifest::builtin(),
+        )
+        .unwrap();
+        assert!(in_a.invalidation.is_affected_by(&moved));
+    }
+
+    #[test]
+    fn mutation_bus_reports_create_update_delete_with_their_schema() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let rx = store.subscribe_mutations().unwrap();
+
+        let id = store.insert(make_item("task@1.0.0", "A Task")).unwrap();
+        let created = rx.try_recv().unwrap();
+        assert_eq!(created.item_id, id);
+        assert_eq!(created.schema_ref.as_deref(), Some("task@1.0.0"));
+        assert_eq!(created.kind, MutationKind::Created);
+
+        store
+            .update(id, vec![FieldMutation::SetRead(true)])
+            .unwrap();
+        let updated = rx.try_recv().unwrap();
+        assert_eq!(updated.kind, MutationKind::Updated);
+        assert_eq!(updated.schema_ref.as_deref(), Some("task@1.0.0"));
+
+        store.delete(id).unwrap();
+        let deleted = rx.try_recv().unwrap();
+        assert_eq!(deleted.kind, MutationKind::Deleted);
+        assert_eq!(
+            deleted.schema_ref.as_deref(),
+            Some("task@1.0.0"),
+            "the schema is captured BEFORE the row goes"
+        );
+    }
+
+    #[test]
+    fn mutation_bus_reports_every_operation_in_a_batch() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let a = store.insert(make_item("task@1.0.0", "A")).unwrap();
+        let b = store.insert(make_item("task@1.0.0", "B")).unwrap();
+        let c = store.insert(make_item("task@1.0.0", "C")).unwrap();
+
+        let rx = store.subscribe_mutations().unwrap();
+        store
+            .apply_operation_batch(vec![
+                op_spec(a, OperationType::SetRead(true)),
+                op_spec(
+                    b,
+                    OperationType::AddReference(TypedReference {
+                        target: c,
+                        edge_type: EdgeType::DependsOn,
+                        metadata: None,
+                    }),
+                ),
+                op_spec(c, OperationType::SetParent(Some(a))),
+            ])
+            .unwrap();
+
+        let got: Vec<(ItemId, MutationKind)> = rx.try_iter().map(|m| (m.item_id, m.kind)).collect();
+        assert_eq!(
+            got,
+            vec![
+                (a, MutationKind::Updated),
+                (
+                    b,
+                    MutationKind::ReferenceAdded {
+                        edge: EdgeType::DependsOn,
+                        source: b,
+                        target: c,
+                    }
+                ),
+                (
+                    c,
+                    MutationKind::ParentChanged {
+                        old: None,
+                        new: Some(a),
+                    }
+                ),
+            ],
+            "a batch keeps the per-operation description, not one lump"
+        );
+    }
+
+    fn op_spec(target: ItemId, op_type: OperationType) -> OperationSpec {
+        OperationSpec {
+            target_id: target,
+            op_type,
+            intent: OperationIntent::Routine,
+            reason: None,
+            batch_id: None,
+            author: "test".into(),
+            author_kind: ActorKind::Human,
+            retention: RetentionTier::Durable,
+        }
+    }
+
+    #[test]
+    fn a_synced_contains_edge_wakes_a_collection_scoped_pane() {
+        use crate::sync::SyncReferenceRecord;
+
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let collection = store
+            .insert(make_item("imbib/collection", "Reading"))
+            .unwrap();
+        let paper = store
+            .insert(make_item("imbib/bibliography-entry", "A Paper"))
+            .unwrap();
+
+        let rx = store.subscribe_mutations().unwrap();
+
+        // The wire form is what `materialize_operation` writes into
+        // `item_references.edge_type`, which is why a remote record can be
+        // inserted verbatim.
+        let edge_type = serde_json::to_string(&EdgeType::Contains).unwrap();
+        let report = store
+            .sync_apply_remote_references(vec![SyncReferenceRecord {
+                record_name: "ref_test".into(),
+                source_id: collection.to_string(),
+                target_id: paper.to_string(),
+                edge_type: edge_type.clone(),
+                metadata: None,
+                logical_clock: 1,
+            }])
+            .unwrap();
+        assert_eq!(report.applied, 1);
+
+        let m = rx.try_recv().expect("a synced edge is published");
+        assert_eq!(
+            m.kind,
+            MutationKind::ReferenceAdded {
+                edge: EdgeType::Contains,
+                source: collection,
+                target: paper,
+            }
+        );
+        assert_eq!(m.schema_ref.as_deref(), Some("imbib/collection"));
+
+        // The point of the whole exercise: the pane scoped to that
+        // collection re-runs, and the one over another kind does not.
+        let manifest = crate::pane_query::KindManifest::builtin();
+        let in_collection = crate::pane_query::compile(
+            &crate::pane_query::PaneQuery {
+                kinds: vec!["publication".into()],
+                scope: crate::pane_query::Scope::Collection {
+                    id: crate::pane_query::ItemRef::Id { id: collection },
+                },
+                ..Default::default()
+            },
+            &[],
+            &crate::pane_query::Bindings::new(),
+            &manifest,
+        )
+        .unwrap();
+        let manuscripts = crate::pane_query::compile(
+            &crate::pane_query::PaneQuery {
+                kinds: vec!["manuscript".into()],
+                ..Default::default()
+            },
+            &[],
+            &crate::pane_query::Bindings::new(),
+            &manifest,
+        )
+        .unwrap();
+        assert!(in_collection.invalidation.is_affected_by(&m));
+        assert!(!manuscripts.invalidation.is_affected_by(&m));
+
+        // …and the edge really landed, so the pane has something to find.
+        assert_eq!(
+            store
+                .query(&in_collection.item_query)
+                .unwrap()
+                .into_iter()
+                .map(|i| i.id)
+                .collect::<Vec<_>>(),
+            vec![paper]
+        );
+    }
+
+    #[test]
+    fn a_synced_edge_with_an_unparseable_wire_form_lands_without_a_mutation() {
+        use crate::sync::SyncReferenceRecord;
+
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let a = store
+            .insert(make_item("imbib/collection", "Reading"))
+            .unwrap();
+        let b = store
+            .insert(make_item("imbib/bibliography-entry", "A Paper"))
+            .unwrap();
+        let rx = store.subscribe_mutations().unwrap();
+
+        // A bad record must not fail a batch that is already committed:
+        // the edge lands, a warning goes to the console, no mutation is
+        // published, and the pane catches up on its next invalidation.
+        let report = store
+            .sync_apply_remote_references(vec![SyncReferenceRecord {
+                record_name: "ref_bad".into(),
+                source_id: a.to_string(),
+                target_id: b.to_string(),
+                edge_type: "not json".into(),
+                metadata: None,
+                logical_clock: 1,
+            }])
+            .unwrap();
+        assert_eq!(report.applied, 1, "the sync batch still succeeds");
+        assert!(
+            rx.try_recv().is_err(),
+            "nothing is published for a bad record"
+        );
+    }
+
+    #[test]
+    fn mutation_bus_prunes_dropped_subscribers_and_leaves_item_events_alone() {
+        let store = SqliteItemStore::open_in_memory().unwrap();
+        let dead = store.subscribe_mutations().unwrap();
+        let alive = store.subscribe_mutations().unwrap();
+        // The Swift-facing bus keeps its schema-prefix filter: the two buses
+        // are independent, and L4 must not have widened `subscribe`.
+        let tasks_only = store
+            .subscribe(ItemQuery {
+                schema: Some("task@1.0.0".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        drop(dead);
+
+        store
+            .insert(make_item("imbib/bibliography-entry", "A Paper"))
+            .unwrap();
+        assert_eq!(alive.try_recv().unwrap().kind, MutationKind::Created);
+        assert!(
+            tasks_only.try_recv().is_err(),
+            "a publication must not reach a task-filtered ItemEvent subscriber"
+        );
+
+        assert_eq!(store.mutation_subscribers.lock().unwrap().len(), 1);
     }
 
     // --- recency (last_activity_at payload stamp, rides item sync) ---
