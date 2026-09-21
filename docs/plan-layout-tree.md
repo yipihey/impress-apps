@@ -87,3 +87,20 @@ Session log (append-only):
   Known L6 gaps, both for L7: the tab strip's ACTIVE child is derived from
   focus because D8 has no `set-active-tab` verb, and `PaneSessionRegistry`
   ships unused (no session-bearing view kind is ported yet).
+- 2026-09-21 — Status at the end of the first autonomous session. L0–L5 and
+  the Rust half of L7 are committed and verified headless on Linux (per-crate
+  fmt / clippy / tests; `./scripts/check-schema-refs.sh`). The workspace-wide
+  clippy gate could not run in the container because `ort-sys` downloads an
+  ONNX binary the proxy blocks — run it on CI or a Mac. L6 is committed but
+  UNCOMPILED (see the verification sequence above). The tab-strip gap is
+  closed in Rust: `Layout::reveal` now activates every Tabs ancestor of the
+  focused leaf, so the Swift derivation is redundant and can read `active`.
+  The view kind for the editor is `source` everywhere. Not started: the Swift
+  half of L7 (the ADR-0019 D5 importer of `PaneLayoutState` and wiring ⌃⌘1–9
+  to `applyLayout(ordinal)`), and L8, both of which need the Mac loop first.
+  Follow-ups recorded by the agents and worth a decision: `SharedLayout` holds
+  its own session registry, so an in-process MCP host would not share undo
+  rings (`open_shared` constructor if that ever matters); `list_presets` and
+  ordinal recall seed shipped presets on read, so the caller owns the 90 s
+  startup guard; `store_metadata.origin_id` should replace the hostname
+  device id once exposed from impress-core.
