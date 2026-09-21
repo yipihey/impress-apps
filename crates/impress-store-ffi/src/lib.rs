@@ -22,6 +22,8 @@ use std::sync::Arc;
 
 mod ai;
 mod ai_registry;
+/// The ADR-0031 layout tree as Swift drives it (work package L5).
+mod layout;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
 
@@ -29,6 +31,12 @@ pub use ai::{
     AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,
     AiQueuedTurn, AiWorkerStatus, SharedAiStore,
 };
+pub use layout::{
+    cold_start_layout_json, compile_pane_query, kind_manifest_json, pane_spec_json,
+    SharedAppliedVerb, SharedLayout, SharedLayoutError, SharedLayoutListener, SharedLayoutRow,
+    SharedLayoutSnapshot, SharedPane, SharedWindow,
+};
+
 pub use ai_registry::{
     AiCapabilities, AiCategoryAssignment, AiCategoryEntry, AiChatMessage, AiChatRequest,
     AiChatResponse, AiChatStream, AiContentPart, AiCredentialField, AiError, AiFinishReason,
@@ -682,10 +690,23 @@ pub struct SharedManuscriptCommitOutcome {
 /// The handle is thread-safe (`Sync + Send`) via the underlying `SqliteItemStore`.
 #[cfg_attr(feature = "native", derive(uniffi::Object))]
 pub struct SharedStore {
-    inner: SqliteItemStore,
+    inner: Arc<SqliteItemStore>,
     /// The workspace's content-addressed blob directory (`<workspace>/content`,
     /// next to the database) — `None` for an in-memory store (ADR-0030 D3).
     blob_root: Option<std::path::PathBuf>,
+}
+
+impl SharedStore {
+    /// The one `SqliteItemStore` handle this object wraps.
+    ///
+    /// Not exported: it hands out a Rust type. It exists so that another FFI
+    /// object in this crate — `SharedLayout` — binds to the store the app has
+    /// ALREADY opened rather than opening a second connection to the same
+    /// file, which for an in-memory store would be a different database
+    /// entirely and for a file-backed one would be a second write lock.
+    pub(crate) fn core(&self) -> Arc<SqliteItemStore> {
+        self.inner.clone()
+    }
 }
 
 #[cfg_attr(feature = "native", uniffi::export)]
@@ -707,7 +728,7 @@ impl SharedStore {
                 .to_path_buf()
         });
         Ok(Arc::new(SharedStore {
-            inner: store,
+            inner: Arc::new(store),
             blob_root,
         }))
     }
@@ -719,7 +740,7 @@ impl SharedStore {
             message: e.to_string(),
         })?;
         Ok(Arc::new(SharedStore {
-            inner: store,
+            inner: Arc::new(store),
             blob_root: None,
         }))
     }

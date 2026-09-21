@@ -4889,6 +4889,8 @@ dependencies = [
  "futures-util",
  "impress-ai",
  "impress-core",
+ "impress-layout",
+ "impress-layout-service",
  "serde",
  "serde_json",
  "tempfile",
