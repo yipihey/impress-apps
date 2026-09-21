@@ -193,7 +193,7 @@ impl ProjectWorld {
     }
 }
 
-/// ADR-0031: the manuscript's papers are ONE imbib collection, and the sync
+/// ADR-0032: the manuscript's papers are ONE imbib collection, and the sync
 /// that fills it is what every entry point runs before imbib's papers window
 /// opens. Cited papers join it, a second run adds nothing, and a cite key
 /// imbib has no paper for is REPORTED rather than dropped — the window cannot

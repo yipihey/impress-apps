@@ -1,4 +1,4 @@
-# ADR-0031 — A manuscript's papers live in imbib, not in a panel inside imprint
+# ADR-0032 — A manuscript's papers live in imbib, not in a panel inside imprint
 
 - **Status**: accepted, implemented 2026-09-12
 - **Supersedes**: the Papers side panel added to imprint's Source-tab inspector on

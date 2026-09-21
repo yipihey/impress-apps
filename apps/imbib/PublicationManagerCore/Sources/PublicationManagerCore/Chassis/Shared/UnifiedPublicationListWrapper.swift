@@ -57,7 +57,7 @@ struct UnifiedPublicationListWrapper: View {
     /// scope (`ListViewStateStore`, keyed by `source.listViewID`), so a host's
     /// preference never overrides a decision the user made. The manuscript
     /// papers window opens on `.recentActivity` — the papers you are actually
-    /// reading while you write belong at the top (ADR-0031).
+    /// reading while you write belong at the top (ADR-0032).
     var initialSortOrder: LibrarySortOrder = .dateAdded
 
     /// Called when "Download PDFs" is requested for selected publications

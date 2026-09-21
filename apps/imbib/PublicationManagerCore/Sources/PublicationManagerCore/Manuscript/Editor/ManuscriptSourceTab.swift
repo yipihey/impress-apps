@@ -271,7 +271,7 @@ public struct ManuscriptSourceTab: View {
                 }
             }
             Spacer()
-            // The manuscript's papers live in imbib (ADR-0031): sync what this
+            // The manuscript's papers live in imbib (ADR-0032): sync what this
             // buffer cites into its collection and open imbib's window on it.
             Button {
                 ManuscriptPapersCommand.request(manuscriptID: session.manuscriptID)

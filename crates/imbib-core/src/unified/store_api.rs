@@ -6388,7 +6388,7 @@ mod tests {
     /// "Recently Used" (`LibrarySortOrder.recentActivity`, sort key
     /// `last_activity`) has to work in every scope a list serves, not just the
     /// Recent library — a collection is where it matters most, because that is
-    /// the scope a manuscript's papers are shown in (ADR-0031).
+    /// the scope a manuscript's papers are shown in (ADR-0032).
     #[test]
     fn recency_sort_orders_a_collection_and_a_library() {
         let store = make_store();

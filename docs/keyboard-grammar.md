@@ -24,7 +24,7 @@ them.
 | ⌃⌘E | Toggle the reMarkable mirror mark on the selection (ADR-025) | Paper ▸ Mirror to reMarkable (also `e`, guarded); disabled until a device is configured, hidden per-row unless it is in individual mode | — |
 | ⌘⇧F | Global search | Focus search | Search across manuscripts — implore/impel (which had no binding) route it to the chassis's builtin "Search Everything" store-wide surface (ADR-0022 D6, `ImpressStoreSearchCommands`); impart's ⌘⇧F stays Forward Message, so its Search Everything sidebar node is click-only |
 
-**A manuscript's papers (ADR-0031)** — imprint has no Papers panel; the papers
+**A manuscript's papers (ADR-0032)** — imprint has no Papers panel; the papers
 are an imbib collection shown in imbib's papers window:
 
 | Chord | Where | Semantic |

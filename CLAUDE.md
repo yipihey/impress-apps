@@ -302,7 +302,7 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   keychain (apps push them into Rust memory; daemons read the same items via `security`).
   `IMPRESS_<PROVIDER>_URL` / `IMPRESS_AI_PROVIDER` / `IMPRESS_AI_MODEL` are explicit
   overrides, not the source of truth.
-- **A tool's own surface shows its own domain** (ADR-0031): when one app needs
+- **A tool's own surface shows its own domain** (ADR-0032): when one app needs
   another's domain, it asks for that app's surface instead of rebuilding it.
   A manuscript's papers are an imbib collection and imbib shows them — imprint
   opens `ManuscriptPapersWindow` (imbib's list + detail, no sidebar, scoped to
