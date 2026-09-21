@@ -104,3 +104,20 @@ Session log (append-only):
   ordinal recall seed shipped presets on read, so the caller owns the 90 s
   startup guard; `store_metadata.origin_id` should replace the hostname
   device id once exposed from impress-core.
+- 2026-09-21 — First Mac pass, on the branch that merges this work with
+  `papers-in-imbib-and-dev-loop`. L6 now COMPILES: the store-ffi bindings were
+  regenerated (`IMPRESS_SKIP_X86=1 crates/impress-store-ffi/build-xcframework.sh`)
+  and the two tab-strip call sites that dropped `LayoutVerb.focus`'s `target:`
+  label were fixed. Green on this Mac: `swift build` and `swift test` for
+  PublicationManagerCore (2068 XCTest + 112 swift-testing, 0 failures,
+  including the four new Layout suites), `./scripts/rust-gate.sh fmt |
+  clippy | test` (3103 Rust tests), `./scripts/check-schema-refs.sh`, and
+  `scripts/build-impress-app.sh imbib|impress Debug`. The workspace-wide
+  clippy gate the container could not run passes here.
+  STILL UNVERIFIED — the running-app checks (step 3 above): the display was
+  asleep, so the shell launched with no window. Note for whoever does it:
+  the flag belongs to the app whose root is `ChassisRootView`, i.e.
+  `defaults write com.impress.impress impress.layoutTree.enabled -bool YES`
+  and launch **impress** — imbib's own window is still its pre-chassis
+  `ContentView`, so the flag does nothing there, and the log endpoint on
+  23120 is imbib's.
