@@ -34,6 +34,17 @@ public enum UniversalShortcut: String, CaseIterable, Sendable {
     case applySavedLayout
     /// ⌘/ — show the keyboard-shortcuts reference
     case shortcutsHelp
+    /// ⌥⌘Z — undo the WINDOW's ARRANGEMENT (split / move / close / resize).
+    ///
+    /// ADR-0031 D7 gives layout its own undo ring, separate from the focused
+    /// pane's exploration ring (plain ⌘Z) and from an editor session's own
+    /// undo manager (also plain ⌘Z, but routed to the responder chain when
+    /// the focused pane is session-bearing). A shared ⌘Z would mean a user
+    /// who split a pane and then typed could not undo the typing without
+    /// first undoing the split.
+    case undoArrangement
+    /// ⌥⇧⌘Z — redo on the arrangement ring.
+    case redoArrangement
 
     public var key: KeyEquivalent {
         switch self {
@@ -47,6 +58,7 @@ public enum UniversalShortcut: String, CaseIterable, Sendable {
         case .toggleDarkMode: "d"
         case .applySavedLayout: "1"
         case .shortcutsHelp: "/"
+        case .undoArrangement, .redoArrangement: "z"
         }
     }
 
@@ -57,6 +69,10 @@ public enum UniversalShortcut: String, CaseIterable, Sendable {
             [.command]
         case .toggleSidebar, .openOnSecondDisplay, .toggleDarkMode, .applySavedLayout:
             [.command, .control]
+        case .undoArrangement:
+            [.command, .option]
+        case .redoArrangement:
+            [.command, .option, .shift]
         }
     }
 
@@ -84,6 +100,8 @@ public enum UniversalShortcut: String, CaseIterable, Sendable {
         case .toggleDarkMode: "Toggle Dark Mode"
         case .applySavedLayout: "Apply Saved Layout 1–9"
         case .shortcutsHelp: "Keyboard Shortcuts"
+        case .undoArrangement: "Undo Pane Arrangement"
+        case .redoArrangement: "Redo Pane Arrangement"
         }
     }
 }

@@ -52,3 +52,38 @@ Session log (append-only):
   hidden pane carries `HIDDEN_SHARE` (1e-4, sub-pixel but normal) and keeps
   its query, role and session — ⌘0 is a resize, not a split. 37 Tier A
   capabilities.
+- 2026-09-21 — L6 landed (Swift host): `Chassis/Layout/{LayoutModel,
+  LayoutController,ViewKindRegistry,LayoutTreeView,PaneSessionRegistry}.swift`
+  — a decode-only Swift mirror of the layout wire value, a `@MainActor
+  @Observable LayoutController` through which every gesture goes as a
+  `LayoutVerb`, a `ViewKindRegistry` (`outline` / `list` / `info` / `legacy` /
+  `placeholder` rendered; `pdf` / `notes` / `bibtex` / `source` registered as
+  placeholders for L8), a recursive tree renderer with N-child splits, tab
+  strip, grid, collapsed-share panes and a focus ring, and the D6 session LRU.
+  Roles are wired to ⌃⌘S / ⌥⌘0 / ⌘0, h / l to `focus_direction`, and the three
+  undo rings to ⌘Z / ⇧⌘Z / ⌥⌘Z / ⌥⇧⌘Z. Off in every preset.
+
+  **UNVERIFIED ON A MAC.** It was written on Linux, where no Swift compiler
+  and no UniFFI bindings exist: the generated `SharedLayout` API it codes
+  against was read from L5's Rust source, not from bindings. Nothing in it has
+  been compiled, let alone run. The verifier must, in this order:
+
+  1. `IMPRESS_SKIP_X86=1 crates/impress-store-ffi/build-xcframework.sh`
+     (regenerates `packages/ImpressRustCore/Sources/ImpressRustCore/impress_store_ffi.swift`,
+     which today still predates L5 — `SharedLayout` is absent from it, so PMC
+     does not compile until this runs);
+  2. `cd apps/imbib/PublicationManagerCore && swift build && swift test`
+     (the four new suites are FFI-free: golden decode, verb JSON, registry
+     fallback, session LRU);
+  3. `defaults write com.impress.imbib impress.layoutTree.enabled -bool YES`,
+     launch imbib, and confirm the three-column preset renders, h / l moves
+     the focus ring, ⌃⌘S collapses and restores the navigator, a divider drag
+     emits exactly ONE `resize` verb on mouse-up, and
+     `curl 'http://localhost:23120/api/logs?category=layout&limit=50'` shows
+     the mutation / applied / display trace for each. Then
+     `defaults delete com.impress.imbib impress.layoutTree.enabled` and
+     confirm the flagged-off build is unchanged.
+
+  Known L6 gaps, both for L7: the tab strip's ACTIVE child is derived from
+  focus because D8 has no `set-active-tab` verb, and `PaneSessionRegistry`
+  ships unused (no session-bearing view kind is ported yet).

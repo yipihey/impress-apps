@@ -146,10 +146,31 @@ public struct ChassisRootView: View {
         self.sidebarComposition = sidebarComposition
     }
 
+    /// Does this window render the ADR-0031 layout tree?
+    ///
+    /// Either the preset says so (`usesLayoutTree`, false in every shipped
+    /// one) or the developer override is set for this machine
+    /// (`defaults write com.impress.imbib impress.layoutTree.enabled -bool YES`,
+    /// read once per launch). Off, this view is byte-identical to what it was
+    /// before ADR-0031 L6.
+    private var usesLayoutTree: Bool {
+        configuration.usesLayoutTree || LayoutTreeFlag.isEnabled
+    }
+
+    /// The window's content: the layout tree, or today's chassis.
+    @ViewBuilder
+    private var root: some View {
+        if usesLayoutTree {
+            LayoutTreeHost(appID: configuration.appID)
+        } else {
+            TabContentView()
+        }
+    }
+
     public var body: some View {
         Group {
             if let models {
-                TabContentView()
+                root
                     .environment(models.libraryManager)
                     .environment(models.libraryViewModel)
                     .environment(models.searchViewModel)

@@ -1,0 +1,156 @@
+#if os(macOS)
+// Chassis file — macOS-only. ADR-0031 work package L6 (D6).
+//
+//  PaneSessionRegistry.swift
+//  PublicationManagerCore
+//
+//  Where a session-bearing pane's session lives: OUTSIDE the view tree.
+//
+//  ADR-0031 D6 generalizes `ManuscriptSessionRegistry` — an editor, a compose
+//  window and a plot canvas all own state that must survive re-layout (an
+//  `NSTextView` and its undo stack, an in-flight compile, an unsaved draft).
+//  Such a view kind declares itself session-bearing, the pane spec carries a
+//  `SessionId`, and **no layout mutation ever tears a session down**. Closing
+//  the pane releases the session through this LRU, never through view
+//  identity.
+//
+//  THE INVARIANT THIS EXISTS TO PROTECT:
+//
+//      The tree view must never put `.id(tile)` on a session-bearing pane's
+//      host.
+//
+//  That is ADR-0018 D4's rule ("the manuscript detail pane must never acquire
+//  `.id(manuscriptID)`") restated as a property of every session-bearing
+//  pane. `.id` is exactly the thing that destroys and rebuilds an
+//  `NSViewRepresentable`'s AppKit view, and rebuilding an `NSTextView` per
+//  selection is what made imbib's manuscript list feel sluggish before the
+//  session moved out of the view. `LayoutPaneHost` carries the same statement
+//  at the one place it could be violated.
+//
+//  L6 ships the SHAPE only — the protocol, the LRU and its test. The `source`
+//  view kind that will use it is registered as a placeholder until L8, so
+//  nothing constructs a session yet.
+//
+
+import Foundation
+import ImpressLogging
+
+// MARK: - Session
+
+/// What a session-bearing view kind's session must be able to do.
+///
+/// Deliberately tiny: the registry's job is lifetime, not behaviour. Anything
+/// richer belongs on the concrete session (`ManuscriptEditorSession` and its
+/// CAS save are the worked example).
+public protocol PaneSession: AnyObject {
+
+    /// The handle the pane spec carries (`PaneSpec.session`). Stable for the
+    /// life of the session; the registry keys on it.
+    var sessionID: String { get }
+
+    /// Persist whatever is buffered. Called on eviction — a session that
+    /// leaves the LRU with unsaved work would lose it, which is the one way
+    /// this registry can destroy something.
+    func flush()
+
+    /// Drop buffered work WITHOUT persisting. Called when the underlying
+    /// record is being deleted: flushing there would write the body back and
+    /// resurrect the deleted item (the bug
+    /// `ManuscriptSessionRegistry.discard(id:)` exists for).
+    func abandon()
+}
+
+public extension PaneSession {
+    func abandon() {}
+}
+
+// MARK: - Registry
+
+/// A small LRU of live sessions, keyed by session id.
+///
+/// `ManuscriptSessionRegistry`'s shape, generic over the session type and
+/// over a STRING id (the tree's `SessionId` is a string newtype, and a pane's
+/// session need not be a record UUID — a scratch buffer has no record at
+/// all).
+@MainActor
+public final class PaneSessionRegistry<Session: PaneSession> {
+
+    private var sessions: [String: Session] = [:]
+    /// Most-recently-used LAST, like the manuscript registry's.
+    private var lru: [String] = []
+    private let capacity: Int
+    private let label: String
+
+    public init(capacity: Int = 3, label: String = "pane") {
+        self.capacity = max(1, capacity)
+        self.label = label
+    }
+
+    public var count: Int { sessions.count }
+
+    public var liveSessionIDs: [String] { lru }
+
+    public func contains(_ id: String) -> Bool { sessions[id] != nil }
+
+    /// The cached session, or one built by `make` — the single entry point,
+    /// so a caller cannot accidentally create a second session for one id.
+    @discardableResult
+    public func session(for id: String, make: () -> Session?) -> Session? {
+        if let existing = sessions[id] {
+            touch(id)
+            return existing
+        }
+        guard let created = make() else { return nil }
+        sessions[id] = created
+        lru.append(id)
+        evictIfNeeded()
+        logInfo("\(label) session \(id) opened (\(sessions.count) live)", category: "layout")
+        return created
+    }
+
+    /// The cached session without creating one.
+    public func existingSession(for id: String) -> Session? {
+        guard let existing = sessions[id] else { return nil }
+        touch(id)
+        return existing
+    }
+
+    /// Release a session, flushing it first. A CLOSED pane releases this way;
+    /// a layout mutation never does.
+    public func release(id: String) {
+        guard let session = sessions.removeValue(forKey: id) else { return }
+        session.flush()
+        lru.removeAll { $0 == id }
+        logInfo("\(label) session \(id) released", category: "layout")
+    }
+
+    /// Drop a session whose record is being DELETED: no flush, so a pending
+    /// save cannot resurrect the row.
+    public func discard(id: String) {
+        guard let session = sessions.removeValue(forKey: id) else { return }
+        session.abandon()
+        lru.removeAll { $0 == id }
+        logInfo("\(label) session \(id) discarded (record deleted)", category: "layout")
+    }
+
+    /// Flush everything — app resign-active, window close.
+    public func flushAll() {
+        for session in sessions.values { session.flush() }
+    }
+
+    private func touch(_ id: String) {
+        lru.removeAll { $0 == id }
+        lru.append(id)
+    }
+
+    private func evictIfNeeded() {
+        while sessions.count > capacity {
+            guard let victim = lru.first else { return }
+            sessions[victim]?.flush()
+            sessions.removeValue(forKey: victim)
+            lru.removeAll { $0 == victim }
+            logInfo("\(label) session \(victim) evicted (LRU)", category: "layout")
+        }
+    }
+}
+#endif
