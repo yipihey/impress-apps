@@ -74,6 +74,9 @@ pub struct Patch {
     /// The tile-id allocator, when tiles were created.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_tile: Option<Change<u64>>,
+    /// The window-id allocator, when windows were created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_window: Option<Change<u64>>,
 }
 
 impl Patch {
@@ -123,12 +126,21 @@ impl Patch {
                 after: after.next_tile,
             })
         };
+        let next_window = if before.next_window == after.next_window {
+            None
+        } else {
+            Some(Change {
+                before: before.next_window,
+                after: after.next_window,
+            })
+        };
         Patch {
             verb,
             tiles,
             windows,
             channels,
             next_tile,
+            next_window,
         }
     }
 
@@ -140,6 +152,7 @@ impl Patch {
             && self.windows.is_none()
             && self.channels.is_none()
             && self.next_tile.is_none()
+            && self.next_window.is_none()
     }
 }
 
@@ -190,6 +203,13 @@ impl Layout {
         }
         if let Some(change) = &patch.next_tile {
             self.next_tile = if to_before {
+                change.before
+            } else {
+                change.after
+            };
+        }
+        if let Some(change) = &patch.next_window {
+            self.next_window = if to_before {
                 change.before
             } else {
                 change.after

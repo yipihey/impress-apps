@@ -70,4 +70,21 @@ pub fn assert_arena_is_sound(layout: &Layout) {
     }
     let arena: std::collections::BTreeSet<_> = layout.tiles.keys().copied().collect();
     assert_eq!(arena, reachable, "the arena holds unreachable tiles");
+
+    // Window ids are allocated like tile ids: unique, and never reused after a
+    // window closes, so a WindowId in an operation log means one window.
+    let mut ids = std::collections::BTreeSet::new();
+    for window in &layout.windows {
+        assert!(
+            ids.insert(window.id),
+            "two windows share the id {}",
+            window.id
+        );
+        assert!(
+            window.id.raw() < layout.next_window,
+            "window {} is at or above the allocator ({}), so its id can be handed out again",
+            window.id,
+            layout.next_window
+        );
+    }
 }

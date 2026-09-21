@@ -27,6 +27,7 @@ const MAX_DEPTH: usize = 64;
 /// the value is the payload of an `impress/ui/layout` item (ADR-0019 D1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(from = "LayoutWire")]
 pub struct Layout {
     pub windows: Vec<Window>,
     /// The arena. Tile ids are unique across windows.
@@ -36,6 +37,49 @@ pub struct Layout {
     /// The tile-id allocator. Ids are never reused within a layout.
     #[serde(default)]
     pub next_tile: u64,
+    /// The window-id allocator. Windows come and go now that a pane can be
+    /// detached into one and a window closes when its last pane does, so ids
+    /// are never reused either — a `WindowId` in an operation log means one
+    /// window for the life of the layout.
+    #[serde(default)]
+    pub next_window: u64,
+}
+
+/// What [`Layout`] deserializes *through*, so that JSON written before
+/// `next_window` existed still loads with a sound allocator: the counter
+/// starts above every window the value actually holds, rather than at zero,
+/// which would hand the next detached pane an id that is already taken.
+#[derive(Deserialize)]
+struct LayoutWire {
+    #[serde(default)]
+    windows: Vec<Window>,
+    #[serde(default)]
+    tiles: BTreeMap<TileId, Tile>,
+    #[serde(default)]
+    channels: ChannelState,
+    #[serde(default)]
+    next_tile: u64,
+    #[serde(default)]
+    next_window: Option<u64>,
+}
+
+impl From<LayoutWire> for Layout {
+    fn from(wire: LayoutWire) -> Self {
+        let floor = wire
+            .windows
+            .iter()
+            .map(|w| w.id.raw())
+            .max()
+            .map(|max| max + 1)
+            .unwrap_or(1);
+        Layout {
+            windows: wire.windows,
+            tiles: wire.tiles,
+            channels: wire.channels,
+            next_tile: wire.next_tile,
+            next_window: wire.next_window.unwrap_or(floor).max(floor),
+        }
+    }
 }
 
 impl Default for Layout {
@@ -62,6 +106,7 @@ impl Layout {
             tiles: BTreeMap::new(),
             channels: ChannelState::new(),
             next_tile: 0,
+            next_window: 1,
         }
     }
 
@@ -70,7 +115,8 @@ impl Layout {
         let mut layout = Self::empty();
         let root = layout.alloc_tile();
         layout.tiles.insert(root, Tile::Pane(spec));
-        let mut window = Window::new(WindowId::new(1), root);
+        let id = layout.alloc_window_id();
+        let mut window = Window::new(id, root);
         window.focused = Some(root);
         layout.windows.push(window);
         layout
@@ -99,8 +145,13 @@ impl Layout {
         id
     }
 
-    pub(crate) fn alloc_window_id(&self) -> WindowId {
-        WindowId::new(self.windows.iter().map(|w| w.id.raw()).max().unwrap_or(0) + 1)
+    /// Reserve a fresh window id. Like tile ids, never reused.
+    pub fn alloc_window_id(&mut self) -> WindowId {
+        let floor = self.windows.iter().map(|w| w.id.raw()).max().unwrap_or(0) + 1;
+        self.next_window = self.next_window.max(floor);
+        let id = WindowId::new(self.next_window);
+        self.next_window += 1;
+        id
     }
 
     /// Add a window whose root is `root`, focused on its first leaf.
@@ -656,9 +707,19 @@ impl Layout {
         self.tiles.retain(|id, _| reachable.contains(id));
     }
 
-    /// Keep focus a leaf of its own window, and drop a maximize that points at
-    /// a tile the window no longer holds.
+    /// Keep focus a leaf of its own window, drop a maximize that points at a
+    /// tile the window no longer holds, and keep the window-id allocator above
+    /// every window there is — so that a layout assembled by hand, merged, or
+    /// loaded from an older build cannot hand out an id twice.
     fn repair_windows(&mut self) {
+        let floor = self
+            .windows
+            .iter()
+            .map(|w| w.id.raw())
+            .max()
+            .map(|max| max + 1)
+            .unwrap_or(1);
+        self.next_window = self.next_window.max(floor);
         for index in 0..self.windows.len() {
             let root = self.windows[index].root;
             let leaves = self.leaves_of(root);
@@ -756,6 +817,49 @@ mod tests {
         let second = layout.add_window(detached);
         layout.windows[0].focused = None;
         assert_eq!(layout.current_window().unwrap(), second);
+    }
+
+    #[test]
+    fn json_written_before_next_window_existed_loads_with_a_sound_allocator() {
+        let mut layout = Layout::new_single_pane(pane(ViewKindId::INFO));
+        let detached = layout.insert_pane(pane(ViewKindId::PDF));
+        layout.add_window(detached);
+        assert_eq!(layout.next_window, 3);
+
+        // Strip the field, as a layout saved by an older build would have it.
+        let mut json = serde_json::to_value(&layout).unwrap();
+        json.as_object_mut().unwrap().remove("next_window");
+        let loaded: Layout = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            loaded.next_window, 3,
+            "the allocator starts above every window the value holds"
+        );
+        assert_eq!(loaded.windows, layout.windows);
+
+        // A stale counter is raised, never lowered.
+        let mut json = serde_json::to_value(&layout).unwrap();
+        json.as_object_mut()
+            .unwrap()
+            .insert("next_window".into(), serde_json::json!(1));
+        let loaded: Layout = serde_json::from_value(json).unwrap();
+        assert_eq!(loaded.next_window, 3);
+    }
+
+    #[test]
+    fn window_ids_are_never_reused() {
+        let mut layout = Layout::new_single_pane(pane(ViewKindId::INFO));
+        let first = layout.windows[0].id;
+        let detached = layout.insert_pane(pane(ViewKindId::PDF));
+        let second = layout.add_window(detached);
+        layout.windows.retain(|w| w.id != second);
+        layout.normalize();
+        let replacement = layout.insert_pane(pane(ViewKindId::PLOT));
+        let third = layout.add_window(replacement);
+        assert_ne!(
+            third, second,
+            "a closed window's id is not handed out again"
+        );
+        assert_ne!(third, first);
     }
 
     #[test]

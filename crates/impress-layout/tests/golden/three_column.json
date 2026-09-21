@@ -1,6 +1,7 @@
 {
   "channels": {},
   "next_tile": 4,
+  "next_window": 2,
   "tiles": {
     "1": {
       "pane": {
