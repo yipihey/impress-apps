@@ -2607,8 +2607,10 @@ mod tests {
         );
     }
 
+    // `CompileOptions` and `compile_typst_to_pdf` are behind `uniffi`, so
+    // `typst-render` alone is not enough to compile this test.
     #[test]
-    #[cfg(feature = "typst-render")]
+    #[cfg(all(feature = "typst-render", feature = "uniffi"))]
     fn test_typst_compile_simple() {
         let source = "= Hello World\n\nThis is a test.";
         let options = CompileOptions::default();
@@ -2637,8 +2639,10 @@ mod tests {
         );
     }
 
+    // `CompileOptions` and `compile_typst_to_pdf` are behind `uniffi`, so
+    // `typst-render` alone is not enough to compile this test.
     #[test]
-    #[cfg(feature = "typst-render")]
+    #[cfg(all(feature = "typst-render", feature = "uniffi"))]
     fn test_typst_compile_empty() {
         let source = "";
         let options = CompileOptions::default();
@@ -2652,8 +2656,10 @@ mod tests {
         );
     }
 
+    // `CompileOptions` and `compile_typst_to_pdf` are behind `uniffi`, so
+    // `typst-render` alone is not enough to compile this test.
     #[test]
-    #[cfg(feature = "typst-render")]
+    #[cfg(all(feature = "typst-render", feature = "uniffi"))]
     fn test_typst_compile_sample_document() {
         let source = r#"= Sample Document
 
