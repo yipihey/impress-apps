@@ -30,3 +30,8 @@ three-point trace on anything persistence-touching; no new SwiftUI layout state.
 Session log (append-only):
 
 - 2026-09-21 — ADR-0031 accepted; L0 and L1 started in parallel (Opus 5 coding agents).
+- 2026-09-21 — L3 landed: `crates/impress-layout-service` — the 30 D8 verbs plus
+  `layout-selftest-service_run-selftest` as `#[impress_service]` methods over a
+  store-backed live layout per `(app_id, device)`, registered in `impress-mcp`
+  and `impress-cli`. Gesture writes are `Ephemeral` operations, commits
+  `Durable`; the 32-capability Tier A catalogue runs headless as `cargo test`.

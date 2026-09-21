@@ -4565,6 +4565,7 @@ name = "impress-cli"
 version = "0.1.0"
 dependencies = [
  "impress-ai-service",
+ "impress-layout-service",
  "impress-memory-service",
  "impress-parsers-service",
  "impress-service-core",
@@ -4684,6 +4685,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-layout-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-core",
+ "impress-layout",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "impress-mcp"
 version = "0.1.0"
 dependencies = [
@@ -4700,6 +4719,7 @@ dependencies = [
  "impress-ai-service",
  "impress-bridges-service",
  "impress-embeddings",
+ "impress-layout-service",
  "impress-memory-service",
  "impress-parsers-service",
  "impress-service-core",

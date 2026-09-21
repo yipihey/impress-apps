@@ -1,0 +1,40 @@
+[package]
+name = "impress-layout-service"
+description = "The ADR-0031 D8 layout verbs as an #[impress_service] trait: a store-backed live layout per (app, device), the two undo rings, and the named-layout records — exposed to MCP, the CLI and impel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# `sqlite`: this crate owns the store side of the layout tree (the
+# `impress/ui/layout@1.0.0` rows). `schema`: `PaneQuery`, `ParamDecl` and
+# `Bindings` cross the `#[impress_method]` boundary, so they need
+# `schemars::JsonSchema`.
+impress-core = { workspace = true, features = ["sqlite", "schema"] }
+# The pure tree. `schema` so `Layout`, `PaneSpec`, `Verb` and friends publish
+# their JSON schemas as verb arguments and results — which is exactly the
+# reason that feature exists (see impress-layout's `schema_tests`).
+impress-layout = { workspace = true, features = ["schema"] }
+# For `store_instance()` ONLY — the ONE shared `impress.sqlite` handle of the
+# process. Opening our own would ignore `--store-path`, which `impress-cli`
+# and `impress-mcp` both park there before the first dispatch, and the layout
+# verbs would then read a different store from every other verb in the binary.
+impress-store-service = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# The `cli` feature builds the clap tree from the same inventory `impress-cli`
+# iterates, so the test below proves the subcommands this crate registers are
+# actually constructible — schemas, flags and all — without needing to build
+# `impress-cli` itself (whose ONNX dependency cannot be fetched on every
+# machine).
+impress-service-core = { workspace = true, features = ["cli"] }
