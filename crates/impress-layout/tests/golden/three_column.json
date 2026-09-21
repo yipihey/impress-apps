@@ -58,7 +58,7 @@
             "decl": {
               "kind": "publication",
               "name": "item",
-              "required": true
+              "required": false
             },
             "source": {
               "channel": {

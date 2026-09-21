@@ -240,6 +240,22 @@ pub fn preset_schema() -> Schema {
                 ),
             },
             FieldDef {
+                name: "purpose".into(),
+                field_type: FieldType::String,
+                required: false,
+                description: Some(
+                    "What the preset is FOR, in the user's words (\"sorting the \
+                     inbox\", \"writing: the source and its preview\"). Optional, \
+                     uninterpreted and not a closed vocabulary — the same field, \
+                     with the same meaning, as the layout record's `purpose`. \
+                     Declared here so the shipped table's one-line description of \
+                     each preset, and a user's own label on one they saved, have a \
+                     home the schema knows about rather than an undeclared payload \
+                     key (added with L7, ADR-0031 D10)."
+                        .into(),
+                ),
+            },
+            FieldDef {
                 name: "queries".into(),
                 field_type: FieldType::Object,
                 required: false,

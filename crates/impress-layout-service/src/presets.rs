@@ -1,0 +1,2052 @@
+//! The shipped presets, as a data table and as store rows (ADR-0031 D10,
+//! work package L7 of `docs/plan-layout-tree.md`).
+//!
+//! > An app preset is a set of named queries, a default tree, and a role
+//! > assignment. imbib is "the publication queries with the triage layout";
+//! > imprint is "the manuscript queries with the writing layout".
+//!
+//! That sentence is this module. [`shipped_presets`] is the table — one
+//! [`ShippedPreset`] per `(app, purpose)` — and [`PresetStore`] is the half
+//! that puts it in the store, because **presets are records the user can
+//! edit**, not Rust constants. The table is only the *shipped* revision: it
+//! seeds a row that is absent and is otherwise never written over, which is
+//! what makes [`PresetStore::ensure_shipped`] safe to call on every launch
+//! and what makes `reset_preset` a verb rather than the default behaviour.
+//!
+//! # What the table reproduces
+//!
+//! Today's chassis, per app, is `AppShellConfiguration.<app>`: a set of
+//! visible sections, a default section, and a default detail tab. Each app's
+//! **default** preset is that configuration as a tree —
+//!
+//! * the **navigator** pane is the outline over the navigable kinds
+//!   (`collection` + `library`), which is the sidebar as a pane like any
+//!   other (D1);
+//! * the **list** pane is the app's `defaultSection` query;
+//! * the **detail** pane is `item(id = $item)` rendered by the app's
+//!   `defaultDetailTab` — the `DetailTab` raw values (`info`, `source`,
+//!   `pdf`, `notes`, `bibtex`) are the view-kind spellings, so the Swift
+//!   `ViewKindRegistry` resolves the tab it already has;
+//!
+//! shares 1 : 2 : 3, roles `navigator` / `list` / `detail`, focus on the
+//! list (the pane the triage grammar acts on).
+//!
+//! and [`named_queries`] carries **every section** of that app's
+//! `visibleSections` as a [`PaneQuery`], so the preset says what the app can
+//! show, not merely what it opens on. The sections that are not values in the
+//! algebra are named in [`MATERIALIZE_FIRST`], with the reason, per ADR-0031
+//! D2 — a section that is missing from both lists is a bug, and
+//! `every_visible_section_is_accounted_for` is the test that says so.
+//!
+//! # Hiding a pane: there is no zero share
+//!
+//! `PaneLayoutState`'s three Booleans (`sidebarVisible`, `listPaneVisible`,
+//! `detailPaneVisible`) become shares, and the obvious encoding of "hidden"
+//! — a share of `0.0` — **is not representable**:
+//!
+//! * [`impress_layout::Verb::Resize`] refuses a share that is not a positive,
+//!   finite weight (`InvalidShares`), and
+//! * `Layout::normalize` repairs shares through `sane_share`, which rewrites
+//!   any non-positive value to `1.0` — so a hand-built `0.0` does not
+//!   survive one normalization, and the pane springs open.
+//!
+//! Both are checked in this module's tests rather than asserted about. The
+//! smallest representable alternative is [`HIDDEN_SHARE`]: positive and
+//! normal (so it survives `sane_share` and the multiply-and-divide of a
+//! container join), and small enough to be sub-pixel at any real window width.
+//! A hidden pane is therefore still *in* the tree — it keeps its query, its
+//! role and its session — and ⌘0 / ⌥⌘0 / ⌃⌘S are a `resize` back, not a
+//! `split`. That is the whole reason to prefer a share over removing the
+//! pane: a toggle must not cost the user the pane's state.
+
+use std::collections::BTreeMap;
+
+use chrono::{DateTime, Utc};
+use impress_core::item::{ActorKind, Item, ItemId, Priority, Value, Visibility};
+use impress_core::operation::{OperationIntent, OperationSpec, OperationType, RetentionTier};
+use impress_core::pane_query::{
+    Direction, Filter, ItemRef, PaneQuery, RelationWalk, Scope, SortKey,
+};
+use impress_core::query::ItemQuery;
+use impress_core::reference::{EdgeType, TypedReference};
+use impress_core::schemas::PRESET_SCHEMA_REF;
+use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::store::ItemStore;
+use impress_layout::preset::{detail_query, navigator_query, DETAIL_PARAM};
+use impress_layout::{
+    ChannelId, Container, Layout, LinearDir, PaneSpec, ParamBinding, ParamSource, Role, TileId,
+    ViewKindId,
+};
+use std::sync::Arc;
+use uuid::Uuid;
+
+use crate::store::{author_for, LayoutRow, Result};
+
+// ---------------------------------------------------------------------------
+// Payload fields and constants
+// ---------------------------------------------------------------------------
+
+/// Payload field names of an `impress/ui/preset@1.0.0` row. Spelled once,
+/// here, for the same reason the schema ref is: a reader that spells a field
+/// differently from its writer reads `None` forever and looks exactly like
+/// "nothing saved yet".
+pub mod field {
+    pub const NAME: &str = "name";
+    pub const APP_ID: &str = "app_id";
+    pub const PURPOSE: &str = "purpose";
+    pub const QUERIES: &str = "queries";
+    pub const LAYOUT: &str = "layout";
+    pub const ROLES: &str = "roles";
+    pub const VERSION: &str = "version";
+}
+
+/// The share a *hidden* pane carries. See the module docs: `0.0` is refused
+/// by `Verb::Resize` and rewritten to `1.0` by `normalize`, so "hidden" is
+/// the smallest share that survives both.
+///
+/// Note that `impress_store_ffi::MIN_SHARE` (L5) is the same weight, chosen
+/// independently for the same reason — the two must stay equal, and should
+/// eventually be one constant in `impress_layout`, which both crates already
+/// depend on.
+///
+/// `1e-4` rather than `f32::MIN_POSITIVE`: normalization joins a linear into
+/// its parent by `share * child / total`, and a denormal there flushes to
+/// zero, which `sane_share` then turns back into a full column. `1e-4` stays
+/// normal through several joins and is 0.1 px of a 3000 px window — zero to
+/// the eye, positive to the arithmetic.
+pub const HIDDEN_SHARE: f32 = 1.0e-4;
+
+/// A share at or below this is what a renderer (and [`is_hidden`]) reads as
+/// "this pane is toggled off". A threshold rather than an equality test: a
+/// share that has been through a container join is `HIDDEN_SHARE` scaled by
+/// its parent's arithmetic, not the constant itself.
+pub const HIDDEN_SHARE_CEILING: f32 = 1.0e-3;
+
+/// Is this share one of the module's "hidden" weights?
+pub fn is_hidden(share: f32) -> bool {
+    share.is_finite() && share > 0.0 && share <= HIDDEN_SHARE_CEILING
+}
+
+/// The parameter an app's list pane binds when its scope is a library: the
+/// library the navigator has selected, on channel 1.
+pub const LIBRARY_PARAM: &str = "library";
+
+/// The parameter the "cited in this manuscript" query walks from.
+pub const MANUSCRIPT_PARAM: &str = "manuscript";
+
+/// The parameter the Exploration section's collection fills. imbib's
+/// `ExplorationService` materializes an exploration as a collection and the
+/// pane queries that — ADR-0031 D2's stance, exactly.
+pub const EXPLORATION_PARAM: &str = "exploration";
+
+/// The parameter imbib's Dismissed section binds: the Dismissed **library**.
+/// imbib dismisses a paper by MOVING it there, never by writing `status`
+/// (`triage_ops`' module docs), which is why this is a `Parent` scope and
+/// imprint's dismissed manuscripts are a `Status` filter.
+pub const DISMISSED_LIBRARY_PARAM: &str = "dismissed_library";
+
+/// The version every preset in the table ships at. Bumping one entry's
+/// `version` is how "we shipped a newer Triage" becomes distinguishable from
+/// "the user edited Triage" (`schemas/ui.rs`, `version`).
+const SHIPPED_VERSION: u32 = 1;
+
+/// Sections a preset permits that have **no** `PaneQuery`, with the reason.
+///
+/// ADR-0031 D2: "what the algebra cannot express is materialized first".
+/// Every entry is a section of some app's `visibleSections`, so the pair
+/// (this list, [`named_queries`]) covers the chassis completely — which is
+/// what `every_visible_section_is_accounted_for` proves.
+pub const MATERIALIZE_FIRST: &[(&str, &str)] = &[
+    (
+        "sharedWithMe",
+        "share state is neither an envelope field nor an edge the algebra walks; imbib's \
+         sharing sync materializes shared papers into a library, and a pane queries that",
+    ),
+    (
+        "scixLibraries",
+        "the rows live on the ADS/SciX server behind the user's credentials, not in the \
+         store; a synced SciX library becomes a `library` row and is then `libraries` above",
+    ),
+    (
+        "search (the online forms)",
+        "ADS/SciX results are remote until the form materializes them into a feed or an \
+         exploration collection; the LOCAL search over what is already stored is the \
+         `search` named query, which is the same section's other half",
+    ),
+    (
+        "tags",
+        "a tag path is not a record kind, and `Filter::Tag` takes a literal path — so the \
+         tag OUTLINE is not a query over records, while a selected tag's contents are \
+         (`Filter::Tag { path }` with that path, built when the user picks one)",
+    ),
+    (
+        "reviewQueue",
+        "its rows are `review-request@1.0.0`, which `KindManifest::builtin()` names no kind \
+         for; binding it to a kind it does not list would be a lie a future reader trusts \
+         (the same reason `AppShellConfiguration.impress` leaves it unbound)",
+    ),
+];
+
+// ---------------------------------------------------------------------------
+// The table
+// ---------------------------------------------------------------------------
+
+/// One shipped preset: what an app is, as a value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShippedPreset {
+    /// Display name, recalled by ⌃⌘1–9 and by [`crate::LayoutService::apply_preset`].
+    pub name: &'static str,
+    /// The preset family: `imbib`, `imprint`, `implore`, `impel`, `impart`,
+    /// `impress`.
+    pub app_id: &'static str,
+    /// What the preset is for, in the user's words. Uninterpreted, and not a
+    /// closed vocabulary (`schemas/ui.rs`, `purpose`).
+    pub purpose: &'static str,
+    /// Name → query. Every section of the app's `visibleSections` that is a
+    /// value in the algebra, plus the three pane queries by role.
+    pub queries: BTreeMap<String, PaneQuery>,
+    /// The default tree.
+    pub layout: Layout,
+    /// Role → the tile of `layout` that holds it.
+    pub roles: BTreeMap<Role, TileId>,
+    /// The shipped revision.
+    pub version: u32,
+}
+
+impl ShippedPreset {
+    /// The deterministic row id this preset seeds under.
+    pub fn item_id(&self) -> ItemId {
+        preset_id(self.app_id, self.name)
+    }
+}
+
+/// Every shipped preset, in **table order** — which is ordinal order: for
+/// imbib, ⌃⌘1 is Default, ⌃⌘2 Triage, ⌃⌘3 Reading, ⌃⌘4 Full.
+///
+/// Rebuilt on each call rather than kept in a `static`: a [`Layout`] is an
+/// arena with `BTreeMap`s in it, so there is nothing to make `const`, and a
+/// caller that mutates its copy must not be able to mutate the table.
+pub fn shipped_presets() -> Vec<ShippedPreset> {
+    vec![
+        imbib_default(),
+        imbib_triage(),
+        imbib_reading(),
+        imbib_full(),
+        imprint_default(),
+        imprint_writing(),
+        implore_default(),
+        impel_default(),
+        impart_default(),
+        impress_default(),
+    ]
+}
+
+/// The shipped presets of one app, in table order.
+pub fn shipped_presets_for(app_id: &str) -> Vec<ShippedPreset> {
+    let app_id = app_id.trim();
+    shipped_presets()
+        .into_iter()
+        .filter(|p| p.app_id == app_id)
+        .collect()
+}
+
+/// The shipped preset of `app_id` named `name` (case-insensitively).
+pub fn shipped_preset(app_id: &str, name: &str) -> Option<ShippedPreset> {
+    let wanted = name.trim().to_lowercase();
+    shipped_presets_for(app_id)
+        .into_iter()
+        .find(|p| p.name.to_lowercase() == wanted)
+}
+
+/// The apps the table ships a preset for, in table order.
+pub fn preset_app_ids() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for preset in shipped_presets() {
+        if !out.contains(&preset.app_id) {
+            out.push(preset.app_id);
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// The presets themselves
+// ---------------------------------------------------------------------------
+
+/// imbib: publications, landing in the Inbox on the Info tab
+/// (`AppShellConfiguration.imbib`: `defaultSection: .inbox`,
+/// `defaultDetailTab: .info`).
+fn imbib_default() -> ShippedPreset {
+    let (layout, roles) = three_columns(
+        q::inbox(),
+        ViewKindId::INFO,
+        [1.0, 2.0, 3.0],
+        vec![library_param()],
+    );
+    ShippedPreset {
+        name: "Default",
+        app_id: "imbib",
+        purpose: "imbib's chassis: libraries and collections, the inbox, and the paper",
+        queries: named_queries("imbib"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// imbib Triage — `PaneLayoutStore.builtInLayouts`' first entry:
+/// `detailPaneVisible = false`, everything else as it was.
+fn imbib_triage() -> ShippedPreset {
+    let (layout, roles) = three_columns(
+        q::inbox(),
+        ViewKindId::INFO,
+        [1.0, 2.0, HIDDEN_SHARE],
+        vec![library_param()],
+    );
+    ShippedPreset {
+        name: "Triage",
+        app_id: "imbib",
+        purpose: "sorting the inbox: the detail pane is out of the way (⌘0 brings it back)",
+        queries: named_queries("imbib"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// imbib Reading — `sidebarVisible = false`, `detailTab = "pdf"`.
+fn imbib_reading() -> ShippedPreset {
+    let (layout, roles) = three_columns(
+        q::inbox(),
+        ViewKindId::PDF,
+        [HIDDEN_SHARE, 2.0, 3.0],
+        vec![library_param()],
+    );
+    ShippedPreset {
+        name: "Reading",
+        app_id: "imbib",
+        purpose: "reading the PDF: the navigator is out of the way (⌃⌘S brings it back)",
+        queries: named_queries("imbib"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// imbib Full — all three panes, `detailTab = "info"`.
+///
+/// Deliberately identical to imbib's default: `PaneLayoutStore`'s "Full" is
+/// `PaneLayoutState()` with the tab set explicitly, i.e. the app as it starts.
+/// It is kept as its own preset because it is the layout the user reaches for
+/// to undo Triage or Reading in one chord.
+fn imbib_full() -> ShippedPreset {
+    let (layout, roles) = three_columns(
+        q::inbox(),
+        ViewKindId::INFO,
+        [1.0, 2.0, 3.0],
+        vec![library_param()],
+    );
+    ShippedPreset {
+        name: "Full",
+        app_id: "imbib",
+        purpose: "everything back: navigator, list and the paper's info",
+        queries: named_queries("imbib"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// imprint: manuscripts, landing in Manuscripts on the Source tab.
+fn imprint_default() -> ShippedPreset {
+    let (layout, roles) = three_columns(
+        q::manuscripts(),
+        ViewKindId::from("source"),
+        [1.0, 2.0, 3.0],
+        vec![],
+    );
+    ShippedPreset {
+        name: "Default",
+        app_id: "imprint",
+        purpose: "imprint's chassis: folders, the manuscript list, and the source",
+        queries: named_queries("imprint"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// imprint Writing — the source and its compiled preview side by side.
+///
+/// The fourth pane is what the tree buys that `PaneLayoutState`'s three
+/// Booleans could not express at all: a second view of the SAME `$item`,
+/// following the same channel, with the role `preview` so ⌘0's sibling chords
+/// can act on it.
+fn imprint_writing() -> ShippedPreset {
+    let list = q::manuscripts();
+    let detail = detail_query(&list);
+    let item_kind = list_kind(&list);
+
+    let (layout, roles) = build(
+        vec![
+            Pane::new(Role::NAVIGATOR, navigator_query(), ViewKindId::OUTLINE, 1.0),
+            Pane::new(Role::LIST, list.clone(), ViewKindId::LIST, 2.0),
+            Pane::new(
+                Role::DETAIL,
+                detail.clone(),
+                ViewKindId::from("source"),
+                3.0,
+            )
+            .with_param(detail_param(&item_kind)),
+            Pane::new(Role::PREVIEW, detail, ViewKindId::PDF, 3.0)
+                .with_param(detail_param(&item_kind)),
+        ],
+        &Role::DETAIL,
+    );
+
+    ShippedPreset {
+        name: "Writing",
+        app_id: "imprint",
+        purpose: "writing: the source and its preview on the same manuscript, focus in the source",
+        queries: named_queries("imprint"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// implore: figures, landing in Figures on Info.
+fn implore_default() -> ShippedPreset {
+    let (layout, roles) = three_columns(q::figures(), ViewKindId::INFO, [1.0, 2.0, 3.0], vec![]);
+    ShippedPreset {
+        name: "Default",
+        app_id: "implore",
+        purpose: "implore's chassis: figure folders, the figure list, and the figure",
+        queries: named_queries("implore"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// impel: tasks, landing in Agents on Info.
+fn impel_default() -> ShippedPreset {
+    let (layout, roles) = three_columns(q::agents(), ViewKindId::INFO, [1.0, 2.0, 3.0], vec![]);
+    ShippedPreset {
+        name: "Default",
+        app_id: "impel",
+        purpose: "impel's chassis: the agent outline, the task list, and the task",
+        queries: named_queries("impel"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// impart: messages, landing in Mail on Info.
+fn impart_default() -> ShippedPreset {
+    let (layout, roles) = three_columns(q::mail(), ViewKindId::INFO, [1.0, 2.0, 3.0], vec![]);
+    ShippedPreset {
+        name: "Default",
+        app_id: "impart",
+        purpose: "impart's chassis: mailboxes, the message list, and the message",
+        queries: named_queries("impart"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+/// impress: the shell that shows everything (ADR-0022 D9) — the same three
+/// columns as imbib, over the union of every app's named queries.
+///
+/// Shipped even though no `impress` binary exists, for the reason
+/// `AppShellConfiguration.impress` itself exists: the seams the future app
+/// stands on are exercised today, and `list_presets("impress")` answering
+/// with nothing would be a silent gap rather than a decision.
+fn impress_default() -> ShippedPreset {
+    let (layout, roles) = three_columns(
+        q::inbox(),
+        ViewKindId::INFO,
+        [1.0, 2.0, 3.0],
+        vec![library_param()],
+    );
+    ShippedPreset {
+        name: "Default",
+        app_id: "impress",
+        purpose: "every kind in one window: the unified inbox, the list, and the record",
+        queries: named_queries("impress"),
+        layout,
+        roles,
+        version: SHIPPED_VERSION,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Named queries
+// ---------------------------------------------------------------------------
+
+/// The named queries of one app: every section of its `visibleSections` that
+/// is a value in the algebra, plus `navigator` / `list` / `detail` — the
+/// three pane queries of its default tree, named so a reader can find them
+/// without walking the layout.
+///
+/// The section names are the `SidebarSectionType` cases verbatim, so the
+/// Swift side needs no translation table. Sections with no query are in
+/// [`MATERIALIZE_FIRST`].
+pub fn named_queries(app_id: &str) -> BTreeMap<String, PaneQuery> {
+    let mut out: BTreeMap<String, PaneQuery> = BTreeMap::new();
+    let (sections, list): (&[Section], PaneQuery) = match app_id.trim() {
+        "imbib" => (IMBIB_SECTIONS, q::inbox()),
+        "imprint" => (IMPRINT_SECTIONS, q::manuscripts()),
+        "implore" => (IMPLORE_SECTIONS, q::figures()),
+        "impel" => (IMPEL_SECTIONS, q::agents()),
+        "impart" => (IMPART_SECTIONS, q::mail()),
+        "impress" => (IMPRESS_SECTIONS, q::inbox()),
+        _ => return out,
+    };
+    for (name, build) in sections {
+        out.insert((*name).to_string(), build());
+    }
+    out.insert("navigator".into(), navigator_query());
+    out.insert("detail".into(), detail_query(&list));
+    out.insert("list".into(), list);
+    out
+}
+
+/// One entry of an app's section table: the `SidebarSectionType` case,
+/// verbatim, and the query it is.
+type Section = (&'static str, fn() -> PaneQuery);
+
+/// imbib's `visibleSections`, minus the five in [`MATERIALIZE_FIRST`].
+/// `citedInManuscripts` stays: its children are PUBLICATIONS, and it is
+/// imbib's half of the imprint bridge.
+const IMBIB_SECTIONS: &[Section] = &[
+    ("inbox", q::inbox),
+    ("libraries", q::libraries),
+    ("search", q::search_publications),
+    ("exploration", q::exploration),
+    ("flagged", q::flagged_publications),
+    ("citedInManuscripts", q::cited_in_manuscripts),
+    ("artifacts", q::artifacts),
+    ("dismissed", q::dismissed_publications),
+];
+
+/// imprint's `visibleSections`. `flagged` and `dismissed` bind `.manuscript`
+/// here — the same section, a different kind, which is the whole point of
+/// `sectionBindings`.
+const IMPRINT_SECTIONS: &[Section] = &[
+    ("manuscripts", q::manuscripts),
+    ("citedInManuscripts", q::cited_in_manuscripts),
+    ("flagged", q::flagged_manuscripts),
+    ("dismissed", q::dismissed_manuscripts),
+];
+
+const IMPLORE_SECTIONS: &[Section] = &[("figures", q::figures)];
+
+const IMPEL_SECTIONS: &[Section] = &[("agents", q::agents)];
+
+const IMPART_SECTIONS: &[Section] = &[("mail", q::mail)];
+
+/// impress permits every section, so its map is the union. `flagged` and
+/// `dismissed` bind `.publication`, exactly as the Swift preset does.
+const IMPRESS_SECTIONS: &[Section] = &[
+    ("inbox", q::inbox),
+    ("libraries", q::libraries),
+    ("search", q::search_publications),
+    ("exploration", q::exploration),
+    ("flagged", q::flagged_publications),
+    ("citedInManuscripts", q::cited_in_manuscripts),
+    ("artifacts", q::artifacts),
+    ("manuscripts", q::manuscripts),
+    ("figures", q::figures),
+    ("mail", q::mail),
+    ("agents", q::agents),
+    ("dismissed", q::dismissed_publications),
+];
+
+/// The queries themselves. Shapes copied from the L0 sidebar table
+/// (`impress_core::pane_query`'s `sidebar_nodes`), which is where ADR-0031
+/// D2's claim — every navigable node the chassis ships is a value in this
+/// algebra — is checked against the compiler.
+pub mod q {
+    use super::*;
+
+    fn kinds(k: &[&str]) -> Vec<String> {
+        k.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    fn newest_first() -> Vec<SortKey> {
+        vec![SortKey {
+            field: "created".into(),
+            descending: true,
+        }]
+    }
+
+    /// Inbox — the unread publications of the selected library, newest first.
+    pub fn inbox() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["publication"]),
+            scope: Scope::Parent {
+                id: ItemRef::Param {
+                    name: LIBRARY_PARAM.into(),
+                },
+            },
+            filters: vec![Filter::Read { read: false }],
+            sort: newest_first(),
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Libraries — the library rows themselves.
+    pub fn libraries() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["library"]),
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Search — the LOCAL search over what is already stored, at rest.
+    ///
+    /// The blank term is a value, not a placeholder: it adds no predicate
+    /// (`a_blank_text_term_adds_no_predicate`), so the pane shows the kind
+    /// until the user types and `set_query` rewrites `text`. The ADS/SciX
+    /// forms are the same section's other half and are in
+    /// [`MATERIALIZE_FIRST`].
+    pub fn search_publications() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["publication"]),
+            text: Some(String::new()),
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Exploration — the papers of the exploration collection imbib's
+    /// `ExplorationService` materialized.
+    pub fn exploration() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["publication"]),
+            scope: Scope::Collection {
+                id: ItemRef::Param {
+                    name: EXPLORATION_PARAM.into(),
+                },
+            },
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Flagged, bound to publications (imbib, impress).
+    pub fn flagged_publications() -> PaneQuery {
+        flagged("publication")
+    }
+
+    /// Flagged, bound to manuscripts (imprint).
+    pub fn flagged_manuscripts() -> PaneQuery {
+        flagged("manuscript")
+    }
+
+    fn flagged(kind: &str) -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&[kind]),
+            filters: vec![Filter::Flag { color: None }],
+            sort: newest_first(),
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Cited in Manuscripts — the papers this manuscript cites.
+    pub fn cited_in_manuscripts() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["publication"]),
+            relation: Some(RelationWalk {
+                edge: impress_core::reference::EdgeType::Cites,
+                from: ItemRef::Param {
+                    name: MANUSCRIPT_PARAM.into(),
+                },
+                direction: Direction::Outgoing,
+            }),
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Artifacts — every artifact kind.
+    pub fn artifacts() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["artifact"]),
+            sort: newest_first(),
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Manuscripts — all of them, most recently touched first.
+    pub fn manuscripts() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["manuscript"]),
+            sort: vec![SortKey {
+                field: "modified".into(),
+                descending: true,
+            }],
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Figures — implore's library facet.
+    pub fn figures() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["figure"]),
+            sort: newest_first(),
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Mail — every message kind (email and chat alike).
+    pub fn mail() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["message"]),
+            sort: newest_first(),
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Agents — the tasks. `agent-run` has no section of its own by design:
+    /// runs are a tree child of Agents and share the section's scope.
+    ///
+    /// No `limit`: the L0 table's `limit: 200` was exercising the compiler,
+    /// not stating a product rule, and a shipped list pane pages in the
+    /// renderer rather than truncating in the query.
+    pub fn agents() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["task"]),
+            sort: vec![SortKey {
+                field: "payload.title".into(),
+                descending: false,
+            }],
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Dismissed, imbib-style: the papers in the Dismissed **library**. imbib
+    /// dismisses by MOVING, never by writing `status`.
+    pub fn dismissed_publications() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["publication"]),
+            scope: Scope::Parent {
+                id: ItemRef::Param {
+                    name: DISMISSED_LIBRARY_PARAM.into(),
+                },
+            },
+            ..PaneQuery::default()
+        }
+    }
+
+    /// Dismissed, imprint-style: the manuscripts whose payload `status` says
+    /// so.
+    pub fn dismissed_manuscripts() -> PaneQuery {
+        PaneQuery {
+            kinds: kinds(&["manuscript"]),
+            filters: vec![Filter::Status {
+                status: "dismissed".into(),
+            }],
+            ..PaneQuery::default()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tree building
+// ---------------------------------------------------------------------------
+
+/// One pane of a preset under construction.
+struct Pane {
+    role: Role,
+    query: PaneQuery,
+    view_kind: ViewKindId,
+    share: f32,
+    params: Vec<ParamBinding>,
+}
+
+impl Pane {
+    fn new(role: Role, query: PaneQuery, view_kind: ViewKindId, share: f32) -> Self {
+        Self {
+            role,
+            query,
+            view_kind,
+            share,
+            params: Vec::new(),
+        }
+    }
+
+    fn with_param(mut self, binding: ParamBinding) -> Self {
+        self.params.push(binding);
+        self
+    }
+
+    fn with_params(mut self, bindings: Vec<ParamBinding>) -> Self {
+        self.params.extend(bindings);
+        self
+    }
+}
+
+/// The first kind a list pane shows — what its detail pane's `$item` is.
+fn list_kind(list: &PaneQuery) -> String {
+    list.kinds
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "item".to_string())
+}
+
+/// The detail pane's binding: `$item`, of the list's kind, following channel
+/// 1 — the whole of what "selecting in the list drives the detail pane" means.
+///
+/// **Optional**, like every parameter a preset binds (ADR-0031 D3): an
+/// unfilled parameter renders the view kind's empty state, never an error, so
+/// a detail pane before the first selection compiles to a query that matches
+/// nothing. `impress_layout::preset::three_column` says the same thing about
+/// the same pane, and the two must not disagree.
+fn detail_param(item_kind: &str) -> ParamBinding {
+    ParamBinding::optional(
+        DETAIL_PARAM,
+        item_kind.to_string(),
+        ParamSource::Channel {
+            channel: ChannelId::ONE,
+        },
+    )
+}
+
+/// The list pane's library binding: `$library`, following channel 1.
+///
+/// Optional, like `$item`: at cold start no library is selected, and an
+/// unfilled parameter compiles to a query that matches nothing rather than to
+/// a refusal. An empty inbox is an empty state; only a WRONG query is an
+/// error (`pane_query`'s "Empty is not an error, and an error is not empty").
+fn library_param() -> ParamBinding {
+    ParamBinding::optional(
+        LIBRARY_PARAM,
+        "library",
+        ParamSource::Channel {
+            channel: ChannelId::ONE,
+        },
+    )
+}
+
+/// Today's chassis with explicit shares: navigator | list | detail.
+fn three_columns(
+    list: PaneQuery,
+    detail_view_kind: ViewKindId,
+    shares: [f32; 3],
+    list_params: Vec<ParamBinding>,
+) -> (Layout, BTreeMap<Role, TileId>) {
+    let item_kind = list_kind(&list);
+    let detail = detail_query(&list);
+    build(
+        vec![
+            Pane::new(
+                Role::NAVIGATOR,
+                navigator_query(),
+                ViewKindId::OUTLINE,
+                shares[0],
+            ),
+            Pane::new(Role::LIST, list, ViewKindId::LIST, shares[1]).with_params(list_params),
+            Pane::new(Role::DETAIL, detail, detail_view_kind, shares[2])
+                .with_param(detail_param(&item_kind)),
+        ],
+        &Role::LIST,
+    )
+}
+
+/// Assemble panes into one horizontal window and collect the role map.
+///
+/// Shares are relative weights, so `1 : 2 : 3` means what it says and the
+/// renderer divides by their sum ([`Container::linear`]).
+fn build(panes: Vec<Pane>, focus: &Role) -> (Layout, BTreeMap<Role, TileId>) {
+    let mut layout = Layout::empty();
+    let mut children: Vec<TileId> = Vec::new();
+    let mut shares: Vec<f32> = Vec::new();
+    let mut roles: BTreeMap<Role, TileId> = BTreeMap::new();
+
+    for pane in panes {
+        let mut spec = PaneSpec::new(pane.query, pane.view_kind)
+            .with_role(pane.role.clone())
+            .with_channel(ChannelId::ONE);
+        for binding in pane.params {
+            spec = spec.with_param(binding);
+        }
+        let id = layout.insert_pane(spec);
+        roles.insert(pane.role, id);
+        children.push(id);
+        shares.push(pane.share);
+    }
+
+    let root = layout.insert_container(Container::linear(LinearDir::Horizontal, children, shares));
+    let window = layout.add_window(root);
+    let focused = roles.get(focus).copied();
+    if let Some(w) = layout.window_mut(window) {
+        w.focused = focused;
+    }
+    layout.normalize();
+    (layout, roles)
+}
+
+// ---------------------------------------------------------------------------
+// The store side
+// ---------------------------------------------------------------------------
+
+/// The UUIDv5 namespace preset ids are derived in. A constant namespace plus
+/// `(app_id, name)` makes the id a **function of the preset**, which is what
+/// lets [`PresetStore::ensure_shipped`] run on every launch without ever
+/// making a second Triage.
+fn preset_namespace() -> Uuid {
+    Uuid::new_v5(&Uuid::NAMESPACE_URL, b"impress://ui/preset")
+}
+
+/// The row id of `(app_id, name)`. Case- and whitespace-insensitive, so
+/// "Triage" and " triage " are the same preset rather than two.
+pub fn preset_id(app_id: &str, name: &str) -> ItemId {
+    let key = format!(
+        "{}/{}",
+        app_id.trim().to_lowercase(),
+        name.trim().to_lowercase()
+    );
+    Uuid::new_v5(&preset_namespace(), key.as_bytes())
+}
+
+/// One `impress/ui/preset@1.0.0` row, without its tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresetRow {
+    pub id: ItemId,
+    pub name: String,
+    pub app_id: String,
+    pub purpose: Option<String>,
+    pub version: Option<u32>,
+    pub created: DateTime<Utc>,
+    pub modified: DateTime<Utc>,
+}
+
+/// What a preset row carries beyond its identity.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StoredPreset {
+    /// Absent on a user-edited preset that overrides only the queries or the
+    /// roles and inherits the tree from the shipped preset it `DerivedFrom`.
+    pub layout: Option<Layout>,
+    pub queries: BTreeMap<String, PaneQuery>,
+    pub roles: BTreeMap<String, u64>,
+}
+
+/// Store-backed access to the preset rows.
+///
+/// Like [`crate::store::LayoutStore`], nothing here may run during the first
+/// ~90 s of an app launch (root CLAUDE.md, ADR-0019 D6): seeding writes rows,
+/// and a `.storeDidMutate` storm in the settling window is the
+/// perpetual-render-loop bug. This crate cannot enforce that — it has no idea
+/// when its host launched — so the rule belongs to the caller, and the L6
+/// projection is where it is implemented.
+#[derive(Clone)]
+pub struct PresetStore {
+    store: Arc<SqliteItemStore>,
+}
+
+impl PresetStore {
+    pub fn new(store: Arc<SqliteItemStore>) -> Self {
+        Self { store }
+    }
+
+    /// Seed the shipped presets of `app_id` that are **absent**, and answer
+    /// with every preset row of the app in ordinal order.
+    ///
+    /// Idempotent by construction rather than by checking afterwards: the id
+    /// is a function of `(app_id, name)`, and a row that exists is left
+    /// exactly as it is — which is how a user's edit to Triage survives every
+    /// later launch. Restoring the shipped revision is `reset_preset`, a verb
+    /// the user asks for.
+    ///
+    /// Seeded rows are attributed to [`ActorKind::System`]: the suite shipped
+    /// them, whoever happened to trigger the first read.
+    pub fn ensure_shipped(&self, app_id: &str) -> Result<Vec<PresetRow>> {
+        let existing = self.rows(app_id)?;
+        for shipped in shipped_presets_for(app_id) {
+            let id = shipped.item_id();
+            if existing.iter().any(|row| row.id == id) {
+                continue;
+            }
+            self.insert(&shipped)?;
+        }
+        self.rows(app_id)
+    }
+
+    /// Every preset row of `app_id`, in **ordinal order**: the shipped
+    /// presets first, in table order, then the user's own by creation.
+    ///
+    /// Creation rather than modification, for the reason
+    /// [`crate::store::LayoutStore::list_named`] gives: re-saving a preset
+    /// must not move it to another chord.
+    pub fn rows(&self, app_id: &str) -> Result<Vec<PresetRow>> {
+        let app_id = app_id.trim();
+        let table = shipped_presets_for(app_id);
+        let mut rows: Vec<PresetRow> = self
+            .items(app_id)?
+            .iter()
+            .map(row_of)
+            .collect::<Result<Vec<_>>>()?;
+        let rank = |row: &PresetRow| -> usize {
+            table
+                .iter()
+                .position(|p| p.item_id() == row.id)
+                .unwrap_or(usize::MAX)
+        };
+        rows.sort_by(|a, b| {
+            rank(a)
+                .cmp(&rank(b))
+                .then_with(|| a.created.cmp(&b.created))
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Ok(rows)
+    }
+
+    /// One preset by name (case-insensitive) or by id.
+    pub fn load(&self, app_id: &str, key: &str) -> Result<Option<(PresetRow, StoredPreset)>> {
+        let key = key.trim();
+        if let Ok(id) = key.parse::<ItemId>() {
+            if let Some(item) = self.item(id)? {
+                return Ok(Some((row_of(&item)?, stored_of(&item)?)));
+            }
+        }
+        let wanted = key.to_lowercase();
+        for item in self.items(app_id)? {
+            let row = row_of(&item)?;
+            if row.name.trim().to_lowercase() == wanted {
+                return Ok(Some((row, stored_of(&item)?)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Write a preset: insert when absent, patch field by field when present.
+    ///
+    /// **Durable**, with [`OperationIntent::Editorial`] — a preset is a
+    /// decision about how work is arranged, which is exactly what `commit`
+    /// and `save_named` mean by the word (ADR-0031 D7).
+    #[allow(clippy::too_many_arguments)]
+    pub fn save(
+        &self,
+        app_id: &str,
+        name: &str,
+        purpose: Option<&str>,
+        layout: &Layout,
+        queries: &BTreeMap<String, PaneQuery>,
+        roles: &BTreeMap<Role, TileId>,
+        version: Option<u32>,
+        actor: ActorKind,
+        intent: &str,
+    ) -> Result<PresetRow> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("a preset needs a name".to_string());
+        }
+        let app_id = app_id.trim();
+        if app_id.is_empty() {
+            return Err("a preset belongs to an app: `app_id` is required".to_string());
+        }
+        let id = preset_id(app_id, name);
+        let exists = self.item(id)?.is_some();
+        if !exists {
+            let item = build_item(
+                id, app_id, name, purpose, layout, queries, roles, version, actor,
+            )?;
+            self.store
+                .insert(item)
+                .map_err(|e| format!("write preset: {e}"))?;
+            return self
+                .row(id)?
+                .ok_or_else(|| "the preset vanished mid-save".to_string());
+        }
+
+        let mut fields: Vec<(&str, Value)> = vec![
+            (field::LAYOUT, layout_value(layout)?),
+            (field::QUERIES, queries_value(queries)?),
+            (field::ROLES, roles_value(roles)),
+        ];
+        if let Some(purpose) = purpose {
+            fields.push((field::PURPOSE, Value::String(purpose.trim().to_string())));
+        }
+        if let Some(version) = version {
+            fields.push((field::VERSION, Value::Int(i64::from(version))));
+        }
+        for (name, value) in fields {
+            self.patch(id, name, value, actor, intent)?;
+        }
+        self.row(id)?
+            .ok_or_else(|| "the preset vanished mid-save".to_string())
+    }
+
+    /// Restore the shipped revision of `(app_id, name)` over a user-edited
+    /// row. Refused for a name the table does not ship: there would be
+    /// nothing to restore, and inventing one would be worse than saying so.
+    pub fn reset(&self, app_id: &str, name: &str, actor: ActorKind) -> Result<PresetRow> {
+        let Some(shipped) = shipped_preset(app_id, name) else {
+            return Err(format!(
+                "'{name}' is not a preset {app_id} ships, so there is no shipped revision to \
+                 reset it to. Shipped: {}",
+                shipped_names(app_id)
+            ));
+        };
+        self.save(
+            shipped.app_id,
+            shipped.name,
+            Some(shipped.purpose),
+            &shipped.layout,
+            &shipped.queries,
+            &shipped.roles,
+            Some(shipped.version),
+            actor,
+            &format!(
+                "reset the preset '{}' to its shipped revision",
+                shipped.name
+            ),
+        )
+    }
+
+    /// Does this row still match the revision the table ships? `false` for a
+    /// preset the user has edited, and `None` for one the table never shipped.
+    pub fn matches_shipped(&self, row: &PresetRow, stored: &StoredPreset) -> Option<bool> {
+        let shipped = shipped_preset(&row.app_id, &row.name)?;
+        let same_tree = stored.layout.as_ref() == Some(&shipped.layout);
+        let same_queries = stored.queries == shipped.queries;
+        let same_roles = stored.roles == role_ids(&shipped.roles);
+        let same_version = row.version == Some(shipped.version);
+        Some(same_tree && same_queries && same_roles && same_version)
+    }
+
+    // ------------------------------------------------------------ internals
+
+    fn row(&self, id: ItemId) -> Result<Option<PresetRow>> {
+        self.item(id)?.as_ref().map(row_of).transpose()
+    }
+
+    fn item(&self, id: ItemId) -> Result<Option<Item>> {
+        self.store
+            .get(id)
+            .map_err(|e| format!("read preset {id}: {e}"))
+            .map(|item| item.filter(|i| i.schema == PRESET_SCHEMA_REF))
+    }
+
+    /// Every preset row of `app_id`.
+    ///
+    /// Filtered in Rust rather than by a payload predicate, for the reason
+    /// [`crate::store::LayoutStore`] gives: a workspace holds a handful of
+    /// these rows, and matching a JSON field through `json_extract` is the
+    /// kind of silently-empty comparison this repo has a lint about.
+    fn items(&self, app_id: &str) -> Result<Vec<Item>> {
+        let query = ItemQuery {
+            schema: Some(PRESET_SCHEMA_REF.into()),
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        };
+        let app_id = app_id.trim();
+        Ok(self
+            .store
+            .query(&query)
+            .map_err(|e| format!("read presets: {e}"))?
+            .into_iter()
+            .filter(|item| string_field(item, field::APP_ID).as_deref() == Some(app_id))
+            .collect())
+    }
+
+    fn insert(&self, shipped: &ShippedPreset) -> Result<ItemId> {
+        let item = build_item(
+            shipped.item_id(),
+            shipped.app_id,
+            shipped.name,
+            Some(shipped.purpose),
+            &shipped.layout,
+            &shipped.queries,
+            &shipped.roles,
+            Some(shipped.version),
+            // The suite ships these, whoever triggered the first read.
+            ActorKind::System,
+        )?;
+        self.store
+            .insert(item)
+            .map_err(|e| format!("seed preset '{}': {e}", shipped.name))
+    }
+
+    fn patch(
+        &self,
+        id: ItemId,
+        field: &str,
+        value: Value,
+        actor: ActorKind,
+        intent: &str,
+    ) -> Result<()> {
+        self.store
+            .apply_operation(OperationSpec {
+                target_id: id,
+                op_type: OperationType::SetPayload(field.to_string(), value),
+                intent: OperationIntent::Editorial,
+                reason: Some(intent.to_string()),
+                batch_id: None,
+                author: author_for(actor),
+                author_kind: actor,
+                retention: RetentionTier::Durable,
+            })
+            .map(|_| ())
+            .map_err(|e| format!("write preset: {e}"))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ordinals and provenance
+// ---------------------------------------------------------------------------
+
+/// What ⌃⌘`n` recalls: a preset or a saved layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrdinalTarget {
+    Preset(PresetRow),
+    Layout(LayoutRow),
+}
+
+impl OrdinalTarget {
+    pub fn label(&self) -> String {
+        match self {
+            OrdinalTarget::Preset(row) => row.name.clone(),
+            OrdinalTarget::Layout(row) => row.name.clone().unwrap_or_else(|| row.id.to_string()),
+        }
+    }
+}
+
+/// The ⌃⌘1–9 union of one app, in the ONE documented order:
+///
+/// 1. the **shipped presets**, in [`shipped_presets`] table order — so ⌃⌘1 is
+///    always the app's default, ⌃⌘2 Triage, ⌃⌘3 Reading, whatever the user
+///    has saved since;
+/// 2. then the user's **own presets**, oldest first;
+/// 3. then the **named layouts**, oldest first.
+///
+/// Fixed points before moving ones, and creation order rather than
+/// modification order within each group: re-saving Triage must not move it to
+/// another chord, and a preset must not change chord because a layout was
+/// renamed. The shipped presets are seeded on the way past, which is what
+/// makes position 1 mean the same thing on a machine that has never opened
+/// the app as on one that has.
+pub fn ordinal_targets(
+    presets: &PresetStore,
+    layouts: &crate::store::LayoutStore,
+    app_id: &str,
+) -> Result<Vec<OrdinalTarget>> {
+    let mut out: Vec<OrdinalTarget> = presets
+        .ensure_shipped(app_id)?
+        .into_iter()
+        .map(OrdinalTarget::Preset)
+        .collect();
+    out.extend(
+        layouts
+            .list_named(app_id)?
+            .into_iter()
+            .map(OrdinalTarget::Layout),
+    );
+    Ok(out)
+}
+
+/// Record that a live layout came from a preset: one `DerivedFrom` edge from
+/// the layout row to the preset row.
+///
+/// ADR-0019 D1 names this edge as the reason "reset to preset" is a graph
+/// walk rather than a remembered string, so a layout derives from **one**
+/// preset: an edge to any other preset is removed first, and the edge itself
+/// is written `Durable` (it is provenance of a commit, not a gesture, and a
+/// compaction that dropped it would lose the answer to "what was this?").
+///
+/// The store's insert is `INSERT OR IGNORE`, so re-applying the same preset
+/// re-states the edge rather than duplicating it.
+pub fn record_derived_from(
+    store: &Arc<SqliteItemStore>,
+    layout_row: ItemId,
+    preset_row: ItemId,
+    actor: ActorKind,
+    intent: &str,
+) -> Result<()> {
+    let item = store
+        .get(layout_row)
+        .map_err(|e| format!("read layout {layout_row}: {e}"))?
+        .ok_or_else(|| format!("layout row {layout_row} is gone"))?;
+    let stale: Vec<ItemId> = item
+        .references
+        .iter()
+        .filter(|r| r.edge_type == EdgeType::DerivedFrom && r.target != preset_row)
+        .map(|r| r.target)
+        .collect();
+
+    let mut ops: Vec<OperationType> = stale
+        .into_iter()
+        .map(|target| OperationType::RemoveReference(target, EdgeType::DerivedFrom))
+        .collect();
+    ops.push(OperationType::AddReference(TypedReference {
+        target: preset_row,
+        edge_type: EdgeType::DerivedFrom,
+        metadata: None,
+    }));
+
+    for op_type in ops {
+        store
+            .apply_operation(OperationSpec {
+                target_id: layout_row,
+                op_type,
+                intent: OperationIntent::Editorial,
+                reason: Some(intent.to_string()),
+                batch_id: None,
+                author: author_for(actor),
+                author_kind: actor,
+                retention: RetentionTier::Durable,
+            })
+            .map_err(|e| format!("record the preset this layout came from: {e}"))?;
+    }
+    Ok(())
+}
+
+/// The preset a layout row derives from, if any — the graph walk the edge
+/// exists for.
+pub fn derived_from(store: &Arc<SqliteItemStore>, layout_row: ItemId) -> Result<Option<ItemId>> {
+    let item = store
+        .get(layout_row)
+        .map_err(|e| format!("read layout {layout_row}: {e}"))?;
+    Ok(item.and_then(|item| {
+        item.references
+            .iter()
+            .find(|r| r.edge_type == EdgeType::DerivedFrom)
+            .map(|r| r.target)
+    }))
+}
+
+/// Role → tile, read off a tree. What `save_preset` writes as `roles`.
+pub fn roles_of(layout: &Layout) -> BTreeMap<Role, TileId> {
+    let mut out: BTreeMap<Role, TileId> = BTreeMap::new();
+    for tile in layout.panes() {
+        if let Some(role) = layout.pane(tile).and_then(|pane| pane.role.clone()) {
+            out.entry(role).or_insert(tile);
+        }
+    }
+    out
+}
+
+fn shipped_names(app_id: &str) -> String {
+    let names: Vec<&str> = shipped_presets_for(app_id).iter().map(|p| p.name).collect();
+    if names.is_empty() {
+        format!("{app_id} ships no presets")
+    } else {
+        names.join(", ")
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_item(
+    id: ItemId,
+    app_id: &str,
+    name: &str,
+    purpose: Option<&str>,
+    layout: &Layout,
+    queries: &BTreeMap<String, PaneQuery>,
+    roles: &BTreeMap<Role, TileId>,
+    version: Option<u32>,
+    actor: ActorKind,
+) -> Result<Item> {
+    let mut payload: BTreeMap<String, Value> = BTreeMap::new();
+    payload.insert(field::NAME.into(), Value::String(name.trim().into()));
+    payload.insert(field::APP_ID.into(), Value::String(app_id.trim().into()));
+    payload.insert(field::LAYOUT.into(), layout_value(layout)?);
+    payload.insert(field::QUERIES.into(), queries_value(queries)?);
+    payload.insert(field::ROLES.into(), roles_value(roles));
+    if let Some(purpose) = purpose {
+        payload.insert(field::PURPOSE.into(), Value::String(purpose.trim().into()));
+    }
+    if let Some(version) = version {
+        payload.insert(field::VERSION.into(), Value::Int(i64::from(version)));
+    }
+
+    let now = Utc::now();
+    Ok(Item {
+        id,
+        schema: PRESET_SCHEMA_REF.into(),
+        payload,
+        created: now,
+        modified: now,
+        author: author_for(actor),
+        author_kind: actor,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags: vec![],
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::None,
+        // Private + Durable per ADR-0019 D2's table; a preset syncs and
+        // carries no device.
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: vec![],
+        parent: None,
+    })
+}
+
+fn role_ids(roles: &BTreeMap<Role, TileId>) -> BTreeMap<String, u64> {
+    roles
+        .iter()
+        .map(|(role, tile)| (role.to_string(), tile.raw()))
+        .collect()
+}
+
+fn roles_value(roles: &BTreeMap<Role, TileId>) -> Value {
+    Value::Object(
+        roles
+            .iter()
+            .map(|(role, tile)| (role.to_string(), Value::Int(tile.raw() as i64)))
+            .collect(),
+    )
+}
+
+fn queries_value(queries: &BTreeMap<String, PaneQuery>) -> Result<Value> {
+    let json = serde_json::to_value(queries).map_err(|e| format!("encode preset queries: {e}"))?;
+    serde_json::from_value(json).map_err(|e| format!("encode preset queries: {e}"))
+}
+
+fn layout_value(layout: &Layout) -> Result<Value> {
+    let json = serde_json::to_value(layout).map_err(|e| format!("encode preset tree: {e}"))?;
+    serde_json::from_value(json).map_err(|e| format!("encode preset tree: {e}"))
+}
+
+fn string_field(item: &Item, field: &str) -> Option<String> {
+    match item.payload.get(field) {
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+fn row_of(item: &Item) -> Result<PresetRow> {
+    let name = string_field(item, field::NAME)
+        .ok_or_else(|| format!("preset row {} has no `name`", item.id))?;
+    let app_id = string_field(item, field::APP_ID)
+        .ok_or_else(|| format!("preset row {} has no `app_id`", item.id))?;
+    let version = match item.payload.get(field::VERSION) {
+        Some(Value::Int(v)) if *v >= 0 => u32::try_from(*v).ok(),
+        _ => None,
+    };
+    Ok(PresetRow {
+        id: item.id,
+        name,
+        app_id,
+        purpose: string_field(item, field::PURPOSE),
+        version,
+        created: item.created,
+        modified: item.modified,
+    })
+}
+
+fn stored_of(item: &Item) -> Result<StoredPreset> {
+    let layout = match item.payload.get(field::LAYOUT) {
+        Some(value) => Some(from_value::<Layout>(value, "tree")?),
+        None => None,
+    };
+    let queries = match item.payload.get(field::QUERIES) {
+        Some(value) => from_value::<BTreeMap<String, PaneQuery>>(value, "queries")?,
+        None => BTreeMap::new(),
+    };
+    let roles = match item.payload.get(field::ROLES) {
+        Some(Value::Object(map)) => map
+            .iter()
+            .filter_map(|(role, value)| match value {
+                Value::Int(tile) if *tile >= 0 => Some((role.clone(), *tile as u64)),
+                _ => None,
+            })
+            .collect(),
+        _ => BTreeMap::new(),
+    };
+    Ok(StoredPreset {
+        layout,
+        queries,
+        roles,
+    })
+}
+
+fn from_value<T: serde::de::DeserializeOwned>(value: &Value, what: &str) -> Result<T> {
+    let json = serde_json::to_value(value).map_err(|e| format!("read preset {what}: {e}"))?;
+    serde_json::from_value(json).map_err(|e| format!("read preset {what}: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use impress_core::pane_query::{compile, Bindings, KindManifest, ParamDecl};
+    use impress_layout::{Tile, Verb};
+
+    fn manifest() -> KindManifest {
+        KindManifest::builtin()
+    }
+
+    /// Every pane of every window of a preset.
+    fn panes(preset: &ShippedPreset) -> Vec<&PaneSpec> {
+        preset
+            .layout
+            .panes()
+            .into_iter()
+            .filter_map(|tile| preset.layout.pane(tile))
+            .collect()
+    }
+
+    // ── The table itself ────────────────────────────────────────────────
+
+    #[test]
+    fn the_table_has_one_preset_per_app_and_purpose() {
+        let mut seen: Vec<(String, String)> = Vec::new();
+        for preset in shipped_presets() {
+            let key = (preset.app_id.to_string(), preset.name.to_lowercase());
+            assert!(
+                !seen.contains(&key),
+                "two presets claim ({}, {}) — their ids would collide",
+                preset.app_id,
+                preset.name
+            );
+            seen.push(key);
+        }
+    }
+
+    #[test]
+    fn every_app_ships_a_default_first() {
+        for app in preset_app_ids() {
+            let presets = shipped_presets_for(app);
+            assert_eq!(
+                presets.first().map(|p| p.name),
+                Some("Default"),
+                "⌃⌘1 must be {app}'s default"
+            );
+        }
+    }
+
+    #[test]
+    fn the_ordinal_order_is_the_one_the_grammar_documents() {
+        let names: Vec<&str> = shipped_presets_for("imbib")
+            .iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(names, vec!["Default", "Triage", "Reading", "Full"]);
+    }
+
+    #[test]
+    fn preset_ids_are_a_function_of_app_and_name() {
+        assert_eq!(preset_id("imbib", "Triage"), preset_id("imbib", " triage "));
+        assert_ne!(preset_id("imbib", "Triage"), preset_id("imprint", "Triage"));
+        // And stable across runs, which is the property seeding depends on.
+        assert_eq!(
+            preset_id("imbib", "Triage").to_string(),
+            preset_id("imbib", "Triage").to_string()
+        );
+    }
+
+    // ── Queries compile ─────────────────────────────────────────────────
+
+    /// The deliverable's own proof: a preset can never ship with a query that
+    /// does not compile.
+    ///
+    /// Each query is compiled twice — with every declared parameter bound to
+    /// a synthetic id, and with **nothing** bound. Both must compile: every
+    /// parameter a preset binds is optional (ADR-0031 D3), so a pane before
+    /// the first selection renders the view kind's empty state rather than a
+    /// refusal. A preset that compiles only once bound would put an error
+    /// message in a window the moment it opened.
+    #[test]
+    fn every_query_of_every_preset_compiles() {
+        for preset in shipped_presets() {
+            for (name, query) in &preset.queries {
+                assert_compiles(
+                    &format!("{}/{} query '{name}'", preset.app_id, preset.name),
+                    query,
+                    &[],
+                );
+            }
+            for pane in panes(&preset) {
+                let decls: Vec<ParamDecl> = pane.params.iter().map(|b| b.decl.clone()).collect();
+                assert_compiles(
+                    &format!(
+                        "{}/{} pane '{}'",
+                        preset.app_id, preset.name, pane.view_kind
+                    ),
+                    &pane.query,
+                    &decls,
+                );
+            }
+        }
+    }
+
+    fn assert_compiles(what: &str, query: &PaneQuery, decls: &[ParamDecl]) {
+        let mut bound = Bindings::new();
+        for decl in decls {
+            assert!(
+                !decl.required,
+                "{what}: the parameter '{}' is required, but ADR-0031 D3 says an unfilled \
+                 parameter renders the empty state — a preset must never ship one that \
+                 refuses before the first selection",
+                decl.name
+            );
+            bound = bound.with(decl.name.clone(), Uuid::new_v4());
+        }
+        compile(query, decls, &bound, &manifest())
+            .unwrap_or_else(|e| panic!("{what} does not compile with its parameters bound: {e}"));
+        compile(query, decls, &Bindings::new(), &manifest())
+            .unwrap_or_else(|e| panic!("{what} does not compile with nothing bound: {e}"));
+    }
+
+    #[test]
+    fn every_preset_normalizes_to_itself() {
+        for preset in shipped_presets() {
+            let mut again = preset.layout.clone();
+            again.normalize();
+            assert_eq!(
+                again, preset.layout,
+                "{}/{} is not in canonical shape",
+                preset.app_id, preset.name
+            );
+        }
+    }
+
+    #[test]
+    fn every_role_resolves_to_a_pane_of_its_own_tree() {
+        for preset in shipped_presets() {
+            assert!(
+                !preset.roles.is_empty(),
+                "{}/{} assigns no roles",
+                preset.app_id,
+                preset.name
+            );
+            for (role, tile) in &preset.roles {
+                assert_eq!(
+                    preset.layout.pane_with_role(role),
+                    Some(*tile),
+                    "{}/{}: role '{role}' does not resolve to tile {tile}",
+                    preset.app_id,
+                    preset.name
+                );
+                assert!(
+                    preset.layout.pane(*tile).is_some(),
+                    "{}/{}: role '{role}' names tile {tile}, which is not a pane",
+                    preset.app_id,
+                    preset.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_preset_round_trips_through_json() {
+        for preset in shipped_presets() {
+            let json = serde_json::to_string(&preset.layout).expect("encode");
+            let back: Layout = serde_json::from_str(&json).expect("decode");
+            assert_eq!(
+                back, preset.layout,
+                "{}/{} does not survive the wire",
+                preset.app_id, preset.name
+            );
+        }
+    }
+
+    // ── Parity with the Swift presets ───────────────────────────────────
+
+    /// The detail pane's view kind is the app's `defaultDetailTab`, spelled as
+    /// the `DetailTab` raw value.
+    #[test]
+    fn each_default_preset_opens_on_its_apps_default_detail_tab() {
+        for (app, tab) in [
+            ("imbib", "info"),
+            ("imprint", "source"),
+            ("implore", "info"),
+            ("impel", "info"),
+            ("impart", "info"),
+            ("impress", "info"),
+        ] {
+            let preset = shipped_preset(app, "Default").expect("a default preset");
+            let detail = preset
+                .roles
+                .get(&Role::DETAIL)
+                .copied()
+                .expect("detail role");
+            assert_eq!(
+                preset.layout.pane(detail).map(|p| p.view_kind.to_string()),
+                Some(tab.to_string()),
+                "{app}'s default detail tab"
+            );
+        }
+    }
+
+    /// The list pane is the app's `defaultSection` query.
+    #[test]
+    fn each_default_preset_lists_its_apps_default_section() {
+        for (app, section) in [
+            ("imbib", "inbox"),
+            ("imprint", "manuscripts"),
+            ("implore", "figures"),
+            ("impel", "agents"),
+            ("impart", "mail"),
+            ("impress", "inbox"),
+        ] {
+            let preset = shipped_preset(app, "Default").expect("a default preset");
+            let list = preset.roles.get(&Role::LIST).copied().expect("list role");
+            let pane = preset.layout.pane(list).expect("a list pane");
+            assert_eq!(
+                Some(&pane.query),
+                preset.queries.get(section),
+                "{app}'s list pane should be its '{section}' query"
+            );
+        }
+    }
+
+    /// Every section of every app's `visibleSections` is either a named query
+    /// or an entry in [`MATERIALIZE_FIRST`]. A section in neither list is the
+    /// silent gap this test exists to refuse.
+    #[test]
+    fn every_visible_section_is_accounted_for() {
+        // AppShellConfiguration, read once and transcribed here. Read-only:
+        // the Swift file is the source, and this is the claim under test.
+        let visible: &[(&str, &[&str])] = &[
+            (
+                "imbib",
+                &[
+                    "inbox",
+                    "libraries",
+                    "sharedWithMe",
+                    "scixLibraries",
+                    "search",
+                    "exploration",
+                    "flagged",
+                    "tags",
+                    "citedInManuscripts",
+                    "artifacts",
+                    "reviewQueue",
+                    "dismissed",
+                ],
+            ),
+            (
+                "imprint",
+                &[
+                    "manuscripts",
+                    "citedInManuscripts",
+                    "flagged",
+                    "tags",
+                    "dismissed",
+                ],
+            ),
+            ("implore", &["figures", "tags"]),
+            ("impart", &["mail", "tags"]),
+            ("impel", &["agents", "tags"]),
+            (
+                "impress",
+                &[
+                    "inbox",
+                    "libraries",
+                    "sharedWithMe",
+                    "scixLibraries",
+                    "search",
+                    "exploration",
+                    "flagged",
+                    "tags",
+                    "citedInManuscripts",
+                    "artifacts",
+                    "manuscripts",
+                    "figures",
+                    "mail",
+                    "agents",
+                    "reviewQueue",
+                    "dismissed",
+                ],
+            ),
+        ];
+        let deferred: Vec<&str> = MATERIALIZE_FIRST
+            .iter()
+            .map(|(name, _)| name.split_whitespace().next().unwrap_or(name))
+            .collect();
+
+        for (app, sections) in visible {
+            let queries = named_queries(app);
+            for section in *sections {
+                let expressed = queries.contains_key(*section);
+                let materialized = deferred.contains(section);
+                assert!(
+                    expressed || materialized,
+                    "{app}'s '{section}' section is neither a named query nor listed in \
+                     MATERIALIZE_FIRST"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn materialize_first_says_why_for_every_entry() {
+        for (name, reason) in MATERIALIZE_FIRST {
+            assert!(
+                reason.len() > 40,
+                "'{name}' needs a real reason, not '{reason}'"
+            );
+        }
+    }
+
+    // ── Hiding a pane ───────────────────────────────────────────────────
+
+    /// The claim the module docs make, checked: a zero share is refused by
+    /// the resize verb.
+    #[test]
+    fn a_zero_share_is_refused_by_resize() {
+        let preset = imbib_default();
+        let mut layout = preset.layout.clone();
+        let window = layout.current_window().expect("a window");
+        let root = layout.window(window).expect("the window").root;
+        let err = layout
+            .apply(Verb::Resize {
+                container: root,
+                shares: vec![1.0, 2.0, 0.0],
+            })
+            .expect_err("a zero share must be refused");
+        assert!(
+            matches!(err, impress_layout::LayoutError::InvalidShares { .. }),
+            "expected InvalidShares, got {err:?}"
+        );
+    }
+
+    /// And the other half: a zero share written straight into the arena does
+    /// not survive one normalization — `sane_share` turns it into a full
+    /// column, so the "hidden" pane springs open.
+    #[test]
+    fn a_zero_share_does_not_survive_normalization() {
+        let preset = imbib_default();
+        let mut layout = preset.layout.clone();
+        let window = layout.current_window().expect("a window");
+        let root = layout.window(window).expect("the window").root;
+        // Write the zero share straight into the arena — the only way to get
+        // one into the tree at all, since the verb refuses it.
+        match layout.tiles.get_mut(&root) {
+            Some(Tile::Container(Container::Linear { shares, .. })) => {
+                *shares = vec![1.0, 2.0, 0.0];
+            }
+            _ => panic!("the root of a three-column preset is a linear container"),
+        }
+        layout.normalize();
+        let shares = match layout.tile(root) {
+            Some(Tile::Container(Container::Linear { shares, .. })) => shares.clone(),
+            _ => panic!("the root should still be a linear container"),
+        };
+        assert_eq!(
+            shares,
+            vec![1.0, 2.0, 1.0],
+            "normalize rewrites a non-positive share to a FULL column, which is why \
+             HIDDEN_SHARE exists"
+        );
+    }
+
+    /// The alternative the module picked, checked the same way: it survives
+    /// normalization, and it reads as hidden.
+    #[test]
+    fn the_hidden_share_survives_normalization_and_reads_as_hidden() {
+        let preset = imbib_triage();
+        let mut layout = preset.layout.clone();
+        layout.normalize();
+        layout.normalize();
+        assert_eq!(
+            layout, preset.layout,
+            "Triage must be idempotent under normalize"
+        );
+
+        let window = layout.current_window().expect("a window");
+        let root = layout.window(window).expect("the window").root;
+        let shares = match layout.tile(root) {
+            Some(Tile::Container(Container::Linear { shares, .. })) => shares.clone(),
+            _ => panic!("the root should be a linear container"),
+        };
+        assert_eq!(shares.len(), 3);
+        assert!(
+            is_hidden(shares[2]),
+            "Triage hides the detail pane; share was {}",
+            shares[2]
+        );
+        assert!(!is_hidden(shares[0]) && !is_hidden(shares[1]));
+
+        // And the hidden pane is still a pane: its query, role and view kind
+        // are all there, which is why ⌘0 is a resize and not a split.
+        let detail = preset
+            .roles
+            .get(&Role::DETAIL)
+            .copied()
+            .expect("detail role");
+        assert!(layout.pane(detail).is_some());
+    }
+
+    #[test]
+    fn a_hidden_share_is_a_legal_resize() {
+        let preset = imbib_default();
+        let mut layout = preset.layout.clone();
+        let window = layout.current_window().expect("a window");
+        let root = layout.window(window).expect("the window").root;
+        layout
+            .apply(Verb::Resize {
+                container: root,
+                shares: vec![1.0, 2.0, HIDDEN_SHARE],
+            })
+            .expect("HIDDEN_SHARE is a positive, finite weight");
+    }
+
+    #[test]
+    fn reading_hides_the_navigator_and_shows_the_pdf() {
+        let preset = imbib_reading();
+        let window = preset.layout.current_window().expect("a window");
+        let root = preset.layout.window(window).expect("the window").root;
+        let shares = match preset.layout.tile(root) {
+            Some(Tile::Container(Container::Linear { shares, .. })) => shares.clone(),
+            _ => panic!("linear root"),
+        };
+        assert!(is_hidden(shares[0]), "Reading hides the navigator");
+        let detail = preset.roles.get(&Role::DETAIL).copied().expect("detail");
+        assert_eq!(
+            preset.layout.pane(detail).map(|p| p.view_kind.clone()),
+            Some(ViewKindId::PDF)
+        );
+    }
+
+    #[test]
+    fn writing_puts_a_preview_on_the_same_item_as_the_source() {
+        let preset = imprint_writing();
+        let source = preset.roles.get(&Role::DETAIL).copied().expect("detail");
+        let preview = preset.roles.get(&Role::PREVIEW).copied().expect("preview");
+        let source = preset.layout.pane(source).expect("source pane");
+        let preview = preset.layout.pane(preview).expect("preview pane");
+        assert_eq!(
+            source.query, preview.query,
+            "both views show the same $item"
+        );
+        assert_eq!(
+            source.param(DETAIL_PARAM).map(|b| b.source.clone()),
+            preview.param(DETAIL_PARAM).map(|b| b.source.clone()),
+            "and follow the same channel"
+        );
+        assert_eq!(preview.view_kind, ViewKindId::PDF);
+        assert_eq!(preset.layout.panes().len(), 4);
+    }
+
+    // ── The store side ──────────────────────────────────────────────────
+
+    fn store() -> Arc<SqliteItemStore> {
+        Arc::new(SqliteItemStore::open_in_memory().expect("open store"))
+    }
+
+    #[test]
+    fn seeding_twice_leaves_one_row_per_preset() {
+        let presets = PresetStore::new(store());
+        let first = presets.ensure_shipped("imbib").expect("seed");
+        let second = presets.ensure_shipped("imbib").expect("re-seed");
+        assert_eq!(first.len(), shipped_presets_for("imbib").len());
+        assert_eq!(
+            first.iter().map(|r| r.id).collect::<Vec<_>>(),
+            second.iter().map(|r| r.id).collect::<Vec<_>>(),
+            "re-seeding must not mint a second Triage"
+        );
+    }
+
+    #[test]
+    fn a_seeded_preset_reads_back_as_the_table_shipped_it() {
+        let presets = PresetStore::new(store());
+        presets.ensure_shipped("imprint").expect("seed");
+        let (row, stored) = presets
+            .load("imprint", "Writing")
+            .expect("load")
+            .expect("Writing is shipped");
+        assert_eq!(row.version, Some(SHIPPED_VERSION));
+        assert_eq!(stored.layout.as_ref(), Some(&imprint_writing().layout));
+        assert_eq!(stored.queries, named_queries("imprint"));
+        assert_eq!(presets.matches_shipped(&row, &stored), Some(true));
+    }
+
+    #[test]
+    fn an_edited_preset_survives_re_seeding_and_reset_restores_it() {
+        let presets = PresetStore::new(store());
+        presets.ensure_shipped("imbib").expect("seed");
+
+        // The user rearranges Triage.
+        let edited = imbib_reading().layout;
+        presets
+            .save(
+                "imbib",
+                "Triage",
+                Some("mine now"),
+                &edited,
+                &named_queries("imbib"),
+                &imbib_reading().roles,
+                None,
+                ActorKind::Human,
+                "test edit",
+            )
+            .expect("save");
+
+        presets.ensure_shipped("imbib").expect("re-seed");
+        let (row, stored) = presets.load("imbib", "Triage").expect("load").expect("row");
+        assert_eq!(
+            stored.layout.as_ref(),
+            Some(&edited),
+            "re-seeding must never overwrite the user's edit"
+        );
+        assert_eq!(row.purpose.as_deref(), Some("mine now"));
+        assert_eq!(presets.matches_shipped(&row, &stored), Some(false));
+
+        presets
+            .reset("imbib", "Triage", ActorKind::Human)
+            .expect("reset");
+        let (row, stored) = presets.load("imbib", "Triage").expect("load").expect("row");
+        assert_eq!(stored.layout.as_ref(), Some(&imbib_triage().layout));
+        assert_eq!(presets.matches_shipped(&row, &stored), Some(true));
+    }
+
+    #[test]
+    fn resetting_a_preset_the_table_never_shipped_is_refused() {
+        let presets = PresetStore::new(store());
+        let err = presets
+            .reset("imbib", "Mine", ActorKind::Human)
+            .expect_err("nothing to reset to");
+        assert!(
+            err.contains("Triage"),
+            "the refusal should name what IS shipped: {err}"
+        );
+    }
+
+    #[test]
+    fn preset_rows_come_back_in_ordinal_order() {
+        let presets = PresetStore::new(store());
+        presets.ensure_shipped("imbib").expect("seed");
+        presets
+            .save(
+                "imbib",
+                "Mine",
+                None,
+                &imbib_default().layout,
+                &named_queries("imbib"),
+                &imbib_default().roles,
+                None,
+                ActorKind::Human,
+                "a preset of my own",
+            )
+            .expect("save");
+        let names: Vec<String> = presets
+            .rows("imbib")
+            .expect("rows")
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(names, vec!["Default", "Triage", "Reading", "Full", "Mine"]);
+    }
+
+    #[test]
+    fn one_apps_presets_are_not_another_apps() {
+        let presets = PresetStore::new(store());
+        presets.ensure_shipped("imbib").expect("seed imbib");
+        presets.ensure_shipped("imprint").expect("seed imprint");
+        assert_eq!(presets.rows("imbib").expect("rows").len(), 4);
+        assert_eq!(presets.rows("imprint").expect("rows").len(), 2);
+        assert!(presets.load("imprint", "Triage").expect("load").is_none());
+    }
+}

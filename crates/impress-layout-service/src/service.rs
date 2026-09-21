@@ -43,11 +43,12 @@ use crate::device::resolve_device;
 use crate::dto::{
     parse_channel, parse_container_kind, parse_direction, parse_ids, parse_linear_dir,
     parse_placement, parse_stack, raw_tiles, view_kind, ChannelResult, CompiledQueryDto,
-    LayoutListResult, LayoutResult, LayoutVerbResult, PaneRefDto, PaneResult, ReferenceResult,
-    SavedLayoutDto,
+    LayoutListResult, LayoutResult, LayoutVerbResult, MaterializeFirstDto, PaneRefDto, PaneResult,
+    PresetDto, PresetListResult, PresetResult, ReferenceResult, SavedLayoutDto,
 };
+use crate::presets::{self, PresetRow, PresetStore};
 use crate::session::{LayoutSession, SessionRegistry, Stack, UndoTarget};
-use crate::store::{actor_from, LayoutStore};
+use crate::store::{actor_from, LayoutRow, LayoutStore};
 
 /// The workspace layout: every gesture that shapes a window, as a verb.
 ///
@@ -351,7 +352,14 @@ pub trait LayoutService: Send + Sync + 'static {
     ) -> LayoutVerbResult;
 
     /// Recall a saved layout by `name` (or id), or by `ordinal` 1–9 — the
-    /// ⌃⌘1–9 chords, numbering `list_layouts` in order.
+    /// ⌃⌘1–9 chords.
+    ///
+    /// An ordinal numbers ONE union: this app's **presets** first, in the
+    /// shipped table's order, then its named layouts, oldest first. So ⌃⌘1 is
+    /// always the app's default arrangement and ⌃⌘2 its Triage, whatever the
+    /// user has saved since. A `name` that is a preset rather than a layout
+    /// applies that preset, for the same reason: a palette types into one
+    /// name space.
     ///
     /// Window geometry is dropped on the way in: the logical tree is what
     /// ports between devices, and a 27" frame has no business landing on a
@@ -438,8 +446,73 @@ pub trait LayoutService: Send + Sync + 'static {
     ) -> ReferenceResult;
 
     /// The saved layouts of an app, in ⌃⌘1–9 order.
+    ///
+    /// Their ordinals are OFFSET by the app's presets, which come first in
+    /// the union `apply_layout(ordinal:)` recalls — see `list_presets`.
     #[impress_method]
     async fn list_layouts(&self, app_id: String) -> LayoutListResult;
+
+    // --------------------------------------------------------------- presets
+
+    /// The presets of an app — what the app IS, as arrangements the user can
+    /// recall (ADR-0031 D10): its default, plus Triage / Reading / Full /
+    /// Writing where the table ships them, plus any the user saved.
+    ///
+    /// Seeds the shipped presets if this workspace has never seen them, so a
+    /// caller never has to ask whether they exist. Ordinals are the ⌃⌘1–9
+    /// chords: presets first, then named layouts. The answer also carries the
+    /// sections this app permits that are NOT expressible as queries, with
+    /// the reason (ADR-0031 D2).
+    #[impress_method]
+    async fn list_presets(&self, app_id: String) -> PresetListResult;
+
+    /// Apply a preset: the live arrangement becomes its tree, and the live
+    /// row records a `DerivedFrom` edge to the preset it came from — which is
+    /// what makes "reset to the preset" a graph walk rather than a remembered
+    /// string.
+    ///
+    /// Window geometry is dropped on the way in, exactly as `apply_layout`
+    /// drops it: the logical tree is what ports between devices (ADR-0019
+    /// D2).
+    #[impress_method]
+    async fn apply_preset(
+        &self,
+        app_id: String,
+        device: Option<String>,
+        name: String,
+        actor: Option<String>,
+    ) -> LayoutVerbResult;
+
+    /// Save the live arrangement AS a preset, durably — a preset of the
+    /// user's own, or an edit to one the suite ships.
+    ///
+    /// `from_live` must be true today: the live tree is the only source a
+    /// preset can be built from here, and asking for another is refused
+    /// rather than approximated. Editing a shipped preset leaves its
+    /// `version` alone, so "the user edited Triage" stays distinguishable
+    /// from "we shipped a newer Triage" and `reset_preset` can undo it.
+    #[impress_method]
+    async fn save_preset(
+        &self,
+        app_id: String,
+        device: Option<String>,
+        name: String,
+        purpose: Option<String>,
+        from_live: bool,
+        actor: Option<String>,
+    ) -> PresetResult;
+
+    /// Restore the shipped revision of a preset over a user-edited row.
+    ///
+    /// Refused for a name the suite does not ship: there would be nothing to
+    /// restore it to, and the refusal names what IS shipped.
+    #[impress_method]
+    async fn reset_preset(
+        &self,
+        app_id: String,
+        name: String,
+        actor: Option<String>,
+    ) -> PresetResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -596,6 +669,107 @@ fn intent_text(verb: &Verb) -> String {
             format!("window {window} now follows channel {channel}")
         }
     }
+}
+
+/// A saved layout's label: its name, or its id when a hand-edited row has
+/// none.
+fn label_of(row: &LayoutRow) -> String {
+    row.name.clone().unwrap_or_else(|| row.id.to_string())
+}
+
+/// Make `layout` the live arrangement of this session and persist it.
+///
+/// ADR-0019 D2: the logical tree ports between devices; the window frame does
+/// not, so geometry is dropped on the way in — a 27" frame has no business
+/// landing on a laptop.
+fn apply_tree(
+    session: &mut LayoutSession,
+    store: &LayoutStore,
+    mut layout: impress_layout::Layout,
+    label: &str,
+    actor: ActorKind,
+    what: &str,
+) -> Result<LayoutVerbResult, String> {
+    for window in &mut layout.windows {
+        window.geometry = None;
+    }
+    session.replace(layout);
+    store.save_live(
+        &session.app_id,
+        &session.device,
+        &session.layout,
+        actor,
+        &format!("applied the {what} '{label}'"),
+    )?;
+    Ok(LayoutVerbResult::from_layout(
+        format!("Applied '{label}'."),
+        &session.layout,
+        None,
+        None,
+    ))
+}
+
+/// Apply one preset and record where the live arrangement came from.
+///
+/// Shared by `apply_preset` and by `apply_layout`'s ordinal path, so a preset
+/// recalled by ⌃⌘2 leaves exactly the same `DerivedFrom` edge as one applied
+/// by name. A preset row with no tree is refused rather than approximated: an
+/// inheriting preset (one that overrides only queries or roles) is a shape
+/// `schemas/ui.rs` allows and nothing composes yet.
+fn apply_preset_row(
+    session: &mut LayoutSession,
+    store: &LayoutStore,
+    presets: &PresetStore,
+    name: &str,
+    actor: ActorKind,
+) -> Result<LayoutVerbResult, String> {
+    let (row, stored) = presets
+        .load(&session.app_id, name)?
+        .ok_or_else(|| format!("no preset named '{name}' for {}", session.app_id))?;
+    let layout = stored.layout.ok_or_else(|| {
+        format!(
+            "the preset '{}' carries no tree of its own (it inherits one), which nothing \
+             composes yet",
+            row.name
+        )
+    })?;
+    let result = apply_tree(session, store, layout, &row.name, actor, "preset")?;
+    presets::record_derived_from(
+        store.store(),
+        session.item_id,
+        row.id,
+        actor,
+        &format!("this arrangement came from the preset '{}'", row.name),
+    )?;
+    Ok(result)
+}
+
+/// One preset row, as the wire shows it.
+fn preset_dto(presets: &PresetStore, row: &PresetRow, ordinal: u32) -> Result<PresetDto, String> {
+    let (_, stored) = presets
+        .load(&row.app_id, &row.id.to_string())?
+        .ok_or_else(|| format!("preset {} vanished", row.id))?;
+    let edited = presets.matches_shipped(row, &stored).map(|same| !same);
+    let panes = stored
+        .layout
+        .as_ref()
+        .map(|layout| layout.panes().len() as u32)
+        .unwrap_or(0);
+    let mut roles: Vec<String> = stored.roles.keys().cloned().collect();
+    roles.sort();
+    Ok(PresetDto {
+        id: row.id.to_string(),
+        ordinal,
+        name: row.name.clone(),
+        app_id: row.app_id.clone(),
+        purpose: row.purpose.clone(),
+        version: row.version,
+        shipped: presets::shipped_preset(&row.app_id, &row.name).is_some(),
+        edited,
+        panes,
+        roles,
+        modified: row.modified.to_rfc3339(),
+    })
 }
 
 #[async_trait::async_trait]
@@ -952,10 +1126,33 @@ impl LayoutService for DefaultLayoutService {
     ) -> LayoutVerbResult {
         match as_kind.trim().to_ascii_lowercase().as_str() {
             "layout" | "" => self.save_layout(app_id, device, name, purpose, actor).await,
+            // L7: a preset IS a materializable commit of the current
+            // arrangement, so the verb that promised it now keeps its word.
+            // The result envelope differs, so this reports what `save_preset`
+            // said rather than returning its row.
+            "preset" => {
+                let saved = self
+                    .save_preset(app_id, device, name, purpose, true, actor)
+                    .await;
+                if saved.ok {
+                    LayoutVerbResult {
+                        ok: true,
+                        message: saved.message,
+                        focused: None,
+                        affected_panes: Vec::new(),
+                        window: None,
+                        stack: None,
+                        stack_pane: None,
+                        patch: None,
+                    }
+                } else {
+                    LayoutVerbResult::failed(saved.message)
+                }
+            }
             other => LayoutVerbResult::failed(format!(
-                "cannot commit the current bindings as a '{other}' yet — only 'layout' is \
-                 materializable today. Committing a figure or a collection is the same verb \
-                 with a different `as_kind` and arrives with the implore and preset work (L7)."
+                "cannot commit the current bindings as a '{other}' yet — only 'layout' and \
+                 'preset' are materializable today. Committing a figure or a collection is the \
+                 same verb with a different `as_kind` and arrives with the implore work."
             )),
         }
     }
@@ -1001,39 +1198,73 @@ impl LayoutService for DefaultLayoutService {
     ) -> LayoutVerbResult {
         let actor_kind = actor_from(actor.as_deref());
         let outcome = self.with_session(&app_id, device, actor_kind, |session, store| {
-            let (row, mut layout) = match (name.as_deref(), ordinal) {
-                (Some(name), _) if !name.trim().is_empty() => store
-                    .load_named(&session.app_id, name)?
-                    .ok_or_else(|| format!("no saved layout named '{name}'"))?,
-                (_, Some(ordinal)) => {
-                    let row = store
-                        .ordinal(&session.app_id, ordinal)?
-                        .ok_or_else(|| format!("no saved layout at ordinal {ordinal}"))?;
-                    store
-                        .load_named(&session.app_id, &row.id.to_string())?
-                        .ok_or_else(|| format!("saved layout {} vanished", row.id))?
+            // An ordinal spans the SAME union `list_presets` numbers: this
+            // app's presets, then its named layouts (`presets::ordinal_targets`).
+            // So ⌃⌘1 is the app's default preset on a machine that has never
+            // saved a layout and on one that has saved nine.
+            if let (None, Some(ordinal)) = (
+                name.as_deref().map(str::trim).filter(|n| !n.is_empty()),
+                ordinal,
+            ) {
+                if ordinal == 0 {
+                    return Err("layout ordinals are 1-based (⌃⌘1–9)".to_string());
                 }
-                _ => return Err("apply_layout needs a name or an ordinal".to_string()),
-            };
-            // ADR-0019 D2: the logical tree ports; the frame does not.
-            for window in &mut layout.windows {
-                window.geometry = None;
+                let presets = PresetStore::new(store.store().clone());
+                let targets = presets::ordinal_targets(&presets, store, &session.app_id)?;
+                let target = targets.get(ordinal as usize - 1).ok_or_else(|| {
+                    format!(
+                        "no preset or saved layout at ordinal {ordinal}; this app has {}",
+                        targets.len()
+                    )
+                })?;
+                return match target {
+                    presets::OrdinalTarget::Preset(row) => {
+                        apply_preset_row(session, store, &presets, &row.name, actor_kind)
+                    }
+                    presets::OrdinalTarget::Layout(row) => {
+                        let id = row.id.to_string();
+                        let (row, layout) = store
+                            .load_named(&session.app_id, &id)?
+                            .ok_or_else(|| format!("saved layout {id} vanished"))?;
+                        apply_tree(
+                            session,
+                            store,
+                            layout,
+                            &label_of(&row),
+                            actor_kind,
+                            "saved layout",
+                        )
+                    }
+                };
             }
-            let label = row.name.clone().unwrap_or_else(|| row.id.to_string());
-            session.replace(layout);
-            store.save_live(
-                &session.app_id,
-                &session.device,
-                &session.layout,
+
+            let Some(name) = name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else {
+                return Err("apply_layout needs a name or an ordinal".to_string());
+            };
+            let (row, layout) = match store.load_named(&session.app_id, name)? {
+                Some(found) => found,
+                // A name that is not a saved layout may be a PRESET — the two
+                // share the ⌃⌘1–9 union, so they must share the name space a
+                // palette types into as well. Refusing "Triage" because it is
+                // a preset rather than a layout would be a distinction only
+                // this crate can see.
+                None => {
+                    let presets = PresetStore::new(store.store().clone());
+                    presets.ensure_shipped(&session.app_id)?;
+                    if presets.load(&session.app_id, name)?.is_some() {
+                        return apply_preset_row(session, store, &presets, name, actor_kind);
+                    }
+                    return Err(format!("no saved layout or preset named '{name}'"));
+                }
+            };
+            apply_tree(
+                session,
+                store,
+                layout,
+                &label_of(&row),
                 actor_kind,
-                &format!("applied the saved layout '{label}'"),
-            )?;
-            Ok(LayoutVerbResult::from_layout(
-                format!("Applied '{label}'."),
-                &session.layout,
-                None,
-                None,
-            ))
+                "saved layout",
+            )
         });
         outcome.unwrap_or_else(LayoutVerbResult::failed)
     }
@@ -1223,6 +1454,15 @@ impl LayoutService for DefaultLayoutService {
 
     async fn list_layouts(&self, app_id: String) -> LayoutListResult {
         let store = self.layout_store();
+        // The presets hold the first ordinals of the union (see
+        // `presets::ordinal_targets`), so a saved layout's chord starts after
+        // them. Seeding here is what makes the offset the same number on
+        // every machine rather than "however many presets happen to exist".
+        let presets = PresetStore::new(store.store().clone());
+        let offset = match presets.ensure_shipped(&app_id) {
+            Ok(rows) => rows.len() as u32,
+            Err(e) => return LayoutListResult::failed(e),
+        };
         match store.list_named(&app_id) {
             Ok(rows) => {
                 let layouts: Vec<SavedLayoutDto> = rows
@@ -1230,7 +1470,7 @@ impl LayoutService for DefaultLayoutService {
                     .enumerate()
                     .map(|(index, row)| SavedLayoutDto {
                         id: row.id.to_string(),
-                        ordinal: index as u32 + 1,
+                        ordinal: offset + index as u32 + 1,
                         name: row.name,
                         purpose: row.purpose,
                         app_id: row.app_id,
@@ -1248,6 +1488,163 @@ impl LayoutService for DefaultLayoutService {
             Err(e) => LayoutListResult::failed(e),
         }
     }
+
+    // --------------------------------------------------------------- presets
+
+    async fn list_presets(&self, app_id: String) -> PresetListResult {
+        let store = self.layout_store();
+        let presets = PresetStore::new(store.store().clone());
+        let rows = match presets.ensure_shipped(&app_id) {
+            Ok(rows) => rows,
+            Err(e) => return PresetListResult::failed(e),
+        };
+        let mut dtos: Vec<PresetDto> = Vec::with_capacity(rows.len());
+        for (index, row) in rows.iter().enumerate() {
+            match preset_dto(&presets, row, index as u32 + 1) {
+                Ok(dto) => dtos.push(dto),
+                Err(e) => return PresetListResult::failed(e),
+            }
+        }
+        let known = presets::named_queries(&app_id);
+        PresetListResult {
+            ok: true,
+            message: format!("{} preset(s), {} named quer(ies).", dtos.len(), known.len()),
+            presets: dtos,
+            materialize_first: presets::MATERIALIZE_FIRST
+                .iter()
+                .map(|(section, reason)| MaterializeFirstDto {
+                    section: (*section).to_string(),
+                    reason: (*reason).to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    async fn apply_preset(
+        &self,
+        app_id: String,
+        device: Option<String>,
+        name: String,
+        actor: Option<String>,
+    ) -> LayoutVerbResult {
+        let actor_kind = actor_from(actor.as_deref());
+        let outcome = self.with_session(&app_id, device, actor_kind, |session, store| {
+            let presets = PresetStore::new(store.store().clone());
+            presets.ensure_shipped(&session.app_id)?;
+            apply_preset_row(session, store, &presets, &name, actor_kind)
+        });
+        outcome.unwrap_or_else(LayoutVerbResult::failed)
+    }
+
+    async fn save_preset(
+        &self,
+        app_id: String,
+        device: Option<String>,
+        name: String,
+        purpose: Option<String>,
+        from_live: bool,
+        actor: Option<String>,
+    ) -> PresetResult {
+        if !from_live {
+            return PresetResult::failed(
+                "save_preset builds a preset from the LIVE arrangement, so `from_live` must be \
+                 true. Building one from a saved layout or from another preset is a different \
+                 verb and does not exist yet.",
+            );
+        }
+        let actor_kind = actor_from(actor.as_deref());
+        let outcome = self.with_session(&app_id, device, actor_kind, |session, store| {
+            let presets = PresetStore::new(store.store().clone());
+            presets.ensure_shipped(&session.app_id)?;
+            let roles = presets::roles_of(&session.layout);
+            let queries = presets::named_queries(&session.app_id);
+            let intent = format!("saved the arrangement as the preset '{}'", name.trim());
+            let row = presets.save(
+                &session.app_id,
+                &name,
+                purpose.as_deref(),
+                &session.layout,
+                &queries,
+                &roles,
+                // The shipped revision is NOT rewritten by a user's edit:
+                // keeping it is what lets `reset_preset` undo this and what
+                // distinguishes "the user edited Triage" from "we shipped a
+                // newer Triage" (`schemas/ui.rs`, `version`).
+                None,
+                actor_kind,
+                &intent,
+            )?;
+            // ADR-0031 D7: undo never crosses a commit, and a preset is one.
+            session.commit_boundary();
+            presets::record_derived_from(
+                store.store(),
+                session.item_id,
+                row.id,
+                actor_kind,
+                &intent,
+            )?;
+            let ordinal = ordinal_of(&presets, store, &session.app_id, row.id)?;
+            Ok(PresetResult {
+                ok: true,
+                message: format!("Saved the preset '{}' ({}).", row.name, row.id),
+                preset: Some(preset_dto(&presets, &row, ordinal)?),
+            })
+        });
+        outcome.unwrap_or_else(PresetResult::failed)
+    }
+
+    async fn reset_preset(
+        &self,
+        app_id: String,
+        name: String,
+        actor: Option<String>,
+    ) -> PresetResult {
+        let actor_kind = actor_from(actor.as_deref());
+        let store = self.layout_store();
+        let presets = PresetStore::new(store.store().clone());
+        if let Err(e) = presets.ensure_shipped(&app_id) {
+            return PresetResult::failed(e);
+        }
+        let row = match presets.reset(&app_id, &name, actor_kind) {
+            Ok(row) => row,
+            Err(e) => return PresetResult::failed(e),
+        };
+        let ordinal = match ordinal_of(&presets, &store, &app_id, row.id) {
+            Ok(ordinal) => ordinal,
+            Err(e) => return PresetResult::failed(e),
+        };
+        match preset_dto(&presets, &row, ordinal) {
+            Ok(dto) => PresetResult {
+                ok: true,
+                message: format!(
+                    "Reset '{}' to the revision the suite ships (v{}).",
+                    row.name,
+                    row.version.unwrap_or(0)
+                ),
+                preset: Some(dto),
+            },
+            Err(e) => PresetResult::failed(e),
+        }
+    }
+}
+
+/// Where a preset sits in the ⌃⌘1–9 union, 1-based. `0` when it is somehow
+/// not in it at all, which a caller reads as "no chord" rather than as a
+/// claim about position one.
+fn ordinal_of(
+    presets: &PresetStore,
+    layouts: &LayoutStore,
+    app_id: &str,
+    id: ItemId,
+) -> Result<u32, String> {
+    Ok(presets::ordinal_targets(presets, layouts, app_id)?
+        .iter()
+        .position(|target| match target {
+            presets::OrdinalTarget::Preset(row) => row.id == id,
+            presets::OrdinalTarget::Layout(row) => row.id == id,
+        })
+        .map(|index| index as u32 + 1)
+        .unwrap_or(0))
 }
 
 impl DefaultLayoutService {
@@ -1599,5 +1996,25 @@ impress_service_impl! {
             target: PaneRefDto
         ) -> ReferenceResult,
         list_layouts(app_id: String) -> LayoutListResult,
+        list_presets(app_id: String) -> PresetListResult,
+        apply_preset(
+            app_id: String,
+            device: Option<String>,
+            name: String,
+            actor: Option<String>
+        ) -> LayoutVerbResult,
+        save_preset(
+            app_id: String,
+            device: Option<String>,
+            name: String,
+            purpose: Option<String>,
+            from_live: bool,
+            actor: Option<String>
+        ) -> PresetResult,
+        reset_preset(
+            app_id: String,
+            name: String,
+            actor: Option<String>
+        ) -> PresetResult,
     ],
 }

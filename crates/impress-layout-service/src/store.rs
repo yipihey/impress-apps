@@ -198,10 +198,10 @@ impl LayoutStore {
 
     // ----------------------------------------------------------- named layouts
 
-    /// Every named layout of `app_id`, oldest first — which is the order
-    /// [`LayoutStore::ordinal`] numbers them in, so ⌃⌘1–9 means "the first
-    /// nine layouts I saved" and stops meaning something else when one is
-    /// renamed or re-saved.
+    /// Every named layout of `app_id`, oldest first — the tail of the
+    /// ⌃⌘1–9 union ([`crate::presets::ordinal_targets`]), whose head is the
+    /// app's presets. A layout keeps its chord when one is renamed or
+    /// re-saved, and gains one only by being saved after the others.
     ///
     /// Ordered by **creation**, then by name. Creation rather than
     /// modification because re-saving Triage must not move it to slot 9; the
@@ -231,16 +231,12 @@ impl LayoutStore {
         Ok(self.rows(app_id)?.iter().map(row_of).collect())
     }
 
-    /// The layout ⌃⌘`n` recalls: 1-based into [`LayoutStore::list_named`].
-    pub fn ordinal(&self, app_id: &str, ordinal: u32) -> Result<Option<LayoutRow>> {
-        if ordinal == 0 {
-            return Err("layout ordinals are 1-based (⌃⌘1–9)".to_string());
-        }
-        Ok(self
-            .list_named(app_id)?
-            .into_iter()
-            .nth(ordinal as usize - 1))
-    }
+    // There is deliberately no `ordinal()` here any more. ⌃⌘`n` spans the
+    // app's PRESETS and then its named layouts (ADR-0031 D10, L7), and that
+    // union is spelled once, in [`crate::presets::ordinal_targets`]. A second
+    // 1-based index over `list_named` alone would be a second answer to "what
+    // does ⌃⌘2 recall?" — and two answers to one question is how a chord ends
+    // up meaning different things in the menu and in the keymap.
 
     /// Save (or overwrite) a named layout. **Durable** — this is the commit.
     ///

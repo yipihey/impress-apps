@@ -1325,12 +1325,28 @@ mod tests {
         let wanted = seed_publication(&store, "Reionization");
         let _other = seed_publication(&store, "Something else");
 
-        // Before a selection the detail pane has an unbound required
-        // parameter: a typed refusal, never an empty list called the truth.
-        assert!(matches!(
-            layout.pane(detail),
-            Err(SharedLayoutError::Query { .. })
-        ));
+        // Before a selection the detail pane's `$item` is unbound. ADR-0031
+        // D3: an unfilled parameter renders the view kind's EMPTY STATE, so
+        // this compiles — to a query narrowed to no ids at all. Both halves
+        // matter: it is not a refusal (an unfilled pane is not a broken one),
+        // and it is not an unconstrained query (a dropped predicate would
+        // show the user every paper in the store and call it the selection).
+        let unfilled = layout
+            .pane(detail)
+            .expect("an unfilled detail pane still compiles");
+        assert!(unfilled.single_item.is_none());
+        assert!(
+            unfilled.compiled_query_json.contains(r#"{"In":["id",[]]}"#),
+            "the unfilled detail pane must match NOTHING: {}",
+            unfilled.compiled_query_json
+        );
+        assert!(
+            layout
+                .run_pane(detail, 0, 0)
+                .expect("run an unfilled pane")
+                .is_empty(),
+            "and running it returns no rows, which is what the empty state draws"
+        );
 
         let applied = layout
             .select(

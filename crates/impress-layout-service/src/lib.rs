@@ -43,6 +43,7 @@ use std::time::Instant;
 
 pub mod device;
 pub mod dto;
+pub mod presets;
 pub mod report;
 pub mod selftest;
 pub mod service;
@@ -52,8 +53,14 @@ pub mod tier_a;
 
 pub use device::{current_device, resolve_device};
 pub use dto::{
-    ChannelResult, CompiledQueryDto, LayoutListResult, LayoutResult, LayoutVerbResult, PaneRefDto,
-    PaneResult, PatchSummary, ReferenceResult, SavedLayoutDto,
+    ChannelResult, CompiledQueryDto, LayoutListResult, LayoutResult, LayoutVerbResult,
+    MaterializeFirstDto, PaneRefDto, PaneResult, PatchSummary, PresetDto, PresetListResult,
+    PresetResult, ReferenceResult, SavedLayoutDto,
+};
+pub use presets::{
+    named_queries, ordinal_targets, preset_id, shipped_preset, shipped_presets,
+    shipped_presets_for, OrdinalTarget, PresetRow, PresetStore, ShippedPreset, StoredPreset,
+    HIDDEN_SHARE, MATERIALIZE_FIRST,
 };
 pub use report::{CapabilityResult, SelfTestReport, Tier};
 pub use selftest::{DefaultLayoutSelftestService, LayoutSelftestService};
@@ -153,7 +160,7 @@ mod inventory_tests {
     /// The list is written out rather than derived: a test that asks the
     /// inventory what it contains and then asserts it contains that proves
     /// nothing. This is the closed vocabulary of ADR-0031 D8, spelled once.
-    const EXPECTED: [&str; 31] = [
+    const EXPECTED: [&str; 35] = [
         // arrangement
         "layout-service_split",
         "layout-service_move-tile",
@@ -189,6 +196,11 @@ mod inventory_tests {
         "layout-service_get-channel",
         "layout-service_resolve-reference",
         "layout-service_list-layouts",
+        // presets (L7)
+        "layout-service_list-presets",
+        "layout-service_apply-preset",
+        "layout-service_save-preset",
+        "layout-service_reset-preset",
         // the catalogue
         "layout-selftest-service_run-selftest",
     ];

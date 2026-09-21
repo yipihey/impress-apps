@@ -563,3 +563,86 @@ pub(crate) fn view_kind(raw: &str) -> Result<ViewKindId, String> {
     }
     Ok(ViewKindId::from(raw.to_string()))
 }
+
+// ---------------------------------------------------------------------------
+// Presets (L7)
+// ---------------------------------------------------------------------------
+
+/// One preset, as `list_presets` shows it (ADR-0031 D10).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PresetDto {
+    pub id: String,
+    /// 1-based over the **union** `apply_layout(ordinal:)` recalls: this
+    /// app's presets first, then its named layouts. So ⌃⌘1 is the app's
+    /// default preset and a preset's ordinal here is its chord.
+    pub ordinal: u32,
+    pub name: String,
+    pub app_id: String,
+    /// What the preset is for, in the user's words. Uninterpreted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    /// The shipped revision this row represents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
+    /// True when the shipped table ships a preset of this name for this app.
+    pub shipped: bool,
+    /// True when the row no longer matches what the table ships — "the user
+    /// edited Triage". `null` for a preset the table never shipped, which has
+    /// nothing to differ from (and which `reset_preset` therefore refuses).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited: Option<bool>,
+    /// How many panes its tree has, and which roles they carry — enough for a
+    /// menu to describe the preset without fetching the whole tree.
+    pub panes: u32,
+    pub roles: Vec<String>,
+    pub modified: String,
+}
+
+/// The presets of one app, in ⌃⌘1–9 order.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PresetListResult {
+    pub ok: bool,
+    pub message: String,
+    pub presets: Vec<PresetDto>,
+    /// The sections this app permits that are NOT queries, with the reason —
+    /// ADR-0031 D2's "materialize it first" list, so a caller asking what a
+    /// preset can show is told what it cannot, and why, in the same answer.
+    pub materialize_first: Vec<MaterializeFirstDto>,
+}
+
+impl PresetListResult {
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+            presets: Vec::new(),
+            materialize_first: Vec::new(),
+        }
+    }
+}
+
+/// One section that is not a value in the query algebra, and why.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MaterializeFirstDto {
+    pub section: String,
+    pub reason: String,
+}
+
+/// The result of `save_preset` and `reset_preset`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PresetResult {
+    pub ok: bool,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<PresetDto>,
+}
+
+impl PresetResult {
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+            preset: None,
+        }
+    }
+}

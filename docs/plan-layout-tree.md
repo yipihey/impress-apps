@@ -35,3 +35,20 @@ Session log (append-only):
   store-backed live layout per `(app_id, device)`, registered in `impress-mcp`
   and `impress-cli`. Gesture writes are `Ephemeral` operations, commits
   `Durable`; the 32-capability Tier A catalogue runs headless as `cargo test`.
+- 2026-09-21 — L7 (Rust half) landed: the shipped presets are a data table
+  (`crates/impress-layout-service/src/presets.rs`) and
+  `impress/ui/preset@1.0.0` rows seeded under deterministic UUIDv5 ids, so
+  re-seeding never duplicates and a user's edit survives. Ten presets — a
+  default per app reproducing `AppShellConfiguration`'s `defaultSection` /
+  `defaultDetailTab`, plus imbib Triage / Reading / Full and imprint Writing
+  — each carrying its app's sections as named `PaneQuery`s, with the five
+  that are not values in the algebra (sharedWithMe, SciX libraries, the
+  online search forms, tags, reviewQueue) named in `MATERIALIZE_FIRST` with
+  the reason. Four verbs (`list-presets`, `apply-preset`, `save-preset`,
+  `reset-preset`), `apply_preset` recording a `DerivedFrom` edge from the
+  live row; ⌃⌘1–9 now numbers ONE union — presets in table order, then named
+  layouts. **"Hidden" is not share 0.0**: `Verb::Resize` refuses a
+  non-positive weight and `normalize` rewrites one to a full column, so a
+  hidden pane carries `HIDDEN_SHARE` (1e-4, sub-pixel but normal) and keeps
+  its query, role and session — ⌘0 is a resize, not a split. 37 Tier A
+  capabilities.

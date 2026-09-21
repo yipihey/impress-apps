@@ -13,14 +13,16 @@
 
 use std::sync::Arc;
 
-use impress_core::pane_query::{PaneQuery, Scope};
+use impress_core::pane_query::{compile, Bindings, KindManifest, PaneQuery, ParamDecl, Scope};
 use impress_core::sqlite_store::SqliteItemStore;
+use impress_core::store::ItemStore;
 use impress_layout::preset::DETAIL_PARAM;
 use impress_layout::{
     ChannelId, Container, Geometry, Layout, PaneSpec, ParamSource, Role, Tile, TileId, ViewKindId,
 };
 
 use crate::dto::PaneRefDto;
+use crate::presets;
 use crate::report::{CapabilityResult, Tier};
 use crate::service::{DefaultLayoutService, LayoutService};
 use crate::store::{LayoutRow, LayoutStore};
@@ -65,6 +67,12 @@ pub async fn run() -> Vec<CapabilityResult> {
         cap_list_layouts().await,
         cap_one_live_row_per_scope().await,
         cap_misspelled_reference_is_refused().await,
+        // presets (L7)
+        cap_ensure_shipped_presets_is_idempotent().await,
+        cap_apply_preset().await,
+        cap_save_and_reset_preset().await,
+        cap_preset_ordinals().await,
+        cap_every_shipped_preset_compiles().await,
     ]
 }
 
@@ -943,7 +951,7 @@ async fn cap_save_and_apply_layout() -> CapabilityResult {
 async fn cap_apply_layout_by_ordinal() -> CapabilityResult {
     check(
         "apply-layout-by-ordinal",
-        "⌃⌘2 recalls the second saved layout",
+        "⌃⌘n recalls over ONE union: the app's presets in table order, then its saved layouts",
         Tier::A,
         || async {
             let w = World::open()?;
@@ -964,29 +972,52 @@ async fn cap_apply_layout_by_ordinal() -> CapabilityResult {
                 .await;
             want(second.ok, second.message.clone())?;
 
-            // Back to three, then recall #2 by ordinal.
-            w.service
-                .apply_layout(APP.into(), w.device(), Some("Alpha".into()), None, None)
-                .await;
-            want(
-                w.persisted()?.panes().len() == 3,
-                "Alpha should restore three panes",
-            )?;
+            // The first chords are the app's PRESETS, in table order — ⌃⌘1
+            // the default, ⌃⌘2 Triage — whatever the user has saved since.
+            let shipped: Vec<&str> = presets::shipped_presets_for(APP)
+                .iter()
+                .map(|p| p.name)
+                .collect();
+            for (index, name) in shipped.iter().enumerate() {
+                let r = w
+                    .service
+                    .apply_layout(APP.into(), w.device(), None, Some(index as u32 + 1), None)
+                    .await;
+                want(r.ok, r.message.clone())?;
+                want(
+                    r.message.contains(name),
+                    format!("⌃⌘{} should be '{name}': {}", index + 1, r.message),
+                )?;
+            }
 
+            // The saved layouts follow, in the order they were saved.
+            let offset = shipped.len() as u32;
             let r = w
                 .service
-                .apply_layout(APP.into(), w.device(), None, Some(2), None)
+                .apply_layout(APP.into(), w.device(), None, Some(offset + 2), None)
                 .await;
             want(r.ok, r.message.clone())?;
             want(
                 r.message.contains("Beta"),
-                format!("ordinal 2 should be 'Beta': {}", r.message),
+                format!("ordinal {} should be 'Beta': {}", offset + 2, r.message),
             )?;
             want(
                 w.persisted()?.panes().len() == 2,
                 "Beta is the two-pane arrangement",
             )?;
-            Ok("ordinal 2 → 'Beta'".to_string())
+
+            // And past the end is a refusal that says how many there are,
+            // never a silent no-op on position one.
+            let past = w
+                .service
+                .apply_layout(APP.into(), w.device(), None, Some(offset + 99), None)
+                .await;
+            want(!past.ok, "an ordinal past the end must be refused")?;
+
+            Ok(format!(
+                "⌃⌘1–{offset} = {shipped:?}, then the saved layouts; ⌃⌘{} → 'Beta'",
+                offset + 2
+            ))
         },
     )
     .await
@@ -1223,18 +1254,37 @@ async fn cap_get_pane_compiles_the_detail_query() -> CapabilityResult {
         || async {
             let w = World::open()?;
 
-            // Nothing selected yet: the required parameter is unbound, and
-            // that is a TYPED refusal, not an empty result that reads as "no
-            // data yet".
+            // Nothing selected yet. `$item` is OPTIONAL (ADR-0031 D3), so
+            // this COMPILES — to a query narrowed to no ids at all, which is
+            // the empty state the view kind renders. The two failure modes
+            // the algebra keeps apart are both asserted here: it must not be
+            // an error (an unfilled pane is not a broken one), and it must
+            // not be an unconstrained query (dropping the predicate would
+            // show the user every paper in the store and call it a result).
             let empty = w
                 .service
                 .get_pane(APP.into(), w.device(), role_ref("detail"))
                 .await;
             want(empty.ok, empty.message.clone())?;
-            let refused = empty.query.ok_or("no compiled query")?;
+            let unfilled = empty.query.ok_or("no compiled query")?;
             want(
-                refused.error.is_some(),
-                "an unbound required parameter must compile to an error, not to everything",
+                unfilled.error.is_none(),
+                format!(
+                    "an unfilled parameter renders the empty state, never an error: {:?}",
+                    unfilled.error
+                ),
+            )?;
+            want(
+                unfilled.single_item.is_none(),
+                "nothing is selected, so there is no single item to short-circuit on",
+            )?;
+            let narrowed = serde_json::to_string(&unfilled.item_query)
+                .map_err(|e| format!("encode the compiled query: {e}"))?;
+            want(
+                narrowed.contains(r#"{"In":["id",[]]}"#),
+                format!(
+                    "the unfilled detail pane must compile to a query that matches NOTHING,                      not to one with no predicate at all: {narrowed}"
+                ),
             )?;
 
             // Select in the list — the chain sidebar → list → detail is just
@@ -1409,9 +1459,17 @@ async fn cap_list_layouts() -> CapabilityResult {
                 names == vec!["Alpha".to_string(), "Beta".to_string()],
                 format!("expected [Alpha, Beta], got {names:?}"),
             )?;
+            // The presets hold the first chords (L7), so a saved layout's
+            // ordinal starts after imbib's four. The offset is what makes the
+            // number the same on every machine.
+            let offset = presets::shipped_presets_for(APP).len() as u32;
             want(
-                r.layouts.iter().map(|l| l.ordinal).collect::<Vec<_>>() == vec![1, 2],
-                "ordinals are 1-based and dense",
+                r.layouts.iter().map(|l| l.ordinal).collect::<Vec<_>>()
+                    == vec![offset + 1, offset + 2],
+                format!(
+                    "saved layouts follow the {offset} presets; got {:?}",
+                    r.layouts.iter().map(|l| l.ordinal).collect::<Vec<_>>()
+                ),
             )?;
             want(
                 r.layouts.iter().all(|l| !l.is_live),
@@ -1531,6 +1589,391 @@ async fn cap_misspelled_reference_is_refused() -> CapabilityResult {
                 "a refused verb must leave the tree byte-identical",
             )?;
             Ok("both refusals named their reference and changed nothing".to_string())
+        },
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Presets (L7)
+// ---------------------------------------------------------------------------
+
+async fn cap_ensure_shipped_presets_is_idempotent() -> CapabilityResult {
+    check(
+        "ensure-shipped-presets-is-idempotent",
+        "seeding the shipped presets twice leaves ONE row per preset, with stable ids",
+        Tier::A,
+        || async {
+            let w = World::open()?;
+            let first = w.service.list_presets(APP.into()).await;
+            want(first.ok, first.message.clone())?;
+            let second = w.service.list_presets(APP.into()).await;
+            want(second.ok, second.message.clone())?;
+
+            let shipped = presets::shipped_presets_for(APP);
+            want(
+                first.presets.len() == shipped.len(),
+                format!(
+                    "expected {} shipped presets, got {}",
+                    shipped.len(),
+                    first.presets.len()
+                ),
+            )?;
+            let ids = |r: &crate::dto::PresetListResult| -> Vec<String> {
+                r.presets.iter().map(|p| p.id.clone()).collect()
+            };
+            want(
+                ids(&first) == ids(&second),
+                "a second seeding must not mint a second Triage",
+            )?;
+            // And the ids are the deterministic ones, not fresh v4s.
+            for preset in &shipped {
+                want(
+                    ids(&first).contains(&preset.item_id().to_string()),
+                    format!("'{}' should seed under its UUIDv5 id", preset.name),
+                )?;
+            }
+            want(
+                first
+                    .presets
+                    .iter()
+                    .all(|p| p.shipped && p.edited == Some(false)),
+                "a freshly seeded preset matches what the table ships",
+            )?;
+            want(
+                !first.materialize_first.is_empty(),
+                "the answer must also say which sections are NOT queries, and why",
+            )?;
+            Ok(format!(
+                "{} presets, one row each: {:?}",
+                first.presets.len(),
+                first.presets.iter().map(|p| &p.name).collect::<Vec<_>>()
+            ))
+        },
+    )
+    .await
+}
+
+async fn cap_apply_preset() -> CapabilityResult {
+    check(
+        "apply-preset",
+        "applying a preset sets the live tree and records the DerivedFrom edge it came from",
+        Tier::A,
+        || async {
+            let w = World::open()?;
+            let applied = w
+                .service
+                .apply_preset(
+                    APP.into(),
+                    w.device(),
+                    "Triage".into(),
+                    Some("human".into()),
+                )
+                .await;
+            want(applied.ok, applied.message.clone())?;
+
+            // The live row IS the preset's tree.
+            let live = w.persisted()?;
+            let triage = presets::shipped_preset(APP, "Triage").ok_or("Triage is shipped")?;
+            want(
+                live == triage.layout,
+                "the live arrangement should be the preset's tree, geometry aside",
+            )?;
+            let detail = live
+                .pane_with_role(&Role::DETAIL)
+                .ok_or("Triage keeps the detail pane, hidden")?;
+            want(
+                live.pane(detail).is_some(),
+                "a hidden pane is still a pane: ⌘0 is a resize, not a split",
+            )?;
+
+            // And the provenance edge is there, once.
+            let (row, _) = w
+                .layouts()
+                .live_row(APP, DEVICE)?
+                .ok_or("a live row exists")?;
+            let derived = presets::derived_from(&w.store, row.id)?
+                .ok_or("the live row should record which preset it came from")?;
+            want(
+                derived == triage.item_id(),
+                "the DerivedFrom edge must point at Triage",
+            )?;
+
+            // Applying a DIFFERENT preset moves the edge rather than adding a
+            // second: a layout derives from one preset.
+            let again = w
+                .service
+                .apply_preset(APP.into(), w.device(), "Reading".into(), None)
+                .await;
+            want(again.ok, again.message.clone())?;
+            let derived = presets::derived_from(&w.store, row.id)?.ok_or("still derived")?;
+            want(
+                derived
+                    == presets::shipped_preset(APP, "Reading")
+                        .expect("shipped")
+                        .item_id(),
+                "the edge should now point at Reading",
+            )?;
+            let edges = w
+                .store
+                .get(row.id)
+                .map_err(|e| e.to_string())?
+                .map(|item| {
+                    item.references
+                        .iter()
+                        .filter(|r| r.edge_type == impress_core::reference::EdgeType::DerivedFrom)
+                        .count()
+                })
+                .unwrap_or(0);
+            want(
+                edges == 1,
+                format!("a layout derives from ONE preset; found {edges} edges"),
+            )?;
+
+            // An unknown preset is a refusal that names the app.
+            let missing = w
+                .service
+                .apply_preset(APP.into(), w.device(), "Nope".into(), None)
+                .await;
+            want(!missing.ok, "an unknown preset must be refused")?;
+            Ok("Triage → Reading, one DerivedFrom edge throughout".to_string())
+        },
+    )
+    .await
+}
+
+async fn cap_save_and_reset_preset() -> CapabilityResult {
+    check(
+        "save-and-reset-preset",
+        "a user's edit to a shipped preset persists, and reset_preset restores the shipped one",
+        Tier::A,
+        || async {
+            let w = World::open()?;
+            w.service.list_presets(APP.into()).await;
+
+            // Rearrange the live window, then save it OVER a shipped preset.
+            w.service
+                .close(APP.into(), w.device(), role_ref("navigator"), None)
+                .await;
+            let live = w.persisted()?;
+            let saved = w
+                .service
+                .save_preset(
+                    APP.into(),
+                    w.device(),
+                    "Triage".into(),
+                    Some("mine now".into()),
+                    true,
+                    Some("human".into()),
+                )
+                .await;
+            want(saved.ok, saved.message.clone())?;
+            let dto = saved
+                .preset
+                .clone()
+                .ok_or("save_preset should answer with the row")?;
+            want(
+                dto.edited == Some(true),
+                "the row should now differ from what the table ships",
+            )?;
+            want(
+                dto.purpose.as_deref() == Some("mine now"),
+                "the user's own words are kept",
+            )?;
+            want(
+                dto.version == Some(1),
+                "editing a shipped preset leaves its shipped revision alone",
+            )?;
+
+            // Applying it gives back what the user saved, not the table's.
+            w.service
+                .apply_preset(APP.into(), w.device(), "Triage".into(), None)
+                .await;
+            want(
+                w.persisted()?.panes().len() == live.panes().len(),
+                "the edited Triage is what comes back",
+            )?;
+
+            // Reset restores the shipped revision.
+            let reset = w
+                .service
+                .reset_preset(APP.into(), "Triage".into(), Some("human".into()))
+                .await;
+            want(reset.ok, reset.message.clone())?;
+            want(
+                reset.preset.as_ref().and_then(|p| p.edited) == Some(false),
+                "after a reset the row matches the table again",
+            )?;
+            w.service
+                .apply_preset(APP.into(), w.device(), "Triage".into(), None)
+                .await;
+            let triage = presets::shipped_preset(APP, "Triage").ok_or("shipped")?;
+            want(
+                w.persisted()? == triage.layout,
+                "the shipped Triage is back",
+            )?;
+
+            // Resetting something never shipped is refused, and says so.
+            let nothing = w
+                .service
+                .reset_preset(APP.into(), "Mine".into(), None)
+                .await;
+            want(!nothing.ok, "there is no shipped revision of 'Mine'")?;
+
+            // And `from_live: false` is refused rather than approximated.
+            let refused = w
+                .service
+                .save_preset(APP.into(), w.device(), "Other".into(), None, false, None)
+                .await;
+            want(!refused.ok, "save_preset builds from the live arrangement")?;
+            Ok("Triage: edited → applied → reset → shipped".to_string())
+        },
+    )
+    .await
+}
+
+async fn cap_preset_ordinals() -> CapabilityResult {
+    check(
+        "preset-ordinals",
+        "⌃⌘1–9 numbers one union: the shipped presets in table order, then the saved layouts",
+        Tier::A,
+        || async {
+            let w = World::open()?;
+            w.service
+                .save_layout(APP.into(), w.device(), "Mine".into(), None, None)
+                .await;
+
+            let listed = w.service.list_presets(APP.into()).await;
+            want(listed.ok, listed.message.clone())?;
+            let names: Vec<String> = listed.presets.iter().map(|p| p.name.clone()).collect();
+            let expected: Vec<String> = presets::shipped_presets_for(APP)
+                .iter()
+                .map(|p| p.name.to_string())
+                .collect();
+            want(
+                names == expected,
+                format!("expected {expected:?} in table order, got {names:?}"),
+            )?;
+            want(
+                listed.presets.iter().map(|p| p.ordinal).collect::<Vec<_>>()
+                    == (1..=expected.len() as u32).collect::<Vec<_>>(),
+                "preset ordinals are 1-based and dense",
+            )?;
+
+            // The saved layout comes AFTER them.
+            let layouts = w.service.list_layouts(APP.into()).await;
+            want(layouts.ok, layouts.message.clone())?;
+            want(
+                layouts.layouts.first().map(|l| l.ordinal) == Some(expected.len() as u32 + 1),
+                format!(
+                    "a saved layout follows the {} presets; got {:?}",
+                    expected.len(),
+                    layouts.layouts.first().map(|l| l.ordinal)
+                ),
+            )?;
+            // And a NAME that is a preset applies the preset: the palette
+            // types into one name space, not two.
+            let by_name = w
+                .service
+                .apply_layout(APP.into(), w.device(), Some("Reading".into()), None, None)
+                .await;
+            want(by_name.ok, by_name.message.clone())?;
+            want(
+                by_name.message.contains("Reading"),
+                format!(
+                    "apply_layout('Reading') should find the preset: {}",
+                    by_name.message
+                ),
+            )?;
+
+            Ok(format!("⌃⌘1–{} = {names:?}, then 'Mine'", expected.len()))
+        },
+    )
+    .await
+}
+
+async fn cap_every_shipped_preset_compiles() -> CapabilityResult {
+    check(
+        "every-shipped-preset-compiles",
+        "every pane of every shipped preset compiles against the record-kind manifest",
+        Tier::A,
+        || async {
+            let manifest = KindManifest::builtin();
+            let mut checked = 0usize;
+            for preset in presets::shipped_presets() {
+                for (name, query) in &preset.queries {
+                    compile(query, &[], &Bindings::new(), &manifest).map_err(|e| {
+                        format!(
+                            "{}/{}: the named query '{name}' does not compile: {e}",
+                            preset.app_id, preset.name
+                        )
+                    })?;
+                    checked += 1;
+                }
+                for tile in preset.layout.panes() {
+                    let pane = preset
+                        .layout
+                        .pane(tile)
+                        .ok_or_else(|| format!("tile {tile} is not a pane"))?;
+                    let decls: Vec<ParamDecl> =
+                        pane.params.iter().map(|b| b.decl.clone()).collect();
+                    // Bound: the pane as the chassis will actually run it.
+                    let mut bound = Bindings::new();
+                    for decl in &decls {
+                        bound = bound.with(decl.name.clone(), uuid::Uuid::new_v4());
+                    }
+                    compile(&pane.query, &decls, &bound, &manifest).map_err(|e| {
+                        format!(
+                            "{}/{}: the '{}' pane does not compile: {e}",
+                            preset.app_id, preset.name, pane.view_kind
+                        )
+                    })?;
+                    // Unbound: the pane before the first selection. This must
+                    // compile too — every parameter a preset binds is
+                    // optional (ADR-0031 D3), so an unfilled pane renders the
+                    // view kind's empty state rather than an error message in
+                    // a window that has only just opened.
+                    compile(&pane.query, &decls, &Bindings::new(), &manifest).map_err(|e| {
+                        format!(
+                            "{}/{}: the '{}' pane does not compile before the first \
+                             selection: {e}",
+                            preset.app_id, preset.name, pane.view_kind
+                        )
+                    })?;
+                    for decl in &decls {
+                        want(
+                            !decl.required,
+                            format!(
+                                "{}/{}: the '{}' pane requires '{}'; ADR-0031 D3 says an \
+                                 unfilled parameter is an empty state, not a refusal",
+                                preset.app_id, preset.name, pane.view_kind, decl.name
+                            ),
+                        )?;
+                    }
+                    checked += 1;
+
+                    // Every role a preset assigns must resolve in its own tree.
+                    if let Some(role) = &pane.role {
+                        want(
+                            preset.layout.pane_with_role(role) == Some(tile),
+                            format!(
+                                "{}/{}: the role '{role}' does not resolve to its own pane",
+                                preset.app_id, preset.name
+                            ),
+                        )?;
+                    }
+                }
+                // Canonical shape, so a preset never arrives needing repair.
+                let mut again = preset.layout.clone();
+                again.normalize();
+                want(
+                    again == preset.layout,
+                    format!("{}/{} is not normalized", preset.app_id, preset.name),
+                )?;
+            }
+            Ok(format!(
+                "{checked} queries compile across the shipped table"
+            ))
         },
     )
     .await
