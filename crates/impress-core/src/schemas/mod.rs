@@ -22,6 +22,7 @@ pub mod plot_spec;
 pub mod source;
 pub mod task;
 pub mod throughline;
+pub mod ui;
 pub mod veusz_plot;
 pub mod watched_folder;
 
@@ -67,6 +68,10 @@ pub use task::{
     register_task_schemas, register_task_schemas_if_absent, AGENT_RUN_SCHEMA, TASK_SCHEMA,
 };
 pub use throughline::register_throughline_schema;
+pub use ui::{
+    layout_schema, preset_schema, register_ui_schemas, LAYOUT_SCHEMA_REF, PRESET_SCHEMA_REF,
+    UI_SCHEMA_REFS,
+};
 pub use veusz_plot::register_veusz_plot_schema;
 pub use watched_folder::{
     register_watched_folder_schemas, FILE_STATES, FILE_STATE_MISSING, FILE_STATE_PRESENT,
@@ -127,6 +132,11 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // convention with; depends on nothing, since a memory's subject is an
     // `ItemId` of ANY kind rather than an inherits edge to one.
     register_memory_schemas(registry);
+    // Workspace UI records (ADR-0019 D1, ADR-0031 D4/D10): the layout tree and
+    // the presets it comes from. Registered last and depends on nothing — a
+    // layout's relation to its preset is a `DerivedFrom` edge, not an inherits
+    // edge, and the tree itself is open JSON owned by `crates/impress-layout`.
+    register_ui_schemas(registry);
 }
 
 #[cfg(test)]
