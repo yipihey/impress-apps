@@ -13,6 +13,7 @@ import ImbibRustCore
 import ImpressFTUI
 import ImpressKit
 import ImpressLogging
+import ImpressAutomation
 import ImpressRustCore
 import ImpressStoreKit
 import OSLog
@@ -207,7 +208,17 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// ~15 s of launch. Named separately so a reader of `LayoutTreeHost` is
     /// not left wondering what reviews have to do with panes.
     func layoutSharedStore() -> ImpressRustCore.SharedStore? {
-        sharedReviewStore()
+        let store = sharedReviewStore()
+        // The surface HTTP routes need exactly this handle and nothing else,
+        // so this is where the app announces it can serve them (ADR-0033 S7;
+        // `SurfaceAutomation` in ImpressAutomation). Registering here rather
+        // than in a view means the routes answer in every app that mounts the
+        // shared route group, whether or not a surface pane is on screen —
+        // which is the case an agent hits first: create, then look.
+        if store != nil, SurfaceAutomation.shared.host !== SurfaceAutomationBridge.shared {
+            SurfaceAutomation.shared.host = SurfaceAutomationBridge.shared
+        }
+        return store
     }
 
     // MARK: - Initialization

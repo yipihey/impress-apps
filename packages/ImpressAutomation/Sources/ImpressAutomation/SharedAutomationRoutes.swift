@@ -81,7 +81,7 @@ public enum SharedAutomationRoutes {
         "/api/performance/reset",
         "/api/store-timings",
         "/api/store-timings/reset",
-    ]).union(LayoutAutomationRoutes.paths)
+    ]).union(LayoutAutomationRoutes.paths).union(["/api/surface"])
 
     /// Answer `request` if it is one of the generic routes; return `nil` to let
     /// the caller fall through to its own dispatch.
@@ -139,7 +139,15 @@ public enum SharedAutomationRoutes {
             // above are: the tree is the CHASSIS' layout model, so an app that
             // renders the chassis has this surface by mounting one line, and
             // there is no second spelling of it to drift.
-            return await LayoutAutomationRoutes.route(path, method: method, request: request)
+            if let layout = await LayoutAutomationRoutes.route(
+                path, method: method, request: request)
+            {
+                return layout
+            }
+            // ADR-0033's agent surfaces, for the same reason again — and with
+            // one difference: the sub-paths under `/api/surface/` are Rust's
+            // route table, so this is a prefix match rather than a fixed set.
+            return await SurfaceAutomationRoutes.route(path, method: method, request: request)
         }
     }
 

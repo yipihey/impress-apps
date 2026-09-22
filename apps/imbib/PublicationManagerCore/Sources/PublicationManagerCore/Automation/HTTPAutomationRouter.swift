@@ -2088,21 +2088,15 @@ public actor HTTPAutomationRouter: HTTPRouter {
         let fullPath = Self.pathWithQuery(path, params: request.queryParams)
         let body = request.body ?? ""
         return await MainActor.run {
-            guard let store = RustStoreAdapter.shared.layoutSharedStore() else {
-                return HTTPResponse.json(
-                    [
-                        "status": "error",
-                        "error":
-                            "the shared store is not open — the surface automation routes "
-                            + "need RustStoreAdapter's kernel store to be open",
-                    ],
-                    status: 409)
-            }
-            let surface = SharedSurface.open(store: store, host: "")
-            let reply = surface.surfaceHttp(method: method, path: fullPath, body: body)
+            // ONE implementation, in the shared group (`SurfaceAutomation`),
+            // because impress serves these too and a second copy here would
+            // be the thing that drifts. imbib keeps its own prefix checks so
+            // the path still cannot fall through to "Unknown endpoint".
+            let reply = SurfaceAutomationBridge.shared.routeSurfaceRequest(
+                method: method, path: fullPath, body: body)
             return HTTPResponse(
-                status: Int(reply.status),
-                statusText: Self.surfaceStatusText(reply.status),
+                status: reply.status,
+                statusText: Self.surfaceStatusText(UInt16(reply.status)),
                 headers: ["Content-Type": "application/json; charset=utf-8"],
                 body: Data(reply.body.utf8))
         }
