@@ -11101,15 +11101,21 @@ dependencies = [
 name = "vw-impress-adapter"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
+ "image",
+ "impress-ai",
  "impress-core",
  "impress-service-core",
  "impress-service-macros",
  "impress-store-service",
+ "reqwest",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "url",
  "uuid",
  "vw-domain",
  "vw-service",
@@ -11133,6 +11139,7 @@ dependencies = [
  "uuid",
  "vw-domain",
  "vw-impress-adapter",
+ "vw-service",
 ]
 
 [[package]]

@@ -10,24 +10,40 @@ use vw_domain::{
     RepositoryError, SessionId, StartProcedureCommand,
 };
 use vw_service::{
-    __IMPRESS_SERVICE_DOCS_VwDiagnosticService, AssessmentResult, NextTestResult,
-    ProcedureListResult, ServiceError, SessionListResult, SessionResult, VwCapabilities,
-    VwDiagnosticService,
+    __IMPRESS_SERVICE_DOCS_VwDiagnosticService, AssessmentResult, ChatGptFile, NextTestResult,
+    PhotoEvidenceResult, PhotoEvidenceSearchResult, ProcedureListResult, ServiceError,
+    SessionListResult, SessionResult, VwCapabilities, VwDiagnosticService,
 };
 
-use crate::ImpressDiagnosticRepository;
+use crate::{ImpressDiagnosticRepository, PhotoDescription, PhotoEvidenceStore};
 
 #[derive(Clone)]
 pub struct DefaultVwDiagnosticService {
     repository: Arc<ImpressDiagnosticRepository>,
     mutation_lock: Arc<Mutex<()>>,
+    photo_evidence: Arc<PhotoEvidenceStore>,
 }
 
 impl DefaultVwDiagnosticService {
     pub fn new(repository: Arc<ImpressDiagnosticRepository>) -> Self {
+        let blob_root = impress_store_service::store_path()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("blobs");
+        Self::with_photo_evidence(
+            repository,
+            PhotoEvidenceStore::new(blob_root).expect("fixed photo downloader configuration"),
+        )
+    }
+
+    pub fn with_photo_evidence(
+        repository: Arc<ImpressDiagnosticRepository>,
+        photo_evidence: PhotoEvidenceStore,
+    ) -> Self {
         Self {
             repository,
             mutation_lock: Arc::new(Mutex::new(())),
+            photo_evidence: Arc::new(photo_evidence),
         }
     }
 
@@ -178,6 +194,51 @@ impl VwDiagnosticService for DefaultVwDiagnosticService {
                 safety_notice: error.message,
             },
         }
+    }
+
+    async fn ingest_photo(
+        &self,
+        photo: ChatGptFile,
+        title: String,
+        description: String,
+        component: Option<String>,
+        diagnostic_session_id: Option<String>,
+        captured_at: Option<String>,
+        tags: Vec<String>,
+    ) -> PhotoEvidenceResult {
+        self.photo_evidence
+            .ingest(
+                self.repository.store().clone(),
+                photo,
+                PhotoDescription {
+                    title,
+                    description,
+                    component,
+                    diagnostic_session_id,
+                    captured_at,
+                    tags,
+                },
+            )
+            .await
+    }
+
+    async fn search_photos(
+        &self,
+        query: String,
+        diagnostic_session_id: Option<String>,
+        limit: u32,
+    ) -> PhotoEvidenceSearchResult {
+        self.photo_evidence.search(
+            self.repository.store(),
+            &query,
+            diagnostic_session_id.as_deref(),
+            limit,
+        )
+    }
+
+    async fn get_photo(&self, evidence_id: String) -> PhotoEvidenceResult {
+        self.photo_evidence
+            .get(self.repository.store(), &evidence_id)
     }
 
     async fn create_session(&self, request: CreateSessionRequest) -> SessionResult {
@@ -378,6 +439,9 @@ impress_service_impl! {
     instance = default_vw_service,
     methods = [
         get_capabilities() -> VwCapabilities,
+        ingest_photo(photo: ChatGptFile, title: String, description: String, component: Option<String>, diagnostic_session_id: Option<String>, captured_at: Option<String>, tags: Vec<String>) -> PhotoEvidenceResult,
+        search_photos(query: String, diagnostic_session_id: Option<String>, limit: u32) -> PhotoEvidenceSearchResult,
+        get_photo(evidence_id: String) -> PhotoEvidenceResult,
         create_session(request: CreateSessionRequest) -> SessionResult,
         get_session(session_id: String) -> SessionResult,
         list_sessions(limit: u32) -> SessionListResult,
