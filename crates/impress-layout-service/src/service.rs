@@ -548,6 +548,22 @@ impl DefaultLayoutService {
         }
     }
 
+    /// Drop the cached session for one scope, so the next read re-reads the
+    /// stored row.
+    ///
+    /// The registry keeps a `LayoutSession` per (app, device) and only loads
+    /// from the store when there is none — which is right for this process's
+    /// own verbs and wrong the moment ANOTHER process writes the same row
+    /// (ADR-0033 D6). The FFI's invalidation feed calls this when its external
+    /// `data_version` poll sees a layout write it did not make; without it the
+    /// host reloads, the service answers from the stale session, and the
+    /// window redraws exactly what it already had — verified live on
+    /// 2026-09-22, where `surface_show` from `impress-mcp` reached the store
+    /// and the window kept rendering four leaves.
+    pub fn forget_session(&self, app_id: &str, device: Option<&str>) {
+        self.registry().forget(app_id, &resolve_device(device));
+    }
+
     fn layout_store(&self) -> LayoutStore {
         LayoutStore::new(
             self.store

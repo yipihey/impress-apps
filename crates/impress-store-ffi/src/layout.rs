@@ -96,6 +96,7 @@ use impress_core::pane_query::{
     builtin_manifest, compile, compile_with, Bindings, PaneQuery, ParamDecl, SubtreeResolver,
 };
 use impress_core::query::ItemQuery;
+use impress_core::schemas;
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_core::store::ItemStore;
 use impress_layout::{
@@ -1084,6 +1085,36 @@ impl InvalidationFeed {
                 last_external_poll = Instant::now();
                 let mutations = external.check(&self.store, ui_feed::EXTERNAL_UI_PREFIX);
                 if !mutations.is_empty() {
+                    // A row under `impress/ui/` that ANOTHER process wrote can
+                    // be the TREE itself, not just a pane's data — that is the
+                    // whole D6 case: an agent calls `surface_show` (or any
+                    // layout verb) from impress-mcp and the window must grow
+                    // the pane. Only `self.version` drives `layout_changed`
+                    // below, and nothing external bumps it: the verb ran in
+                    // the other process, against its own `SharedLayout`. So
+                    // the panes were invalidated and the tree was never
+                    // re-read — the new pane sat in the store, correct and
+                    // invisible, until something in THIS process happened to
+                    // apply a verb.
+                    //
+                    // Bumping the version here is what a locally applied verb
+                    // does in `finish`, and it is the same claim: "the tree
+                    // you are holding is stale." The host reloads, sees the
+                    // pane, and the number stays monotonic for the snapshot.
+                    if mutations
+                        .iter()
+                        .any(|m| m.schema_ref.as_deref() == Some(schemas::ui::LAYOUT_SCHEMA_REF))
+                    {
+                        // Two things are stale, not one. The service caches a
+                        // `LayoutSession` per (app, device) and only reads the
+                        // row when it has none, so a reload triggered here
+                        // would be answered from the session this process
+                        // built — the window would redraw exactly what it
+                        // already had. Drop the session first, THEN bump.
+                        self.service
+                            .forget_session(&self.app_id, self.device.as_deref());
+                        self.version.fetch_add(1, Ordering::SeqCst);
+                    }
                     if burst_started.is_none() {
                         burst_started = Some(Instant::now());
                     }
@@ -1562,6 +1593,21 @@ mod tests {
         (Box::new(Recorder { panes, versions }), rx)
     }
 
+    /// Both channels, for the tests that care which one fired.
+    fn recorder_with_versions() -> (
+        Box<dyn SharedLayoutListener>,
+        mpsc::Receiver<Vec<u64>>,
+        mpsc::Receiver<u64>,
+    ) {
+        let (panes, panes_rx) = mpsc::channel();
+        let (versions, versions_rx) = mpsc::channel();
+        (
+            Box::new(Recorder { panes, versions }),
+            panes_rx,
+            versions_rx,
+        )
+    }
+
     #[test]
     fn a_mutation_wakes_only_the_panes_that_query_it() {
         let (store, layout) = open();
@@ -1680,6 +1726,74 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("the external write is seen within roughly one poll interval");
         assert_eq!(batch, vec![list]);
+
+        layout.unsubscribe_invalidations();
+    }
+
+    /// ADR-0033 D6, the half the pane-invalidation test does not cover: when
+    /// the other process writes the TREE — `surface_show`, or any layout verb
+    /// from `impress-mcp` — the host must be told the tree changed, not merely
+    /// that some pane's data did. Nothing external bumps this handle's
+    /// version counter (the verb ran against another `SharedLayout`), so
+    /// without the external poll bumping it the new pane sits in the store,
+    /// correct and invisible, until this process happens to apply a verb of
+    /// its own. Verified live on 2026-09-22: the pane appeared only after
+    /// this fix.
+    #[test]
+    fn an_external_tree_write_tells_the_host_the_tree_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("external_tree.sqlite");
+        let path_str = path.to_str().unwrap().to_string();
+
+        let store = SharedStore::open(path_str.clone()).expect("open the store");
+        let layout = SharedLayout::open(store.clone(), "impress".into(), None);
+        let before = layout.version();
+
+        layout.set_debounce_ms(20);
+        layout.set_startup_grace_secs(0);
+        layout.set_external_poll_ms(20);
+        let (listener, _panes, versions) = recorder_with_versions();
+        layout.subscribe_invalidations(listener).expect("subscribe");
+
+        // A second handle on the same file, applying a real verb: the shape of
+        // an agent driving the suite from a chat.
+        let external_store = SharedStore::open(path_str).expect("open a second handle");
+        let external = SharedLayout::open(external_store, "impress".into(), None);
+        let tiles_before = layout.snapshot().expect("snapshot").windows.len();
+        let leaves_before = layout.snapshot().expect("snapshot").leaves.len();
+        external
+            .apply(
+                r#"{"verb":"split","target":{"ref":"role","role":"detail"},"dir":"vertical",
+                    "after":true,"new":{"view_kind":"surface","query":{"kinds":["surface"],
+                    "scope":{"scope":"all"},"filters":[],"sort":[],"limit":null,
+                    "relation":null,"text":null}}}"#
+                    .into(),
+                "agent".into(),
+            )
+            .expect("the other process splits a pane");
+
+        let version = versions
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the host is told the tree changed, within roughly one poll interval");
+        assert!(
+            version > before,
+            "the version must move forward: {version} <= {before}"
+        );
+
+        // The notification is worth nothing if the reload it triggers answers
+        // from a cached session: that is the second half of the same bug, and
+        // the only observable difference is right here.
+        let after = layout
+            .snapshot()
+            .expect("snapshot after the external split");
+        assert!(
+            after.leaves.len() > leaves_before,
+            "the reloaded tree must contain the other process's pane: \
+             {} leaves before, {} after ({} windows before)",
+            leaves_before,
+            after.leaves.len(),
+            tiles_before
+        );
 
         layout.unsubscribe_invalidations();
     }
