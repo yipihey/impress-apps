@@ -1,3 +1,4 @@
+import ImpressKit
 import SwiftUI
 
 /// Editor for creating or modifying templates with live preview
@@ -67,7 +68,7 @@ struct TemplateEditorView: View {
         } detail: {
             editorContent
         }
-        .frame(minWidth: 1000, minHeight: 700)
+        .impressResizableSheet(minWidth: 1000, minHeight: 700)
         .toolbar {
             ToolbarItemGroup(placement: .cancellationAction) {
                 Button("Cancel") {

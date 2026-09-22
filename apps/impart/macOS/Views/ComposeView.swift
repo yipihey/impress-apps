@@ -17,6 +17,7 @@
 //  otherwise was not part of this stage.
 //
 
+import ImpressKit
 import MessageManagerCore
 import SwiftUI
 
@@ -73,7 +74,7 @@ struct ComposeView: View {
                 }
             }
         }
-        .frame(minWidth: 500, minHeight: 400)
+        .impressResizableSheet(minWidth: 500, minHeight: 400)
         .onAppear {
             if let draft = draft {
                 to = draft.to.map(\.email).joined(separator: ", ")

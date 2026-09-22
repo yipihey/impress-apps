@@ -8,6 +8,7 @@
 //  planned follow-up.)
 //
 
+import ImpressKit
 import SwiftUI
 
 /// Persistence for per-task author preferences: which tasks are disabled, and
@@ -200,6 +201,6 @@ private struct AITaskPromptEditor: View {
             }
         }
         .padding(20)
-        .frame(width: 540, height: 440)
+        .impressResizableSheet(minWidth: 540, minHeight: 440)
     }
 }

@@ -26,6 +26,7 @@
 //  away.
 //
 
+import ImpressKit
 import SwiftUI
 
 #if os(macOS)
@@ -72,7 +73,7 @@ public struct WatchedAttachmentOffersView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 460, minHeight: 320)
+        .impressResizableSheet(minWidth: 460, minHeight: 320)
     }
 
     // MARK: Header / footer

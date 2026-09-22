@@ -9,6 +9,7 @@
 
 import SwiftUI
 import ImpressFTUI
+import ImpressKit
 import ImpressStoreKit
 #if canImport(WebKit)
 import WebKit
@@ -349,7 +350,7 @@ private struct WebArchiveViewer: View {
 
             WebArchiveWebView(archiveURL: archiveURL)
         }
-        .frame(minWidth: 700, minHeight: 500)
+        .impressResizableSheet(minWidth: 700, minHeight: 500)
     }
 }
 

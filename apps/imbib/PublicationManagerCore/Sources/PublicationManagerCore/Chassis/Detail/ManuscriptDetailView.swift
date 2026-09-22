@@ -596,12 +596,12 @@ struct ManuscriptDetailView: View {
                     .padding(8)
                     .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 4))
             }
-            .frame(minWidth: 600, minHeight: 400)
             Text("Apply-to-imprint workflow lands in Phase 5 polish. For now, copy the diff and apply manually.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding()
+        .impressResizableSheet(minWidth: 640, minHeight: 460)
     }
 
     @ViewBuilder

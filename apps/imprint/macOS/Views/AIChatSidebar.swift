@@ -6,6 +6,7 @@
 //
 
 import ImpressAI
+import ImpressKit
 import SwiftUI
 
 // MARK: - AI Chat Sidebar
@@ -439,7 +440,7 @@ struct AISettingsSheet: View {
                 }
             }
         }
-        .frame(width: 560, height: 650)
+        .impressResizableSheet(minWidth: 560, minHeight: 650)
     }
 }
 

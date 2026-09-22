@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-17.
 //
 
+import ImpressKit
 import SwiftUI
 import OSLog
 
@@ -70,7 +71,7 @@ public struct DefaultLibrarySetEditor: View {
                 editorContent
             }
         }
-        .frame(minWidth: 700, minHeight: 500)
+        .impressResizableSheet(minWidth: 700, minHeight: 500)
         .task {
             await loadCurrentSet()
             // Register query assistants
