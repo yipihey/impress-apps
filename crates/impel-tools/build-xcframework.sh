@@ -124,6 +124,21 @@ cargo run --release -p uniffi-bindgen -- generate \
 KEEP_SYMBOLS_RE='^_(uniffi|ffi)_impel_tools_|^_UNIFFI_META_IMPEL_TOOLS_|^_UNIFFI_META_NAMESPACE_IMPEL$'
 
 SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+# `ld -r` below needs the deployment target that cargo builds the archive
+# against. The scripts stopped exporting it (see .cargo/config.toml: cc-rs
+# fingerprints on it, and exporting it per script re-ran every C build), so
+# read the pinned value from the same file cargo does. An explicit
+# MACOSX_DEPLOYMENT_TARGET in the environment still wins, as it does for
+# cargo itself. `ld -platform_version macos "" ...` is a hard error, which
+# is how the impel Swift lane went red when the export left.
+if [ -z "${MACOSX_DEPLOYMENT_TARGET:-}" ]; then
+    MACOSX_DEPLOYMENT_TARGET="$(sed -n 's/^MACOSX_DEPLOYMENT_TARGET *= *{ *value *= *"\([^"]*\)".*/\1/p' \
+        "$WORKSPACE_ROOT/.cargo/config.toml")"
+fi
+if [ -z "$MACOSX_DEPLOYMENT_TARGET" ]; then
+    echo "ERROR: MACOSX_DEPLOYMENT_TARGET is unset and .cargo/config.toml does not pin it" >&2
+    exit 1
+fi
 GENERATED_HEADER="$FRAMEWORK_DIR/generated/impel_toolsFFI.h"
 FILTER_DIR="$FRAMEWORK_DIR/filtered"
 rm -rf "$FILTER_DIR"

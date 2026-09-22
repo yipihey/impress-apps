@@ -146,3 +146,23 @@ Session log (append-only):
   pane over `POST /api/layout/verb` and watching the window redraw.
   Still open: L7's Swift half, L8, and there is no `delete-layout` verb in the
   stack, so a saved layout can be overwritten but never removed.
+- 2026-09-22 — **PR #39 merged** (e79e776, 30 commits onto main). Main went
+  red on eight lanes, none in layout-tree code; all five causes rode in with
+  the branch's last two Mac commits and are fixed in the follow-up CI PR:
+  * imbib / implore / imprint / impel Rust CI, "Generate Swift Bindings":
+    `uniffi-bindgen --library ../../target/release/lib*_core.a` after
+    95d4c69 moved every job's `CARGO_TARGET_DIR` under `$HOME/ci-cargo-target`,
+    so nothing wrote to the path the step read. impel's step also lost the
+    `|` on its two-line `run:`, which YAML folds into one comment.
+  * impel Swift Tests: `crates/impel-tools/build-xcframework.sh` is the one
+    script that calls `ld -r -platform_version macos "$MACOSX_DEPLOYMENT_TARGET"`,
+    and 95d4c69 stopped the scripts exporting it. It now reads the value
+    `.cargo/config.toml` pins, with the environment still winning.
+  * imprint iOS smoke: 531ebbe's `imprint://insert/citation/…` handler called
+    the macOS-only `ManuscriptCitationInserter` unguarded from a Shared file;
+    imprint's router and menu are whole-file `#if os(macOS)`, so this was the
+    one call iOS saw. e79e776 fixed the same class of bug in PMC's handler but
+    not imprint's. The lane pipes `xcodebuild` through `tail -30`, which cuts
+    the error text; the failing file name survived, the diagnostic did not.
+  * impress App Builds and impart Swift Tests: builds succeeded and the
+    artifact upload stalled — runner, not code; nothing to change.

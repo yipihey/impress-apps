@@ -114,7 +114,7 @@ jobs:
           fi
           mkdir -p generated
           cargo run --release -p uniffi-bindgen -- generate \
-            --library ../../target/release/libimbib_core.a \
+            --library "$CARGO_TARGET_DIR/release/libimbib_core.a" \
             --language swift \
             --out-dir generated
 

@@ -94,18 +94,29 @@ public actor URLSchemeHandler {
             .queryItems?.first(where: { $0.name == "manuscript" })?.value
             .flatMap(UUID.init(uuidString:))
 
+        // `ManuscriptCitationInserter` is macOS-only, like the editor it
+        // registers; imprint's HTTP router and menu live behind the same
+        // guard, so this was the one call the iOS build could see. iOS
+        // answers the URL with a refusal naming the platform, the way
+        // imbib's `imbib://manuscript/<id>/papers` handler does.
+        #if os(macOS)
         let outcome = await MainActor.run {
             ManuscriptCitationInserter.shared.insert(keys, into: manuscript)
         }
         Logger.urlScheme.infoCapture(
             "insert citation \(keys.joined(separator: ",")): \(outcome.message)",
             category: "url-scheme")
-        #if os(macOS)
         if outcome.didInsert {
             await MainActor.run { NSApplication.shared.activate(ignoringOtherApps: true) }
         }
-        #endif
         return outcome.didInsert
+        #else
+        _ = manuscript
+        Logger.urlScheme.warningCapture(
+            "insert citation \(keys.joined(separator: ",")): the manuscript editor is macOS-only",
+            category: "url-scheme")
+        return false
+        #endif
     }
 
     // MARK: - Open Command

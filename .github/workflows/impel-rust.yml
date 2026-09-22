@@ -170,7 +170,8 @@ jobs:
           mkdir -p "$dir"
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: Build library with UniFFI
-        run: # Release compile check, then the staticlib the bindgen step reads.
+        run: |
+          # Release compile check, then the staticlib the bindgen step reads.
           cargo build -p impel-core --release --features native
           cargo rustc -p impel-core --release --features native --lib --crate-type staticlib
 
@@ -178,7 +179,7 @@ jobs:
         run: |
           mkdir -p crates/impel-core/generated
           cargo run --release -p uniffi-bindgen -- generate \
-            --library target/release/libimpel_core.a \
+            --library "$CARGO_TARGET_DIR/release/libimpel_core.a" \
             --language swift \
             --out-dir crates/impel-core/generated
 
