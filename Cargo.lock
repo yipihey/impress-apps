@@ -4825,8 +4825,22 @@ dependencies = [
 name = "impress-surface-service"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-core",
+ "impress-layout",
+ "impress-layout-service",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-store-service",
+ "impress-surface",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
+ "surface-demo-service",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -9020,8 +9034,15 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 name = "surface-demo-service"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-surface",
+ "imprint-core",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
