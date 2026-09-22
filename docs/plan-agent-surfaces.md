@@ -280,3 +280,47 @@ This file's log, ADR-0033, `docs/chassis-capability-matrix.md` (a `surface` row)
   at the Rust source (`…` for `*`), with a note above it, and regenerated: 3 lines
   changed, no declaration gained or lost. `xcodebuild -scheme impress` then succeeded,
   compiling `LayoutSurfacePaneView` and all of `ImpressSurface` for the first time.
+
+### 2026-09-22 — Mac pass (step 4: the loop against the running app)
+
+Driven from `impress-mcp` as the second process, because the CLI cannot start (see
+"blocked" below). Everything below is `surface_*` over MCP against the same store the
+running impress app has open.
+
+* **D6 works, after two fixes.** `surface_create` + `surface_show` wrote tile 5 and the
+  window kept rendering four leaves. Two independent staleness bugs, both now fixed and
+  covered by `an_external_tree_write_tells_the_host_the_tree_changed`:
+  1. the FFI feed raises `layout_changed` only when THIS handle's version counter moves,
+     and an external write cannot move it — the verb ran in the other process. The
+     external `data_version` poll now bumps it when the row it saw is the layout row.
+  2. `impress-layout-service` caches a `LayoutSession` per (app, device) and only reads
+     the row when it has none, so the reload was answered from this process's session.
+     The feed calls the new `DefaultLayoutService::forget_session` first.
+  After both: `layout changed elsewhere → version 1` → `layout display: version 1, 8
+  tiles, focus 8, 6 leaves`, with no HTTP call to the app.
+* **The verbs were not in the app's inventory.** The plot read "template path
+  '{{source.hist.plot}}' did not resolve to a value" in the window while the same surface
+  rendered its series from `impress-mcp`. `impress-capabilities-kit::force_link()` was an
+  empty body: calling it retains the kit and nothing else, so the linker dropped the four
+  service rlibs and their `inventory::submit!`s. It now takes each service constructor's
+  address. Isolated with a two-node probe surface whose only source is
+  `surface-demo-service_series` — placeholder in the app, data everywhere else.
+* **`/api/surface/*` answered 404 on 23125.** S7 mounted them in imbib's router (23120),
+  and impress — the app that renders surfaces — has the small router. They now live in
+  `SharedAutomationRoutes` beside the layout routes, over a `SurfaceAutomationHost` the
+  chassis registers when the kernel store opens; imbib's prefix checks call the same
+  bridge. Rust still owns the route table.
+* **Verified live in the window** (screenshots taken): the three-column preset plus a
+  surface pane showing the heading, both sliders, the histogram (a real line over bin
+  centres, from `surface-demo-service_histogram`), the table header and the "Use these
+  bins" button. `GET /api/surface`, `GET /api/surface/<id>/render` and `POST
+  .../dispatch` all answer on 23125 with the same shapes the verbs return.
+
+**Blocked, and reported rather than decided (an "ask first" call):** `impress-cli` panics
+at startup — clap: "command name `remove-tag` is duplicated" — so no CLI verb runs at
+all. The branch's S2 switch to `impress-capabilities = { features = ["full"] }` links
+imbib-service and impress-store-service together, and both declare `remove_tag`/`add_tag`
+`#[impress_method]`s, which the macro projects as UNPREFIXED CLI subcommands. Main's CLI
+linked a narrower set, so this is new on the branch. Fixing it means choosing a CLI
+naming rule (prefix on collision, prefix always, or narrow the feature set), which is
+vocabulary — see the question raised on the PR.
