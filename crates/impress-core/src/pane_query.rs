@@ -111,6 +111,10 @@ pub fn builtin_manifest() -> KindManifest {
             ],
         ),
         ("library", vec!["imbib/library"]),
+        // ADR-0033 D1: a surface pane's query is `item(id)` of this kind, so
+        // `surface_show` (impress-surface-service, S4) can compile a query
+        // naming it the same way every other detail pane names its kind.
+        ("surface", vec!["impress/ui/surface@1.0.0"]),
     ]
     .into_iter()
     .map(|(kind, refs)| {
@@ -665,6 +669,7 @@ mod manifest_tests {
                 "manuscript",
                 "message",
                 "publication",
+                "surface",
                 "task",
             ]
         );
@@ -680,6 +685,10 @@ mod manifest_tests {
             ["email-message", "chat-message"]
         );
         assert_eq!(m.schema_refs("artifact").unwrap().len(), 8);
+        assert_eq!(
+            m.schema_refs("surface").unwrap(),
+            ["impress/ui/surface@1.0.0"]
+        );
     }
 
     #[test]
@@ -863,6 +872,7 @@ mod compiler_tests {
                     "email-message",
                     "chat-message",
                     "imbib/bibliography-entry",
+                    "impress/ui/surface@1.0.0",
                     "task@1.0.0",
                 ],
             },

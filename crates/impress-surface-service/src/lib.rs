@@ -1,3 +1,179 @@
-//! ADR-0033 surface verbs, store records and runtime.
+//! ADR-0033 surface verbs, store records and runtime (`docs/plan-agent-surfaces.md`
+//! work package S4).
 //!
-//! Stub: filled in by the ADR-0033 work package that owns it (see docs/plan-agent-surfaces.md).
+//! # What this crate adds to `impress-surface`
+//!
+//! `crates/impress-surface` is pure: a [`impress_surface::SurfaceSpec`] is a
+//! value, `plan`/`resolve`/`reduce` are value → value functions, and none of
+//! it touches a store or calls a verb. This crate is the other half:
+//!
+//! 1. **Persistence** ([`store`]) — a surface's spec is an
+//!    `impress/ui/surface@1.0.0` row; its working state and the events it
+//!    emits are `impress/ui/surface-state@1.0.0` /
+//!    `impress/ui/surface-event@1.0.0` rows, written through the store's
+//!    operation path exactly as the layout tree's rows are (ADR-0033 D5).
+//! 2. **Execution** ([`runtime`]) — an [`runtime::Executor`] that runs a
+//!    source's verb through the linked `#[impress_service]` inventory
+//!    (ADR-0033 D4) or a query through the store, and a
+//!    [`runtime::SurfaceRuntime`] that holds one `(surface, host)`
+//!    instance's state/params/source-cache between calls, in a
+//!    [`runtime::SessionRegistry`] shaped like the layout tree's own.
+//! 3. **Reach** ([`service`]) — one `#[impress_method]` per verb, so MCP,
+//!    the CLI and impel's agent loop get the whole five-verb loop
+//!    (`surface_schema` → author → `surface_validate` → `surface_create` →
+//!    `surface_show` → `surface_wait` → react) together.
+//!
+//! # The cut, in one line
+//!
+//! Nothing here decides anything about what a spec MEANS. Every verb either
+//! reads/writes a store row unchanged, or hands a value to
+//! `impress-surface`'s pure functions and stores what comes back. When
+//! something about the VOCABULARY is wrong, it is wrong in
+//! `crates/impress-surface`; when something about persistence, execution or
+//! reach is wrong, it is wrong here.
+
+use std::future::Future;
+use std::time::Instant;
+
+pub mod dto;
+pub mod report;
+pub mod runtime;
+pub mod selftest;
+pub mod service;
+pub mod store;
+pub mod tier_a;
+
+pub use report::{CapabilityResult, SelfTestReport, Tier};
+pub use runtime::{
+    verb_exists, DefaultExecutor, Executor, PaneHandle, SessionRegistry, SurfaceRuntime,
+};
+pub use selftest::{DefaultSurfaceSelftestService, SurfaceSelftestService};
+pub use service::{DefaultImpressSurfaceService, ImpressSurfaceService};
+pub use store::{EventRow, SurfaceRow, SurfaceStore};
+
+/// What went wrong, as a sentence — the shape every store-generic
+/// `#[impress_service]` crate in the suite uses.
+pub type Result<T> = std::result::Result<T, String>;
+
+/// Run one capability check, timing it and packaging the outcome. Copied
+/// from `impress-layout-service`'s function of the same name/shape (see
+/// `report.rs`'s module docs for why these two small report types are a copy
+/// rather than a shared dependency).
+pub async fn check<F, Fut>(id: &str, description: &str, tier: Tier, body: F) -> CapabilityResult
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = std::result::Result<String, String>>,
+{
+    let start = Instant::now();
+    let outcome = body().await;
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let (pass, detail) = match outcome {
+        Ok(detail) => (true, detail),
+        Err(reason) => (false, reason),
+    };
+    CapabilityResult {
+        id: id.to_string(),
+        description: description.to_string(),
+        tier,
+        pass,
+        detail,
+        duration_ms,
+        skipped: false,
+    }
+}
+
+/// A capability that could not run. A skip is not a pass: it says so.
+pub fn skipped(id: &str, description: &str, tier: Tier, reason: &str) -> CapabilityResult {
+    CapabilityResult {
+        id: id.to_string(),
+        description: description.to_string(),
+        tier,
+        pass: true,
+        detail: reason.to_string(),
+        duration_ms: 0,
+        skipped: true,
+    }
+}
+
+/// Run the Tier A catalogue: every S4 verb, headless, over a private
+/// in-memory store.
+pub async fn run_tier_a() -> SelfTestReport {
+    SelfTestReport::from_results(tier_a::run().await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The catalogue is the proof the verbs work, so it runs as an ordinary
+    /// `cargo test` — the same discipline `impress-layout-service` uses.
+    #[tokio::test]
+    async fn every_tier_a_capability_passes() {
+        let report = run_tier_a().await;
+        assert!(
+            report.ok(),
+            "{}\nfailures: {:#?}",
+            report.summary(),
+            report
+                .results
+                .iter()
+                .filter(|r| !r.pass && !r.skipped)
+                .map(|r| format!("{}: {}", r.id, r.detail))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[cfg(test)]
+mod inventory_tests {
+    use impress_service_core::McpToolDescriptor;
+
+    /// Every S4 verb must reach the MCP inventory — a missing
+    /// `#[impress_method]` is otherwise invisible until an agent cannot find
+    /// the tool (the same test `impress-layout-service` runs on its own
+    /// verb list).
+    const EXPECTED: [&str; 15] = [
+        "impress-surface-service_surface-schema",
+        "impress-surface-service_surface-validate",
+        "impress-surface-service_surface-create",
+        "impress-surface-service_surface-update",
+        "impress-surface-service_surface-get",
+        "impress-surface-service_surface-list",
+        "impress-surface-service_surface-delete",
+        "impress-surface-service_surface-show",
+        "impress-surface-service_surface-render",
+        "impress-surface-service_surface-state-get",
+        "impress-surface-service_surface-state-set",
+        "impress-surface-service_surface-dispatch",
+        "impress-surface-service_surface-events",
+        "impress-surface-service_surface-wait",
+        "impress-surface-service_surface-examples",
+    ];
+
+    #[test]
+    fn every_verb_reaches_the_mcp_inventory() {
+        let names: Vec<&str> = McpToolDescriptor::iter().map(|d| d.name).collect();
+        for expected in EXPECTED {
+            assert!(
+                names.contains(&expected),
+                "MCP inventory is missing {expected}; have: {names:?}"
+            );
+        }
+    }
+
+    /// Every tool description must be a real sentence, not the macro's
+    /// "Invoke Service.method" fallback.
+    #[test]
+    fn every_verb_describes_itself_to_the_model() {
+        for descriptor in McpToolDescriptor::iter() {
+            if !descriptor.name.starts_with("impress-surface-service_") {
+                continue;
+            }
+            assert!(
+                !descriptor.description.starts_with("Invoke "),
+                "{} has no description of its own",
+                descriptor.name
+            );
+        }
+    }
+}

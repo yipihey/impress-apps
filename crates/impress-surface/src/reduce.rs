@@ -28,7 +28,9 @@ use crate::template::{resolve_value, Context, TemplateError};
 /// A side effect `reduce` decided should happen but does not perform itself —
 /// every action kind except `set`, which is folded into the returned state
 /// directly (see the module docs).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(tag = "effect", rename_all = "snake_case")]
 pub enum Effect {
     Call {
         verb: String,

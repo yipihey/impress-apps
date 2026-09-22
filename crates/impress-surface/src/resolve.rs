@@ -47,6 +47,7 @@ use crate::template::{resolve_value, Context, Template, TemplateError};
 /// list of focusable widget ids, for keyboard navigation (ADR-0033 "Defaults":
 /// "widget focus is keyboard-first: j/k walk widgets").
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RenderTree {
     pub root: RenderNode,
     /// Ids of every `field`, `button`, `table`, `list` and `tabs` node, in
@@ -57,6 +58,7 @@ pub struct RenderTree {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RenderNode {
     /// Always present — author-given or auto-derived ([`node_id`]), unlike
     /// [`Node::id`].
@@ -80,6 +82,7 @@ pub struct RenderNode {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RenderKind {
     Column {
@@ -149,6 +152,7 @@ pub enum RenderKind {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RenderTab {
     pub title: String,
     pub body: RenderNode,

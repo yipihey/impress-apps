@@ -35,6 +35,7 @@ use crate::template::{source_refs_in, Template};
 /// RFC 6901 pointer — good enough to point an agent at the spot, which is the
 /// whole job.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Problem {
     pub path: String,
     pub message: String,

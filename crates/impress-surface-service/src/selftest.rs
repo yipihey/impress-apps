@@ -1,0 +1,67 @@
+//! `SurfaceSelftestService` — the capability catalogue through the codegen
+//! pipeline, so `run_selftest` shows up as the MCP tool
+//! `surface-selftest-service_run-selftest` and as a CLI subcommand with no
+//! hand-written glue — mirroring `impress-layout-service::LayoutSelftestService`
+//! exactly (including the tool-name precedent: neither trait's kebab name
+//! carries an `impress-` prefix, unlike `ImpressSurfaceService` itself, whose
+//! prefix `docs/agent-surfaces.md` fixes explicitly).
+//!
+//! Confirming a surface capability works must not require clicking a GUI —
+//! the same rule `imprint-selftest` and `impress-layout-service`'s own
+//! catalogue already keep.
+
+use std::sync::Arc;
+
+use impress_service_core::async_trait;
+#[allow(unused_imports)]
+use impress_service_macros::impress_method;
+use impress_service_macros::{impress_service, impress_service_impl};
+
+use crate::report::SelfTestReport;
+
+/// Run the surface capability self-tests and return a structured report.
+#[impress_service]
+pub trait SurfaceSelftestService: Send + Sync + 'static {
+    /// Run the surface capability self-tests and return the report.
+    ///
+    /// `tier` accepts `"a"` (pure Rust over a private in-memory store —
+    /// every S4 verb plus the create → show → dispatch → render → emit →
+    /// events loop) or `"all"`/`""`, which is the same thing today: the
+    /// live-app tier arrives with the Swift host (S6/S7). Nothing here
+    /// touches the user's store.
+    #[impress_method]
+    async fn run_selftest(&self, tier: String) -> SelfTestReport;
+}
+
+/// Default implementation. Stateless.
+#[derive(Default, Clone, Copy)]
+pub struct DefaultSurfaceSelftestService;
+
+#[async_trait::async_trait]
+impl SurfaceSelftestService for DefaultSurfaceSelftestService {
+    async fn run_selftest(&self, tier: String) -> SelfTestReport {
+        match tier.trim().to_ascii_lowercase().as_str() {
+            "b" => SelfTestReport::from_results(vec![crate::skipped(
+                "tier-b",
+                "drive a running app over HTTP",
+                crate::report::Tier::B,
+                "surfaces have no live-app surface yet — it arrives with the Swift host (S6/S7)",
+            )]),
+            _ => crate::run_tier_a().await,
+        }
+    }
+}
+
+fn selftest_instance() -> Arc<dyn SurfaceSelftestService> {
+    Arc::new(DefaultSurfaceSelftestService)
+}
+
+impress_service_impl! {
+    service = SurfaceSelftestService,
+    impl = DefaultSurfaceSelftestService,
+    instance = || selftest_instance(),
+    methods = [
+        /// Run the surface capability self-tests (`tier` = a | all).
+        run_selftest(tier: String) -> SelfTestReport,
+    ],
+}
