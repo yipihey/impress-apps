@@ -264,6 +264,26 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   for months, and a lint in a *dependency's* test target is invisible to an
   app-scoped gate. `.github/workflows/workspace-rust.yml` is the floor that
   catches this; the per-app workflows keep their app-specific steps.
+- **Definition of done — UniFFI exports**: adding a `#[uniffi::export]` is not
+  done until the crate's committed Swift binding is regenerated and committed in
+  the same PR. Nothing regenerates these at build time — they are checked-in
+  source files, refreshed only by `crates/<crate>/build-xcframework.sh` (or
+  `./scripts/build-xcframeworks.sh --fast <crate>`). There are **eight** tracked
+  bindings, listed in `BINDINGS` in
+  [`scripts/check-uniffi-bindings.sh`](scripts/check-uniffi-bindings.sh); imprint
+  commits the same generated file **twice** and both copies must stay identical.
+  Run `./scripts/check-uniffi-bindings.sh` before pushing (the pre-push hook runs
+  it for you on any `crates/*/src` change; `uniffi-bindings.yml` blocks the PR).
+  Two failure modes, worth keeping straight: a **changed signature** moves the
+  UniFFI checksum and crashes at launch, while a pure **addition** only adds an
+  assertion — so it fails to *build*, and only once some Swift calls the new
+  function. The second is the one that accumulates silently: on 2026-09-07 four
+  commits added 11 imbib exports with no regeneration and PublicationManagerCore
+  stopped compiling. Two gotchas when regenerating: uniffi-bindgen auto-applies
+  **swiftformat when it is on PATH**, producing a reformatted file that will not
+  match CI's raw output (take it off PATH), and it **reorders freely** — judge
+  the diff by declarations gained and lost, never by diffstat (the 2026-09-07
+  catch-up was 1,125 insertions / 166 deletions and lost zero declarations).
 - **Fast local framework rebuilds**: every `crates/*/build-xcframework.sh` honors
   `IMPRESS_SKIP_X86=1` (no x86_64 anywhere — macOS *and* the iOS simulator
   slice) and `IMPRESS_SKIP_IOS=1` (skip the iOS device+sim slices).

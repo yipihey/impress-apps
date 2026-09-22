@@ -195,6 +195,24 @@ echo "Copying Swift bindings..."
 impress_sync_file "$FRAMEWORK_DIR/generated/impart_core.swift" "$FRAMEWORK_DIR/impart_core.swift"
 echo "  Copied impart_core.swift"
 
+# Keep the package's committed bindings paired with the freshly built
+# framework, as every other crate's script does. impart-core has no
+# `#[uniffi::export]` yet, so `generated/impart_core.swift` is a stub and
+# nothing is committed under ImpartRustCore/Sources today — the step is here
+# so that the first real export syncs automatically rather than depending on
+# someone remembering a hand copy. (That is the omission that broke imbib's
+# build on 2026-09-07.) When it does produce a tracked file, add the path to
+# BINDINGS in scripts/check-uniffi-bindings.sh, which currently fails loudly
+# if impart-core gains an export with no registered binding.
+#
+# Resolve via git, not $0: the script cds internally, so a relative $0 breaks
+# when invoked from the repo root (as scripts/build-xcframeworks.sh does).
+PKG_BINDINGS_DIR="$(git rev-parse --show-toplevel)/apps/impart/ImpartRustCore/Sources/ImpartRustCore"
+if [ -d "$PKG_BINDINGS_DIR" ]; then
+    cp "$FRAMEWORK_DIR/generated/impart_core.swift" "$PKG_BINDINGS_DIR/impart_core.swift"
+    echo "  Synced bindings to ImpartRustCore package"
+fi
+
 echo ""
 echo "=== Build complete! ==="
 echo ""

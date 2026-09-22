@@ -105,11 +105,35 @@ jobs:
       - name: Generate Swift bindings
         working-directory: crates/implore-core
         run: |
+          # uniffi-bindgen auto-applies swiftformat when it is on PATH, which
+          # reformats the output away from the raw form the committed file is
+          # in and makes the staleness guard below cry wolf. Remove it when
+          # present. Same treatment as imbib-rust.yml.
+          if command -v swiftformat >/dev/null 2>&1; then
+            sudo -n rm -f "$(command -v swiftformat)" || \
+              echo "::warning::swiftformat present but not removable; bindings diff may reformat"
+          fi
           mkdir -p generated
           cargo run --release -p uniffi-bindgen -- generate \
             --library "$CARGO_TARGET_DIR/release/libimplore_core.a" \
             --language swift \
             --out-dir generated
+
+      # The committed copy under apps/implore/ImploreRustCore is what the app
+      # compiles against; nothing regenerates it at build time. The cheap
+      # name-level lint in uniffi-bindings.yml blocks PRs on a missing export;
+      # this full diff additionally catches a changed signature, which moves
+      # the UniFFI checksum and crashes at launch instead of failing the build.
+      - name: Committed Swift bindings match the Rust
+        working-directory: crates/implore-core
+        run: |
+          # -b -B tolerate pure reformatting (see the swiftformat note above).
+          if ! diff -u -b -B ../../apps/implore/ImploreRustCore/Sources/ImploreRustCore/implore_core.swift \
+                             generated/implore_core.swift; then
+            echo "::error::Committed implore_core.swift is stale."
+            echo "Run crates/implore-core/build-xcframework.sh and commit the result."
+            exit 1
+          fi
 
       - name: Upload Swift bindings
         uses: actions/upload-artifact@v4

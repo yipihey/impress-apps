@@ -6,11 +6,14 @@
 #
 #   1. cargo fmt --all --check          (always; seconds)
 #   2. schema-refs lint                 (any .swift/.rs/.json change; ~5-25s)
-#   3. chassis dependency lint          (chassis manifests; instant)
-#   4. chassis interlock tests          (chassis contract files; minutes —
+#   3. uniffi binding staleness lint    (any crates/*/src change; <1s — the
+#      committed Swift bindings are hand-refreshed, and 11 exports landed
+#      on 2026-09-07 without a regeneration, breaking the PMC build)
+#   4. chassis dependency lint          (chassis manifests; instant)
+#   5. chassis interlock tests          (chassis contract files; minutes —
 #      the impel/impart/impress suites that pin visibleSections & URL
 #      vocab, which stale-pinned and turned CI red after the Tags rollout)
-#   5. dual-platform imbib build        (PMC/iOS/packages; Rule 1, ADR-023)
+#   6. dual-platform imbib build        (PMC/iOS/packages; Rule 1, ADR-023)
 #
 # Install:
 #   ln -sf ../../apps/imbib/scripts/pre-push-dual-platform.sh \
@@ -20,8 +23,9 @@
 # the trigger paths runs only the fmt gate.
 #
 # Escape hatches:
-#   SKIP_DUAL_PLATFORM_CHECK=1 git push   # skip EVERYTHING (emergency only)
-#   SKIP_INTERLOCK_TESTS=1 git push       # skip stage 4 only
+#   SKIP_DUAL_PLATFORM_CHECK=1 git push     # skip EVERYTHING (emergency only)
+#   SKIP_UNIFFI_BINDINGS_CHECK=1 git push   # skip stage 3 only
+#   SKIP_INTERLOCK_TESTS=1 git push         # skip stage 5 only
 #
 
 set -e
@@ -65,6 +69,34 @@ if echo "$CHANGED_FILES" | grep -qE '\.(swift|rs)$|^schema-refs\.json|^scripts/c
         echo "pre-push: BLOCKED — schema-refs drift. Fix the ref spelling or"
         echo "update schema-refs.json in the same commit (root CLAUDE.md §"
         echo "Definition of done — schema refs)."
+        exit 1
+    fi
+fi
+
+# UniFFI binding staleness lint: every app compiles against a COMMITTED
+# copy of the Swift uniffi-bindgen generates, refreshed only when a human
+# runs the crate's build-xcframework.sh. A `#[uniffi::export]` added
+# without that rebuild leaves the Rust and the Swift describing different
+# APIs — and on 2026-09-07 that stopped PublicationManagerCore compiling
+# outright (11 exports added across four commits, no regeneration).
+#
+# CI's regenerate-and-diff guard runs on `push: [main]` only (the lane is
+# self-hosted and this repo is public), so it is a post-merge detector.
+# This name-level check is cheap enough to run here, on the machine that
+# created the drift, before it leaves. ~0.4s, no cargo, no Xcode.
+#
+# Note ImbibRustCore/ is deliberately NOT in the dual-platform trigger
+# list below, so neither a forgotten binding nor a binding-only commit
+# fires the iOS build. This stage is what covers that gap.
+if [ "${SKIP_UNIFFI_BINDINGS_CHECK:-0}" != "1" ] && \
+   echo "$CHANGED_FILES" | grep -qE '^crates/[^/]+/src/|^scripts/check-uniffi-bindings\.sh'; then
+    echo "pre-push: uniffi binding staleness lint"
+    if ! (cd "$REPO_ROOT" && ./scripts/check-uniffi-bindings.sh); then
+        echo "pre-push: BLOCKED — committed Swift bindings are behind the Rust."
+        echo "Regenerate and commit the .swift alongside the Rust change:"
+        echo "  ./scripts/build-xcframeworks.sh --fast <crate>"
+        echo "Skip once with SKIP_UNIFFI_BINDINGS_CHECK=1 if you are landing"
+        echo "the Rust and the regeneration in separate commits on purpose."
         exit 1
     fi
 fi
