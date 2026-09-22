@@ -4434,19 +4434,29 @@ dependencies = [
  "implore-service",
  "impress-ai-service",
  "impress-bridges-service",
- "impress-layout-service",
+ "impress-capabilities-kit",
  "impress-memory-service",
  "impress-parsers-service",
  "impress-service-core",
  "impress-smart-search-service",
- "impress-store-service",
- "impress-surface-service",
  "imprint-selftest",
  "imprint-service",
  "serde_json",
- "surface-demo-service",
  "thiserror 1.0.69",
  "vw-impress-adapter",
+]
+
+[[package]]
+name = "impress-capabilities-kit"
+version = "0.1.0"
+dependencies = [
+ "impress-layout-service",
+ "impress-service-core",
+ "impress-store-service",
+ "impress-surface-service",
+ "serde_json",
+ "surface-demo-service",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4776,15 +4786,14 @@ dependencies = [
  "chrono",
  "futures-util",
  "impress-ai",
+ "impress-capabilities-kit",
  "impress-core",
  "impress-layout",
  "impress-layout-service",
- "impress-store-service",
  "impress-surface",
  "impress-surface-service",
  "serde",
  "serde_json",
- "surface-demo-service",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",

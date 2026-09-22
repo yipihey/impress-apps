@@ -23,28 +23,29 @@ imprint-service = { workspace = true, optional = true }
 imprint-selftest = { workspace = true, optional = true }
 impress-ai-service = { workspace = true, optional = true }
 impress-bridges-service = { workspace = true, optional = true }
-impress-layout-service = { workspace = true, optional = true }
 impress-memory-service = { workspace = true, optional = true }
 impress-parsers-service = { workspace = true, optional = true }
 impress-smart-search-service = { workspace = true, optional = true }
-impress-store-service = { workspace = true, optional = true }
 # Not a workspace.dependencies entry (see crates/impress-mcp/Cargo.toml,
 # which reaches it the same way): the vw-* family has never had a workspace
 # alias, only relative `path` dependencies from each consumer.
 vw-impress-adapter = { path = "../vw-impress-adapter", optional = true }
-# Stub crates today (ADR-0033 D7 wave 1): no `#[impress_service]` methods
-# exist yet, so there is nothing to force-link. Depended on now so the `kit`
-# feature set is complete from the start and S4/S9 need no Cargo.toml edit
-# here to start registering verbs.
-impress-surface-service = { workspace = true, optional = true }
-surface-demo-service = { workspace = true, optional = true }
+# The ADR-0033 D7 standalone-kit slice (store, layout, surface,
+# surface-demo) lives in its own crate so `impress-store-ffi` can depend on
+# exactly that list without depending on `impress-capabilities` itself,
+# which would be a package cycle (see `impress-capabilities-kit`'s and
+# `impress-store-ffi`'s module docs). The four kit service crates are NOT
+# direct dependencies here any more — they arrive transitively through
+# `impress-capabilities-kit`, so each is named in exactly one place.
+impress-capabilities-kit = { workspace = true, optional = true }
 
 [features]
 # `full`: every capability the suite has, for the two binaries that must see
 # everything (impress-mcp, impress-cli). `kit`: the ADR-0033 D7 standalone
-# cut — store, layout and the two surface crates only, none of the five
-# per-app domain cores (imbib/imprint/implore/impart/impel), which already
-# ship as their own xcframeworks and must not be linked a second time here.
+# cut — store, layout and the two surface crates, via `impress-capabilities-kit`
+# — none of the five per-app domain cores (imbib/imprint/implore/impart/impel),
+# which already ship as their own xcframeworks and must not be linked a
+# second time here.
 default = ["full"]
 full = [
     "imbib",
@@ -54,16 +55,13 @@ full = [
     "imprint",
     "ai",
     "bridges",
-    "layout",
     "memory",
     "parsers",
     "smart-search",
-    "store",
     "vw",
-    "surface",
-    "surface-demo",
+    "kit",
 ]
-kit = ["store", "layout", "surface", "surface-demo"]
+kit = ["dep:impress-capabilities-kit"]
 
 imbib = ["dep:imbib-service"]
 impart = ["dep:impart-service"]
@@ -72,11 +70,7 @@ implore = ["dep:implore-service"]
 imprint = ["dep:imprint-service", "dep:imprint-selftest"]
 ai = ["dep:impress-ai-service"]
 bridges = ["dep:impress-bridges-service"]
-layout = ["dep:impress-layout-service"]
 memory = ["dep:impress-memory-service"]
 parsers = ["dep:impress-parsers-service"]
 smart-search = ["dep:impress-smart-search-service"]
-store = ["dep:impress-store-service"]
 vw = ["dep:vw-impress-adapter"]
-surface = ["dep:impress-surface-service"]
-surface-demo = ["dep:surface-demo-service"]

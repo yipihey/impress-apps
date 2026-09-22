@@ -1,7 +1,7 @@
 //! The one place the `#[impress_service]` inventory is linked (ADR-0033 D4).
 //!
 //! Every `*-service` crate registers its verbs into two process-wide
-//! `inventory` collections — [`McpToolDescriptor`] and `CliSubcommand` — as a
+//! `inventory` collections — `McpToolDescriptor` and `CliSubcommand` — as a
 //! side effect of being *linked into the final binary*, not of anyone calling
 //! it. Before this crate existed, `crates/impress-mcp` and `crates/impress-cli`
 //! each kept their own list of `#[allow(unused_imports)] use X as _force_link_X;`
@@ -26,27 +26,23 @@
 //!
 //! # Feature sets
 //!
-//! One feature per service crate (`imbib`, `impart`, `impel`, `implore`,
-//! `imprint`, `ai`, `bridges`, `layout`, `memory`, `parsers`,
-//! `smart-search`, `store`, `vw`, `surface`, `surface-demo`), each gating one
-//! optional dependency (`imprint` gates two: `imprint-service` and
-//! `imprint-selftest` are one capability family). `full` (the default) is
-//! every feature, for `impress-mcp` and `impress-cli`, which must see
-//! everything. `kit` is the ADR-0033 D7 standalone cut: `store`, `layout` and
-//! the two surface crates — never a per-app domain core, which already ships
-//! as its own xcframework and must not be linked into the FFI a second time
-//! (see that ADR's D4/D7 and `impress-store-ffi`, the crate `kit` exists for).
-//!
-//! `impress-surface-service` and `surface-demo-service` are stub crates as of
-//! this writing (ADR-0033 wave 1): they define no `#[impress_service]`
-//! methods yet, so linking them force-links nothing extra — but the feature
-//! and the dependency exist now so S4/S9 register their verbs with zero
-//! Cargo.toml edits here.
+//! One feature per domain service crate (`imbib`, `impart`, `impel`,
+//! `implore`, `imprint`, `ai`, `bridges`, `memory`, `parsers`,
+//! `smart-search`, `vw`), each gating one optional dependency (`imprint`
+//! gates two: `imprint-service` and `imprint-selftest` are one capability
+//! family). `full` (the default) is every domain feature plus `kit`, for
+//! `impress-mcp` and `impress-cli`, which must see everything. `kit` is the
+//! ADR-0033 D7 standalone cut — store, layout and the two surface crates —
+//! and is a single dependency on `impress-capabilities-kit`, which holds
+//! those four crates directly (see that crate's module docs for why they
+//! live there and not here: `impress-store-ffi`, the crate `kit` exists for,
+//! cannot depend on this crate at all without a package cycle). This crate
+//! re-exports `impress-capabilities-kit`'s [`descriptors`], [`find`],
+//! [`call`], [`call_async`] and [`CallError`] behind the `kit` feature so
+//! every existing caller (`impress-mcp`'s `inventory_bridge`,
+//! `impress-cli`) compiles unchanged.
 
 #![forbid(unsafe_code)]
-
-use impress_service_core::{runtime, McpToolDescriptor};
-use serde_json::Value;
 
 // ---------------------------------------------------------------------------
 // Force-link
@@ -77,9 +73,6 @@ use impress_ai_service as _force_link_ai_service;
 #[cfg(feature = "bridges")]
 #[allow(unused_imports)]
 use impress_bridges_service as _force_link_bridges_service;
-#[cfg(feature = "layout")]
-#[allow(unused_imports)]
-use impress_layout_service as _force_link_layout_service;
 #[cfg(feature = "memory")]
 #[allow(unused_imports)]
 use impress_memory_service as _force_link_memory_service;
@@ -89,21 +82,12 @@ use impress_parsers_service as _force_link_parsers_service;
 #[cfg(feature = "smart-search")]
 #[allow(unused_imports)]
 use impress_smart_search_service as _force_link_smart_search_service;
-#[cfg(feature = "store")]
-#[allow(unused_imports)]
-use impress_store_service as _force_link_store_service;
-#[cfg(feature = "surface")]
-#[allow(unused_imports)]
-use impress_surface_service as _force_link_surface_service;
 #[cfg(feature = "imprint")]
 #[allow(unused_imports)]
 use imprint_selftest as _force_link_imprint_selftest;
 #[cfg(feature = "imprint")]
 #[allow(unused_imports)]
 use imprint_service as _force_link_imprint_service;
-#[cfg(feature = "surface-demo")]
-#[allow(unused_imports)]
-use surface_demo_service as _force_link_surface_demo_service;
 #[cfg(feature = "vw")]
 #[allow(unused_imports)]
 use vw_impress_adapter as _force_link_vw_impress_adapter;
@@ -123,77 +107,27 @@ use vw_impress_adapter as _force_link_vw_impress_adapter;
 /// own dispatch reads the process-wide `CliSubcommand` inventory through
 /// `impress_service_core::cli` rather than through anything this crate
 /// exports, so without an explicit call it would make no reference to
-/// `impress-capabilities` at all. Its body does nothing observable; its only
-/// job is to exist as a real, callable symbol.
-pub fn force_link() {}
-
-// ---------------------------------------------------------------------------
-// Descriptor lookup
-// ---------------------------------------------------------------------------
-
-/// Every MCP tool descriptor linked into this binary by the enabled features.
-///
-/// The one list `impress-mcp` (`tools/list`), `impress-cli` (subcommand
-/// enumeration, via the sibling `CliSubcommand` inventory) and any future
-/// consumer (`impress-store-ffi`'s `kit` build) read from — see the module
-/// docs for why "linked into this binary" depends on which features were
-/// enabled at compile time, not on anything runtime-configurable.
-pub fn descriptors() -> impl Iterator<Item = &'static McpToolDescriptor> {
-    McpToolDescriptor::iter()
-}
-
-/// Look up one descriptor by its exact MCP tool name
-/// (`"imbib-text-service_decode-latex"`, kebab-case method ident).
-pub fn find(name: &str) -> Option<&'static McpToolDescriptor> {
-    McpToolDescriptor::iter().find(|d| d.name == name)
+/// `impress-capabilities` at all. Delegates to
+/// [`impress_capabilities_kit::force_link`] (behind the `kit` feature) for
+/// the four kit crates, on top of the domain `use X as _;` links above — its
+/// own body does nothing else observable; its only job is to exist as a
+/// real, callable symbol.
+pub fn force_link() {
+    #[cfg(feature = "kit")]
+    impress_capabilities_kit::force_link();
 }
 
 // ---------------------------------------------------------------------------
-// Call
+// Descriptor lookup and call
 // ---------------------------------------------------------------------------
-
-/// Error from [`call`] / [`call_async`].
-///
-/// Mirrors the two failure modes the former `impress-mcp::inventory_bridge`
-/// returned as plain strings (`"Unknown tool: {name}"` and
-/// `"{descriptor}: {handler error}"`); `Display` on this type reproduces
-/// those exact strings so callers that used to `.to_string()` the old
-/// `Result<Value, String>` see byte-identical error text.
-#[derive(Debug, thiserror::Error)]
-pub enum CallError {
-    /// No descriptor with this name is registered — either a typo, or the
-    /// feature that would have linked it was not enabled.
-    #[error("Unknown tool: {0}")]
-    UnknownTool(String),
-    /// The descriptor's handler future resolved to `Err`. The message is
-    /// already formatted as `"{descriptor.name}: {handler error}"`.
-    #[error("{0}")]
-    Handler(String),
-}
-
-/// Invoke an inventory tool synchronously, running its handler future to
-/// completion on the shared `impress-service` runtime
-/// ([`impress_service_core::runtime::block_on`]).
-///
-/// Moved here from `impress-mcp`'s `inventory_bridge::call_inventory_tool`
-/// (ADR-0033 D4 plan S2) — the same function, same error strings, so every
-/// caller of the old bridge function is unaffected by the move. Use this from
-/// a synchronous context (CLI dispatch, an FFI shim); use [`call_async`] from
-/// a context already running on a Tokio runtime, where `block_on` would
-/// panic.
-pub fn call(name: &str, args: Value) -> Result<Value, CallError> {
-    let descriptor = find(name).ok_or_else(|| CallError::UnknownTool(name.to_string()))?;
-    let future = (descriptor.handler)(args);
-    runtime::block_on(future).map_err(|e| CallError::Handler(format!("{}: {}", descriptor.name, e)))
-}
-
-/// The `async` counterpart to [`call`], for callers already on the runtime.
-pub async fn call_async(name: &str, args: Value) -> Result<Value, CallError> {
-    let descriptor = find(name).ok_or_else(|| CallError::UnknownTool(name.to_string()))?;
-    (descriptor.handler)(args)
-        .await
-        .map_err(|e| CallError::Handler(format!("{}: {}", descriptor.name, e)))
-}
+//
+// Moved to `impress-capabilities-kit` (ADR-0033 D7 / plan S6) so
+// `impress-store-ffi` can call them without depending on this crate at all —
+// see that crate's module docs for why. Re-exported here, verbatim, behind
+// the `kit` feature so every existing caller (`impress-mcp`'s
+// `inventory_bridge`, `impress-cli`) compiles unchanged.
+#[cfg(feature = "kit")]
+pub use impress_capabilities_kit::{call, call_async, descriptors, find, CallError};
 
 #[cfg(test)]
 mod tests {

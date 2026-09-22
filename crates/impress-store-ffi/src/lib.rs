@@ -33,26 +33,43 @@ mod surface;
 /// D6) — see that module's docs.
 mod ui_feed;
 
-// Force the linker to keep two of the four ADR-0033 D4 `kit` service crates
-// linked into this crate: `impress-layout-service` (used throughout
-// `layout.rs`) and `impress-surface-service` (used throughout `surface.rs`)
-// already have real references and need no help. `impress-store-service`
+// Force the linker to keep all four ADR-0033 D4 `kit` service crates linked
+// into this crate: `impress-layout-service` (used throughout `layout.rs`)
+// and `impress-surface-service` (used throughout `surface.rs`) already have
+// real references and need no help from this call. `impress-store-service`
 // and `surface-demo-service` do not — nothing in this crate calls either by
-// name — so without a real reference the linker is free to drop their
+// name — so without it the linker would be free to drop their
 // `inventory::submit!` entries, and `surface.rs`'s `DefaultExecutor` (which
 // reaches every source/action verb a spec names through the process-wide
 // `McpToolDescriptor` inventory) would silently not find
 // `surface-demo-service_series`/`histogram` or the generic store verbs.
 //
-// This is meant to be ONE dependency on `impress-capabilities`'s `kit`
-// feature, matching `impress-mcp`/`impress-cli`'s `full` (ADR-0033 D4: "one
-// list") — see `Cargo.toml`'s module comment on the `impress-store-service`/
-// `surface-demo-service` lines for the cyclic-package error that blocks it
-// today, and this work package's report for the fix it actually needs.
+// This is the ONE dependency on the kit list ADR-0033 D4 wants, split out as
+// `impress-capabilities-kit` (ADR-0033 D7 / plan S6) so this crate can carry
+// it without depending on `impress-capabilities` itself — see `Cargo.toml`'s
+// module comment on this dependency for the cyclic-package error that still
+// blocks that. A bare `use impress_capabilities_kit as _;` is not enough on
+// its own (that only proves this crate references the *crate*, not that it
+// calls anything in it — the same reasoning `impress-capabilities-kit`'s own
+// module docs give for needing `force_link` at all), so this calls its
+// `force_link()` for real. The surface tests
+// (`surface.rs`'s tests driving `surface-demo-service_series` through the
+// inventory) are what catch a regression here: they fail if this link is
+// ever dropped.
 #[allow(unused_imports)]
-use impress_store_service as _force_link_impress_store_service;
-#[allow(unused_imports)]
-use surface_demo_service as _force_link_surface_demo_service;
+use impress_capabilities_kit as _force_link_impress_capabilities_kit;
+
+/// Calls [`impress_capabilities_kit::force_link`] so the two kit crates that
+/// have no other real reference in this crate — `impress-store-service` and
+/// `surface-demo-service` — are not dropped by the linker. See the module
+/// comment above for why the `use … as _;` alone does not already guarantee
+/// this. Called from both `SharedStore` constructors (`open` and
+/// `open_in_memory`), which between them are the one initialisation point
+/// every Swift caller — and every test in this crate — passes through before
+/// touching the store.
+fn force_link_kit() {
+    impress_capabilities_kit::force_link();
+}
 
 pub use ai::{
     AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,
@@ -749,6 +766,7 @@ impl SharedStore {
     /// WAL mode provides concurrent-reader, exclusive-writer access.
     #[cfg_attr(feature = "native", uniffi::constructor)]
     pub fn open(path: String) -> Result<Arc<Self>, SharedStoreError> {
+        force_link_kit();
         let store =
             SqliteItemStore::open(Path::new(&path)).map_err(|e| SharedStoreError::Storage {
                 message: e.to_string(),
@@ -767,6 +785,7 @@ impl SharedStore {
     /// Open an ephemeral in-memory store. Intended for unit tests only.
     #[cfg_attr(feature = "native", uniffi::constructor)]
     pub fn open_in_memory() -> Result<Arc<Self>, SharedStoreError> {
+        force_link_kit();
         let store = SqliteItemStore::open_in_memory().map_err(|e| SharedStoreError::Storage {
             message: e.to_string(),
         })?;

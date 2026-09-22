@@ -76,6 +76,10 @@ members = [
     "crates/impress-surface",
     # the one place the #[impress_service] inventory is linked (ADR-0033 D4)
     "crates/impress-capabilities",
+    # the ADR-0033 D7 standalone-kit slice of the inventory (store, layout,
+    # surface, surface-demo) split out so impress-store-ffi can depend on it
+    # without the impress-capabilities package cycle (plan-agent-surfaces.md S6)
+    "crates/impress-capabilities-kit",
     # ADR-0033 surface verbs, store records and runtime
     "crates/impress-surface-service",
     # ADR-0033 D8 demo capability: the scaffold's output and the worked example
@@ -193,6 +197,7 @@ impress-layout-service = { path = "crates/impress-layout-service" }
 impress-pane-query = { path = "crates/impress-pane-query" }
 impress-surface = { path = "crates/impress-surface" }
 impress-capabilities = { path = "crates/impress-capabilities" }
+impress-capabilities-kit = { path = "crates/impress-capabilities-kit" }
 impress-surface-service = { path = "crates/impress-surface-service" }
 surface-demo-service = { path = "crates/surface-demo-service" }
 # default-features = false HERE, not at the call site: a member inheriting a

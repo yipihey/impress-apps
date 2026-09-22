@@ -12,12 +12,21 @@
 #   * a workspace dependency line in Cargo.toml,
 #   * a feature + optional dependency in crates/impress-capabilities/Cargo.toml
 #     (ADR-0033 D4: the inventory is linked once, behind per-capability
-#     features, so `full` links everything and `kit` links only what the
-#     standalone cut ships).
+#     features, so `full` links everything).
 #
-# crates/impress-capabilities is being written concurrently by another work
-# package (see docs/plan-agent-surfaces.md), so its Cargo.toml may not yet
-# have a [features] section to insert into. This script does not fail on
+# That registration is for a DOMAIN capability. If <name> belongs in the
+# ADR-0033 D7 standalone kit instead (store/layout/surface-shaped, no
+# per-app domain core), it is registered differently: add <name>-service as
+# a plain (non-optional, non-feature-gated) dependency directly in
+# crates/impress-capabilities-kit/Cargo.toml, NOT in impress-capabilities —
+# the kit crate has no per-capability feature list, it force-links its whole
+# dependency set unconditionally (see that crate's module docs), and
+# impress-capabilities only re-exports it behind its own `kit` feature. This
+# script always registers the domain way below; undo that pair and add the
+# kit-crate dependency instead when the capability is kit-grade.
+#
+# crates/impress-capabilities may not always have a [features] section to
+# insert into (e.g. a mid-refactor checkout). This script does not fail on
 # that: it prints exactly what to add by hand once the section exists.
 #
 # All edits are idempotent — running this script twice with the same name
@@ -344,14 +353,22 @@ else:
 with open(ws_path, "w") as f:
     f.write(ws_text)
 
-# --- crates/impress-capabilities/Cargo.toml -------------------------------
+# --- crates/impress-capabilities/Cargo.toml (domain registration) --------
 #
-# impress-capabilities is being written concurrently (ADR-0033 D4 / S2) and
-# may not have [features] and [dependencies] sections to anchor on yet. If
-# either is missing, this does not edit the file at all — a feature entry
-# with no dependency line (or vice versa) is a half-registration nobody
-# asked for. Instead it prints exactly what to add by hand, once, covering
-# both lines together.
+# This is the DOMAIN path (ADR-0033 D4: one feature + one optional
+# dependency per capability, so `full` links everything). For a KIT-grade
+# capability (ADR-0033 D7's standalone cut) the registration is different
+# and this script does not do it: add `{crate_name} = {{ workspace = true }}`
+# as a plain dependency directly in crates/impress-capabilities-kit/Cargo.toml
+# instead (no feature, no `optional = true` — the kit crate force-links its
+# whole dependency set unconditionally) and skip this section entirely.
+#
+# impress-capabilities may not always have [features] and [dependencies]
+# sections to anchor on (e.g. a mid-refactor checkout). If either is
+# missing, this does not edit the file at all — a feature entry with no
+# dependency line (or vice versa) is a half-registration nobody asked for.
+# Instead it prints exactly what to add by hand, once, covering both lines
+# together.
 
 cap_path = "crates/impress-capabilities/Cargo.toml"
 with open(cap_path) as f:
@@ -363,9 +380,9 @@ dep_line = f'{crate_name} = {{ workspace = true, optional = true }}\n'
 if "[features]" not in cap_text or "[dependencies]" not in cap_text:
     print(
         f"NOTE: {cap_path} does not yet have both a [features] and a "
-        "[dependencies] section to anchor on (it is being written "
-        "concurrently — ADR-0033 D4 / plan-agent-surfaces.md S2). Add the "
-        "following by hand once it does:\n"
+        "[dependencies] section to anchor on. Add the following by hand "
+        "once it does (domain capability — for a kit-grade one, see the "
+        "impress-capabilities-kit note in this script's header instead):\n"
     )
     print("  [features]")
     print(f"  {feature_line.strip()}")
@@ -391,3 +408,7 @@ echo "  2. export CARGO_TARGET_DIR=/home/user/impress-apps/target"
 echo "  3. cargo test -p ${CRATE_NAME}"
 echo "  4. If impress-capabilities printed manual steps above, apply them once"
 echo "     that crate has a [features]/[dependencies] section."
+echo "  5. If ${CRATE_NAME} is a KIT-grade capability (ADR-0033 D7 standalone"
+echo "     cut), undo the impress-capabilities feature/dependency pair above"
+echo "     and instead add '${CRATE_NAME} = { workspace = true }' as a plain"
+echo "     dependency in crates/impress-capabilities-kit/Cargo.toml."
