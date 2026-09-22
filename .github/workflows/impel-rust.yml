@@ -193,10 +193,13 @@ jobs:
       # and nothing else — impel commits no impel_core.swift. The binding the
       # app actually compiles against is impel-tools', under CounselEngine, and
       # until now nothing checked it. impel-tools has no features and links the
-      # service crates purely to populate the inventory, so this is a plain
-      # build.
+      # service crates purely to populate the inventory, so no feature flags
+      # are needed.
       - name: Build impel-tools
-        run: cargo build -p impel-tools --release
+        # impel-tools is crate-type ["lib"] (see its Cargo.toml), so a plain
+        # `cargo build` leaves only an rlib. Ask for the staticlib the bindgen
+        # reads, the way build-xcframework.sh and the impel-core step above do.
+        run: cargo rustc -p impel-tools --release --lib --crate-type staticlib
 
       - name: Generate impel-tools Swift bindings
         run: |
@@ -208,8 +211,11 @@ jobs:
               echo "::warning::swiftformat present but not removable; bindings diff may reformat"
           fi
           mkdir -p crates/impel-tools/generated
-          cargo run -p impel-tools --release --bin uniffi-bindgen generate \
-            --library target/release/libimpel_tools.dylib \
+          # The workspace's uniffi-bindgen (crates/uniffi-bindgen); impel-tools
+          # ships no bin of that name. The archive lives under this job's
+          # CARGO_TARGET_DIR, not the workspace-relative target/.
+          cargo run --release -p uniffi-bindgen -- generate \
+            --library "$CARGO_TARGET_DIR/release/libimpel_tools.a" \
             --language swift \
             --out-dir crates/impel-tools/generated
 
