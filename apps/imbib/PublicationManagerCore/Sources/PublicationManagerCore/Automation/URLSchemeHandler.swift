@@ -624,6 +624,10 @@ public actor URLSchemeHandler {
         title: String?,
         format: String?
     ) async -> AutomationResult {
+        // The window is macOS-only, like every `ManuscriptPapersOpener` caller
+        // (`HTTPAutomationRouter.handleOpenManuscriptPapers` guards the same
+        // way). iOS answers the URL rather than failing to build for it.
+        #if os(macOS)
         let outcome = await MainActor.run {
             ManuscriptPapersOpener.open(
                 manuscriptID: manuscriptID,
@@ -644,6 +648,10 @@ public actor URLSchemeHandler {
         case .failed(let why):
             return .failure(command: "manuscriptPapers", error: why)
         }
+        #else
+        return .failure(
+            command: "manuscriptPapers", error: "The papers window is macOS-only")
+        #endif
     }
 
     // MARK: - Notification Posting
