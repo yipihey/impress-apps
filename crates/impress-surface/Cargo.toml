@@ -6,6 +6,26 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Derive `schemars::JsonSchema` on the surface vocabulary, so the S4 verb
+# `surface_schema` can hand an agent the JSON Schema without it reading Rust
+# source. Forwards the same feature on `impress-core`, whose `PaneQuery` and
+# `ParamDecl` a source and a param declaration embed directly — the same
+# forwarding `impress-layout`'s `schema` feature does for the same types.
+schema = ["dep:schemars", "impress-core/schema"]
+
 [dependencies]
+# `PaneQuery` and `ParamDecl` are spelled once, in the pane-query algebra
+# (ADR-0031 D2, today `impress_core::pane_query`). ADR-0033 D7 plans to move
+# that algebra into `impress-pane-query`, but impress-core keeps
+# `impress_core::pane_query::*` re-exporting it, so this crate depends on
+# impress-core and imports exactly that path — the path that stays stable
+# across the move — rather than the destination crate, which is stubbed but
+# not yet the source of truth (S0, a sibling work package).
+impress-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+schemars = { workspace = true, optional = true }
