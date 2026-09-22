@@ -664,15 +664,48 @@ impl SurfaceRuntime {
 fn publish_kind_and_ids(spec: &SurfaceSpec, ids: Value) -> (String, Value) {
     if let Value::Object(map) = &ids {
         if let (Some(Value::String(kind)), Some(inner)) = (map.get("kind"), map.get("ids")) {
-            return (kind.clone(), inner.clone());
+            return (as_layout_kind(kind), inner.clone());
         }
     }
     let kind = spec
         .params
         .first()
-        .map(|p| p.kind.clone())
+        .map(|p| as_layout_kind(&p.kind))
         .unwrap_or_else(|| "item".to_string());
     (kind, ids)
+}
+
+/// A channel key in the LAYOUT's vocabulary.
+///
+/// A pane parameter declares a `RecordKindId` from
+/// `impress_core::pane_query::KindManifest` — `publication` — while a surface
+/// spec's own `params` may name the schema ref instead
+/// (`imbib/bibliography-entry`, which is what the worked example and the
+/// agent-surfaces doc use). Publishing under the ref put
+/// `{"imbib/bibliography-entry": [...]}` on the channel, where a detail pane
+/// bound to `publication` looked and found nothing: the row was selected in
+/// the surface and the detail pane kept saying "No Selection" (verified live
+/// in the impress window, 2026-09-22).
+///
+/// Both spellings are accepted rather than one being declared wrong, because
+/// the vocabulary is documented with the ref and a spec already written that
+/// way must keep working. An unknown string passes through untouched — a
+/// surface may publish a kind this build has never heard of.
+fn as_layout_kind(kind: &str) -> String {
+    let manifest = impress_core::pane_query::builtin_manifest();
+    if manifest.kinds.contains_key(kind) {
+        return kind.to_string();
+    }
+    let base = kind.split_once('@').map(|(head, _)| head).unwrap_or(kind);
+    for (id, refs) in &manifest.kinds {
+        if refs
+            .iter()
+            .any(|r| r == kind || r.split_once('@').map(|(head, _)| head).unwrap_or(r) == base)
+        {
+            return id.clone();
+        }
+    }
+    kind.to_string()
 }
 
 fn bindings_from_params(decls: &[ParamDecl], params: &Value) -> Bindings {
@@ -865,5 +898,30 @@ mod flatten_tests {
         for value in [json!([{"id": "x"}]), json!({"not": "an array"}), json!([7])] {
             assert_eq!(flatten_payloads(value.clone()), value);
         }
+    }
+}
+
+#[cfg(test)]
+mod publish_kind_tests {
+    use super::as_layout_kind;
+
+    /// The channel key a pane parameter can actually bind to.
+    #[test]
+    fn a_schema_ref_becomes_the_manifest_kind_id() {
+        assert_eq!(as_layout_kind("imbib/bibliography-entry"), "publication");
+        assert_eq!(as_layout_kind("task@1.0.0"), "task");
+    }
+
+    #[test]
+    fn a_kind_id_passes_through() {
+        assert_eq!(as_layout_kind("publication"), "publication");
+        assert_eq!(as_layout_kind("collection"), "collection");
+    }
+
+    /// A surface may publish a kind this build has never heard of; that is
+    /// the surface's business, not something to rewrite or refuse.
+    #[test]
+    fn an_unknown_kind_is_left_alone() {
+        assert_eq!(as_layout_kind("nobody/owns-this"), "nobody/owns-this");
     }
 }
