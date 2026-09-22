@@ -4425,6 +4425,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-capabilities"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "impress-cli"
 version = "0.1.0"
 dependencies = [
@@ -4631,6 +4639,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-pane-query"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "impress-parsers-service"
 version = "0.1.0"
 dependencies = [
@@ -4783,6 +4799,22 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "impress-surface"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "impress-surface-service"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -8971,6 +9003,14 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "surface-demo-service"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "svgtypes"

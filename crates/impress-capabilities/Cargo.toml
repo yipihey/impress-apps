@@ -1,0 +1,11 @@
+[package]
+name = "impress-capabilities"
+description = "the one place the #[impress_service] inventory is linked (ADR-0033 D4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }

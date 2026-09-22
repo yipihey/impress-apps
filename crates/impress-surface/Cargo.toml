@@ -1,0 +1,11 @@
+[package]
+name = "impress-surface"
+description = "ADR-0033 surfaces: spec, schema, plan/resolve/reduce, pure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
