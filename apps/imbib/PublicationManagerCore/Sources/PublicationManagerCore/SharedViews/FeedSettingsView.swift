@@ -5,6 +5,7 @@
 //  Sheet for editing feed-specific settings on any smart search.
 //
 
+import ImpressKit
 import SwiftUI
 import OSLog
 
@@ -156,7 +157,7 @@ public struct FeedSettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 400, height: 580)
+        .impressResizableSheet(minWidth: 400, minHeight: 580)
         .onAppear {
             loadFeed()
         }

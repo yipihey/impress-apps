@@ -1,4 +1,5 @@
 #if os(macOS)
+import ImpressKit
 import SwiftUI
 
 /// Sheet for composing a git commit with diff preview and file selection.
@@ -96,7 +97,7 @@ public struct GitCommitSheet: View {
             }
             .padding()
         }
-        .frame(minWidth: 600, minHeight: 400)
+        .impressResizableSheet(minWidth: 600, minHeight: 400)
         .task {
             do {
                 _ = try await GitClient.shared.discoverGit()

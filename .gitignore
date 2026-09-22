@@ -57,6 +57,16 @@ apps/*/*.xcodeproj/
 **/generated/
 **/frameworks/
 **/*.xcframework/
+# The uniffi HEADER and modulemap beside a committed binding. The .swift is
+# tracked (scripts/check-uniffi-bindings.sh compares it against the crate's
+# exports); these two are rebuilt by build-xcframework.sh on every run and
+# nothing reads the copies here. Scoped to the two artifacts, never to the
+# package root — see the note below.
+apps/*/[A-Z]*RustCore/Sources/*/*FFI.h
+apps/*/[A-Z]*RustCore/Sources/*/*FFI.modulemap
+packages/ImpressRustCore/Sources/ImpressRustCore/*FFI.h
+packages/ImpressRustCore/Sources/ImpressRustCore/*FFI.modulemap
+
 # NOTE: do NOT re-add `**/*RustCore/`. It was here until 2026-09-07 and it
 # ignored nothing: every file in ImbibRustCore/, ImpressRustCore/,
 # ImploreRustCore/ and ImprintRustCore/ is tracked (Package.swift, Exports.swift

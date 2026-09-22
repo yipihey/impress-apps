@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-09.
 //
 
+import ImpressKit
 import SwiftUI
 import PublicationManagerCore
 
@@ -51,7 +52,7 @@ struct KeyboardShortcutsSettingsTab: View {
                     recordingBinding = nil
                 }
             )
-            .frame(minWidth: 350, minHeight: 200)
+            .impressResizableSheet(minWidth: 350, minHeight: 200)
         }
         .alert("Shortcut Conflict", isPresented: $showConflictAlert, presenting: conflictAlert) { alert in
             Button("Replace", role: .destructive) {

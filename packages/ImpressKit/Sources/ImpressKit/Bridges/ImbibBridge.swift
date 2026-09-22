@@ -167,9 +167,10 @@ public struct ImbibBridge: Sendable {
 /// A paper from the imbib library — search hit, detail lookup, and add-papers
 /// result all share this shape (the server uses one `paperToDict` helper).
 ///
-/// Server-side shape inconsistency: `/api/search` returns `authors` as a
-/// joined string, while `/api/papers/add` returns it as `[String]`. The
-/// decoder tolerates both and normalizes to a `String` (comma-joined).
+/// `authors` arrives as a `[String]` (one "Family, Given" per author) or as an
+/// already-joined string, and is normalized to imbib's own author text,
+/// "Family, Given; Family, Given". Joined on ", ", the boundary between two
+/// authors would be indistinguishable from the comma inside each name.
 public struct ImbibPaper: Codable, Sendable, Identifiable, Hashable {
     public let id: String
     public let citeKey: String
@@ -199,12 +200,11 @@ public struct ImbibPaper: Codable, Sendable, Identifiable, Hashable {
         self.id = (try? c.decode(String.self, forKey: .id)) ?? ""
         self.citeKey = (try? c.decode(String.self, forKey: .citeKey)) ?? ""
         self.title = (try? c.decode(String.self, forKey: .title)) ?? ""
-        // `authors` may be a String (from /api/search) or [String] (from
-        // /api/papers/add). Normalize to a comma-joined string.
+        // `authors` may be a String or a [String]; see the type's doc comment.
         if let single = try? c.decode(String.self, forKey: .authors) {
             self.authors = single
         } else if let many = try? c.decode([String].self, forKey: .authors) {
-            self.authors = many.joined(separator: ", ")
+            self.authors = many.joined(separator: "; ")
         } else {
             self.authors = ""
         }

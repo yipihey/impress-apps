@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-04.
 //
 
+import ImpressKit
 import SwiftUI
 import OSLog
 #if os(macOS)
@@ -215,9 +216,7 @@ public struct ImportPreviewView: View {
                 #endif
                 .toolbar { toolbarContent }
         }
-        #if os(macOS)
-        .frame(minWidth: 600, minHeight: 500)
-        #endif
+        .impressResizableSheet(minWidth: 600, minHeight: 500)
         .task {
             // Initialize new library name with suggested name
             newLibraryName = suggestedLibraryName

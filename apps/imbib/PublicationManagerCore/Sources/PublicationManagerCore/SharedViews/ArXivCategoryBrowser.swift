@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-07.
 //
 
+import ImpressKit
 import SwiftUI
 
 // MARK: - ArXiv Category Browser
@@ -77,9 +78,7 @@ public struct ArXivCategoryBrowser: View {
                 .listStyle(.sidebar)
             }
             .navigationTitle("Browse arXiv Categories")
-            #if os(macOS)
-            .frame(minWidth: 400, minHeight: 500)
-            #endif
+            .impressResizableSheet(minWidth: 400, minHeight: 500)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -224,9 +223,7 @@ public struct ArXivCategoryBrowser: View {
             }
             .formStyle(.grouped)
             .navigationTitle("Follow Category")
-            #if os(macOS)
-            .frame(width: 350, height: 300)
-            #endif
+            .impressResizableSheet(minWidth: 350, minHeight: 300)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
