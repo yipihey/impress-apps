@@ -115,6 +115,45 @@ pub trait Executor: Send + Sync {
     async fn emit(&self, surface: ItemId, host: &str, name: &str, payload: Value) -> Result<u64>;
 }
 
+/// Lift each row's `payload` object to the top of the row.
+///
+/// A store `Item` serializes as its ENVELOPE — `id`, `created`, `modified`,
+/// `parent`, `is_read`, … — with the domain fields nested under `payload`. A
+/// surface author writes `{"table": {"columns": ["title", "year"], "rows":
+/// "{{source.papers}}"}}`, which is what the S1 golden's rows look like
+/// (`{"title": …, "year": …}`): flat. Rendered against the real executor the
+/// table drew its header and two empty rows, because `row["title"]` was
+/// `null` — the title sat at `row["payload"]["title"]` (verified live in the
+/// impress window, 2026-09-22).
+///
+/// The envelope WINS on a name collision, and `payload` is left in place: a
+/// spec that already reads `{{source.papers.0.payload.title}}` keeps working,
+/// and no envelope field can be shadowed by a domain field that happens to
+/// share its name (`id` is the case that matters — selection publishes it).
+fn flatten_payloads(rows: Value) -> Value {
+    let Value::Array(items) = rows else {
+        return rows;
+    };
+    Value::Array(
+        items
+            .into_iter()
+            .map(|item| {
+                let Value::Object(envelope) = item else {
+                    return item;
+                };
+                let Some(Value::Object(payload)) = envelope.get("payload") else {
+                    return Value::Object(envelope);
+                };
+                let mut flat = payload.clone();
+                for (key, value) in envelope {
+                    flat.insert(key, value);
+                }
+                Value::Object(flat)
+            })
+            .collect(),
+    )
+}
+
 /// The real [`Executor`]: verbs through the linked inventory, queries and
 /// events through the store, publish/open through `impress-layout-service`.
 #[derive(Clone)]
@@ -172,7 +211,8 @@ impl Executor for DefaultExecutor {
             .store
             .query(&compiled.item_query)
             .map_err(|e| format!("run query: {e}"))?;
-        serde_json::to_value(items).map_err(|e| format!("encode query result: {e}"))
+        let rows = serde_json::to_value(items).map_err(|e| format!("encode query result: {e}"))?;
+        Ok(flatten_payloads(rows))
     }
 
     async fn publish(&self, pane: &PaneHandle, kind: &str, ids: Value) -> Result<()> {
@@ -782,5 +822,48 @@ impl SessionRegistry {
         self.sessions
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+#[cfg(test)]
+mod flatten_tests {
+    use super::flatten_payloads;
+    use serde_json::json;
+
+    /// The shape a `table`'s `columns` actually name — the S1 golden's rows
+    /// are flat, and the live window drew two empty rows until they were.
+    #[test]
+    fn a_rows_payload_fields_read_at_the_top_of_the_row() {
+        let rows = json!([{
+            "id": "row-1",
+            "created": "2026-09-22T00:00:00Z",
+            "payload": {"title": "A dark matter survey", "year": 2024},
+        }]);
+        let flat = flatten_payloads(rows);
+        let row = &flat[0];
+        assert_eq!(row["title"], json!("A dark matter survey"));
+        assert_eq!(row["year"], json!(2024));
+        // The envelope survives: `id` is what a selection publishes.
+        assert_eq!(row["id"], json!("row-1"));
+        assert_eq!(row["payload"]["title"], json!("A dark matter survey"));
+    }
+
+    /// A domain field may not shadow an envelope field. `id` is the one that
+    /// matters — publishing a payload's `id` would select the wrong item.
+    #[test]
+    fn the_envelope_wins_a_name_collision() {
+        let rows = json!([{"id": "envelope", "payload": {"id": "domain", "title": "t"}}]);
+        let flat = flatten_payloads(rows);
+        assert_eq!(flat[0]["id"], json!("envelope"));
+        assert_eq!(flat[0]["title"], json!("t"));
+    }
+
+    /// Anything that is not an array of objects with an object payload is
+    /// returned untouched: a verb source's value passes through this path too.
+    #[test]
+    fn a_row_without_a_payload_object_is_unchanged() {
+        for value in [json!([{"id": "x"}]), json!({"not": "an array"}), json!([7])] {
+            assert_eq!(flatten_payloads(value.clone()), value);
+        }
     }
 }
