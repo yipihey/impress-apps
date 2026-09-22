@@ -324,3 +324,34 @@ imbib-service and impress-store-service together, and both declare `remove_tag`/
 linked a narrower set, so this is new on the branch. Fixing it means choosing a CLI
 naming rule (prefix on collision, prefix always, or narrow the feature set), which is
 vocabulary — see the question raised on the PR.
+
+**Step 4, verified live in the window** (each watched in `?category=surface` as it
+happened):
+
+1. ✅ D6: `surface_create` + `surface_show` from impress-mcp grow a pane in the running
+   window, no HTTP to the app. (Needed the two liveness fixes above.)
+2. ✅ j/k move the widget focus ring (Frequency → Bins, visible as the focus ring).
+3. ✅ One `change` per slider DRAG, on release — the applied-dispatch count went 2 → 3
+   across a full drag, not one per pixel.
+4. ✅ The histogram renders: a real line over bin centres from
+   `surface-demo-service_histogram`, through `renderPlotSvg`. (Needed the force_link fix.)
+5. ✅ `GET /api/surface`, `GET /api/surface/<id>/render`, `POST .../dispatch` on 23125,
+   same shapes as the verbs. (Needed the shared-routes move.)
+6. ✅ The agent-reads-the-human direction: `surface_wait --after-seq 0` blocked, the
+   button was clicked in the window, and the wait returned
+   `bins-chosen {"bins": 40}` at seq 1.
+7. ◐ Selecting a table row dispatches `select` on `n0.3` and the publish effect runs
+   ("dispatched; 1 effect(s)"), and the channel now gains a `publication` key (needed the
+   kind-vocabulary fix). What is NOT yet shown is a second pane reacting: the detail
+   pane's `item` is bound to the SURFACE id by `surface_show`, so it renders the surface
+   row rather than the published paper. Whether `surface_show` should leave a neighbouring
+   detail pane's binding alone is a design question, not a mapping bug — flagged, not
+   fixed.
+
+Also fixed while verifying: a `query` source's rows arrived as store ENVELOPES, so a
+table whose columns name `title`/`year` drew empty rows; `run_query` now lifts each
+payload to the top of its row, which is the shape the S1 golden already documents.
+
+Not yet done from step 5: 5.1 (dispatch effects owed to the host) is partly proven —
+`publish` runs and reaches the channel — but `open` is untested; 5.2 (list rows through
+the row registry), 5.3 (golden alignment) and 5.4 (capability-matrix cell) remain.
