@@ -533,7 +533,10 @@
     "entities" : "1998A&A...333L..47M",
     "html" : "1998A&amp;A...333L..47M",
     "identifiers" : [
-
+      {
+        "kind" : "bibcode",
+        "value" : "1998A&A...333L..47M"
+      }
     ],
     "title" : null
   },
@@ -541,7 +544,10 @@
     "entities" : "1998A&A...333L..47M",
     "html" : "1998A&A...333L..47M",
     "identifiers" : [
-
+      {
+        "kind" : "bibcode",
+        "value" : "1998A&A...333L..47M"
+      }
     ],
     "title" : null
   },
@@ -659,6 +665,10 @@
       {
         "kind" : "arxiv",
         "value" : "2301.04153"
+      },
+      {
+        "kind" : "bibcode",
+        "value" : "1998A&A...333L..47M"
       }
     ],
     "title" : "References"

@@ -27,8 +27,9 @@ lazy_static! {
     static ref RE_ARXIV_BARE: Regex = Regex::new(r"\b(\d{4}\.\d{4,5})\b").unwrap();
     static ref RE_ARXIV_OLD: Regex =
         Regex::new(r"\b([a-z\-]{2,12}(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?\b").unwrap();
+    // Word-bounded form of the canonical bibcode shape, for scraping HTML.
     static ref RE_BIBCODE: Regex =
-        Regex::new(r"\b(\d{4}[A-Za-z&.][A-Za-z&.]{1,7}[.\d][.\d]+[A-Z])\b").unwrap();
+        Regex::new(&format!(r"\b({})\b", im_identifiers::BIBCODE_PATTERN)).unwrap();
     static ref RE_PMID_LABEL: Regex = Regex::new(r"(?i)\bpmid[:\s]+(\d{5,9})\b").unwrap();
     static ref RE_PUBMED_URL: Regex =
         Regex::new(r"pubmed\.ncbi\.nlm\.nih\.gov/(\d{5,9})").unwrap();
@@ -37,6 +38,11 @@ lazy_static! {
 }
 
 /// Read the `<title>` and decode its entities.
+///
+/// Unlike [`extract_identifiers`] this matches against the *raw* markup and
+/// decodes only the captured text. Decoding first would turn an escaped
+/// `&lt;title&gt;` — markup shown as prose, e.g. in a tutorial — into a real
+/// tag and let it win over the document's actual title.
 pub fn extract_title(html: &str) -> Option<String> {
     let caps = RE_TITLE.captures(html)?;
     let raw = caps.get(1)?.as_str();
@@ -47,7 +53,24 @@ pub fn extract_title(html: &str) -> Option<String> {
 /// Extract identifiers in priority order — DOI, arXiv (new then old), bibcode,
 /// PMID — deduped on `(type, lowercased value)` while preserving first-seen
 /// order.
+///
+/// Matching runs over the **entity-decoded** page, because an identifier that
+/// contains a character HTML must escape is invisible in the raw source. The
+/// case that forced this: every Astronomy & Astrophysics bibcode carries the
+/// `A&A..` journal code, and a correct page writes it `1998A&amp;A...333L..47M`
+/// — so bibcode scraping missed the entire journal.
+///
+/// Decoding is safe for the other patterns because each one is bounded by
+/// characters that survive it. `RE_DOI` already stops at `&`, so `&amp;` and
+/// `&#38;` both still terminate a DOI where the raw `&` did; the arXiv and PMID
+/// patterns are digits and ASCII letters, which no entity produces except from
+/// an explicitly numeric `&#NN;`. Nothing here is offset-sensitive: the regexes
+/// yield match *text*, and dedup keys off `(type, value)`, never a position.
+/// Decoding only ever shortens the input, so per-type match order is preserved.
 pub fn extract_identifiers(html: &str) -> Vec<PaperIdentifier> {
+    let decoded = decode_html_entities(html);
+    let html = decoded.as_str();
+
     let mut found: Vec<PaperIdentifier> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
@@ -147,6 +170,11 @@ const NAMED_ENTITIES: &[(&str, &str)] = &[
 ];
 
 pub fn decode_html_entities(s: &str) -> String {
+    // No `&`, no entities — skip the eleven whole-string copies below. This
+    // runs over entire fetched pages now, not just `<title>` text.
+    if !s.contains('&') {
+        return s.to_string();
+    }
     let mut out = s.to_string();
     for (k, v) in NAMED_ENTITIES {
         out = out.replace(k, v);
@@ -227,6 +255,53 @@ mod tests {
             extract_identifiers(r#"<a href="https://doi.org/10.1126/science.1&amp;format=xml">"#),
             vec![PaperIdentifier::Doi("10.1126/science.1".to_string())]
         );
+    }
+
+    /// The regression this file's entity decoding exists for: A&A is the
+    /// `A&A..` journal code, and any correct page escapes that ampersand.
+    #[test]
+    fn bibcodes_survive_escaped_ampersands() {
+        let want = vec![PaperIdentifier::Bibcode("1998A&A...333L..47M".to_string())];
+        // Raw, named entity, and both numeric spellings all reach the same id.
+        assert_eq!(extract_identifiers("1998A&A...333L..47M"), want);
+        assert_eq!(extract_identifiers("1998A&amp;A...333L..47M"), want);
+        assert_eq!(extract_identifiers("1998A&#38;A...333L..47M"), want);
+        assert_eq!(extract_identifiers("1998A&#x26;A...333L..47M"), want);
+        // In markup, and deduped against the raw spelling elsewhere on the page.
+        assert_eq!(
+            extract_identifiers("<li>1998A&amp;A...333L..47M</li><p>1998A&A...333L..47M</p>"),
+            want
+        );
+        // The pattern still demands a real bibcode; a stray `&` is not one.
+        assert!(extract_identifiers("Smith &amp; Jones 2019, A&amp;A 621").is_empty());
+    }
+
+    /// Decoding must not manufacture identifiers out of ordinary markup —
+    /// query strings are where freshly decoded `&`s land in bulk.
+    #[test]
+    fn decoding_adds_no_false_identifiers() {
+        assert!(extract_identifiers(
+            "<a href=\"/cgi?year=2019&amp;vol=1234&amp;page=567&amp;au=Smith\">2019&amp;c</a>"
+        )
+        .is_empty());
+        // An escaped `<title>` shown as prose stays prose; titles read raw
+        // markup, so decoding cannot promote it over the real title.
+        assert_eq!(
+            extract_title("<title>Real</title><p>&lt;title&gt;Fake&lt;/title&gt;</p>").as_deref(),
+            Some("Real")
+        );
+    }
+
+    /// DOIs stop at `&` however that `&` is spelled — the guard the decoding
+    /// pass most plausibly could have broken.
+    #[test]
+    fn doi_boundary_holds_after_decoding() {
+        let want = vec![PaperIdentifier::Doi("10.1086/164143".to_string())];
+        assert_eq!(extract_identifiers("10.1086/164143&more"), want);
+        assert_eq!(extract_identifiers("10.1086/164143&amp;more"), want);
+        assert_eq!(extract_identifiers("10.1086/164143&#38;more"), want);
+        // `&nbsp;` decodes to a space, which also terminates a DOI.
+        assert_eq!(extract_identifiers("10.1086/164143&nbsp;more"), want);
     }
 
     #[test]

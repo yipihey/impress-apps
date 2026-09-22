@@ -20,6 +20,7 @@
 //! in this file needs lookaround, so the `regex` crate covers all of them —
 //! unlike [`crate::ads_normalizer`], which does.
 
+use im_identifiers::is_bibcode;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::HashSet;
@@ -34,8 +35,6 @@ lazy_static! {
     static ref RE_ARXIV_NEW_WHOLE: Regex = Regex::new(r"\A\d{4}\.\d{4,5}(v\d+)?\z").unwrap();
     static ref RE_ARXIV_OLD_WHOLE: Regex =
         Regex::new(r"\A[a-z\-]+(\.[A-Z]{2})?/\d{7}(v\d+)?\z").unwrap();
-    static ref RE_BIBCODE_WHOLE: Regex =
-        Regex::new(r"\A\d{4}[A-Za-z&.][A-Za-z&.]{1,7}[.\d][.\d]+[A-Z]\z").unwrap();
     static ref RE_PMID_WHOLE: Regex = Regex::new(r"\A\d{5,9}\z").unwrap();
     static ref RE_ARXIV_EITHER_WHOLE: Regex =
         Regex::new(r"\A(\d{4}\.\d{4,5}(v\d+)?|[a-z\-]+(\.[A-Z]{2})?/\d{7}(v\d+)?)\z").unwrap();
@@ -312,7 +311,7 @@ pub fn identifier_from_url(url: &SwiftUrl) -> Option<PaperIdentifier> {
                 // Bibcodes in URLs are usually percent-encoded. `SwiftUrl::path`
                 // already decoded once; Swift decodes again here, so we do too.
                 let decoded = removing_percent_encoding(segments[abs_idx + 1]);
-                if decoded.chars().count() == 19 && RE_BIBCODE_WHOLE.is_match(&decoded) {
+                if is_bibcode(&decoded) {
                     return Some(PaperIdentifier::Bibcode(decoded));
                 }
             }
@@ -442,7 +441,7 @@ pub fn identifier_match(input: &str) -> Option<PaperIdentifier> {
     if RE_ARXIV_OLD_WHOLE.is_match(stripped) {
         return Some(PaperIdentifier::Arxiv(stripped.to_string()));
     }
-    if stripped.chars().count() == 19 && RE_BIBCODE_WHOLE.is_match(stripped) {
+    if is_bibcode(stripped) {
         return Some(PaperIdentifier::Bibcode(stripped.to_string()));
     }
     // PMID only when prefixed — a bare 7-digit number is too ambiguous.
@@ -689,5 +688,33 @@ mod tests {
         let blocks = split_reference_blocks(text);
         assert_eq!(blocks.len(), 2);
         assert!(blocks[0].starts_with("[1]"));
+    }
+
+    /// Bibcodes whose qualifier slot holds a letter used to classify as
+    /// free text — Cmd+S ran a text search for the identifier and found
+    /// nothing. Both the bare bibcode and the ADS URL must resolve; the shape
+    /// itself is pinned against a real ADS corpus in
+    /// `im-identifiers/tests/bibcode_corpus.rs`.
+    #[test]
+    fn bibcodes_with_a_letter_qualifier_classify_as_identifiers() {
+        for input in [
+            "2026MNRAS.551g1461W",
+            "https://ui.adsabs.harvard.edu/abs/2026MNRAS.551g1461W/abstract",
+            "bibcode:2026MNRAS.551g1461W",
+            "2016PhRvL.116f1102A",
+            "2020A&A...641A...6P",
+            "https://ui.adsabs.harvard.edu/abs/2020A%26A...641A...6P/abstract",
+        ] {
+            assert_eq!(kind(input), "identifier", "{input} did not classify");
+        }
+
+        assert_eq!(
+            classify("2026MNRAS.551g1461W"),
+            SearchIntent::Identifier(PaperIdentifier::Bibcode("2026MNRAS.551g1461W".to_string()))
+        );
+        assert_eq!(
+            classify("https://ui.adsabs.harvard.edu/abs/2026MNRAS.551g1461W/abstract"),
+            SearchIntent::Identifier(PaperIdentifier::Bibcode("2026MNRAS.551g1461W".to_string()))
+        );
     }
 }

@@ -500,9 +500,9 @@
     "value" : "2023MNRAS.518.1234S"
   },
   {
-    "idKind" : null,
+    "idKind" : "bibcode",
     "input" : "1998A&A...333L..47M",
-    "value" : null
+    "value" : "1998A&A...333L..47M"
   },
   {
     "idKind" : null,
@@ -515,9 +515,9 @@
     "value" : "1974ApJ...187..425P"
   },
   {
-    "idKind" : null,
+    "idKind" : "bibcode",
     "input" : "2002Sci...295...93a",
-    "value" : null
+    "value" : "2002Sci...295...93a"
   },
   {
     "idKind" : null,

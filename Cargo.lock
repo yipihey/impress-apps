@@ -4702,6 +4702,7 @@ dependencies = [
 name = "impress-smart-search"
 version = "0.1.0"
 dependencies = [
+ "im-identifiers",
  "lazy_static",
  "percent-encoding",
  "regex",
