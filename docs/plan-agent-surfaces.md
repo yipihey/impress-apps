@@ -253,3 +253,30 @@ This file's log, ADR-0033, `docs/chassis-capability-matrix.md` (a `surface` row)
   write reaching the window); j/k, Enter, Escape per the grammar; a slider change is ONE
   `change` on release; `curl localhost:23125/api/surface` and `/api/surface/<id>/render`;
   `curl 'localhost:23125/api/logs?category=surface'` shows render → dispatch → display.
+
+### 2026-09-22 — Mac pass (steps 1–3)
+
+* **Step 1 green.** `rust-gate.sh fmt`, `rust-gate.sh clippy auto`, `cargo test -p
+  impress-mcp -p impress-cli` (47 + 6 passing; the ort-sys/ONNX download Linux could not
+  do is fine here), `check-uniffi-bindings.sh` (7 bindings match), `check-schema-refs.sh`
+  (376 call sites, 79 refs), `check-kit-deps.sh` (impress-surface does not reach
+  impress-core).
+* **Not ours:** `inventory_smoke::grouped_surface_via_stdio` (an `#[ignore]`d test, so it
+  is not in the gate) asserts the grouped MCP surface is under 60 tools and finds 85. Run
+  from a worktree at `main` it finds 82 — the drift is main's, not this branch's; the
+  branch's fifteen surface verbs and two demo verbs account for the 3. Noted and moved on
+  per the hand-off's rule.
+* **Step 2 green.** `build-xcframeworks.sh --fast impress-store-ffi` rebuilt the archive,
+  header and modulemap; the committed `impress_store_ffi.swift` was byte-identical
+  afterwards, exactly as the hand-off predicted.
+* **Step 3, first real compile of S7.** `packages/ImpressSurface` built and its 7 tests
+  passed with no changes — but the app did not build, and the cause was in the BINDING,
+  not in Swift: `SharedSurface::surface_http`'s doc line said ``Route one `/api/surface/*`
+  request``, uniffi-bindgen copies docs verbatim into a Swift `/** … */` block, and Swift
+  block comments NEST. The `/*` inside `surface/*` opened a nested comment that the
+  block's own `*/` closed only back to level one, so the last 13,000 lines of the binding
+  — `uniffiEnsureInitialized` included — were one comment. The compiler reported
+  "Unterminated '/*' comment" at the END of the file, 13,000 lines from the cause. Fixed
+  at the Rust source (`…` for `*`), with a note above it, and regenerated: 3 lines
+  changed, no declaration gained or lost. `xcodebuild -scheme impress` then succeeded,
+  compiling `LayoutSurfacePaneView` and all of `ImpressSurface` for the first time.

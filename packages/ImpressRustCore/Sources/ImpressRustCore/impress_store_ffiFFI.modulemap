@@ -1,0 +1,4 @@
+module impress_store_ffiFFI {
+    header "impress_store_ffiFFI.h"
+    export *
+}

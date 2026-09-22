@@ -4405,7 +4405,7 @@ public protocol SharedSurfaceProtocol : AnyObject {
     func subscribe(listener: SharedSurfaceListener) throws 
     
     /**
-     * Route one `/api/surface/*` request. `path` may carry a query string
+     * Route one `/api/surface/…` request. `path` may carry a query string
      * (`?pane=7`, `?after=12`); `body` is the raw request body, ignored for
      * methods that do not take one. Every response is JSON; a failure is
      * `{"error": "…"}` at 400 or 404 (see [`status_for`]) except
@@ -4609,7 +4609,7 @@ open func subscribe(listener: SharedSurfaceListener)throws  {try rustCallWithErr
 }
     
     /**
-     * Route one `/api/surface/*` request. `path` may carry a query string
+     * Route one `/api/surface/…` request. `path` may carry a query string
      * (`?pane=7`, `?after=12`); `body` is the raw request body, ignored for
      * methods that do not take one. Every response is JSON; a failure is
      * `{"error": "…"}` at 400 or 404 (see [`status_for`]) except
@@ -17367,7 +17367,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_subscribe() != 63432) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_surface_http() != 21417) {
+    if (uniffi_impress_store_ffi_checksum_method_sharedsurface_surface_http() != 30733) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_impress_store_ffi_checksum_method_sharedsurface_unsubscribe() != 53229) {

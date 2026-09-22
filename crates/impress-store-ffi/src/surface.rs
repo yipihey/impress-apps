@@ -398,7 +398,17 @@ impl SharedSurface {
 
     // ------------------------------------------------------------ the http surface
 
-    /// Route one `/api/surface/*` request. `path` may carry a query string
+    // NOTE the `…` in the doc line below, where `/api/surface/*` would read
+    // more naturally. uniffi-bindgen copies these docs verbatim into a Swift
+    // `/** … */` block, and SWIFT BLOCK COMMENTS NEST: the `/*` inside
+    // `surface/*` opens a nested comment that the block's own `*/` only
+    // closes back to level one, so everything after it — 13,000 lines,
+    // including `uniffiEnsureInitialized` — becomes comment. The binding then
+    // fails to parse with "Unterminated '/*' comment" at the END of the file,
+    // 13,000 lines from the cause. No `///` on a #[uniffi::export] item may
+    // contain `/*`.
+
+    /// Route one `/api/surface/…` request. `path` may carry a query string
     /// (`?pane=7`, `?after=12`); `body` is the raw request body, ignored for
     /// methods that do not take one. Every response is JSON; a failure is
     /// `{"error": "…"}` at 400 or 404 (see [`status_for`]) except
