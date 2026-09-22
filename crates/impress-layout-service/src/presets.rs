@@ -150,7 +150,7 @@ pub const MATERIALIZE_FIRST: &[(&str, &str)] = &[
     ),
     (
         "reviewQueue",
-        "its rows are `review-request@1.0.0`, which `KindManifest::builtin()` names no kind \
+        "its rows are `review-request@1.0.0`, which `builtin_manifest()` names no kind \
          for; binding it to a kind it does not list would be a lie a future reader trusts \
          (the same reason `AppShellConfiguration.impress` leaves it unbound)",
     ),
@@ -628,7 +628,7 @@ pub mod q {
         PaneQuery {
             kinds: kinds(&["publication"]),
             relation: Some(RelationWalk {
-                edge: impress_core::reference::EdgeType::Cites,
+                edge: impress_core::reference::EdgeType::Cites.into(),
                 from: ItemRef::Param {
                     name: MANUSCRIPT_PARAM.into(),
                 },
@@ -1448,11 +1448,11 @@ fn from_value<T: serde::de::DeserializeOwned>(value: &Value, what: &str) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use impress_core::pane_query::{compile, Bindings, KindManifest, ParamDecl};
+    use impress_core::pane_query::{builtin_manifest, compile, Bindings, KindManifest, ParamDecl};
     use impress_layout::Tile;
 
     fn manifest() -> KindManifest {
-        KindManifest::builtin()
+        builtin_manifest()
     }
 
     /// Every pane of every window of a preset.

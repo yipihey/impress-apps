@@ -4479,6 +4479,7 @@ dependencies = [
  "automerge",
  "base64 0.22.1",
  "chrono",
+ "impress-pane-query",
  "proptest",
  "rusqlite",
  "schemars 0.8.22",
@@ -4562,7 +4563,7 @@ dependencies = [
 name = "impress-layout"
 version = "0.1.0"
 dependencies = [
- "impress-core",
+ "impress-pane-query",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -4646,8 +4647,11 @@ dependencies = [
 name = "impress-pane-query"
 version = "0.1.0"
 dependencies = [
+ "schemars 0.8.22",
  "serde",
  "serde_json",
+ "thiserror 1.0.69",
+ "uuid",
 ]
 
 [[package]]

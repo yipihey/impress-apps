@@ -6080,7 +6080,7 @@ mod tests {
         // …and a pane scoped to that collection wakes for it, while one
         // scoped to another kind does not. This is the whole of L4 in one
         // assertion.
-        let manifest = crate::pane_query::KindManifest::builtin();
+        let manifest = crate::pane_query::builtin_manifest();
         let in_collection = crate::pane_query::compile(
             &crate::pane_query::PaneQuery {
                 kinds: vec!["publication".into()],
@@ -6193,7 +6193,7 @@ mod tests {
             },
             &[],
             &crate::pane_query::Bindings::new(),
-            &crate::pane_query::KindManifest::builtin(),
+            &crate::pane_query::builtin_manifest(),
         )
         .unwrap();
         assert!(in_a.invalidation.is_affected_by(&moved));
@@ -6331,7 +6331,7 @@ mod tests {
 
         // The point of the whole exercise: the pane scoped to that
         // collection re-runs, and the one over another kind does not.
-        let manifest = crate::pane_query::KindManifest::builtin();
+        let manifest = crate::pane_query::builtin_manifest();
         let in_collection = crate::pane_query::compile(
             &crate::pane_query::PaneQuery {
                 kinds: vec!["publication".into()],

@@ -29,7 +29,7 @@ use impress_core::collection_ops::{
 };
 use impress_core::item::{ActorKind, ItemId};
 use impress_core::pane_query::{
-    compile_with, Bindings, KindManifest, PaneQuery, ParamDecl, SubtreeResolver,
+    builtin_manifest, compile_with, Bindings, PaneQuery, ParamDecl, SubtreeResolver,
 };
 use impress_core::sqlite_store::SqliteItemStore;
 use impress_layout::{ChannelId, Geometry, PaneSpec, ParamSource, Role, TileId, Verb, WindowId};
@@ -1344,7 +1344,7 @@ impl LayoutService for DefaultLayoutService {
                 &spec.query,
                 &decls,
                 &bindings,
-                &KindManifest::builtin(),
+                &builtin_manifest(),
                 &resolver,
             ) {
                 Ok(compiled) => CompiledQueryDto::compiled(&compiled),

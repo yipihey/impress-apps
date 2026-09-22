@@ -6,8 +6,7 @@
 //! the store or a ring, and this crate is pure. The rings themselves live here
 //! ([`crate::UndoRing`]) so the service only has to route.
 
-use impress_core::item::ItemId;
-use impress_core::pane_query::{PaneQuery, ParamName, RecordKindId};
+use impress_pane_query::{ItemId, PaneQuery, ParamName, RecordKindId};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{ChannelId, Role, TileId, ViewKindId, WindowId};

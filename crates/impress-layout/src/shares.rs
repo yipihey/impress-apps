@@ -59,7 +59,7 @@ mod tests {
     use crate::spec::PaneSpec;
     use crate::tree::{Container, LinearDir, Tile};
     use crate::verb::Verb;
-    use impress_core::pane_query::PaneQuery;
+    use impress_pane_query::PaneQuery;
 
     /// Three panes in a row, shares as given.
     fn row(shares: Vec<f32>) -> (Layout, TileId) {

@@ -3,8 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use impress_core::item::ItemId;
-use impress_core::pane_query::Bindings;
+use impress_pane_query::{Bindings, ItemId};
 use serde::{Deserialize, Serialize};
 
 use crate::channels::ChannelState;
@@ -464,8 +463,8 @@ impl Layout {
     /// yields no binding at all, which is how a plot with no colormap pane
     /// still renders. An unfilled *required* parameter is likewise absent
     /// here — whether that is an empty state or an error is the query
-    /// compiler's call ([`impress_core::pane_query::compile`]), not the
-    /// layout's.
+    /// compiler's call (`impress_core::pane_query::compile`, in the crate
+    /// that lowers this query onto a store), not the layout's.
     pub fn bindings_for(&self, pane: TileId) -> Bindings {
         let mut bindings = Bindings::new();
         let Some(spec) = self.pane(pane) else {
@@ -789,7 +788,7 @@ mod tests {
     use crate::tree::LinearDir;
 
     fn pane(kind: ViewKindId) -> PaneSpec {
-        PaneSpec::new(impress_core::pane_query::PaneQuery::default(), kind)
+        PaneSpec::new(impress_pane_query::PaneQuery::default(), kind)
     }
 
     #[test]

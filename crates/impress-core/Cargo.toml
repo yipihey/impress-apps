@@ -11,7 +11,7 @@ default = []
 sqlite = ["rusqlite"]
 # Derive `schemars::JsonSchema` on the kernel DTOs that cross an
 # `#[impress_service]` boundary. Enabled by `impress-store-service`.
-schema = ["schemars"]
+schema = ["schemars", "impress-pane-query/schema"]
 # Automerge-backed manuscript bodies (ADR-0027). Needs the store: the
 # document cache hangs off SqliteItemStore and chunks are store items.
 collab = ["dep:automerge", "dep:base64", "sqlite"]
@@ -19,6 +19,10 @@ collab = ["dep:automerge", "dep:base64", "sqlite"]
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+# The ADR-0031 D2 pane-query algebra's types (ADR-0033 D7): this crate keeps
+# only the compiler that lowers a query onto its store and the built-in kind
+# manifest, which is domain data.
+impress-pane-query = { workspace = true }
 # `v5`: the watched-folder kernel derives every folder and file id
 # deterministically from its path, so a re-add finds the same row.
 uuid = { workspace = true, features = ["v4", "v5", "serde"] }

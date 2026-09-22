@@ -49,7 +49,7 @@ use impress_core::collection_ops::{
 use impress_core::item::ItemId;
 use impress_core::pane_query::invalidation::QuerySubscriptions;
 use impress_core::pane_query::{
-    compile, compile_with, Bindings, KindManifest, PaneQuery, ParamDecl, SubtreeResolver,
+    builtin_manifest, compile, compile_with, Bindings, PaneQuery, ParamDecl, SubtreeResolver,
 };
 use impress_core::query::ItemQuery;
 use impress_core::sqlite_store::SqliteItemStore;
@@ -1068,7 +1068,7 @@ impl InvalidationFeed {
             return subscriptions;
         };
         let resolver = CollectionSubtrees::read(&self.store);
-        let manifest = KindManifest::builtin();
+        let manifest = builtin_manifest();
         for tile in layout.panes() {
             let Some(spec) = layout.pane(tile) else {
                 continue;
@@ -1180,7 +1180,7 @@ pub fn compile_pane_query(
         })?;
         bindings = bindings.with(name, id);
     }
-    let compiled = compile(&query, &decls, &bindings, &KindManifest::builtin()).map_err(|e| {
+    let compiled = compile(&query, &decls, &bindings, &builtin_manifest()).map_err(|e| {
         SharedLayoutError::Query {
             message: e.to_string(),
         }
@@ -1192,7 +1192,7 @@ pub fn compile_pane_query(
 /// matches by exact equality. The one place that mapping lives.
 #[cfg_attr(feature = "native", uniffi::export)]
 pub fn kind_manifest_json() -> String {
-    serde_json::to_string(&KindManifest::builtin()).unwrap_or_else(|_| "{}".into())
+    serde_json::to_string(&builtin_manifest()).unwrap_or_else(|_| "{}".into())
 }
 
 /// The cold-start three-column preset as layout JSON, for a host that wants to
