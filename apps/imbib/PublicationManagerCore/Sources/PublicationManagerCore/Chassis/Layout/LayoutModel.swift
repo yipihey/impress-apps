@@ -104,6 +104,20 @@ public enum LayoutJSONValue: Codable, Hashable, Sendable {
         return nil
     }
 
+    public var boolValue: Bool? {
+        if case .bool(let value) = self { return value }
+        return nil
+    }
+
+    /// An integer, whether serde wrote it as one or as a whole double.
+    public var intValue: Int? {
+        switch self {
+        case .int(let value): return value
+        case .double(let value) where value == value.rounded(): return Int(value)
+        default: return nil
+        }
+    }
+
     public var isNull: Bool {
         if case .null = self { return true }
         return false

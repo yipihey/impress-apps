@@ -2922,6 +2922,42 @@ channels.
 Known gap: there is no `delete-layout` verb anywhere in the stack (Rust, CLI,
 MCP or HTTP), so a saved layout can be overwritten by name but never removed.
 
+### What a pane LOOKS like (2026-09-21)
+
+L6's `list` and `outline` panes drew a hand-written two-line row — title and
+author string, nothing else. Beside imbib's own window that reads as a
+different application, which is what it was: a second row design, sharing
+nothing with the one every other surface shows.
+
+A `list` pane now renders through `RecordViewerRegistry.makeListRow` — the
+SAME per-kind factory the heterogeneous list and the store-search results use
+— over a `KindTaggedRow` built by `LayoutPaneRowMapper`. So a pane row has the
+unread dot, the flag stripe, the star, tag chips, the date column, the
+authors / title / venue / abstract stack, and the user's own
+`ListViewSettings` (density, abstract line limit, which fields show). An
+`outline` pane keeps one compact line, now with the record kind's symbol
+rather than `questionmark.square.dashed` for every library.
+
+Two bugs fell out of doing it, both silent:
+
+* **Rows published the query's first kind, not their own.** The navigator asks
+  for `["collection", "library"]`, so selecting the "Save" LIBRARY published
+  it as a `collection`; the list pane's `library` parameter never bound and the
+  pane sat on "Nothing Here" with a row visibly selected. `PaneContext
+  .select(_:kind:)` takes the selected rows' kind now.
+* **Two kind vocabularies, one string apart.** The chassis descriptors are
+  namespaced (`imbib/library`); a pane query and a `select` verb speak the
+  manifest's short ids (`library`). `LayoutPaneRowMapper` reads
+  `kind_manifest_json()` over the FFI rather than keeping a second table.
+
+Still not recovered, and why: tag COLOURS (they live on the tag vocabulary
+row, and resolving them per row is the per-node store query the sidebar
+ratchet test forbids); the attachment paperclip (attachments are child items,
+not an envelope column); and the `info` pane, which is already the real
+`DetailView`. A pane in a host with no saved `listViewSettings` — impress,
+today — shows the defaults, which is why its rows have no venue line while
+imbib's do. That is the setting working, not the pane ignoring it.
+
 ### View kinds
 
 The registry key is `PaneSpec.view_kind`, matched by **string equality**

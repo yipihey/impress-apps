@@ -23,7 +23,9 @@
 //
 
 import Foundation
+import ImpressFTUI
 import ImpressLogging
+import ImpressMailStyle
 import ImpressRustCore
 import SwiftUI
 
@@ -117,8 +119,16 @@ public struct PaneContext {
     /// detail pane renders.
     public var singleItem: String? { pane.singleItem }
 
-    /// The record kind the pane's query names first. This, NOT a row's schema
-    /// ref, is what the `select` verb takes (it wants a `RecordKindId`).
+    /// The record kind the pane's query names first — the DEFAULT for a
+    /// selection, and only that.
+    ///
+    /// A pane whose query names several kinds (the navigator asks for
+    /// `["collection", "library"]`) publishes rows of more than one kind, and
+    /// the verb takes ONE `RecordKindId`. Publishing the query's first kind
+    /// for every row meant selecting the "Save" LIBRARY published it as a
+    /// collection, so the list pane's `library` parameter never bound and the
+    /// list sat on "Nothing Here" while a row was visibly selected. The row's
+    /// own kind is what a selection means; see `select(_:kind:)`.
     public var primaryKind: String? { spec?.queryKinds.first }
 
     /// Run the pane's compiled query.
@@ -132,7 +142,14 @@ public struct PaneContext {
     /// which is what a detail pane renders its empty state from.
     @MainActor
     public func select(_ ids: [String]) {
-        guard let kind = primaryKind else {
+        select(ids, kind: nil)
+    }
+
+    /// Publish a selection of `kind` — the kind of the ROWS selected, which a
+    /// mixed-kind pane must pass because its query's first kind is not it.
+    @MainActor
+    public func select(_ ids: [String], kind rowKind: String?) {
+        guard let kind = rowKind ?? primaryKind else {
             logWarning(
                 "pane \(tile) published no selection: its query names no record kind",
                 category: "layout")
@@ -355,7 +372,20 @@ struct LayoutPaneRow: Identifiable, Hashable {
     let title: String
     let detail: String?
     let schemaRef: String
+    /// The layout's own kind id for this row (`library`, not `imbib/library`)
+    /// — what a `select` verb and a pane parameter speak.
+    let layoutKind: String?
+    /// The same row in the chassis' own list-row shape, when its id is a UUID.
+    ///
+    /// This is what a `list` pane RENDERS (`RecordViewerRegistry.makeListRow`
+    /// → `MailStyleRow`): read state, flag, star, tags, date column, the
+    /// author/title/venue/abstract stack — imbib's list, not a second one.
+    /// The plain fields above stay for the `outline` style, which wants one
+    /// compact line and no chrome, and as the fallback for a row whose id the
+    /// chassis cannot parse.
+    let mailStyleRow: KindTaggedRow?
 
+    @MainActor
     init(_ row: SharedItemRow) {
         id = row.id
         schemaRef = row.schemaRef
@@ -369,6 +399,8 @@ struct LayoutPaneRow: Identifiable, Hashable {
         }
         title = resolvedTitle ?? row.id
         detail = payload["author"]?.stringValue ?? payload["authors"]?.stringValue
+        mailStyleRow = LayoutPaneRowMapper.kindTaggedRow(row)
+        layoutKind = LayoutPaneRowMapper.layoutKind(forSchemaRef: row.schemaRef)
     }
 }
 
@@ -394,6 +426,17 @@ struct LayoutRowsPaneView: View {
     @State private var rows: [LayoutPaneRow] = []
     @State private var loadFailed = false
 
+    /// The per-kind row factories, from the environment the chassis already
+    /// injects — not a lookup of our own, so a host that registered a custom
+    /// row gets it in panes too.
+    @Environment(\.recordViewerRegistry) private var viewerRegistry
+
+    /// The user's own list settings — venue line, flag stripe, tag chips,
+    /// density, how many abstract lines. A pane that ignored them would be a
+    /// list that disagrees with the one in the next window, and with the
+    /// settings pane that claims to control it.
+    @State private var listSettings: ListViewSettings = ListViewSettingsStore.loadSettingsSync()
+
     var body: some View {
         styledList
             .overlay { emptyOverlay }
@@ -404,6 +447,9 @@ struct LayoutRowsPaneView: View {
             // everything below it is main-actor work.
             .onChange(of: context.controller.refreshToken) { _, _ in load() }
             .onAppear { load() }
+            .onReceive(NotificationCenter.default.publisher(for: .listViewSettingsDidChange)) { _ in
+                Task { listSettings = await ListViewSettingsStore.shared.settings }
+            }
     }
 
     /// `listStyle` takes a CONCRETE style type, so the two styles have to be
@@ -445,20 +491,62 @@ struct LayoutRowsPaneView: View {
         }
     }
 
+    /// A `list` pane shows the chassis' row; an `outline` pane shows one line.
+    ///
+    /// The list branch goes through `RecordViewerRegistry`, the SAME factory
+    /// the heterogeneous list and the store-search results use, so a pane and
+    /// a section show one row design and a kind that overrides its row gets
+    /// that override here for free. Writing a row here instead is how L6
+    /// ended up with a list that shared nothing with imbib's.
     @ViewBuilder
     private func rowView(_ row: LayoutPaneRow) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(row.title)
-                .font(style == .outline ? .body : .headline)
-                .lineLimit(2)
-            if let detail = row.detail, style == .list {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        if style == .list, let mailStyle = row.mailStyleRow {
+            // The kind's own row when it has one; otherwise the shared chrome
+            // with the user's settings, which is what the registry's default
+            // builds too.
+            if let factory = viewerRegistry[mailStyle.kind], mailStyle.kind != .publication {
+                factory.makeListRow(mailStyle)
+            } else {
+                MailStyleRow(
+                    item: mailStyle, configuration: listSettings.mailStyleConfiguration)
             }
+        } else {
+            compactRow(row)
         }
-        .padding(.vertical, 2)
+    }
+
+    /// The `outline` row: a navigator line, not a message row.
+    @ViewBuilder
+    private func compactRow(_ row: LayoutPaneRow) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbolName(for: row))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+            Text(row.title)
+                .font(.body)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 1)
+    }
+
+    /// The record kind's own symbol, so the navigator reads like the sidebar
+    /// rather than like an undifferentiated list of strings.
+    private func symbolName(for row: LayoutPaneRow) -> String {
+        if let kind = row.mailStyleRow?.kind,
+            let descriptor = BuiltinRecordKinds.registry[kind]
+        {
+            return descriptor.symbolName
+        }
+        // The sidebar kinds have no chassis DESCRIPTOR — they are containers,
+        // not record kinds with detail panes — so the descriptor fallback drew
+        // `questionmark.square.dashed` next to every library. These are the
+        // symbols imbib's own sidebar uses for them.
+        switch row.layoutKind {
+        case "library": return "books.vertical"
+        case "collection": return "folder"
+        default: return RecordKindDescriptor.unknownSymbolName
+        }
     }
 
     /// The channel's current selection, written back as a `select` verb.
@@ -466,7 +554,22 @@ struct LayoutRowsPaneView: View {
         let context = context
         return Binding(
             get: { context.currentSelection },
-            set: { ids in context.select(Array(ids)) })
+            set: { ids in
+                // The kind of what was actually selected, not of the query:
+                // the navigator lists collections AND libraries, and the two
+                // bind different parameters downstream.
+                context.select(Array(ids), kind: kindOfSelection(ids))
+            })
+    }
+
+    /// The record kind shared by the selected rows, if they agree.
+    ///
+    /// They disagree only in a multi-selection across kinds, which the `select`
+    /// verb cannot express (one kind, many ids); the pane's default kind is
+    /// then the honest answer rather than picking one row's kind for all.
+    private func kindOfSelection(_ ids: Set<String>) -> String? {
+        let kinds = Set(rows.filter { ids.contains($0.id) }.compactMap(\.layoutKind))
+        return kinds.count == 1 ? kinds.first : nil
     }
 
     private func load() {
