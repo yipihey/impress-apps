@@ -5,6 +5,7 @@
 //  List of development conversations with mode indicators.
 //
 
+import ImpressKit
 import SwiftUI
 import MessageManagerCore
 
@@ -184,7 +185,7 @@ struct NewDevelopmentConversationSheet: View {
             }
         }
         .padding()
-        .frame(width: 300)
+        .impressResizableSheet(minWidth: 300, minHeight: 200)
     }
 
     private var defaultTitle: String {

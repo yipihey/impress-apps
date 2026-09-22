@@ -1690,7 +1690,7 @@ what an imported archive contained, and an agent had no way to ask.
 | `parsers-service_decode-mime-header` | RFC 2047 encoded-words, charset-honouring |
 | `parsers-service_decode-quoted-printable` | charset-aware quoted-printable, Latin-1 fallback rather than an empty string |
 | `parsers-service_resolve-publisher-pdf` | which publisher owns a DOI, whether its PDF URL is predictable, the constructed URL, and a prose recommendation |
-| `parsers-service_list-publisher-rules` | the whole 16-rule table, so an agent can see *why* a DOI resolves as it does |
+| `parsers-service_list-publisher-rules` | the whole publisher rule table, so an agent can see *why* a DOI resolves as it does |
 | `parsers-service_extract-landing-page-pdf` | the PDF link out of landing-page markup, naming which strategy ran. **Does not fetch** — that half is Swift |
 
 Behaviour is pinned by **437 golden cases** in
@@ -1741,7 +1741,7 @@ references and 2 doc mentions — **zero production consumers** in any `.swift`,
 conformance or typealias.
 
 Also deleted: `PMC/Publishers/Resources/publisher-rules.json` — a stale 12-rule
-subset of the live 16-rule table that shipped in **every app bundle** and was
+subset of the live rule table that shipped in **every app bundle** and was
 **never loaded** (`setCustomRulesPath` had no callers), plus its
 `Package.swift` `.copy(...)` entry.
 

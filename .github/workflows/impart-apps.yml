@@ -1,0 +1,99 @@
+name: impart - App Builds (macOS + iOS)
+
+# Guard against platform rot: impart-iOS could not build for months
+# (share-extension module collision + iOS-incompatible API use) because
+# nothing ever built it. This workflow builds BOTH app targets on every
+# change that could affect them.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/impart/**'
+      - 'crates/impress-store-ffi/**'
+      - 'crates/impress-core/**'
+      - 'packages/**'
+      - '.github/workflows/impart-apps.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/impart/**'
+      - 'crates/impress-store-ffi/**'
+      - 'crates/impress-core/**'
+      - 'packages/**'
+      - '.github/workflows/impart-apps.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-apps:
+    name: Build impart (macOS + iOS Simulator)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-impart-apps-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      # impart's only binary dependency: ImpressRustCore's binaryTarget
+      # points at this gitignored xcframework.
+      - name: Build ImpressStoreFfi.xcframework
+        run: bash crates/impress-store-ffi/build-xcframework.sh
+
+      - name: Generate Xcode project
+        working-directory: apps/impart
+        run: xcodegen generate
+
+      - name: Build impart (macOS)
+        working-directory: apps/impart
+        run: |
+          set -o pipefail
+          xcodebuild -project impart.xcodeproj \
+            -scheme impart \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tail -50
+
+      # Install-smoke: boot a sim, build for it, install, launch. A plain
+      # `build` (generic destination) never installs, so it CANNOT catch
+      # Info.plist/appex install rejections — the class of bug that broke
+      # imprint-iOS install (missing NSExtension/CFBundleDisplayName),
+      # which impart-ShareExtension also had.
+      - name: impart-iOS install smoke (Simulator)
+        working-directory: apps/impart
+        run: |
+          set -eo pipefail
+          UDID=$(xcrun simctl list devices available | grep -oE 'iPad Pro[^(]*\(([0-9A-F-]+)\)' | grep -oE '[0-9A-F-]{36}' | head -1)
+          [ -z "$UDID" ] && UDID=$(xcrun simctl list devices available | grep -oE '\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}' | head -1)
+          echo "sim: $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild -project impart.xcodeproj -scheme impart-iOS -configuration Debug \
+            -destination "id=$UDID" -derivedDataPath build-ios \
+            CODE_SIGNING_ALLOWED=NO build | tail -30
+          APP=$(find build-ios/Build/Products/Debug-iphonesimulator -maxdepth 1 -name 'impart.app' | head -1)
+          echo "installing $APP"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.imbib.impart
+          sleep 5
+          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.impart" \
+            && echo "impart-iOS launched OK" \
+            || (echo "impart-iOS did not launch" && exit 1)

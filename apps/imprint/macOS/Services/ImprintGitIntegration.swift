@@ -1,5 +1,6 @@
 import Foundation
 import ImpressGit
+import ImpressKit
 import ImpressLogging
 import SwiftUI
 
@@ -348,7 +349,7 @@ struct GitIntegrationModifier: ViewModifier {
         // file's directory (git log works from any directory in the repo).
         if let repoPath = git.effectiveRepoPath {
             GitHistoryView(repoPath: repoPath)
-                .frame(minWidth: 600, minHeight: 400)
+                .impressResizableSheet(minWidth: 600, minHeight: 400)
         }
     }
 }

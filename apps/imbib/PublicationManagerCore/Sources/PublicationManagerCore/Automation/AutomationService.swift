@@ -145,7 +145,7 @@ public actor AutomationService: AutomationOperations {
             filtered = Array(filtered.prefix(limit))
         }
 
-        return filtered.map { toPaperResult($0) }
+        return await paperResults(for: filtered)
     }
 
     private func applyFilters(to publications: [PublicationRowData], filters: SearchFilters) -> [PublicationRowData] {
@@ -266,19 +266,19 @@ public actor AutomationService: AutomationOperations {
         guard let publication = await findPublication(by: identifier) else {
             return nil
         }
-        return toPaperResult(publication)
+        return await paperResults(for: [publication]).first
     }
 
     public func getPapers(identifiers: [PaperIdentifier]) async throws -> [PaperResult] {
         try await checkAuthorization()
 
-        var results: [PaperResult] = []
+        var publications: [PublicationRowData] = []
         for id in identifiers {
             if let pub = await findPublication(by: id) {
-                results.append(toPaperResult(pub))
+                publications.append(pub)
             }
         }
-        return results
+        return await paperResults(for: publications)
     }
 
     private func findPublication(by identifier: PaperIdentifier) async -> PublicationRowData? {
@@ -380,11 +380,13 @@ public actor AutomationService: AutomationOperations {
                 }
 
                 // Convert imported publications to PaperResult
+                var importedRows: [PublicationRowData] = []
                 for pubID in importedIDs {
                     if let pub = await withStore({ $0.getPublication(id: pubID) }) {
-                        added.append(toPaperResult(pub))
+                        importedRows.append(pub)
                     }
                 }
+                added.append(contentsOf: await paperResults(for: importedRows))
 
             } catch {
                 failed[identifier.value] = error.localizedDescription
@@ -1142,7 +1144,7 @@ public actor AutomationService: AutomationOperations {
 
         let totalCount = allPubs.count
         let paginated = Array(allPubs.dropFirst(offset).prefix(limit))
-        let papers = paginated.map { toPaperResult($0) }
+        let papers = await paperResults(for: paginated)
 
         return (papers: papers, totalCount: totalCount)
     }
@@ -1486,7 +1488,23 @@ public actor AutomationService: AutomationOperations {
 
     // MARK: - Conversion Helpers
 
-    private func toPaperResult(_ pub: PublicationRowData) -> PaperResult {
+    /// Every `PaperResult` for a library paper is built here. The list row
+    /// carries no membership — which is why `libraryIDs` and `collectionIDs`
+    /// came back `[]` for every paper — so each row is paired with its detail,
+    /// the read that knows the paper's store parent (its library) and the
+    /// collections that contain it. One main-actor hop for the whole page.
+    private func paperResults(for rows: [PublicationRowData]) async -> [PaperResult] {
+        guard !rows.isEmpty else { return [] }
+        let ids = rows.map(\.id)
+        let details = await withStore { store in
+            ids.map { store.getPublicationDetail(id: $0) }
+        }
+        return zip(rows, details).map { Self.toPaperResult($0, detail: $1) }
+    }
+
+    /// `detail` is `nil` only when the paper vanished between the two reads;
+    /// the result then reports no membership rather than guessing one.
+    static func toPaperResult(_ pub: PublicationRowData, detail: PublicationModel?) -> PaperResult {
         let tagPaths = pub.tagDisplays.map(\.path).sorted()
 
         let flagResult: FlagResult? = pub.flag.map {
@@ -1501,7 +1519,9 @@ public actor AutomationService: AutomationOperations {
             id: pub.id,
             citeKey: pub.citeKey,
             title: pub.title,
-            authors: parseAuthors(from: pub.authorString),
+            // Rust's parse of the paper's authors (`authors_json`, else
+            // `author_text`), one "Family, Given" per author.
+            authors: detail?.authors.map(\.displayName) ?? authorNames(fromAuthorText: pub.authorString),
             year: pub.year,
             venue: pub.venue,
             abstract: pub.abstract,
@@ -1522,64 +1542,22 @@ public actor AutomationService: AutomationOperations {
             pdfURLs: [],  // Not available in PublicationRowData
             tags: tagPaths,
             flag: flagResult,
-            collectionIDs: [],  // Not available in PublicationRowData
-            libraryIDs: [],  // Not available in PublicationRowData
+            collectionIDs: detail?.collectionIDs ?? [],
+            libraryIDs: detail?.libraryIDs ?? [],
             notes: pub.note,
             annotationCount: 0  // Not available in PublicationRowData
         )
     }
 
-    /// Convert a full detail model to PaperResult (richer data).
-    private func toPaperResultFromDetail(_ pub: PublicationModel) -> PaperResult {
-        let tagPaths = pub.tags.map(\.path).sorted()
-
-        let flagResult: FlagResult? = pub.flag.map {
-            FlagResult(
-                color: $0.color.rawValue,
-                style: $0.style.rawValue,
-                length: $0.length.rawValue
-            )
-        }
-
-        return PaperResult(
-            id: pub.id,
-            citeKey: pub.citeKey,
-            title: pub.title,
-            authors: pub.authors.map(\.displayName),
-            year: pub.year,
-            venue: pub.journal ?? pub.booktitle,
-            abstract: pub.abstract,
-            doi: pub.doi,
-            arxivID: pub.arxivID,
-            bibcode: pub.bibcode,
-            pmid: pub.pmid,
-            semanticScholarID: pub.fields["semantic_scholar_id"],
-            openAlexID: pub.fields["openalex_id"],
-            isRead: pub.isRead,
-            isStarred: pub.isStarred,
-            hasPDF: pub.hasDownloadedPDF || !pub.linkedFiles.isEmpty,
-            citationCount: pub.citationCount > 0 ? pub.citationCount : nil,
-            dateAdded: pub.dateAdded,
-            dateModified: pub.dateModified,
-            bibtex: pub.rawBibTeX ?? "",
-            webURL: pub.url,
-            pdfURLs: [],
-            tags: tagPaths,
-            flag: flagResult,
-            collectionIDs: pub.collectionIDs,
-            libraryIDs: pub.libraryIDs,
-            notes: pub.note,
-            annotationCount: 0
-        )
-    }
-
-    private func parseAuthors(from authorString: String) -> [String] {
-        // PublicationRowData.authorString is pre-formatted as "Last1, Last2 ... LastN"
-        // Split by comma for the automation result
-        return authorString
-            .components(separatedBy: ",")
+    /// One name per author from the store's `author_text`, which imbib-core
+    /// writes as "Family, Given; Family, Given" (`format_author_text`). The
+    /// boundary is the semicolon; the comma is inside each name. This used to
+    /// split on the comma, so four authors came back as five fragments
+    /// ("Amin", "Mustafa A.; Jain", …).
+    static func authorNames(fromAuthorText text: String) -> [String] {
+        text.split(separator: ";")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && $0 != "..." }
+            .filter { !$0.isEmpty }
     }
 
     private func toCollectionResult(_ collection: CollectionModel, libraryID: UUID? = nil, libraryName: String? = nil) -> CollectionResult {

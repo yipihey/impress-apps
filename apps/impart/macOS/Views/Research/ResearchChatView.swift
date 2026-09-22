@@ -5,6 +5,7 @@
 //  Main conversation interface for research discussions.
 //
 
+import ImpressKit
 import SwiftUI
 import MessageManagerCore
 
@@ -278,7 +279,7 @@ private struct ArtifactPickerSheet: View {
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 500)
+        .impressResizableSheet(minWidth: 400, minHeight: 500)
     }
 }
 
@@ -330,7 +331,7 @@ private struct BranchConversationSheet: View {
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 300)
+        .impressResizableSheet(minWidth: 400, minHeight: 300)
     }
 }
 
@@ -375,7 +376,7 @@ private struct ProvenanceSheet: View {
                 }
             }
         }
-        .frame(minWidth: 500, minHeight: 400)
+        .impressResizableSheet(minWidth: 500, minHeight: 400)
     }
 }
 

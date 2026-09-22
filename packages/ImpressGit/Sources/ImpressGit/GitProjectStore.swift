@@ -1,9 +1,11 @@
 import Foundation
+import ImpressKit
 
 /// Persistence for `GitProject` entries using UserDefaults.
 ///
-/// Projects are stored in the shared `group.com.impress.suite` defaults so all
-/// apps in the suite can see each other's git projects.
+/// Projects are stored in the shared suite app-group defaults
+/// (`SiblingDiscovery.suiteGroupID`) so all apps in the suite can see each
+/// other's git projects.
 @MainActor
 @Observable
 public final class GitProjectStore {
@@ -15,13 +17,10 @@ public final class GitProjectStore {
     private let key = "impress.gitProjects"
 
     private init() {
-        // Team-ID prefix on macOS avoids the app-group TCC prompt.
-        #if os(macOS)
-        let suiteID = "QG3MEYVHMS.com.impress.suite"
-        #else
-        let suiteID = "group.com.impress.suite"
-        #endif
-        self.defaults = UserDefaults(suiteName: suiteID) ?? .standard
+        // Never hardcode the app-group id: macOS needs the Team-ID-prefixed
+        // form to avoid the "access data from other apps" TCC prompt.
+        // SiblingDiscovery.suiteGroupID picks the right form per platform.
+        self.defaults = UserDefaults(suiteName: SiblingDiscovery.suiteGroupID) ?? .standard
         load()
     }
 

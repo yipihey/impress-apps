@@ -54,8 +54,19 @@ class ShareViewController: SLComposeServiceViewController {
         return []
     }
 
+    /// Never hardcode a single app-group id: macOS needs the Team-ID-prefixed
+    /// form to avoid the "access data from other apps" TCC prompt; iOS
+    /// requires the `group.` prefix. Mirrors ImpressKit's
+    /// SiblingDiscovery.suiteGroupID — inlined because this extension target
+    /// does not link ImpressKit.
+    #if os(macOS)
+    private static let suiteGroupID = "QG3MEYVHMS.com.impress.suite"
+    #else
+    private static let suiteGroupID = "group.com.impress.suite"
+    #endif
+
     private func handleSharedText(_ text: String) {
-        let defaults = UserDefaults(suiteName: "group.com.impress.suite")
+        let defaults = UserDefaults(suiteName: Self.suiteGroupID)
         defaults?.set(text, forKey: "share.impart.pendingText")
         defaults?.set(Date().timeIntervalSince1970, forKey: "share.impart.pendingTimestamp")
 
@@ -65,7 +76,7 @@ class ShareViewController: SLComposeServiceViewController {
     }
 
     private func handleSharedURL(_ url: URL) {
-        let defaults = UserDefaults(suiteName: "group.com.impress.suite")
+        let defaults = UserDefaults(suiteName: Self.suiteGroupID)
         defaults?.set(url.absoluteString, forKey: "share.impart.pendingURL")
         defaults?.set(Date().timeIntervalSince1970, forKey: "share.impart.pendingTimestamp")
 
@@ -75,7 +86,7 @@ class ShareViewController: SLComposeServiceViewController {
     }
 
     private func handleSharedImage(_ imageURL: URL) {
-        let defaults = UserDefaults(suiteName: "group.com.impress.suite")
+        let defaults = UserDefaults(suiteName: Self.suiteGroupID)
         defaults?.set(imageURL.absoluteString, forKey: "share.impart.pendingImageURL")
         defaults?.set(Date().timeIntervalSince1970, forKey: "share.impart.pendingTimestamp")
 
