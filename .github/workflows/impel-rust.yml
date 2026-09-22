@@ -193,10 +193,26 @@ jobs:
       # and nothing else — impel commits no impel_core.swift. The binding the
       # app actually compiles against is impel-tools', under CounselEngine, and
       # until now nothing checked it. impel-tools has no features and links the
-      # service crates purely to populate the inventory, so this is a plain
-      # build.
+      # service crates purely to populate the inventory.
+      #
+      # It is NOT a plain `cargo build`, for the same three reasons the
+      # impel-core steps above are shaped the way they are, and all three were
+      # introduced by 95d4c69 after this step was written:
+      #
+      #   * `crate-type = ["lib"]` (impel-tools/Cargo.toml). A plain build
+      #     emits an rlib and no `libimpel_tools.dylib` — the staticlib the
+      #     bindgen step reads is produced on demand by `cargo rustc --lib
+      #     --crate-type staticlib`, exactly as build-xcframework.sh does it.
+      #   * There is no `uniffi-bindgen` bin in impel-tools; the per-crate
+      #     copies were replaced by the one `crates/uniffi-bindgen`.
+      #   * Every job in this file redirects CARGO_TARGET_DIR to
+      #     $HOME/ci-cargo-target, so a workspace-relative `target/` names a
+      #     directory nothing writes to.
       - name: Build impel-tools
-        run: cargo build -p impel-tools --release
+        run: |
+          # Release compile check, then the staticlib the bindgen step reads.
+          cargo build -p impel-tools --release
+          cargo rustc -p impel-tools --release --lib --crate-type staticlib
 
       - name: Generate impel-tools Swift bindings
         run: |
@@ -208,8 +224,8 @@ jobs:
               echo "::warning::swiftformat present but not removable; bindings diff may reformat"
           fi
           mkdir -p crates/impel-tools/generated
-          cargo run -p impel-tools --release --bin uniffi-bindgen generate \
-            --library target/release/libimpel_tools.dylib \
+          cargo run --release -p uniffi-bindgen -- generate \
+            --library "$CARGO_TARGET_DIR/release/libimpel_tools.a" \
             --language swift \
             --out-dir crates/impel-tools/generated
 
