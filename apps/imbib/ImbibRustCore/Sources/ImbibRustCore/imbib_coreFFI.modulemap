@@ -1,0 +1,4 @@
+module imbib_coreFFI {
+    header "imbib_coreFFI.h"
+    export *
+}

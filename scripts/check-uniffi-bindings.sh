@@ -52,13 +52,18 @@ import sys
 ROOT = os.getcwd()
 
 # crate -> committed binding(s). A crate with two entries must keep them
-# identical; imprint ships the same generated file to an app-local package and
-# to the SPM package the iOS target consumes.
+# identical.
+#
+# imprint used to be such a crate — the same generated file in the app-local
+# package AND in the SPM package — and the two drifted for six commits, so
+# 95d4c69 deleted the copy under `Packages/ImprintCore` and made `ImprintCore`
+# re-export `ImprintRustCore` instead. One committed binding, one place to
+# regenerate. A second entry here would now demand back the duplicate that
+# change removed.
 BINDINGS = {
     "imbib-core": ["apps/imbib/ImbibRustCore/Sources/ImbibRustCore/imbib_core.swift"],
     "imprint-core": [
         "apps/imprint/ImprintRustCore/Sources/ImprintRustCore/imprint_core.swift",
-        "apps/imprint/Packages/ImprintCore/Sources/ImprintCore/imprint_core.swift",
     ],
     "implore-core": ["apps/implore/ImploreRustCore/Sources/ImploreRustCore/implore_core.swift"],
     "impel-tools": ["apps/impel/Packages/CounselEngine/Sources/ImpelToolsFFI/impel_tools.swift"],
