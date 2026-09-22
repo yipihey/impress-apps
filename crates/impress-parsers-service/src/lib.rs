@@ -171,8 +171,9 @@ pub trait ParsersService: Send + Sync + 'static {
 
     /// The whole publisher rule table covering the astronomy and physics
     /// literature. Read this to understand why a given DOI resolves the way
-    /// it does. (No count in this sentence on purpose: the table grows —
-    /// `rule_table_is_complete` pins the number so drift goes red.)
+    /// it does. (No count in this sentence on purpose: the table grows.
+    /// `rule_table_is_complete` pins the reported ids against `DEFAULT_RULES`
+    /// itself, so growth is free and a lost row goes red.)
     #[impress_method]
     async fn list_publisher_rules(&self) -> Vec<PublisherRuleReport>;
 
@@ -403,16 +404,53 @@ mod tests {
         assert!(unknown.recommendation.contains("No rule"));
     }
 
+    /// The projection reports the whole table, in table order — deliberately
+    /// NOT a row count. A literal count can only restate what `DEFAULT_RULES`
+    /// already says, and it goes stale the moment the table grows: it did when
+    /// the table gained `theoj-astro`, which turned a live-verified feature
+    /// landing into a red workspace gate for everyone else. Comparing ids
+    /// against the source cannot drift, and subsumes the count.
+    ///
+    /// The neighbouring obligations are covered where they belong, so don't
+    /// re-add them here: uniqueness of the ids is `publishers::rules`'
+    /// `every_rule_id_is_unique`, and every row's fields are pinned by
+    /// imbib-core's `default_publisher_rules_table_matches_swift` golden.
     #[tokio::test]
     async fn rule_table_is_complete() {
         let rules = service().list_publisher_rules().await;
-        // 17 since 2026-08-31: `theoj-astro` (Open Journal of Astrophysics
-        // arXiv-overlay) joined imbib-core's table. This count is the whole
-        // point of the test — a service that silently drops rules must go
-        // red — so it moves in the same commit as every table change.
-        assert_eq!(rules.len(), 17);
-        assert!(rules.iter().any(|r| r.id == "cambridge"));
-        assert!(rules.iter().any(|r| r.id == "theoj-astro"));
+
+        let reported: Vec<&str> = rules.iter().map(|r| r.id.as_str()).collect();
+        let source: Vec<&str> = publishers::DEFAULT_RULES.iter().map(|r| r.id).collect();
+        assert_eq!(reported, source, "every rule, in table order");
+
+        // Sequence equality above is also satisfied by two empty lists.
+        assert!(reported.contains(&"cambridge"));
+        // `theoj-astro` (Open Journal of Astrophysics arXiv-overlay) joined
+        // the table on 2026-08-31 and is the row a count-based test went red
+        // on; named here so its loss is legible rather than a diff of ids.
+        assert!(reported.contains(&"theoj-astro"));
+
+        // One row field-for-field, so a `From` impl that dropped or swapped a
+        // field cannot hide behind matching ids.
+        let iop = rules
+            .iter()
+            .find(|r| r.id == "iop-aas")
+            .expect("iop-aas is in the table");
+        assert_eq!(iop.name, "IOP Publishing (AAS Journals)");
+        assert_eq!(iop.doi_prefixes, ["10.3847/"]);
+        assert_eq!(
+            iop.pdf_url_pattern.as_deref(),
+            Some("https://iopscience.iop.org/article/{doi}/pdf")
+        );
+        assert!(iop.requires_proxy);
+        assert_eq!(iop.captcha_risk, "low");
+        assert!(!iop.prefer_open_alex);
+        assert_eq!(
+            iop.notes.as_deref(),
+            Some("American Astronomical Society journals hosted by IOP")
+        );
+        assert_eq!(iop.html_parser_id.as_deref(), Some("iop"));
+        assert!(iop.supports_landing_page_scraping);
     }
 
     #[tokio::test]
