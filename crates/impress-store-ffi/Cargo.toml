@@ -36,6 +36,42 @@ impress-ai.workspace = true
 # never decides anything about the tree.
 impress-layout.workspace = true
 impress-layout-service.workspace = true
+# The ADR-0033 agent-surface tree (S6). `impress-surface` for the pure
+# vocabulary (`Event`, `SurfaceSpec`) this crate's `dispatch`/`spec`/HTTP
+# handlers speak directly; `impress-surface-service` for the store-backed
+# `SurfaceStore`/`SessionRegistry`/`DefaultExecutor`/`DefaultImpressSurfaceService`
+# this crate drives — this crate translates, it never decides anything about
+# a surface (same division `impress-layout`/`impress-layout-service` draw
+# above).
+impress-surface.workspace = true
+impress-surface-service.workspace = true
+# ADR-0033 D4 says the linked-verb inventory (store + layout + surface +
+# surface-demo, `impress-capabilities`'s `kit` feature) should be ONE
+# dependency edge, shared with `impress-mcp`/`impress-cli`'s `full`. That is
+# NOT what this crate does below, and the reason is a hard blocker, not a
+# preference: `impress-capabilities` (regardless of which features are
+# selected — Cargo's cyclic-package check walks every OPTIONAL dependency a
+# manifest lists, feature-gated or not) reaches `impress-bridges-service` ->
+# `imprint-service` -> `impress-app-client` -> `imbib-service-http` ->
+# `impress-store-ffi` (THIS crate, a real, unconditional dependency of
+# `imprint-service` — see that crate's Cargo.toml), so `impress-store-ffi`
+# depending on `impress-capabilities` AT ALL is a cyclic package dependency
+# Cargo refuses to resolve, verified with `default-features = false` and
+# every feature off. See this work package's report for the fix this needs
+# (breaking the `imprint-service -> impress-store-ffi` edge or the
+# `impress-capabilities -> impress-bridges-service` one, neither owned by
+# this crate) and why it is out of scope here.
+#
+# Until that is fixed, this crate force-links the FOUR `kit` service crates
+# directly — `impress-layout-service` above already has real references
+# (`DefaultLayoutService` etc. throughout `layout.rs`) and needs no `use … as
+# _;`; `impress-surface-service` below gets one from `surface.rs`'s real use
+# of `SurfaceStore`/`SessionRegistry`/`DefaultExecutor`. `impress-store-service`
+# and `surface-demo-service` have no real reference anywhere in this crate,
+# so `lib.rs` force-links them explicitly — the exact mechanism
+# `impress-capabilities` itself uses, one crate short of where D4 wants it.
+impress-store-service.workspace = true
+surface-demo-service.workspace = true
 futures-util = "0.3"
 uniffi = { workspace = true, optional = true }
 serde = { workspace = true }

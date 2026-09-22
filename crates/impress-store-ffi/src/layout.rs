@@ -291,19 +291,7 @@ pub trait SharedLayoutListener: Send + Sync {
     fn layout_changed(&self, version: u64);
 }
 
-struct Feed {
-    running: Arc<AtomicBool>,
-    join: Option<std::thread::JoinHandle<()>>,
-}
-
-impl Feed {
-    fn stop(&mut self) {
-        self.running.store(false, Ordering::SeqCst);
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
-    }
-}
+use crate::ui_feed::{self, ExternalPoll, Feed};
 
 // ─── The object ──────────────────────────────────────────────────────────
 
@@ -1022,26 +1010,25 @@ fn channel_name(channel: ChannelId) -> String {
 
 // ─── The feed's worker ───────────────────────────────────────────────────
 
-const DEFAULT_DEBOUNCE_MS: u64 = 50;
+// The debounce/burst/external-poll cadence and the `Feed`/`ExternalPoll`
+// mechanics are `crate::ui_feed`'s — shared with `surface.rs`'s feed (see
+// that module's docs). These aliases keep every existing reference below
+// (and every doc link to them) unchanged.
+const DEFAULT_DEBOUNCE_MS: u64 = ui_feed::DEFAULT_DEBOUNCE_MS;
 /// How often the worker wakes to check for a version change or a burst that
 /// has gone quiet. Shorter than the default debounce, so a burst is flushed
 /// one poll after it ends rather than one debounce late.
-const POLL: Duration = Duration::from_millis(10);
+const POLL: Duration = ui_feed::POLL;
 /// A burst that never goes quiet is flushed anyway after this many debounce
 /// windows, so a continuous writer cannot starve the renderer.
-const MAX_BURST_DEBOUNCES: u32 = 10;
+const MAX_BURST_DEBOUNCES: u32 = ui_feed::MAX_BURST_DEBOUNCES;
 
 /// Default interval between polls of [`SqliteItemStore::data_version`] for
 /// the cross-process invalidation path (ADR-0033 D6, see the module docs).
 /// `PRAGMA data_version` is a per-connection counter with no I/O beyond the
 /// pragma itself, so polling it at this cadence is cheap; 250 ms keeps a
 /// chat-driven write visible in well under a second.
-const EXTERNAL_POLL_MS: u64 = 250;
-
-/// Schema-ref prefix the external poll watches: the agent-facing surface
-/// (layout today, capability surfaces from work package S4). See the module
-/// docs for why this is not a general-purpose second invalidation channel.
-const EXTERNAL_UI_PREFIX: &str = "impress/ui/";
+const EXTERNAL_POLL_MS: u64 = ui_feed::EXTERNAL_POLL_MS;
 
 struct InvalidationFeed {
     running: Arc<AtomicBool>,
@@ -1071,13 +1058,13 @@ impl InvalidationFeed {
         let mut held: Vec<u64> = Vec::new();
         let mut grace_over = self.grace.is_zero();
 
-        // Cross-process liveness (ADR-0033 D6, see the module docs). `data_version`
-        // reads as this connection's own baseline before the loop starts, so an
-        // `impress/ui/` row already in the file at subscribe time is not replayed —
-        // only writes made from here on are external mutations to this feed.
-        // `high_water_mark` starts at "now" for the same reason.
-        let mut last_data_version = self.store.data_version().ok();
-        let mut high_water_mark: i64 = chrono::Utc::now().timestamp_millis();
+        // Cross-process liveness (ADR-0033 D6, see the module docs): baselined
+        // against this connection's own `data_version`/"now" before the loop
+        // starts, so an `impress/ui/` row already in the file at subscribe
+        // time is not replayed — only writes made from here on are external
+        // mutations to this feed. `crate::ui_feed::ExternalPoll` is the same
+        // mechanism `surface.rs`'s feed uses, narrowed to its own prefix.
+        let mut external = ExternalPoll::baseline(&self.store);
         let mut last_external_poll = Instant::now();
 
         while self.running.load(Ordering::SeqCst) {
@@ -1095,35 +1082,13 @@ impl InvalidationFeed {
 
             if last_external_poll.elapsed() >= self.external_poll {
                 last_external_poll = Instant::now();
-                if let Ok(dv) = self.store.data_version() {
-                    if last_data_version != Some(dv) {
-                        last_data_version = Some(dv);
-                        if let Ok(items) = self
-                            .store
-                            .items_modified_since(EXTERNAL_UI_PREFIX, high_water_mark)
-                        {
-                            for item in items {
-                                let modified_ms = item.modified.timestamp_millis();
-                                if modified_ms > high_water_mark {
-                                    high_water_mark = modified_ms;
-                                }
-                                // See the module docs: Created / Updated / Deleted are
-                                // indistinguishable from a plain read and are matched
-                                // identically by `Invalidation::is_affected_by`, so
-                                // `Updated` stands in for all of them here.
-                                let mutation = impress_core::event::StoreMutation::new(
-                                    item.id,
-                                    Some(item.schema),
-                                    impress_core::event::MutationKind::Updated,
-                                );
-                                if burst_started.is_none() {
-                                    burst_started = Some(Instant::now());
-                                }
-                                last_seen = Some(Instant::now());
-                                pending.push(mutation);
-                            }
-                        }
+                let mutations = external.check(&self.store, ui_feed::EXTERNAL_UI_PREFIX);
+                if !mutations.is_empty() {
+                    if burst_started.is_none() {
+                        burst_started = Some(Instant::now());
                     }
+                    last_seen = Some(Instant::now());
+                    pending.extend(mutations);
                 }
             }
 

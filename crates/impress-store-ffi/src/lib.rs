@@ -27,6 +27,32 @@ mod layout;
 /// Manuscript projects (ADR-0030): file rows, the one-read snapshot, builds.
 pub mod project;
 pub mod reading_list;
+/// The ADR-0033 agent-surface tree as Swift drives it (work package S6).
+mod surface;
+/// The pieces `layout`'s and `surface`'s invalidation feeds share (ADR-0033
+/// D6) — see that module's docs.
+mod ui_feed;
+
+// Force the linker to keep two of the four ADR-0033 D4 `kit` service crates
+// linked into this crate: `impress-layout-service` (used throughout
+// `layout.rs`) and `impress-surface-service` (used throughout `surface.rs`)
+// already have real references and need no help. `impress-store-service`
+// and `surface-demo-service` do not — nothing in this crate calls either by
+// name — so without a real reference the linker is free to drop their
+// `inventory::submit!` entries, and `surface.rs`'s `DefaultExecutor` (which
+// reaches every source/action verb a spec names through the process-wide
+// `McpToolDescriptor` inventory) would silently not find
+// `surface-demo-service_series`/`histogram` or the generic store verbs.
+//
+// This is meant to be ONE dependency on `impress-capabilities`'s `kit`
+// feature, matching `impress-mcp`/`impress-cli`'s `full` (ADR-0033 D4: "one
+// list") — see `Cargo.toml`'s module comment on the `impress-store-service`/
+// `surface-demo-service` lines for the cyclic-package error that blocks it
+// today, and this work package's report for the fix it actually needs.
+#[allow(unused_imports)]
+use impress_store_service as _force_link_impress_store_service;
+#[allow(unused_imports)]
+use surface_demo_service as _force_link_surface_demo_service;
 
 pub use ai::{
     AiAttachment, AiBlobAvailability, AiConversationDraft, AiModelHostStatus, AiModelRow,
@@ -36,6 +62,10 @@ pub use layout::{
     cold_start_layout_json, compile_pane_query, kind_manifest_json, pane_spec_json,
     SharedAppliedVerb, SharedLayout, SharedLayoutError, SharedLayoutListener, SharedLayoutRow,
     SharedLayoutSnapshot, SharedPane, SharedWindow,
+};
+pub use surface::{
+    surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
+    SharedSurfaceListener, SharedSurfaceRow,
 };
 
 pub use ai_registry::{
