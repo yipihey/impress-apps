@@ -13,6 +13,7 @@ import CryptoKit
 import ImpressAutomation
 import ImpressKit
 import ImpressLogging
+import ImpressRustCore
 import ImprintCore
 import OSLog
 
@@ -184,6 +185,14 @@ public actor HTTPAutomationRouter: HTTPRouter {
     // MARK: - GET Routes
 
     private func routeGET(path: String, originalPath: String, request: HTTPRequest) async -> HTTPResponse {
+        // ADR-0033 work package S7: `/api/surface` and `/api/surface/...`
+        // mirror the `impress-surface-service` verbs, over EVERY method —
+        // mounted first, like `/api/layout`'s prefix checks, so a path under
+        // it never falls through to `Unknown endpoint`. See `handleSurfaceHTTP`.
+        if path == "/api/surface" || path.hasPrefix("/api/surface/") {
+            return await handleSurfaceHTTP(method: "GET", path: originalPath, request: request)
+        }
+
         if path == "/api/status" {
             return await handleStatus()
         }
@@ -723,6 +732,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
     }
 
     private func routePOST(path: String, request: HTTPRequest) async -> HTTPResponse {
+        // See `routeGET`'s mount comment. `request.path` is the ORIGINAL
+        // (un-lowercased) path here — `routePOST` is not handed a separate
+        // `originalPath`, unlike GET/PUT/DELETE.
+        if path == "/api/surface" || path.hasPrefix("/api/surface/") {
+            return await handleSurfaceHTTP(method: "POST", path: request.path, request: request)
+        }
+
         if path == "/api/papers/add" {
             return await handleAddPapers(request)
         }
@@ -1159,6 +1175,11 @@ public actor HTTPAutomationRouter: HTTPRouter {
     // MARK: - PUT Routes
 
     private func routePUT(path: String, originalPath: String, request: HTTPRequest) async -> HTTPResponse {
+        // See `routeGET`'s mount comment.
+        if path == "/api/surface" || path.hasPrefix("/api/surface/") {
+            return await handleSurfaceHTTP(method: "PUT", path: originalPath, request: request)
+        }
+
         if path == "/api/papers/read" {
             return await handleMarkRead(request)
         }
@@ -1318,6 +1339,11 @@ public actor HTTPAutomationRouter: HTTPRouter {
     // MARK: - DELETE Routes
 
     private func routeDELETE(path: String, originalPath: String, request: HTTPRequest) async -> HTTPResponse {
+        // See `routeGET`'s mount comment.
+        if path == "/api/surface" || path.hasPrefix("/api/surface/") {
+            return await handleSurfaceHTTP(method: "DELETE", path: originalPath, request: request)
+        }
+
         if path == "/api/papers" {
             return await handleDeletePapers(request)
         }
@@ -2030,6 +2056,92 @@ public actor HTTPAutomationRouter: HTTPRouter {
             payload[key] = value
         }
         return .json(payload)
+    }
+
+    // MARK: - Surfaces (ADR-0033)
+
+    /// `/api/surface` and `/api/surface/...`, every method — mirrors the
+    /// `impress-surface-service` verbs (`surface_schema`, `surface_create`,
+    /// `surface_render`, `surface_dispatch`, `surface_wait`, …) exactly the
+    /// way `/api/layout/tree` mirrors `layout-service`, except the whole
+    /// route TABLE lives on the Rust side: `SharedSurface.surfaceHttp(method:
+    /// path:body:)` (`impress-store-ffi`) owns which path means what and
+    /// answers 400/404 itself, so this router only forwards.
+    ///
+    /// Unlike `LayoutAutomation.shared.host` (a live GUI controller this
+    /// router must reuse to stay in sync with an open window), a
+    /// `SharedSurface` handle holds no state of its own — a surface's state
+    /// lives in `impress/ui/surface-state@1.0.0` store rows, not in this
+    /// object — so a FRESH handle is opened per request rather than cached.
+    /// That also means this route answers whether or not the ADR-0031 layout
+    /// tree (or any surface pane) is even rendering: an agent can build and
+    /// drive a surface entirely headlessly, the same five-verb loop
+    /// `docs/agent-surfaces.md` describes for MCP.
+    ///
+    /// `path` must be the ORIGINAL, un-lowercased request path (a surface id
+    /// is an opaque store id, not something safe to lowercase) — every call
+    /// site above passes `originalPath` (GET/PUT/DELETE) or `request.path`
+    /// (POST, which is handed no separate original-case path).
+    private func handleSurfaceHTTP(
+        method: String, path: String, request: HTTPRequest
+    ) async -> HTTPResponse {
+        let fullPath = Self.pathWithQuery(path, params: request.queryParams)
+        let body = request.body ?? ""
+        return await MainActor.run {
+            guard let store = RustStoreAdapter.shared.layoutSharedStore() else {
+                return HTTPResponse.json(
+                    [
+                        "status": "error",
+                        "error":
+                            "the shared store is not open — the surface automation routes "
+                            + "need RustStoreAdapter's kernel store to be open",
+                    ],
+                    status: 409)
+            }
+            let surface = SharedSurface.open(store: store, host: "")
+            let reply = surface.surfaceHttp(method: method, path: fullPath, body: body)
+            return HTTPResponse(
+                status: Int(reply.status),
+                statusText: Self.surfaceStatusText(reply.status),
+                headers: ["Content-Type": "application/json; charset=utf-8"],
+                body: Data(reply.body.utf8))
+        }
+    }
+
+    /// `SharedSurface.surfaceHttp` documents its statuses as 200, or 400/404
+    /// on failure (`SharedSurface.surfaceHttp`'s doc comment: "a failure is
+    /// `{\"error\": …}` at 400 or 404"); this covers those plus a couple of
+    /// ordinary REST statuses in case a future verb answers with one, and
+    /// falls back to a status-class-appropriate generic text rather than
+    /// guessing a specific reason phrase.
+    private static func surfaceStatusText(_ status: UInt16) -> String {
+        switch status {
+        case 200: return "OK"
+        case 201: return "Created"
+        case 204: return "No Content"
+        case 400: return "Bad Request"
+        case 404: return "Not Found"
+        case 409: return "Conflict"
+        case 422: return "Unprocessable Entity"
+        case ..<300: return "OK"
+        case ..<500: return "Bad Request"
+        default: return "Internal Server Error"
+        }
+    }
+
+    /// `SharedSurface.surfaceHttp`'s `path` "may carry a query string (`?pane=7`,
+    /// `?after=12`)" — `HTTPRequest` has already split that off into
+    /// `queryParams`, so it is rebuilt here rather than forwarded raw.
+    private static func pathWithQuery(_ path: String, params: [String: String]) -> String {
+        guard !params.isEmpty else { return path }
+        let query = params.sorted { $0.key < $1.key }
+            .map { key, value in
+                let encodedValue =
+                    value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+                return "\(key)=\(encodedValue)"
+            }
+            .joined(separator: "&")
+        return "\(path)?\(query)"
     }
 
     /// GET /api/appearance — per-surface appearance (authoritative stores).

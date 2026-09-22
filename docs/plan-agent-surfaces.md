@@ -207,3 +207,49 @@ This file's log, ADR-0033, `docs/chassis-capability-matrix.md` (a `surface` row)
   finished without the Mac; `plot-spec@1.0.0` and imprint-core's `render_plot_svg` are the
   plot path; `packages/ImpressChassis` exists with no dependencies and is the landing spot for
   the host when it leaves PublicationManagerCore.
+- 2026-09-22 (later) — **S0–S10 implemented on this branch**, Rust half verified on
+  Linux, Swift half written and awaiting the Mac. Wave order as planned; every package
+  by a Sonnet agent, reviewed, verified and committed by path here. State per package:
+  * S0 `impress-pane-query`, S1 `impress-surface` (67 tests, golden + property), S2/S3
+    `impress-capabilities` + the three schema refs, S4 `impress-surface-service` (15 Tier-A
+    capabilities + the loop against the real demo verbs), S5 the `data_version` poll (two
+    handles on one file; an FFI test sees a second connection's row within one poll), S6
+    `SharedSurface` + `/api/surface/*` + a regenerated binding (17 declarations gained, none
+    lost; S5's `setExternalPollMs` had been missing from the binding and is now in), S8 the
+    scaffold (proven by generating and testing a throwaway crate), S9 `surface-demo-service`
+    (18 tests; `plot` round-trips through imprint-core's `FfiPlotSpec`), S10 the documents.
+    `check-kit-deps.sh` passes with an empty allow-list: no kit crate reaches impress-core.
+  * **S6b, not in the plan:** impress-store-ffi cannot depend on impress-capabilities —
+    bridges → imprint-service → app-client → imbib-service-http → impress-store-ffi is a
+    package cycle Cargo rejects even with the feature off. The kit list is now its own crate,
+    `impress-capabilities-kit`, which the FFI links (calling `force_link()` from both
+    SharedStore constructors; a bare `use` retains nothing) and which impress-capabilities
+    re-exports. Each crate is named in one list again. The `full` tool count is 428 (the
+    413 in S2's brief was stale), unchanged by the split.
+  * **S7 written, Mac-verify pending.** `packages/ImpressSurface` (RenderTree Codable,
+    `SurfaceView` mapping every kind, `SurfaceHooks` so the package stays kit-grade: markdown,
+    plot and list rows are supplied by the host), `LayoutSurfacePaneView` in PMC (one
+    `SharedSurface` per pane, listener bridge like the layout one, three-point trace under
+    category `surface`), the `surface` factory in `ViewKindRegistry`, `/api/surface/*`
+    mounted in `HTTPAutomationRouter`. Swift is not installed here; nothing of S7 has
+    compiled. Known follow-ups the author flagged: dispatch `effects` (open/publish owed to
+    the host) are decoded but not acted on beyond forwarding a raw `select` to
+    `context.select`; `list` rows use a plain List, not the row-style registry; the two-layer
+    focus model (highlight vs. real focus) is a design, not a verified behaviour.
+  * The S1 golden's `plot` value is a synthetic `{"bars": [...]}`; the real demo verb emits
+    imprint-core's `series` shape, which is what `PlotAutomationHandler.decodeSpec` reads, so
+    the "plot shape gap" S7 reported is a fixture artefact. Worth aligning the golden to the
+    real shape when S1 is next touched.
+  * Not verifiable here: `cargo test -p impress-mcp` / `-p impress-cli` (the ort-sys build
+    script downloads ONNX and the proxy blocks it — pre-existing, not from this branch); the
+    workspace clippy shards (`./scripts/rust-gate.sh clippy auto` on the Mac is the gate).
+  **Mac pass, in order:** `./scripts/rust-gate.sh fmt && ./scripts/rust-gate.sh clippy auto`;
+  `cargo test -p impress-mcp -p impress-cli`; rebuild the store xcframework
+  (`./scripts/build-xcframeworks.sh --fast impress-store-ffi`; the committed binding already
+  matches); build PMC + ImpressSurface; `defaults write com.impress.impress
+  impress.layoutTree.enabled -bool YES`, launch impress; from a chat or the CLI:
+  `impress-surface-service_surface-examples` → `surface-create` → `surface-show` with
+  `{"split": {...}}` and watch the pane appear (this is D6 end to end: a second process's
+  write reaching the window); j/k, Enter, Escape per the grammar; a slider change is ONE
+  `change` on release; `curl localhost:23125/api/surface` and `/api/surface/<id>/render`;
+  `curl 'localhost:23125/api/logs?category=surface'` shows render → dispatch → display.

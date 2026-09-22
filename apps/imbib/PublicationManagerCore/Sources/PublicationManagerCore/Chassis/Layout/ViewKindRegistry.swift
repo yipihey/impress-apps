@@ -63,10 +63,15 @@ public struct ViewKindID: RawRepresentable, Hashable, Sendable, Codable,
     /// Hosts a legacy `SectionContentView` route unchanged (ADR-0031 D11).
     public static let legacy = ViewKindID("legacy")
     public static let placeholder = ViewKindID("placeholder")
+    /// ADR-0033 — an agent-authored `impress/ui/surface@1.0.0` document,
+    /// rendered by `packages/ImpressSurface`'s `SurfaceView`. The pane's
+    /// query is `item(id)` of the surface, so this is an ordinary view kind
+    /// with no special case anywhere else in the tree (ADR-0033 D1).
+    public static let surface = ViewKindID("surface")
 
     /// Every kind this build registers a factory for.
     public static let builtins: [ViewKindID] = [
-        .outline, .list, .info, .pdf, .notes, .bibtex, .source, .legacy, .placeholder,
+        .outline, .list, .info, .pdf, .notes, .bibtex, .source, .legacy, .placeholder, .surface,
     ]
 }
 
@@ -264,6 +269,7 @@ public final class ViewKindRegistry: @unchecked Sendable {
         ViewKindFactory(kind: .outline) { AnyView(LayoutRowsPaneView(context: $0, style: .outline)) },
         ViewKindFactory(kind: .list) { AnyView(LayoutRowsPaneView(context: $0, style: .list)) },
         ViewKindFactory(kind: .info) { AnyView(LayoutInfoPaneView(context: $0)) },
+        ViewKindFactory(kind: .surface) { AnyView(LayoutSurfacePaneView(context: $0)) },
         ViewKindFactory(kind: .legacy) { AnyView(LayoutLegacyPaneView(context: $0)) },
         ViewKindFactory(kind: .placeholder) { AnyView(LayoutPlaceholderPaneView(context: $0)) },
 

@@ -33,6 +33,12 @@ let package = Package(
         .package(path: "../../../packages/ImpressKeyboard"),
         .package(path: "../../../packages/ImpressSidebar"),
         .package(path: "../../../packages/ImpressFTUI"),
+        // ADR-0033 work package S7: the `surface` view kind's SwiftUI
+        // renderer. Kit-grade (ADR-0033 D7) — only ImpressKeyboard /
+        // ImpressTheme / ImpressLogging of its own — so PMC supplies the
+        // suite-aware bits (MarkdownUI, ImprintCore's `renderPlotSvg`,
+        // `SharedSurface`) through `LayoutSurfacePaneView`'s `SurfaceHooks`.
+        .package(path: "../../../packages/ImpressSurface"),
         .package(path: "../../../packages/ImpressMailStyle"),
         .package(path: "../../../packages/ImpressLogging"),
         .package(path: "../../../packages/ImpressStoreKit"),
@@ -71,6 +77,7 @@ let package = Package(
                 "ImpressKeyboard",
                 "ImpressSidebar",
                 "ImpressFTUI",
+                "ImpressSurface",
                 "ImpressMailStyle",
                 "ImpressLogging",
                 "ImpressStoreKit",
