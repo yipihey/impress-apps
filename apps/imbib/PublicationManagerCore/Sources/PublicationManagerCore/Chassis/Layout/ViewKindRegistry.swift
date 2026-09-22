@@ -138,6 +138,17 @@ public struct PaneContext {
                 category: "layout")
             return
         }
+        // Selecting IS clicking, so FOCUS FOLLOWS (ADR-0031 D5/D7): the chords
+        // and ⌘Z act on the focused pane, and a user who just clicked a row
+        // means that pane. The container's `simultaneousGesture` in
+        // `LayoutTreeView` cannot do it for a rows pane — the List row
+        // consumes the tap first. Verified in the running shell 2026-09-21:
+        // clicking a navigator row published `select` and left the focus ring
+        // three panes away. A keyboard-driven selection is already in the
+        // focused pane, so this is a no-op there rather than a second verb.
+        if controller.focused != tile {
+            controller.apply(.focus(target: .id(tile)))
+        }
         controller.apply(.select(pane: tile, kind: kind, ids: ids))
     }
 

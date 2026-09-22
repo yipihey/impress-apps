@@ -121,3 +121,28 @@ Session log (append-only):
   and launch **impress** — imbib's own window is still its pre-chassis
   `ContentView`, so the flag does nothing there, and the log endpoint on
   23120 is imbib's.
+- 2026-09-21 (later) — **L6 verified in the running shell**, with the display
+  awake. `defaults write com.impress.impress impress.layoutTree.enabled -bool
+  YES` and launch **impress** (not imbib — its window is still the pre-chassis
+  `ContentView`). Confirmed by hand, driving real CGEvents and reading
+  `/api/layout/tree` + the `layout` log back after each one:
+  * the three-column preset renders — navigator / list / detail, 4 tiles, 3
+    leaves;
+  * `h` / `l` walk the focus ring (3 → 2 → 1 → 2), one `focus` verb each;
+  * ⌃⌘S collapses the navigator to share 1e-4 and restores it to the sibling
+    average (2.5, not the 1 it started at — D5's remembered-width rule, and
+    what a user will notice first);
+  * a divider drag emits **exactly one** `resize` verb, on mouse-up (2 → 3
+    over the whole drag), share 2.5 → 1.67;
+  * every mutation shows the mutation / applied / display trace.
+  FIXED while verifying: clicking a ROW published `select` and left the focus
+  ring where it was — the container's `simultaneousGesture` never sees the tap
+  because the List row consumes it first. `PaneContext.select` now focuses its
+  own pane first (ADR-0031 D5/D7); a keyboard selection is already focused, so
+  it costs no second verb.
+  Also fixed earlier in this session: the tab strip's two `focus` call sites
+  (L6 did not compile at all), and the HTTP automation surface for the tree
+  (see the capability matrix) — verified end to end by splitting the detail
+  pane over `POST /api/layout/verb` and watching the window redraw.
+  Still open: L7's Swift half, L8, and there is no `delete-layout` verb in the
+  stack, so a saved layout can be overwritten but never removed.
