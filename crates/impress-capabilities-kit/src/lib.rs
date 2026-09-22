@@ -58,7 +58,9 @@ use serde_json::Value;
 // dependencies of this crate, so all four are always linked when this crate
 // is. See the module docs above for why a `use` alone is not sufficient on
 // its own to keep them in the FINAL BINARY's link: [`force_link`] is the real
-// reference a binary must call.
+// reference a binary must call — and, since 2026-09-22, the real reference
+// force_link itself must make. An empty `force_link()` retained this crate
+// and nothing else.
 
 #[allow(unused_imports)]
 use impress_layout_service as _force_link_layout_service;
@@ -83,7 +85,31 @@ use surface_demo_service as _force_link_surface_demo_service;
 /// calls this one; `impress-store-ffi` calls it directly (see that crate's
 /// `lib.rs`) since it has no other real reference to `impress-store-service`
 /// or `surface-demo-service`.
-pub fn force_link() {}
+pub fn force_link() {
+    // FUNCTION POINTERS, not calls. `use X as _;` above proves this crate
+    // names the crate; it does not make the final binary reference anything
+    // IN it, and an empty body here does not either — so the linker was free
+    // to drop all four rlibs and, with them, every `inventory::submit!` the
+    // `#[impress_service]` macro emits. That is not theoretical: with this
+    // body empty, the impress app rendered an agent surface whose `plot`
+    // read "template path '{{source.hist.plot}}' did not resolve to a value"
+    // — `surface-demo-service_histogram` was simply not in the app's
+    // inventory, while the same surface rendered correctly from impress-mcp,
+    // which links the services by other paths (verified live 2026-09-22).
+    //
+    // Taking a constructor's address is a real relocation into each crate and
+    // costs nothing at runtime; calling them would build four services for no
+    // reason. `black_box` keeps the optimiser from noticing the array is
+    // unused. This is the same shape `impress-cli`'s per-crate
+    // `_*_FORCE_LINK` consts have always had.
+    let anchors: [*const (); 4] = [
+        impress_store_service::DefaultStoreQueryService::new as *const (),
+        impress_layout_service::DefaultLayoutService::new as *const (),
+        impress_surface_service::DefaultImpressSurfaceService::new as *const (),
+        surface_demo_service::DefaultSurfaceDemoService::new as *const (),
+    ];
+    std::hint::black_box(anchors);
+}
 
 // ---------------------------------------------------------------------------
 // Descriptor lookup
