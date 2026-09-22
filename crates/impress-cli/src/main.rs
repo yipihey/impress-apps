@@ -24,32 +24,20 @@
 
 use impress_service_core::cli;
 
-// Force the linker to retain `impress_store_service`'s inventory submissions.
-// The `inventory` crate registers descriptors via static items inside a
-// `submit!` block; with no direct symbol reference the linker dead-strips
-// them and the CLI ends up with zero subcommands. See the matching comments
-// in `imbib-cli` and `imprint-cli`.
-#[allow(dead_code)]
-const _STORE_SERVICE_FORCE_LINK: fn() -> impress_store_service::DefaultCollectionService =
-    impress_store_service::DefaultCollectionService::new;
-#[allow(dead_code)]
-const _AI_SERVICE_FORCE_LINK: fn(serde_json::Value) -> impress_service_core::ServiceFuture =
-    impress_ai_service::__impress_ImpressAiService_list_models_invoke;
-#[allow(dead_code)]
-const _DOCS_IMPORT_FORCE_LINK: fn() -> impress_store_service::DefaultDocsImportService =
-    impress_store_service::DefaultDocsImportService::new;
-#[allow(dead_code)]
-const _SMART_SEARCH_FORCE_LINK: fn() -> impress_smart_search_service::DefaultSmartSearchService =
-    impress_smart_search_service::DefaultSmartSearchService::default;
-#[allow(dead_code)]
-const _PARSERS_FORCE_LINK: fn() -> impress_parsers_service::DefaultParsersService =
-    impress_parsers_service::DefaultParsersService::default;
-#[allow(dead_code)]
-const _LAYOUT_SERVICE_FORCE_LINK: fn() -> impress_layout_service::DefaultLayoutService =
-    impress_layout_service::DefaultLayoutService::new;
-#[allow(dead_code)]
-const _MEMORY_SERVICE_FORCE_LINK: fn() -> impress_memory_service::DefaultMemoryService =
-    impress_memory_service::DefaultMemoryService::new;
+// ADR-0033 D4 / plan S2: the seven force-link consts this comment used to
+// carry (`_STORE_SERVICE_FORCE_LINK`, `_AI_SERVICE_FORCE_LINK`, …, one per
+// `*-service` crate whose inventory submissions the linker would otherwise
+// drop for lack of a direct symbol reference — see the matching comments that
+// USED to be in `imbib-cli` and `imprint-cli`) have moved to
+// `crates/impress-capabilities`, the one place the `#[impress_service]`
+// inventory is linked now. This binary links it with `features = ["full"]`
+// (Cargo.toml), so it still links every capability it always did; the real
+// call into `cli::build_cli_from_inventory`/`dispatch_matches` below, which
+// walks the very `CliSubcommand` inventory those crates populate, is itself
+// the reference that keeps `impress-capabilities` — and, transitively,
+// everything it names — out of the linker's dead-code path. `impress-store-
+// service` and `impress-memory-service` stay direct dependencies below for
+// reasons unrelated to force-linking (see Cargo.toml).
 
 /// Refuse to run against a store we cannot reach.
 ///
@@ -116,6 +104,17 @@ fn take_store_path(args: Vec<String>) -> Vec<String> {
 }
 
 fn main() {
+    // The real reference into `impress-capabilities` this file's top comment
+    // promises: `cli::build_cli_from_inventory`/`dispatch_matches` below read
+    // the process-wide `CliSubcommand` inventory (defined in
+    // `impress-service-core`, populated by whichever crates are linked), not
+    // anything `impress-capabilities` exports directly — so without this
+    // call, nothing in this binary's compiled code would actually reach
+    // `impress-capabilities`, and the linker would be free to drop it (and
+    // every `*-service` crate it force-links) as unused. See that crate's
+    // `force_link` doc comment.
+    impress_capabilities::force_link();
+
     let args = take_store_path(std::env::args().collect());
 
     let app = cli::build_cli_from_inventory("impress")

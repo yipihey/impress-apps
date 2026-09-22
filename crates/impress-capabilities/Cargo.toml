@@ -7,5 +7,76 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
+impress-service-core = { workspace = true }
+
+# One optional dependency per service crate, gated by the feature of the same
+# name below. `imprint` links both `imprint-service` (the trait) and
+# `imprint-selftest` (`run-selftest`, ADR-0033 plan S2) — they are one
+# capability family, not two.
+imbib-service = { workspace = true, optional = true }
+impart-service = { workspace = true, optional = true }
+impel-service = { workspace = true, optional = true }
+implore-service = { workspace = true, optional = true }
+imprint-service = { workspace = true, optional = true }
+imprint-selftest = { workspace = true, optional = true }
+impress-ai-service = { workspace = true, optional = true }
+impress-bridges-service = { workspace = true, optional = true }
+impress-layout-service = { workspace = true, optional = true }
+impress-memory-service = { workspace = true, optional = true }
+impress-parsers-service = { workspace = true, optional = true }
+impress-smart-search-service = { workspace = true, optional = true }
+impress-store-service = { workspace = true, optional = true }
+# Not a workspace.dependencies entry (see crates/impress-mcp/Cargo.toml,
+# which reaches it the same way): the vw-* family has never had a workspace
+# alias, only relative `path` dependencies from each consumer.
+vw-impress-adapter = { path = "../vw-impress-adapter", optional = true }
+# Stub crates today (ADR-0033 D7 wave 1): no `#[impress_service]` methods
+# exist yet, so there is nothing to force-link. Depended on now so the `kit`
+# feature set is complete from the start and S4/S9 need no Cargo.toml edit
+# here to start registering verbs.
+impress-surface-service = { workspace = true, optional = true }
+surface-demo-service = { workspace = true, optional = true }
+
+[features]
+# `full`: every capability the suite has, for the two binaries that must see
+# everything (impress-mcp, impress-cli). `kit`: the ADR-0033 D7 standalone
+# cut — store, layout and the two surface crates only, none of the five
+# per-app domain cores (imbib/imprint/implore/impart/impel), which already
+# ship as their own xcframeworks and must not be linked a second time here.
+default = ["full"]
+full = [
+    "imbib",
+    "impart",
+    "impel",
+    "implore",
+    "imprint",
+    "ai",
+    "bridges",
+    "layout",
+    "memory",
+    "parsers",
+    "smart-search",
+    "store",
+    "vw",
+    "surface",
+    "surface-demo",
+]
+kit = ["store", "layout", "surface", "surface-demo"]
+
+imbib = ["dep:imbib-service"]
+impart = ["dep:impart-service"]
+impel = ["dep:impel-service"]
+implore = ["dep:implore-service"]
+imprint = ["dep:imprint-service", "dep:imprint-selftest"]
+ai = ["dep:impress-ai-service"]
+bridges = ["dep:impress-bridges-service"]
+layout = ["dep:impress-layout-service"]
+memory = ["dep:impress-memory-service"]
+parsers = ["dep:impress-parsers-service"]
+smart-search = ["dep:impress-smart-search-service"]
+store = ["dep:impress-store-service"]
+vw = ["dep:vw-impress-adapter"]
+surface = ["dep:impress-surface-service"]
+surface-demo = ["dep:surface-demo-service"]

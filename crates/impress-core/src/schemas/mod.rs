@@ -69,8 +69,9 @@ pub use task::{
 };
 pub use throughline::register_throughline_schema;
 pub use ui::{
-    layout_schema, preset_schema, register_ui_schemas, LAYOUT_SCHEMA_REF, PRESET_SCHEMA_REF,
-    UI_SCHEMA_REFS,
+    layout_schema, preset_schema, register_ui_schemas, surface_event_schema, surface_schema,
+    surface_state_schema, LAYOUT_SCHEMA_REF, PRESET_SCHEMA_REF, SURFACE_EVENT_SCHEMA_REF,
+    SURFACE_SCHEMA_REF, SURFACE_STATE_SCHEMA_REF, UI_SCHEMA_REFS,
 };
 pub use veusz_plot::register_veusz_plot_schema;
 pub use watched_folder::{
@@ -132,10 +133,13 @@ pub fn register_core_schemas(registry: &mut crate::registry::SchemaRegistry) {
     // convention with; depends on nothing, since a memory's subject is an
     // `ItemId` of ANY kind rather than an inherits edge to one.
     register_memory_schemas(registry);
-    // Workspace UI records (ADR-0019 D1, ADR-0031 D4/D10): the layout tree and
-    // the presets it comes from. Registered last and depends on nothing — a
-    // layout's relation to its preset is a `DerivedFrom` edge, not an inherits
-    // edge, and the tree itself is open JSON owned by `crates/impress-layout`.
+    // Workspace UI records (ADR-0019 D1, ADR-0031 D4/D10, ADR-0033 D1/D5): the
+    // layout tree, the presets it comes from, and the agent-authored surfaces
+    // rendered inside a pane plus their ephemeral state/event rows. Registered
+    // last and depends on nothing — a layout's relation to its preset (and a
+    // surface's relation to what it derives from or relates to) is an edge,
+    // not an inherits edge, and the tree/spec themselves are open JSON owned
+    // by `crates/impress-layout` / `crates/impress-surface` respectively.
     register_ui_schemas(registry);
 }
 
