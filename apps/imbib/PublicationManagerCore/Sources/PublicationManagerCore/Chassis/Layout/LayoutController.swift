@@ -371,11 +371,7 @@ public final class LayoutController {
                 "layout applied: \(verb.traceDescription) → version \(applied.version), "
                     + "\(applied.affectedPanes.count) affected, \(applied.changedTiles.count) changed",
                 category: "layout")
-            adopt(
-                layoutJSON: applied.layoutJson, version: applied.version, focused: applied.focused)
-            for pane in applied.affectedPanes { invalidatedPanes.insert(pane) }
-            refreshToken &+= 1
-            lastError = nil
+            adoptApplied(applied)
             return true
         } catch {
             // A refused verb is a REFUSAL, not an empty tree: say so.
@@ -385,30 +381,82 @@ public final class LayoutController {
         }
     }
 
-    private func perform(_ verb: LayoutVerb) throws -> SharedAppliedVerb {
+    /// - Parameter actor: who asked. `guiActor` for a keystroke; the HTTP
+    ///   automation surface passes its own, so the log and the undo rings can
+    ///   tell a script's split from a person's (ADR-0031 D7).
+    private func perform(
+        _ verb: LayoutVerb, actor: String = LayoutController.guiActor
+    ) throws -> SharedAppliedVerb {
         if let json = verb.verbJSON {
-            return try layout.apply(verbJson: json.jsonString(), actor: Self.guiActor)
+            return try layout.apply(verbJson: json.jsonString(), actor: actor)
         }
         switch verb {
         case .focusDirection(let direction):
-            return try layout.focusDirection(dir: direction.rawValue, actor: Self.guiActor)
+            return try layout.focusDirection(dir: direction.rawValue, actor: actor)
         case .select(let pane, let kind, let ids):
-            return try layout.select(pane: pane, kind: kind, ids: ids, actor: Self.guiActor)
+            return try layout.select(pane: pane, kind: kind, ids: ids, actor: actor)
         case .resizeShare(let pane, let share):
             return try layout.resizeShare(
-                pane: pane, share: Float(share), actor: Self.guiActor)
+                pane: pane, share: Float(share), actor: actor)
         case .undo(let stack, let pane):
-            return try layout.undo(stack: stack.rawValue, pane: pane, actor: Self.guiActor)
+            return try layout.undo(stack: stack.rawValue, pane: pane, actor: actor)
         case .redo(let stack, let pane):
-            return try layout.redo(stack: stack.rawValue, pane: pane, actor: Self.guiActor)
+            return try layout.redo(stack: stack.rawValue, pane: pane, actor: actor)
         case .saveLayout(let name, let purpose):
-            return try layout.saveLayout(name: name, purpose: purpose, actor: Self.guiActor)
+            return try layout.saveLayout(name: name, purpose: purpose, actor: actor)
         case .applyLayout(let nameOrOrdinal):
-            return try layout.applyLayout(nameOrOrdinal: nameOrOrdinal, actor: Self.guiActor)
+            return try layout.applyLayout(nameOrOrdinal: nameOrOrdinal, actor: actor)
         default:
             // Unreachable: every case without a `verbJSON` is handled above.
             throw SharedLayoutError.Layout(message: "unroutable verb \(verb.traceDescription)")
         }
+    }
+
+    // MARK: The automation seam (ADR-0031 D8 over HTTP)
+
+    /// Apply one `impress_layout::Verb` given as JSON, from `actor`.
+    ///
+    /// The door the HTTP surface comes through, and deliberately the SAME
+    /// door `perform` uses for every tree-shaped verb — so there is no verb
+    /// an agent can reach that a keystroke cannot, and none the log spells
+    /// differently. Throws what Rust refused; the caller reports it.
+    func applyVerbJSON(_ json: String, actor: String) throws -> SharedAppliedVerb {
+        logInfo("layout verb (\(actor)): \(json)", category: "layout")
+        let applied = try layout.apply(verbJson: json, actor: actor)
+        adoptApplied(applied)
+        return applied
+    }
+
+    /// The typed half: the operations that are not `Verb` cases (undo, redo,
+    /// resize-share, save-layout, apply-layout).
+    func performForAutomation(_ verb: LayoutVerb, actor: String) throws -> SharedAppliedVerb {
+        logInfo("layout verb (\(actor)): \(verb.traceDescription)", category: "layout")
+        let applied = try perform(verb, actor: actor)
+        adoptApplied(applied)
+        return applied
+    }
+
+    /// The live tree as a decoded JSON object, for a caller that wants to ship
+    /// it over the wire rather than render it.
+    func liveSnapshot() throws -> [String: Any] {
+        let snapshot = try layout.snapshot()
+        guard
+            let object = try JSONSerialization.jsonObject(
+                with: Data(snapshot.layoutJson.utf8)) as? [String: Any]
+        else {
+            throw SharedLayoutError.Layout(message: "layout JSON is not an object")
+        }
+        return object
+    }
+
+    /// Adopt what one verb returned: the tree, the version, the focus, the
+    /// stale panes. One place, because a caller that adopted three of the four
+    /// would render a tree that disagrees with the one Rust holds.
+    private func adoptApplied(_ applied: SharedAppliedVerb) {
+        adopt(layoutJSON: applied.layoutJson, version: applied.version, focused: applied.focused)
+        for pane in applied.affectedPanes { invalidatedPanes.insert(pane) }
+        refreshToken &+= 1
+        lastError = nil
     }
 
     // MARK: Roles (the universal chords, ADR-0031 D5)

@@ -74,14 +74,14 @@ public enum SharedAutomationRoutes {
 
     /// The paths this group answers. Exposed so a router (or a test) can assert
     /// it is not shadowing one with a domain route of its own.
-    public static let paths: Set<String> = [
+    public static let paths: Set<String> = Set([
         "/api/logs",
         "/api/logs/stream",
         "/api/performance",
         "/api/performance/reset",
         "/api/store-timings",
         "/api/store-timings/reset",
-    ]
+    ]).union(LayoutAutomationRoutes.paths)
 
     /// Answer `request` if it is one of the generic routes; return `nil` to let
     /// the caller fall through to its own dispatch.
@@ -135,7 +135,11 @@ public enum SharedAutomationRoutes {
             return .json(["status": "ok", "reset": true])
 
         default:
-            return nil
+            // The ADR-0031 layout tree. Shared for the same reason the routes
+            // above are: the tree is the CHASSIS' layout model, so an app that
+            // renders the chassis has this surface by mounting one line, and
+            // there is no second spelling of it to drift.
+            return await LayoutAutomationRoutes.route(path, method: method, request: request)
         }
     }
 

@@ -1916,17 +1916,47 @@ public actor HTTPAutomationRouter: HTTPRouter {
         ]
     }
 
+    /// Is the ADR-0031 layout tree rendering this app's windows?
+    ///
+    /// When it is, `PaneLayoutState` is NOT what the window draws: the three
+    /// pane toggles are resizes of a role's share in the tree, and the saved
+    /// "layouts" here are a different store from the tree's. The routes below
+    /// still answer — the flagged-off build is the shipping one — but they say
+    /// which model they acted on rather than returning a bare `ok` an agent
+    /// would read as "the window changed". The tree's own surface is
+    /// `/api/layout/tree`, `/api/layout/verb` and `/api/layout/op`
+    /// (`SharedAutomationRoutes`).
+    private var layoutTreeIsRendering: Bool {
+        get async { await MainActor.run { LayoutAutomation.shared.isActive } }
+    }
+
+    /// The model marker every legacy layout response carries.
+    private func paneModelKeys(treeActive: Bool) -> [String: Any] {
+        var keys: [String: Any] = ["model": "pane-layout-state"]
+        if treeActive {
+            keys["treeActive"] = true
+            keys["detail"] =
+                "The ADR-0031 layout tree is rendering this window; PaneLayoutState is not "
+                + "what it draws. Use GET /api/layout/tree and POST /api/layout/verb."
+        }
+        return keys
+    }
+
     /// GET /api/layout — live pane arrangement + saved layouts.
     private func handleGetLayout() async -> HTTPResponse {
         let (current, layouts) = await MainActor.run {
             (PaneLayoutStore.shared.current,
              PaneLayoutStore.shared.layouts)
         }
-        return .json([
+        var payload: [String: Any] = [
             "status": "ok",
             "current": layoutStateDict(current),
-            "layouts": layouts.map { ["name": $0.name, "state": layoutStateDict($0.state)] }
-        ])
+            "layouts": layouts.map { ["name": $0.name, "state": layoutStateDict($0.state)] },
+        ]
+        for (key, value) in await paneModelKeys(treeActive: layoutTreeIsRendering) {
+            payload[key] = value
+        }
+        return .json(payload)
     }
 
     /// POST /api/layout — set any subset of the live pane arrangement.
@@ -1959,7 +1989,11 @@ public actor HTTPAutomationRouter: HTTPRouter {
             return state
         }
         logInfo("HTTP layout update: \(keys)", category: "layout")
-        return .json(["status": "ok", "current": layoutStateDict(updated)])
+        var payload: [String: Any] = ["status": "ok", "current": layoutStateDict(updated)]
+        for (key, value) in await paneModelKeys(treeActive: layoutTreeIsRendering) {
+            payload[key] = value
+        }
+        return .json(payload)
     }
 
     /// POST /api/layout/apply {"name": "Reading"} — apply a saved layout.
@@ -1972,7 +2006,13 @@ public actor HTTPAutomationRouter: HTTPRouter {
              PaneLayoutStore.shared.current)
         }
         guard applied else { return .notFound("No saved layout named '\(name)'") }
-        return .json(["status": "ok", "applied": name, "current": layoutStateDict(current)])
+        var payload: [String: Any] = [
+            "status": "ok", "applied": name, "current": layoutStateDict(current),
+        ]
+        for (key, value) in await paneModelKeys(treeActive: layoutTreeIsRendering) {
+            payload[key] = value
+        }
+        return .json(payload)
     }
 
     /// POST /api/layout/save {"name": "My Setup"} — save the live arrangement.
@@ -1985,7 +2025,11 @@ public actor HTTPAutomationRouter: HTTPRouter {
             PaneLayoutStore.shared.saveCurrent(named: name)
             return PaneLayoutStore.shared.layouts.map(\.name)
         }
-        return .json(["status": "ok", "saved": name, "layouts": names])
+        var payload: [String: Any] = ["status": "ok", "saved": name, "layouts": names]
+        for (key, value) in await paneModelKeys(treeActive: layoutTreeIsRendering) {
+            payload[key] = value
+        }
+        return .json(payload)
     }
 
     /// GET /api/appearance — per-surface appearance (authoritative stores).

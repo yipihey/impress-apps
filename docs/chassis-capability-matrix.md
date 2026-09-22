@@ -2877,6 +2877,51 @@ defaults delete com.impress.imbib impress.layoutTree.enabled            # off
 The flag is read ONCE per launch (`LayoutTreeFlag.isEnabled`), so it cannot
 change under a live window.
 
+**The flag belongs to the app whose root is `ChassisRootView`** — `impress`,
+and any other chassis root. imbib's main window is still its pre-chassis
+`ContentView`, so `defaults write com.impress.imbib …` sets a key nothing
+reads. Verified on a Mac, 2026-09-21.
+
+### HTTP automation (the tree's agent surface, 2026-09-21)
+
+The layout verbs were reachable headlessly from the day L3 landed — 35
+`layout-service_*` MCP tools and the matching `impress <verb>` CLI
+subcommands, both over the store with every app closed. What did NOT exist was
+a way to drive the tree in a RUNNING app, which is the case that matters for
+"show me what the user is looking at". Four routes now do, in
+`SharedAutomationRoutes` (so every chassis app has them, not just imbib):
+
+| Route | Answers |
+|---|---|
+| `GET /api/layout/tree` | the live tree — windows, tiles, channels — plus `version` and `focused` |
+| `GET /api/layout/layouts` | the saved layouts, in ⌃⌘1–9 order |
+| `POST /api/layout/verb` | one `impress_layout::Verb`, forwarded VERBATIM to `SharedLayout.apply(verbJson:actor:)` |
+| `POST /api/layout/op` | the five operations that are not `Verb` cases: `undo`, `redo`, `resize-share`, `save-layout`, `apply-layout` |
+
+Three properties worth keeping:
+
+* **No second vocabulary.** `ImpressAutomation` never learns the verb enum —
+  it forwards the body to a registered `LayoutAutomationHost`
+  (`LayoutController`). A verb Rust grows is reachable over HTTP the day it
+  lands, with nothing to add in Swift. A hand-written mirror would have been
+  the third copy and the one nothing calls, so the one that rots.
+* **Every mutation is attributed to `"agent"`**, never `guiActor`, so the
+  three-point layout trace distinguishes a script's split from a person's.
+* **No tree rendering → 409**, naming the flag AND the headless path. Not a
+  200 with an empty body: that is what `/api/layout` did, below.
+
+`/api/layout`, `/api/layout/apply` and `/api/layout/save` are imbib's OLD
+`PaneLayoutState` routes and still drive it — the flagged-off build is the
+shipping one. They now carry `model: "pane-layout-state"`, plus
+`treeActive: true` and a pointer to the tree routes when the tree is what the
+window is actually drawing. Before that marker they answered a plain `ok`
+while changing nothing anyone could see: the same "reported success while
+doing nothing" failure ADR-0032 documents for the two cross-app citation
+channels.
+
+Known gap: there is no `delete-layout` verb anywhere in the stack (Rust, CLI,
+MCP or HTTP), so a saved layout can be overwritten by name but never removed.
+
 ### View kinds
 
 The registry key is `PaneSpec.view_kind`, matched by **string equality**

@@ -41,6 +41,7 @@
 
 import AppKit
 import Foundation
+import ImpressAutomation
 import ImpressKeyboard
 import ImpressLogging
 import ImpressRustCore
@@ -114,11 +115,16 @@ public struct LayoutTreeHost: View {
             let opened = LayoutController(layout: layout, appID: appID)
             controller = opened
             LayoutTreeRuntime.shared.controller = opened
+            // The HTTP automation surface drives THIS controller or answers
+            // 409. Registered here, beside the runtime handle, so "a tree is
+            // rendering" and "layout automation works" are one fact.
+            LayoutAutomation.shared.host = opened
             logInfo("layout host: tree opened for \(appID)", category: "layout")
         }
         .onDisappear {
             controller?.stop()
             LayoutTreeRuntime.shared.controller = nil
+            LayoutAutomation.shared.host = nil
         }
     }
 }
