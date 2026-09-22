@@ -168,6 +168,8 @@ impress-apps/
 └── crates/
     ├── imbib-core/     # Rust core for imbib
     ├── impress-mcp/    # THE MCP server (generated from #[impress_service])
+    ├── impress-capabilities/ # one linked inventory of every *-service verb (ADR-0033 D4)
+    ├── impress-surface*/     # agent-authored GUIs: spec/plan/resolve/reduce + the service crate (ADR-0033)
     └── *-service/      # #[impress_service] traits: one method → MCP + CLI + impel tool
 ```
 
@@ -338,6 +340,21 @@ AppearanceSettingsSection(mode: $appearanceMode)  // System/Light/Dark picker
   observer for months, and `ImpressURL.insertCitation` built a URL imprint
   never handled). A seam's answer must distinguish "done" from "nobody was
   listening".
+- **Agent surfaces live in Rust and in store records** (ADR-0033): a GUI for a
+  Rust capability is a `*-service` crate plus a JSON surface document, not a
+  Swift view — the surface's whole behaviour is `impress-surface`'s pure
+  plan/resolve/reduce, and the Swift renderer is a mapping from `RenderTree`
+  to SwiftUI with no logic of its own. A surface can only compute by calling a
+  verb; there are no expressions, conditionals or loops in a spec, and verbs
+  reach a surface through the one linked inventory in
+  `crates/impress-capabilities` — add a capability there, never a second
+  force-link list (the failure `impress-mcp`/`impress-cli` used to risk
+  separately). `scripts/check-kit-deps.sh` pins that no kit crate reaches
+  `impress-core`'s domain modules, so the layer can leave as its own kit one
+  day. The five-verb loop (`surface_schema` → author → `surface_validate` →
+  `surface_create` → `surface_show`, then `surface_wait`/react) and the
+  `scripts/new-capability.sh` scaffold are in
+  [docs/agent-surfaces.md](docs/agent-surfaces.md).
 - **E-ink mirroring lives in Rust and in store records** (imbib ADR-025): the reMarkable
   is reached over its USB web interface, which can only list, upload and download — no
   folder creation, rename, move or delete, and an upload lands in whatever folder was
