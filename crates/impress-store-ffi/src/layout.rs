@@ -36,6 +36,50 @@
 //! grace during which invalidations are collected but NOT delivered — which is
 //! CLAUDE.md's 60–90 s startup render-loop guard (ADR-0019 D6) applied at the
 //! source rather than re-implemented in every Swift subscriber.
+//!
+//! # Liveness across processes (ADR-0033 D6)
+//!
+//! `subscribe_mutations()` is an in-process channel: it can only ever report
+//! writes made through THIS `SqliteItemStore` handle, in THIS process. An
+//! agent driving the suite from a chat writes through `impress-mcp`, a
+//! separate process opening the same SQLite file — a layout or surface row it
+//! writes is invisible to the running app's feed, and no amount of debounce
+//! tuning fixes that, because the bus it is tuned on never receives the
+//! event. ADR-0033 D6 fixes this at the store rather than by adding an HTTP
+//! relay between the two processes: alongside the mutation channel, the feed
+//! polls [`SqliteItemStore::data_version`] every [`EXTERNAL_POLL_MS`]
+//! (settable via [`SharedLayout::set_external_poll_ms`]). `PRAGMA
+//! data_version` is SQLite's own cheap (no I/O beyond the pragma itself),
+//! per-connection counter that moves exactly when SOME OTHER connection has
+//! committed — including another `SqliteItemStore` handle on the same file in
+//! this process or another — and never for this connection's own writes, so
+//! it is a free way to ask "did something else write since I last looked?"
+//! without re-querying every row on a timer. 250 ms keeps a chat-driven
+//! change visible in well under a second while costing nothing when nothing
+//! external is happening (compare the 50 ms in-process debounce, which is
+//! deliberately much tighter because it is reacting to a channel that only
+//! fires on a real write, not polling blind).
+//!
+//! When the version moves, the feed reads `items_modified_since("impress/ui/",
+//! high_water_mark)` and folds each row into the same `StoreMutation` /
+//! `MutationKind` pipeline an in-process write would have produced (as
+//! `MutationKind::Updated` — [`Invalidation::is_affected_by`] treats
+//! `Created`, `Updated` and `Deleted` identically for the schema-ref and
+//! anchor-row rules, so the distinction is not observable from a plain read
+//! and is not worth reconstructing), then advances the mark to the latest
+//! `modified` timestamp actually seen. The result goes through the SAME
+//! debounce and startup-grace logic as an in-process mutation — this is an
+//! additional source feeding `pending`, not a second delivery path.
+//!
+//! The `impress/ui/` prefix is deliberate, not a placeholder: it is the
+//! agent-facing surface (layout, and — from work package S4,
+//! `impress-surface-service` — capability surfaces under
+//! `impress/ui/surface@1.0.0`) that a standalone chat process is expected to
+//! write to. Other
+//! record kinds keep their own liveness path — this poll does not become a
+//! second general-purpose invalidation channel for the whole store, which
+//! would make every write in the suite pay for a `PRAGMA` + query on a timer
+//! whether or not anything outside this process is writing.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -278,6 +322,7 @@ pub struct SharedLayout {
     version: Arc<AtomicU64>,
     debounce_ms: AtomicU64,
     startup_grace_secs: AtomicU64,
+    external_poll_ms: AtomicU64,
     feed: Mutex<Option<Feed>>,
 }
 
@@ -299,6 +344,7 @@ impl SharedLayout {
             version: Arc::new(AtomicU64::new(0)),
             debounce_ms: AtomicU64::new(DEFAULT_DEBOUNCE_MS),
             startup_grace_secs: AtomicU64::new(0),
+            external_poll_ms: AtomicU64::new(EXTERNAL_POLL_MS),
             feed: Mutex::new(None),
         })
     }
@@ -307,6 +353,15 @@ impl SharedLayout {
     /// `panes_invalidated`. Default 50 ms. Set before subscribing.
     pub fn set_debounce_ms(&self, millis: u32) {
         self.debounce_ms
+            .store(millis.max(1) as u64, Ordering::SeqCst);
+    }
+
+    /// How often the feed polls `SqliteItemStore::data_version()` to notice
+    /// writes made by another process or another store handle on the same
+    /// file (ADR-0033 D6 — see the module docs). Default
+    /// [`EXTERNAL_POLL_MS`]. Set before subscribing.
+    pub fn set_external_poll_ms(&self, millis: u32) {
+        self.external_poll_ms
             .store(millis.max(1) as u64, Ordering::SeqCst);
     }
 
@@ -635,6 +690,7 @@ impl SharedLayout {
             device: self.device.clone(),
             debounce: Duration::from_millis(self.debounce_ms.load(Ordering::SeqCst)),
             grace: Duration::from_secs(self.startup_grace_secs.load(Ordering::SeqCst)),
+            external_poll: Duration::from_millis(self.external_poll_ms.load(Ordering::SeqCst)),
         };
         let join = std::thread::Builder::new()
             .name("impress-layout-invalidation".into())
@@ -975,6 +1031,18 @@ const POLL: Duration = Duration::from_millis(10);
 /// windows, so a continuous writer cannot starve the renderer.
 const MAX_BURST_DEBOUNCES: u32 = 10;
 
+/// Default interval between polls of [`SqliteItemStore::data_version`] for
+/// the cross-process invalidation path (ADR-0033 D6, see the module docs).
+/// `PRAGMA data_version` is a per-connection counter with no I/O beyond the
+/// pragma itself, so polling it at this cadence is cheap; 250 ms keeps a
+/// chat-driven write visible in well under a second.
+const EXTERNAL_POLL_MS: u64 = 250;
+
+/// Schema-ref prefix the external poll watches: the agent-facing surface
+/// (layout today, capability surfaces from work package S4). See the module
+/// docs for why this is not a general-purpose second invalidation channel.
+const EXTERNAL_UI_PREFIX: &str = "impress/ui/";
+
 struct InvalidationFeed {
     running: Arc<AtomicBool>,
     listener: Arc<dyn SharedLayoutListener>,
@@ -985,6 +1053,7 @@ struct InvalidationFeed {
     device: Option<String>,
     debounce: Duration,
     grace: Duration,
+    external_poll: Duration,
 }
 
 impl InvalidationFeed {
@@ -1002,6 +1071,15 @@ impl InvalidationFeed {
         let mut held: Vec<u64> = Vec::new();
         let mut grace_over = self.grace.is_zero();
 
+        // Cross-process liveness (ADR-0033 D6, see the module docs). `data_version`
+        // reads as this connection's own baseline before the loop starts, so an
+        // `impress/ui/` row already in the file at subscribe time is not replayed —
+        // only writes made from here on are external mutations to this feed.
+        // `high_water_mark` starts at "now" for the same reason.
+        let mut last_data_version = self.store.data_version().ok();
+        let mut high_water_mark: i64 = chrono::Utc::now().timestamp_millis();
+        let mut last_external_poll = Instant::now();
+
         while self.running.load(Ordering::SeqCst) {
             match rx.recv_timeout(POLL) {
                 Ok(mutation) => {
@@ -1013,6 +1091,40 @@ impl InvalidationFeed {
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+
+            if last_external_poll.elapsed() >= self.external_poll {
+                last_external_poll = Instant::now();
+                if let Ok(dv) = self.store.data_version() {
+                    if last_data_version != Some(dv) {
+                        last_data_version = Some(dv);
+                        if let Ok(items) = self
+                            .store
+                            .items_modified_since(EXTERNAL_UI_PREFIX, high_water_mark)
+                        {
+                            for item in items {
+                                let modified_ms = item.modified.timestamp_millis();
+                                if modified_ms > high_water_mark {
+                                    high_water_mark = modified_ms;
+                                }
+                                // See the module docs: Created / Updated / Deleted are
+                                // indistinguishable from a plain read and are matched
+                                // identically by `Invalidation::is_affected_by`, so
+                                // `Updated` stands in for all of them here.
+                                let mutation = impress_core::event::StoreMutation::new(
+                                    item.id,
+                                    Some(item.schema),
+                                    impress_core::event::MutationKind::Updated,
+                                );
+                                if burst_started.is_none() {
+                                    burst_started = Some(Instant::now());
+                                }
+                                last_seen = Some(Instant::now());
+                                pending.push(mutation);
+                            }
+                        }
+                    }
+                }
             }
 
             // The tree changed under us: tell the host, and remember that the
@@ -1547,6 +1659,62 @@ mod tests {
             panes.recv_timeout(Duration::from_millis(300)).is_err(),
             "the held invalidations arrive as ONE batch, not a replay"
         );
+
+        layout.unsubscribe_invalidations();
+    }
+
+    /// ADR-0033 D6: a write from ANOTHER `SqliteItemStore` handle on the same
+    /// file — the shape of `impress-mcp`, a separate process writing the same
+    /// database — is picked up by the external `data_version` poll and
+    /// delivered through the same `panes_invalidated` path as an in-process
+    /// mutation, with no HTTP relay between the two.
+    ///
+    /// `:memory:` cannot show this (private to one connection), so this test
+    /// opens a real temp file and a second `SharedStore` (which itself opens
+    /// a second `SqliteItemStore` handle) on it. The tree needs a pane whose
+    /// query actually matches the written kind for an invalidation to fire —
+    /// the layout tree itself is not pane-queryable — so the list pane is
+    /// retargeted at `"surface"` (`impress/ui/surface@1.0.0`, already in the
+    /// built-in manifest per ADR-0033 D1), which is exactly the
+    /// agent-facing-surface case D6 exists for.
+    #[test]
+    fn an_external_connections_write_is_seen_within_one_poll() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("external_poll.sqlite");
+        let path_str = path.to_str().unwrap().to_string();
+
+        let store = SharedStore::open(path_str.clone()).expect("open");
+        let layout = SharedLayout::open(store.clone(), "test-app".into(), Some("test".into()));
+        let list = role_of(&layout, "list");
+
+        layout
+            .apply(
+                r#"{"verb":"set-query","target":{"ref":"role","role":"list"},"query":{"kinds":["surface"]}}"#.into(),
+                "human".into(),
+            )
+            .expect("retarget the list pane at the surface kind");
+
+        layout.set_debounce_ms(20);
+        layout.set_startup_grace_secs(0);
+        layout.set_external_poll_ms(20);
+        let (listener, panes) = recorder();
+        layout.subscribe_invalidations(listener).expect("subscribe");
+
+        // A second handle on the SAME file — not the `store` the feed's own
+        // `SharedLayout` was opened on.
+        let external = SharedStore::open(path_str).expect("open a second handle");
+        external
+            .upsert_item(
+                uuid::Uuid::new_v4().to_string(),
+                "impress/ui/surface@1.0.0".into(),
+                r#"{"title": "agent surface"}"#.into(),
+            )
+            .expect("external write");
+
+        let batch = panes
+            .recv_timeout(Duration::from_secs(1))
+            .expect("the external write is seen within roughly one poll interval");
+        assert_eq!(batch, vec![list]);
 
         layout.unsubscribe_invalidations();
     }
