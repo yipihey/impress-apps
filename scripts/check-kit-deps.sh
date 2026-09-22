@@ -31,14 +31,10 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/home/user/impress-apps/target}"
 
 KIT_CRATES=(impress-pane-query impress-layout impress-surface)
 
-# impress-surface is allowed to depend on impress-core UNTIL S0 lands: per
-# ADR-0033 D7 and plan-agent-surfaces.md S0/S1, it uses
-# impress_core::pane_query types (PaneQuery, ParamDecl, Bindings) directly
-# until the pane-query algebra moves into impress-pane-query and
-# impress-core re-exports it. Remove "impress-surface" from this list once
-# S0 has merged and impress-surface has been repointed at
-# impress-pane-query directly.
-ALLOW_IMPRESS_CORE=(impress-surface)
+# Crates temporarily allowed to reach impress-core, with the package that
+# removes each entry named beside it. Empty since S0 and S1 landed: every kit
+# crate now depends on impress-pane-query, not impress-core (ADR-0033 D7).
+ALLOW_IMPRESS_CORE=()
 
 is_allowed() {
     local crate="$1" allowed

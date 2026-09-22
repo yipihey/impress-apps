@@ -4813,7 +4813,7 @@ dependencies = [
 name = "impress-surface"
 version = "0.1.0"
 dependencies = [
- "impress-core",
+ "impress-pane-query",
  "schemars 0.8.22",
  "serde",
  "serde_json",

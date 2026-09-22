@@ -33,9 +33,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 // `PaneQuery`/`ParamDecl` are spelled once, in the pane-query algebra. See the
-// Cargo.toml comment on the `impress-core` dependency for why this crate imports
-// them from `impress_core::pane_query` rather than a not-yet-populated sibling.
-pub use impress_core::pane_query::{PaneQuery, ParamDecl};
+// algebra crate, `impress-pane-query` (ADR-0033 D7): the kit never reaches
+// impress-core.
+pub use impress_pane_query::{PaneQuery, ParamDecl};
 
 /// The one `surface` version this crate understands. [`validate::validate`]
 /// (`crate::validate`) checks a spec's [`SurfaceSpec::surface`] field against it.
