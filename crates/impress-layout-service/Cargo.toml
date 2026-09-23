@@ -23,6 +23,12 @@ impress-layout = { workspace = true, features = ["schema"] }
 impress-store-service = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
+# Tier B only: the seven loopback requests that drive the running app's
+# `/api/layout/*` and `/api/surface/*`. Deliberately raw `reqwest` rather than
+# `impress-app-client`, whose typed clients are built on `imbib-service` and
+# `imprint-service` — two whole domain stacks for a kit-adjacent crate to take
+# on (ADR-0033 D7). `imprint-selftest` makes its Tier B calls the same way.
+reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }

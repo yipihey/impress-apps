@@ -21,11 +21,15 @@ use crate::report::SelfTestReport;
 pub trait LayoutSelftestService: Send + Sync + 'static {
     /// Run the layout capability self-tests and return the report.
     ///
-    /// `tier` accepts `"a"` (pure Rust over a private in-memory store — every
-    /// D8 verb, both undo rings, the cold start and the one-live-row
-    /// invariant) or `"all"`/`""`, which is the same thing today: the live-app
-    /// tier arrives with the Swift host (L6). Nothing here touches the user's
-    /// store.
+    /// `tier` accepts:
+    ///
+    /// * `"a"` — pure Rust over a private in-memory store: every D8 verb,
+    ///   both undo rings, the cold start and the one-live-row invariant.
+    ///   Nothing here touches the user's store.
+    /// * `"b"` — drives the RUNNING impress app over `/api/layout/*` and
+    ///   `/api/surface/*` (port 23125). Skips cleanly when no app answers, so
+    ///   a headless box stays green. It restores the arrangement it found.
+    /// * `"all"`/`""` — both, Tier A first.
     #[impress_method]
     async fn run_selftest(&self, tier: String) -> SelfTestReport;
 }
@@ -38,14 +42,16 @@ pub struct DefaultLayoutSelftestService;
 impl LayoutSelftestService for DefaultLayoutSelftestService {
     async fn run_selftest(&self, tier: String) -> SelfTestReport {
         match tier.trim().to_ascii_lowercase().as_str() {
-            // Tier B does not exist yet, and a request for it must say so
-            // rather than quietly reporting a Tier A pass as live-app proof.
-            "b" => SelfTestReport::from_results(vec![crate::skipped(
-                "tier-b",
-                "drive a running app over HTTP",
-                crate::report::Tier::B,
-                "the layout tree has no live-app surface yet — it arrives with the Swift host (L6)",
-            )]),
+            "b" => crate::run_tier_b().await,
+            // `all` is both catalogues in one report: Tier A's headless proof
+            // that the verbs are right, then Tier B's proof that the app
+            // actually performs them. One report, because a caller asking for
+            // "everything" wants one pass/fail, not two.
+            "all" | "" => {
+                let mut results = crate::tier_a::run().await;
+                results.extend(crate::tier_b::run(crate::tier_b::IMPRESS_BASE_URL).await);
+                SelfTestReport::from_results(results)
+            }
             _ => crate::run_tier_a().await,
         }
     }
@@ -60,7 +66,7 @@ impress_service_impl! {
     impl = DefaultLayoutSelftestService,
     instance = || selftest_instance(),
     methods = [
-        /// Run the layout tree's capability self-tests (`tier` = a | all).
+        /// Run the layout tree's capability self-tests (`tier` = a | b | all).
         run_selftest(tier: String) -> SelfTestReport,
     ],
 }
