@@ -10,6 +10,21 @@
 //! already owns and returns; there is nothing for an `Effect::Set` to hand back
 //! to a caller that `reduce`'s own return value doesn't already carry.
 //!
+//! # `each`: one effect per selected id (wave 5, V5)
+//!
+//! A widget's event shape stays uniform — a `select` on a table or list is
+//! always an array of ids — while a verb keeps its own natural signature (a
+//! triage verb takes one `id: String`, never a list). [`Action::Call`] and
+//! [`Action::Emit`] close that gap with `each`, a literal path (`run_action`
+//! resolves it once, with [`Context::with_item`] unbound) that must name an
+//! array; this function then runs that one action once per element, with
+//! `item` bound to it for the duration of that element's `args`/`payload`
+//! resolution, appending one [`Effect`] per element in order. An empty array
+//! produces no effects and is not an error — see [`resolve_each`]. This is a
+//! fan-out declaration, not a loop the spec computes with: there is still
+//! nothing here but a path lookup and a `for`, exactly the shape ADR-0033 D3
+//! already allows a runtime (never a spec) to have.
+//!
 //! # Finding the node an event names
 //!
 //! An [`Event::widget`] is an id exactly as [`crate::resolve::resolve`] assigned
@@ -23,7 +38,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use crate::spec::{walk_with_ids, Action, Event, EventKind, Node, NodeKind, SurfaceSpec};
-use crate::template::{resolve_value, Context, TemplateError};
+use crate::template::{resolve_value, Context, Template, TemplateError};
 
 /// A side effect `reduce` decided should happen but does not perform itself —
 /// every action kind except `set`, which is folded into the returned state
@@ -69,6 +84,11 @@ pub enum ReduceError {
     NotBindable { widget: String },
     #[error("`bind`/`set` path '{path}' must start with 'state.'")]
     InvalidPath { path: String },
+    /// [`Action::Call`]/[`Action::Emit`]'s `each` resolved to something other
+    /// than a JSON array — the one runtime check `validate` cannot make
+    /// statically (it only knows the path's root, never its value).
+    #[error("`each` path '{path}' did not resolve to an array")]
+    EachNotArray { path: String },
     #[error(transparent)]
     Template(#[from] TemplateError),
 }
@@ -200,14 +220,32 @@ fn run_action(
             let resolved = resolve_value(value, &ctx)?;
             set_path(state, path, resolved)?;
         }
-        Action::Call { verb, args, into } => {
-            let resolved_args = resolve_value(args, &ctx)?;
-            effects.push(Effect::Call {
-                verb: verb.clone(),
-                args: resolved_args,
-                into: into.clone(),
-            });
-        }
+        Action::Call {
+            verb,
+            args,
+            into,
+            each,
+        } => match each {
+            None => {
+                let resolved_args = resolve_value(args, &ctx)?;
+                effects.push(Effect::Call {
+                    verb: verb.clone(),
+                    args: resolved_args,
+                    into: into.clone(),
+                });
+            }
+            Some(each_path) => {
+                for item in resolve_each(each_path, &ctx)? {
+                    let item_ctx = ctx.with_item(&item);
+                    let resolved_args = resolve_value(args, &item_ctx)?;
+                    effects.push(Effect::Call {
+                        verb: verb.clone(),
+                        args: resolved_args,
+                        into: into.clone(),
+                    });
+                }
+            }
+        },
         Action::Publish { ids } => {
             let resolved = match ids {
                 Some(path) => read_state_path(path, state)?,
@@ -215,13 +253,29 @@ fn run_action(
             };
             effects.push(Effect::Publish { ids: resolved });
         }
-        Action::Emit { name, payload } => {
-            let resolved = resolve_value(payload, &ctx)?;
-            effects.push(Effect::Emit {
-                name: name.clone(),
-                payload: resolved,
-            });
-        }
+        Action::Emit {
+            name,
+            payload,
+            each,
+        } => match each {
+            None => {
+                let resolved = resolve_value(payload, &ctx)?;
+                effects.push(Effect::Emit {
+                    name: name.clone(),
+                    payload: resolved,
+                });
+            }
+            Some(each_path) => {
+                for item in resolve_each(each_path, &ctx)? {
+                    let item_ctx = ctx.with_item(&item);
+                    let resolved = resolve_value(payload, &item_ctx)?;
+                    effects.push(Effect::Emit {
+                        name: name.clone(),
+                        payload: resolved,
+                    });
+                }
+            }
+        },
         Action::Open {
             query,
             view_kind,
@@ -285,6 +339,24 @@ fn set_path(state: &mut Value, path: &str, value: Value) -> Result<(), ReduceErr
     Ok(())
 }
 
+/// Resolve an `each` literal path (any of the four `Context` roots — not
+/// `state.` only, unlike `bind`/`set`/`publish.ids`: `validate::validate`
+/// checks this) against `ctx` and require the result to be a JSON array. Reuses
+/// [`Template::Single`]'s resolution — and therefore its errors — rather than a
+/// second path-walking implementation: an unknown root or a missing path is
+/// reported through the same [`TemplateError`] channel `resolve_value` already
+/// uses, wrapped into a [`ReduceError`] by the same `#[from]` conversion.
+fn resolve_each(each_path: &str, ctx: &Context) -> Result<Vec<Value>, ReduceError> {
+    let segments: Vec<String> = each_path.split('.').map(str::to_string).collect();
+    let value = Template::Single(segments).resolve(ctx)?;
+    match value {
+        Value::Array(items) => Ok(items),
+        _ => Err(ReduceError::EachNotArray {
+            path: each_path.to_string(),
+        }),
+    }
+}
+
 fn read_state_path(path: &str, state: &Value) -> Result<Value, ReduceError> {
     if !path.starts_with("state.") && path != "state" {
         return Err(ReduceError::InvalidPath {
@@ -299,4 +371,118 @@ fn read_state_path(path: &str, state: &Value) -> Result<Value, ReduceError> {
         };
     }
     Ok(cur.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spec::{Button, Node, NodeKind, SurfaceSpec, SURFACE_VERSION};
+
+    fn star_button_spec(state: Value) -> SurfaceSpec {
+        let root = Node::leaf(NodeKind::Button(Button {
+            label: "Star".to_string(),
+            on_click: vec![Action::Call {
+                verb: "triage-service_set-starred".to_string(),
+                args: serde_json::json!({"id": "{{item}}", "starred": true}),
+                into: None,
+                each: Some("state.selected".to_string()),
+            }],
+        }))
+        .with_id("star-btn");
+        SurfaceSpec {
+            surface: SURFACE_VERSION.to_string(),
+            name: "t".to_string(),
+            params: Vec::new(),
+            state,
+            sources: BTreeMap::new(),
+            root,
+        }
+    }
+
+    fn click() -> Event {
+        Event {
+            widget: "star-btn".to_string(),
+            kind: EventKind::Click,
+            value: Value::Null,
+        }
+    }
+
+    #[test]
+    fn each_fans_out_one_call_effect_per_element_with_item_bound() {
+        let spec = star_button_spec(serde_json::json!({"selected": ["a", "b"]}));
+        let params = Value::Null;
+        let (_, effects) = reduce(&spec, &spec.state, &params, &click()).unwrap();
+        assert_eq!(
+            effects,
+            vec![
+                Effect::Call {
+                    verb: "triage-service_set-starred".to_string(),
+                    args: serde_json::json!({"id": "a", "starred": true}),
+                    into: None,
+                },
+                Effect::Call {
+                    verb: "triage-service_set-starred".to_string(),
+                    args: serde_json::json!({"id": "b", "starred": true}),
+                    into: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_each_array_produces_no_effects_and_is_not_an_error() {
+        let spec = star_button_spec(serde_json::json!({"selected": []}));
+        let params = Value::Null;
+        let (_, effects) = reduce(&spec, &spec.state, &params, &click()).unwrap();
+        assert_eq!(effects, Vec::new());
+    }
+
+    #[test]
+    fn a_non_array_each_is_a_reduce_error_naming_the_path() {
+        let spec = star_button_spec(serde_json::json!({"selected": "not-an-array"}));
+        let params = Value::Null;
+        let err = reduce(&spec, &spec.state, &params, &click()).unwrap_err();
+        assert_eq!(
+            err,
+            ReduceError::EachNotArray {
+                path: "state.selected".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn each_fans_out_emit_the_same_way_as_call() {
+        let root = Node::leaf(NodeKind::Button(Button {
+            label: "Star".to_string(),
+            on_click: vec![Action::Emit {
+                name: "triaged".to_string(),
+                payload: serde_json::json!({"id": "{{item}}"}),
+                each: Some("state.selected".to_string()),
+            }],
+        }))
+        .with_id("star-btn");
+        let spec = SurfaceSpec {
+            surface: SURFACE_VERSION.to_string(),
+            name: "t".to_string(),
+            params: Vec::new(),
+            state: serde_json::json!({"selected": ["x", "y"]}),
+            sources: BTreeMap::new(),
+            root,
+        };
+        let params = Value::Null;
+        let (_, effects) = reduce(&spec, &spec.state, &params, &click()).unwrap();
+        assert_eq!(
+            effects,
+            vec![
+                Effect::Emit {
+                    name: "triaged".to_string(),
+                    payload: serde_json::json!({"id": "x"}),
+                },
+                Effect::Emit {
+                    name: "triaged".to_string(),
+                    payload: serde_json::json!({"id": "y"}),
+                },
+            ]
+        );
+    }
 }

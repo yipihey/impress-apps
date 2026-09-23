@@ -138,12 +138,26 @@ pub enum Action {
     /// Call a verb through the host's `#[impress_service]` inventory. `reduce`
     /// never runs this itself (it is pure); it resolves `args`'s templates and
     /// returns [`crate::reduce::Effect::Call`] for the runtime to execute.
+    ///
+    /// `each`, when present, is a fan-out declaration, not a loop the spec
+    /// computes with (ADR-0033 D3 still holds: no expressions, conditionals or
+    /// loops in a spec). It exists because a widget's event shape stays
+    /// uniform — a `select` on a table or list is always an array of ids — while
+    /// a verb like `triage-service_set-starred` keeps its own one-id signature;
+    /// `each` is how a spec says "run this call once per selected id" without
+    /// either side bending its shape. It is a literal path (the same form as
+    /// `publish.ids`/`set.path`, e.g. `"state.selected"`), never a `{{…}}`
+    /// template, resolved at reduce time; see [`crate::reduce::reduce`] for the
+    /// fan-out and [`crate::validate::validate`] for the checks. Reference the
+    /// current element as `{{item}}`/`{{item.field}}` inside `args`.
     Call {
         verb: String,
         #[serde(default)]
         args: Value,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         into: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        each: Option<String>,
     },
     /// Publish a selection on the pane's channel. `ids` is a literal path (like
     /// `bind`), not a template; absent, it defaults to `event.value` at reduce
@@ -154,7 +168,16 @@ pub enum Action {
         ids: Option<String>,
     },
     /// Emit a named event to the agent (a `impress/ui/surface-event` row).
-    Emit { name: String, payload: Value },
+    /// `each` fans this out the same way it does for [`Action::Call`] — see
+    /// that variant's doc comment — so an action list that calls a verb once
+    /// per selected id can also emit once per id, `{{item}}` bound the same
+    /// way in `payload`.
+    Emit {
+        name: String,
+        payload: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        each: Option<String>,
+    },
     /// Open a query in a pane. `query` is kept as an opaque JSON value (not typed
     /// `PaneQuery` directly) because the vocabulary gives no worked example and a
     /// template-resolved id computed from state has nowhere to live inside

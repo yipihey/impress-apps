@@ -4,7 +4,7 @@
   "params": [
     { "name": "selected", "kind": "imbib/bibliography-entry", "required": false }
   ],
-  "state": { "selected": null },
+  "state": { "selected": [] },
   "sources": {
     "papers": {
       "query": {
@@ -36,10 +36,12 @@
               "label": "Star",
               "on_click": [
                 { "call": { "verb": "triage-service_set-starred",
-                            "args": { "id": "{{state.selected}}", "starred": true } } },
+                            "args": { "id": "{{item}}", "starred": true },
+                            "each": "state.selected" } },
                 { "refresh": { "source": "papers" } },
                 { "emit": { "name": "triaged",
-                            "payload": { "id": "{{state.selected}}", "action": "star" } } }
+                            "payload": { "id": "{{item}}", "action": "star" },
+                            "each": "state.selected" } }
               ]
             }
           },
@@ -48,10 +50,12 @@
               "label": "Flag red",
               "on_click": [
                 { "call": { "verb": "triage-service_set-flag",
-                            "args": { "id": "{{state.selected}}", "color": "red" } } },
+                            "args": { "id": "{{item}}", "color": "red" },
+                            "each": "state.selected" } },
                 { "refresh": { "source": "papers" } },
                 { "emit": { "name": "triaged",
-                            "payload": { "id": "{{state.selected}}", "action": "flag-red" } } }
+                            "payload": { "id": "{{item}}", "action": "flag-red" },
+                            "each": "state.selected" } }
               ]
             }
           },
@@ -60,10 +64,12 @@
               "label": "Tag to-read",
               "on_click": [
                 { "call": { "verb": "triage-service_add-tag",
-                            "args": { "id": "{{state.selected}}", "tag": "to-read" } } },
+                            "args": { "id": "{{item}}", "tag": "to-read" },
+                            "each": "state.selected" } },
                 { "refresh": { "source": "papers" } },
                 { "emit": { "name": "triaged",
-                            "payload": { "id": "{{state.selected}}", "action": "tag-to-read" } } }
+                            "payload": { "id": "{{item}}", "action": "tag-to-read" },
+                            "each": "state.selected" } }
               ]
             }
           }

@@ -116,12 +116,16 @@ Verify, and record each in the log:
    then `{"op":"delete-layout","name":"Tmp"}`; `GET /api/layout/layouts` no longer lists
    it; a second delete answers `ok: false` with a message; `{"name":"Triage"}` is refused
    naming `reset-preset`.
-5. **Paper triage renders.** `surface-examples` → the second example → create + show: a
-   table of unread papers with three buttons. Selecting a row sets `state.selected` (watch
-   the dispatch log). **The buttons are expected NOT to work yet**: the table's `select`
-   event carries an array of ids and the triage verbs take one `id` — the vocabulary gap
-   V3 recorded (see `docs/agent-surfaces.md`), which is Tom's decision, not yours. Record
-   exactly what the star button's `call` effect reports.
+5. **Paper triage works end to end.** `surface-examples` → the second example → create +
+   show: a table of unread papers with three buttons. Select two rows, click Star: the
+   dispatch log shows two `call` outcomes (one `triage-service_set-starred` per selected
+   id — the buttons fan out with `each` over `state.selected`, V5) and two `triaged`
+   events; the table's rows show the star after the refresh. From the CLI,
+   `surface-wait --after-seq 0` returns the first `triaged` event. Record exactly what the
+   star button's outcomes report if anything differs.
+
+Also record in the log that a `select` on a table still carries an array of ids (the
+event shape is deliberately uniform) — V5 closed the gap on the spec side, not the widget's.
 
 ## Step 5 — L7's Swift half
 
@@ -134,9 +138,8 @@ Verify: ⌃⌘1 is the app's default arrangement, ⌃⌘2 imbib's Triage, and a 
 
 ## Ask first (stop and report instead of deciding)
 
-- The vocabulary gap in step 4.5 (index paths, single-select tables, or list-taking
-  verbs): report what you saw; do not change the vocabulary, the schema refs or a verb's
-  arguments.
+- Any change to the vocabulary (including the two V5 additions, `each` and numeric path
+  segments), the schema refs or a verb's arguments: report what you saw instead.
 - Adding a dependency to `packages/ImpressSurface`.
 - Anything that would make the FFI depend on a domain core (`cargo tree -p
   impress-store-ffi -e normal | grep -E '^(imprint-core|imbib-core|implore-core)'` must
@@ -144,6 +147,6 @@ Verify: ⌃⌘1 is the app's default arrangement, ⌃⌘2 imbib's Triage, and a 
 
 ## Definition of done
 
-Steps 1–4 green and logged (4.5 recorded, not fixed), step 5 done, the PR marked ready for
+Steps 1–4 green and logged, step 5 done, the PR marked ready for
 review with a comment listing what was verified live and what remains, and CI on the PR
 green. Then stop.

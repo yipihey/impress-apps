@@ -114,10 +114,15 @@ fn cases() -> Vec<Case> {
             golden_path: golden_path("paper-triage"),
             spec: example_paper_triage(),
             // One row pre-selected, so the golden also pins what the status
-            // line and the buttons' `{{state.selected}}` reference look like
-            // once a paper has been picked — not just the empty-selection
-            // start state `example_paper_triage()` itself declares.
-            state: json!({ "selected": "11111111-1111-1111-1111-111111111111" }),
+            // line looks like once a paper has been picked — not just the
+            // empty-selection start state `example_paper_triage()` itself
+            // declares. `state.selected` is an array of ids now (V5: a
+            // widget's `select` event is always an array; the buttons'
+            // `each: "state.selected"` fans out over it) — the status line's
+            // `{{state.selected}}` reference is unchanged, so this only
+            // changes the pinned message text from one id to one id in an
+            // array.
+            state: json!({ "selected": ["11111111-1111-1111-1111-111111111111"] }),
             params: json!({}),
             source_data: paper_triage_fake_data(),
         },

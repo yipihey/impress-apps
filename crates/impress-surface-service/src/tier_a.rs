@@ -958,6 +958,12 @@ mod paper_triage_loop {
         let paper_a = seed_publication(&world.store, "A dark matter survey", 2024, "Zwicky, F.");
         let paper_b =
             seed_publication(&world.store, "Signal processing notes", 2023, "Shannon, C.");
+        let paper_c = seed_publication(
+            &world.store,
+            "An information theory primer",
+            1948,
+            "Wiener, N.",
+        );
 
         // 0. The example validates clean against the REAL linked inventory
         // now that `triage-service` is force-linked above — this is the one
@@ -1003,13 +1009,17 @@ mod paper_triage_loop {
         assert!(first_render.ok, "{}", first_render.message);
         let first_tree = serde_json::to_value(first_render.tree.unwrap()).unwrap();
         let rows = table_rows(&first_tree, "papers-table").expect("papers-table in render tree");
-        assert_eq!(rows.len(), 2, "expected both seeded papers: {rows:?}");
+        assert_eq!(rows.len(), 3, "expected all three seeded papers: {rows:?}");
         let titles: Vec<&str> = rows
             .iter()
             .filter_map(|r| r.get("title").and_then(Value::as_str))
             .collect();
         assert!(titles.contains(&"A dark matter survey"), "{titles:?}");
         assert!(titles.contains(&"Signal processing notes"), "{titles:?}");
+        assert!(
+            titles.contains(&"An information theory primer"),
+            "{titles:?}"
+        );
         let first_tree_json = first_tree.to_string();
         assert!(
             !first_tree_json.contains("\"placeholder\""),
@@ -1017,16 +1027,19 @@ mod paper_triage_loop {
         );
 
         // 3. dispatch a `select` on the table, then a `click` on the star
-        // button. `event.value` carries the clicked row's id directly (a
-        // string), not an array: `impress-surface`'s template language walks
-        // dotted object paths only, with no array-indexing form, so a
-        // selection an `on_select` handler wants to feed to a one-id verb
-        // has nowhere else to come from (see this crate's V3 report and
-        // `example.rs`'s doc comment on `example_paper_triage`).
+        // button. `event.value` carries an ARRAY of ids — the uniform shape
+        // every widget's `select` event has (V5: the real Swift table sends
+        // this, never a single id), with `paper_c` left out of it: it stays
+        // the untouched control row through the rest of this test.
+        // `on_select` still just does `state.selected = event.value`
+        // (`{"set": {"path": "state.selected", "value": "{{event.value}}"}}`);
+        // the buttons are what bridge a multi-id selection to the verbs'
+        // own one-id signature, via `each`/`{{item}}` (see this crate's V5
+        // report and `example.rs`'s doc comment on `example_paper_triage`).
         let select = Event {
             widget: "papers-table".to_string(),
             kind: EventKind::Select,
-            value: json!(paper_a),
+            value: json!([paper_a, paper_b]),
         };
         let selected = world
             .service
@@ -1039,13 +1052,23 @@ mod paper_triage_loop {
                 .state
                 .as_ref()
                 .and_then(|s| s.get("selected"))
-                .and_then(Value::as_str),
-            Some(paper_a.as_str()),
+                .and_then(Value::as_array)
+                .map(|a| a
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()),
+            Some(vec![paper_a.clone(), paper_b.clone()]),
             "state.selected was not set by the select event: {:?}",
             state_after_select.state
         );
 
-        // 4. click "Star" — the real `triage-service_set-starred` verb runs.
+        // 4. click "Star" — `on_click` fans out over `state.selected`
+        // (`each: "state.selected"`), so this ONE click runs
+        // `triage-service_set-starred` and emits `triaged` once per selected
+        // id: two `call` outcomes, one `refresh`, two `emit`s, in that
+        // order (`reduce.rs`'s fan-out preserves the action list's order,
+        // and appends one effect per element for each fanned-out action).
         let click = Event {
             widget: "star-btn".to_string(),
             kind: EventKind::Click,
@@ -1056,16 +1079,20 @@ mod paper_triage_loop {
             .surface_dispatch(id.clone(), click, None)
             .await;
         assert!(clicked.ok, "{}", clicked.message);
-        let call_outcome = clicked
+        let call_outcomes: Vec<_> = clicked
             .effects
             .iter()
-            .find(|e| e.kind == "call")
-            .unwrap_or_else(|| panic!("no 'call' effect among {:?}", clicked.effects));
-        assert!(
-            call_outcome.ok,
-            "star call failed: {}",
-            call_outcome.message
+            .filter(|e| e.kind == "call")
+            .collect();
+        assert_eq!(
+            call_outcomes.len(),
+            2,
+            "expected one 'call' outcome per selected id: {:?}",
+            clicked.effects
         );
+        for outcome in &call_outcomes {
+            assert!(outcome.ok, "star call failed: {}", outcome.message);
+        }
         let refresh_outcome = clicked
             .effects
             .iter()
@@ -1076,32 +1103,42 @@ mod paper_triage_loop {
             "refresh failed: {}",
             refresh_outcome.message
         );
-        let emit_outcome = clicked
+        let emit_outcomes: Vec<_> = clicked
             .effects
             .iter()
-            .find(|e| e.kind == "emit")
-            .unwrap_or_else(|| panic!("no 'emit' effect among {:?}", clicked.effects));
-        assert!(emit_outcome.ok, "emit failed: {}", emit_outcome.message);
+            .filter(|e| e.kind == "emit")
+            .collect();
+        assert_eq!(
+            emit_outcomes.len(),
+            2,
+            "expected one 'emit' outcome per selected id: {:?}",
+            clicked.effects
+        );
+        for outcome in &emit_outcomes {
+            assert!(outcome.ok, "emit failed: {}", outcome.message);
+        }
 
-        // 5. re-render: `is_starred: true` on the starred row, and only on it
-        // — the effect really reached the store, not just the dispatch
-        // response.
+        // 5. re-render: `is_starred: true` on BOTH selected rows, and still
+        // `false` on the untouched third row — the fan-out really reached
+        // the store once per id, not just the dispatch response.
         let rendered = world.service.surface_render(id.clone(), None).await;
         assert!(rendered.ok, "{}", rendered.message);
         let tree = serde_json::to_value(rendered.tree.unwrap()).unwrap();
         let rows = table_rows(&tree, "papers-table").expect("papers-table in render tree");
-        let starred = rows
-            .iter()
-            .find(|r| r.get("id").and_then(Value::as_str) == Some(paper_a.as_str()))
-            .unwrap_or_else(|| panic!("starred row missing from {rows:?}"));
-        assert_eq!(
-            starred.get("is_starred"),
-            Some(&Value::Bool(true)),
-            "starred row: {starred:?}"
-        );
+        for selected_id in [&paper_a, &paper_b] {
+            let starred = rows
+                .iter()
+                .find(|r| r.get("id").and_then(Value::as_str) == Some(selected_id.as_str()))
+                .unwrap_or_else(|| panic!("starred row {selected_id} missing from {rows:?}"));
+            assert_eq!(
+                starred.get("is_starred"),
+                Some(&Value::Bool(true)),
+                "starred row {selected_id}: {starred:?}"
+            );
+        }
         let untouched = rows
             .iter()
-            .find(|r| r.get("id").and_then(Value::as_str) == Some(paper_b.as_str()))
+            .find(|r| r.get("id").and_then(Value::as_str) == Some(paper_c.as_str()))
             .unwrap_or_else(|| panic!("untouched row missing from {rows:?}"));
         assert_eq!(
             untouched.get("is_starred"),
@@ -1109,17 +1146,22 @@ mod paper_triage_loop {
             "untouched row: {untouched:?}"
         );
 
-        // 6. surface_events carries the 'triaged' event, with the id.
+        // 6. surface_events carries a 'triaged' event for each selected id.
         let events = world.service.surface_events(id, 0, None).await;
         assert!(events.ok, "{}", events.message);
-        let triaged = events
+        let mut triaged_ids: Vec<&str> = events
             .events
             .iter()
-            .find(|e| e.name == "triaged")
-            .unwrap_or_else(|| panic!("no 'triaged' event among {:?}", events.events));
+            .filter(|e| e.name == "triaged")
+            .filter_map(|e| e.payload.get("id").and_then(Value::as_str))
+            .collect();
+        triaged_ids.sort_unstable();
+        let mut expected_ids = vec![paper_a.as_str(), paper_b.as_str()];
+        expected_ids.sort_unstable();
         assert_eq!(
-            triaged.payload.get("id").and_then(Value::as_str),
-            Some(paper_a.as_str())
+            triaged_ids, expected_ids,
+            "expected a 'triaged' event per selected id among {:?}",
+            events.events
         );
     }
 }
