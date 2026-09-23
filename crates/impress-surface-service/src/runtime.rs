@@ -113,6 +113,19 @@ pub trait Executor: Send + Sync {
     ) -> Result<()>;
     /// Append an event row and return its assigned `seq`.
     async fn emit(&self, surface: ItemId, host: &str, name: &str, payload: Value) -> Result<u64>;
+    /// Which pane, if any, is showing `surface` right now — recovered from
+    /// the LAYOUT rather than remembered. A runtime instance only knows its
+    /// pane if `surface_show` (or the FFI's `bind_pane`) ran on THIS
+    /// instance, and instances are per `SharedSurface` handle: the pane view
+    /// in the app has one, an HTTP dispatch on the same surface opens
+    /// another, and the second answered every `publish`/`open` with "no pane
+    /// shows this surface yet" while the pane sat on screen (verified live,
+    /// 2026-09-23). The tree is the one source that cannot disagree with the
+    /// window, so it is asked. Default `None`: a fixture that never shows a
+    /// surface has nothing to find.
+    async fn pane_showing(&self, _surface: ItemId) -> Option<PaneHandle> {
+        None
+    }
 }
 
 /// Lift each row's `payload` object to the top of the row.
@@ -182,6 +195,20 @@ impl DefaultExecutor {
         Self {
             surfaces: SurfaceStore::new(store.clone()),
             layout: DefaultLayoutService::with_store(store.clone()),
+            store,
+        }
+    }
+
+    /// An instance whose layout verbs run in `sessions` — the registry the
+    /// renderer in this process reads from — so an `open`/`publish` effect
+    /// changes the tree the window is showing, not a private copy of it.
+    pub fn with_store_and_sessions(
+        store: Arc<SqliteItemStore>,
+        sessions: Arc<impress_layout_service::SessionRegistry>,
+    ) -> Self {
+        Self {
+            surfaces: SurfaceStore::new(store.clone()),
+            layout: DefaultLayoutService::with_store_and_sessions(store.clone(), sessions),
             store,
         }
     }
@@ -294,7 +321,38 @@ impl Executor for DefaultExecutor {
         self.surfaces
             .append_event(surface, host, name, &payload, ActorKind::Agent)
     }
+
+    async fn pane_showing(&self, surface: ItemId) -> Option<PaneHandle> {
+        // The app that renders surfaces is the chassis shell, and the layout
+        // is device-scoped: this machine's tree, the one the window draws.
+        // `impress-store-ffi::surface` binds panes under the same app id.
+        let app_id = SURFACE_APP_ID.to_string();
+        let device = impress_layout_service::resolve_device(None);
+        let result = self
+            .layout
+            .get_layout(app_id.clone(), Some(device.clone()))
+            .await;
+        let layout = result.layout?;
+        let wanted = surface_item_query(surface);
+        let tile = layout.panes().into_iter().find(|tile| {
+            layout.pane(*tile).is_some_and(|spec| {
+                spec.view_kind == ViewKindId::from(SURFACE_VIEW_KIND.to_string())
+                    && spec.query == wanted
+            })
+        })?;
+        Some(PaneHandle {
+            app_id,
+            device,
+            tile: tile.raw(),
+        })
+    }
 }
+
+/// The app whose layout a surface pane lives in. One chassis shell renders
+/// surfaces today; `impress-store-ffi` binds panes under the same id.
+pub const SURFACE_APP_ID: &str = "impress";
+/// `impress_layout::ViewKindId::SURFACE`'s spelling.
+const SURFACE_VIEW_KIND: &str = "surface";
 
 // ---------------------------------------------------------------------------
 // Composing layout verbs — shared by `surface_show` (service.rs) and
@@ -555,6 +613,16 @@ impl SurfaceRuntime {
         Ok((tree, outcomes))
     }
 
+    /// The pane this instance is shown in — remembered from `surface_show`
+    /// / `bind_pane`, else recovered from the layout once and cached. See
+    /// `Executor::pane_showing` for why the lookup exists.
+    async fn pane_or_lookup(&mut self, executor: &dyn Executor) -> Option<PaneHandle> {
+        if self.pane.is_none() {
+            self.pane = executor.pane_showing(self.surface_id).await;
+        }
+        self.pane.clone()
+    }
+
     async fn run_effect(&mut self, executor: &dyn Executor, effect: Effect) -> EffectOutcomeDto {
         match effect {
             Effect::Call { verb, args, into } => match executor.call_verb(&verb, args).await {
@@ -581,7 +649,7 @@ impl SurfaceRuntime {
                 },
             },
             Effect::Publish { ids } => {
-                let Some(pane) = self.pane.clone() else {
+                let Some(pane) = self.pane_or_lookup(executor).await else {
                     return EffectOutcomeDto {
                         kind: "publish".into(),
                         ok: false,
@@ -624,8 +692,9 @@ impl SurfaceRuntime {
                 view_kind,
                 target,
             } => {
+                let pane = self.pane_or_lookup(executor).await;
                 match executor
-                    .open(self.pane.as_ref(), query, &view_kind, target.as_deref())
+                    .open(pane.as_ref(), query, &view_kind, target.as_deref())
                     .await
                 {
                     Ok(()) => EffectOutcomeDto {
