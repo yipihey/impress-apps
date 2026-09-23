@@ -98,3 +98,35 @@ preparation may start earlier on a branch).
 - 2026-09-23 — Planned. The three findings, W0's Tier-B catalogue and the L8 order come
   from the wave-5 Mac round (`docs/plan-agent-surfaces.md` § "Mac pass, round 2") and
   ADR-0031 D11; the kit cut is ADR-0033 D7 executed last, as written.
+
+- 2026-09-23 — **W0 done.** `crates/impress-layout-service/src/tier_b.rs`: seven
+  capabilities plus a restore, run against a live impress on 23125 and green 8/8
+  (`impress layout-selftest-service_run-selftest --tier b`, 267ms). What was actually
+  proven, with the shapes that proved it: `{"op":"apply-layout","ordinal":1}` rebuilt the
+  tree to three panes (outline, list, info) at version 14; `Verb::Split`/`Resize`/`Swap`
+  /`Close` moved `version` 14→15→16→17→18→19 with no step standing still;
+  `save-layout` → `/api/layout/layouts` → `apply-layout` by name → `delete-layout`
+  round-tripped `__tier-b-selftest-layout__` and left the list empty; a `select` on tile 2
+  put the id on channel 1, which is the channel tile 3's `item` parameter declares as its
+  source — the list→info path, read at the one point the tree exposes it; a scratch
+  surface rendered, took `{"widget":"bins","kind":"change","value":17}` and a `click`,
+  and `bins-chosen` reached `/api/surface/<id>/events`; `resize-share` took tile 1 to
+  1 → 0.0001 → 1, under and back over the 1e-3 hidden ceiling.
+- Restoration was checked rather than assumed: `tiles`, `windows` and `channels` compared
+  byte-identical before and after the run, with no layouts and no surfaces left behind.
+  Only `version` moved (12 → 27), which is what monotonic means.
+- Two things found on the way. **`apply-layout`'s ordinals are the union** of the shipped
+  presets and the named layouts (`presets::ordinal_targets`), while
+  `/api/layout/layouts` numbers saved rows from 1 on their own — so an ordinal read out of
+  that list addresses something else. The restore applies by name for that reason, and
+  ordinal 1 in capability 1 is impress's Default preset, which is the only preset impress
+  ships. **`scripts/check-kit-deps.sh` defaults `CARGO_TARGET_DIR` to
+  `/home/user/impress-apps/target`**, a Linux path that does not exist on a Mac; the gate
+  passes with the variable set. Left alone — it belongs to whoever owns the script.
+- The dependency question the brief left open was decided against `impress-app-client`:
+  its typed clients are built on `imbib-service` and `imprint-service`, and a kit-adjacent
+  crate does not take on two domain stacks to make seven loopback requests. Raw `reqwest`,
+  as `imprint-selftest` does.
+- Not proven here: the app was already built and running from earlier today, so this
+  round did not exercise `scripts/build-impress-app.sh`. Every later package adds its
+  capability to this catalogue, per the row.
