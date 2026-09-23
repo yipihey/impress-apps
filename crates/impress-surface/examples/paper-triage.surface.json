@@ -1,0 +1,76 @@
+{
+  "surface": "1.0",
+  "name": "Paper triage",
+  "params": [
+    { "name": "selected", "kind": "imbib/bibliography-entry", "required": false }
+  ],
+  "state": { "selected": null },
+  "sources": {
+    "papers": {
+      "query": {
+        "kinds": ["publication"],
+        "scope": { "scope": "all" },
+        "filters": [ { "filter": "read", "read": false } ],
+        "text": null,
+        "relation": null,
+        "sort": [ { "field": "modified", "descending": true } ],
+        "limit": 50
+      }
+    }
+  },
+  "root": {
+    "column": [
+      { "text": "# Paper triage" },
+      { "id": "papers-table",
+        "table": {
+          "rows": "{{source.papers}}",
+          "columns": ["title", "year", "author_text"],
+          "on_select": [
+            { "set": { "path": "state.selected", "value": "{{event.value}}" } }
+          ]
+        }
+      },
+      { "row": [
+          { "id": "star-btn",
+            "button": {
+              "label": "Star",
+              "on_click": [
+                { "call": { "verb": "triage-service_set-starred",
+                            "args": { "id": "{{state.selected}}", "starred": true } } },
+                { "refresh": { "source": "papers" } },
+                { "emit": { "name": "triaged",
+                            "payload": { "id": "{{state.selected}}", "action": "star" } } }
+              ]
+            }
+          },
+          { "id": "flag-red-btn",
+            "button": {
+              "label": "Flag red",
+              "on_click": [
+                { "call": { "verb": "triage-service_set-flag",
+                            "args": { "id": "{{state.selected}}", "color": "red" } } },
+                { "refresh": { "source": "papers" } },
+                { "emit": { "name": "triaged",
+                            "payload": { "id": "{{state.selected}}", "action": "flag-red" } } }
+              ]
+            }
+          },
+          { "id": "tag-to-read-btn",
+            "button": {
+              "label": "Tag to-read",
+              "on_click": [
+                { "call": { "verb": "triage-service_add-tag",
+                            "args": { "id": "{{state.selected}}", "tag": "to-read" } } },
+                { "refresh": { "source": "papers" } },
+                { "emit": { "name": "triaged",
+                            "payload": { "id": "{{state.selected}}", "action": "tag-to-read" } } }
+              ]
+            }
+          }
+        ]
+      },
+      { "id": "selection-status",
+        "status": { "level": "info", "message": "Selected: {{state.selected}}" } }
+    ]
+  }
+}

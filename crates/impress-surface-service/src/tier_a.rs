@@ -818,3 +818,308 @@ mod real_verb_loop {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// The paper-triage loop test (dev-only)
+// ---------------------------------------------------------------------------
+
+/// The paper-triage loop against the REAL `triage-service` verbs (wave 5
+/// V3): seed two `imbib/bibliography-entry` publications → create → show →
+/// render (the table carries the seeded titles) → dispatch a `select` on the
+/// table → dispatch a `click` on the star button → the real
+/// `triage-service_set-starred` verb ran (checked via the dispatch's
+/// `effects`) → re-render shows `is_starred: true` on the starred row only →
+/// `surface_events` carries the `triaged` event this surface's buttons emit.
+///
+/// `impress-store-service` (which owns `TriageService`,
+/// `crates/impress-store-service/src/triage_service.rs`) is already an
+/// ordinary (non-dev) dependency of this crate — for `store_instance()` — but
+/// that alone does not guarantee `triage_service`'s `#[impress_service]`
+/// registration survives into a `cargo test` binary: the module it lives in
+/// is never otherwise referenced from this crate's own code, so nothing
+/// forces the linker to keep its `inventory::submit!` entries, the same gap
+/// `real_verb_loop` (above) documents for `surface-demo-service`. Force-link
+/// it here for that reason, not because the crate needs adding to
+/// `Cargo.toml` — it is already there.
+#[cfg(test)]
+mod paper_triage_loop {
+    use super::*;
+
+    use std::collections::BTreeMap;
+
+    use impress_core::item::{
+        ActorKind as ItemActorKind, Item, Priority, Value as ItemValue, Visibility,
+    };
+    use impress_core::store::ItemStore;
+
+    #[allow(unused_imports)]
+    use impress_store_service::triage_service as _force_link_triage_service;
+
+    fn paper_triage() -> SurfaceSpec {
+        impress_surface::example_paper_triage()
+    }
+
+    /// A bare `imbib/bibliography-entry` row, built the same way
+    /// `impress-store-service::test_support::make_item_named` and
+    /// `impress-core`'s own fixtures do (that helper is `#[cfg(test)]`-only
+    /// in ITS crate, so private to it — this is the same shape, copied, not
+    /// a new writer). The schema ref is copied verbatim from
+    /// `crates/impress-core/src/manuscript_reading_list.rs`'s `ENTRY_SCHEMA`
+    /// constant; the payload field names (`title`, `year`, `author_text`)
+    /// from `crates/imbib-core/src/unified/schemas.rs`'s
+    /// `bibliography_entry_schema` — the schema that actually defines them
+    /// (CLAUDE.md "Definition of done — schema refs": copy the spelling from
+    /// the manifest/schema, never guess).
+    fn seed_publication(
+        store: &SqliteItemStore,
+        title: &str,
+        year: i64,
+        author_text: &str,
+    ) -> String {
+        let now = chrono::Utc::now();
+        let mut payload: BTreeMap<String, ItemValue> = BTreeMap::new();
+        payload.insert("title".to_string(), ItemValue::String(title.to_string()));
+        payload.insert("year".to_string(), ItemValue::Int(year));
+        payload.insert(
+            "author_text".to_string(),
+            ItemValue::String(author_text.to_string()),
+        );
+        let item = Item {
+            id: uuid::Uuid::new_v4(),
+            schema: "imbib/bibliography-entry".to_string(),
+            payload,
+            created: now,
+            modified: now,
+            author: "impress-surface-service-tests".to_string(),
+            author_kind: ItemActorKind::System,
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: Priority::None,
+            visibility: Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: None,
+        };
+        store.insert(item).expect("insert publication").to_string()
+    }
+
+    /// Walk a `RenderTree`'s JSON (as `surface_render` returns it) for the
+    /// widget named `wanted_id` and return its `table.rows`, if any — the
+    /// same shape `flatten_payloads` (`runtime.rs`) hands `resolve`, now
+    /// round-tripped through the real store and the real render.
+    fn table_rows(tree: &Value, wanted_id: &str) -> Option<Vec<Value>> {
+        fn walk(node_wrapper: &Value, wanted_id: &str) -> Option<Vec<Value>> {
+            let id = node_wrapper.get("id")?.as_str()?;
+            let node = node_wrapper.get("node")?;
+            if id == wanted_id {
+                if let Some(rows) = node.get("rows").and_then(Value::as_array) {
+                    return Some(rows.clone());
+                }
+            }
+            if let Some(items) = node.get("items").and_then(Value::as_array) {
+                for item in items {
+                    if let Some(found) = walk(item, wanted_id) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+        walk(tree.get("root")?, wanted_id)
+    }
+
+    #[tokio::test]
+    async fn the_paper_triage_loop_stars_the_selected_row_via_the_real_triage_verb() {
+        let world = World::open();
+
+        // `triage-service_set-starred` is dispatched through the linked
+        // INVENTORY (`crate::runtime::call_verb`), which builds its own
+        // `DefaultTriageService::new()` per call (see
+        // `impress_service_impl!` in `triage_service.rs`) rather than taking
+        // `world`'s store — so by default it reads/writes
+        // `impress_store_service::store_instance()`'s process-wide store,
+        // not `world.store`, and the assertions below would silently pass
+        // against the WRONG (fallback, in-memory, never-seeded) store.
+        // `install_store` makes the two the same store for the rest of this
+        // process, exactly the escape hatch its module docs describe tests
+        // using. Only one caller per process may install (a second call
+        // errors), and nothing else in this crate's test binary does.
+        impress_store_service::install_store(world.store.clone())
+            .expect("install this test's store as the process store (something else already did)");
+
+        let paper_a = seed_publication(&world.store, "A dark matter survey", 2024, "Zwicky, F.");
+        let paper_b =
+            seed_publication(&world.store, "Signal processing notes", 2023, "Shannon, C.");
+
+        // 0. The example validates clean against the REAL linked inventory
+        // now that `triage-service` is force-linked above — this is the one
+        // assertion that would fail loudly if the force-link were ever
+        // removed by accident.
+        let validated = world.service.surface_validate(paper_triage()).await;
+        assert!(
+            validated.ok(),
+            "unexpected problems: {:?}",
+            validated.problems
+        );
+
+        // 1. create
+        let created = world
+            .service
+            .surface_create(paper_triage(), None, None)
+            .await;
+        assert!(created.ok, "{}", created.message);
+        let id = created.id.expect("created surface has an id");
+
+        // 2. show into a split
+        let shown = world
+            .service
+            .surface_show(
+                id.clone(),
+                ShowTargetDto {
+                    role: None,
+                    tile: None,
+                    split: Some(SplitTargetDto {
+                        direction: "vertical".to_string(),
+                        from_focused: true,
+                    }),
+                },
+                Some(APP.to_string()),
+                Some(DEVICE.to_string()),
+            )
+            .await;
+        assert!(shown.ok, "{}", shown.message);
+
+        // Render: the table shows the seeded titles, through the REAL
+        // `papers` query against the REAL store.
+        let first_render = world.service.surface_render(id.clone(), None).await;
+        assert!(first_render.ok, "{}", first_render.message);
+        let first_tree = serde_json::to_value(first_render.tree.unwrap()).unwrap();
+        let rows = table_rows(&first_tree, "papers-table").expect("papers-table in render tree");
+        assert_eq!(rows.len(), 2, "expected both seeded papers: {rows:?}");
+        let titles: Vec<&str> = rows
+            .iter()
+            .filter_map(|r| r.get("title").and_then(Value::as_str))
+            .collect();
+        assert!(titles.contains(&"A dark matter survey"), "{titles:?}");
+        assert!(titles.contains(&"Signal processing notes"), "{titles:?}");
+        let first_tree_json = first_tree.to_string();
+        assert!(
+            !first_tree_json.contains("\"placeholder\""),
+            "first render has a placeholder: {first_tree_json}"
+        );
+
+        // 3. dispatch a `select` on the table, then a `click` on the star
+        // button. `event.value` carries the clicked row's id directly (a
+        // string), not an array: `impress-surface`'s template language walks
+        // dotted object paths only, with no array-indexing form, so a
+        // selection an `on_select` handler wants to feed to a one-id verb
+        // has nowhere else to come from (see this crate's V3 report and
+        // `example.rs`'s doc comment on `example_paper_triage`).
+        let select = Event {
+            widget: "papers-table".to_string(),
+            kind: EventKind::Select,
+            value: json!(paper_a),
+        };
+        let selected = world
+            .service
+            .surface_dispatch(id.clone(), select, None)
+            .await;
+        assert!(selected.ok, "{}", selected.message);
+        let state_after_select = world.service.surface_state_get(id.clone(), None).await;
+        assert_eq!(
+            state_after_select
+                .state
+                .as_ref()
+                .and_then(|s| s.get("selected"))
+                .and_then(Value::as_str),
+            Some(paper_a.as_str()),
+            "state.selected was not set by the select event: {:?}",
+            state_after_select.state
+        );
+
+        // 4. click "Star" — the real `triage-service_set-starred` verb runs.
+        let click = Event {
+            widget: "star-btn".to_string(),
+            kind: EventKind::Click,
+            value: Value::Null,
+        };
+        let clicked = world
+            .service
+            .surface_dispatch(id.clone(), click, None)
+            .await;
+        assert!(clicked.ok, "{}", clicked.message);
+        let call_outcome = clicked
+            .effects
+            .iter()
+            .find(|e| e.kind == "call")
+            .unwrap_or_else(|| panic!("no 'call' effect among {:?}", clicked.effects));
+        assert!(
+            call_outcome.ok,
+            "star call failed: {}",
+            call_outcome.message
+        );
+        let refresh_outcome = clicked
+            .effects
+            .iter()
+            .find(|e| e.kind == "refresh")
+            .unwrap_or_else(|| panic!("no 'refresh' effect among {:?}", clicked.effects));
+        assert!(
+            refresh_outcome.ok,
+            "refresh failed: {}",
+            refresh_outcome.message
+        );
+        let emit_outcome = clicked
+            .effects
+            .iter()
+            .find(|e| e.kind == "emit")
+            .unwrap_or_else(|| panic!("no 'emit' effect among {:?}", clicked.effects));
+        assert!(emit_outcome.ok, "emit failed: {}", emit_outcome.message);
+
+        // 5. re-render: `is_starred: true` on the starred row, and only on it
+        // — the effect really reached the store, not just the dispatch
+        // response.
+        let rendered = world.service.surface_render(id.clone(), None).await;
+        assert!(rendered.ok, "{}", rendered.message);
+        let tree = serde_json::to_value(rendered.tree.unwrap()).unwrap();
+        let rows = table_rows(&tree, "papers-table").expect("papers-table in render tree");
+        let starred = rows
+            .iter()
+            .find(|r| r.get("id").and_then(Value::as_str) == Some(paper_a.as_str()))
+            .unwrap_or_else(|| panic!("starred row missing from {rows:?}"));
+        assert_eq!(
+            starred.get("is_starred"),
+            Some(&Value::Bool(true)),
+            "starred row: {starred:?}"
+        );
+        let untouched = rows
+            .iter()
+            .find(|r| r.get("id").and_then(Value::as_str) == Some(paper_b.as_str()))
+            .unwrap_or_else(|| panic!("untouched row missing from {rows:?}"));
+        assert_eq!(
+            untouched.get("is_starred"),
+            Some(&Value::Bool(false)),
+            "untouched row: {untouched:?}"
+        );
+
+        // 6. surface_events carries the 'triaged' event, with the id.
+        let events = world.service.surface_events(id, 0, None).await;
+        assert!(events.ok, "{}", events.message);
+        let triaged = events
+            .events
+            .iter()
+            .find(|e| e.name == "triaged")
+            .unwrap_or_else(|| panic!("no 'triaged' event among {:?}", events.events));
+        assert_eq!(
+            triaged.payload.get("id").and_then(Value::as_str),
+            Some(paper_a.as_str())
+        );
+    }
+}

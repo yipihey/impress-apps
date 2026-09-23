@@ -157,6 +157,74 @@ instead (add a caption, disable the button, swap in a different plot), it
 would call `impress-surface-service_surface-update` with a patched spec and
 loop back to `surface_wait`.
 
+### A second worked example: paper triage
+
+The signal explorer above is synthetic data driving a slider and a plot.
+`example_paper_triage` (`crates/impress-surface/examples/paper-triage.surface.json`,
+wave 5 V3) is the other shape of surface: a `query` source over the user's
+own data — unread papers, `publication` / `imbib/bibliography-entry` — a
+table, and a row of buttons that act on whichever row is selected through
+kit verbs the whole suite already has. It exists so an agent's first surface
+over a domain the user actually works in looks like this, not like a demo.
+
+**The verbs.** All four are `#[impress_service]` verbs already linked
+everywhere — the app, the CLI and MCP alike, never a second definition for
+surfaces (root `CLAUDE.md`, "Agent surfaces live in Rust and in store
+records"):
+
+- `triage-service_set-starred` (`crates/impress-store-service/src/triage_service.rs`)
+  — the "Star" button.
+- `triage-service_set-flag` — the "Flag red" button, `color: "red"`.
+- `triage-service_add-tag` — the "Tag to-read" button, `tag: "to-read"`.
+
+`TriageService` takes an item id of ANY kind (publication, manuscript,
+figure, message, task, agent run) — the same verbs a triage menu on any
+other record kind would call, not something built for this surface.
+
+**The loop an agent runs with it** is the same five-verb loop as the signal
+explorer's, with a table row standing in for the slider as "the thing the
+human does between waits":
+
+1. `surface-schema` / author / `surface-validate` — as above; the spec
+   itself is short enough to read in full in
+   `crates/impress-surface/examples/paper-triage.surface.json`.
+2. `surface-create`, then `surface-show` (a split, or a named pane role) —
+   the human now sees a table of their own unread papers, newest first, and
+   three buttons.
+3. `surface-wait`. The human clicks a row (a `select` event on the table
+   sets `state.selected`, and nothing else — there is no `on_select` verb
+   call, just the plain `state.selected = event.value` this vocabulary's
+   `set` action already does), then clicks "Tag to-read". The click's
+   `on_click` runs three actions in order: `call` the verb with
+   `{"id": "{{state.selected}}", "tag": "to-read"}`, `refresh` the `papers`
+   source (so the very next render already reflects the tag), and `emit` a
+   `triaged` event carrying `{"id": "{{state.selected}}", "action": "tag-to-read"}`.
+   `surface-wait` returns with that `triaged` event.
+4. **React.** The agent reads the `triaged` event's `id` and acts on it
+   directly — e.g. queues the paper for a summarisation pass — the same
+   "read what the human did, then act" shape the signal explorer's step 7
+   uses, just with a triage verb instead of a plot verb on the far end.
+   `surface-wait` again.
+
+**The one vocabulary gap this surface hit.** `on_select` can only set
+`state.selected` to whatever `event.value` the table's `select` event
+carries — the template language walks dotted object keys only
+(`crates/impress-surface/src/template.rs`: `resolve_path` matches
+`Value::Object` and returns `MissingPath` for anything else, including an
+array), so there is no `{{event.value.0}}` form, or any other, that would
+project a multi-id selection down to one id. A one-id verb (every
+`triage-service_*` method takes exactly one `id: String`) therefore only
+works cleanly against a table whose `select` event already carries a single
+id as `event.value`, not an array of them — `paper-triage`'s buttons take
+this on faith (`{{state.selected}}` resolves to whatever `event.value` was,
+unindexed) and would receive a malformed id if a host ever emitted the
+"selection is an array of ids" shape ADR-0031's pane channels use elsewhere.
+Nothing in this crate can distinguish those two cases without an indexing
+operator the vocabulary deliberately does not have (ADR-0033 D3: "there are
+no operators, conditionals or loops in a spec"); the honest fix, if a host
+ever needs true multi-select through this same path, is a verb that takes a
+list of ids, not a template change.
+
 ## Vocabulary reference
 
 This is the normative vocabulary from `docs/plan-agent-surfaces.md`, copied

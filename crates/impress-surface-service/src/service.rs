@@ -21,7 +21,8 @@ use impress_service_macros::{impress_service, impress_service_impl};
 use impress_service_macros::impress_method;
 
 use impress_surface::{
-    example_signal_explorer, validate, Action, Event, Node, NodeKind, Problem, Source, SurfaceSpec,
+    example_paper_triage, example_signal_explorer, validate, Action, Event, Node, NodeKind,
+    Problem, Source, SurfaceSpec,
 };
 use serde_json::Value;
 
@@ -161,9 +162,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
         host: Option<String>,
     ) -> SurfaceWaitResult;
 
-    /// Every worked example this build ships (today: the signal explorer
-    /// from `docs/plan-agent-surfaces.md`), so an agent can start from a
-    /// spec that already validates rather than the blank vocabulary.
+    /// Every worked example this build ships — the signal explorer from
+    /// `docs/plan-agent-surfaces.md` (S1) first, then the paper-triage
+    /// surface over the user's own unread papers (wave 5 V3) — so an agent
+    /// can start from a spec that already validates rather than the blank
+    /// vocabulary.
     #[impress_method]
     async fn surface_examples(&self) -> SurfaceExamplesResult;
 }
@@ -678,8 +681,11 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     }
 
     async fn surface_examples(&self) -> SurfaceExamplesResult {
+        // Signal explorer first (S1's worked example, what `surface_schema`
+        // also hands an authoring agent) — paper triage second (wave 5 V3,
+        // `docs/agent-surfaces.md`'s second worked example).
         SurfaceExamplesResult {
-            examples: vec![example_signal_explorer()],
+            examples: vec![example_signal_explorer(), example_paper_triage()],
         }
     }
 }
