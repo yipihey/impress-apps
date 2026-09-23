@@ -74,6 +74,13 @@ Verbs (`impress-surface-service`): `surface_schema`, `surface_validate`, `surfac
 `surface_render`, `surface_state_get`, `surface_state_set`, `surface_dispatch`,
 `surface_events`, `surface_wait`, `surface_examples`.
 
+*Amended 2026-09-23 (V5).* Two structural additions, decided after paper triage met the
+general "a selection is many, an argument is one" problem: a numeric path segment indexes
+an array (`{{state.selected.0}}`), and `call`/`emit` take `each` — a literal path to an
+array — running once per element with `{{item}}` bound. Event shapes stay uniform (a
+`select` is always an array of ids), verbs keep their signatures, and the spec still
+computes nothing: `each` is a fan-out declaration the validator checks, not a loop.
+
 ## Work packages
 
 Each package names its crate, its verification on Linux, and what only the Mac can prove.
@@ -213,6 +220,7 @@ own automation routers (and refusing, named, when that app is not running). D4's
 | **V1** | Host verb bridge. `impress-surface-service`: a `VerbHost` the executor and the service consult after the inventory (`call_verb` and `surface_validate`); `impress-store-ffi`: `SharedVerbHost` callback interface + `SharedStore::set_verb_host`, read lazily so a host installed after a surface was opened still serves it; Swift: `ImpelToolsFFI` exported as a product of CounselEngine, impress links it and installs an `ImpelToolsVerbHost` on its store at launch, configured with the sibling-app ports | `crates/impress-surface-service/src/{runtime,service,lib}.rs`, `crates/impress-store-ffi/src/{surface,lib}.rs`, `apps/impel/Packages/CounselEngine/Package.swift`, `apps/impress/{project.yml,macOS/Services/ImpressVerbHost.swift,…}` | Rust tests with a fake host (render through the host; validate accepts a host verb; inventory wins on a shared name; a host error is a source error, not a panic); FFI test with a Rust-implemented callback; binding regenerated at the end of the wave (declarations gained: the protocol + one method, none lost) |
 | **V2** | `delete-layout`: the one verb the stack lacked — a saved layout could be overwritten but never removed. Refuses the live row and presets (`reset-preset` is theirs); FFI method and HTTP route mirroring `save_layout`; CLAUDE.md's UniFFI bullet corrected (imprint commits ONE binding) | `crates/impress-layout-service/src/{service,tier_a}.rs`, `crates/impress-store-ffi/src/layout.rs`, the layout route table, `CLAUDE.md`, `docs/chassis-capability-matrix.md` | Tier-A capability: save → listed → delete → gone → delete again refused with a message; FFI test |
 | **V3** | Second worked example, on the user's own data: `paper-triage` — a `query` source over the `publication` kind, a table, star / flag / tag actions on `triage-service_*` (kit verbs, in-process everywhere) and an emitted `triaged` event; returned by `surface_examples` beside the signal explorer | `crates/impress-surface/{src/example.rs,examples/paper-triage.surface.json,tests/golden/…}`, `crates/impress-surface-service/src/{service,tier_a}.rs`, `docs/agent-surfaces.md` | golden; a dev-only loop test that seeds `imbib/bibliography-entry` rows in an in-memory store, renders, dispatches a star click and sees the row starred on re-render |
+| **V5** | Selection reaches a verb (decided 2026-09-23 after V3's gap): numeric path segments index arrays (`{{state.selected.0}}`, a path, not an operator) and `each` on `call`/`emit` fans an action out over an array with `{{item}}` bound, one effect per element. Event shapes stay uniform (a selection is always an array) and verbs keep their signatures; paper triage's buttons become `each` over the selection | `crates/impress-surface/src/{template,spec,reduce,validate}.rs`, the example and golden, `docs/agent-surfaces.md` | template, validate and reduce unit tests; the triage loop stars two selected rows with two `call` outcomes |
 | **V4** | Mac hand-off, round 2: link + verb host live (a source naming `imbib-library-service_list-libraries` lists the libraries with imbib running and names the missing app without), `delete-layout` over HTTP, L7's Swift half (⌃⌘1–9), Enter/Escape editing watched, `list` growth | `docs/next-steps-agent-surfaces-mac.md` | the Mac agent's log entries |
 
 Rules: V1–V3 run in parallel in one checkout on disjoint files; agents do not commit and do
@@ -419,3 +427,104 @@ triage-service).
   not a `List`: it takes the height its rows need and the surface scrolls as one
   document; single-row selection publishes the id. Still main's, not this branch's: the
   `grouped_surface_via_stdio` drift (82 tools on main against `< 60`).
+
+### 2026-09-23 — wave 5 (V1–V3) implemented, Linux-verified; Mac round 2 handed off
+
+PR #42 merged at 13:12 UTC with every S-package and the Mac's fixes; the branch was
+restarted from `main` and wave 5 built on it by three Sonnet agents in one checkout on
+disjoint files, reviewed and committed by path here.
+
+* **V1 host verb bridge.** `impress-surface-service` gained `VerbHost`: the executor and
+  `surface_validate` consult it after the linked inventory (the inventory wins on a shared
+  name; a host call runs under `spawn_blocking`; a host failure draws the same placeholder a
+  failing linked verb does). `impress-store-ffi` exposes it as the `SharedVerbHost`
+  callback interface plus `SharedStore::set_verb_host`, read through one shared slot on
+  every call, so a host installed after a pane opened still serves it (tests: late install,
+  and `/api/surface/validate` going 400 → 200 across the install). impress implements the
+  host over `impel-tools` — `ImpelToolsFFI` is now a product of CounselEngine, the shell
+  links that target alone, and `ImpelToolsVerbHost.install(on:)` runs beside the HTTP
+  server start. Known limit: `configure` probes each sibling once per process.
+* **V2 `delete-layout`.** Service verb, Tier-A capability (37 → 38), typed FFI method,
+  sixth `/api/layout/op` operation; refuses the live row and presets by name.
+* **V3 paper triage.** Second example over the `publication` kind with star / flag / tag
+  buttons on `triage-service_*`; golden; a loop test that seeds two bibliography entries,
+  selects one, clicks Star and sees `is_starred` on that row alone. **Vocabulary gap,
+  recorded not patched:** the Swift table's `select` carries an array of ids and every
+  triage verb takes one `id`; the template language walks object keys only, so there is no
+  `{{state.selected.0}}`. The example is honest about being single-select and its buttons
+  will not work in the app until Tom decides (index paths, single-select tables, or
+  list-taking verbs).
+* **Binding regenerated once** for both FFI changes: gained the `SharedVerbHost` protocol,
+  `setVerbHost`, `deleteLayout`; nothing lost; every new block-comment opener is a doc line.
+* Verified here: fmt, clippy (`-D warnings`) and tests for impress-surface (65),
+  impress-surface-service (15), impress-layout-service (27), impress-store-ffi (66);
+  `check-kit-deps.sh`, `check-schema-refs.sh`, `check-uniffi-bindings.sh`. One
+  load-sensitive test noted: store-ffi's in-process liveness test (from 498453d8) waits
+  two seconds and missed it only while a release build ran beside it; passes every time on
+  a quiet machine, in parallel and single-threaded.
+* Mac round 2 is `docs/next-steps-agent-surfaces-mac.md` (rewritten): the two framework
+  rebuilds, the compile, the live checks (host installed, an imbib verb in a pane, the
+  refusal with imbib closed, `delete-layout` over HTTP, paper triage rendering with the gap
+  recorded), and L7's Swift half.
+
+### 2026-09-23 — V5: the selection reaches the verb
+
+Tom chose the cleanest general answer over the three narrower ones (single-select tables
+would make the event shape depend on widget configuration; list-taking verbs would push a
+GUI concern into every capability). `impress-surface` gained numeric path segments in
+`resolve_path` (an array index; objects unchanged) and `each` on `call`/`emit` (a literal
+path, validated to a `state`/`param`/`source`/`event` root; `{{item}}` bound per element,
+allowed only inside such an action; an empty array is no effects, a non-array a
+`ReduceError` naming the path). Paper triage's buttons fan out over `state.selected`
+(default `[]` now, since a selection is an array); the golden is re-blessed; the loop test
+selects two of three seeded papers, clicks Star and sees two `call` outcomes, two `triaged`
+events, and the star on exactly those two rows. 15 tests added across template, reduce and
+validate; both crates clippy-clean. The Mac hand-off's step 4.5 now expects the buttons to
+work.
+
+### 2026-09-23 — Mac pass, round 2 (wave 5)
+
+Steps 1–3 were green with no source change: the gate, both frameworks, and every new
+Swift file compiled first time (`project.yml`'s `product: ImpelToolsFFI` was accepted as
+written). Step 4, each watched in `?category=surface`:
+
+1. ✅ Host installed: "impel-tools verb host: imbib=http, imprint=unavailable", then
+   "installed on the shared store". **The once-per-process probe bites in practice:** with
+   imbib launched two seconds before impress, the first probe read `imbib=unavailable`; a
+   relaunch read `http`. `configure` is a `OnceLock` in impel-tools, so the app cannot
+   re-probe — flagged, not changed (impel's contract).
+2. ✅ A surface whose one source is `imbib-library-service_list-libraries` rendered the
+   libraries through the host ("verb host call: …" in the log); the refusal half through
+   imprint (not running): the source draws a placeholder. **The placeholder is the
+   generic "did not resolve to a value"** — a failed fetch is dropped silently in
+   `render`'s source loop (no log, no reason; the crate has no logging facade), so
+   "imbib is not running" never reaches the pane. Flagged: carrying the reason means a
+   render-result shape change, i.e. ask first.
+   **Environment hazard found on the way:** an imbib **iOS Simulator** instance from the
+   self-hosted runner's test lane was listening on 23120 with a scratch store (Inbox 0
+   papers, "My Library"); the host's imbib calls reached IT, not the desktop imbib. A
+   shared runner on a dev Mac shares localhost ports.
+3. ✅ `POST /api/surface/validate` on that spec: `{"problems": []}` with the host installed.
+4. ✅ `delete-layout` over HTTP: save "Tmp" → delete → gone from `/api/layout/layouts`;
+   second delete `ok: false` ("no saved layout named…"); the shipped preset by name
+   ("Default" — impress ships only that one) refused naming `reset-preset`.
+5. ✅ Paper triage: the second example renders (table of 50 unread, Star / Flag red / Tag
+   to-read, status). Select two ids + click Star: **5 effects — two `call
+   triage-service_set-starred`, one `refresh`, two `emit 'triaged'`** (V5's `each` fans
+   out); `surface-wait --after-seq 0` returned the first `triaged`. **And the two papers
+   stayed unstarred** — the kit verbs wrote into a fresh sandbox-local impress.sqlite
+   (`~/Library/Containers/com.impress.impress/…`, 0 rows), because impress-store-service
+   opens its global lazily under `dirs::home_dir()`. `SharedStore::open` now installs the
+   app's handle (`install_store`); after it both rows are `is_starred` in the real store
+   and the table shows the stars after the refresh. In the GUI, a click + ⌘-click selected
+   ONE row (the table's multi-select over CGEvents did not extend) — the fan-out was
+   proven over HTTP with two ids; a `select` event still carries an array, as the hand-off
+   says.
+
+Step 5: ⌃⌘1–9 wired through the chassis (`ImpressLayoutOrdinalButtons`, routed like the
+toggles); ⌃⌘1 applied the Default preset over a surface pane, ⌃⌘2 the one saved layout,
+⌃⌘3/⌃⌘9 refused by name. Grammar row updated.
+
+Not this branch's: `main`'s red "imprint - iOS install smoke" and "Tectonic" lanes fail in
+`rustup` setup on the runner ("failure removing component 'cargo-aarch64-apple-darwin'",
+cryptexd EACCES) — 2026-09-06 and -21, before this work.

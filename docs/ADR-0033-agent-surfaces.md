@@ -66,6 +66,14 @@ a spec. Anything that computes is a verb (D4). This is the same discipline ADR-0
 applied to queries, for the same reason: a spec an agent can generate reliably, a schema a
 validator can reject precisely, and a document that never needs a sandbox.
 
+*Amended 2026-09-23 (wave 5, V5).* Two structural facilities were added without crossing the
+line, after the first surface over real data (paper triage) met the general problem of a
+GUI value reaching a verb argument: a selection is many, an argument is one. A numeric
+path segment indexes an array (`{{state.selected.0}}`, JSON-Pointer style — still a path),
+and `each` on a `call` or `emit` fans the action out over an array with `{{item}}` bound,
+one effect per element. Widget event shapes stay uniform (a selection is always an array)
+and verbs keep their natural signatures; the spec still computes nothing.
+
 ### D4 — Verbs are the only way a surface computes, through one linked inventory
 
 A source or action that names a verb calls it through the `#[impress_service]` inventory

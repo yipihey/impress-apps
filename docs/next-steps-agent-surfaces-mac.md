@@ -1,164 +1,152 @@
-# Next steps — agent surfaces on the Mac (ADR-0033)
+# Next steps — agent surfaces on the Mac, round 2 (wave 5)
 
-This is the hand-off for an agent running on Tom's Mac. Everything in
-[plan-agent-surfaces.md](plan-agent-surfaces.md) that Rust could prove is proven on Linux;
-what remains needs Xcode, a running app, and a second process writing the same store. Work
-autonomously through the steps in order, commit after every step that changes files, push
-to the branch, and stop only at the "ask first" points named below.
+This is the hand-off for an agent running on Tom's Mac. Round 1 (S0–S10, 2026-09-22/23) is
+merged in PR #42; its log is the session log in [plan-agent-surfaces.md](plan-agent-surfaces.md).
+Wave 5 (V1–V3) is verified on Linux — Rust tests, clippy, the binding regenerated — and what
+remains needs Xcode and a running app, as before. Work autonomously through the steps in
+order, commit after every step that changes files, push to the branch, and stop only at the
+"ask first" points named below.
 
-Branch: `claude/gui-abstraction-survey-pf2bp8` (PR opened from it). Never force-push it.
+Branch: `claude/gui-abstraction-survey-pf2bp8` (restarted from `main` after PR #42 merged;
+a new PR is open from it). Never force-push it.
 
-Read first: `CLAUDE.md` (Definition of done: Rust changes, UniFFI exports, schema refs;
-the SwiftUI pitfalls), `docs/ADR-0033-agent-surfaces.md`, `docs/agent-surfaces.md`,
-`docs/keyboard-grammar.md` § Surface panes, and the last entry of the session log in
-`docs/plan-agent-surfaces.md`. Load the `impress-swiftui-pitfalls` skill before touching Swift.
+Read first: `CLAUDE.md` (Definition of done: Rust changes, UniFFI exports; the SwiftUI
+pitfalls), `docs/ADR-0033-agent-surfaces.md` D4 and its 2026-09-23 amendment, the "Wave 5"
+section and the last log entry of `docs/plan-agent-surfaces.md`, and
+`docs/agent-surfaces.md` § "A second worked example: paper triage". Load the
+`impress-swiftui-pitfalls` skill before touching Swift.
 
 ## Rules that hold throughout
 
 - **The renderer is a mapping.** Fix Swift so it compiles and behaves; do not move logic
-  into it. If a RenderTree shape is awkward for SwiftUI, change nothing in Swift that
-  amounts to interpreting the spec — change `impress-surface`'s `resolve` output instead,
-  keep the golden test honest (`UPDATE_GOLDEN=1` re-blesses it), and say so in the log.
-- **Rust shapes are contracts.** `RenderTree`, `Event`, `SurfaceDispatchResult` and the
-  `/api/surface/*` bodies are what MCP callers see. Changing a field name means changing
-  the Rust type, its tests, the Swift Codable and the doc together, in one commit.
-- **A UniFFI change is not done until the binding is regenerated:**
-  `./scripts/build-xcframeworks.sh --fast impress-store-ffi` then
-  `./scripts/check-uniffi-bindings.sh`. Judge the binding diff by declarations gained and
-  lost, never by diffstat. Take `swiftformat` off PATH first.
-- **Keyboard:** `.keyboardGuarded` on the outermost container only; never `.focusable()`
-  around a text field; j/k/Enter/Escape per the grammar.
-- **Commits** in the repo's voice (a sentence about what changed and why), one per fix,
-  ending with:
-  ```
-  Co-Authored-By: <your model name> <noreply@anthropic.com>
-  ```
-  No model identifiers anywhere else. Append what you verified and what you found to the
-  session log in `docs/plan-agent-surfaces.md` (append-only, dated) before each push.
+  into it. If a shape is awkward, change the Rust and keep the golden honest
+  (`UPDATE_GOLDEN=1`), and say so in the log.
+- **Rust shapes are contracts.** `SharedVerbHost`, `RenderTree`, `SurfaceDispatchResult`
+  and the `/api/surface/*` bodies are what MCP callers see.
+- **A UniFFI change is not done until the binding is regenerated.** The committed
+  `impress_store_ffi.swift` was regenerated on Linux for this wave (it gained the
+  `SharedVerbHost` protocol, `setVerbHost`, `deleteLayout`; nothing lost). If step 2's
+  rebuild rewrites it with a real declaration difference, stop and read it.
+- **Commits** in the repo's voice, one per fix, ending with
+  `Co-Authored-By: <your model name> <noreply@anthropic.com>`. No model identifiers
+  anywhere else. Append what you verified to the session log in
+  `docs/plan-agent-surfaces.md` (append-only, dated) before each push.
 
-## Step 1 — the Rust gate, with the two things Linux could not run
+## Step 1 — the Rust gate
 
 ```bash
 git checkout claude/gui-abstraction-survey-pf2bp8 && git pull
 ./scripts/rust-gate.sh fmt
 ./scripts/rust-gate.sh clippy auto
-cargo test -p impress-mcp -p impress-cli          # ort-sys downloads ONNX here; blocked on Linux
+cargo test -p impress-mcp -p impress-cli
 ./scripts/check-uniffi-bindings.sh
 ./scripts/check-schema-refs.sh
 ./scripts/check-kit-deps.sh
 ```
 
-Expected: all clean. The MCP inventory test's tool count is 428 with `full`. If clippy
-finds lints in a crate this branch touched, fix them; if it finds lints in a crate it did
-not touch, note them in the log and move on (they are main's).
+Expected: all clean. The inventory grew by one verb (`layout-service_delete-layout`), so any
+test pinning the tool count moves by one. One known load-sensitive test:
+`impress-store-ffi`'s `a_verb_from_another_object_in_this_process_tells_the_host_the_tree_changed`
+waits two seconds for the feed and missed it on Linux only while a release build ran beside
+it; on a quiet machine it passes every time. If it fails for you under load, re-run it alone
+before reading anything into it.
 
-## Step 2 — rebuild the store xcframework
+## Step 2 — rebuild the two frameworks the app now links
 
 ```bash
 ./scripts/build-xcframeworks.sh --fast impress-store-ffi
+IMPRESS_SKIP_X86=1 crates/impel-tools/build-xcframework.sh   # ImpelTools.xcframework, macOS only
 ./scripts/check-uniffi-bindings.sh
 ```
 
-The committed `impress_store_ffi.swift` was regenerated on Linux and matches; this step
-rebuilds the header, modulemap and the archive the apps link. If the script rewrites the
-`.swift` with a real declaration difference, stop and read it: it means the Mac's
-uniffi-bindgen disagrees with Linux's, which has not happened before.
+`ImpelTools.xcframework` lives under `crates/impel-tools/frameworks/` (untracked; impel's
+own build makes it). impress now links CounselEngine's new `ImpelToolsFFI` product, which
+is that framework plus the committed `impel_tools.swift`.
 
-## Step 3 — compile the Swift
+## Step 3 — compile
 
 ```bash
-cd packages/ImpressSurface && swift build && swift test && cd ../..
-cd apps/impress && [ -d impress.xcodeproj ] || xcodegen generate
-xcodebuild -project impress.xcodeproj -scheme impress -configuration Debug build 2>&1 | tail -40
-cd ../..
+cd apps/impress && xcodegen generate && cd ../..
+xcodebuild -project apps/impress/impress.xcodeproj -scheme impress -configuration Debug build 2>&1 | tail -40
+cd apps/imbib/PublicationManagerCore && swift build && swift test && cd ../../..
 ```
 
-`packages/ImpressSurface` and `Chassis/Layout/LayoutSurfacePaneView.swift` have never
-compiled. Expect errors of these kinds and fix them in place:
+New Swift this wave, none of it compiled yet:
 
-- Codable mismatches between `RenderTree.swift` and the Rust `RenderKind` (the source of
-  truth is `crates/impress-surface/src/resolve.rs`; the fixture is
-  `crates/impress-surface/tests/golden/signal-explorer.render.json`).
-- UniFFI signature mismatches: the binding file is the truth; `Option<u64>` is `UInt64?`,
-  `Result<String>` is `throws -> String`, callback interfaces are protocols.
-- `@FocusState`/`Binding` threading through the private widget views, `Table` with dynamic
-  columns, `TableColumnForEach`. Simplify rather than fight: a `List` of rows with a
-  selection binding is acceptable for `table` on the first pass if `Table` will not bend.
-- `PlotAutomationHandler.decodeSpec` and `renderPlotSvg` from `ImprintCore`: confirm the
-  import and access level; the demo verb emits the `series` shape it reads.
-
-Also run the PMC tests that exist (`xcodebuild test` for the scheme CI uses, or
-`swift test` in `apps/imbib/PublicationManagerCore` if that is how the tests run locally)
-so nothing outside the new files regressed.
+- `apps/impress/project.yml` — the `CounselEngine` package with `product: ImpelToolsFFI` on
+  the macOS target only. If XcodeGen rejects the `product:` key spelling, the documented
+  form is `- package: CounselEngine` / `  product: ImpelToolsFFI`; fix the YAML, not the
+  package.
+- `apps/impel/Packages/CounselEngine/Package.swift` — the `ImpelToolsFFI` library product.
+- `apps/impress/macOS/Services/ImpressVerbHost.swift` — `ImpelToolsVerbHost: SharedVerbHost`
+  over `listTools()` / `callTool(name:argsJson:)` / `configure(imbibUrl:imprintUrl:)`, and
+  `install(on:)` called from `ImpressApp` beside the HTTP server start. Its error mapping
+  throws `SharedStoreError.Storage(message:)`; the protocol's spelling is
+  `hasVerb(name:)` / `callVerb(name:argsJson:) throws -> String`, as the regenerated
+  binding declares.
+- `RustStoreAdapter.layoutSharedStore()` is now `public` so the shell can reach the one
+  store every surface pane was opened on.
+- `LayoutController` / `LayoutController+Automation` / `LayoutAutomation.swift` — the
+  `delete-layout` operation, a mirror of `save-layout`.
 
 ## Step 4 — the loop, end to end, against the running app
 
 ```bash
 defaults write com.impress.impress impress.layoutTree.enabled -bool YES
-# launch the impress app you just built (open the .app from DerivedData or run the scheme)
-curl -s http://localhost:23125/api/status | head -c 300
+# launch impress (the flag belongs to impress, not imbib); then also launch imbib
+curl -s http://localhost:23125/api/status | head -c 200
+curl -s 'http://localhost:23125/api/logs?category=surface&limit=20'   # expect "impel-tools verb host: imbib=http ..."
 ```
-
-Now drive it from a second process, which is the whole point of ADR-0033 D6:
-
-```bash
-cargo run -p impress-cli -- --help | grep -i surface        # subcommands are the kebab method names
-cargo run -p impress-cli -- surface-examples                # one spec: the signal explorer
-cargo run -p impress-cli -- surface-create --spec "$(cargo run -q -p impress-cli -- surface-examples | jq -c '.examples[0]')"
-# take the id it prints, then:
-cargo run -p impress-cli -- surface-show --id <id> --target '{"split":{"direction":"horizontal","from_focused":true}}'
-```
-
-(If the CLI's argument spelling differs, `--help` on the subcommand is authoritative; the
-MCP tool names are `impress-surface-service_surface-<verb>`.)
 
 Verify, and record each in the log:
 
-1. The pane appears in the running window without any HTTP call to the app: the S5
-   `data_version` poll saw the CLI's write. `curl 'localhost:23125/api/logs?category=surface&limit=40'`
-   shows render requested → dispatch applied → tree displayed.
-2. j/k walk the widgets; Enter on the slider/field begins editing; Escape returns to
-   widget focus; Enter on "Use these bins" fires a click.
-3. Dragging a slider emits exactly ONE `change` on release (watch the log), not one per
-   pixel.
-4. The histogram renders (a line over bin centres, from `surface-demo-service_histogram`).
-5. `curl localhost:23125/api/surface`, `curl localhost:23125/api/surface/<id>/render`,
-   and a `POST .../dispatch` with `{"widget":"n0.1.1","kind":"change","value":40}` return
-   the same shapes as the verbs.
-6. From the CLI, `surface-wait --id <id> --after-seq 0 --timeout-ms 20000`, then click
-   "Use these bins" in the window: the wait returns `bins-chosen` with the payload. This is
-   the agent-reads-what-the-human-did direction.
-7. Selecting a row in the table publishes on the pane's channel: another pane bound to
-   the same channel changes. If no pane is bound, say so; that is the known gap below.
+1. **The host is installed and imbib is reachable.** The `surface` log shows the
+   `configure` line with `imbib=http` (imbib running) and "verb host installed".
+2. **A surface calls an imbib verb in the app.** Author a minimal spec whose one source
+   is `{"verb": "imbib-library-service_list-libraries", "args": {}}` and a `kv` or `text`
+   over `{{source.libs}}`; `surface-create` + `surface-show` from the CLI; the pane lists the
+   libraries. Then quit imbib, relaunch impress, show the surface again: the source draws
+   the placeholder naming "imbib is not running" — refused, not silently answered from the
+   store. (Known limit, documented on `ImpelToolsVerbHost.install`: `configure` probes once
+   per process, so an app started after impress stays unavailable until impress relaunches.
+   Record whether that bites in practice.)
+3. **`surface-validate` over HTTP accepts a host verb.** `POST /api/surface/validate` with
+   that spec answers no problems while the host is installed.
+4. **`delete-layout` over HTTP.** `POST /api/layout/op {"op":"save-layout","name":"Tmp"}`,
+   then `{"op":"delete-layout","name":"Tmp"}`; `GET /api/layout/layouts` no longer lists
+   it; a second delete answers `ok: false` with a message; `{"name":"Triage"}` is refused
+   naming `reset-preset`.
+5. **Paper triage works end to end.** `surface-examples` → the second example → create +
+   show: a table of unread papers with three buttons. Select two rows, click Star: the
+   dispatch log shows two `call` outcomes (one `triage-service_set-starred` per selected
+   id — the buttons fan out with `each` over `state.selected`, V5) and two `triaged`
+   events; the table's rows show the star after the refresh. From the CLI,
+   `surface-wait --after-seq 0` returns the first `triaged` event. Record exactly what the
+   star button's outcomes report if anything differs.
 
-## Step 5 — the follow-ups S7 flagged, in this order, each its own commit
+Also record in the log that a `select` on a table still carries an array of ids (the
+event shape is deliberately uniform) — V5 closed the gap on the spec side, not the widget's.
 
-1. **Dispatch effects owed to the host.** `SurfaceDispatchResult.effects` are decoded but
-   only a raw `select` event reaches `context.select`. Make `publish` and `open` effects
-   act: the Rust executor already composes layout verbs for them when the runtime knows
-   its pane, so the fix is most likely passing the pane on `render`/`dispatch` (the FFI
-   takes `pane: UInt64?`) and verifying the effect outcome is `ok`. If an effect still
-   reports "no pane", fix that in `impress-surface-service`'s runtime, not in Swift.
-2. **List rows through the row-style registry.** `list` uses a plain `List`; route it
-   through `RecordViewerRegistry` when the rows carry a record kind, keep the plain List
-   as the fallback. Small; if it is not, log it and leave it.
-3. **Golden alignment.** The S1 golden's `plot` value is a synthetic `{"bars": [...]}`;
-   make the fixture's fake source data use the real `series` shape the demo verb emits so
-   the Swift golden test exercises the real decoder. Re-bless with `UPDATE_GOLDEN=1`.
-4. **Capability matrix.** Flip the `surface` row's "Mac-verified" cell to what you
-   actually verified in step 4.
+## Step 5 — L7's Swift half
+
+⌃⌘1–9 applies a preset or saved layout by ordinal: wire the chords to
+`LayoutController` → `SharedLayout.applyLayout(nameOrOrdinal:actor:)` (the FFI already
+reads a positive integer as the ordinal), guarded like every other chord in the chassis.
+Verify: ⌃⌘1 is the app's default arrangement, ⌃⌘2 imbib's Triage, and a layout saved by
+`save-layout` takes the next number. Update `docs/keyboard-grammar.md` if its table says
+"pending".
 
 ## Ask first (stop and report instead of deciding)
 
-- Any change to the vocabulary in the plan's normative section, the three schema refs, or
-  a verb's arguments.
-- Adding a dependency to `packages/ImpressSurface` (it must stay kit-grade: Keyboard,
-  Theme, Logging only).
+- Any change to the vocabulary (including the two V5 additions, `each` and numeric path
+  segments), the schema refs or a verb's arguments: report what you saw instead.
+- Adding a dependency to `packages/ImpressSurface`.
 - Anything that would make the FFI depend on a domain core (`cargo tree -p
-  impress-store-ffi -e normal | grep -E '^(imprint-core|imbib-core|implore-core)'` must stay
-  empty).
+  impress-store-ffi -e normal | grep -E '^(imprint-core|imbib-core|implore-core)'` must
+  stay empty).
 
 ## Definition of done
 
-Steps 1–4 green and logged, step 5.1 done, the PR marked ready for review with a comment
-listing what was verified live and what remains, and CI on the PR green. Then stop.
+Steps 1–4 green and logged, step 5 done, the PR marked ready for
+review with a comment listing what was verified live and what remains, and CI on the PR
+green. Then stop.

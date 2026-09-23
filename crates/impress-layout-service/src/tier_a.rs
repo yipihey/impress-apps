@@ -65,6 +65,7 @@ pub async fn run() -> Vec<CapabilityResult> {
         cap_get_channel().await,
         cap_resolve_reference().await,
         cap_list_layouts().await,
+        cap_delete_layout().await,
         cap_one_live_row_per_scope().await,
         cap_misspelled_reference_is_refused().await,
         // presets (L7)
@@ -1476,6 +1477,88 @@ async fn cap_list_layouts() -> CapabilityResult {
                 "the live arrangement is not a saved layout",
             )?;
             Ok(format!("{names:?}"))
+        },
+    )
+    .await
+}
+
+async fn cap_delete_layout() -> CapabilityResult {
+    check(
+        "delete-layout",
+        "a saved layout can be removed, a second delete is refused with a message, and a \
+         preset's name is refused by name (reset-preset is the verb for that)",
+        Tier::A,
+        || async {
+            let w = World::open()?;
+            w.service
+                .save_layout(APP.into(), w.device(), "Alpha".into(), None, None)
+                .await;
+
+            let listed = w.service.list_layouts(APP.into()).await;
+            want(
+                listed
+                    .layouts
+                    .iter()
+                    .any(|l| l.name.as_deref() == Some("Alpha")),
+                "Alpha should be listed after being saved",
+            )?;
+
+            let deleted = w
+                .service
+                .delete_layout(APP.into(), "Alpha".into(), Some("human".into()))
+                .await;
+            want(deleted.ok, deleted.message.clone())?;
+
+            let listed = w.service.list_layouts(APP.into()).await;
+            want(
+                listed
+                    .layouts
+                    .iter()
+                    .all(|l| l.name.as_deref() != Some("Alpha")),
+                "Alpha should be gone after delete_layout",
+            )?;
+
+            // A second delete of the same name is `ok: false` with a
+            // message, never an error the caller has to handle specially.
+            let again = w
+                .service
+                .delete_layout(APP.into(), "Alpha".into(), None)
+                .await;
+            want(
+                !again.ok,
+                "deleting an already-gone name should not succeed",
+            )?;
+            want(
+                !again.message.is_empty(),
+                "the refusal should say why, not just fail silently",
+            )?;
+
+            // A preset shares the ⌃⌘1–9 name space, but it is never deleted
+            // this way — `reset-preset` is its undo.
+            w.service.list_presets(APP.into()).await;
+            let preset_delete = w
+                .service
+                .delete_layout(APP.into(), "Triage".into(), None)
+                .await;
+            want(
+                !preset_delete.ok,
+                "a shipped preset's name should be refused, not deleted",
+            )?;
+            want(
+                preset_delete
+                    .message
+                    .to_lowercase()
+                    .contains("reset-preset"),
+                format!(
+                    "the refusal should name reset-preset; got: {}",
+                    preset_delete.message
+                ),
+            )?;
+
+            Ok(format!(
+                "deleted: {}; re-delete: {}; preset refusal: {}",
+                deleted.message, again.message, preset_delete.message
+            ))
         },
     )
     .await

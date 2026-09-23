@@ -18,7 +18,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 mod ai;
 mod ai_registry;
@@ -82,7 +82,7 @@ pub use layout::{
 };
 pub use surface::{
     surface_example_json, surface_schema_json, SharedHttpReply, SharedSurface, SharedSurfaceError,
-    SharedSurfaceListener, SharedSurfaceRow,
+    SharedSurfaceListener, SharedSurfaceRow, SharedVerbHost,
 };
 
 pub use ai_registry::{
@@ -745,6 +745,14 @@ pub struct SharedStore {
     /// meant a surface could add a pane to a tree the window never re-read
     /// (2026-09-23).
     layout_sessions: Arc<impress_layout_service::SessionRegistry>,
+    /// The host-supplied second verb inventory (ADR-0033 D4, amended
+    /// 2026-09-23 for wave 5's V1) — `None` until [`Self::set_verb_host`]
+    /// installs one. `Arc<Mutex<..>>` rather than a plain field because
+    /// [`surface::HostAdapter`] holds a CLONE of this same `Arc` and reads
+    /// it fresh on every call, which is what makes installing a host AFTER
+    /// a [`SharedSurface`](surface::SharedSurface) was already opened still
+    /// serve that handle — see [`Self::set_verb_host`].
+    verb_host: Arc<Mutex<Option<Arc<dyn SharedVerbHost>>>>,
     /// The workspace's content-addressed blob directory (`<workspace>/content`,
     /// next to the database) — `None` for an in-memory store (ADR-0030 D3).
     blob_root: Option<std::path::PathBuf>,
@@ -755,6 +763,15 @@ impl SharedStore {
     /// store — see the field.
     pub(crate) fn layout_sessions(&self) -> Arc<impress_layout_service::SessionRegistry> {
         self.layout_sessions.clone()
+    }
+
+    /// The verb-host slot shared by every object opened on this store — see
+    /// the field and [`Self::set_verb_host`]. `pub(crate)` rather than
+    /// exported: it hands out the raw `Arc<Mutex<..>>`, which
+    /// `surface::HostAdapter` clones to read fresh on every call; nothing
+    /// outside this crate should hold it directly.
+    pub(crate) fn verb_host_slot(&self) -> Arc<Mutex<Option<Arc<dyn SharedVerbHost>>>> {
+        self.verb_host.clone()
     }
 
     /// The one `SqliteItemStore` handle this object wraps.
@@ -788,9 +805,23 @@ impl SharedStore {
                 .root()
                 .to_path_buf()
         });
+        // ONE store per process for the kit's own verbs. `impress-store-service`
+        // opens its process-wide store lazily at the default app-group path,
+        // and inside the sandboxed app `dirs::home_dir()` is the CONTAINER
+        // home — so the first surface action that called
+        // `triage-service_set-starred` wrote, successfully, into a fresh empty
+        // impress.sqlite under ~/Library/Containers/com.impress.impress
+        // while the window showed the real one (2026-09-23). Installing the
+        // handle the app already opened makes every kit verb act on the store
+        // the panes render from. `Err` means one is installed already, which
+        // is the second SharedStore in a process (tests, the review store):
+        // the first wins and that is the right answer.
+        let store = Arc::new(store);
+        let _ = impress_store_service::install_store(store.clone());
         Ok(Arc::new(SharedStore {
             layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
-            inner: Arc::new(store),
+            verb_host: Arc::new(Mutex::new(None)),
+            inner: store,
             blob_root,
         }))
     }
@@ -802,11 +833,42 @@ impl SharedStore {
         let store = SqliteItemStore::open_in_memory().map_err(|e| SharedStoreError::Storage {
             message: e.to_string(),
         })?;
+        // ONE store per process for the kit's own verbs. `impress-store-service`
+        // opens its process-wide store lazily at the default app-group path,
+        // and inside the sandboxed app `dirs::home_dir()` is the CONTAINER
+        // home — so the first surface action that called
+        // `triage-service_set-starred` wrote, successfully, into a fresh empty
+        // impress.sqlite under ~/Library/Containers/com.impress.impress
+        // while the window showed the real one (2026-09-23). Installing the
+        // handle the app already opened makes every kit verb act on the store
+        // the panes render from. `Err` means one is installed already, which
+        // is the second SharedStore in a process (tests, the review store):
+        // the first wins and that is the right answer.
+        let store = Arc::new(store);
+        let _ = impress_store_service::install_store(store.clone());
         Ok(Arc::new(SharedStore {
             layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
-            inner: Arc::new(store),
+            verb_host: Arc::new(Mutex::new(None)),
+            inner: store,
             blob_root: None,
         }))
+    }
+
+    /// Install the host's second verb inventory (ADR-0033 D4, amended
+    /// 2026-09-23) — the callback [`SharedSurface`](surface::SharedSurface)'s
+    /// executor and service consult for any verb this process did not link
+    /// into `impress-capabilities-kit`.
+    ///
+    /// **May be called after surfaces were already opened.** Every
+    /// [`SharedSurface`](surface::SharedSurface) built from this store holds
+    /// a clone of the SAME slot this writes and reads it fresh on every
+    /// `render`/`dispatch`/`validate` call, so a host installed late (the
+    /// app finished probing its sibling apps only after the first pane had
+    /// already rendered) still starts serving every existing handle from
+    /// the next call on — nothing needs to be reopened.
+    pub fn set_verb_host(&self, host: Box<dyn SharedVerbHost>) {
+        let mut slot = self.verb_host.lock().unwrap_or_else(|e| e.into_inner());
+        *slot = Some(Arc::from(host));
     }
 
     /// Commit text to a manuscript's Automerge document (ADR-0027 D6) — the

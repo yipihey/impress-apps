@@ -70,6 +70,39 @@ pub fn verb_exists(name: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// VerbHost (ADR-0033 D4, amended 2026-09-23 for wave 5)
+// ---------------------------------------------------------------------------
+
+/// A second inventory the host process supplies for verbs this binary did
+/// not link (ADR-0033 D4, amended 2026-09-23). Consulted only after the
+/// linked inventory, so a linked verb is never shadowed.
+///
+/// In the app, `impress-store-ffi` implements this over `impel-tools`'
+/// `call_tool` — the suite's already-linked full inventory, which reaches
+/// imbib and imprint through their own HTTP routers and refuses, by name,
+/// when the owning app is not running (see `impel_tools::ToolError`). A
+/// domain core is therefore still linked once per app process, never twice
+/// (ADR-0033 D4's own prohibition), and a verb whose app is down fails in
+/// the source rather than silently writing the store behind the running
+/// app's back.
+///
+/// Synchronous on purpose: the UniFFI callback into Swift is synchronous,
+/// and the host's own `call_tool` blocks on its own Tokio runtime
+/// (`impress_service_core::runtime::block_on`) rather than yielding to this
+/// crate's. [`DefaultExecutor`] therefore runs a host call under
+/// `tokio::task::spawn_blocking` (see its `call_verb`), so a slow host (an
+/// HTTP round trip to imbib) never parks one of this runtime's own worker
+/// threads.
+pub trait VerbHost: Send + Sync {
+    /// Whether the host can answer this verb at all — checked before
+    /// [`Self::call_verb`], so `surface_validate` can report "no such verb"
+    /// without actually calling it.
+    fn has_verb(&self, name: &str) -> bool;
+    /// Run the verb and return its JSON result.
+    fn call_verb(&self, name: &str, args: Value) -> Result<Value>;
+}
+
+// ---------------------------------------------------------------------------
 // Executor
 // ---------------------------------------------------------------------------
 
@@ -174,6 +207,11 @@ pub struct DefaultExecutor {
     store: Arc<SqliteItemStore>,
     surfaces: SurfaceStore,
     layout: DefaultLayoutService,
+    /// The second inventory consulted when a verb is not in this process's
+    /// linked `#[impress_service]` set — see [`VerbHost`]. `None` in every
+    /// binary that has not installed one (the CLI, MCP, and every Tier A
+    /// test unless it opts in with [`Self::with_verb_host`]).
+    verb_host: Option<Arc<dyn VerbHost>>,
 }
 
 impl DefaultExecutor {
@@ -186,6 +224,7 @@ impl DefaultExecutor {
             // the GUI (or the CLI, or another MCP call) already has open.
             layout: DefaultLayoutService::new(),
             store,
+            verb_host: None,
         }
     }
 
@@ -196,6 +235,7 @@ impl DefaultExecutor {
             surfaces: SurfaceStore::new(store.clone()),
             layout: DefaultLayoutService::with_store(store.clone()),
             store,
+            verb_host: None,
         }
     }
 
@@ -210,14 +250,47 @@ impl DefaultExecutor {
             surfaces: SurfaceStore::new(store.clone()),
             layout: DefaultLayoutService::with_store_and_sessions(store.clone(), sessions),
             store,
+            verb_host: None,
         }
+    }
+
+    /// Install a [`VerbHost`] this executor consults for any verb its own
+    /// linked inventory lacks (ADR-0033 D4, amended 2026-09-23). Builder
+    /// style so `DefaultExecutor::new(store).with_verb_host(host)` reads as
+    /// one setup step, matching every other `with_*` on this type.
+    pub fn with_verb_host(mut self, host: Arc<dyn VerbHost>) -> Self {
+        self.verb_host = Some(host);
+        self
     }
 }
 
 #[async_trait::async_trait]
 impl Executor for DefaultExecutor {
     async fn call_verb(&self, name: &str, args: Value) -> Result<Value> {
-        call_verb(name, args).await
+        if verb_exists(name) {
+            // The inventory wins on a shared name: a verb linked into this
+            // process is never shadowed by a host that happens to answer
+            // for the same name too (ADR-0033's amendment is explicit about
+            // this ordering).
+            return call_verb(name, args).await;
+        }
+        let Some(host) = self.verb_host.clone() else {
+            return Err(format!(
+                "Unknown tool: {name} (not in this process's inventory; no verb host installed)"
+            ));
+        };
+        if !host.has_verb(name) {
+            return Err(format!(
+                "Unknown tool: {name} (not in this process's inventory; host has no such verb)"
+            ));
+        }
+        // Synchronous by design (see `VerbHost`'s docs): run it off this
+        // runtime's own worker threads so a slow host call — an HTTP round
+        // trip to imbib or imprint — cannot park one.
+        let owned_name = name.to_string();
+        tokio::task::spawn_blocking(move || host.call_verb(&owned_name, args))
+            .await
+            .map_err(|e| format!("verb host call to {name}: task panicked: {e}"))?
     }
 
     async fn run_query(&self, query: &PaneQuery, bindings: &Bindings) -> Result<Value> {

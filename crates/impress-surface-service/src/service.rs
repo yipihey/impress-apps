@@ -21,7 +21,8 @@ use impress_service_macros::{impress_service, impress_service_impl};
 use impress_service_macros::impress_method;
 
 use impress_surface::{
-    example_signal_explorer, validate, Action, Event, Node, NodeKind, Problem, Source, SurfaceSpec,
+    example_paper_triage, example_signal_explorer, validate, Action, Event, Node, NodeKind,
+    Problem, Source, SurfaceSpec,
 };
 use serde_json::Value;
 
@@ -32,7 +33,7 @@ use crate::dto::{
     SurfaceValidateResult, SurfaceWaitResult,
 };
 use crate::runtime::{
-    show_in_pane, surface_item_query, verb_exists, DefaultExecutor, SessionRegistry,
+    show_in_pane, surface_item_query, verb_exists, DefaultExecutor, SessionRegistry, VerbHost,
 };
 use crate::store::SurfaceStore;
 
@@ -161,9 +162,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
         host: Option<String>,
     ) -> SurfaceWaitResult;
 
-    /// Every worked example this build ships (today: the signal explorer
-    /// from `docs/plan-agent-surfaces.md`), so an agent can start from a
-    /// spec that already validates rather than the blank vocabulary.
+    /// Every worked example this build ships — the signal explorer from
+    /// `docs/plan-agent-surfaces.md` (S1) first, then the paper-triage
+    /// surface over the user's own unread papers (wave 5 V3) — so an agent
+    /// can start from a spec that already validates rather than the blank
+    /// vocabulary.
     #[impress_method]
     async fn surface_examples(&self) -> SurfaceExamplesResult;
 }
@@ -179,6 +182,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
 pub struct DefaultImpressSurfaceService {
     store: Option<Arc<SqliteItemStore>>,
     sessions: Option<Arc<SessionRegistry>>,
+    /// See [`crate::runtime::VerbHost`]. Threaded into every [`DefaultExecutor`]
+    /// this service builds ([`Self::executor`]) and consulted directly by
+    /// [`Self::surface_validate`], so a spec naming a host-only verb both
+    /// runs and validates clean once a host is installed.
+    verb_host: Option<Arc<dyn VerbHost>>,
 }
 
 impl DefaultImpressSurfaceService {
@@ -186,6 +194,7 @@ impl DefaultImpressSurfaceService {
         Self {
             store: None,
             sessions: None,
+            verb_host: None,
         }
     }
 
@@ -193,7 +202,15 @@ impl DefaultImpressSurfaceService {
         Self {
             store: Some(store),
             sessions: Some(Arc::new(SessionRegistry::new())),
+            verb_host: None,
         }
+    }
+
+    /// Install a [`VerbHost`] — builder style, matching
+    /// [`DefaultExecutor::with_verb_host`].
+    pub fn with_verb_host(mut self, host: Arc<dyn VerbHost>) -> Self {
+        self.verb_host = Some(host);
+        self
     }
 
     fn store_arc(&self) -> Arc<SqliteItemStore> {
@@ -213,9 +230,13 @@ impl DefaultImpressSurfaceService {
     }
 
     fn executor(&self) -> DefaultExecutor {
-        match &self.store {
+        let executor = match &self.store {
             Some(s) => DefaultExecutor::with_store(s.clone()),
             None => DefaultExecutor::new(self.store_arc()),
+        };
+        match &self.verb_host {
+            Some(host) => executor.with_verb_host(host.clone()),
+            None => executor,
         }
     }
 
@@ -308,7 +329,16 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     async fn surface_validate(&self, spec: SurfaceSpec) -> SurfaceValidateResult {
         let mut problems = validate(&spec);
         for (path, verb) in verb_refs(&spec) {
-            if !verb_exists(&verb) {
+            // A verb this process did not link but a host (ADR-0033 D4,
+            // amended 2026-09-23) answers for is not a problem — it will
+            // run through `DefaultExecutor::call_verb` exactly as a linked
+            // one does.
+            let known = verb_exists(&verb)
+                || self
+                    .verb_host
+                    .as_ref()
+                    .is_some_and(|host| host.has_verb(&verb));
+            if !known {
                 problems.push(Problem {
                     path,
                     message: format!("no such verb: {verb}"),
@@ -678,8 +708,11 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     }
 
     async fn surface_examples(&self) -> SurfaceExamplesResult {
+        // Signal explorer first (S1's worked example, what `surface_schema`
+        // also hands an authoring agent) — paper triage second (wave 5 V3,
+        // `docs/agent-surfaces.md`'s second worked example).
         SurfaceExamplesResult {
-            examples: vec![example_signal_explorer()],
+            examples: vec![example_signal_explorer(), example_paper_triage()],
         }
     }
 }

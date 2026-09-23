@@ -157,6 +157,71 @@ instead (add a caption, disable the button, swap in a different plot), it
 would call `impress-surface-service_surface-update` with a patched spec and
 loop back to `surface_wait`.
 
+### A second worked example: paper triage
+
+The signal explorer above is synthetic data driving a slider and a plot.
+`example_paper_triage` (`crates/impress-surface/examples/paper-triage.surface.json`,
+wave 5 V3) is the other shape of surface: a `query` source over the user's
+own data — unread papers, `publication` / `imbib/bibliography-entry` — a
+table, and a row of buttons that act on whichever row is selected through
+kit verbs the whole suite already has. It exists so an agent's first surface
+over a domain the user actually works in looks like this, not like a demo.
+
+**The verbs.** All four are `#[impress_service]` verbs already linked
+everywhere — the app, the CLI and MCP alike, never a second definition for
+surfaces (root `CLAUDE.md`, "Agent surfaces live in Rust and in store
+records"):
+
+- `triage-service_set-starred` (`crates/impress-store-service/src/triage_service.rs`)
+  — the "Star" button.
+- `triage-service_set-flag` — the "Flag red" button, `color: "red"`.
+- `triage-service_add-tag` — the "Tag to-read" button, `tag: "to-read"`.
+
+`TriageService` takes an item id of ANY kind (publication, manuscript,
+figure, message, task, agent run) — the same verbs a triage menu on any
+other record kind would call, not something built for this surface.
+
+**The loop an agent runs with it** is the same five-verb loop as the signal
+explorer's, with a table row standing in for the slider as "the thing the
+human does between waits":
+
+1. `surface-schema` / author / `surface-validate` — as above; the spec
+   itself is short enough to read in full in
+   `crates/impress-surface/examples/paper-triage.surface.json`.
+2. `surface-create`, then `surface-show` (a split, or a named pane role) —
+   the human now sees a table of their own unread papers, newest first, and
+   three buttons.
+3. `surface-wait`. The human selects a row (a `select` event on the table
+   sets `state.selected`, and nothing else — there is no `on_select` verb
+   call, just the plain `state.selected = event.value` this vocabulary's
+   `set` action already does), then clicks "Tag to-read". The click's
+   `on_click` runs three actions in order: `call` the verb once per selected
+   id (`each: "state.selected"`, `args: {"id": "{{item}}", "tag": "to-read"}`),
+   `refresh` the `papers` source once (so the very next render already
+   reflects the tag), and `emit` a `triaged` event once per id, carrying
+   `{"id": "{{item}}", "action": "tag-to-read"}`. `surface-wait` returns
+   with those `triaged` events, one per id.
+4. **React.** The agent reads each `triaged` event's `id` and acts on it
+   directly — e.g. queues the paper for a summarisation pass — the same
+   "read what the human did, then act" shape the signal explorer's step 7
+   uses, just with a triage verb instead of a plot verb on the far end.
+   `surface-wait` again.
+
+**How the selection reaches the verbs.** A table's `select` event carries an
+array of ids — the uniform shape every widget's event has, never a
+widget-specific one — while `triage-service_*` keeps its own one-id
+signature, the same verb a triage menu anywhere else in the suite calls.
+`each`/`{{item}}` (V5, `docs/plan-agent-surfaces.md`'s vocabulary reference
+below) is the bridge: a button's `call`/`emit` names `each: "state.selected"`
+and reads `{{item}}` in its `args`/`payload`, and `reduce` runs that one
+action once per selected id, with `item` bound to it each time — no
+expression, conditional or loop added to the spec, just a fan-out
+declaration `validate` checks statically (`each`'s root, `item`'s scope) and
+`reduce` executes structurally. A spec that only ever wants a single
+selected id reads `{{state.selected.0}}` instead — `template.rs`'s numeric
+path segments index an array the same way a JSON Pointer would, so this is
+still a path, not an operator.
+
 ## Vocabulary reference
 
 This is the normative vocabulary from `docs/plan-agent-surfaces.md`, copied
@@ -165,7 +230,11 @@ disagree. Every node is a JSON object with exactly one node-kind key plus the
 optional common keys `id`, `label`, `help`, `when` (see **`when`** below).
 Paths are dotted; a string that is exactly one `{{path}}` resolves to the
 JSON value at that path, mixed text stringifies. Path roots: `state`,
-`param`, `source`, `event`.
+`param`, `source`, `event`, and, only inside an action that carries `each`,
+`item` (V5, below). A numeric path segment indexes an array the way a JSON
+Pointer would (`{{state.selected.0}}` is the first selected id); against an
+object, the same segment is an ordinary key lookup — a spelled-out `"0"` key
+is unaffected.
 
 ### Containers
 
@@ -220,11 +289,24 @@ discussion").
 | Shape | Meaning |
 |---|---|
 | `{ "set": { path, value } }` | Write a value at a state path. |
-| `{ "call": { verb, args, into?: state.path } }` | Run a verb; optionally store its result. |
+| `{ "call": { verb, args, into?: state.path, each?: path } }` | Run a verb; optionally store its result. |
 | `{ "publish": { ids?: path } }` | Publish a selection on the pane's channel — how a surface's table feeds another pane, the same channel mechanism ADR-0031 gives every pane. |
-| `{ "emit": { name, payload } }` | Emit a named event the agent reads back via `surface_events`/`surface_wait`. |
+| `{ "emit": { name, payload, each?: path } }` | Emit a named event the agent reads back via `surface_events`/`surface_wait`. |
 | `{ "open": { query, view_kind, target? } }` | Open a query in a pane — a surface can drive the layout tree, not just itself. |
 | `{ "refresh": { source } }` | Re-run a source now, bypassing its cache. |
+
+`each` (V5) fans a `call`/`emit` out over an array: it is a literal path
+(like `publish.ids`/`set.path`, never a `{{…}}` template) whose root is
+`state`, `param`, `source` or `event`, resolved at reduce time and required
+to name an array — an empty array runs the action zero times and is not an
+error; a non-array is a reduce-time error naming the path. With `each` set,
+`args`/`payload` may reference `{{item}}`/`{{item.field}}`, bound to one
+element for the duration of that one run; without `each`, an `item`
+reference is a validation problem, since nothing ever binds it. This exists
+because a widget's event shape stays uniform (a `select` is always an array
+of ids) while a verb keeps its own natural signature — `each` is the
+declared fan-out that reconciles the two without adding an expression,
+conditional or loop to the spec itself (ADR-0033 D3 still holds).
 
 ### `when`
 

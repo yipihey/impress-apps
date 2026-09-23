@@ -19,8 +19,8 @@
 //  (Rust, `LayoutVerb`, this) and the one most likely to rot: nothing in the
 //  app calls it, so nothing would fail when Rust grew a case. What IS
 //  enumerated is the short list of operations that are NOT `Verb` cases —
-//  undo, redo, resize-share, save-layout, apply-layout — because those go
-//  through typed FFI methods rather than the JSON door.
+//  undo, redo, resize-share, save-layout, apply-layout, delete-layout —
+//  because those go through typed FFI methods rather than the JSON door.
 //
 //  ACTOR. `LayoutAutomationRoutes.actor` ("agent"), never `guiActor`. The
 //  undo rings are per-actor-visible in the log, and a script's arrangement
@@ -127,6 +127,12 @@ extension LayoutController: LayoutAutomationHost {
                     "apply-layout needs {\"name\": ...} or {\"ordinal\": 1…9}")
             }
             verb = .applyLayout(nameOrOrdinal: nameOrOrdinal)
+
+        case "delete-layout":
+            guard let nameOrId = body["name"] as? String, !nameOrId.isEmpty else {
+                throw LayoutAutomationError.badVerb("delete-layout needs {\"name\": ...}")
+            }
+            verb = .deleteLayout(nameOrId: nameOrId)
 
         default:
             throw LayoutAutomationError.badVerb("unknown layout operation '\(operation)'")

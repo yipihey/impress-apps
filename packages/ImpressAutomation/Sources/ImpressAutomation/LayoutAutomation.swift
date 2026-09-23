@@ -62,8 +62,8 @@ public protocol LayoutAutomationHost: AnyObject {
     func applyLayoutVerb(_ verb: [String: Any]) throws -> [String: Any]
 
     /// The operations that are not `Verb` cases — `undo`, `redo`,
-    /// `resize-share`, `save-layout`, `apply-layout`. `body` is the request's
-    /// JSON object.
+    /// `resize-share`, `save-layout`, `apply-layout`, `delete-layout`. `body`
+    /// is the request's JSON object.
     func applyLayoutOperation(_ operation: String, body: [String: Any]) throws -> [String: Any]
 
     /// The saved layouts, in ⌃⌘1–9 order.
@@ -112,7 +112,7 @@ public enum LayoutAutomationRoutes {
     /// The operations `/api/layout/op` forwards. Kept here so a typo answers
     /// 400 with the list rather than reaching the host as an unknown string.
     public static let operations: Set<String> = [
-        "undo", "redo", "resize-share", "save-layout", "apply-layout",
+        "undo", "redo", "resize-share", "save-layout", "apply-layout", "delete-layout",
     ]
 
     static func route(_ path: String, method: String, request: HTTPRequest) async -> HTTPResponse? {

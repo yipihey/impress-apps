@@ -659,6 +659,19 @@ impl SharedLayout {
         self.finish(result)
     }
 
+    /// Remove a saved layout by name or id. Refuses the live arrangement and
+    /// any preset (`reset-preset` is theirs); a name that does not exist
+    /// comes back as an error carrying the service's message, same as every
+    /// other refusal on this object.
+    pub fn delete_layout(&self, name_or_id: String, actor: String) -> Result<SharedAppliedVerb> {
+        let result = runtime().block_on(self.service.delete_layout(
+            self.app_id.clone(),
+            name_or_id,
+            Some(actor),
+        ));
+        self.finish(result)
+    }
+
     // ------------------------------------------------------------ the feed
 
     /// Start (or restart) the invalidation feed.
@@ -1568,6 +1581,20 @@ mod tests {
     }
 
     #[test]
+    fn a_deleted_layout_leaves_the_list() {
+        let (_store, layout) = open();
+        layout
+            .save_layout("Triage".into(), None, "human".into())
+            .expect("save");
+        assert_eq!(layout.list_layouts().expect("list").len(), 1);
+
+        layout
+            .delete_layout("Triage".into(), "human".into())
+            .expect("delete");
+        assert!(layout.list_layouts().expect("list").is_empty());
+    }
+
+    #[test]
     fn compiling_a_query_needs_no_pane() {
         let manifest = kind_manifest_json();
         assert!(manifest.contains(PUBLICATION_SCHEMA));
@@ -1863,8 +1890,13 @@ mod tests {
         ));
         assert!(split.ok, "{}", split.message);
 
+        // Ten seconds, not two: the feed answers in milliseconds on a quiet
+        // machine, but under a parallel release build on Linux this wait
+        // missed a two-second window three runs out of three (2026-09-23) and
+        // passed every time alone. The bound only has to be longer than a
+        // starved scheduler, never a measure of the feed's own latency.
         versions
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(Duration::from_secs(10))
             .expect("the host is told the tree changed");
         let after = layout.snapshot().expect("snapshot after");
         assert!(

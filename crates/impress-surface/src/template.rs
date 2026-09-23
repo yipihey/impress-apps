@@ -2,7 +2,7 @@
 //! "The vocabulary (normative)": "a string that is exactly one `{{path}}` resolves
 //! to the JSON value at that path, mixed text stringifies").
 //!
-//! There are four roots, each backed by one JSON value in a [`Context`]:
+//! There are five roots, each backed by one JSON value in a [`Context`]:
 //!
 //! | root     | resolves against                                         |
 //! |----------|-----------------------------------------------------------|
@@ -10,34 +10,42 @@
 //! | `param`  | the pane parameters bound to the surface                  |
 //! | `source` | the most recently fetched value of each named source      |
 //! | `event`  | the event being reduced (`reduce` only; empty otherwise)  |
+//! | `item`   | the element `reduce`'s `each` fan-out is currently on     |
 //!
 //! This is deliberately not a language: a reference is a dotted path into one of
-//! those four objects, walked through `Value::Object` maps only (no array
-//! indexing, no filters, no arithmetic) — ADR-0033 D3 closes the vocabulary for
-//! the same reason ADR-0031 D2 closes the pane-query algebra: a spec an agent can
-//! generate reliably and a document that never needs a sandbox. Anything that
-//! needs to compute is a verb (D4), not a richer template.
+//! those roots, walked through `Value::Object` maps by key or `Value::Array`s by
+//! a numeric segment (`{{state.selected.0}}` is JSON-Pointer-style indexing, not
+//! an operator — see [`resolve_path`]) — no filters, no slicing, no arithmetic.
+//! ADR-0033 D3 closes the vocabulary for the same reason ADR-0031 D2 closes the
+//! pane-query algebra: a spec an agent can generate reliably and a document that
+//! never needs a sandbox. Anything that needs to compute is a verb (D4), not a
+//! richer template; fanning an action out over an array is a structural
+//! declaration (`each`, `reduce.rs`), not a loop the spec itself computes with.
 //!
 //! [`Template::parse`] never fails: an unrecognized or malformed `{{…}}` is simply
 //! not treated as a reference (kept as literal text), so a garbled template shows
 //! the human garbled text rather than crashing the surface. What *does* fail —
 //! at resolve time, not parse time — is a reference to an unknown root or a path
-//! that is not present in its context; both raise [`TemplateError`].
+//! that is not present in its context; both raise [`TemplateError`]. `item` is an
+//! unknown root like any other when no `each` fan-out has bound one — see
+//! [`Context::with_item`].
 
 use std::fmt;
 
 use serde_json::{Map, Value};
 
-/// The four JSON values a template can reference into. `event` is `Value::Null`
+/// The JSON values a template can reference into. `event` is `Value::Null`
 /// outside [`crate::reduce::reduce`] — `{{event.…}}` outside a reduce is simply a
 /// path that is not present, i.e. a [`TemplateError::MissingPath`], not a special
-/// case.
+/// case. `item` starts unbound ([`Context::new`]); [`Context::with_item`] binds
+/// it for the duration of one `each` fan-out element (`reduce.rs`).
 #[derive(Debug, Clone, Copy)]
 pub struct Context<'a> {
     pub state: &'a Value,
     pub params: &'a Value,
     pub source: &'a Value,
     pub event: &'a Value,
+    pub item: Option<&'a Value>,
 }
 
 impl<'a> Context<'a> {
@@ -47,7 +55,17 @@ impl<'a> Context<'a> {
             params,
             source,
             event,
+            item: None,
         }
+    }
+
+    /// Bind `item` for the returned context, leaving every other root as-is.
+    /// `Context` is `Copy`, so this never disturbs the caller's own binding —
+    /// [`crate::reduce::run_action`] calls it once per element of an `each`
+    /// fan-out, from the same base context each time.
+    pub fn with_item(mut self, item: &'a Value) -> Self {
+        self.item = Some(item);
+        self
     }
 
     fn root(&self, name: &str) -> Option<&'a Value> {
@@ -56,6 +74,7 @@ impl<'a> Context<'a> {
             "param" => Some(self.params),
             "source" => Some(self.source),
             "event" => Some(self.event),
+            "item" => self.item,
             _ => None,
         }
     }
@@ -160,6 +179,16 @@ fn resolve_path(path: &Path, ctx: &Context) -> Result<Value, TemplateError> {
         cur = match cur {
             Value::Object(map) => map
                 .get(segment)
+                .ok_or_else(|| TemplateError::MissingPath { path: full.clone() })?,
+            // A numeric segment against an array indexes it, JSON-Pointer
+            // style (`{{state.selected.0}}` is a path, not an operator —
+            // see the module docs); out of range is `MissingPath` like any
+            // other missing path. Against anything else — including an
+            // array with a non-numeric segment — there is nowhere to go.
+            Value::Array(items) => segment
+                .parse::<usize>()
+                .ok()
+                .and_then(|i| items.get(i))
                 .ok_or_else(|| TemplateError::MissingPath { path: full.clone() })?,
             _ => return Err(TemplateError::MissingPath { path: full.clone() }),
         };
@@ -387,5 +416,60 @@ mod tests {
     fn an_unclosed_reference_is_kept_as_literal_text() {
         let t = Template::parse("oops {{state.x");
         assert_eq!(t, Template::Literal("oops {{state.x".to_string()));
+    }
+
+    #[test]
+    fn a_numeric_segment_indexes_an_array() {
+        let state = serde_json::json!({"selected": ["a", "b", "c"]});
+        let null = Value::Null;
+        let ctx = Context::new(&state, &null, &null, &null);
+        let t = Template::parse("{{state.selected.1}}");
+        assert_eq!(t.resolve(&ctx).unwrap(), serde_json::json!("b"));
+    }
+
+    #[test]
+    fn an_out_of_range_numeric_segment_is_a_missing_path() {
+        let state = serde_json::json!({"selected": ["a"]});
+        let null = Value::Null;
+        let ctx = Context::new(&state, &null, &null, &null);
+        let t = Template::parse("{{state.selected.5}}");
+        assert_eq!(
+            t.resolve(&ctx),
+            Err(TemplateError::MissingPath {
+                path: "state.selected.5".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_numeric_segment_on_an_object_is_a_key_lookup() {
+        let state = serde_json::json!({"row": {"0": "zeroth"}});
+        let null = Value::Null;
+        let ctx = Context::new(&state, &null, &null, &null);
+        let t = Template::parse("{{state.row.0}}");
+        assert_eq!(t.resolve(&ctx).unwrap(), serde_json::json!("zeroth"));
+    }
+
+    #[test]
+    fn item_resolves_only_when_bound() {
+        let null = Value::Null;
+        let unbound = Context::new(&null, &null, &null, &null);
+        let t = Template::parse("{{item}}");
+        assert_eq!(
+            t.resolve(&unbound),
+            Err(TemplateError::UnknownRoot {
+                root: "item".into(),
+                path: "item".into()
+            })
+        );
+
+        let element = serde_json::json!({"id": "paper-1"});
+        let bound = unbound.with_item(&element);
+        assert_eq!(t.resolve(&bound).unwrap(), element);
+        let t_field = Template::parse("{{item.id}}");
+        assert_eq!(
+            t_field.resolve(&bound).unwrap(),
+            serde_json::json!("paper-1")
+        );
     }
 }

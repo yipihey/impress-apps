@@ -17,6 +17,17 @@
 //! 8. A `select` field's `options` are non-empty.
 //! 9. `grid.columns >= 1`.
 //! 10. Every verb name matches `^[a-z0-9-]+_[a-z0-9-]+$`.
+//! 11. A `call`/`emit` action's `each`, if present, is a literal path (not a
+//!     `{{…}}` template) whose root is `state`, `param`, `source` or `event`
+//!     — checked directly against a raw string the same way `when.path` is
+//!     (never through the template scanner, which only finds `{{…}}`
+//!     occurrences and would skip a bare path with none) — and does not
+//!     itself reference `item` (`item` only exists once `each` has bound one,
+//!     so an `each` path naming it could never resolve).
+//! 12. A `{{item…}}` reference inside a `call`'s `args` or an `emit`'s
+//!     `payload` is a problem unless that same action carries `each` — `item`
+//!     is only bound for the duration of one `each` fan-out element
+//!     (`reduce.rs`), so a reference to it anywhere else can never resolve.
 //!
 //! What this function does **not** check: whether a verb exists, whether a query
 //! compiles, whether a state path a `bind` names actually has a value yet. Those
@@ -88,6 +99,7 @@ pub fn validate(spec: &SurfaceSpec) -> Vec<Problem> {
                     &format!("/sources/{name}/args"),
                     &state_keys,
                     &declared_sources,
+                    false,
                     &mut problems,
                 );
             }
@@ -170,28 +182,45 @@ fn check_bind_or_set_path(path_value: &str, at: &str, problems: &mut Vec<Problem
 }
 
 /// Scan every string inside `value` for template references and check their
-/// roots (and, for `state`, the top-level key).
+/// roots (and, for `state`, the top-level key). `item_allowed` is true only
+/// while scanning a `call`/`emit` action's `args`/`payload` when that same
+/// action carries `each` — see check 12 in the module docs.
 fn check_template_refs(
     value: &Value,
     at: &str,
     state_keys: &BTreeSet<&str>,
     declared_sources: &BTreeSet<&str>,
+    item_allowed: bool,
     problems: &mut Vec<Problem>,
 ) {
     match value {
         Value::String(s) => {
             for path in reference_paths(s) {
-                check_reference_path(&path, at, state_keys, declared_sources, problems);
+                check_reference_path(
+                    &path,
+                    at,
+                    state_keys,
+                    declared_sources,
+                    item_allowed,
+                    problems,
+                );
             }
         }
         Value::Array(items) => {
             for item in items {
-                check_template_refs(item, at, state_keys, declared_sources, problems);
+                check_template_refs(
+                    item,
+                    at,
+                    state_keys,
+                    declared_sources,
+                    item_allowed,
+                    problems,
+                );
             }
         }
         Value::Object(map) => {
             for v in map.values() {
-                check_template_refs(v, at, state_keys, declared_sources, problems);
+                check_template_refs(v, at, state_keys, declared_sources, item_allowed, problems);
             }
         }
         _ => {}
@@ -217,6 +246,7 @@ fn check_reference_path(
     at: &str,
     state_keys: &BTreeSet<&str>,
     declared_sources: &BTreeSet<&str>,
+    item_allowed: bool,
     problems: &mut Vec<Problem>,
 ) {
     let Some(root) = path.first() else {
@@ -247,11 +277,35 @@ fn check_reference_path(
             }
         }
         "param" | "event" => {}
+        "item" if item_allowed => {}
         other => problems.push(Problem::new(
             at,
-            format!("'{}' has unknown root '{other}'", path.join(".")),
+            format!(
+                "'{}' has unknown root '{other}'{}",
+                path.join("."),
+                if other == "item" {
+                    " (`item` is only bound inside an action with `each`)"
+                } else {
+                    ""
+                }
+            ),
         )),
     }
+}
+
+/// `each`'s own literal path (see check 11): checked directly, exactly the way
+/// [`walk_node`] checks `when.path` just below — never `item_allowed` (check
+/// 11's last clause: `each` cannot itself reference `item`, since `item` does
+/// not exist until `each` has already resolved one).
+fn check_each_path(
+    path_value: &str,
+    at: &str,
+    state_keys: &BTreeSet<&str>,
+    declared_sources: &BTreeSet<&str>,
+    problems: &mut Vec<Problem>,
+) {
+    let segments: Vec<String> = path_value.split('.').map(str::to_string).collect();
+    check_reference_path(&segments, at, state_keys, declared_sources, false, problems);
 }
 
 fn walk_node(
@@ -290,6 +344,7 @@ fn walk_node(
             &format!("{at}/when/path"),
             state_keys,
             declared_sources,
+            false,
             problems,
         );
     }
@@ -299,6 +354,7 @@ fn walk_node(
             &format!("{at}/label"),
             state_keys,
             declared_sources,
+            false,
             problems,
         );
     }
@@ -369,6 +425,7 @@ fn walk_node(
                 &format!("{at}/text"),
                 state_keys,
                 declared_sources,
+                false,
                 problems,
             );
         }
@@ -380,6 +437,7 @@ fn walk_node(
                 &format!("{at}/table/rows"),
                 state_keys,
                 declared_sources,
+                false,
                 problems,
             );
             check_actions(
@@ -396,6 +454,7 @@ fn walk_node(
                 &format!("{at}/list/rows"),
                 state_keys,
                 declared_sources,
+                false,
                 problems,
             );
             check_actions(
@@ -412,6 +471,7 @@ fn walk_node(
                 &format!("{at}/plot/spec"),
                 state_keys,
                 declared_sources,
+                false,
                 problems,
             );
         }
@@ -422,6 +482,7 @@ fn walk_node(
                     &format!("{at}/image/blob"),
                     state_keys,
                     declared_sources,
+                    false,
                     problems,
                 );
             }
@@ -431,6 +492,7 @@ fn walk_node(
                     &format!("{at}/image/url"),
                     state_keys,
                     declared_sources,
+                    false,
                     problems,
                 );
             }
@@ -465,6 +527,7 @@ fn walk_node(
                 &format!("{at}/status/message"),
                 state_keys,
                 declared_sources,
+                false,
                 problems,
             );
         }
@@ -474,6 +537,7 @@ fn walk_node(
                 &format!("{at}/{}", node.kind_name()),
                 state_keys,
                 declared_sources,
+                false,
                 problems,
             );
         }
@@ -504,16 +568,29 @@ fn check_actions(
                     &format!("{at}/set/value"),
                     state_keys,
                     declared_sources,
+                    false,
                     problems,
                 );
             }
-            Action::Call { verb, args, .. } => {
+            Action::Call {
+                verb, args, each, ..
+            } => {
                 check_verb_name(verb, &format!("{at}/call/verb"), problems);
+                if let Some(each_path) = each {
+                    check_each_path(
+                        each_path,
+                        &format!("{at}/call/each"),
+                        state_keys,
+                        declared_sources,
+                        problems,
+                    );
+                }
                 check_template_refs(
                     args,
                     &format!("{at}/call/args"),
                     state_keys,
                     declared_sources,
+                    each.is_some(),
                     problems,
                 );
             }
@@ -522,12 +599,22 @@ fn check_actions(
                     check_bind_or_set_path(ids, &format!("{at}/publish/ids"), problems);
                 }
             }
-            Action::Emit { payload, .. } => {
+            Action::Emit { payload, each, .. } => {
+                if let Some(each_path) = each {
+                    check_each_path(
+                        each_path,
+                        &format!("{at}/emit/each"),
+                        state_keys,
+                        declared_sources,
+                        problems,
+                    );
+                }
                 check_template_refs(
                     payload,
                     &format!("{at}/emit/payload"),
                     state_keys,
                     declared_sources,
+                    each.is_some(),
                     problems,
                 );
             }
@@ -537,6 +624,7 @@ fn check_actions(
                     &format!("{at}/open/query"),
                     state_keys,
                     declared_sources,
+                    false,
                     problems,
                 );
             }
@@ -802,5 +890,108 @@ mod tests {
         });
         let problems = validate(&minimal(node));
         assert!(problems.iter().any(|p| p.message.contains("sparkline")));
+    }
+
+    // ── V5: `each` and `item` ───────────────────────────────────────────
+
+    fn star_button(each: Option<&str>, args: Value) -> Node {
+        Node::leaf(NodeKind::Button(Button {
+            label: "Star".to_string(),
+            on_click: vec![Action::Call {
+                verb: "triage-service_set-starred".to_string(),
+                args,
+                into: None,
+                each: each.map(str::to_string),
+            }],
+        }))
+    }
+
+    #[test]
+    fn a_call_each_over_a_declared_state_key_is_fine() {
+        let mut spec = minimal(star_button(
+            Some("state.selected"),
+            serde_json::json!({"id": "{{item}}"}),
+        ));
+        spec.state = serde_json::json!({"selected": []});
+        assert_eq!(validate(&spec), Vec::new());
+    }
+
+    #[test]
+    fn a_call_each_with_an_unknown_root_is_a_problem_at_the_each_path() {
+        let node = star_button(Some("oops.selected"), serde_json::json!({}));
+        let problems = validate(&minimal(node));
+        assert!(
+            problems.iter().any(
+                |p| p.path == "/root/button/on_click/0/call/each" && p.message.contains("oops")
+            ),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn an_each_path_that_references_item_is_a_problem() {
+        let node = star_button(Some("item.selected"), serde_json::json!({}));
+        let problems = validate(&minimal(node));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.path == "/root/button/on_click/0/call/each"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn an_item_reference_in_call_args_without_each_is_a_problem() {
+        let node = star_button(None, serde_json::json!({"id": "{{item}}"}));
+        let problems = validate(&minimal(node));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.path == "/root/button/on_click/0/call/args"
+                    && p.message
+                        .contains("only bound inside an action with `each`")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn an_item_reference_in_call_args_with_each_is_fine() {
+        let mut spec = minimal(star_button(
+            Some("state.selected"),
+            serde_json::json!({"id": "{{item}}", "label": "star {{item.id}}"}),
+        ));
+        spec.state = serde_json::json!({"selected": []});
+        assert_eq!(validate(&spec), Vec::new());
+    }
+
+    #[test]
+    fn an_emit_each_and_its_item_reference_are_checked_the_same_way_as_call() {
+        let with_each = Node::leaf(NodeKind::Button(Button {
+            label: "go".to_string(),
+            on_click: vec![Action::Emit {
+                name: "triaged".to_string(),
+                payload: serde_json::json!({"id": "{{item}}"}),
+                each: Some("state.selected".to_string()),
+            }],
+        }));
+        let mut spec = minimal(with_each);
+        spec.state = serde_json::json!({"selected": []});
+        assert_eq!(validate(&spec), Vec::new());
+
+        let without_each = Node::leaf(NodeKind::Button(Button {
+            label: "go".to_string(),
+            on_click: vec![Action::Emit {
+                name: "triaged".to_string(),
+                payload: serde_json::json!({"id": "{{item}}"}),
+                each: None,
+            }],
+        }));
+        let problems = validate(&minimal(without_each));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.path == "/root/button/on_click/0/emit/payload"),
+            "{problems:?}"
+        );
     }
 }

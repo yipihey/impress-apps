@@ -1592,6 +1592,14 @@ public protocol SharedLayoutProtocol : AnyObject {
     func applyLayout(nameOrOrdinal: String, actor: String) throws  -> SharedAppliedVerb
     
     /**
+     * Remove a saved layout by name or id. Refuses the live arrangement and
+     * any preset (`reset-preset` is theirs); a name that does not exist
+     * comes back as an error carrying the service's message, same as every
+     * other refusal on this object.
+     */
+    func deleteLayout(nameOrId: String, actor: String) throws  -> SharedAppliedVerb
+    
+    /**
      * Step focus: `left` | `right` | `up` | `down` | `next` | `prev`. The
      * h / l grammar.
      */
@@ -1816,6 +1824,21 @@ open func applyLayout(nameOrOrdinal: String, actor: String)throws  -> SharedAppl
     return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
     uniffi_impress_store_ffi_fn_method_sharedlayout_apply_layout(self.uniffiClonePointer(),
         FfiConverterString.lower(nameOrOrdinal),
+        FfiConverterString.lower(actor),$0
+    )
+})
+}
+    
+    /**
+     * Remove a saved layout by name or id. Refuses the live arrangement and
+     * any preset (`reset-preset` is theirs); a name that does not exist
+     * comes back as an error carrying the service's message, same as every
+     * other refusal on this object.
+     */
+open func deleteLayout(nameOrId: String, actor: String)throws  -> SharedAppliedVerb {
+    return try  FfiConverterTypeSharedAppliedVerb.lift(try rustCallWithError(FfiConverterTypeSharedLayoutError.lift) {
+    uniffi_impress_store_ffi_fn_method_sharedlayout_delete_layout(self.uniffiClonePointer(),
+        FfiConverterString.lower(nameOrId),
         FfiConverterString.lower(actor),$0
     )
 })
@@ -2564,6 +2587,22 @@ public protocol SharedStoreProtocol : AnyObject {
      * Mark an item as starred or unstarred.
      */
     func setStarred(id: String, isStarred: Bool) throws 
+    
+    /**
+     * Install the host's second verb inventory (ADR-0033 D4, amended
+     * 2026-09-23) — the callback [`SharedSurface`](surface::SharedSurface)'s
+     * executor and service consult for any verb this process did not link
+     * into `impress-capabilities-kit`.
+     *
+     * **May be called after surfaces were already opened.** Every
+     * [`SharedSurface`](surface::SharedSurface) built from this store holds
+     * a clone of the SAME slot this writes and reads it fresh on every
+     * `render`/`dispatch`/`validate` call, so a host installed late (the
+     * app finished probing its sibling apps only after the first pane had
+     * already rendered) still starts serving every existing handle from
+     * the next call on — nothing needs to be reopened.
+     */
+    func setVerbHost(host: SharedVerbHost) 
     
     /**
      * Apply CKRecord deletions: `ref_...` names delete edges, item-UUID
@@ -3811,6 +3850,27 @@ open func setStarred(id: String, isStarred: Bool)throws  {try rustCallWithError(
     uniffi_impress_store_ffi_fn_method_sharedstore_set_starred(self.uniffiClonePointer(),
         FfiConverterString.lower(id),
         FfiConverterBool.lower(isStarred),$0
+    )
+}
+}
+    
+    /**
+     * Install the host's second verb inventory (ADR-0033 D4, amended
+     * 2026-09-23) — the callback [`SharedSurface`](surface::SharedSurface)'s
+     * executor and service consult for any verb this process did not link
+     * into `impress-capabilities-kit`.
+     *
+     * **May be called after surfaces were already opened.** Every
+     * [`SharedSurface`](surface::SharedSurface) built from this store holds
+     * a clone of the SAME slot this writes and reads it fresh on every
+     * `render`/`dispatch`/`validate` call, so a host installed late (the
+     * app finished probing its sibling apps only after the first pane had
+     * already rendered) still starts serving every existing handle from
+     * the next call on — nothing needs to be reopened.
+     */
+open func setVerbHost(host: SharedVerbHost) {try! rustCall() {
+    uniffi_impress_store_ffi_fn_method_sharedstore_set_verb_host(self.uniffiClonePointer(),
+        FfiConverterCallbackInterfaceSharedVerbHost.lower(host),$0
     )
 }
 }
@@ -15030,6 +15090,164 @@ extension FfiConverterCallbackInterfaceSharedSurfaceListener : FfiConverter {
     }
 }
 
+
+
+
+/**
+ * What the host process implements to answer a verb this crate's own
+ * linked inventory (`impress-capabilities-kit`) does not have — imbib's
+ * and imprint's own verbs, which cannot link into this crate a second time
+ * (ADR-0033 D4 forbids a second domain core; `impress-store-ffi`'s
+ * `Cargo.toml` has the cyclic-package details for why they cannot link
+ * through `impress-capabilities` either). In the app this is implemented
+ * over `impel-tools`' `call_tool`, which reaches imbib and imprint through
+ * their own HTTP routers and refuses, by name, when the owning app is not
+ * running.
+ *
+ * `SharedStore::set_verb_host` installs one; [`HostAdapter`] (below) is
+ * what [`SharedSurface::open`] wires it into
+ * [`impress_surface_service::runtime::VerbHost`], the trait the executor
+ * and the service actually consult. `call_verb` takes and returns JSON
+ * STRINGS rather than a UniFFI record, for the same reason
+ * [`Self::dispatch`](SharedSurface::dispatch)'s `event_json` does (module
+ * docs above): the shape is `serde_json::Value`, recursive, and a callback
+ * interface has no way to carry one directly.
+ */
+public protocol SharedVerbHost : AnyObject {
+    
+    /**
+     * Whether the host can answer this verb at all — checked before
+     * `call_verb` runs it, so `surface_validate` can say "no such verb"
+     * without a round trip through the host.
+     */
+    func hasVerb(name: String)  -> Bool
+    
+    /**
+     * Run the verb by name; `args_json` and the successful return are both
+     * `serde_json::Value` JSON, exactly as every other verb call in the
+     * suite (MCP, the CLI, the linked inventory) speaks it.
+     */
+    func callVerb(name: String, argsJson: String) throws  -> String
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceSharedVerbHost {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceSharedVerbHost = UniffiVTableCallbackInterfaceSharedVerbHost(
+        hasVerb: { (
+            uniffiHandle: UInt64,
+            name: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Bool in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedVerbHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.hasVerb(
+                     name: try FfiConverterString.lift(name)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        callVerb: { (
+            uniffiHandle: UInt64,
+            name: RustBuffer,
+            argsJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceSharedVerbHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.callVerb(
+                     name: try FfiConverterString.lift(name),
+                     argsJson: try FfiConverterString.lift(argsJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeSharedStoreError.lower
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceSharedVerbHost.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface SharedVerbHost: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitSharedVerbHost() {
+    uniffi_impress_store_ffi_fn_init_callback_vtable_sharedverbhost(&UniffiCallbackInterfaceSharedVerbHost.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceSharedVerbHost {
+    fileprivate static var handleMap = UniffiHandleMap<SharedVerbHost>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceSharedVerbHost : FfiConverter {
+    typealias SwiftType = SharedVerbHost
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -17019,6 +17237,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_apply_layout() != 60163) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedlayout_delete_layout() != 46598) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedlayout_focus_direction() != 50096) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17256,6 +17477,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_starred() != 29104) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedstore_set_verb_host() != 48418) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_impress_store_ffi_checksum_method_sharedstore_sync_apply_remote_deletions() != 41746) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17400,9 +17624,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_impress_store_ffi_checksum_method_sharedsurfacelistener_surfaces_changed() != 2563) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_has_verb() != 43567) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_impress_store_ffi_checksum_method_sharedverbhost_call_verb() != 54529) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
     uniffiCallbackInitSharedLayoutListener()
     uniffiCallbackInitSharedSurfaceListener()
+    uniffiCallbackInitSharedVerbHost()
     return InitializationResult.ok
 }()
 

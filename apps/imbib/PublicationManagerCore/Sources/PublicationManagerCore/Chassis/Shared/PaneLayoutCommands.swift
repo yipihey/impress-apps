@@ -70,6 +70,57 @@ enum PaneLayoutChordRouter {
     }
 }
 
+/// ⌃⌘1–9 — "apply layout N" — as MENU CONTENT (ADR-0031 D10, work package L7's
+/// Swift half).
+///
+/// The ordinal spans the SAME union `list_presets` numbers: this app's presets
+/// first, then its saved layouts — so ⌃⌘1 is the app's default arrangement on
+/// a machine that has never saved a layout and on one that has saved nine, and
+/// a layout saved by `save-layout` takes the next free number. Resolution is
+/// Rust's (`impress-layout-service`'s `apply_layout(ordinal:)`, reached through
+/// `SharedLayout.applyLayout(nameOrOrdinal:)`, which reads a positive integer
+/// as the ordinal); nothing here knows which name N carries, and the titles say
+/// so.
+///
+/// Routed the way the three toggles above are: with a tree rendering the
+/// window the chord is a layout verb on it, and with the tree off it is
+/// imbib's `PaneLayoutStore` — the N-th saved arrangement, the meaning the
+/// chord has had since ADR-0022. Nine FIXED buttons rather than a `ForEach`
+/// over saved layouts, because with the tree on the first ordinals are
+/// presets that no saved-layout list contains.
+public struct ImpressLayoutOrdinalButtons: View {
+
+    public init() {}
+
+    @ViewBuilder
+    public var body: some View {
+        ForEach(1...9, id: \.self) { ordinal in
+            Button("Apply Layout \(ordinal)") {
+                PaneLayoutChordRouter.applyOrdinal(ordinal)
+            }
+            .keyboardShortcut(
+                KeyEquivalent(Character("\(ordinal)")), modifiers: [.control, .command])
+        }
+    }
+}
+
+extension PaneLayoutChordRouter {
+
+    /// ⌃⌘N. The tree resolves the ordinal itself; without a tree, the N-th
+    /// saved `PaneLayoutState`, and nothing when there is none.
+    static func applyOrdinal(_ ordinal: Int) {
+        #if os(macOS)
+        if let controller = LayoutTreeRuntime.shared.controller {
+            controller.apply(.applyLayout(nameOrOrdinal: String(ordinal)))
+            return
+        }
+        #endif
+        let layouts = PaneLayoutStore.shared.layouts
+        guard ordinal >= 1, ordinal <= layouts.count else { return }
+        _ = PaneLayoutStore.shared.applyLayout(named: layouts[ordinal - 1].name)
+    }
+}
+
 /// The three chassis pane toggles as MENU CONTENT, for a host that already owns
 /// a `CommandGroup(after: .sidebar)` and wants them at a specific position in
 /// it.

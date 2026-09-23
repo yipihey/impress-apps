@@ -19,6 +19,15 @@ let package = Package(
             name: "journal-backfill",
             targets: ["journal-backfill"]
         ),
+        // Wave 5 V1 (ADR-0033 D4, amended 2026-09-23): impress links this
+        // product alone to reach `impel-tools`' `call_tool`/`list_tools`/
+        // `configure` — the suite's already-linked full verb inventory — as
+        // the host half of a `SharedVerbHost`, without pulling in the whole
+        // CounselEngine journal pipeline it has no use for.
+        .library(
+            name: "ImpelToolsFFI",
+            targets: ["ImpelToolsFFI"]
+        ),
     ],
     dependencies: [
         .package(path: "../ImpelMail"),
