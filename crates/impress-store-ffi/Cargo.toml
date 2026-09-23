@@ -36,6 +36,9 @@ impress-ai.workspace = true
 # never decides anything about the tree.
 impress-layout.workspace = true
 impress-layout-service.workspace = true
+# `SharedStore::open` installs its handle as the kit services' process-wide
+# store (`install_store`), so a surface's triage verb writes where the panes read.
+impress-store-service.workspace = true
 # The ADR-0033 agent-surface tree (S6). `impress-surface` for the pure
 # vocabulary (`Event`, `SurfaceSpec`) this crate's `dispatch`/`spec`/HTTP
 # handlers speak directly; `impress-surface-service` for the store-backed

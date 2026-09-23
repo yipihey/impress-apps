@@ -4790,6 +4790,7 @@ dependencies = [
  "impress-core",
  "impress-layout",
  "impress-layout-service",
+ "impress-store-service",
  "impress-surface",
  "impress-surface-service",
  "serde",

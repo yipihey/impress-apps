@@ -805,10 +805,23 @@ impl SharedStore {
                 .root()
                 .to_path_buf()
         });
+        // ONE store per process for the kit's own verbs. `impress-store-service`
+        // opens its process-wide store lazily at the default app-group path,
+        // and inside the sandboxed app `dirs::home_dir()` is the CONTAINER
+        // home — so the first surface action that called
+        // `triage-service_set-starred` wrote, successfully, into a fresh empty
+        // impress.sqlite under ~/Library/Containers/com.impress.impress
+        // while the window showed the real one (2026-09-23). Installing the
+        // handle the app already opened makes every kit verb act on the store
+        // the panes render from. `Err` means one is installed already, which
+        // is the second SharedStore in a process (tests, the review store):
+        // the first wins and that is the right answer.
+        let store = Arc::new(store);
+        let _ = impress_store_service::install_store(store.clone());
         Ok(Arc::new(SharedStore {
             layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
             verb_host: Arc::new(Mutex::new(None)),
-            inner: Arc::new(store),
+            inner: store,
             blob_root,
         }))
     }
@@ -820,10 +833,23 @@ impl SharedStore {
         let store = SqliteItemStore::open_in_memory().map_err(|e| SharedStoreError::Storage {
             message: e.to_string(),
         })?;
+        // ONE store per process for the kit's own verbs. `impress-store-service`
+        // opens its process-wide store lazily at the default app-group path,
+        // and inside the sandboxed app `dirs::home_dir()` is the CONTAINER
+        // home — so the first surface action that called
+        // `triage-service_set-starred` wrote, successfully, into a fresh empty
+        // impress.sqlite under ~/Library/Containers/com.impress.impress
+        // while the window showed the real one (2026-09-23). Installing the
+        // handle the app already opened makes every kit verb act on the store
+        // the panes render from. `Err` means one is installed already, which
+        // is the second SharedStore in a process (tests, the review store):
+        // the first wins and that is the right answer.
+        let store = Arc::new(store);
+        let _ = impress_store_service::install_store(store.clone());
         Ok(Arc::new(SharedStore {
             layout_sessions: Arc::new(impress_layout_service::SessionRegistry::new()),
             verb_host: Arc::new(Mutex::new(None)),
-            inner: Arc::new(store),
+            inner: store,
             blob_root: None,
         }))
     }
