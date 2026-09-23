@@ -87,9 +87,11 @@ struct Probed {
 }
 
 /// How long an `Unavailable` verdict stands before a call may re-probe. One
-/// second is what the probe itself costs; five keeps a burst of calls against
-/// a closed app from paying it every time.
-const REPROBE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(5);
+/// second is what the probe itself costs, so a burst of calls against a
+/// closed app must not pay it every time; a minute is the rate the plan
+/// asks for, and is short enough that an app launched after impress is
+/// reachable on the next call a user makes rather than after a relaunch.
+const REPROBE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Point the service traits at the running sibling apps and report what
 /// installed. Call once, before `call_tool`.
@@ -483,10 +485,23 @@ mod tests {
 mod reprobe_tests {
     use super::*;
 
+    /// `BACKENDS` is process-global, so these two tests cannot run at the
+    /// same time: one seeds a verdict and the other asserts there is none.
+    /// Cargo runs them on separate threads of ONE process, and without this
+    /// they raced — `an_unconfigured_process_...` read the seeded
+    /// `imprint: Http` and failed on roughly two runs in three. Each test
+    /// takes this lock for its whole body and leaves `BACKENDS` as it found
+    /// it.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// An unconfigured process refuses and does not probe: the pre-existing
     /// safe direction, kept.
     #[test]
     fn an_unconfigured_process_stays_refused_without_probing() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        if let Ok(mut slot) = BACKENDS.write() {
+            *slot = None;
+        }
         let verdict = reprobe_if_unavailable("imbib");
         assert_eq!(verdict.imbib, Backend::Unavailable);
         assert_eq!(verdict.imprint, Backend::Unavailable);
@@ -495,6 +510,7 @@ mod reprobe_tests {
     /// Within the cooldown a verdict stands; the probe is not paid again.
     #[test]
     fn a_fresh_verdict_is_not_reprobed() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         if let Ok(mut slot) = BACKENDS.write() {
             *slot = Some(Probed {
                 backends: ToolBackends {
