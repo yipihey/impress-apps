@@ -6411,8 +6411,13 @@ mod tests {
             .add_to_collection(vec![a.clone(), b.clone(), c.clone()], collection.id.clone())
             .unwrap();
 
-        // A is viewed, then C — B is never touched.
+        // A is viewed, then C — B is never touched. The stamp is
+        // `last_activity_at` in milliseconds and the sort has no tie-break,
+        // so two views inside one millisecond order arbitrarily: the runner
+        // saw A before C once (2026-09-23, workspace-rust run 57). Cross the
+        // millisecond between them.
         assert!(store.record_recent_view(a.clone()).unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(2));
         assert!(store.record_recent_view(c.clone()).unwrap());
 
         let ids = |rows: Vec<BibliographyRow>| -> Vec<String> {
