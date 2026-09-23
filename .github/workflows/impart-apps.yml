@@ -84,6 +84,7 @@ jobs:
           UDID=$(xcrun simctl list devices available | grep -oE 'iPad Pro[^(]*\(([0-9A-F-]+)\)' | grep -oE '[0-9A-F-]{36}' | head -1)
           [ -z "$UDID" ] && UDID=$(xcrun simctl list devices available | grep -oE '\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}' | head -1)
           echo "sim: $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -project impart.xcodeproj -scheme impart-iOS -configuration Debug \
@@ -97,12 +98,19 @@ jobs:
           xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "com.imbib.impart" \
             && echo "impart-iOS launched OK" \
             || (echo "impart-iOS did not launch" && exit 1)
-          # The app this lane launched is a HOST process that outlives the
-          # job: the simulator shares the Mac's network namespace, so the
-          # launched app's automation server (enabled by default) sat on
-          # 23122 for hours after the run and shadowed the DESKTOP app on
-          # the same port — `/api/status` answered from the simulator, and
-          # host-side verification was reading the wrong app (2026-09-23,
-          # a sim imbib up 4½ h on 23120). Terminate what was launched; the
-          # simulator itself stays booted so the next run is warm.
+
+      # The app this lane launched is a HOST process that outlives the job:
+      # the simulator shares the Mac's network namespace, so the launched
+      # app's automation server (enabled by default) sat on 23122 for hours
+      # after the run and shadowed the DESKTOP app on the same port —
+      # `/api/status` answered from the simulator, and host-side verification
+      # was reading the wrong app (2026-09-23, a sim imbib up 4½ h on 23120).
+      # This is its own `always()` step because the diagnostic branch above
+      # `exit 1`s: the failing run was exactly the one that left a listener
+      # behind. Shutting the simulator down as well means a launched app that
+      # slipped past `terminate` still goes away with its host.
+      - name: Terminate and shut down the simulator
+        if: always()
+        run: |
           xcrun simctl terminate "$UDID" com.imbib.impart || true
+          xcrun simctl shutdown "$UDID" || true

@@ -148,6 +148,7 @@ jobs:
             | grep "platform:iOS Simulator" | grep -v placeholder \
             | grep -oE 'id:[0-9A-F-]{36}' | head -1 | cut -c4-)
           echo "sim: $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcodebuild -derivedDataPath "$PWD/.ci-derived" -project imprint.xcodeproj -scheme imprint-iOS -configuration Debug \
@@ -179,15 +180,6 @@ jobs:
           done
           if [ "$LAUNCHED" = "1" ]; then
             echo "imprint-iOS launched OK"
-          # The app this lane launched is a HOST process that outlives the
-          # job: the simulator shares the Mac's network namespace, so the
-          # launched app's automation server (enabled by default) sat on
-          # 23121 for hours after the run and shadowed the DESKTOP app on
-          # the same port — `/api/status` answered from the simulator, and
-          # host-side verification was reading the wrong app (2026-09-23,
-          # a sim imbib up 4½ h on 23120). Terminate what was launched; the
-          # simulator itself stays booted so the next run is warm.
-            xcrun simctl terminate "$UDID" com.imbib.imprint || true
           else
             echo "imprint-iOS did not launch — diagnostics follow"
             echo "=== process log (last 3m) ==="
@@ -205,3 +197,19 @@ jobs:
             done
             exit 1
           fi
+
+      # The app this lane launched is a HOST process that outlives the job:
+      # the simulator shares the Mac's network namespace, so the launched
+      # app's automation server (enabled by default) sat on 23121 for hours
+      # after the run and shadowed the DESKTOP app on the same port —
+      # `/api/status` answered from the simulator, and host-side verification
+      # was reading the wrong app (2026-09-23, a sim imbib up 4½ h on 23120).
+      # This is its own `always()` step because the diagnostic branch above
+      # `exit 1`s: the failing run was exactly the one that left a listener
+      # behind. Shutting the simulator down as well means a launched app that
+      # slipped past `terminate` still goes away with its host.
+      - name: Terminate and shut down the simulator
+        if: always()
+        run: |
+          xcrun simctl terminate "$UDID" com.imbib.imprint || true
+          xcrun simctl shutdown "$UDID" || true
