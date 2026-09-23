@@ -268,3 +268,8 @@ preparation may start earlier on a branch).
   cross-process store mutations (figure create, library delete, store delete) did not
   reproduce it, and neither did three more Tier B runs. Cause unknown; not attributed to
   W2.
+- 2026-09-23 — main's impress app-build lane went red on the #44 merge (run 60): impress
+  now links CounselEngine's `ImpelToolsFFI` and the lane never built `ImpelTools.xcframework`.
+  Fixed in its own PR (#48: the lane builds it beside the other five). Worth knowing for
+  W6: a package that declares a binary target is resolved by every project that references
+  the package, whichever targets link it.
