@@ -481,3 +481,50 @@ selects two of three seeded papers, clicks Star and sees two `call` outcomes, tw
 events, and the star on exactly those two rows. 15 tests added across template, reduce and
 validate; both crates clippy-clean. The Mac hand-off's step 4.5 now expects the buttons to
 work.
+
+### 2026-09-23 — Mac pass, round 2 (wave 5)
+
+Steps 1–3 were green with no source change: the gate, both frameworks, and every new
+Swift file compiled first time (`project.yml`'s `product: ImpelToolsFFI` was accepted as
+written). Step 4, each watched in `?category=surface`:
+
+1. ✅ Host installed: "impel-tools verb host: imbib=http, imprint=unavailable", then
+   "installed on the shared store". **The once-per-process probe bites in practice:** with
+   imbib launched two seconds before impress, the first probe read `imbib=unavailable`; a
+   relaunch read `http`. `configure` is a `OnceLock` in impel-tools, so the app cannot
+   re-probe — flagged, not changed (impel's contract).
+2. ✅ A surface whose one source is `imbib-library-service_list-libraries` rendered the
+   libraries through the host ("verb host call: …" in the log); the refusal half through
+   imprint (not running): the source draws a placeholder. **The placeholder is the
+   generic "did not resolve to a value"** — a failed fetch is dropped silently in
+   `render`'s source loop (no log, no reason; the crate has no logging facade), so
+   "imbib is not running" never reaches the pane. Flagged: carrying the reason means a
+   render-result shape change, i.e. ask first.
+   **Environment hazard found on the way:** an imbib **iOS Simulator** instance from the
+   self-hosted runner's test lane was listening on 23120 with a scratch store (Inbox 0
+   papers, "My Library"); the host's imbib calls reached IT, not the desktop imbib. A
+   shared runner on a dev Mac shares localhost ports.
+3. ✅ `POST /api/surface/validate` on that spec: `{"problems": []}` with the host installed.
+4. ✅ `delete-layout` over HTTP: save "Tmp" → delete → gone from `/api/layout/layouts`;
+   second delete `ok: false` ("no saved layout named…"); the shipped preset by name
+   ("Default" — impress ships only that one) refused naming `reset-preset`.
+5. ✅ Paper triage: the second example renders (table of 50 unread, Star / Flag red / Tag
+   to-read, status). Select two ids + click Star: **5 effects — two `call
+   triage-service_set-starred`, one `refresh`, two `emit 'triaged'`** (V5's `each` fans
+   out); `surface-wait --after-seq 0` returned the first `triaged`. **And the two papers
+   stayed unstarred** — the kit verbs wrote into a fresh sandbox-local impress.sqlite
+   (`~/Library/Containers/com.impress.impress/…`, 0 rows), because impress-store-service
+   opens its global lazily under `dirs::home_dir()`. `SharedStore::open` now installs the
+   app's handle (`install_store`); after it both rows are `is_starred` in the real store
+   and the table shows the stars after the refresh. In the GUI, a click + ⌘-click selected
+   ONE row (the table's multi-select over CGEvents did not extend) — the fan-out was
+   proven over HTTP with two ids; a `select` event still carries an array, as the hand-off
+   says.
+
+Step 5: ⌃⌘1–9 wired through the chassis (`ImpressLayoutOrdinalButtons`, routed like the
+toggles); ⌃⌘1 applied the Default preset over a surface pane, ⌃⌘2 the one saved layout,
+⌃⌘3/⌃⌘9 refused by name. Grammar row updated.
+
+Not this branch's: `main`'s red "imprint - iOS install smoke" and "Tectonic" lanes fail in
+`rustup` setup on the runner ("failure removing component 'cargo-aarch64-apple-darwin'",
+cryptexd EACCES) — 2026-09-06 and -21, before this work.
