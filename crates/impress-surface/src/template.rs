@@ -46,6 +46,12 @@ pub struct Context<'a> {
     pub source: &'a Value,
     pub event: &'a Value,
     pub item: Option<&'a Value>,
+    /// Why a source is ABSENT from `source`, by name — a verb that refused
+    /// ("imbib is not running"), a query that did not compile. `resolve`
+    /// names it in the placeholder a reference to that source becomes;
+    /// nothing else reads it, and `None` (every caller but the runtime) keeps
+    /// the generic "did not resolve" wording.
+    pub source_errors: Option<&'a std::collections::BTreeMap<String, String>>,
 }
 
 impl<'a> Context<'a> {
@@ -56,6 +62,7 @@ impl<'a> Context<'a> {
             source,
             event,
             item: None,
+            source_errors: None,
         }
     }
 
