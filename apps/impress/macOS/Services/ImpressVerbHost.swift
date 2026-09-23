@@ -33,6 +33,15 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
     /// spec's verb reference as known even while imbib happens to be closed.
     private let knownVerbs: Set<String>
 
+    /// The sibling apps whose last call was refused as unavailable. Purely a
+    /// log-keeping aid: the refusal and the re-probe both happen in
+    /// `impel-tools`, and this host never decides anything from it. It exists
+    /// so the moment an app comes back is a line in the log rather than a
+    /// silent change in behaviour — "my surface started working again and I
+    /// do not know when" was the actual complaint on 2026-09-23.
+    private let reachabilityLock = NSLock()
+    private var appsLastSeenUnavailable: Set<String> = []
+
     init() {
         knownVerbs = Set(listTools().map(\.name))
     }
@@ -44,8 +53,20 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
     func callVerb(name: String, argsJson: String) throws -> String {
         logInfo("verb host call: \(name)", category: "surface")
         do {
-            return try callTool(name: name, argsJson: argsJson)
+            let result = try callTool(name: name, argsJson: argsJson)
+            noteReachable(app: Self.app(of: name))
+            return result
         } catch {
+            if case let ToolError.AppUnavailable(app, _) = error {
+                noteUnavailable(app: app)
+            }
+            // The surface runtime turns this into a `SourceError` and a
+            // placeholder `reason`; logging it here is what puts the reason
+            // in `/api/logs?category=surface`. `impress-surface-service` is
+            // a plain library crate with no logging facade of its own, and a
+            // Rust one would not reach this log anyway — `ImpressLogging` is
+            // what `?category=surface` reads.
+            logWarning("verb host call failed: \(name): \(error)", category: "surface")
             // `SharedStoreError` has no case of its own for "a verb host
             // refused this" — `.Storage` is the generic failure every other
             // non-classified store error in this crate already uses
@@ -54,13 +75,47 @@ final class ImpelToolsVerbHost: SharedVerbHost, @unchecked Sendable {
         }
     }
 
+    /// The sibling app a verb belongs to, from its namespace prefix — the
+    /// Swift half of `impel-tools`' own `app_of`. A verb no app owns runs
+    /// against the shared store and is never unavailable, hence `nil`.
+    private static func app(of verb: String) -> String? {
+        guard let underscore = verb.firstIndex(of: "_") else { return nil }
+        let namespace = verb[verb.startIndex..<underscore]
+        guard namespace.hasSuffix("-service") else { return nil }
+        if namespace.hasPrefix("imbib-") { return "imbib" }
+        if namespace.hasPrefix("imprint-") { return "imprint" }
+        return nil
+    }
+
+    private func noteUnavailable(app: String) {
+        reachabilityLock.lock()
+        defer { reachabilityLock.unlock() }
+        appsLastSeenUnavailable.insert(app)
+    }
+
+    /// A call that SUCCEEDED against an app we last saw refused is the
+    /// transition `impel-tools`' re-probe exists to catch: the app was
+    /// started after impress and is now answering, with no relaunch. Log it
+    /// once, on the edge.
+    private func noteReachable(app: String?) {
+        guard let app else { return }
+        reachabilityLock.lock()
+        let wasUnavailable = appsLastSeenUnavailable.remove(app) != nil
+        reachabilityLock.unlock()
+        guard wasUnavailable else { return }
+        logInfo(
+            "impel-tools verb host: \(app) is reachable again — a re-probe found it up, "
+                + "no relaunch needed",
+            category: "surface")
+    }
+
     /// Point `impel-tools` at the sibling apps' HTTP ports and install this
     /// host on `store` — call once, from impress's own launch path, beside
     /// `ImpressHTTPServer.shared.start()`.
     ///
     /// The first probe runs here; an app that is closed at that moment is
     /// re-probed by `impel-tools` on the next call that needs it (at most once
-    /// every five seconds), so "start imbib, then use a surface" works without
+    /// a minute), so "start imbib, then use a surface" works without
     /// relaunching impress — it did not on 2026-09-23, when `configure` was a
     /// once-per-process cell.
     static func install(on store: SharedStore) {
