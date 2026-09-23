@@ -18,6 +18,9 @@
 #
 #   * PMC keeps the historical allowlist. It is imbib's package and carries
 #     imbib's stack — Rust cores, Typst, keychain, markdown.
+#   * PMC hosts the `surface` view kind (ADR-0033 S7), so it links
+#     `packages/ImpressSurface` — kit-grade by rule (Keyboard, Theme, Logging
+#     and nothing else), a renderer with no logic of its own.
 #   * ImpressChassis is allowed NOTHING. It holds the part of the chassis
 #     contract that is pure data, and the argument for keeping it that way is
 #     the same blast-radius argument above, only sharper: a dependency added
@@ -56,6 +59,7 @@ PMC_ALLOWED_LOCAL="
     ../../../packages/ImpressSmartSearch
     ../../../packages/ImpressSpotlight
     ../../../packages/ImpressStoreKit
+    ../../../packages/ImpressSurface
     ../../../packages/ImpressSyntaxHighlight
     ../../../packages/ImpressTheme
     ../../../packages/ImpressUndoHistory
