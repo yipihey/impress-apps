@@ -601,9 +601,13 @@ struct LayoutRowsPaneView: View {
 /// pane and a tree's detail pane want exactly the same two things (ADR-0031
 /// D11 — map, do not rewrite).
 ///
-/// `topInset` stays 0. The 40pt the section views pass clears a toolbar band
-/// they reclaim with `.ignoresSafeArea(.top)`; a layout pane reclaims
-/// nothing, so the same inset here would be a 40pt gap under the divider.
+/// `topInset` is the toolbar band the tree measured for this pane
+/// (`layoutToolbarBand`), not the section views' fixed 40 pt. A layout pane
+/// DOES reclaim the band — `LayoutLinearSplit` ignores the top safe area for
+/// every horizontal child but the first, which is where every preset's `info`
+/// pane sits — so 0 put each detail pane's tab picker under the window
+/// toolbar, invisible and unclickable. A pane that is not under the toolbar
+/// is told 0 and gets no gap.
 ///
 /// The detail TAB is view state of this view kind, not layout state — in L8
 /// it becomes `PaneSpec.view_state`, which is where a per-pane tab belongs
@@ -646,6 +650,8 @@ struct LayoutInfoPaneView: View {
     let context: PaneContext
 
     @State private var selectedTab: DetailTab = .info
+
+    @Environment(\.layoutToolbarBand) private var toolbarBand
 
     private var itemID: UUID? {
         guard let raw = rawItem else { return nil }
@@ -704,13 +710,15 @@ struct LayoutInfoPaneView: View {
                 unavailable(id.uuidString)
             }
         case .figure:
-            FigureDetailPane(figureID: id, selectedTab: $selectedTab)
+            FigureDetailPane(figureID: id, selectedTab: $selectedTab, topInset: toolbarBand)
         case .message:
-            MessageDetailPane(messageID: id, selectedTab: $selectedTab)
+            MessageDetailPane(messageID: id, selectedTab: $selectedTab, topInset: toolbarBand)
         case .task:
-            AgentRecordDetailPane(kind: .task, recordID: id, selectedTab: $selectedTab)
+            AgentRecordDetailPane(
+                kind: .task, recordID: id, selectedTab: $selectedTab, topInset: toolbarBand)
         case .agentRun:
-            AgentRecordDetailPane(kind: .run, recordID: id, selectedTab: $selectedTab)
+            AgentRecordDetailPane(
+                kind: .run, recordID: id, selectedTab: $selectedTab, topInset: toolbarBand)
         case .unsupported:
             unavailable(id.uuidString)
         }

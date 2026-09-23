@@ -283,6 +283,23 @@ struct LayoutTileView: View {
     }
 }
 
+// MARK: - Toolbar band
+
+/// How much of a tile's top edge sits under the window toolbar band, because
+/// a split above it reclaimed that band with `.ignoresSafeArea(.top)`. 0 for a
+/// tile that is not under the toolbar. View geometry, not layout state: it is
+/// measured, never stored in the tree.
+private struct LayoutToolbarBandKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var layoutToolbarBand: CGFloat {
+        get { self[LayoutToolbarBandKey.self] }
+        set { self[LayoutToolbarBandKey.self] = newValue }
+    }
+}
+
 // MARK: - Linear
 
 /// `Container::Linear` — N children, N relative weights, N−1 dividers.
@@ -315,29 +332,39 @@ struct LayoutLinearSplit: View {
     /// A drag may not shrink either neighbour below this.
     private let minimumPaneLength: CGFloat = 80
 
+    /// The toolbar band this split's own top edge already sits under — set
+    /// by an enclosing split that reclaimed it for us.
+    @Environment(\.layoutToolbarBand) private var inheritedBand
+
     var body: some View {
         GeometryReader { geo in
             let axis = dir == .horizontal ? geo.size.width : geo.size.height
-            stack(sizes: sizes(along: axis), axis: axis)
+            // Measured HERE, before any child ignores it: once a child has
+            // reclaimed the band its own safe area reads 0, so the height of
+            // what it now sits under is only knowable from outside it.
+            stack(sizes: sizes(along: axis), axis: axis, band: geo.safeAreaInsets.top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
-    private func stack(sizes: [CGFloat], axis: CGFloat) -> some View {
+    private func stack(sizes: [CGFloat], axis: CGFloat, band: CGFloat) -> some View {
         if dir == .horizontal {
-            HStack(spacing: 0) { laidOut(sizes: sizes, axis: axis) }
+            HStack(spacing: 0) { laidOut(sizes: sizes, axis: axis, band: band) }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            VStack(spacing: 0) { laidOut(sizes: sizes, axis: axis) }
+            VStack(spacing: 0) { laidOut(sizes: sizes, axis: axis, band: band) }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     @ViewBuilder
-    private func laidOut(sizes: [CGFloat], axis: CGFloat) -> some View {
+    private func laidOut(sizes: [CGFloat], axis: CGFloat, band: CGFloat) -> some View {
         ForEach(Array(children.enumerated()), id: \.offset) { index, tile in
-            childView(tile: tile, index: index, size: sizes.indices.contains(index) ? sizes[index] : 0)
+            childView(
+                tile: tile, index: index,
+                size: sizes.indices.contains(index) ? sizes[index] : 0,
+                band: band)
             if index + 1 < children.count,
                sizes.indices.contains(index + 1),
                sizes[index] > 0,
@@ -351,8 +378,14 @@ struct LayoutLinearSplit: View {
     /// ZERO length and its divider is hidden. That is how a role toggle
     /// (⌃⌘S / ⌥⌘0 / ⌘0) hides a pane without closing it: the pane, its
     /// session and its place in the tree all survive.
+    ///
+    /// `band` is the toolbar band this split still sees as safe area. A child
+    /// that reclaims it is told how tall it is (`layoutToolbarBand`), because
+    /// a pane with a control at its top edge — every record detail pane's tab
+    /// picker — has to clear it, and the section views' fixed 40 pt is the
+    /// wrong number for a pane that is not under the toolbar at all.
     @ViewBuilder
-    private func childView(tile: UInt64, index: Int, size: CGFloat) -> some View {
+    private func childView(tile: UInt64, index: Int, size: CGFloat, band: CGFloat) -> some View {
         let content = LayoutTileView.child(controller, tile)
         if dir == .horizontal {
             content
@@ -363,11 +396,15 @@ struct LayoutLinearSplit: View {
                 // dead strip; reclaiming it is the documented pattern.
                 .ignoresSafeArea(
                     .container, edges: index == 0 ? Edge.Set() : Edge.Set.top)
+                .environment(
+                    \.layoutToolbarBand, index == 0 ? inheritedBand : inheritedBand + band)
         } else {
             content
                 .frame(height: max(size, 0))
                 .frame(maxWidth: .infinity)
                 .clipped()
+                // Only the top child's top edge is the split's top edge.
+                .environment(\.layoutToolbarBand, index == 0 ? inheritedBand : 0)
         }
     }
 
