@@ -388,3 +388,9 @@ triage-service).
 * **5.3.** Golden re-blessed with the real `series`/`plot-spec` shapes; the Swift golden
   test now decodes the real plot. **5.4.** Matrix row flipped.
 * The CLI rule (a) landed first; `impress surface-*` runs from the shell again.
+* **Closed the open items (2026-09-23).** Enter on the highlighted "Use these bins"
+  fired exactly one `click` event; Escape on the focused Bins slider dropped real focus
+  back to the highlight (captured before/after). `SurfaceRecordListRows` is a stack now,
+  not a `List`: it takes the height its rows need and the surface scrolls as one
+  document; single-row selection publishes the id. Still main's, not this branch's: the
+  `grouped_surface_via_stdio` drift (82 tools on main against `< 60`).

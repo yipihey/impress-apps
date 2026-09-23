@@ -39,16 +39,33 @@ struct SurfaceRecordListRows: View {
 
     var body: some View {
         if let rows = mappedRows, !rows.isEmpty {
-            List(rows, selection: $selection) { row in
-                rowView(row).tag(row.id.uuidString)
-            }
-            .listStyle(.inset)
-            .onChange(of: selection) { _, newValue in
-                onSelect(Array(newValue).sorted())
+            // A stack, not a `List`: the column the surface lays this in is
+            // already a ScrollView, and a List inside it either collapses to
+            // nothing or scrolls inside a fixed floor — six rows in a 240 pt
+            // box (Mac, 2026-09-23). A stack takes the height its rows need
+            // and the surface scrolls as one document. Selection is one row
+            // (the table's own model; a surface publishes ids, and one at a
+            // time is what `on_select` → `publish` means for a detail pane).
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(rows) { row in
+                    rowView(row)
+                        .contentShape(Rectangle())
+                        .background(
+                            selection.contains(row.id.uuidString)
+                                ? Color.accentColor.opacity(0.18) : Color.clear)
+                        .onTapGesture { select(row) }
+                    Divider()
+                }
             }
         } else {
             SurfaceHooks.plain.renderListRows(rowsJSON, onSelect)
         }
+    }
+
+    private func select(_ row: KindTaggedRow) {
+        let id = row.id.uuidString
+        selection = [id]
+        onSelect([id])
     }
 
     @ViewBuilder
