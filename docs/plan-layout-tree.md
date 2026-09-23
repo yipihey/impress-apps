@@ -166,3 +166,20 @@ Session log (append-only):
     the error text; the failing file name survived, the diagnostic did not.
   * impress App Builds and impart Swift Tests: builds succeeded and the
     artifact upload stalled — runner, not code; nothing to change.
+- 2026-09-23 — Wave 5 V2: `delete_layout` landed — the verb the stack lacked
+  since 2026-09-21. Refuses the live arrangement (`LayoutStore::delete_named`
+  already does, by never resolving a live row through `load_named`) and any
+  preset by name, naming `reset-preset` as the preset's own undo; a name that
+  is not found is `ok: false` with a message, never an error. Rust:
+  `LayoutService::delete_layout` (trait + impl + `impress_service_impl!`
+  registration in `crates/impress-layout-service/src/service.rs`), one Tier A
+  capability (`delete-layout`, `crates/impress-layout-service/src/tier_a.rs`)
+  taking the catalogue from 37 to 38. FFI: `SharedLayout::delete_layout`
+  mirroring `save_layout` in `crates/impress-store-ffi/src/layout.rs`, plus an
+  FFI test beside `a_layout_saves_and_lists_under_its_ordinal`. HTTP: a sixth
+  `POST /api/layout/op` operation, mirrored through
+  `LayoutAutomationRoutes.operations` (`packages/ImpressAutomation`) and
+  `LayoutController`/`LayoutController+Automation` (PublicationManagerCore,
+  Swift, uncompiled on this checkout — Mac-verify pending like the rest of L6).
+  Binding not regenerated (wave rule: one regeneration at the end, alongside
+  V1's FFI changes).

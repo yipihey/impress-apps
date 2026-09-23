@@ -374,6 +374,18 @@ pub trait LayoutService: Send + Sync + 'static {
         actor: Option<String>,
     ) -> LayoutVerbResult;
 
+    /// Remove a saved layout by name or id. Refuses the live arrangement (it
+    /// is not a saved layout) and any preset (`reset-preset` is how a preset
+    /// goes back to shipped); deleting a name that does not exist is `ok:
+    /// false` with a message, never an error.
+    #[impress_method]
+    async fn delete_layout(
+        &self,
+        app_id: String,
+        name_or_id: String,
+        actor: Option<String>,
+    ) -> LayoutVerbResult;
+
     /// Undo on one ring: `arrangement` (the window's shape) or `exploration`
     /// (one pane's bindings and view state, named by `target`).
     ///
@@ -1301,6 +1313,57 @@ impl LayoutService for DefaultLayoutService {
         outcome.unwrap_or_else(LayoutVerbResult::failed)
     }
 
+    async fn delete_layout(
+        &self,
+        app_id: String,
+        name_or_id: String,
+        actor: Option<String>,
+    ) -> LayoutVerbResult {
+        // Kept in the signature to match D8's "every verb takes an actor",
+        // but a delete is a hard remove with no attributed operation to hang
+        // it on — `LayoutStore::delete_named` takes none, unlike the
+        // Durable-tier writes `save_layout` and `reset_preset` make.
+        let _ = actor;
+        let store = self.layout_store();
+        let key = name_or_id.trim();
+        // A preset shares the ⌃⌘1–9 union's name space with saved layouts
+        // (see `apply_layout`), so "delete Triage" must be refused by NAME,
+        // not silently answered "no such saved layout" — `reset-preset` is
+        // the verb that undoes an edit to a preset.
+        let presets = PresetStore::new(store.store().clone());
+        match presets
+            .ensure_shipped(&app_id)
+            .and_then(|_| presets.load(&app_id, key))
+        {
+            Ok(Some(_)) => {
+                return LayoutVerbResult::failed(format!(
+                    "'{key}' is a preset, not a saved layout — presets are never deleted; use \
+                     reset-preset to restore the shipped revision."
+                ));
+            }
+            Ok(None) => {}
+            Err(e) => return LayoutVerbResult::failed(e),
+        }
+        match store.delete_named(&app_id, key) {
+            // `delete_named` already refuses the live row: it resolves by
+            // name/id through `load_named`, which never returns a row with
+            // `is_live` set, so the live arrangement reads as "not found"
+            // here — exactly the `ok: false` this verb promises for it.
+            Ok(true) => LayoutVerbResult {
+                ok: true,
+                message: format!("Deleted '{key}'."),
+                focused: None,
+                affected_panes: Vec::new(),
+                window: None,
+                stack: None,
+                stack_pane: None,
+                patch: None,
+            },
+            Ok(false) => LayoutVerbResult::failed(format!("no saved layout named or id'd '{key}'")),
+            Err(e) => LayoutVerbResult::failed(e),
+        }
+    }
+
     async fn undo(
         &self,
         app_id: String,
@@ -1994,6 +2057,11 @@ impress_service_impl! {
             device: Option<String>,
             name: Option<String>,
             ordinal: Option<u32>,
+            actor: Option<String>
+        ) -> LayoutVerbResult,
+        delete_layout(
+            app_id: String,
+            name_or_id: String,
             actor: Option<String>
         ) -> LayoutVerbResult,
         undo(

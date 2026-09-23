@@ -83,9 +83,10 @@ public enum LayoutUndoStack: String, Sendable, Hashable {
 /// The split between `verbJSON`-bearing cases and typed ones mirrors the FFI
 /// exactly: `SharedLayout.apply` takes the serde form of
 /// `impress_layout::Verb`, while `focus_direction` / `select` /
-/// `resize_share` / `undo` / `redo` / `save_layout` / `apply_layout` are
-/// typed methods on the same object (the last four are service verbs — they
-/// touch the store or a ring — so they are not `Verb` variants at all).
+/// `resize_share` / `undo` / `redo` / `save_layout` / `apply_layout` /
+/// `delete_layout` are typed methods on the same object (the last five are
+/// service verbs — they touch the store or a ring — so they are not `Verb`
+/// variants at all).
 public enum LayoutVerb: Sendable, Hashable {
 
     // ---- arrangement (tree verbs) ----
@@ -112,6 +113,7 @@ public enum LayoutVerb: Sendable, Hashable {
     case redo(stack: LayoutUndoStack, pane: UInt64?)
     case saveLayout(name: String, purpose: String?)
     case applyLayout(nameOrOrdinal: String)
+    case deleteLayout(nameOrId: String)
 
     /// The serde form of `impress_layout::Verb`, or nil for the cases that
     /// have a typed FFI method of their own.
@@ -167,7 +169,8 @@ public enum LayoutVerb: Sendable, Hashable {
         case .focus(let target):
             return .object(["verb": .string("focus"), "target": target.json])
 
-        case .focusDirection, .select, .resizeShare, .undo, .redo, .saveLayout, .applyLayout:
+        case .focusDirection, .select, .resizeShare, .undo, .redo, .saveLayout, .applyLayout,
+            .deleteLayout:
             return nil
         }
     }
@@ -196,6 +199,7 @@ public enum LayoutVerb: Sendable, Hashable {
             return "redo(\(stack.rawValue), pane \(target))"
         case .saveLayout(let name, _): return "save-layout(\(name))"
         case .applyLayout(let name): return "apply-layout(\(name))"
+        case .deleteLayout(let nameOrId): return "delete-layout(\(nameOrId))"
         }
     }
 }
@@ -406,6 +410,8 @@ public final class LayoutController {
             return try layout.saveLayout(name: name, purpose: purpose, actor: actor)
         case .applyLayout(let nameOrOrdinal):
             return try layout.applyLayout(nameOrOrdinal: nameOrOrdinal, actor: actor)
+        case .deleteLayout(let nameOrId):
+            return try layout.deleteLayout(nameOrId: nameOrId, actor: actor)
         default:
             // Unreachable: every case without a `verbJSON` is handled above.
             throw SharedLayoutError.Layout(message: "unroutable verb \(verb.traceDescription)")

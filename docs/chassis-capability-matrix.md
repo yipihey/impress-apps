@@ -2905,19 +2905,20 @@ reads. Verified on a Mac, 2026-09-21.
 
 ### HTTP automation (the tree's agent surface, 2026-09-21)
 
-The layout verbs were reachable headlessly from the day L3 landed — 35
-`layout-service_*` MCP tools and the matching `impress <verb>` CLI
-subcommands, both over the store with every app closed. What did NOT exist was
-a way to drive the tree in a RUNNING app, which is the case that matters for
-"show me what the user is looking at". Four routes now do, in
-`SharedAutomationRoutes` (so every chassis app has them, not just imbib):
+The layout verbs were reachable headlessly from the day L3 landed — 36
+`layout-service_*` MCP tools (`delete-layout` among them since wave 5's V2)
+and the matching `impress <verb>` CLI subcommands,
+both over the store with every app closed. What did NOT exist was a way to
+drive the tree in a RUNNING app, which is the case that matters for "show me
+what the user is looking at". Four routes now do, in `SharedAutomationRoutes`
+(so every chassis app has them, not just imbib):
 
 | Route | Answers |
 |---|---|
 | `GET /api/layout/tree` | the live tree — windows, tiles, channels — plus `version` and `focused` |
 | `GET /api/layout/layouts` | the saved layouts, in ⌃⌘1–9 order |
 | `POST /api/layout/verb` | one `impress_layout::Verb`, forwarded VERBATIM to `SharedLayout.apply(verbJson:actor:)` |
-| `POST /api/layout/op` | the five operations that are not `Verb` cases: `undo`, `redo`, `resize-share`, `save-layout`, `apply-layout` |
+| `POST /api/layout/op` | the six operations that are not `Verb` cases: `undo`, `redo`, `resize-share`, `save-layout`, `apply-layout`, `delete-layout` |
 
 Three properties worth keeping:
 
@@ -2940,8 +2941,12 @@ while changing nothing anyone could see: the same "reported success while
 doing nothing" failure ADR-0032 documents for the two cross-app citation
 channels.
 
-Known gap: there is no `delete-layout` verb anywhere in the stack (Rust, CLI,
-MCP or HTTP), so a saved layout can be overwritten by name but never removed.
+`delete-layout` (wave 5 V2): removes a saved layout by name or id, in Rust
+(`LayoutService::delete_layout`), CLI, MCP and over HTTP (`POST /api/layout/op`
+`{"op": "delete-layout", "name": ...}`). It refuses the live arrangement (not
+a saved layout) and any preset by name, naming `reset-preset` as the preset's
+own undo; deleting a name that does not exist is `ok: false` with a message,
+never an error.
 
 ### What a pane LOOKS like (2026-09-21)
 

@@ -659,6 +659,19 @@ impl SharedLayout {
         self.finish(result)
     }
 
+    /// Remove a saved layout by name or id. Refuses the live arrangement and
+    /// any preset (`reset-preset` is theirs); a name that does not exist
+    /// comes back as an error carrying the service's message, same as every
+    /// other refusal on this object.
+    pub fn delete_layout(&self, name_or_id: String, actor: String) -> Result<SharedAppliedVerb> {
+        let result = runtime().block_on(self.service.delete_layout(
+            self.app_id.clone(),
+            name_or_id,
+            Some(actor),
+        ));
+        self.finish(result)
+    }
+
     // ------------------------------------------------------------ the feed
 
     /// Start (or restart) the invalidation feed.
@@ -1565,6 +1578,20 @@ mod tests {
         layout
             .apply_layout("Triage".into(), "human".into())
             .expect("recall by name");
+    }
+
+    #[test]
+    fn a_deleted_layout_leaves_the_list() {
+        let (_store, layout) = open();
+        layout
+            .save_layout("Triage".into(), None, "human".into())
+            .expect("save");
+        assert_eq!(layout.list_layouts().expect("list").len(), 1);
+
+        layout
+            .delete_layout("Triage".into(), "human".into())
+            .expect("delete");
+        assert!(layout.list_layouts().expect("list").is_empty());
     }
 
     #[test]
