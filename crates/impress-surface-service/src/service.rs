@@ -33,7 +33,7 @@ use crate::dto::{
     SurfaceValidateResult, SurfaceWaitResult,
 };
 use crate::runtime::{
-    show_in_pane, surface_item_query, verb_exists, DefaultExecutor, SessionRegistry,
+    show_in_pane, surface_item_query, verb_exists, DefaultExecutor, SessionRegistry, VerbHost,
 };
 use crate::store::SurfaceStore;
 
@@ -182,6 +182,11 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
 pub struct DefaultImpressSurfaceService {
     store: Option<Arc<SqliteItemStore>>,
     sessions: Option<Arc<SessionRegistry>>,
+    /// See [`crate::runtime::VerbHost`]. Threaded into every [`DefaultExecutor`]
+    /// this service builds ([`Self::executor`]) and consulted directly by
+    /// [`Self::surface_validate`], so a spec naming a host-only verb both
+    /// runs and validates clean once a host is installed.
+    verb_host: Option<Arc<dyn VerbHost>>,
 }
 
 impl DefaultImpressSurfaceService {
@@ -189,6 +194,7 @@ impl DefaultImpressSurfaceService {
         Self {
             store: None,
             sessions: None,
+            verb_host: None,
         }
     }
 
@@ -196,7 +202,15 @@ impl DefaultImpressSurfaceService {
         Self {
             store: Some(store),
             sessions: Some(Arc::new(SessionRegistry::new())),
+            verb_host: None,
         }
+    }
+
+    /// Install a [`VerbHost`] — builder style, matching
+    /// [`DefaultExecutor::with_verb_host`].
+    pub fn with_verb_host(mut self, host: Arc<dyn VerbHost>) -> Self {
+        self.verb_host = Some(host);
+        self
     }
 
     fn store_arc(&self) -> Arc<SqliteItemStore> {
@@ -216,9 +230,13 @@ impl DefaultImpressSurfaceService {
     }
 
     fn executor(&self) -> DefaultExecutor {
-        match &self.store {
+        let executor = match &self.store {
             Some(s) => DefaultExecutor::with_store(s.clone()),
             None => DefaultExecutor::new(self.store_arc()),
+        };
+        match &self.verb_host {
+            Some(host) => executor.with_verb_host(host.clone()),
+            None => executor,
         }
     }
 
@@ -311,7 +329,16 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
     async fn surface_validate(&self, spec: SurfaceSpec) -> SurfaceValidateResult {
         let mut problems = validate(&spec);
         for (path, verb) in verb_refs(&spec) {
-            if !verb_exists(&verb) {
+            // A verb this process did not link but a host (ADR-0033 D4,
+            // amended 2026-09-23) answers for is not a problem — it will
+            // run through `DefaultExecutor::call_verb` exactly as a linked
+            // one does.
+            let known = verb_exists(&verb)
+                || self
+                    .verb_host
+                    .as_ref()
+                    .is_some_and(|host| host.has_verb(&verb));
+            if !known {
                 problems.push(Problem {
                     path,
                     message: format!("no such verb: {verb}"),

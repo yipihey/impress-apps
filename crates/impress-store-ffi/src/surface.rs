@@ -76,11 +76,11 @@ use impress_surface::{Event, SurfaceSpec};
 use impress_surface_service::dto::{SurfaceDispatchResult, SurfaceEventDto, SurfaceSummaryDto};
 use impress_surface_service::{
     DefaultExecutor, DefaultImpressSurfaceService, ImpressSurfaceService, PaneHandle,
-    SessionRegistry, SurfaceStore,
+    SessionRegistry, SurfaceStore, VerbHost,
 };
 
 use crate::ui_feed::{self, ExternalPoll, Feed};
-use crate::SharedStore;
+use crate::{SharedStore, SharedStoreError};
 
 /// The neutral, appless scope `impress-surface-service::service::surface_show`
 /// gives a surface pane when no `app_id` is provided (ADR-0033 leaves which
@@ -219,6 +219,88 @@ pub trait SharedSurfaceListener: Send + Sync {
     fn surfaces_changed(&self, ids: Vec<String>);
 }
 
+// ─── The verb host bridge (ADR-0033 D4, amended 2026-09-23 for wave 5) ────
+
+/// What the host process implements to answer a verb this crate's own
+/// linked inventory (`impress-capabilities-kit`) does not have — imbib's
+/// and imprint's own verbs, which cannot link into this crate a second time
+/// (ADR-0033 D4 forbids a second domain core; `impress-store-ffi`'s
+/// `Cargo.toml` has the cyclic-package details for why they cannot link
+/// through `impress-capabilities` either). In the app this is implemented
+/// over `impel-tools`' `call_tool`, which reaches imbib and imprint through
+/// their own HTTP routers and refuses, by name, when the owning app is not
+/// running.
+///
+/// `SharedStore::set_verb_host` installs one; [`HostAdapter`] (below) is
+/// what [`SharedSurface::open`] wires it into
+/// [`impress_surface_service::runtime::VerbHost`], the trait the executor
+/// and the service actually consult. `call_verb` takes and returns JSON
+/// STRINGS rather than a UniFFI record, for the same reason
+/// [`Self::dispatch`](SharedSurface::dispatch)'s `event_json` does (module
+/// docs above): the shape is `serde_json::Value`, recursive, and a callback
+/// interface has no way to carry one directly.
+#[cfg_attr(feature = "native", uniffi::export(callback_interface))]
+pub trait SharedVerbHost: Send + Sync {
+    /// Whether the host can answer this verb at all — checked before
+    /// `call_verb` runs it, so `surface_validate` can say "no such verb"
+    /// without a round trip through the host.
+    fn has_verb(&self, name: String) -> bool;
+    /// Run the verb by name; `args_json` and the successful return are both
+    /// `serde_json::Value` JSON, exactly as every other verb call in the
+    /// suite (MCP, the CLI, the linked inventory) speaks it.
+    fn call_verb(
+        &self,
+        name: String,
+        args_json: String,
+    ) -> std::result::Result<String, SharedStoreError>;
+}
+
+/// Adapts whatever [`SharedVerbHost`] is currently installed on a
+/// [`SharedStore`] (if any) to
+/// [`impress_surface_service::runtime::VerbHost`] — the trait
+/// `impress-surface-service`'s executor and service actually consult.
+///
+/// Holds a clone of [`SharedStore`]'s `verb_host` slot rather than a
+/// snapshot of its contents, and reads it fresh on every call. That is what
+/// makes late installation work: `SharedStore::set_verb_host` may run AFTER
+/// a [`SharedSurface`] was already opened (its own docs say so), and every
+/// [`HostAdapter`] this crate built before that call reads the SAME slot,
+/// so it starts serving the host the moment it lands rather than staying
+/// bound to "no host" forever.
+struct HostAdapter {
+    slot: Arc<Mutex<Option<Arc<dyn SharedVerbHost>>>>,
+}
+
+impl VerbHost for HostAdapter {
+    fn has_verb(&self, name: &str) -> bool {
+        let guard = self.slot.lock().unwrap_or_else(|e| e.into_inner());
+        guard
+            .as_ref()
+            .is_some_and(|host| host.has_verb(name.to_string()))
+    }
+
+    fn call_verb(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+    ) -> impress_surface_service::Result<serde_json::Value> {
+        let host = {
+            let guard = self.slot.lock().unwrap_or_else(|e| e.into_inner());
+            guard.clone()
+        };
+        let Some(host) = host else {
+            return Err(format!("no verb host installed for '{name}'"));
+        };
+        let args_json =
+            serde_json::to_string(&args).map_err(|e| format!("encode args for '{name}': {e}"))?;
+        let reply_json = host
+            .call_verb(name.to_string(), args_json)
+            .map_err(|e| e.to_string())?;
+        serde_json::from_str(&reply_json)
+            .map_err(|e| format!("'{name}': host reply was not JSON: {e}"))
+    }
+}
+
 // ─── The object ──────────────────────────────────────────────────────────
 
 /// One store's worth of agent surfaces, bound to an open [`SharedStore`] and
@@ -249,13 +331,21 @@ impl SharedSurface {
     pub fn open(store: Arc<SharedStore>, host: String) -> Arc<Self> {
         let core = store.core();
         let host = resolve_device(Some(host.trim()).filter(|h| !h.is_empty()));
+        // See `HostAdapter`'s docs: it reads `store`'s verb-host slot fresh
+        // on every call, so a `set_verb_host` that runs after this `open`
+        // still reaches the executor and the service built right here.
+        let verb_host: Arc<dyn VerbHost> = Arc::new(HostAdapter {
+            slot: store.verb_host_slot(),
+        });
         Arc::new(SharedSurface {
             surfaces: SurfaceStore::new(core.clone()),
             executor: DefaultExecutor::with_store_and_sessions(
                 core.clone(),
                 store.layout_sessions(),
-            ),
-            service: DefaultImpressSurfaceService::with_store(core.clone()),
+            )
+            .with_verb_host(verb_host.clone()),
+            service: DefaultImpressSurfaceService::with_store(core.clone())
+                .with_verb_host(verb_host),
             registry: Arc::new(SessionRegistry::new()),
             store: core,
             host,
@@ -847,6 +937,120 @@ mod tests {
             .create(&example_signal_explorer(), None, &[], ActorKind::Agent)
             .expect("create signal explorer");
         row.id.to_string()
+    }
+
+    // ── V1: the host verb bridge (ADR-0033 D4, amended 2026-09-23) ────────
+
+    /// A Rust-implemented [`SharedVerbHost`] that knows exactly one verb,
+    /// standing in for the Swift `ImpelToolsVerbHost` this crate's own
+    /// binding does not have to compile.
+    struct FakeVerbHost;
+
+    const FAKE_VERB: &str = "fake-service_echo";
+
+    impl SharedVerbHost for FakeVerbHost {
+        fn has_verb(&self, name: String) -> bool {
+            name == FAKE_VERB
+        }
+
+        fn call_verb(
+            &self,
+            name: String,
+            args_json: String,
+        ) -> std::result::Result<String, SharedStoreError> {
+            if name != FAKE_VERB {
+                return Err(SharedStoreError::InvalidArgument {
+                    message: format!("FakeVerbHost does not know '{name}'"),
+                });
+            }
+            let args: serde_json::Value = serde_json::from_str(&args_json).map_err(|e| {
+                SharedStoreError::InvalidArgument {
+                    message: format!("bad args: {e}"),
+                }
+            })?;
+            Ok(serde_json::json!({ "echoed": args }).to_string())
+        }
+    }
+
+    /// A self-contained spec whose one source calls [`FAKE_VERB`] — nothing
+    /// this crate's own linked inventory (`impress-capabilities-kit`) knows
+    /// by that name, so it renders a placeholder without a host and the
+    /// echoed value with one.
+    fn fixture_host_spec() -> SurfaceSpec {
+        serde_json::from_value(serde_json::json!({
+            "surface": "1.0",
+            "name": "Host verb bridge fixture",
+            "state": {},
+            "sources": {
+                "echo": { "verb": FAKE_VERB, "args": { "x": 42 } }
+            },
+            "root": { "column": [
+                { "text": "{{source.echo.echoed.x}}", "id": "echoed-text" }
+            ] }
+        }))
+        .expect("fixture spec is well-formed JSON against SurfaceSpec")
+    }
+
+    fn create_fixture_surface(store: &SharedStore) -> String {
+        let core = store.core();
+        let surfaces = SurfaceStore::new(core);
+        let row = surfaces
+            .create(&fixture_host_spec(), None, &[], ActorKind::Agent)
+            .expect("create fixture surface");
+        row.id.to_string()
+    }
+
+    /// Late install: a handle opened BEFORE `set_verb_host` runs still picks
+    /// up the host on its next call, because `HostAdapter` reads the SAME
+    /// slot `SharedStore` writes rather than a snapshot taken at `open()`.
+    #[test]
+    fn a_host_installed_after_open_still_serves_an_existing_handle() {
+        let (store, surface) = open();
+        let id = create_fixture_surface(&store);
+
+        let before = surface
+            .render(id.clone(), None)
+            .expect("render before install");
+        assert!(
+            before.contains("\"placeholder\""),
+            "with no host installed, the unresolved verb source should degrade to a \
+             placeholder rather than fail the whole render: {before}"
+        );
+
+        store.set_verb_host(Box::new(FakeVerbHost));
+
+        let after = surface.render(id, None).expect("render after install");
+        assert!(
+            !after.contains("\"placeholder\""),
+            "the same handle, opened before the host was installed, should resolve now: {after}"
+        );
+        assert!(
+            after.contains('4') && after.contains('2'),
+            "the echoed value is not in the render tree: {after}"
+        );
+    }
+
+    /// `surface_http`'s `POST …/validate` route reports a host-only verb as
+    /// missing with no host installed, and clean once one is — the same
+    /// route `impress-surface-service_surface-validate` answers from the
+    /// Swift automation router.
+    #[test]
+    fn surface_http_validate_accepts_a_host_verb_once_installed() {
+        let (store, surface) = open();
+        let spec_json = serde_json::to_string(&fixture_host_spec()).unwrap();
+
+        let before = surface.surface_http(
+            "POST".into(),
+            "/api/surface/validate".into(),
+            spec_json.clone(),
+        );
+        assert_eq!(before.status, 400, "{}", before.body);
+        assert!(before.body.contains(FAKE_VERB), "{}", before.body);
+
+        store.set_verb_host(Box::new(FakeVerbHost));
+
+        let after = surface.surface_http("POST".into(), "/api/surface/validate".into(), spec_json);
+        assert_eq!(after.status, 200, "{}", after.body);
     }
 
     #[test]

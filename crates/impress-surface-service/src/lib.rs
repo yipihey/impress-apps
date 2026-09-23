@@ -45,7 +45,7 @@ pub mod tier_a;
 
 pub use report::{CapabilityResult, SelfTestReport, Tier};
 pub use runtime::{
-    verb_exists, DefaultExecutor, Executor, PaneHandle, SessionRegistry, SurfaceRuntime,
+    verb_exists, DefaultExecutor, Executor, PaneHandle, SessionRegistry, SurfaceRuntime, VerbHost,
 };
 pub use selftest::{DefaultSurfaceSelftestService, SurfaceSelftestService};
 pub use service::{DefaultImpressSurfaceService, ImpressSurfaceService};

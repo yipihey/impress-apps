@@ -207,7 +207,13 @@ public final class RustStoreAdapter: PublicationStoreProtocol {
     /// and a reader pool at first draw, which is how the sidebar once spent
     /// ~15 s of launch. Named separately so a reader of `LayoutTreeHost` is
     /// not left wondering what reviews have to do with panes.
-    func layoutSharedStore() -> ImpressRustCore.SharedStore? {
+    ///
+    /// `public` (wave 5 V1, ADR-0033 D4 amended 2026-09-23): the only caller
+    /// outside this module is `apps/impress/macOS/Services/ImpressVerbHost.swift`,
+    /// which needs this exact handle to call `SharedStore.setVerbHost` on —
+    /// the same store every `SharedSurface` in this process was opened on,
+    /// never a second connection.
+    public func layoutSharedStore() -> ImpressRustCore.SharedStore? {
         let store = sharedReviewStore()
         // The surface HTTP routes need exactly this handle and nothing else,
         // so this is where the app announces it can serve them (ADR-0033 S7;

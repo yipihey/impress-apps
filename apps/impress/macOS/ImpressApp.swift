@@ -29,7 +29,20 @@ struct ImpressApp: App {
             "httpAutomationEnabled": true,
             "httpAutomationPort": Int(ImpressHTTPServer.defaultPort),
         ])
-        Task { @MainActor in await ImpressHTTPServer.shared.start() }
+        Task { @MainActor in
+            await ImpressHTTPServer.shared.start()
+            // Wave 5 V1 (ADR-0033 D4, amended 2026-09-23): hand the shared
+            // store a way to reach imbib's/imprint's own verbs, which
+            // `impress-capabilities-kit` cannot link a second time. Reads
+            // the SAME handle `LayoutTreeView`/`LayoutSurfacePaneView` open
+            // `SharedLayout`/`SharedSurface` on (`RustStoreAdapter
+            // .layoutSharedStore()`), so a surface pane opened before this
+            // line finishes still picks up the host on its next call — see
+            // `SharedStore.setVerbHost`'s own doc comment.
+            if let store = RustStoreAdapter.shared.layoutSharedStore() {
+                ImpelToolsVerbHost.install(on: store)
+            }
+        }
     }
 
     var body: some Scene {

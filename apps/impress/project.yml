@@ -62,6 +62,14 @@ packages:
   # through, because every chassis row-data type conforms to `MailStyleItem`.
   ImpressMailStyle:
     path: ../../packages/ImpressMailStyle
+  # Wave 5 V1 (ADR-0033 D4, amended 2026-09-23): only the `ImpelToolsFFI`
+  # product (see the macOS `impress` target's dependency below) — never the
+  # `CounselEngine` product itself, which is impel's journal pipeline and has
+  # no business in the shell. macOS only: `impel-tools/build-xcframework.sh`
+  # builds no iOS slices (impel is a macOS-only app), so this package is not
+  # a dependency of `impress-iOS`.
+  CounselEngine:
+    path: ../impel/Packages/CounselEngine
 
 targets:
   impress:
@@ -126,6 +134,11 @@ targets:
       - package: ImpressRustCore
       - package: ImpressMailStyle
       - package: ImpressAI
+      # Wave 5 V1: the host half of a `SharedVerbHost` — `ImpressVerbHost.swift`
+      # calls `configure`/`listTools`/`callTool` from this product alone. macOS
+      # only — see the `CounselEngine` package comment above.
+      - package: CounselEngine
+        product: ImpelToolsFFI
     info:
       path: macOS/Info.plist
       properties:
