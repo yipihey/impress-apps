@@ -183,3 +183,7 @@ Session log (append-only):
   Swift, uncompiled on this checkout — Mac-verify pending like the rest of L6).
   Binding not regenerated (wave rule: one regeneration at the end, alongside
   V1's FFI changes).
+- 2026-09-23 — L8 is planned as wave 6, with the kit cut and the wave-5 Mac findings:
+  `docs/plan-wave-6-tree-and-kit.md` (W0 Tier-B catalogue, W1 findings, W2–W4 the
+  leaves in D11 order, W5 the flag and the three state types gone, W6 the kit) and the
+  orchestrator brief `docs/next-steps-mac-orchestrator.md`, for Opus 5 agents on the Mac.
